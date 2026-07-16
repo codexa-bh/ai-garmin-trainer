@@ -6,9 +6,14 @@ import {
   recordSyncRun,
   saveCheckpoint,
   upsertActivities,
+  upsertActivityDetail,
   upsertDailyHealth,
 } from "../db/repository";
 import { GarminMcpClient } from "./mcp-client";
+import {
+  normalizeActivityDetail,
+  normalizeUnsupportedActivityDetail,
+} from "./detail-normalize";
 import { normalizeActivity, normalizeDailyHealth } from "./normalize";
 
 type ActivityPage = {
@@ -180,6 +185,76 @@ export async function runGarminSync(
       healthDaysImported,
       coverageStart: startDate,
       coverageEnd: endDate,
+      detail: message.slice(0, 1000),
+    };
+  } finally {
+    client.close();
+  }
+}
+
+export type DetailedBackfillResult = {
+  status: "completed" | "failed";
+  garminId: string;
+  detailStatus: "available" | "partial" | "unsupported" | "failed";
+  recordCount: number;
+  lapCount: number;
+  detail: string;
+};
+
+export async function backfillActivityDetail(
+  garminId: string,
+): Promise<DetailedBackfillResult> {
+  const client = new GarminMcpClient();
+  try {
+    await client.start();
+    const text = await client.callTool("get_activity_fit_data", {
+      activity_id: garminId,
+      include_records: true,
+    });
+    const parsed = parseToolJson(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const detail = normalizeActivityDetail(garminId, parsed);
+      upsertActivityDetail(detail);
+      const detailStatus =
+        detail.status === "not_requested" ? "unsupported" : detail.status;
+      return {
+        status: "completed",
+        garminId,
+        detailStatus,
+        recordCount: detail.recordCount,
+        lapCount: detail.lapCount,
+        detail: `Detailed Garmin activity ${garminId} normalized locally from FIT parser. Records: ${detail.recordCount}; laps: ${detail.lapCount}. Raw FIT/connector payload was discarded after normalization.`,
+      };
+    }
+    const unsupported = normalizeUnsupportedActivityDetail(
+      garminId,
+      typeof parsed === "string"
+        ? parsed
+        : "Connector returned an unparseable activity detail payload.",
+    );
+    upsertActivityDetail(unsupported);
+    const detailStatus =
+      unsupported.status === "not_requested"
+        ? "unsupported"
+        : unsupported.status;
+    return {
+      status: "completed",
+      garminId,
+      detailStatus,
+      recordCount: 0,
+      lapCount: 0,
+      detail: unsupported.unavailableReason ?? "Activity detail unsupported.",
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "detail backfill failed";
+    upsertActivityDetail(normalizeUnsupportedActivityDetail(garminId, message));
+    return {
+      status: "failed",
+      garminId,
+      detailStatus: "failed",
+      recordCount: 0,
+      lapCount: 0,
       detail: message.slice(0, 1000),
     };
   } finally {

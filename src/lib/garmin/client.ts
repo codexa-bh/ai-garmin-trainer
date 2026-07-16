@@ -14,6 +14,18 @@ export const READ_OPERATION_ALLOWLIST = new Set<GarminReadOperation>([
   "get_steps",
   "get_calories",
   "get_body_battery",
+  "get_activities_by_date",
+  "get_activity",
+  "get_activity_splits",
+  "get_activity_typed_splits",
+  "get_activity_split_summaries",
+  "get_activity_weather",
+  "get_activity_hr_in_timezones",
+  "get_activity_power_in_timezones",
+  "get_activity_fit_data",
+  "get_stats",
+  "get_sleep_summary",
+  "get_morning_training_readiness",
 ]);
 
 export function assertReadOperation(
@@ -101,7 +113,7 @@ export function spawnGarminMcp() {
       ...process.env,
       GARMIN_MCP_TOKEN_DIR: env.GARMIN_MCP_TOKEN_DIR,
       GARMIN_ENABLED_TOOLS:
-        "get_activities_by_date,get_stats,get_sleep_summary",
+        "get_activities_by_date,get_activity,get_activity_splits,get_activity_typed_splits,get_activity_split_summaries,get_activity_weather,get_activity_hr_in_timezones,get_activity_power_in_timezones,get_activity_fit_data,get_stats,get_sleep_summary,get_morning_training_readiness",
     },
   });
   child.stderr.setEncoding("utf8");

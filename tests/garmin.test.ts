@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assertReadOperation } from "../src/lib/garmin/client";
+import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
 import {
   normalizeActivity,
   normalizeDailyHealth,
@@ -33,6 +34,10 @@ class MemoryStore implements FitnessStore {
 describe("Garmin boundary", () => {
   it("allows only reviewed read operations", () => {
     expect(() => assertReadOperation("list_activities")).not.toThrow();
+    expect(() => assertReadOperation("get_activity_fit_data")).not.toThrow();
+    expect(() => assertReadOperation("download_activity_file")).toThrow(
+      /Blocked/,
+    );
     expect(() => assertReadOperation("delete_activity")).toThrow(/Blocked/);
   });
 
@@ -46,6 +51,32 @@ describe("Garmin boundary", () => {
       }).sport,
     ).toBe("running");
     expect(normalizeDailyHealth("2026-07-01", {}).availability).toBe("missing");
+  });
+
+  it("normalizes detailed FIT parser payloads without retaining raw data", () => {
+    const detail = normalizeActivityDetail("42", {
+      session: { avg_heart_rate_bpm: 140, total_ascent_m: 220 },
+      laps: [{ lap_number: 1, total_elapsed_time_s: 600 }],
+      records: [
+        {
+          timestamp: "2026-07-01T07:00:00Z",
+          heart_rate_bpm: 130,
+          speed_mps: 2.5,
+          altitude_m: 1000,
+          grade_pct: 6,
+          lat_deg: 46.1,
+          lon_deg: 13.8,
+        },
+      ],
+      climbs: [{ elevation_gain_m: 80 }],
+    });
+    expect(detail.status).toBe("available");
+    expect(detail.hasStreams).toBe(true);
+    expect(detail.hasGps).toBe(true);
+    expect(detail.hasElevation).toBe(true);
+    expect(detail.hasHeartRate).toBe(true);
+    expect(detail.recordCount).toBe(1);
+    expect(JSON.stringify(detail)).not.toContain("garmin_tokens");
   });
 
   it("paginates, checkpoints, and resumes idempotent sync", async () => {

@@ -52,4 +52,16 @@ export type GarminReadOperation =
   | "get_stress"
   | "get_steps"
   | "get_calories"
-  | "get_body_battery";
+  | "get_body_battery"
+  | "get_activities_by_date"
+  | "get_activity"
+  | "get_activity_splits"
+  | "get_activity_typed_splits"
+  | "get_activity_split_summaries"
+  | "get_activity_weather"
+  | "get_activity_hr_in_timezones"
+  | "get_activity_power_in_timezones"
+  | "get_activity_fit_data"
+  | "get_stats"
+  | "get_sleep_summary"
+  | "get_morning_training_readiness";

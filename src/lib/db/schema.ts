@@ -87,6 +87,74 @@ export const dailyHealth = sqliteTable("daily_health", {
   availability: text("availability").notNull().default("partial"),
 });
 
+export const activityDetailAvailability = sqliteTable(
+  "activity_detail_availability",
+  {
+    garminId: text("garmin_id").primaryKey(),
+    fetchedAt: integer("fetched_at", { mode: "timestamp" }),
+    source: text("source").notNull(),
+    status: text("status").notNull(),
+    hasSession: integer("has_session", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    hasLaps: integer("has_laps", { mode: "boolean" }).notNull().default(false),
+    hasStreams: integer("has_streams", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    hasGps: integer("has_gps", { mode: "boolean" }).notNull().default(false),
+    hasElevation: integer("has_elevation", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    hasHeartRate: integer("has_heart_rate", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    hasGrade: integer("has_grade", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    hasPower: integer("has_power", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    hasRecovery: integer("has_recovery", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    recordCount: integer("record_count").notNull().default(0),
+    lapCount: integer("lap_count").notNull().default(0),
+    unavailableReason: text("unavailable_reason"),
+    sessionJson: text("session_json"),
+    derivedJson: text("derived_json"),
+  },
+);
+
+export const activityLap = sqliteTable("activity_lap", {
+  garminId: text("garmin_id").notNull(),
+  lapNumber: integer("lap_number").notNull(),
+  startTime: text("start_time"),
+  durationSec: real("duration_sec"),
+  distanceMeters: real("distance_meters"),
+  avgSpeedMps: real("avg_speed_mps"),
+  avgHeartRate: real("avg_heart_rate"),
+  maxHeartRate: real("max_heart_rate"),
+  elevationGainMeters: real("elevation_gain_meters"),
+  elevationLossMeters: real("elevation_loss_meters"),
+  avgPowerWatts: real("avg_power_watts"),
+  normalizedPowerWatts: real("normalized_power_watts"),
+});
+
+export const activityStreamPoint = sqliteTable("activity_stream_point", {
+  garminId: text("garmin_id").notNull(),
+  elapsedSec: integer("elapsed_sec").notNull(),
+  timestamp: text("timestamp"),
+  heartRate: integer("heart_rate"),
+  speedMps: real("speed_mps"),
+  altitudeMeters: real("altitude_meters"),
+  gradePct: real("grade_pct"),
+  lat: real("lat"),
+  lon: real("lon"),
+  cadence: real("cadence"),
+  powerWatts: real("power_watts"),
+  temperatureC: real("temperature_c"),
+});
+
 export const syncRun = sqliteTable("sync_run", {
   id: text("id").primaryKey(),
   status: text("status").notNull(),

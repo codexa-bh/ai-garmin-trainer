@@ -26,6 +26,7 @@ export function TrainerDashboard() {
   const [profileGoals, setProfileGoals] = useState("");
   const [profileSports, setProfileSports] = useState("");
   const [profileConstraints, setProfileConstraints] = useState("");
+  const [detailGarminId, setDetailGarminId] = useState("");
 
   useEffect(() => {
     setChatOutput(localStorage.getItem("trainer-chat-output") ?? "");
@@ -130,6 +131,30 @@ export function TrainerDashboard() {
 
   async function refreshSummary() {
     await runAction("Import summary", () => fetch("/api/summary"));
+  }
+
+  async function refreshDetailCoverage() {
+    await runAction("Activity detail coverage", () =>
+      fetch("/api/activity-detail"),
+    );
+  }
+
+  async function backfillDetail() {
+    const garminId = detailGarminId.trim();
+    if (!garminId) {
+      setStatus({
+        kind: "error",
+        message: "Enter an imported Garmin activity ID first.",
+      });
+      return;
+    }
+    await runAction("Detailed activity backfill", () =>
+      fetch("/api/activity-detail", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ garminId }),
+      }),
+    );
   }
 
   function clearLocalChatView() {
@@ -265,10 +290,32 @@ export function TrainerDashboard() {
         </button>
       </article>
 
+      <article>
+        <h2>Activity detail</h2>
+        <p>
+          Backfill one imported activity at a time into local SQLite detail
+          tables. Raw FIT payloads are discarded after normalization; trainer
+          tools expose only bounded computed summaries/slices.
+        </p>
+        <input
+          aria-label="Garmin activity ID"
+          placeholder="Garmin activity ID"
+          value={detailGarminId}
+          onChange={(event) => setDetailGarminId(event.target.value)}
+        />
+        <button type="button" onClick={backfillDetail}>
+          Backfill detail
+        </button>
+        <button type="button" onClick={refreshDetailCoverage}>
+          Show detail coverage
+        </button>
+      </article>
+
       <article className="wide">
         <h2>Trainer chat</h2>
         <p>
-          Responses cite relevant dates, activities, and trends. Conversation
+          Responses cite relevant dates, activities, trends, and deterministic
+          analytics tool results when activity detail is needed. Conversation
           history and profile memory persist locally.
         </p>
         <textarea

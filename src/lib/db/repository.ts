@@ -7,6 +7,12 @@ import type {
   NormalizedActivity,
   NormalizedDailyHealth,
 } from "../garmin/types";
+import type {
+  ActivityDetailAvailability,
+  ActivityLapDetail,
+  ActivityStreamPoint,
+  NormalizedActivityDetail,
+} from "../garmin/detail-types";
 import type { TrainerProfile } from "../ai/context";
 
 let database: Database.Database | undefined;
@@ -203,14 +209,230 @@ export function listRecentDailyHealth(limit = 14): NormalizedDailyHealth[] {
     .all(limit) as NormalizedDailyHealth[];
 }
 
-export function dataCounts(): { activities: number; healthDays: number } {
+function bool(value: boolean): number {
+  return value ? 1 : 0;
+}
+
+function parseJsonObject(value: string | null): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function upsertActivityDetail(detail: NormalizedActivityDetail): void {
+  const db = getDatabase();
+  const upsertAvailability = db.prepare(`
+    insert into activity_detail_availability (garmin_id, fetched_at, source, status, has_session, has_laps, has_streams, has_gps, has_elevation, has_heart_rate, has_grade, has_power, has_recovery, record_count, lap_count, unavailable_reason, session_json, derived_json)
+    values (@garminId, @fetchedAt, @source, @status, @hasSession, @hasLaps, @hasStreams, @hasGps, @hasElevation, @hasHeartRate, @hasGrade, @hasPower, @hasRecovery, @recordCount, @lapCount, @unavailableReason, @sessionJson, @derivedJson)
+    on conflict(garmin_id) do update set
+      fetched_at=excluded.fetched_at,
+      source=excluded.source,
+      status=excluded.status,
+      has_session=excluded.has_session,
+      has_laps=excluded.has_laps,
+      has_streams=excluded.has_streams,
+      has_gps=excluded.has_gps,
+      has_elevation=excluded.has_elevation,
+      has_heart_rate=excluded.has_heart_rate,
+      has_grade=excluded.has_grade,
+      has_power=excluded.has_power,
+      has_recovery=excluded.has_recovery,
+      record_count=excluded.record_count,
+      lap_count=excluded.lap_count,
+      unavailable_reason=excluded.unavailable_reason,
+      session_json=excluded.session_json,
+      derived_json=excluded.derived_json
+  `);
+  const insertLap = db.prepare(`
+    insert into activity_lap (garmin_id, lap_number, start_time, duration_sec, distance_meters, avg_speed_mps, avg_heart_rate, max_heart_rate, elevation_gain_meters, elevation_loss_meters, avg_power_watts, normalized_power_watts)
+    values (@garminId, @lapNumber, @startTime, @durationSec, @distanceMeters, @avgSpeedMps, @avgHeartRate, @maxHeartRate, @elevationGainMeters, @elevationLossMeters, @avgPowerWatts, @normalizedPowerWatts)
+  `);
+  const insertPoint = db.prepare(`
+    insert into activity_stream_point (garmin_id, elapsed_sec, timestamp, heart_rate, speed_mps, altitude_meters, grade_pct, lat, lon, cadence, power_watts, temperature_c)
+    values (@garminId, @elapsedSec, @timestamp, @heartRate, @speedMps, @altitudeMeters, @gradePct, @lat, @lon, @cadence, @powerWatts, @temperatureC)
+  `);
+  db.transaction(() => {
+    db.prepare("delete from activity_lap where garmin_id = ?").run(
+      detail.garminId,
+    );
+    db.prepare("delete from activity_stream_point where garmin_id = ?").run(
+      detail.garminId,
+    );
+    upsertAvailability.run({
+      garminId: detail.garminId,
+      fetchedAt: detail.fetchedAt.getTime(),
+      source: detail.source,
+      status: detail.status,
+      hasSession: bool(detail.hasSession),
+      hasLaps: bool(detail.hasLaps),
+      hasStreams: bool(detail.hasStreams),
+      hasGps: bool(detail.hasGps),
+      hasElevation: bool(detail.hasElevation),
+      hasHeartRate: bool(detail.hasHeartRate),
+      hasGrade: bool(detail.hasGrade),
+      hasPower: bool(detail.hasPower),
+      hasRecovery: bool(detail.hasRecovery),
+      recordCount: detail.recordCount,
+      lapCount: detail.lapCount,
+      unavailableReason: detail.unavailableReason,
+      sessionJson: detail.session ? JSON.stringify(detail.session) : null,
+      derivedJson: detail.derived ? JSON.stringify(detail.derived) : null,
+    });
+    for (const lap of detail.laps)
+      insertLap.run({ garminId: detail.garminId, ...lap });
+    for (const point of detail.stream)
+      insertPoint.run({ garminId: detail.garminId, ...point });
+  })();
+}
+
+export function getActivityByGarminId(
+  garminId: string,
+): NormalizedActivity | null {
+  const row = getDatabase()
+    .prepare(
+      `select garmin_id as garminId, name, sport, started_at as startedAt, duration_sec as durationSec,
+              distance_meters as distanceMeters, calories, avg_heart_rate as avgHeartRate,
+              max_heart_rate as maxHeartRate, steps, elevation_gain_meters as elevationGainMeters,
+              elevation_loss_meters as elevationLossMeters, training_effect as trainingEffect
+       from activity where garmin_id = ?`,
+    )
+    .get(garminId) as
+    (Omit<NormalizedActivity, "startedAt"> & { startedAt: number }) | undefined;
+  return row ? { ...row, startedAt: new Date(row.startedAt) } : null;
+}
+
+export function listActivityDetailAvailability(
+  limit = 25,
+): ActivityDetailAvailability[] {
+  const rows = getDatabase()
+    .prepare(
+      `select garmin_id as garminId, fetched_at as fetchedAt, status, has_session as hasSession,
+              has_laps as hasLaps, has_streams as hasStreams, has_gps as hasGps,
+              has_elevation as hasElevation, has_heart_rate as hasHeartRate, has_grade as hasGrade,
+              has_power as hasPower, has_recovery as hasRecovery, record_count as recordCount,
+              lap_count as lapCount, unavailable_reason as unavailableReason
+       from activity_detail_availability order by fetched_at desc limit ?`,
+    )
+    .all(limit) as Array<
+    ActivityDetailAvailability & { fetchedAt: number | null }
+  >;
+  return rows.map((row) => ({
+    ...row,
+    fetchedAt: row.fetchedAt ? new Date(row.fetchedAt) : null,
+    hasSession: Boolean(row.hasSession),
+    hasLaps: Boolean(row.hasLaps),
+    hasStreams: Boolean(row.hasStreams),
+    hasGps: Boolean(row.hasGps),
+    hasElevation: Boolean(row.hasElevation),
+    hasHeartRate: Boolean(row.hasHeartRate),
+    hasGrade: Boolean(row.hasGrade),
+    hasPower: Boolean(row.hasPower),
+    hasRecovery: Boolean(row.hasRecovery),
+  }));
+}
+
+export function getActivityDetailForAnalytics(garminId: string): {
+  activity: NormalizedActivity | null;
+  availability: ActivityDetailAvailability | null;
+  session: Record<string, unknown> | null;
+  derived: Record<string, unknown> | null;
+  laps: ActivityLapDetail[];
+  stream: ActivityStreamPoint[];
+} {
+  const db = getDatabase();
+  const activity = getActivityByGarminId(garminId);
+  const availabilityRow = db
+    .prepare(
+      `select garmin_id as garminId, fetched_at as fetchedAt, status, has_session as hasSession,
+              has_laps as hasLaps, has_streams as hasStreams, has_gps as hasGps,
+              has_elevation as hasElevation, has_heart_rate as hasHeartRate, has_grade as hasGrade,
+              has_power as hasPower, has_recovery as hasRecovery, record_count as recordCount,
+              lap_count as lapCount, unavailable_reason as unavailableReason, session_json as sessionJson,
+              derived_json as derivedJson
+       from activity_detail_availability where garmin_id = ?`,
+    )
+    .get(garminId) as
+    | (ActivityDetailAvailability & {
+        fetchedAt: number | null;
+        sessionJson: string | null;
+        derivedJson: string | null;
+      })
+    | undefined;
+  const laps = db
+    .prepare(
+      `select lap_number as lapNumber, start_time as startTime, duration_sec as durationSec,
+              distance_meters as distanceMeters, avg_speed_mps as avgSpeedMps,
+              avg_heart_rate as avgHeartRate, max_heart_rate as maxHeartRate,
+              elevation_gain_meters as elevationGainMeters, elevation_loss_meters as elevationLossMeters,
+              avg_power_watts as avgPowerWatts, normalized_power_watts as normalizedPowerWatts
+       from activity_lap where garmin_id = ? order by lap_number`,
+    )
+    .all(garminId) as ActivityLapDetail[];
+  const stream = db
+    .prepare(
+      `select timestamp, elapsed_sec as elapsedSec, heart_rate as heartRate, speed_mps as speedMps,
+              altitude_meters as altitudeMeters, grade_pct as gradePct, lat, lon, cadence,
+              power_watts as powerWatts, temperature_c as temperatureC
+       from activity_stream_point where garmin_id = ? order by elapsed_sec`,
+    )
+    .all(garminId) as ActivityStreamPoint[];
+  return {
+    activity,
+    availability: availabilityRow
+      ? {
+          ...availabilityRow,
+          fetchedAt: availabilityRow.fetchedAt
+            ? new Date(availabilityRow.fetchedAt)
+            : null,
+          hasSession: Boolean(availabilityRow.hasSession),
+          hasLaps: Boolean(availabilityRow.hasLaps),
+          hasStreams: Boolean(availabilityRow.hasStreams),
+          hasGps: Boolean(availabilityRow.hasGps),
+          hasElevation: Boolean(availabilityRow.hasElevation),
+          hasHeartRate: Boolean(availabilityRow.hasHeartRate),
+          hasGrade: Boolean(availabilityRow.hasGrade),
+          hasPower: Boolean(availabilityRow.hasPower),
+          hasRecovery: Boolean(availabilityRow.hasRecovery),
+        }
+      : null,
+    session: parseJsonObject(availabilityRow?.sessionJson ?? null),
+    derived: parseJsonObject(availabilityRow?.derivedJson ?? null),
+    laps,
+    stream,
+  };
+}
+
+export function listActivitiesForComparison(limit = 250): NormalizedActivity[] {
+  return listRecentActivities(limit);
+}
+
+export function dataCounts(): {
+  activities: number;
+  healthDays: number;
+  detailedActivities: number;
+} {
   const activityRow = getDatabase()
     .prepare("select count(*) as count from activity")
     .get() as { count: number };
   const healthRow = getDatabase()
     .prepare("select count(*) as count from daily_health")
     .get() as { count: number };
-  return { activities: activityRow.count, healthDays: healthRow.count };
+  const detailRow = getDatabase()
+    .prepare(
+      "select count(*) as count from activity_detail_availability where status in ('available', 'partial')",
+    )
+    .get() as { count: number };
+  return {
+    activities: activityRow.count,
+    healthDays: healthRow.count,
+    detailedActivities: detailRow.count,
+  };
 }
 
 export function importSummary(): {
@@ -294,10 +516,21 @@ export function clearChatAndProfile(): string[] {
 export function clearGarminData(): string[] {
   const db = getDatabase();
   db.transaction(() => {
+    db.prepare("delete from activity_stream_point").run();
+    db.prepare("delete from activity_lap").run();
+    db.prepare("delete from activity_detail_availability").run();
     db.prepare("delete from activity").run();
     db.prepare("delete from daily_health").run();
     db.prepare("delete from sync_checkpoint").run();
     db.prepare("delete from sync_run").run();
   })();
-  return ["activity", "daily_health", "sync_checkpoint", "sync_run"];
+  return [
+    "activity_stream_point",
+    "activity_lap",
+    "activity_detail_availability",
+    "activity",
+    "daily_health",
+    "sync_checkpoint",
+    "sync_run",
+  ];
 }
