@@ -1,23 +1,33 @@
 export type GarminActivityPayload = {
   activityId: string | number;
+  activityName?: string;
   activityType?: { typeKey?: string } | string;
   startTimeLocal?: string;
   duration?: number;
   distance?: number;
   calories?: number;
   averageHR?: number;
+  maxHR?: number;
+  steps?: number;
+  elevationGain?: number;
+  elevationLoss?: number;
   trainingEffect?: number;
   summaryDTO?: Record<string, unknown>;
 };
 
 export type NormalizedActivity = {
   garminId: string;
+  name: string | null;
   sport: string;
   startedAt: Date;
   durationSec: number | null;
   distanceMeters: number | null;
   calories: number | null;
   avgHeartRate: number | null;
+  maxHeartRate: number | null;
+  steps: number | null;
+  elevationGainMeters: number | null;
+  elevationLossMeters: number | null;
   trainingEffect: number | null;
 };
 

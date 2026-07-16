@@ -23,7 +23,15 @@ export function buildTrainerContext(input: {
     const distance = a.distanceMeters
       ? `${Math.round(a.distanceMeters)}m`
       : "distance n/a";
-    return `${a.startedAt.toISOString().slice(0, 10)} ${a.sport}: ${distance}, ${duration}, avg HR ${a.avgHeartRate ?? "n/a"}, calories ${a.calories ?? "n/a"}`;
+    const pace =
+      a.distanceMeters && a.durationSec
+        ? `${(a.durationSec / 60 / (a.distanceMeters / 1000)).toFixed(1)} min/km`
+        : "pace n/a";
+    const climb =
+      a.elevationGainMeters || a.elevationLossMeters
+        ? `elevation +${a.elevationGainMeters ?? "n/a"}m/-${a.elevationLossMeters ?? "n/a"}m`
+        : "elevation n/a";
+    return `${a.startedAt.toISOString().slice(0, 10)} ${a.name ? `${a.name} ` : ""}${a.sport}: ${distance}, ${duration}, ${pace}, avg HR ${a.avgHeartRate ?? "n/a"}, max HR ${a.maxHeartRate ?? "n/a"}, steps ${a.steps ?? "n/a"}, ${climb}, calories ${a.calories ?? "n/a"}`;
   });
   const health = input.health
     .slice(0, 10)

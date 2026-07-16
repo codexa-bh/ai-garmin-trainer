@@ -11,27 +11,64 @@ import type { TrainerProfile } from "../ai/context";
 
 let database: Database.Database | undefined;
 
+function ensureColumn(
+  db: Database.Database,
+  table: string,
+  column: string,
+  ddl: string,
+): void {
+  const columns = db.prepare(`pragma table_info(${table})`).all() as Array<{
+    name: string;
+  }>;
+  if (!columns.some((item) => item.name === column))
+    db.exec(`alter table ${table} add column ${ddl}`);
+}
+
+function ensureActivityDetailColumns(db: Database.Database): void {
+  ensureColumn(db, "activity", "name", "name text");
+  ensureColumn(db, "activity", "max_heart_rate", "max_heart_rate integer");
+  ensureColumn(db, "activity", "steps", "steps integer");
+  ensureColumn(
+    db,
+    "activity",
+    "elevation_gain_meters",
+    "elevation_gain_meters real",
+  );
+  ensureColumn(
+    db,
+    "activity",
+    "elevation_loss_meters",
+    "elevation_loss_meters real",
+  );
+}
+
 export function getDatabase(): Database.Database {
   if (database) return database;
   const env = getOptionalEnv();
   mkdirSync(dirname(env.DATABASE_PATH), { recursive: true });
   database = new Database(env.DATABASE_PATH);
   for (const statement of createSchemaSql()) database.exec(statement);
+  ensureActivityDetailColumns(database);
   return database;
 }
 
 export function upsertActivities(activities: NormalizedActivity[]): number {
   const db = getDatabase();
   const insert = db.prepare(`
-    insert into activity (id, garmin_id, sport, started_at, duration_sec, distance_meters, calories, avg_heart_rate, training_effect, source_updated_at)
-    values (@id, @garminId, @sport, @startedAt, @durationSec, @distanceMeters, @calories, @avgHeartRate, @trainingEffect, @sourceUpdatedAt)
+    insert into activity (id, garmin_id, name, sport, started_at, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, steps, elevation_gain_meters, elevation_loss_meters, training_effect, source_updated_at)
+    values (@id, @garminId, @name, @sport, @startedAt, @durationSec, @distanceMeters, @calories, @avgHeartRate, @maxHeartRate, @steps, @elevationGainMeters, @elevationLossMeters, @trainingEffect, @sourceUpdatedAt)
     on conflict(garmin_id) do update set
+      name=excluded.name,
       sport=excluded.sport,
       started_at=excluded.started_at,
       duration_sec=excluded.duration_sec,
       distance_meters=excluded.distance_meters,
       calories=excluded.calories,
       avg_heart_rate=excluded.avg_heart_rate,
+      max_heart_rate=excluded.max_heart_rate,
+      steps=excluded.steps,
+      elevation_gain_meters=excluded.elevation_gain_meters,
+      elevation_loss_meters=excluded.elevation_loss_meters,
       training_effect=excluded.training_effect,
       source_updated_at=excluded.source_updated_at
   `);
@@ -41,12 +78,17 @@ export function upsertActivities(activities: NormalizedActivity[]): number {
       insert.run({
         id: `garmin-${activity.garminId}`,
         garminId: activity.garminId,
+        name: activity.name,
         sport: activity.sport,
         startedAt: activity.startedAt.getTime(),
         durationSec: activity.durationSec,
         distanceMeters: activity.distanceMeters,
         calories: activity.calories,
         avgHeartRate: activity.avgHeartRate,
+        maxHeartRate: activity.maxHeartRate,
+        steps: activity.steps,
+        elevationGainMeters: activity.elevationGainMeters,
+        elevationLossMeters: activity.elevationLossMeters,
         trainingEffect: activity.trainingEffect,
         sourceUpdatedAt: now,
       });
@@ -126,19 +168,25 @@ export function finishSyncRun(
 export function listRecentActivities(limit = 12): NormalizedActivity[] {
   const rows = getDatabase()
     .prepare(
-      `select garmin_id as garminId, sport, started_at as startedAt, duration_sec as durationSec,
+      `select garmin_id as garminId, name, sport, started_at as startedAt, duration_sec as durationSec,
               distance_meters as distanceMeters, calories, avg_heart_rate as avgHeartRate,
-              training_effect as trainingEffect
+              max_heart_rate as maxHeartRate, steps, elevation_gain_meters as elevationGainMeters,
+              elevation_loss_meters as elevationLossMeters, training_effect as trainingEffect
        from activity order by started_at desc limit ?`,
     )
     .all(limit) as Array<{
     garminId: string;
+    name: string | null;
     sport: string;
     startedAt: number;
     durationSec: number | null;
     distanceMeters: number | null;
     calories: number | null;
     avgHeartRate: number | null;
+    maxHeartRate: number | null;
+    steps: number | null;
+    elevationGainMeters: number | null;
+    elevationLossMeters: number | null;
     trainingEffect: number | null;
   }>;
   return rows.map((row) => ({ ...row, startedAt: new Date(row.startedAt) }));

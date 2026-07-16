@@ -59,12 +59,17 @@ export const verification = sqliteTable("verification", {
 export const activity = sqliteTable("activity", {
   id: text("id").primaryKey(),
   garminId: text("garmin_id").notNull().unique(),
+  name: text("name"),
   sport: text("sport").notNull(),
   startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
   durationSec: integer("duration_sec"),
   distanceMeters: real("distance_meters"),
   calories: integer("calories"),
   avgHeartRate: integer("avg_heart_rate"),
+  maxHeartRate: integer("max_heart_rate"),
+  steps: integer("steps"),
+  elevationGainMeters: real("elevation_gain_meters"),
+  elevationLossMeters: real("elevation_loss_meters"),
   trainingEffect: real("training_effect"),
   sourceUpdatedAt: integer("source_updated_at", { mode: "timestamp" }),
 });

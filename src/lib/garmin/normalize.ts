@@ -25,12 +25,26 @@ export function normalizeActivity(
     throw new Error("Malformed Garmin activity payload");
   return {
     garminId: String(garminId),
+    name:
+      typeof payload.activityName === "string"
+        ? payload.activityName
+        : typeof payload.name === "string"
+          ? payload.name
+          : null,
     sport: type,
     startedAt,
     durationSec: numberOrNull(payload.duration ?? payload.duration_seconds),
     distanceMeters: numberOrNull(payload.distance ?? payload.distance_meters),
     calories: numberOrNull(payload.calories),
     avgHeartRate: numberOrNull(payload.averageHR ?? payload.avg_hr_bpm),
+    maxHeartRate: numberOrNull(payload.maxHR ?? payload.max_hr_bpm),
+    steps: numberOrNull(payload.steps),
+    elevationGainMeters: numberOrNull(
+      payload.elevationGain ?? payload.elevation_gain_meters,
+    ),
+    elevationLossMeters: numberOrNull(
+      payload.elevationLoss ?? payload.elevation_loss_meters,
+    ),
     trainingEffect: numberOrNull(payload.trainingEffect),
   };
 }

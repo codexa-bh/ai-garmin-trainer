@@ -11,12 +11,17 @@ describe("trainer AI", () => {
       activities: [
         {
           garminId: "1",
+          name: "Morning run",
           sport: "running",
           startedAt: new Date("2026-07-01T07:00:00Z"),
           durationSec: 1800,
           distanceMeters: 5000,
           calories: null,
           avgHeartRate: 145,
+          maxHeartRate: 170,
+          steps: 6200,
+          elevationGainMeters: 80,
+          elevationLossMeters: 70,
           trainingEffect: null,
         },
       ],
@@ -29,7 +34,7 @@ describe("trainer AI", () => {
       },
       recentMessages: ["How am I doing?"],
     });
-    expect(context).toContain("2026-07-01 running");
+    expect(context).toContain("2026-07-01 Morning run running");
     expect(context).toContain("half marathon");
   });
 
