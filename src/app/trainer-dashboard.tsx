@@ -15,20 +15,6 @@ async function readResponse(response: Response): Promise<string> {
   }
 }
 
-async function readTextStream(response: Response): Promise<string> {
-  if (!response.body) return readResponse(response);
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let output = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    output += decoder.decode(value, { stream: true });
-  }
-  output += decoder.decode();
-  return output.trim();
-}
-
 export function TrainerDashboard() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>({
@@ -156,8 +142,8 @@ export function TrainerDashboard() {
   async function sendChat() {
     const text = message.trim();
     if (!text) return;
-    setChatOutput("Streaming response requested…");
-    setStatus({ kind: "busy", message: "Sending chat message…" });
+    setChatOutput("Connecting to trainer…");
+    setStatus({ kind: "busy", message: "Chat: connecting to model…" });
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -172,11 +158,35 @@ export function TrainerDashboard() {
           ],
         }),
       });
-      const body = await readTextStream(response);
-      setChatOutput(body);
+      if (!response.ok || !response.body) {
+        const body = await readResponse(response);
+        setChatOutput(body);
+        setStatus({
+          kind: "error",
+          message: `Chat: failed (${response.status})`,
+        });
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let output = "";
+      setChatOutput("Trainer is typing…");
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        output += decoder.decode(value, { stream: true });
+        setChatOutput(output || "Trainer is typing…");
+        setStatus({
+          kind: "busy",
+          message: `Chat: streaming response… ${output.length} characters received`,
+        });
+      }
+      output += decoder.decode();
+      setChatOutput(output.trim() || "Trainer returned an empty response.");
       setStatus({
-        kind: response.ok ? "ok" : "error",
-        message: `Chat: ${response.ok ? "response received" : `failed (${response.status})`}`,
+        kind: "ok",
+        message: `Chat: response complete (${output.trim().length} characters)`,
       });
     } catch (error) {
       setChatOutput("");
