@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSessionEmail } from "@/lib/auth/session";
 import { verifyConnectorToken } from "@/lib/garmin/client";
+import { runGarminSync } from "@/lib/garmin/importer";
 
 export async function GET() {
   await requireSessionEmail();
@@ -22,12 +23,8 @@ export async function POST() {
       { status: 409 },
     );
   }
-  return NextResponse.json(
-    {
-      status: "not_implemented",
-      detail:
-        "Garmin auth state is present, but real MCP import is not wired yet. Next coding step is to call the pinned stdio connector, paginate activities, backfill daily health, and upsert normalized records.",
-    },
-    { status: 501 },
-  );
+  const result = await runGarminSync();
+  return NextResponse.json(result, {
+    status: result.status === "completed" ? 200 : 502,
+  });
 }

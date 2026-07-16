@@ -79,12 +79,30 @@ export async function verifyConnectorToken(): Promise<{
   };
 }
 
+function mcpArgs(rawArgs: string): string[] {
+  const args = rawArgs.split(" ").filter(Boolean);
+  const legacyPackage = args.find((arg) => arg.startsWith("garmin-mcp@git+"));
+  if (legacyPackage) {
+    return [
+      "--from",
+      legacyPackage.replace("garmin-mcp@git+", "git+"),
+      "garmin-mcp",
+    ];
+  }
+  return args;
+}
+
 export function spawnGarminMcp() {
   const env = getOptionalEnv();
-  const args = env.GARMIN_MCP_ARGS.split(" ").filter(Boolean);
+  const args = mcpArgs(env.GARMIN_MCP_ARGS);
   const child = spawn(env.GARMIN_MCP_COMMAND, args, {
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, GARMIN_MCP_TOKEN_DIR: env.GARMIN_MCP_TOKEN_DIR },
+    env: {
+      ...process.env,
+      GARMIN_MCP_TOKEN_DIR: env.GARMIN_MCP_TOKEN_DIR,
+      GARMIN_ENABLED_TOOLS:
+        "get_activities_by_date,get_stats,get_sleep_summary",
+    },
   });
   child.stderr.setEncoding("utf8");
   child.stdout.setEncoding("utf8");

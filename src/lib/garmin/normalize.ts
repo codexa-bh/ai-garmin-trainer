@@ -9,30 +9,28 @@ function numberOrNull(value: unknown): number | null {
 }
 
 export function normalizeActivity(
-  payload: GarminActivityPayload,
+  payload: Partial<GarminActivityPayload> & Record<string, unknown>,
 ): NormalizedActivity {
   const sport =
     typeof payload.activityType === "string"
       ? payload.activityType
       : payload.activityType?.typeKey;
-  const startedAt = payload.startTimeLocal
-    ? new Date(payload.startTimeLocal)
-    : null;
-  if (
-    !payload.activityId ||
-    !sport ||
-    !startedAt ||
-    Number.isNaN(startedAt.getTime())
-  )
+  const garminId = payload.activityId ?? payload.id;
+  const type =
+    sport ?? (typeof payload.type === "string" ? payload.type : null);
+  const startedRaw = payload.startTimeLocal ?? payload.start_time;
+  const startedAt =
+    typeof startedRaw === "string" ? new Date(startedRaw) : null;
+  if (!garminId || !type || !startedAt || Number.isNaN(startedAt.getTime()))
     throw new Error("Malformed Garmin activity payload");
   return {
-    garminId: String(payload.activityId),
-    sport,
+    garminId: String(garminId),
+    sport: type,
     startedAt,
-    durationSec: numberOrNull(payload.duration),
-    distanceMeters: numberOrNull(payload.distance),
+    durationSec: numberOrNull(payload.duration ?? payload.duration_seconds),
+    distanceMeters: numberOrNull(payload.distance ?? payload.distance_meters),
     calories: numberOrNull(payload.calories),
-    avgHeartRate: numberOrNull(payload.averageHR),
+    avgHeartRate: numberOrNull(payload.averageHR ?? payload.avg_hr_bpm),
     trainingEffect: numberOrNull(payload.trainingEffect),
   };
 }
@@ -42,22 +40,24 @@ export function normalizeDailyHealth(
   payloads: Record<string, unknown>,
 ): NormalizedDailyHealth {
   const sleep = payloads.sleep as Record<string, unknown> | undefined;
-  const hrv = payloads.hrv as Record<string, unknown> | undefined;
-  const body = payloads.bodyBattery as Record<string, unknown> | undefined;
-  const stress = payloads.stress as Record<string, unknown> | undefined;
+  const stats = payloads.stats as Record<string, unknown> | undefined;
+  const sleepSeconds =
+    numberOrNull(sleep?.sleepTimeSeconds) ?? numberOrNull(sleep?.sleep_seconds);
   const fields = {
-    sleepMinutes: numberOrNull(sleep?.sleepTimeSeconds)
-      ? Math.round((sleep?.sleepTimeSeconds as number) / 60)
-      : null,
-    restingHeartRate: numberOrNull(payloads.restingHeartRate),
-    hrvStatus: typeof hrv?.status === "string" ? hrv.status : null,
-    hrvMs: numberOrNull(hrv?.weeklyAvg),
-    stressAvg: numberOrNull(stress?.avgStressLevel),
-    steps: numberOrNull(payloads.steps),
-    calories: numberOrNull(payloads.calories),
+    sleepMinutes: sleepSeconds ? Math.round(sleepSeconds / 60) : null,
+    restingHeartRate:
+      numberOrNull(payloads.restingHeartRate) ??
+      numberOrNull(stats?.resting_heart_rate_bpm) ??
+      numberOrNull(sleep?.resting_heart_rate_bpm),
+    hrvStatus: null,
+    hrvMs: numberOrNull(sleep?.avg_overnight_hrv),
+    stressAvg: numberOrNull(stats?.avg_stress_level),
+    steps: numberOrNull(stats?.total_steps) ?? numberOrNull(payloads.steps),
+    calories:
+      numberOrNull(stats?.total_calories) ?? numberOrNull(payloads.calories),
     bodyBatteryAvg:
-      numberOrNull(body?.averageStressLevel) ??
-      numberOrNull(body?.averageBodyBattery),
+      numberOrNull(stats?.body_battery_current) ??
+      numberOrNull(stats?.body_battery_highest),
   };
   const present = Object.values(fields).filter(
     (value) => value !== null,
