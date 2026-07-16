@@ -29,3 +29,5 @@ coverage/
 # Build artifacts
 .turbo/
 dist/
+
+tsconfig.tsbuildinfo

@@ -1,0 +1,52 @@
+{
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "format": "prettier --check .",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "validate": "npm run format && npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@ai-sdk/deepseek": "3.0.11",
+    "@ai-sdk/openai": "4.0.15",
+    "@ai-sdk/react": "4.0.32",
+    "ai": "7.0.29",
+    "better-auth": "1.6.23",
+    "better-sqlite3": "12.11.1",
+    "drizzle-orm": "0.45.2",
+    "next": "16.2.10",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "3.3.6",
+    "@eslint/js": "9.39.1",
+    "@testing-library/react": "16.3.2",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.2.10",
+    "globals": "16.5.0",
+    "jsdom": "29.1.1",
+    "prettier": "3.9.5",
+    "tsx": "4.23.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.46.4",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "private": true,
+  "overrides": {
+    "postcss": "8.5.10"
+  }
+}
