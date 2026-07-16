@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTrainerContext,
+  formatRecentChatHistory,
   TRAINER_SYSTEM_PROMPT,
 } from "../src/lib/ai/context";
 import { applyProfilePatch } from "../src/lib/ai/profile";
@@ -50,6 +51,35 @@ describe("trainer AI", () => {
         { goals: ["base fitness"] },
       ).preferences.tone,
     ).toBe("brief");
+  });
+
+  it("keeps bounded recent chat history with concise tool evidence", () => {
+    const history = formatRecentChatHistory(
+      [
+        { role: "user", content: "old turn that should fall out" },
+        { role: "assistant", content: "older answer" },
+        { role: "user", content: "Analyze my latest hike" },
+        {
+          role: "assistant",
+          content: "Latest hike answer",
+          grounding: {
+            tool: "analyzeActivity",
+            activityId: "123456",
+            activityName: "Vrh Zakotja",
+            summary: "12 km hike with normalized local stream evidence",
+          },
+        },
+      ],
+      2,
+    );
+
+    expect(history).toHaveLength(2);
+    expect(history.join("\n")).not.toContain("old turn");
+    expect(history[0]).toMatch(/^user:/);
+    expect(history[1]).toContain(
+      "tool evidence: analyzeActivity activity 123456",
+    );
+    expect(history[1]).toContain("Vrh Zakotja");
   });
 
   it("keeps a non-medical safety boundary", () => {

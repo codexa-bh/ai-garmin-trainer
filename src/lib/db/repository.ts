@@ -16,6 +16,12 @@ import type {
 import type { TrainerProfile } from "../ai/context";
 
 let database: Database.Database | undefined;
+let lastChatMessageTimestamp = 0;
+
+function nextChatMessageTimestamp(): number {
+  lastChatMessageTimestamp = Math.max(Date.now(), lastChatMessageTimestamp + 1);
+  return lastChatMessageTimestamp;
+}
 
 function ensureColumn(
   db: Database.Database,
@@ -501,6 +507,165 @@ export function saveTrainerProfile(profile: TrainerProfile): TrainerProfile {
       Date.now(),
     );
   return getTrainerProfile();
+}
+
+export const DEFAULT_CONVERSATION_ID = "default";
+
+export type ChatRole = "user" | "assistant";
+
+export type ChatGrounding = {
+  tool?: string;
+  activityId?: string;
+  activityName?: string | null;
+  activityDate?: string | null;
+  privacy?: string;
+  summary?: string;
+};
+
+export type StoredChatMessage = {
+  id: string;
+  conversationId: string;
+  role: ChatRole;
+  content: string;
+  grounding: ChatGrounding | null;
+  createdAt: Date;
+};
+
+export type StoredConversation = {
+  id: string;
+  title: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type StoredMessageRow = {
+  id: string;
+  conversationId: string;
+  role: string;
+  content: string;
+  groundingJson: string | null;
+  createdAt: number;
+};
+
+type StoredConversationRow = {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function parseGrounding(value: string | null): ChatGrounding | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as ChatGrounding;
+  } catch {
+    return null;
+  }
+}
+
+function mapStoredMessage(row: StoredMessageRow): StoredChatMessage {
+  return {
+    id: row.id,
+    conversationId: row.conversationId,
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    grounding: parseGrounding(row.groundingJson),
+    createdAt: new Date(row.createdAt),
+  };
+}
+
+function mapStoredConversation(row: StoredConversationRow): StoredConversation {
+  return {
+    id: row.id,
+    title: row.title,
+    createdAt: new Date(row.createdAt),
+    updatedAt: new Date(row.updatedAt),
+  };
+}
+
+export function ensureConversation(
+  id = DEFAULT_CONVERSATION_ID,
+  title = "Trainer chat",
+): StoredConversation {
+  const now = Date.now();
+  getDatabase()
+    .prepare(
+      `insert into conversation (id, title, created_at, updated_at)
+       values (?, ?, ?, ?)
+       on conflict(id) do update set updated_at=excluded.updated_at`,
+    )
+    .run(id, title.slice(0, 120) || "Trainer chat", now, now);
+  const row = getDatabase()
+    .prepare(
+      "select id, title, created_at as createdAt, updated_at as updatedAt from conversation where id = ?",
+    )
+    .get(id) as StoredConversationRow;
+  return mapStoredConversation(row);
+}
+
+export function appendChatMessage(input: {
+  conversationId?: string;
+  role: ChatRole;
+  content: string;
+  grounding?: ChatGrounding | null;
+}): StoredChatMessage {
+  const conversationId = input.conversationId ?? DEFAULT_CONVERSATION_ID;
+  ensureConversation(conversationId, input.content.slice(0, 80));
+  const createdAt = nextChatMessageTimestamp();
+  const id = `${conversationId}-${input.role}-${createdAt}-${Math.random().toString(36).slice(2, 10)}`;
+  getDatabase()
+    .prepare(
+      `insert into message (id, conversation_id, role, content, grounding_json, created_at)
+       values (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      conversationId,
+      input.role,
+      input.content.slice(0, 12000),
+      input.grounding ? JSON.stringify(input.grounding).slice(0, 4000) : null,
+      createdAt,
+    );
+  getDatabase()
+    .prepare("update conversation set updated_at = ? where id = ?")
+    .run(createdAt, conversationId);
+  return {
+    id,
+    conversationId,
+    role: input.role,
+    content: input.content.slice(0, 12000),
+    grounding: input.grounding ?? null,
+    createdAt: new Date(createdAt),
+  };
+}
+
+export function listRecentChatMessages(
+  conversationId = DEFAULT_CONVERSATION_ID,
+  limit = 12,
+): StoredChatMessage[] {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 40);
+  const rows = getDatabase()
+    .prepare(
+      `select id, conversation_id as conversationId, role, content, grounding_json as groundingJson, created_at as createdAt
+       from message
+       where conversation_id = ?
+       order by created_at desc
+       limit ?`,
+    )
+    .all(conversationId, safeLimit) as StoredMessageRow[];
+  return rows.reverse().map(mapStoredMessage);
+}
+
+export function clearConversationHistory(
+  conversationId = DEFAULT_CONVERSATION_ID,
+): void {
+  const db = getDatabase();
+  db.transaction(() => {
+    db.prepare("delete from message where conversation_id = ?").run(
+      conversationId,
+    );
+    db.prepare("delete from conversation where id = ?").run(conversationId);
+  })();
 }
 
 export function clearChatAndProfile(): string[] {

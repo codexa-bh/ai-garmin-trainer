@@ -1,8 +1,31 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
+type ChatRole = "user" | "assistant";
+type ChatGrounding = {
+  tool?: string;
+  activityId?: string;
+  activityName?: string | null;
+  activityDate?: string | null;
+  privacy?: string;
+  summary?: string;
+};
+type ChatMessage = {
+  id: string;
+  role: ChatRole;
+  content: string;
+  createdAt: string;
+  grounding?: ChatGrounding | null;
+};
+type ChatPayload = {
+  conversationId: string;
+  messages: ChatMessage[];
+  contextWindow?: number;
+  historyLimit?: number;
+  toolEvidence?: ChatGrounding | null;
+};
 
 async function readResponse(response: Response): Promise<string> {
   const text = await response.text();
@@ -15,6 +38,24 @@ async function readResponse(response: Response): Promise<string> {
   }
 }
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  if (!response.ok) {
+    try {
+      const json = JSON.parse(text) as { error?: string };
+      throw new Error(json.error ?? `HTTP ${response.status}`);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message !== "Unexpected end of JSON input"
+      )
+        throw error;
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+  }
+  return JSON.parse(text) as T;
+}
+
 export function TrainerDashboard() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>({
@@ -22,19 +63,51 @@ export function TrainerDashboard() {
     message: "Ready. Sign in first, then verify the connector.",
   });
   const [message, setMessage] = useState("");
-  const [chatOutput, setChatOutput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState("default");
+  const [contextWindow, setContextWindow] = useState(0);
+  const [historyLimit, setHistoryLimit] = useState(12);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [lastFailedMessage, setLastFailedMessage] = useState("");
   const [profileGoals, setProfileGoals] = useState("");
   const [profileSports, setProfileSports] = useState("");
   const [profileConstraints, setProfileConstraints] = useState("");
   const [detailGarminId, setDetailGarminId] = useState("");
 
-  useEffect(() => {
-    setChatOutput(localStorage.getItem("trainer-chat-output") ?? "");
-  }, []);
+  const latestToolEvidence = useMemo(
+    () => [...chatMessages].reverse().find((item) => item.grounding)?.grounding,
+    [chatMessages],
+  );
 
   useEffect(() => {
-    if (chatOutput) localStorage.setItem("trainer-chat-output", chatOutput);
-  }, [chatOutput]);
+    void loadChatHistory(false);
+  }, []);
+
+  async function loadChatHistory(showStatus = true) {
+    if (showStatus)
+      setStatus({ kind: "busy", message: "Chat: loading local history…" });
+    try {
+      const payload = await readJsonResponse<ChatPayload>(
+        await fetch("/api/chat", { method: "GET" }),
+      );
+      setConversationId(payload.conversationId);
+      setChatMessages(payload.messages);
+      setContextWindow(payload.contextWindow ?? 0);
+      setHistoryLimit(payload.historyLimit ?? 12);
+      setLastFailedMessage("");
+      if (showStatus)
+        setStatus({
+          kind: "ok",
+          message: `Chat: loaded ${payload.messages.length} local messages.`,
+        });
+    } catch (error) {
+      if (showStatus)
+        setStatus({
+          kind: "error",
+          message: `Chat history failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        });
+    }
+  }
 
   async function runAction(label: string, request: () => Promise<Response>) {
     setStatus({ kind: "busy", message: `${label}…` });
@@ -62,6 +135,7 @@ export function TrainerDashboard() {
         body: JSON.stringify(email.trim() ? { email } : {}),
       }),
     );
+    await loadChatHistory(false);
   }
 
   async function syncNow() {
@@ -157,10 +231,26 @@ export function TrainerDashboard() {
     );
   }
 
-  function clearLocalChatView() {
-    localStorage.removeItem("trainer-chat-output");
-    setChatOutput("");
-    setStatus({ kind: "ok", message: "Local chat view cleared." });
+  async function clearChatHistory() {
+    setStatus({ kind: "busy", message: "Chat: clearing local history…" });
+    try {
+      const payload = await readJsonResponse<ChatPayload>(
+        await fetch("/api/chat", { method: "DELETE" }),
+      );
+      setConversationId(payload.conversationId);
+      setChatMessages([]);
+      setContextWindow(0);
+      setLastFailedMessage("");
+      setStatus({
+        kind: "ok",
+        message: "Chat: local conversation history cleared.",
+      });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        message: `Chat clear failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      });
+    }
   }
 
   async function saveProfile() {
@@ -178,62 +268,52 @@ export function TrainerDashboard() {
     );
   }
 
-  async function sendChat() {
-    const text = message.trim();
-    if (!text) return;
-    setChatOutput("Connecting to trainer…");
-    setStatus({ kind: "busy", message: "Chat: connecting to model…" });
+  async function submitChat(text: string) {
+    if (!text.trim() || isChatLoading) return;
+    const trimmed = text.trim();
+    const optimistic: ChatMessage = {
+      id: `pending-${Date.now()}`,
+      role: "user",
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+    };
+    setMessage("");
+    setLastFailedMessage("");
+    setIsChatLoading(true);
+    setChatMessages((items) => [...items, optimistic]);
+    setStatus({ kind: "busy", message: "Chat: trainer is thinking…" });
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          messages: [
-            {
-              id: crypto.randomUUID(),
-              role: "user",
-              parts: [{ type: "text", text }],
-            },
-          ],
+      const payload = await readJsonResponse<ChatPayload>(
+        await fetch("/api/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ conversationId, message: trimmed }),
         }),
-      });
-      if (!response.ok || !response.body) {
-        const body = await readResponse(response);
-        setChatOutput(body);
-        setStatus({
-          kind: "error",
-          message: `Chat: failed (${response.status})`,
-        });
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let output = "";
-      setChatOutput("Trainer is typing…");
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        output += decoder.decode(value, { stream: true });
-        setChatOutput(output || "Trainer is typing…");
-        setStatus({
-          kind: "busy",
-          message: `Chat: streaming response… ${output.length} characters received`,
-        });
-      }
-      output += decoder.decode();
-      setChatOutput(output.trim() || "Trainer returned an empty response.");
+      );
+      setConversationId(payload.conversationId);
+      setChatMessages(payload.messages);
+      setContextWindow(payload.contextWindow ?? payload.messages.length);
+      setHistoryLimit(payload.historyLimit ?? historyLimit);
       setStatus({
         kind: "ok",
-        message: `Chat: response complete (${output.trim().length} characters)`,
+        message: `Chat: response complete. Context used ${payload.contextWindow ?? payload.messages.length}/${payload.historyLimit ?? historyLimit} recent local turns${payload.toolEvidence?.tool ? ` with ${payload.toolEvidence.tool}` : ""}.`,
       });
     } catch (error) {
-      setChatOutput("");
+      setLastFailedMessage(trimmed);
+      setChatMessages((items) =>
+        items.filter((item) => item.id !== optimistic.id),
+      );
       setStatus({
         kind: "error",
         message: `Chat failed: ${error instanceof Error ? error.message : "unknown error"}`,
       });
+    } finally {
+      setIsChatLoading(false);
     }
+  }
+
+  async function sendChat() {
+    await submitChat(message);
   }
 
   return (
@@ -312,25 +392,114 @@ export function TrainerDashboard() {
       </article>
 
       <article className="wide">
-        <h2>Trainer chat</h2>
-        <p>
-          Responses cite relevant dates, activities, trends, and deterministic
-          analytics tool results when activity detail is needed. Conversation
-          history and profile memory persist locally.
-        </p>
+        <div className="chat-header">
+          <div>
+            <h2>Trainer chat</h2>
+            <p>
+              Responses cite relevant dates, activities, trends, and
+              deterministic analytics tool results when activity detail is
+              needed. Conversation history and profile memory persist locally.
+            </p>
+          </div>
+          <div className="context-card" aria-label="Recent context window">
+            <strong>Recent context</strong>
+            <span>
+              {contextWindow}/{historyLimit} local messages sent to grounding
+            </span>
+            <span>Conversation: {conversationId}</span>
+            {latestToolEvidence ? (
+              <span>
+                Last tool: {latestToolEvidence.tool}
+                {latestToolEvidence.activityName
+                  ? ` — ${latestToolEvidence.activityName}`
+                  : ""}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="transcript" aria-live="polite">
+          {chatMessages.length === 0 && !isChatLoading ? (
+            <p className="empty-chat">
+              No local chat history yet. Ask for an activity analysis, then ask
+              a follow-up; the latest bounded turns and tool evidence will be
+              used.
+            </p>
+          ) : null}
+          {chatMessages.map((item) => (
+            <div key={item.id} className={`chat-message ${item.role}`}>
+              <div className="chat-meta">
+                <strong>{item.role === "user" ? "You" : "Trainer"}</strong>
+                <time dateTime={item.createdAt}>
+                  {new Date(item.createdAt).toLocaleString()}
+                </time>
+              </div>
+              <p>{item.content}</p>
+              {item.grounding ? (
+                <div className="tool-evidence">
+                  <span>Tool evidence: {item.grounding.tool}</span>
+                  {item.grounding.activityId ? (
+                    <span>Activity {item.grounding.activityId}</span>
+                  ) : null}
+                  {item.grounding.summary ? (
+                    <span>{item.grounding.summary}</span>
+                  ) : null}
+                  {item.grounding.privacy ? (
+                    <span>Privacy: {item.grounding.privacy}</span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ))}
+          {isChatLoading ? (
+            <div className="chat-message assistant pending">
+              <div className="chat-meta">
+                <strong>Trainer</strong>
+                <span>pending</span>
+              </div>
+              <p>Trainer is thinking with bounded local history…</p>
+            </div>
+          ) : null}
+        </div>
+
         <textarea
           aria-label="Message"
-          placeholder="Ask about my recent training load…"
+          placeholder="Ask about my latest hike, then try: what should I do tomorrow based on that?"
           value={message}
           onChange={(event) => setMessage(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              void sendChat();
+            }
+          }}
         />
-        <button type="button" onClick={sendChat}>
-          Send
+        <button type="button" onClick={sendChat} disabled={isChatLoading}>
+          {isChatLoading ? "Sending…" : "Send"}
         </button>
-        <button type="button" onClick={clearLocalChatView}>
-          Clear local chat view
+        <button
+          type="button"
+          onClick={() => loadChatHistory()}
+          disabled={isChatLoading}
+        >
+          Reload history
         </button>
-        {chatOutput ? <pre className="output">{chatOutput}</pre> : null}
+        <button
+          type="button"
+          onClick={clearChatHistory}
+          disabled={isChatLoading}
+        >
+          Clear local history
+        </button>
+        {lastFailedMessage ? (
+          <button
+            type="button"
+            onClick={() => submitChat(lastFailedMessage)}
+            disabled={isChatLoading}
+          >
+            Retry last message
+          </button>
+        ) : null}
       </article>
 
       <article>

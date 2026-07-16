@@ -3,6 +3,37 @@ import type {
   NormalizedDailyHealth,
 } from "../garmin/types";
 
+export type RecentConversationMessage = {
+  role: "user" | "assistant";
+  content: string;
+  grounding?: {
+    tool?: string;
+    activityId?: string;
+    activityName?: string | null;
+    activityDate?: string | null;
+    summary?: string;
+  } | null;
+};
+
+function compactText(value: string, maxLength: number): string {
+  const compacted = value.replace(/\s+/g, " ").trim();
+  return compacted.length > maxLength
+    ? `${compacted.slice(0, maxLength - 1)}…`
+    : compacted;
+}
+
+export function formatRecentChatHistory(
+  messages: RecentConversationMessage[],
+  limit = 10,
+): string[] {
+  return messages.slice(-limit).map((message) => {
+    const grounding = message.grounding?.tool
+      ? ` [tool evidence: ${message.grounding.tool}${message.grounding.activityId ? ` activity ${message.grounding.activityId}` : ""}${message.grounding.activityName ? ` (${message.grounding.activityName})` : ""}${message.grounding.summary ? ` — ${compactText(message.grounding.summary, 180)}` : ""}]`
+      : "";
+    return `${message.role}: ${compactText(message.content, 700)}${grounding}`;
+  });
+}
+
 export type TrainerProfile = {
   goals: string[];
   sports: string[];
