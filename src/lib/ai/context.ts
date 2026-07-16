@@ -16,17 +16,20 @@ export function buildTrainerContext(input: {
   profile: TrainerProfile;
   recentMessages: string[];
 }): string {
-  const recentActivities = input.activities
-    .slice(0, 8)
-    .map(
-      (a) =>
-        `${a.startedAt.toISOString().slice(0, 10)} ${a.sport} ${a.distanceMeters ?? "unknown"}m HR ${a.avgHeartRate ?? "n/a"}`,
-    );
+  const recentActivities = input.activities.slice(0, 8).map((a) => {
+    const duration = a.durationSec
+      ? `${Math.round(a.durationSec / 60)}min`
+      : "duration n/a";
+    const distance = a.distanceMeters
+      ? `${Math.round(a.distanceMeters)}m`
+      : "distance n/a";
+    return `${a.startedAt.toISOString().slice(0, 10)} ${a.sport}: ${distance}, ${duration}, avg HR ${a.avgHeartRate ?? "n/a"}, calories ${a.calories ?? "n/a"}`;
+  });
   const health = input.health
     .slice(0, 10)
     .map(
       (h) =>
-        `${h.date}: sleep ${h.sleepMinutes ?? "n/a"}m, RHR ${h.restingHeartRate ?? "n/a"}, HRV ${h.hrvMs ?? h.hrvStatus ?? "n/a"}, availability ${h.availability}`,
+        `${h.date}: sleep ${h.sleepMinutes ?? "n/a"}m, RHR ${h.restingHeartRate ?? "n/a"}, HRV ${h.hrvMs ?? h.hrvStatus ?? "n/a"}, stress ${h.stressAvg ?? "n/a"}, steps ${h.steps ?? "n/a"}, calories ${h.calories ?? "n/a"}, body battery ${h.bodyBatteryAvg ?? "n/a"}, availability ${h.availability}`,
     );
   return [
     `Goals: ${input.profile.goals.join(", ") || "not set"}`,

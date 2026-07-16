@@ -37,6 +37,9 @@ export function TrainerDashboard() {
   });
   const [message, setMessage] = useState("");
   const [chatOutput, setChatOutput] = useState("");
+  const [profileGoals, setProfileGoals] = useState("");
+  const [profileSports, setProfileSports] = useState("");
+  const [profileConstraints, setProfileConstraints] = useState("");
 
   async function runAction(label: string, request: () => Promise<Response>) {
     setStatus({ kind: "busy", message: `${label}…` });
@@ -131,6 +134,25 @@ export function TrainerDashboard() {
     }
   }
 
+  async function refreshSummary() {
+    await runAction("Import summary", () => fetch("/api/summary"));
+  }
+
+  async function saveProfile() {
+    await runAction("Save profile", () =>
+      fetch("/api/profile", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          goals: profileGoals,
+          sports: profileSports,
+          constraints: profileConstraints,
+          preferences: {},
+        }),
+      }),
+    );
+  }
+
   async function sendChat() {
     const text = message.trim();
     if (!text) return;
@@ -206,15 +228,14 @@ export function TrainerDashboard() {
       </article>
 
       <article>
-        <h2>Recent data</h2>
-        <ul>
-          <li>Activities paginate to exhaustion.</li>
-          <li>
-            Daily sleep, RHR, HRV, stress, steps, calories, and Body Battery are
-            backfilled from the configured start date.
-          </li>
-          <li>Missing metrics stay explicit.</li>
-        </ul>
+        <h2>Import summary</h2>
+        <p>
+          Check imported totals, latest activity date, and health coverage
+          before asking the trainer to reason about trends.
+        </p>
+        <button type="button" onClick={refreshSummary}>
+          Refresh import summary
+        </button>
       </article>
 
       <article className="wide">
@@ -238,9 +259,39 @@ export function TrainerDashboard() {
       <article>
         <h2>Profile memory</h2>
         <p>
-          Goals, sports, preferences, and constraints can be extracted from chat
-          and corrected by the operator.
+          Set one item per line. The trainer uses this profile together with
+          imported Garmin facts.
         </p>
+        <label>
+          Goals
+          <textarea
+            aria-label="Goals"
+            value={profileGoals}
+            onChange={(event) => setProfileGoals(event.target.value)}
+            placeholder="Build hiking endurance"
+          />
+        </label>
+        <label>
+          Preferred sports
+          <textarea
+            aria-label="Preferred sports"
+            value={profileSports}
+            onChange={(event) => setProfileSports(event.target.value)}
+            placeholder="hiking\nmountaineering"
+          />
+        </label>
+        <label>
+          Constraints
+          <textarea
+            aria-label="Constraints"
+            value={profileConstraints}
+            onChange={(event) => setProfileConstraints(event.target.value)}
+            placeholder="no running this week"
+          />
+        </label>
+        <button type="button" onClick={saveProfile}>
+          Save profile
+        </button>
       </article>
 
       <article>

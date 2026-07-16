@@ -7,6 +7,7 @@ import type {
   NormalizedActivity,
   NormalizedDailyHealth,
 } from "../garmin/types";
+import type { TrainerProfile } from "../ai/context";
 
 let database: Database.Database | undefined;
 
@@ -162,6 +163,74 @@ export function dataCounts(): { activities: number; healthDays: number } {
     .prepare("select count(*) as count from daily_health")
     .get() as { count: number };
   return { activities: activityRow.count, healthDays: healthRow.count };
+}
+
+export function importSummary(): {
+  activities: number;
+  healthDays: number;
+  latestActivityDate: string | null;
+  healthStartDate: string | null;
+  healthEndDate: string | null;
+} {
+  const counts = dataCounts();
+  const latestActivity = getDatabase()
+    .prepare("select max(started_at) as value from activity")
+    .get() as { value: number | null };
+  const healthRange = getDatabase()
+    .prepare("select min(date) as start, max(date) as end from daily_health")
+    .get() as { start: string | null; end: string | null };
+  return {
+    ...counts,
+    latestActivityDate: latestActivity.value
+      ? new Date(latestActivity.value).toISOString().slice(0, 10)
+      : null,
+    healthStartDate: healthRange.start,
+    healthEndDate: healthRange.end,
+  };
+}
+
+export function getTrainerProfile(): TrainerProfile {
+  const row = getDatabase()
+    .prepare(
+      "select goals_json as goalsJson, sports_json as sportsJson, preferences_json as preferencesJson, constraints_json as constraintsJson from trainer_profile where id = 'default'",
+    )
+    .get() as
+    | {
+        goalsJson: string;
+        sportsJson: string;
+        preferencesJson: string;
+        constraintsJson: string;
+      }
+    | undefined;
+  if (!row) return { goals: [], sports: [], preferences: {}, constraints: [] };
+  return {
+    goals: JSON.parse(row.goalsJson) as string[],
+    sports: JSON.parse(row.sportsJson) as string[],
+    preferences: JSON.parse(row.preferencesJson) as Record<string, string>,
+    constraints: JSON.parse(row.constraintsJson) as string[],
+  };
+}
+
+export function saveTrainerProfile(profile: TrainerProfile): TrainerProfile {
+  getDatabase()
+    .prepare(
+      `insert into trainer_profile (id, goals_json, sports_json, preferences_json, constraints_json, updated_at)
+       values ('default', ?, ?, ?, ?, ?)
+       on conflict(id) do update set
+         goals_json=excluded.goals_json,
+         sports_json=excluded.sports_json,
+         preferences_json=excluded.preferences_json,
+         constraints_json=excluded.constraints_json,
+         updated_at=excluded.updated_at`,
+    )
+    .run(
+      JSON.stringify(profile.goals),
+      JSON.stringify(profile.sports),
+      JSON.stringify(profile.preferences),
+      JSON.stringify(profile.constraints),
+      Date.now(),
+    );
+  return getTrainerProfile();
 }
 
 export function clearChatAndProfile(): string[] {

@@ -66,10 +66,16 @@ input {
 textarea {
   min-height: 110px;
 }
-.stack {
+.stack,
+label {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+label {
+  margin: 10px 0;
+  color: #cbd5e1;
+  font-weight: 700;
 }
 .output,
 .status {

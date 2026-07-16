@@ -5,6 +5,7 @@ import { selectedModel } from "@/lib/ai/providers";
 import { requireSessionEmail } from "@/lib/auth/session";
 import {
   dataCounts,
+  getTrainerProfile,
   listRecentActivities,
   listRecentDailyHealth,
 } from "@/lib/db/repository";
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
     const context = `${buildTrainerContext({
       activities: listRecentActivities(),
       health: listRecentDailyHealth(),
-      profile: { goals: [], sports: [], preferences: {}, constraints: [] },
+      profile: getTrainerProfile(),
       recentMessages: messages.map((message) =>
         String(
           message.parts
