@@ -7,7 +7,7 @@ Local-only, single-user private trainer MVP for importing Garmin Connect history
 1. Install Node 22+ and Python tooling capable of running `uvx`.
 2. Copy `.env.example` to `.env.local` and fill in local secrets. Do not commit `.env.local`, SQLite files, or Garmin token directories.
 3. Create a Google OAuth web client with callback `http://localhost:3000/api/auth/callback/google` and add the operator email to `ALLOWED_GOOGLE_EMAILS`.
-4. Authenticate Garmin out of band with the pinned connector: `garmin-mcp-auth` (or the equivalent command provided by `Taxuspt/garmin_mcp` at commit `2974244bfda1595b00836b3f942f579ec2d6f7d6`). The app never asks for the Garmin password.
+4. Authenticate Garmin out of band with the pinned connector: `garmin-mcp-auth` (or the equivalent command provided by `Taxuspt/garmin_mcp` at commit `2974244bfda1595b00836b3f942f579ec2d6f7d6`). The app never asks for the Garmin password. Current connector auth writes OAuth state to its default `~/.garminconnect/garmin_tokens.json`; the app verifies that file exists without reading token contents.
 5. Run `npm install`, `npm run db:migrate`, then `npm run dev`.
 
 ## Validation

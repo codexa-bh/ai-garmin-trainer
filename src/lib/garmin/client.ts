@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { readdir } from "node:fs/promises";
+import { access, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { getOptionalEnv } from "../env";
 import type { GarminReadOperation } from "./types";
 
@@ -22,32 +23,60 @@ export function assertReadOperation(
     throw new Error(`Blocked Garmin MCP operation: ${operation}`);
 }
 
+async function hasAnyFile(directory: string): Promise<boolean> {
+  try {
+    return (await readdir(directory)).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasFile(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function verifyConnectorToken(): Promise<{
   ok: boolean;
   detail: string;
 }> {
   const env = getOptionalEnv();
-  if (!env.GARMIN_MCP_TOKEN_DIR) {
-    return { ok: false, detail: "GARMIN_MCP_TOKEN_DIR is not configured" };
-  }
-  try {
-    const entries = await readdir(env.GARMIN_MCP_TOKEN_DIR);
-    if (entries.length === 0) {
-      return {
-        ok: false,
-        detail: `Garmin token directory ${env.GARMIN_MCP_TOKEN_DIR} is empty. Run garmin-mcp-auth out of band; the app never collects your Garmin password.`,
-      };
-    }
+  const defaultTokenFile = join(
+    process.env.HOME ?? "",
+    ".garminconnect",
+    "garmin_tokens.json",
+  );
+
+  if (
+    env.GARMIN_MCP_TOKEN_DIR &&
+    (await hasAnyFile(env.GARMIN_MCP_TOKEN_DIR))
+  ) {
     return {
       ok: true,
       detail: `Garmin token directory ${env.GARMIN_MCP_TOKEN_DIR} exists and contains local auth state. No token contents were read.`,
     };
-  } catch {
+  }
+
+  if (await hasFile(defaultTokenFile)) {
     return {
-      ok: false,
-      detail: `Garmin token directory ${env.GARMIN_MCP_TOKEN_DIR} is missing. Run garmin-mcp-auth out of band; the app never collects your Garmin password.`,
+      ok: true,
+      detail:
+        "Garmin auth state exists at the garmin-mcp-auth default token path (~/.garminconnect/garmin_tokens.json). No token contents were read.",
     };
   }
+
+  const configuredDetail = env.GARMIN_MCP_TOKEN_DIR
+    ? `Configured token directory ${env.GARMIN_MCP_TOKEN_DIR} is missing or empty, and default ~/.garminconnect/garmin_tokens.json was not found.`
+    : "GARMIN_MCP_TOKEN_DIR is not configured and default ~/.garminconnect/garmin_tokens.json was not found.";
+
+  return {
+    ok: false,
+    detail: `${configuredDetail} Run garmin-mcp-auth out of band; the app never collects your Garmin password.`,
+  };
 }
 
 export function spawnGarminMcp() {
