@@ -44,13 +44,13 @@ export function TrainerDashboard() {
     }
   }
 
-  async function localDevLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function localDevLogin(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
     await runAction("Local allowlist sign-in", () =>
       fetch("/api/dev-login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify(email.trim() ? { email } : {}),
       }),
     );
   }
@@ -202,10 +202,13 @@ export function TrainerDashboard() {
       <article>
         <h2>Sign in</h2>
         <p>
-          For this local MVP smoke, use the development sign-in helper with an
-          email from <code>ALLOWED_GOOGLE_EMAILS</code>. Google OAuth remains
-          configured through <code>/api/auth</code>.
+          For this local MVP smoke, use one-click local sign-in with the first
+          configured <code>ALLOWED_GOOGLE_EMAILS</code> entry. Google OAuth
+          remains configured through <code>/api/auth</code>.
         </p>
+        <button type="button" onClick={() => localDevLogin()}>
+          Use configured local session
+        </button>
         <form onSubmit={localDevLogin} className="stack">
           <input
             aria-label="Allowlisted email"
@@ -213,7 +216,7 @@ export function TrainerDashboard() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
-          <button type="submit">Use local allowlisted session</button>
+          <button type="submit">Use typed local session</button>
         </form>
       </article>
 
