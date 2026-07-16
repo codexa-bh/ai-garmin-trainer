@@ -1,5 +1,6 @@
 import { getOptionalEnv, requireRuntimeEnv } from "../env";
 import {
+  dataCounts,
   finishSyncRun,
   getCheckpoint,
   recordSyncRun,
@@ -145,15 +146,16 @@ export async function runGarminSync(
       });
     }
 
+    saveCheckpoint("activity_page", "0");
     finishSyncRun(syncRunId, "completed");
+    const totals = dataCounts();
     const result = {
       status: "completed" as const,
       activitiesImported,
       healthDaysImported,
       coverageStart: startDate,
       coverageEnd: endDate,
-      detail:
-        "Garmin sync completed through the pinned stdio MCP connector. Raw connector payloads were normalized in memory and not retained.",
+      detail: `Garmin sync completed through the pinned stdio MCP connector. Database now has ${totals.activities} activities and ${totals.healthDays} health days. Raw connector payloads were normalized in memory and not retained.`,
     };
     onProgress({
       stage: "completed",
