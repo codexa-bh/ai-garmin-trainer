@@ -15,6 +15,20 @@ async function readResponse(response: Response): Promise<string> {
   }
 }
 
+async function readTextStream(response: Response): Promise<string> {
+  if (!response.body) return readResponse(response);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    output += decoder.decode(value, { stream: true });
+  }
+  output += decoder.decode();
+  return output.trim();
+}
+
 export function TrainerDashboard() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>({
@@ -71,7 +85,7 @@ export function TrainerDashboard() {
           ],
         }),
       });
-      const body = await readResponse(response);
+      const body = await readTextStream(response);
       setChatOutput(body);
       setStatus({
         kind: response.ok ? "ok" : "error",

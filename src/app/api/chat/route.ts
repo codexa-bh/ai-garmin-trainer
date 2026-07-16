@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       system: `${TRAINER_SYSTEM_PROMPT}\n\nGrounding context:\n${context}`,
       messages: await convertToModelMessages(messages),
     });
-    return result.toUIMessageStreamResponse();
+    return result.toTextStreamResponse();
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "chat failed" },
