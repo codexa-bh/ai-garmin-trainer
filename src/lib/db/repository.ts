@@ -121,3 +121,45 @@ export function finishSyncRun(
     )
     .run(status, Date.now(), lastError ?? null, id);
 }
+
+export function listRecentActivities(limit = 12): NormalizedActivity[] {
+  const rows = getDatabase()
+    .prepare(
+      `select garmin_id as garminId, sport, started_at as startedAt, duration_sec as durationSec,
+              distance_meters as distanceMeters, calories, avg_heart_rate as avgHeartRate,
+              training_effect as trainingEffect
+       from activity order by started_at desc limit ?`,
+    )
+    .all(limit) as Array<{
+    garminId: string;
+    sport: string;
+    startedAt: number;
+    durationSec: number | null;
+    distanceMeters: number | null;
+    calories: number | null;
+    avgHeartRate: number | null;
+    trainingEffect: number | null;
+  }>;
+  return rows.map((row) => ({ ...row, startedAt: new Date(row.startedAt) }));
+}
+
+export function listRecentDailyHealth(limit = 14): NormalizedDailyHealth[] {
+  return getDatabase()
+    .prepare(
+      `select date, sleep_minutes as sleepMinutes, resting_heart_rate as restingHeartRate,
+              hrv_status as hrvStatus, hrv_ms as hrvMs, stress_avg as stressAvg,
+              steps, calories, body_battery_avg as bodyBatteryAvg, availability
+       from daily_health order by date desc limit ?`,
+    )
+    .all(limit) as NormalizedDailyHealth[];
+}
+
+export function dataCounts(): { activities: number; healthDays: number } {
+  const activityRow = getDatabase()
+    .prepare("select count(*) as count from activity")
+    .get() as { count: number };
+  const healthRow = getDatabase()
+    .prepare("select count(*) as count from daily_health")
+    .get() as { count: number };
+  return { activities: activityRow.count, healthDays: healthRow.count };
+}
