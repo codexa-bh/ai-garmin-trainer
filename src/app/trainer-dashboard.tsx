@@ -66,6 +66,71 @@ export function TrainerDashboard() {
     );
   }
 
+  async function syncNow() {
+    setStatus({ kind: "busy", message: "Sync now: starting…" });
+    try {
+      const response = await fetch("/api/sync", { method: "POST" });
+      if (!response.ok || !response.body) {
+        const body = await readResponse(response);
+        setStatus({
+          kind: "error",
+          message: `Sync now: failed (${response.status})\n${body}`,
+        });
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let log = "";
+      let finalKind: Status["kind"] = "ok";
+
+      const appendLine = (line: string) => {
+        log = `${log}${line}\n`.split("\n").slice(-20).join("\n");
+        setStatus({
+          kind: finalKind === "error" ? "error" : "busy",
+          message: log.trim(),
+        });
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line) as {
+            type?: string;
+            status?: string;
+            stage?: string;
+            message?: string;
+            detail?: string;
+            activitiesImported?: number;
+            healthDaysImported?: number;
+          };
+          if (event.type === "result") {
+            finalKind = event.status === "completed" ? "ok" : "error";
+            appendLine(
+              `Result: ${event.status}. Activities: ${event.activitiesImported ?? 0}; health days: ${event.healthDaysImported ?? 0}. ${event.detail ?? ""}`,
+            );
+          } else {
+            appendLine(
+              `${event.stage ?? "progress"}: ${event.message ?? "working"} (activities ${event.activitiesImported ?? 0}, health days ${event.healthDaysImported ?? 0})`,
+            );
+          }
+        }
+      }
+      setStatus({ kind: finalKind, message: log.trim() || "Sync complete." });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        message: `Sync now failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      });
+    }
+  }
+
   async function sendChat() {
     const text = message.trim();
     if (!text) return;
@@ -135,16 +200,7 @@ export function TrainerDashboard() {
         >
           Verify connector
         </button>
-        <button
-          type="button"
-          onClick={() =>
-            runAction("Sync now", () =>
-              fetch("/api/sync", {
-                method: "POST",
-              }),
-            )
-          }
-        >
+        <button type="button" onClick={syncNow}>
           Sync now
         </button>
       </article>

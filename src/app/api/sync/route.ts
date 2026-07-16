@@ -23,8 +23,25 @@ export async function POST() {
       { status: 409 },
     );
   }
-  const result = await runGarminSync();
-  return NextResponse.json(result, {
-    status: result.status === "completed" ? 200 : 502,
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: unknown) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
+      const result = await runGarminSync((progress) =>
+        send({ type: "progress", ...progress }),
+      );
+      send({ type: "result", ...result });
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "cache-control": "no-cache",
+    },
   });
 }

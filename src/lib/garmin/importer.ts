@@ -25,6 +25,19 @@ export type GarminSyncResult = {
   detail: string;
 };
 
+export type GarminSyncProgress = {
+  stage: "starting" | "activities" | "health" | "completed" | "failed";
+  message: string;
+  activitiesImported: number;
+  healthDaysImported: number;
+  page?: number;
+  date?: string;
+  totalHealthDays?: number;
+  completedHealthDays?: number;
+};
+
+type ProgressReporter = (progress: GarminSyncProgress) => void;
+
 function parseToolJson(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
@@ -48,7 +61,9 @@ function eachDate(startDate: string, endDate: string): string[] {
   return days;
 }
 
-export async function runGarminSync(): Promise<GarminSyncResult> {
+export async function runGarminSync(
+  onProgress: ProgressReporter = () => undefined,
+): Promise<GarminSyncResult> {
   const env = requireRuntimeEnv();
   const endDate = isoDate(new Date());
   const startDate = env.GARMIN_HISTORY_START_DATE as string;
@@ -58,9 +73,22 @@ export async function runGarminSync(): Promise<GarminSyncResult> {
   let healthDaysImported = 0;
 
   try {
+    onProgress({
+      stage: "starting",
+      message: "Starting pinned Garmin MCP stdio connector…",
+      activitiesImported,
+      healthDaysImported,
+    });
     await client.start();
     let page = Number(getCheckpoint("activity_page") ?? 0);
     while (true) {
+      onProgress({
+        stage: "activities",
+        message: `Fetching Garmin activities page ${page}…`,
+        activitiesImported,
+        healthDaysImported,
+        page,
+      });
       const text = await client.callTool("get_activities_by_date", {
         start_date: startDate,
         end_date: endDate,
@@ -73,12 +101,29 @@ export async function runGarminSync(): Promise<GarminSyncResult> {
       );
       activitiesImported += upsertActivities(normalized);
       saveCheckpoint("activity_page", String(page));
+      onProgress({
+        stage: "activities",
+        message: `Imported ${activitiesImported} activities through page ${page}.`,
+        activitiesImported,
+        healthDaysImported,
+        page,
+      });
       if (!parsed.has_more) break;
       page = parsed.next_page ?? page + 1;
     }
 
     const resumeDate = getCheckpoint("health_next_date") ?? startDate;
-    for (const date of eachDate(resumeDate, endDate)) {
+    const dates = eachDate(resumeDate, endDate);
+    for (const [index, date] of dates.entries()) {
+      onProgress({
+        stage: "health",
+        message: `Backfilling daily health ${index + 1}/${dates.length}: ${date}…`,
+        activitiesImported,
+        healthDaysImported,
+        date,
+        totalHealthDays: dates.length,
+        completedHealthDays: index,
+      });
       const statsText = await client.callTool("get_stats", { date });
       const sleepText = await client.callTool("get_sleep_summary", { date });
       const stats = parseToolJson(statsText);
@@ -89,11 +134,20 @@ export async function runGarminSync(): Promise<GarminSyncResult> {
       const next = new Date(`${date}T00:00:00Z`);
       next.setUTCDate(next.getUTCDate() + 1);
       saveCheckpoint("health_next_date", isoDate(next));
+      onProgress({
+        stage: "health",
+        message: `Imported daily health ${index + 1}/${dates.length}: ${date}.`,
+        activitiesImported,
+        healthDaysImported,
+        date,
+        totalHealthDays: dates.length,
+        completedHealthDays: index + 1,
+      });
     }
 
     finishSyncRun(syncRunId, "completed");
-    return {
-      status: "completed",
+    const result = {
+      status: "completed" as const,
       activitiesImported,
       healthDaysImported,
       coverageStart: startDate,
@@ -101,10 +155,23 @@ export async function runGarminSync(): Promise<GarminSyncResult> {
       detail:
         "Garmin sync completed through the pinned stdio MCP connector. Raw connector payloads were normalized in memory and not retained.",
     };
+    onProgress({
+      stage: "completed",
+      message: result.detail,
+      activitiesImported,
+      healthDaysImported,
+    });
+    return result;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Garmin sync failed";
     finishSyncRun(syncRunId, "failed", message.slice(0, 1000));
+    onProgress({
+      stage: "failed",
+      message: message.slice(0, 1000),
+      activitiesImported,
+      healthDaysImported,
+    });
     return {
       status: "failed",
       activitiesImported,
