@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
 
@@ -26,6 +26,14 @@ export function TrainerDashboard() {
   const [profileGoals, setProfileGoals] = useState("");
   const [profileSports, setProfileSports] = useState("");
   const [profileConstraints, setProfileConstraints] = useState("");
+
+  useEffect(() => {
+    setChatOutput(localStorage.getItem("trainer-chat-output") ?? "");
+  }, []);
+
+  useEffect(() => {
+    if (chatOutput) localStorage.setItem("trainer-chat-output", chatOutput);
+  }, [chatOutput]);
 
   async function runAction(label: string, request: () => Promise<Response>) {
     setStatus({ kind: "busy", message: `${label}…` });
@@ -122,6 +130,12 @@ export function TrainerDashboard() {
 
   async function refreshSummary() {
     await runAction("Import summary", () => fetch("/api/summary"));
+  }
+
+  function clearLocalChatView() {
+    localStorage.removeItem("trainer-chat-output");
+    setChatOutput("");
+    setStatus({ kind: "ok", message: "Local chat view cleared." });
   }
 
   async function saveProfile() {
@@ -265,6 +279,9 @@ export function TrainerDashboard() {
         />
         <button type="button" onClick={sendChat}>
           Send
+        </button>
+        <button type="button" onClick={clearLocalChatView}>
+          Clear local chat view
         </button>
         {chatOutput ? <pre className="output">{chatOutput}</pre> : null}
       </article>
