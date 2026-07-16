@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js
+.next/
+out/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Local data and connector token state
+/data/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.garmin-token/
+.garmin-mcp/
+
+# Logs and coverage
+logs/
+*.log
+coverage/
+
+# Build artifacts
+.turbo/
+dist/
