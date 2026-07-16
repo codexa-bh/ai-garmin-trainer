@@ -2,13 +2,12 @@ import {
   streamText,
   generateText,
   convertToModelMessages,
-  isStepCount,
   UIMessage,
 } from "ai";
 import { NextResponse } from "next/server";
 import { buildTrainerContext, TRAINER_SYSTEM_PROMPT } from "@/lib/ai/context";
 import { selectedModel } from "@/lib/ai/providers";
-import { trainerTools } from "@/lib/ai/tools";
+import { analyzeStoredActivity } from "@/lib/analytics/activity";
 import { requireSessionEmail } from "@/lib/auth/session";
 import {
   dataCounts,
@@ -17,6 +16,51 @@ import {
   listRecentActivities,
   listRecentDailyHealth,
 } from "@/lib/db/repository";
+import type { NormalizedActivity } from "@/lib/garmin/types";
+
+function explicitGarminId(text: string): string | null {
+  return text.match(/\b\d{6,}\b/)?.[0] ?? null;
+}
+
+function isActivityAnalysisPrompt(text: string): boolean {
+  return /\b(activity|hike|run|ride|workout|result|analyse|analyze|latest|just went|vrh zakotja)\b/i.test(
+    text,
+  );
+}
+
+function resolveActivityId(
+  text: string,
+  activities: NormalizedActivity[],
+): string | null {
+  const explicit = explicitGarminId(text);
+  if (explicit) return explicit;
+  const lower = text.toLowerCase();
+  const byName = activities.find(
+    (activity) => activity.name && lower.includes(activity.name.toLowerCase()),
+  );
+  if (byName) return byName.garminId;
+  return isActivityAnalysisPrompt(text)
+    ? (activities[0]?.garminId ?? null)
+    : null;
+}
+
+function fallbackActivityAnswer(
+  analysis: ReturnType<typeof analyzeStoredActivity>,
+): string {
+  const activity = analysis.activity;
+  if (!activity)
+    return "I could not find that imported activity in local SQLite.";
+  const zones = analysis.heartRateZones
+    .map((zone) => `Z${zone.zone} ${zone.seconds}s (${zone.percent}%)`)
+    .join(", ");
+  return [
+    `Tool evidence: analyzeActivity (server-side deterministic local analytics).`,
+    `Activity: ${activity.name ?? activity.garminId} on ${activity.date}, ${activity.distanceKm ?? "n/a"} km in ${activity.durationMin ?? "n/a"} min, pace ${activity.paceMinPerKm?.toFixed(1) ?? "n/a"} min/km.`,
+    `Heart rate: avg ${activity.avgHeartRate ?? "n/a"} bpm, max ${activity.maxHeartRate ?? "n/a"} bpm; zones ${zones || "not available"}.`,
+    `Detail: ${analysis.streamSummary.records} normalized records, ${analysis.laps.length} laps; similar efforts ${analysis.similarEfforts.length}.`,
+    `Privacy: ${analysis.privacy}`,
+  ].join("\n");
+}
 
 export async function POST(request: Request) {
   try {
@@ -30,7 +74,8 @@ export async function POST(request: Request) {
       ),
     );
     const latestMessage = messageTexts.at(-1) ?? "";
-    const requiresActivityTool = /\b\d{6,}\b/.test(latestMessage);
+    const recentActivities = listRecentActivities();
+    const activityId = resolveActivityId(latestMessage, recentActivities);
     const { model } = selectedModel();
     const counts = dataCounts();
     const detailAvailability = listActivityDetailAvailability(12)
@@ -40,7 +85,7 @@ export async function POST(request: Request) {
       )
       .join("\n");
     const context = `${buildTrainerContext({
-      activities: listRecentActivities(),
+      activities: recentActivities,
       health: listRecentDailyHealth(),
       profile: getTrainerProfile(),
       recentMessages: messageTexts,
@@ -48,29 +93,17 @@ export async function POST(request: Request) {
     const system = `${TRAINER_SYSTEM_PROMPT}\n\nGrounding context:\n${context}`;
     const modelMessages = await convertToModelMessages(messages);
 
-    if (requiresActivityTool) {
+    if (activityId) {
+      const analysis = analyzeStoredActivity(activityId);
+      const analysisJson = JSON.stringify(analysis).slice(0, 12000);
       const result = await generateText({
         model,
-        system,
-        messages: modelMessages,
-        tools: trainerTools,
-        stopWhen: isStepCount(5),
+        system: `${system}\n\nDeterministic local analytics result from analyzeActivity (server-side prefetch; no provider tool loop):\n${analysisJson}\n\nWrite the answer from this analytics JSON. Mention Tool evidence: analyzeActivity.`,
+        prompt: latestMessage,
       });
-      const toolNames = result.steps.flatMap((step) =>
-        step.toolCalls.map((call) => call.toolName),
-      );
-      if (!toolNames.includes("analyzeActivity")) {
-        return NextResponse.json(
-          {
-            error:
-              "Activity-specific chat did not call analyzeActivity; retry with a supported provider/model.",
-            toolNames,
-          },
-          { status: 502 },
-        );
-      }
+      const text = result.text.trim() || fallbackActivityAnswer(analysis);
       return new Response(
-        `${result.text}\n\nTool evidence: ${toolNames.join(", ")}`,
+        `${text}\n\nTool evidence: analyzeActivity (server-side deterministic prefetch)\nPrivacy boundary: ${analysis.privacy}`,
         { headers: { "content-type": "text/plain; charset=utf-8" } },
       );
     }
@@ -79,8 +112,6 @@ export async function POST(request: Request) {
       model,
       system,
       messages: modelMessages,
-      tools: trainerTools,
-      stopWhen: isStepCount(5),
     });
     return result.toTextStreamResponse();
   } catch (error) {
