@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readdir } from "node:fs/promises";
 import { getOptionalEnv } from "../env";
 import type { GarminReadOperation } from "./types";
 
@@ -26,12 +27,27 @@ export async function verifyConnectorToken(): Promise<{
   detail: string;
 }> {
   const env = getOptionalEnv();
-  return env.GARMIN_MCP_TOKEN_DIR
-    ? {
-        ok: true,
-        detail: `Token directory configured at ${env.GARMIN_MCP_TOKEN_DIR}; run garmin-mcp-auth out of band if verification fails.`,
-      }
-    : { ok: false, detail: "GARMIN_MCP_TOKEN_DIR is not configured" };
+  if (!env.GARMIN_MCP_TOKEN_DIR) {
+    return { ok: false, detail: "GARMIN_MCP_TOKEN_DIR is not configured" };
+  }
+  try {
+    const entries = await readdir(env.GARMIN_MCP_TOKEN_DIR);
+    if (entries.length === 0) {
+      return {
+        ok: false,
+        detail: `Garmin token directory ${env.GARMIN_MCP_TOKEN_DIR} is empty. Run garmin-mcp-auth out of band; the app never collects your Garmin password.`,
+      };
+    }
+    return {
+      ok: true,
+      detail: `Garmin token directory ${env.GARMIN_MCP_TOKEN_DIR} exists and contains local auth state. No token contents were read.`,
+    };
+  } catch {
+    return {
+      ok: false,
+      detail: `Garmin token directory ${env.GARMIN_MCP_TOKEN_DIR} is missing. Run garmin-mcp-auth out of band; the app never collects your Garmin password.`,
+    };
+  }
 }
 
 export function spawnGarminMcp() {
