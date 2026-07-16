@@ -1,4 +1,4 @@
-import { streamText, convertToModelMessages, UIMessage } from "ai";
+import { streamText, convertToModelMessages, isStepCount, UIMessage } from "ai";
 import { NextResponse } from "next/server";
 import { buildTrainerContext, TRAINER_SYSTEM_PROMPT } from "@/lib/ai/context";
 import { selectedModel } from "@/lib/ai/providers";
@@ -34,6 +34,7 @@ export async function POST(request: Request) {
       system: `${TRAINER_SYSTEM_PROMPT}\n\nGrounding context:\n${context}`,
       messages: await convertToModelMessages(messages),
       tools: trainerTools,
+      stopWhen: isStepCount(5),
     });
     return result.toTextStreamResponse();
   } catch (error) {
