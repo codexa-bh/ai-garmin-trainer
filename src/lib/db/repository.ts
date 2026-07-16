@@ -163,3 +163,24 @@ export function dataCounts(): { activities: number; healthDays: number } {
     .get() as { count: number };
   return { activities: activityRow.count, healthDays: healthRow.count };
 }
+
+export function clearChatAndProfile(): string[] {
+  const db = getDatabase();
+  db.transaction(() => {
+    db.prepare("delete from message").run();
+    db.prepare("delete from conversation").run();
+    db.prepare("delete from trainer_profile").run();
+  })();
+  return ["messages", "conversations", "trainer_profile"];
+}
+
+export function clearGarminData(): string[] {
+  const db = getDatabase();
+  db.transaction(() => {
+    db.prepare("delete from activity").run();
+    db.prepare("delete from daily_health").run();
+    db.prepare("delete from sync_checkpoint").run();
+    db.prepare("delete from sync_run").run();
+  })();
+  return ["activity", "daily_health", "sync_checkpoint", "sync_run"];
+}
