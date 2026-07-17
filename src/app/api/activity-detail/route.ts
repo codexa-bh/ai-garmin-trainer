@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireSessionEmail } from "@/lib/auth/session";
 import {
+  activityDetailCoverage,
   getActivityByGarminId,
+  getActivityDetailAttempt,
   listActivityDetailAvailability,
   listRecentActivities,
 } from "@/lib/db/repository";
@@ -11,6 +13,7 @@ export async function GET() {
   try {
     await requireSessionEmail();
     return NextResponse.json({
+      coverage: activityDetailCoverage(),
       availability: listActivityDetailAvailability(50),
       recentActivities: listRecentActivities(12).map((activity) => ({
         garminId: activity.garminId,
@@ -32,7 +35,10 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     await requireSessionEmail();
-    const body = (await request.json()) as { garminId?: string };
+    const body = (await request.json()) as {
+      garminId?: string;
+      force?: boolean;
+    };
     const garminId = String(body.garminId ?? "").trim();
     if (!garminId) {
       return NextResponse.json(
@@ -47,10 +53,19 @@ export async function POST(request: Request) {
         { status: 404 },
       );
     }
-    const result = await backfillActivityDetail(garminId);
-    return NextResponse.json(result, {
-      status: result.status === "failed" ? 502 : 200,
+    const result = await backfillActivityDetail(garminId, {
+      force: Boolean(body.force),
     });
+    return NextResponse.json(
+      {
+        ...result,
+        attempt: getActivityDetailAttempt(garminId),
+        coverage: activityDetailCoverage(),
+      },
+      {
+        status: result.status === "failed" ? 502 : 200,
+      },
+    );
   } catch (error) {
     return NextResponse.json(
       {

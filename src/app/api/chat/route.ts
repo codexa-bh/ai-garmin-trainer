@@ -9,11 +9,13 @@ import { selectedModel } from "@/lib/ai/providers";
 import { analyzeStoredActivity } from "@/lib/analytics/activity";
 import { requireSessionEmail } from "@/lib/auth/session";
 import {
+  activityDetailCoverage,
   appendChatMessage,
   clearConversationHistory,
   dataCounts,
   DEFAULT_CONVERSATION_ID,
   ensureConversation,
+  getActivityByGarminId,
   getTrainerProfile,
   listActivityDetailAvailability,
   listRecentActivities,
@@ -22,12 +24,17 @@ import {
   type ChatGrounding,
   type StoredChatMessage,
 } from "@/lib/db/repository";
+import { backfillActivityDetail, runGarminSync } from "@/lib/garmin/importer";
 import type { NormalizedActivity } from "@/lib/garmin/types";
 
 const CHAT_HISTORY_LIMIT = 12;
 
+function explicitGarminIds(text: string): string[] {
+  return [...new Set(text.match(/\b\d{6,}\b/g) ?? [])];
+}
+
 function explicitGarminId(text: string): string | null {
-  return text.match(/\b\d{6,}\b/)?.[0] ?? null;
+  return explicitGarminIds(text)[0] ?? null;
 }
 
 function isActivityAnalysisPrompt(text: string): boolean {
@@ -109,6 +116,22 @@ function apiMessage(message: StoredChatMessage) {
   };
 }
 
+function wantsSyncAction(text: string): boolean {
+  return /\b(sync|synchroni[sz]e|import garmin|refresh garmin)\b/i.test(text);
+}
+
+function wantsSyncStatus(text: string): boolean {
+  return /\b(sync status|detail coverage|coverage status|what.*synced|what.*imported)\b/i.test(
+    text,
+  );
+}
+
+function wantsDetailRefresh(text: string): boolean {
+  return /\b(refresh|force refresh|backfill|fetch detail|detail refresh)\b/i.test(
+    text,
+  );
+}
+
 function buildAnalysisGrounding(
   analysis: ReturnType<typeof analyzeStoredActivity>,
 ): ChatGrounding {
@@ -119,7 +142,7 @@ function buildAnalysisGrounding(
     activityDate: analysis.activity?.date ?? null,
     privacy: analysis.privacy,
     summary: analysis.activity
-      ? `${analysis.activity.distanceKm ?? "n/a"} km, ${analysis.activity.durationMin ?? "n/a"} min, avg HR ${analysis.activity.avgHeartRate ?? "n/a"}, ${analysis.streamSummary.records} normalized records`
+      ? `${analysis.activity.distanceKm ?? "n/a"} km, ${analysis.activity.durationMin ?? "n/a"} min, avg HR ${analysis.activity.avgHeartRate ?? "n/a"}, detail status ${analysis.availability?.status ?? "not_requested"}, ${analysis.streamSummary.records} normalized records`
       : "Activity was not found in local SQLite.",
   };
 }
@@ -132,12 +155,13 @@ function buildSystemContext(recentMessages: StoredChatMessage[]): string {
         `${item.garminId}: status ${item.status}, records ${item.recordCount}, laps ${item.lapCount}, streams ${item.hasStreams}, GPS ${item.hasGps}, HR ${item.hasHeartRate}, elevation ${item.hasElevation}`,
     )
     .join("\n");
+  const coverage = counts.detailCoverage;
   const context = `${buildTrainerContext({
     activities: listRecentActivities(),
     health: listRecentDailyHealth(),
     profile: getTrainerProfile(),
     recentMessages: formatRecentChatHistory(recentMessages, 10),
-  })}\n\nDetailed activity availability (local SQLite):\n${detailAvailability || "No detailed activities backfilled yet"}\n\nImported data counts: ${counts.activities} activities, ${counts.healthDays} daily health records, and ${counts.detailedActivities} locally detailed activities. Recent conversation is bounded to the latest local turns and concise tool evidence only. Use only selected recent facts and explicit tool/local analytics results for detailed claims. Never request or expose Garmin credentials, raw FIT bytes, raw connector payloads, or unbounded full-history/stream dumps.`;
+  })}\n\nDetailed activity availability (local SQLite):\n${detailAvailability || "No detailed activities backfilled yet"}\n\nImported data counts: ${counts.activities} activities, ${counts.healthDays} daily health records, and detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures). Recent conversation is bounded to the latest local turns and concise tool evidence only. Use only selected recent facts and explicit tool/local analytics results for detailed claims. Never describe summary-only analytics as FIT/stream analysis; only claim detailed FIT/stream evidence when an activity has available or partial detail with records/laps. Never request or expose Garmin credentials, raw FIT bytes, raw connector payloads, or unbounded full-history/stream dumps.`;
   return `${TRAINER_SYSTEM_PROMPT}\n\nGrounding context:\n${context}`;
 }
 
@@ -211,28 +235,153 @@ export async function POST(request: Request) {
     });
     const messagesForContext = [...previousMessages, userRecord];
     const recentActivities = listRecentActivities();
+    const explicitIds = explicitGarminIds(latestMessage);
+
+    if (wantsDetailRefresh(latestMessage) && explicitIds.length > 0) {
+      const garminId = explicitIds[0];
+      const activity = getActivityByGarminId(garminId);
+      const result = activity
+        ? await backfillActivityDetail(garminId, { force: true })
+        : null;
+      const coverage = activityDetailCoverage();
+      const assistantText = activity
+        ? [
+            `Forced local detail refresh for Garmin activity ${garminId}: ${result?.status ?? "failed"}, detail status ${result?.detailStatus ?? "failed"}.`,
+            `Records ${result?.recordCount ?? 0}; laps ${result?.lapCount ?? 0}; retryable ${result?.retryable ? "yes" : "no"}; preserved previous usable detail ${result?.preservedPrevious ? "yes" : "no"}.`,
+            result?.detail ?? "No connector detail returned.",
+            `Coverage now ${coverage.terminal}/${coverage.total} terminal; ${coverage.pending} pending; ${coverage.retryableFailures} retryable failures.`,
+            "Tool evidence: forceRefreshActivityDetail (server-side bounded action).",
+            "Privacy boundary: read-only Garmin connector call; raw FIT/connector payload and credentials were not sent to the model or retained.",
+          ].join("\n")
+        : `No imported local activity with Garmin ID ${garminId}. Run sync first or check the ID. Tool evidence: forceRefreshActivityDetail rejected unknown ID.`;
+      const grounding: ChatGrounding = {
+        tool: "forceRefreshActivityDetail",
+        activityId: garminId,
+        activityName: activity?.name ?? null,
+        activityDate: activity?.startedAt.toISOString().slice(0, 10) ?? null,
+        privacy:
+          "Server-side bounded action used normalized local data and discarded raw connector payloads.",
+        summary: assistantText.slice(0, 500),
+      };
+      const assistantRecord = appendChatMessage({
+        conversationId,
+        role: "assistant",
+        content: assistantText,
+        grounding,
+      });
+      const messages = listRecentChatMessages(
+        conversationId,
+        CHAT_HISTORY_LIMIT,
+      );
+      return NextResponse.json({
+        conversationId,
+        messages: messages.map(apiMessage),
+        assistant: apiMessage(assistantRecord),
+        contextWindow: Math.min(messagesForContext.length, 10),
+        historyLimit: CHAT_HISTORY_LIMIT,
+        toolEvidence: grounding,
+      });
+    }
+
+    if (wantsSyncStatus(latestMessage)) {
+      const coverage = activityDetailCoverage();
+      const counts = dataCounts();
+      const assistantText = `Local Garmin status: ${counts.activities} activity summaries, ${counts.healthDays} health days, detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures, ${coverage.preservedFailures} preserved failed refreshes). Tool evidence: syncStatus.`;
+      const grounding: ChatGrounding = {
+        tool: "syncStatus",
+        privacy: "Read from local normalized SQLite only.",
+        summary: assistantText,
+      };
+      const assistantRecord = appendChatMessage({
+        conversationId,
+        role: "assistant",
+        content: assistantText,
+        grounding,
+      });
+      const messages = listRecentChatMessages(
+        conversationId,
+        CHAT_HISTORY_LIMIT,
+      );
+      return NextResponse.json({
+        conversationId,
+        messages: messages.map(apiMessage),
+        assistant: apiMessage(assistantRecord),
+        contextWindow: Math.min(messagesForContext.length, 10),
+        historyLimit: CHAT_HISTORY_LIMIT,
+        toolEvidence: grounding,
+      });
+    }
+
+    if (wantsSyncAction(latestMessage)) {
+      const result = await runGarminSync();
+      const assistantText = `${result.status === "completed" ? "Garmin sync completed" : "Garmin sync failed"}: ${result.detail} Tool evidence: runGarminSync. Privacy boundary: read-only stdio connector, normalized SQLite writes only, no Garmin write-back.`;
+      const grounding: ChatGrounding = {
+        tool: "runGarminSync",
+        privacy:
+          "Read-only Garmin MCP stdio connector and app-owned normalized SQLite writes only.",
+        summary: assistantText.slice(0, 500),
+      };
+      const assistantRecord = appendChatMessage({
+        conversationId,
+        role: "assistant",
+        content: assistantText,
+        grounding,
+      });
+      const messages = listRecentChatMessages(
+        conversationId,
+        CHAT_HISTORY_LIMIT,
+      );
+      return NextResponse.json({
+        conversationId,
+        messages: messages.map(apiMessage),
+        assistant: apiMessage(assistantRecord),
+        contextWindow: Math.min(messagesForContext.length, 10),
+        historyLimit: CHAT_HISTORY_LIMIT,
+        toolEvidence: grounding,
+      });
+    }
+
     const activityId = resolveActivityId(
       latestMessage,
       recentActivities,
       previousMessages,
     );
+    const activityIds =
+      explicitIds.length > 1 ? explicitIds : activityId ? [activityId] : [];
     const { model } = selectedModel();
     const system = buildSystemContext(messagesForContext);
 
     let assistantText: string;
     let grounding: ChatGrounding | null = null;
 
-    if (activityId) {
-      const analysis = analyzeStoredActivity(activityId);
-      grounding = buildAnalysisGrounding(analysis);
-      const analysisJson = JSON.stringify(analysis).slice(0, 12000);
+    if (activityIds.length) {
+      const analyses = activityIds.map((id) => analyzeStoredActivity(id));
+      grounding =
+        analyses.length === 1
+          ? buildAnalysisGrounding(analyses[0])
+          : {
+              tool: "analyzeActivity",
+              privacy:
+                "Computed from local normalized SQLite summaries/detail only; raw FIT and credentials were not sent to the model.",
+              summary: analyses
+                .map(
+                  (analysis) =>
+                    `${analysis.activity?.garminId ?? "unknown"}: ${analysis.activity ? `detail ${analysis.availability?.status ?? "not_requested"}, records ${analysis.streamSummary.records}` : "not found locally"}`,
+                )
+                .join("; "),
+            };
+      const analysisJson = JSON.stringify(analyses).slice(0, 16000);
       const result = await generateText({
         model,
-        system: `${system}\n\nDeterministic local analytics result from analyzeActivity (server-side prefetch; no provider tool loop):\n${analysisJson}\n\nWrite the answer from this analytics JSON and the bounded recent conversation when useful. Mention Tool evidence: analyzeActivity.`,
+        system: `${system}\n\nDeterministic local analytics results from analyzeActivity for every explicit requested activity ID (server-side prefetch; no provider tool loop):\n${analysisJson}\n\nWrite the answer from this analytics JSON and the bounded recent conversation when useful. Address every requested ID separately. If an activity has only a summary or no stream records, say so and do not describe it as detailed FIT/stream analysis. Mention Tool evidence: analyzeActivity.`,
         prompt: latestMessage,
       });
-      assistantText = result.text.trim() || fallbackActivityAnswer(analysis);
-      assistantText = `${assistantText}\n\nTool evidence: analyzeActivity (server-side deterministic prefetch)\nPrivacy boundary: ${analysis.privacy}`;
+      assistantText =
+        result.text.trim() ||
+        analyses
+          .map((analysis) => fallbackActivityAnswer(analysis))
+          .join("\n\n");
+      assistantText = `${assistantText}\n\nTool evidence: analyzeActivity (server-side deterministic prefetch for ${activityIds.join(", ")})\nPrivacy boundary: ${analyses[0].privacy}`;
     } else {
       const result = await generateText({
         model,

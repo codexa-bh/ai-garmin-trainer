@@ -8,7 +8,11 @@ import type {
   NormalizedDailyHealth,
 } from "../garmin/types";
 import type {
+  ActivityDetailAttempt,
+  ActivityDetailAttemptStatus,
   ActivityDetailAvailability,
+  ActivityDetailCoverage,
+  ActivityDetailStatus,
   ActivityLapDetail,
   ActivityStreamPoint,
   NormalizedActivityDetail,
@@ -37,6 +41,9 @@ function ensureColumn(
 }
 
 function ensureActivityDetailColumns(db: Database.Database): void {
+  db.exec(
+    `create table if not exists activity_detail_attempt (garmin_id text primary key, attempted_at integer not null, completed_at integer, force integer not null default 0, status text not null, detail_status text, retryable integer not null default 0, error_class text, error_message text, preserved_previous integer not null default 0)`,
+  );
   ensureColumn(db, "activity", "name", "name text");
   ensureColumn(db, "activity", "max_heart_rate", "max_heart_rate integer");
   ensureColumn(db, "activity", "steps", "steps integer");
@@ -297,6 +304,121 @@ export function upsertActivityDetail(detail: NormalizedActivityDetail): void {
   })();
 }
 
+export function recordActivityDetailAttempt(input: {
+  garminId: string;
+  force?: boolean;
+  status: ActivityDetailAttemptStatus;
+  detailStatus?: ActivityDetailStatus | null;
+  retryable?: boolean;
+  errorClass?: string | null;
+  errorMessage?: string | null;
+  preservedPrevious?: boolean;
+}): void {
+  getDatabase()
+    .prepare(
+      `insert into activity_detail_attempt (garmin_id, attempted_at, completed_at, force, status, detail_status, retryable, error_class, error_message, preserved_previous)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       on conflict(garmin_id) do update set
+         attempted_at=excluded.attempted_at,
+         completed_at=excluded.completed_at,
+         force=excluded.force,
+         status=excluded.status,
+         detail_status=excluded.detail_status,
+         retryable=excluded.retryable,
+         error_class=excluded.error_class,
+         error_message=excluded.error_message,
+         preserved_previous=excluded.preserved_previous`,
+    )
+    .run(
+      input.garminId,
+      Date.now(),
+      input.status === "running" ? null : Date.now(),
+      bool(Boolean(input.force)),
+      input.status,
+      input.detailStatus ?? null,
+      bool(Boolean(input.retryable)),
+      input.errorClass ?? null,
+      input.errorMessage?.slice(0, 1000) ?? null,
+      bool(Boolean(input.preservedPrevious)),
+    );
+}
+
+export function getActivityDetailAttempt(
+  garminId: string,
+): ActivityDetailAttempt | null {
+  const row = getDatabase()
+    .prepare(
+      `select garmin_id as garminId, attempted_at as attemptedAt, completed_at as completedAt,
+              force, status, detail_status as detailStatus, retryable, error_class as errorClass,
+              error_message as errorMessage, preserved_previous as preservedPrevious
+       from activity_detail_attempt where garmin_id = ?`,
+    )
+    .get(garminId) as
+    | (Omit<
+        ActivityDetailAttempt,
+        | "attemptedAt"
+        | "completedAt"
+        | "force"
+        | "retryable"
+        | "preservedPrevious"
+      > & {
+        attemptedAt: number;
+        completedAt: number | null;
+        force: number;
+        retryable: number;
+        preservedPrevious: number;
+      })
+    | undefined;
+  return row
+    ? {
+        ...row,
+        attemptedAt: new Date(row.attemptedAt),
+        completedAt: row.completedAt ? new Date(row.completedAt) : null,
+        force: Boolean(row.force),
+        retryable: Boolean(row.retryable),
+        preservedPrevious: Boolean(row.preservedPrevious),
+      }
+    : null;
+}
+
+export function listActivityIdsNeedingDetail(limit = 500): string[] {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 5000);
+  const rows = getDatabase()
+    .prepare(
+      `select a.garmin_id as garminId
+       from activity a
+       left join activity_detail_availability d on d.garmin_id = a.garmin_id
+       left join activity_detail_attempt t on t.garmin_id = a.garmin_id
+       where d.status is null
+          or d.status = 'not_requested'
+          or (t.status = 'failed' and t.retryable = 1 and coalesce(d.status, '') not in ('available', 'partial', 'unsupported'))
+       order by a.started_at asc
+       limit ?`,
+    )
+    .all(safeLimit) as Array<{ garminId: string }>;
+  return rows.map((row) => row.garminId);
+}
+
+export function activityDetailCoverage(): ActivityDetailCoverage {
+  const row = getDatabase()
+    .prepare(
+      `select
+         (select count(*) from activity) as total,
+         (select count(*) from activity a left join activity_detail_availability d on d.garmin_id = a.garmin_id where d.status is null or d.status = 'not_requested') as pending,
+         (select count(*) from activity_detail_availability where status = 'available') as available,
+         (select count(*) from activity_detail_availability where status = 'partial') as partial,
+         (select count(*) from activity_detail_availability where status = 'unsupported') as unsupported,
+         (select count(*) from activity_detail_attempt where status = 'running') as inProgress,
+         (select count(*) from activity_detail_attempt t left join activity_detail_availability d on d.garmin_id = t.garmin_id where t.status = 'failed' and t.retryable = 1 and coalesce(d.status, '') not in ('available', 'partial', 'unsupported')) as retryableFailures,
+         (select count(*) from activity_detail_attempt where status = 'failed' and preserved_previous = 1) as preservedFailures`,
+    )
+    .get() as Omit<ActivityDetailCoverage, "terminal">;
+  return {
+    ...row,
+    terminal: row.available + row.partial + row.unsupported,
+  };
+}
+
 export function getActivityByGarminId(
   garminId: string,
 ): NormalizedActivity | null {
@@ -422,6 +544,7 @@ export function dataCounts(): {
   activities: number;
   healthDays: number;
   detailedActivities: number;
+  detailCoverage: ActivityDetailCoverage;
 } {
   const activityRow = getDatabase()
     .prepare("select count(*) as count from activity")
@@ -438,12 +561,15 @@ export function dataCounts(): {
     activities: activityRow.count,
     healthDays: healthRow.count,
     detailedActivities: detailRow.count,
+    detailCoverage: activityDetailCoverage(),
   };
 }
 
 export function importSummary(): {
   activities: number;
   healthDays: number;
+  detailedActivities: number;
+  detailCoverage: ActivityDetailCoverage;
   latestActivityDate: string | null;
   healthStartDate: string | null;
   healthEndDate: string | null;

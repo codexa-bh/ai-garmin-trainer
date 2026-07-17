@@ -1,7 +1,10 @@
+export type ActivityDetailStatus =
+  "not_requested" | "available" | "partial" | "unsupported" | "failed";
+
 export type ActivityDetailAvailability = {
   garminId: string;
   fetchedAt: Date | null;
-  status: "not_requested" | "available" | "partial" | "unsupported" | "failed";
+  status: ActivityDetailStatus;
   hasSession: boolean;
   hasLaps: boolean;
   hasStreams: boolean;
@@ -42,6 +45,34 @@ export type ActivityStreamPoint = {
   cadence: number | null;
   powerWatts: number | null;
   temperatureC: number | null;
+};
+
+export type ActivityDetailAttemptStatus =
+  "running" | "succeeded" | "unsupported" | "failed";
+
+export type ActivityDetailAttempt = {
+  garminId: string;
+  attemptedAt: Date;
+  completedAt: Date | null;
+  force: boolean;
+  status: ActivityDetailAttemptStatus;
+  detailStatus: ActivityDetailStatus | null;
+  retryable: boolean;
+  errorClass: string | null;
+  errorMessage: string | null;
+  preservedPrevious: boolean;
+};
+
+export type ActivityDetailCoverage = {
+  total: number;
+  pending: number;
+  available: number;
+  partial: number;
+  unsupported: number;
+  retryableFailures: number;
+  preservedFailures: number;
+  inProgress: number;
+  terminal: number;
 };
 
 export type NormalizedActivityDetail = ActivityDetailAvailability & {

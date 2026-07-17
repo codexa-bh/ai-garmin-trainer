@@ -181,15 +181,17 @@ export function TrainerDashboard() {
             detail?: string;
             activitiesImported?: number;
             healthDaysImported?: number;
+            detailsProcessed?: number;
+            detailTotal?: number;
           };
           if (event.type === "result") {
             finalKind = event.status === "completed" ? "ok" : "error";
             appendLine(
-              `Result: ${event.status}. Activities: ${event.activitiesImported ?? 0}; health days: ${event.healthDaysImported ?? 0}. ${event.detail ?? ""}`,
+              `Result: ${event.status}. Activities: ${event.activitiesImported ?? 0}; health days: ${event.healthDaysImported ?? 0}; details processed: ${event.detailsProcessed ?? 0}. ${event.detail ?? ""}`,
             );
           } else {
             appendLine(
-              `${event.stage ?? "progress"}: ${event.message ?? "working"} (activities ${event.activitiesImported ?? 0}, health days ${event.healthDaysImported ?? 0})`,
+              `${event.stage ?? "progress"}: ${event.message ?? "working"} (activities ${event.activitiesImported ?? 0}, health days ${event.healthDaysImported ?? 0}, details ${event.detailsProcessed ?? 0}/${event.detailTotal ?? 0})`,
             );
           }
         }
@@ -226,7 +228,7 @@ export function TrainerDashboard() {
       fetch("/api/activity-detail", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ garminId }),
+        body: JSON.stringify({ garminId, force: true }),
       }),
     );
   }
@@ -373,9 +375,9 @@ export function TrainerDashboard() {
       <article>
         <h2>Activity detail</h2>
         <p>
-          Backfill one imported activity at a time into local SQLite detail
-          tables. Raw FIT payloads are discarded after normalization; trainer
-          tools expose only bounded computed summaries/slices.
+          Force-refresh one imported activity or inspect total detail coverage.
+          Failed refreshes preserve the last usable normalized detail when one
+          exists; raw FIT payloads are discarded after normalization.
         </p>
         <input
           aria-label="Garmin activity ID"
@@ -384,7 +386,7 @@ export function TrainerDashboard() {
           onChange={(event) => setDetailGarminId(event.target.value)}
         />
         <button type="button" onClick={backfillDetail}>
-          Backfill detail
+          Force refresh detail
         </button>
         <button type="button" onClick={refreshDetailCoverage}>
           Show detail coverage

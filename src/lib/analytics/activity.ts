@@ -221,12 +221,15 @@ export function analyzeStoredActivity(garminId: string) {
       availability: day.availability,
     })),
     limitations: [
+      !detail.activity
+        ? "No imported local activity summary was found for this Garmin ID."
+        : null,
       detail.availability
         ? null
         : "No detailed FIT/stream backfill has been run for this activity yet.",
       stream.length
         ? null
-        : "No per-second stream points are available; analytics are limited to summaries/laps.",
+        : "No per-second stream points are available; analytics must be described as summary-only or lap/session-limited, not detailed stream analysis.",
     ].filter(Boolean),
   };
 }

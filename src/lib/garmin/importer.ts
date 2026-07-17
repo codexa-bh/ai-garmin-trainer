@@ -1,8 +1,12 @@
 import { getOptionalEnv, requireRuntimeEnv } from "../env";
 import {
+  activityDetailCoverage,
   dataCounts,
   finishSyncRun,
+  getActivityDetailForAnalytics,
   getCheckpoint,
+  listActivityIdsNeedingDetail,
+  recordActivityDetailAttempt,
   recordSyncRun,
   saveCheckpoint,
   upsertActivities,
@@ -26,16 +30,21 @@ export type GarminSyncResult = {
   status: "completed" | "failed";
   activitiesImported: number;
   healthDaysImported: number;
+  detailsProcessed: number;
   coverageStart: string;
   coverageEnd: string;
+  detailCoverage: ReturnType<typeof activityDetailCoverage>;
   detail: string;
 };
 
 export type GarminSyncProgress = {
-  stage: "starting" | "activities" | "health" | "completed" | "failed";
+  stage:
+    "starting" | "activities" | "health" | "detail" | "completed" | "failed";
   message: string;
   activitiesImported: number;
   healthDaysImported: number;
+  detailsProcessed?: number;
+  detailTotal?: number;
   page?: number;
   date?: string;
   totalHealthDays?: number;
@@ -77,6 +86,7 @@ export async function runGarminSync(
   const client = new GarminMcpClient();
   let activitiesImported = 0;
   let healthDaysImported = 0;
+  let detailsProcessed = 0;
 
   try {
     onProgress({
@@ -151,6 +161,21 @@ export async function runGarminSync(
       });
     }
 
+    const detailIds = listActivityIdsNeedingDetail();
+    for (const [index, garminId] of detailIds.entries()) {
+      onProgress({
+        stage: "detail",
+        message: `Backfilling activity detail ${index + 1}/${detailIds.length}: ${garminId}…`,
+        activitiesImported,
+        healthDaysImported,
+        detailsProcessed,
+        detailTotal: detailIds.length,
+      });
+      await fetchAndStoreActivityDetail(client, garminId, { force: false });
+      detailsProcessed += 1;
+      saveCheckpoint("activity_detail_last_id", garminId);
+    }
+
     saveCheckpoint("activity_page", "0");
     finishSyncRun(syncRunId, "completed");
     const totals = dataCounts();
@@ -158,15 +183,19 @@ export async function runGarminSync(
       status: "completed" as const,
       activitiesImported,
       healthDaysImported,
+      detailsProcessed,
       coverageStart: startDate,
       coverageEnd: endDate,
-      detail: `Garmin sync completed through the pinned stdio MCP connector. Database now has ${totals.activities} activities and ${totals.healthDays} health days. Raw connector payloads were normalized in memory and not retained.`,
+      detailCoverage: totals.detailCoverage,
+      detail: `Garmin sync completed through the pinned stdio MCP connector. Database now has ${totals.activities} activities, ${totals.healthDays} health days, and detail coverage ${totals.detailCoverage.terminal}/${totals.detailCoverage.total} terminal (${totals.detailCoverage.retryableFailures} retryable failures, ${totals.detailCoverage.pending} pending). Raw connector payloads were normalized in memory and not retained.`,
     };
     onProgress({
       stage: "completed",
       message: result.detail,
       activitiesImported,
       healthDaysImported,
+      detailsProcessed,
+      detailTotal: detailIds.length,
     });
     return result;
   } catch (error) {
@@ -183,8 +212,10 @@ export async function runGarminSync(
       status: "failed",
       activitiesImported,
       healthDaysImported,
+      detailsProcessed,
       coverageStart: startDate,
       coverageEnd: endDate,
+      detailCoverage: activityDetailCoverage(),
       detail: message.slice(0, 1000),
     };
   } finally {
@@ -198,15 +229,52 @@ export type DetailedBackfillResult = {
   detailStatus: "available" | "partial" | "unsupported" | "failed";
   recordCount: number;
   lapCount: number;
+  preservedPrevious: boolean;
+  retryable: boolean;
   detail: string;
 };
 
-export async function backfillActivityDetail(
+type DetailRefreshOptions = { force?: boolean };
+
+function classifyDetailError(error: unknown): {
+  errorClass: string;
+  message: string;
+  retryable: boolean;
+} {
+  const message =
+    error instanceof Error ? error.message : "detail backfill failed";
+  const normalized = message.toLowerCase();
+  const stableUnsupported = /not found|unsupported|no fit|unavailable/.test(
+    normalized,
+  );
+  const auth = /auth|token|login|credential/.test(normalized);
+  const timeout = /timeout|timed out|rate|429/.test(normalized);
+  return {
+    errorClass: auth
+      ? "auth"
+      : timeout
+        ? "timeout"
+        : stableUnsupported
+          ? "unsupported"
+          : "connector",
+    message: message.slice(0, 1000),
+    retryable: !stableUnsupported,
+  };
+}
+
+async function fetchAndStoreActivityDetail(
+  client: GarminMcpClient,
   garminId: string,
+  options: DetailRefreshOptions = {},
 ): Promise<DetailedBackfillResult> {
-  const client = new GarminMcpClient();
+  const previous = getActivityDetailForAnalytics(garminId).availability;
+  recordActivityDetailAttempt({
+    garminId,
+    force: options.force,
+    status: "running",
+    retryable: false,
+  });
   try {
-    await client.start();
     const text = await client.callTool("get_activity_fit_data", {
       activity_id: garminId,
       include_records: true,
@@ -217,12 +285,22 @@ export async function backfillActivityDetail(
       upsertActivityDetail(detail);
       const detailStatus =
         detail.status === "not_requested" ? "unsupported" : detail.status;
+      recordActivityDetailAttempt({
+        garminId,
+        force: options.force,
+        status: detailStatus === "unsupported" ? "unsupported" : "succeeded",
+        detailStatus,
+        retryable: false,
+        preservedPrevious: false,
+      });
       return {
         status: "completed",
         garminId,
         detailStatus,
         recordCount: detail.recordCount,
         lapCount: detail.lapCount,
+        preservedPrevious: false,
+        retryable: false,
         detail: `Detailed Garmin activity ${garminId} normalized locally from FIT parser. Records: ${detail.recordCount}; laps: ${detail.lapCount}. Raw FIT/connector payload was discarded after normalization.`,
       };
     }
@@ -233,30 +311,67 @@ export async function backfillActivityDetail(
         : "Connector returned an unparseable activity detail payload.",
     );
     upsertActivityDetail(unsupported);
-    const detailStatus =
-      unsupported.status === "not_requested"
-        ? "unsupported"
-        : unsupported.status;
+    recordActivityDetailAttempt({
+      garminId,
+      force: options.force,
+      status: "unsupported",
+      detailStatus: "unsupported",
+      retryable: false,
+      preservedPrevious: false,
+    });
     return {
       status: "completed",
       garminId,
-      detailStatus,
+      detailStatus: "unsupported",
       recordCount: 0,
       lapCount: 0,
+      preservedPrevious: false,
+      retryable: false,
       detail: unsupported.unavailableReason ?? "Activity detail unsupported.",
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "detail backfill failed";
-    upsertActivityDetail(normalizeUnsupportedActivityDetail(garminId, message));
+    const classified = classifyDetailError(error);
+    const preservedPrevious = Boolean(
+      previous && ["available", "partial"].includes(previous.status),
+    );
+    if (!classified.retryable && !preservedPrevious) {
+      upsertActivityDetail(
+        normalizeUnsupportedActivityDetail(garminId, classified.message),
+      );
+    }
+    recordActivityDetailAttempt({
+      garminId,
+      force: options.force,
+      status: "failed",
+      detailStatus: "failed",
+      retryable: classified.retryable,
+      errorClass: classified.errorClass,
+      errorMessage: classified.message,
+      preservedPrevious,
+    });
     return {
       status: "failed",
       garminId,
       detailStatus: "failed",
-      recordCount: 0,
-      lapCount: 0,
-      detail: message.slice(0, 1000),
+      recordCount: previous?.recordCount ?? 0,
+      lapCount: previous?.lapCount ?? 0,
+      preservedPrevious,
+      retryable: classified.retryable,
+      detail: preservedPrevious
+        ? `${classified.message}. Previous usable normalized detail was preserved.`
+        : classified.message,
     };
+  }
+}
+
+export async function backfillActivityDetail(
+  garminId: string,
+  options: DetailRefreshOptions = {},
+): Promise<DetailedBackfillResult> {
+  const client = new GarminMcpClient();
+  try {
+    await client.start();
+    return await fetchAndStoreActivityDetail(client, garminId, options);
   } finally {
     client.close();
   }

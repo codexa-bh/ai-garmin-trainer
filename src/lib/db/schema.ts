@@ -125,6 +125,21 @@ export const activityDetailAvailability = sqliteTable(
   },
 );
 
+export const activityDetailAttempt = sqliteTable("activity_detail_attempt", {
+  garminId: text("garmin_id").primaryKey(),
+  attemptedAt: integer("attempted_at", { mode: "timestamp" }).notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  force: integer("force", { mode: "boolean" }).notNull().default(false),
+  status: text("status").notNull(),
+  detailStatus: text("detail_status"),
+  retryable: integer("retryable", { mode: "boolean" }).notNull().default(false),
+  errorClass: text("error_class"),
+  errorMessage: text("error_message"),
+  preservedPrevious: integer("preserved_previous", { mode: "boolean" })
+    .notNull()
+    .default(false),
+});
+
 export const activityLap = sqliteTable("activity_lap", {
   garminId: text("garmin_id").notNull(),
   lapNumber: integer("lap_number").notNull(),
