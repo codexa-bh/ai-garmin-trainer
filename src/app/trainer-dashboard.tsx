@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
 type ChatRole = "user" | "assistant";
@@ -25,6 +25,29 @@ type ChatPayload = {
   contextWindow?: number;
   historyLimit?: number;
   toolEvidence?: ChatGrounding | null;
+};
+type TrainerProfilePayload = {
+  goals: string[];
+  sports: string[];
+  preferences: Record<string, unknown>;
+  constraints: string[];
+};
+type ProfileResponse = { ok?: boolean; profile?: TrainerProfilePayload };
+type ProfileFields = {
+  goals: string;
+  sports: string;
+  preferences: string;
+  constraints: string;
+};
+type ProfileFetchState =
+  "idle" | "loading" | "loaded" | "unauthenticated" | "error";
+type ProfileSaveState = "idle" | "saving" | "saved" | "error";
+
+const emptyProfileFields: ProfileFields = {
+  goals: "",
+  sports: "",
+  preferences: "{}",
+  constraints: "",
 };
 
 async function readResponse(response: Response): Promise<string> {
@@ -56,6 +79,52 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+function linesToText(items: string[] | undefined): string {
+  return (items ?? []).join("\n");
+}
+
+function textToLines(value: string): string[] {
+  return value
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function profileToFields(profile: TrainerProfilePayload): ProfileFields {
+  return {
+    goals: linesToText(profile.goals),
+    sports: linesToText(profile.sports),
+    preferences: JSON.stringify(profile.preferences ?? {}, null, 2),
+    constraints: linesToText(profile.constraints),
+  };
+}
+
+function parsePreferences(value: string): Record<string, unknown> {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  const parsed = JSON.parse(trimmed) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Preferences must be a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function profileStatusLabel(
+  fetchState: ProfileFetchState,
+  saveState: ProfileSaveState,
+  dirty: boolean,
+): string {
+  if (saveState === "saving") return "Saving Profile…";
+  if (dirty) return "Unsaved Profile changes";
+  if (saveState === "saved") return "Profile saved";
+  if (fetchState === "loading") return "Loading saved Profile…";
+  if (fetchState === "unauthenticated") return "Sign in to load Profile";
+  if (fetchState === "error" || saveState === "error")
+    return "Profile needs attention";
+  if (fetchState === "loaded") return "Profile loaded";
+  return "Profile ready";
+}
+
 export function TrainerDashboard() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>({
@@ -69,19 +138,94 @@ export function TrainerDashboard() {
   const [historyLimit, setHistoryLimit] = useState(12);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [lastFailedMessage, setLastFailedMessage] = useState("");
-  const [profileGoals, setProfileGoals] = useState("");
-  const [profileSports, setProfileSports] = useState("");
-  const [profileConstraints, setProfileConstraints] = useState("");
+  const [profileFields, setProfileFields] =
+    useState<ProfileFields>(emptyProfileFields);
+  const [profileFetchState, setProfileFetchState] =
+    useState<ProfileFetchState>("idle");
+  const [profileSaveState, setProfileSaveState] =
+    useState<ProfileSaveState>("idle");
+  const [isProfileDirty, setIsProfileDirty] = useState(false);
+  const [profileMessage, setProfileMessage] = useState(
+    "Saved local Profile will load after sign-in.",
+  );
   const [detailGarminId, setDetailGarminId] = useState("");
+  const profileDirtyRef = useRef(false);
+  const profileRequestRef = useRef(0);
 
   const latestToolEvidence = useMemo(
     () => [...chatMessages].reverse().find((item) => item.grounding)?.grounding,
     [chatMessages],
   );
+  const profileSummary = profileStatusLabel(
+    profileFetchState,
+    profileSaveState,
+    isProfileDirty,
+  );
+  const profileControlsDisabled =
+    profileFetchState === "loading" || profileSaveState === "saving";
 
   useEffect(() => {
     void loadChatHistory(false);
+    void loadProfile("startup");
   }, []);
+
+  function setProfileDirty(value: boolean) {
+    profileDirtyRef.current = value;
+    setIsProfileDirty(value);
+  }
+
+  function updateProfileField(key: keyof ProfileFields, value: string) {
+    setProfileFields((current) => ({ ...current, [key]: value }));
+    setProfileDirty(true);
+    if (profileSaveState === "saved") setProfileSaveState("idle");
+    setProfileMessage(
+      "Unsaved changes. Save Profile to update trainer grounding.",
+    );
+  }
+
+  function applyProfile(profile: TrainerProfilePayload) {
+    setProfileFields(profileToFields(profile));
+    setProfileDirty(false);
+  }
+
+  async function loadProfile(trigger: "startup" | "post-login" | "manual") {
+    const requestId = profileRequestRef.current + 1;
+    profileRequestRef.current = requestId;
+    setProfileFetchState("loading");
+    setProfileMessage(
+      trigger === "post-login"
+        ? "Loading saved Profile for this local session…"
+        : "Loading saved local Profile…",
+    );
+
+    try {
+      const response = await fetch("/api/profile", { method: "GET" });
+      if (response.status === 401 || response.status === 403) {
+        if (profileRequestRef.current !== requestId) return;
+        setProfileFetchState("unauthenticated");
+        setProfileMessage("Sign in to load the Profile saved in local SQLite.");
+        return;
+      }
+      const payload = await readJsonResponse<TrainerProfilePayload>(response);
+      if (profileRequestRef.current !== requestId) return;
+      setProfileFetchState("loaded");
+      if (profileDirtyRef.current) {
+        setProfileMessage(
+          "Saved Profile is available, but current edits were preserved. Save them or reload Profile to replace the form.",
+        );
+        return;
+      }
+      applyProfile(payload);
+      setProfileSaveState("saved");
+      setProfileMessage("Saved Profile loaded from local SQLite.");
+    } catch (error) {
+      if (profileRequestRef.current !== requestId) return;
+      setProfileFetchState("error");
+      setProfileMessage(
+        `Profile load failed without changing the form: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
+  }
 
   async function loadChatHistory(showStatus = true) {
     if (showStatus)
@@ -136,6 +280,7 @@ export function TrainerDashboard() {
       }),
     );
     await loadChatHistory(false);
+    await loadProfile("post-login");
   }
 
   async function syncNow() {
@@ -256,18 +401,65 @@ export function TrainerDashboard() {
   }
 
   async function saveProfile() {
-    await runAction("Save profile", () =>
-      fetch("/api/profile", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          goals: profileGoals,
-          sports: profileSports,
-          constraints: profileConstraints,
-          preferences: {},
+    let preferences: Record<string, unknown>;
+    try {
+      preferences = parsePreferences(profileFields.preferences);
+    } catch (error) {
+      setProfileSaveState("error");
+      setProfileMessage(
+        error instanceof Error
+          ? error.message
+          : "Preferences must be valid JSON.",
+      );
+      setStatus({
+        kind: "error",
+        message: "Profile: preferences must be a JSON object before saving.",
+      });
+      return;
+    }
+
+    const submittedProfile: TrainerProfilePayload = {
+      goals: textToLines(profileFields.goals),
+      sports: textToLines(profileFields.sports),
+      constraints: textToLines(profileFields.constraints),
+      preferences,
+    };
+
+    setProfileSaveState("saving");
+    setProfileDirty(false);
+    setProfileMessage("Saving Profile to local SQLite…");
+    setStatus({ kind: "busy", message: "Profile: saving…" });
+
+    try {
+      const payload = await readJsonResponse<ProfileResponse>(
+        await fetch("/api/profile", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(submittedProfile),
         }),
-      }),
-    );
+      );
+      setProfileFetchState("loaded");
+      setProfileSaveState("saved");
+      if (profileDirtyRef.current) {
+        setProfileMessage(
+          "Previous Profile values were saved; current edits remain unsaved.",
+        );
+      } else {
+        applyProfile(payload.profile ?? submittedProfile);
+        setProfileMessage("Profile saved and ready for trainer grounding.");
+      }
+      setStatus({ kind: "ok", message: "Profile: saved to local SQLite." });
+    } catch (error) {
+      setProfileSaveState("error");
+      setProfileDirty(true);
+      setProfileMessage(
+        `Profile save failed; unsaved edits are still in the form: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      setStatus({
+        kind: "error",
+        message: `Profile save failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      });
+    }
   }
 
   async function submitChat(text: string) {
@@ -319,18 +511,24 @@ export function TrainerDashboard() {
   }
 
   return (
-    <section className="grid">
-      <article>
-        <h2>Sign in</h2>
-        <p>
-          For this local MVP smoke, use one-click local sign-in with the first
-          configured <code>ALLOWED_GOOGLE_EMAILS</code> entry. Google OAuth
-          remains configured through <code>/api/auth</code>.
-        </p>
-        <button type="button" onClick={() => localDevLogin()}>
-          Use configured local session
-        </button>
-        <form onSubmit={localDevLogin} className="stack">
+    <section className="dashboard-shell" aria-label="AI trainer dashboard">
+      <article className="signin-card compact-card">
+        <div>
+          <p className="section-kicker">Local session</p>
+          <h2>Sign in</h2>
+          <p>
+            Use one-click local sign-in with the first configured{" "}
+            <code>ALLOWED_GOOGLE_EMAILS</code> entry, or type an allowlisted
+            email. Google OAuth remains configured through{" "}
+            <code>/api/auth</code>.
+          </p>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={() => localDevLogin()}>
+            Use configured local session
+          </button>
+        </div>
+        <form onSubmit={localDevLogin} className="inline-form">
           <input
             aria-label="Allowlisted email"
             placeholder="you@example.com"
@@ -341,243 +539,337 @@ export function TrainerDashboard() {
         </form>
       </article>
 
-      <article>
-        <h2>Connector</h2>
-        <p>
-          Run <code>garmin-mcp-auth</code> outside the app, then use Sync now.
-          The app uses only pinned stdio read operations and never sees your
-          Garmin password.
-        </p>
-        <button
-          type="button"
-          onClick={() =>
-            runAction("Verify connector", () => fetch("/api/sync"))
-          }
-        >
-          Verify connector
-        </button>
-        <button type="button" onClick={syncNow}>
-          Sync now
-        </button>
-      </article>
-
-      <article>
-        <h2>Import summary</h2>
-        <p>
-          Check imported totals, latest activity date, and health coverage
-          before asking the trainer to reason about trends.
-        </p>
-        <button type="button" onClick={refreshSummary}>
-          Refresh import summary
-        </button>
-      </article>
-
-      <article>
-        <h2>Activity detail</h2>
-        <p>
-          Force-refresh one imported activity or inspect total detail coverage.
-          Failed refreshes preserve the last usable normalized detail when one
-          exists; raw FIT payloads are discarded after normalization.
-        </p>
-        <input
-          aria-label="Garmin activity ID"
-          placeholder="Garmin activity ID"
-          value={detailGarminId}
-          onChange={(event) => setDetailGarminId(event.target.value)}
-        />
-        <button type="button" onClick={backfillDetail}>
-          Force refresh detail
-        </button>
-        <button type="button" onClick={refreshDetailCoverage}>
-          Show detail coverage
-        </button>
-      </article>
-
-      <article className="wide">
-        <div className="chat-header">
-          <div>
-            <h2>Trainer chat</h2>
-            <p>
-              Responses cite relevant dates, activities, trends, and
-              deterministic analytics tool results when activity detail is
-              needed. Conversation history and profile memory persist locally.
-            </p>
-          </div>
-          <div className="context-card" aria-label="Recent context window">
-            <strong>Recent context</strong>
-            <span>
-              {contextWindow}/{historyLimit} local messages sent to grounding
-            </span>
-            <span>Conversation: {conversationId}</span>
-            {latestToolEvidence ? (
+      <div className="product-grid">
+        <article className="trainer-card" aria-labelledby="trainer-heading">
+          <div className="chat-header">
+            <div>
+              <p className="section-kicker">Daily trainer</p>
+              <h2 id="trainer-heading">Trainer chat</h2>
+              <p>
+                Ask for Garmin-grounded coaching. Responses cite relevant dates,
+                activities, trends, deterministic analytics tool results, and
+                your saved Profile when available.
+              </p>
+            </div>
+            <div className="context-card" aria-label="Recent context window">
+              <strong>Recent context</strong>
               <span>
-                Last tool: {latestToolEvidence.tool}
-                {latestToolEvidence.activityName
-                  ? ` — ${latestToolEvidence.activityName}`
-                  : ""}
+                {contextWindow}/{historyLimit} local messages sent to grounding
               </span>
+              <span>Conversation: {conversationId}</span>
+              {latestToolEvidence ? (
+                <span>
+                  Last tool: {latestToolEvidence.tool}
+                  {latestToolEvidence.activityName
+                    ? ` — ${latestToolEvidence.activityName}`
+                    : ""}
+                </span>
+              ) : (
+                <span>No tool evidence yet</span>
+              )}
+            </div>
+          </div>
+
+          <div className="transcript" aria-live="polite">
+            {chatMessages.length === 0 && !isChatLoading ? (
+              <p className="empty-chat">
+                No local chat history yet. Ask for an activity analysis, then
+                ask a follow-up; bounded turns, tool evidence, and Profile will
+                ground the response.
+              </p>
+            ) : null}
+            {chatMessages.map((item) => (
+              <div key={item.id} className={`chat-message ${item.role}`}>
+                <div className="chat-meta">
+                  <strong>{item.role === "user" ? "You" : "Trainer"}</strong>
+                  <time dateTime={item.createdAt}>
+                    {new Date(item.createdAt).toLocaleString()}
+                  </time>
+                </div>
+                <p>{item.content}</p>
+                {item.grounding ? (
+                  <div className="tool-evidence">
+                    <span>Tool evidence: {item.grounding.tool}</span>
+                    {item.grounding.activityId ? (
+                      <span>Activity {item.grounding.activityId}</span>
+                    ) : null}
+                    {item.grounding.summary ? (
+                      <span>{item.grounding.summary}</span>
+                    ) : null}
+                    {item.grounding.privacy ? (
+                      <span>Privacy: {item.grounding.privacy}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {isChatLoading ? (
+              <div className="chat-message assistant pending">
+                <div className="chat-meta">
+                  <strong>Trainer</strong>
+                  <span>pending</span>
+                </div>
+                <p>Trainer is thinking with bounded local history…</p>
+              </div>
             ) : null}
           </div>
-        </div>
 
-        <div className="transcript" aria-live="polite">
-          {chatMessages.length === 0 && !isChatLoading ? (
-            <p className="empty-chat">
-              No local chat history yet. Ask for an activity analysis, then ask
-              a follow-up; the latest bounded turns and tool evidence will be
-              used.
+          <label className="message-composer">
+            <span className="visually-hidden">Message</span>
+            <textarea
+              aria-label="Message"
+              placeholder="Ask about my latest hike, then try: what should I do tomorrow based on that?"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void sendChat();
+                }
+              }}
+            />
+          </label>
+          <div className="button-row">
+            <button type="button" onClick={sendChat} disabled={isChatLoading}>
+              {isChatLoading ? "Sending…" : "Send"}
+            </button>
+            <button
+              type="button"
+              onClick={() => loadChatHistory()}
+              disabled={isChatLoading}
+            >
+              Reload history
+            </button>
+            <button
+              type="button"
+              onClick={clearChatHistory}
+              disabled={isChatLoading}
+            >
+              Clear local history
+            </button>
+            {lastFailedMessage ? (
+              <button
+                type="button"
+                onClick={() => submitChat(lastFailedMessage)}
+                disabled={isChatLoading}
+              >
+                Retry last message
+              </button>
+            ) : null}
+          </div>
+        </article>
+
+        <article className="profile-card" aria-labelledby="profile-heading">
+          <div className="card-title-row">
+            <div>
+              <p className="section-kicker">Trainer grounding</p>
+              <h2 id="profile-heading">Profile</h2>
+            </div>
+            <span
+              className={`pill ${isProfileDirty ? "dirty" : profileSaveState}`}
+              aria-live="polite"
+            >
+              {profileSummary}
+            </span>
+          </div>
+          <p>
+            Set one item per line. Saved Profile data is loaded from local
+            SQLite on startup and after sign-in, then used with imported Garmin
+            facts.
+          </p>
+          <p className="helper-text" role="status" aria-live="polite">
+            {profileMessage}
+          </p>
+          <label>
+            Goals
+            <textarea
+              aria-label="Goals"
+              value={profileFields.goals}
+              onChange={(event) =>
+                updateProfileField("goals", event.target.value)
+              }
+              placeholder="Build hiking endurance"
+              disabled={profileControlsDisabled}
+            />
+          </label>
+          <label>
+            Preferred sports
+            <textarea
+              aria-label="Preferred sports"
+              value={profileFields.sports}
+              onChange={(event) =>
+                updateProfileField("sports", event.target.value)
+              }
+              placeholder="hiking\nmountaineering"
+              disabled={profileControlsDisabled}
+            />
+          </label>
+          <label>
+            Constraints
+            <textarea
+              aria-label="Constraints"
+              value={profileFields.constraints}
+              onChange={(event) =>
+                updateProfileField("constraints", event.target.value)
+              }
+              placeholder="no running this week"
+              disabled={profileControlsDisabled}
+            />
+          </label>
+          <label>
+            Preferences (JSON)
+            <textarea
+              aria-label="Preferences JSON"
+              value={profileFields.preferences}
+              onChange={(event) =>
+                updateProfileField("preferences", event.target.value)
+              }
+              placeholder={'{"coachingStyle":"direct"}'}
+              disabled={profileControlsDisabled}
+            />
+          </label>
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={saveProfile}
+              disabled={profileControlsDisabled}
+            >
+              {profileSaveState === "saving" ? "Saving…" : "Save Profile"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => loadProfile("manual")}
+              disabled={profileControlsDisabled}
+            >
+              Reload saved Profile
+            </button>
+          </div>
+        </article>
+      </div>
+
+      <details className="settings-panel">
+        <summary>
+          <span>Data &amp; settings</span>
+          <small>
+            Connector, sync, import summary, activity detail, privacy
+          </small>
+        </summary>
+        <div className="settings-grid">
+          <article className="settings-card">
+            <h2>Connector &amp; sync</h2>
+            <p>
+              Run <code>garmin-mcp-auth</code> outside the app, then sync using
+              pinned local stdio read operations. The app never sees your Garmin
+              password.
             </p>
-          ) : null}
-          {chatMessages.map((item) => (
-            <div key={item.id} className={`chat-message ${item.role}`}>
-              <div className="chat-meta">
-                <strong>{item.role === "user" ? "You" : "Trainer"}</strong>
-                <time dateTime={item.createdAt}>
-                  {new Date(item.createdAt).toLocaleString()}
-                </time>
-              </div>
-              <p>{item.content}</p>
-              {item.grounding ? (
-                <div className="tool-evidence">
-                  <span>Tool evidence: {item.grounding.tool}</span>
-                  {item.grounding.activityId ? (
-                    <span>Activity {item.grounding.activityId}</span>
-                  ) : null}
-                  {item.grounding.summary ? (
-                    <span>{item.grounding.summary}</span>
-                  ) : null}
-                  {item.grounding.privacy ? (
-                    <span>Privacy: {item.grounding.privacy}</span>
-                  ) : null}
-                </div>
-              ) : null}
+            <div className="button-row">
+              <button
+                type="button"
+                onClick={() =>
+                  runAction("Verify connector", () => fetch("/api/sync"))
+                }
+              >
+                Verify connector
+              </button>
+              <button type="button" onClick={syncNow}>
+                Sync now
+              </button>
             </div>
-          ))}
-          {isChatLoading ? (
-            <div className="chat-message assistant pending">
-              <div className="chat-meta">
-                <strong>Trainer</strong>
-                <span>pending</span>
-              </div>
-              <p>Trainer is thinking with bounded local history…</p>
+          </article>
+
+          <article className="settings-card">
+            <h2>Import summary</h2>
+            <p>
+              Check imported totals, latest activity date, and health coverage
+              before asking the trainer to reason about trends.
+            </p>
+            <button type="button" onClick={refreshSummary}>
+              Refresh import summary
+            </button>
+          </article>
+
+          <article className="settings-card">
+            <h2>Activity detail</h2>
+            <p>
+              Force-refresh one imported activity or inspect total detail
+              coverage. Failed refreshes preserve the last usable normalized
+              detail; raw FIT payloads are discarded after normalization.
+            </p>
+            <label>
+              Garmin activity ID
+              <input
+                aria-label="Garmin activity ID"
+                placeholder="Garmin activity ID"
+                value={detailGarminId}
+                onChange={(event) => setDetailGarminId(event.target.value)}
+              />
+            </label>
+            <div className="button-row">
+              <button type="button" onClick={backfillDetail}>
+                Force refresh detail
+              </button>
+              <button type="button" onClick={refreshDetailCoverage}>
+                Show detail coverage
+              </button>
             </div>
-          ) : null}
+          </article>
+
+          <article className="settings-card danger-card">
+            <h2>Privacy &amp; deletion</h2>
+            <p>
+              Destructive local-only actions are separated from routine sync.
+              Use them only when you intend to remove stored chat/profile or
+              Garmin-derived data.
+            </p>
+            <div className="button-row">
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() =>
+                  runAction("Clear chat/profile", () =>
+                    fetch("/api/delete", {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ scope: "chat-profile" }),
+                    }),
+                  )
+                }
+              >
+                Clear chat/profile
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() =>
+                  runAction("Disconnect Garmin/delete data", () =>
+                    fetch("/api/delete", {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ scope: "garmin-all" }),
+                    }),
+                  )
+                }
+              >
+                Disconnect Garmin/delete data
+              </button>
+            </div>
+          </article>
         </div>
+      </details>
 
-        <textarea
-          aria-label="Message"
-          placeholder="Ask about my latest hike, then try: what should I do tomorrow based on that?"
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              void sendChat();
-            }
-          }}
-        />
-        <button type="button" onClick={sendChat} disabled={isChatLoading}>
-          {isChatLoading ? "Sending…" : "Send"}
-        </button>
-        <button
-          type="button"
-          onClick={() => loadChatHistory()}
-          disabled={isChatLoading}
-        >
-          Reload history
-        </button>
-        <button
-          type="button"
-          onClick={clearChatHistory}
-          disabled={isChatLoading}
-        >
-          Clear local history
-        </button>
-        {lastFailedMessage ? (
-          <button
-            type="button"
-            onClick={() => submitChat(lastFailedMessage)}
-            disabled={isChatLoading}
-          >
-            Retry last message
-          </button>
-        ) : null}
-      </article>
-
-      <article>
-        <h2>Profile memory</h2>
-        <p>
-          Set one item per line. The trainer uses this profile together with
-          imported Garmin facts.
-        </p>
-        <label>
-          Goals
-          <textarea
-            aria-label="Goals"
-            value={profileGoals}
-            onChange={(event) => setProfileGoals(event.target.value)}
-            placeholder="Build hiking endurance"
-          />
-        </label>
-        <label>
-          Preferred sports
-          <textarea
-            aria-label="Preferred sports"
-            value={profileSports}
-            onChange={(event) => setProfileSports(event.target.value)}
-            placeholder="hiking\nmountaineering"
-          />
-        </label>
-        <label>
-          Constraints
-          <textarea
-            aria-label="Constraints"
-            value={profileConstraints}
-            onChange={(event) => setProfileConstraints(event.target.value)}
-            placeholder="no running this week"
-          />
-        </label>
-        <button type="button" onClick={saveProfile}>
-          Save profile
-        </button>
-      </article>
-
-      <article>
-        <h2>Deletion</h2>
-        <button
-          type="button"
-          onClick={() =>
-            runAction("Clear chat/profile", () =>
-              fetch("/api/delete", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ scope: "chat-profile" }),
-              }),
-            )
-          }
-        >
-          Clear chat/profile
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            runAction("Disconnect Garmin/delete data", () =>
-              fetch("/api/delete", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ scope: "garmin-all" }),
-              }),
-            )
-          }
-        >
-          Disconnect Garmin/delete data
-        </button>
-      </article>
-
-      <article className="wide">
-        <h2>Action status</h2>
-        <pre className={`status ${status.kind}`}>{status.message}</pre>
-      </article>
+      <aside className="status-card" aria-labelledby="status-heading">
+        <div className="card-title-row">
+          <div>
+            <p className="section-kicker">Diagnostics</p>
+            <h2 id="status-heading">Current operation</h2>
+          </div>
+          <span className={`pill ${status.kind}`}>{status.kind}</span>
+        </div>
+        <pre className={`status ${status.kind}`} aria-live="polite">
+          {status.message}
+        </pre>
+      </aside>
     </section>
   );
 }

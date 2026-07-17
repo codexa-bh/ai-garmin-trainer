@@ -1,74 +1,176 @@
 body {
   margin: 0;
   font-family: Arial, Helvetica, sans-serif;
-  background: #0f172a;
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(56, 189, 248, 0.16),
+      transparent 32rem
+    ),
+    #0f172a;
   color: #e2e8f0;
 }
 .shell {
-  max-width: 1100px;
+  max-width: 1180px;
   margin: 0 auto;
   padding: 32px;
 }
 .hero {
-  padding: 32px;
+  padding: clamp(24px, 5vw, 42px);
   border: 1px solid #334155;
-  border-radius: 24px;
-  background: #111827;
+  border-radius: 28px;
+  background: linear-gradient(135deg, #111827, #172554);
+  box-shadow: 0 24px 80px rgba(2, 6, 23, 0.28);
 }
-.eyebrow {
+.eyebrow,
+.section-kicker {
   color: #38bdf8;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+  font-size: 12px;
+  font-weight: 800;
+  margin: 0 0 8px;
 }
 h1 {
-  font-size: 48px;
+  font-size: clamp(36px, 7vw, 58px);
+  line-height: 0.95;
   margin: 0 0 12px;
 }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
+h2 {
+  margin: 0 0 10px;
+}
+p {
+  color: #cbd5e1;
+  line-height: 1.55;
+}
+.dashboard-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
   margin-top: 24px;
 }
-article,
-footer {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 18px;
-  padding: 20px;
+.product-grid,
+.settings-grid {
+  display: grid;
+  gap: 18px;
 }
-.wide {
-  grid-column: 1/-1;
+.product-grid {
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.85fr);
+  align-items: start;
+}
+.settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+article,
+footer,
+.signin-card,
+.settings-panel,
+.status-card {
+  background: rgba(30, 41, 59, 0.92);
+  border: 1px solid #334155;
+  border-radius: 22px;
+  padding: 20px;
+  box-shadow: 0 12px 40px rgba(2, 6, 23, 0.18);
+}
+.trainer-card {
+  min-height: 720px;
+}
+.profile-card,
+.settings-card,
+.status-card,
+.signin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.compact-card {
+  gap: 12px;
+}
+.signin-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+.inline-form {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.card-title-row,
+.button-row,
+.chat-meta,
+.tool-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.card-title-row {
+  justify-content: space-between;
 }
 button {
-  margin: 6px 8px 6px 0;
+  margin: 0;
   padding: 10px 14px;
-  border-radius: 10px;
-  border: 0;
+  border-radius: 999px;
+  border: 1px solid transparent;
   background: #38bdf8;
   color: #082f49;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
 }
 button:hover {
   background: #7dd3fc;
 }
-button:disabled {
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #facc15;
+  outline-offset: 3px;
+}
+button:disabled,
+textarea:disabled {
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.62;
+}
+.secondary-button {
+  background: transparent;
+  color: #bae6fd;
+  border-color: #38bdf8;
+}
+.secondary-button:hover {
+  background: #0f2744;
+}
+.danger-button {
+  background: #fecaca;
+  color: #7f1d1d;
+}
+.danger-button:hover {
+  background: #fee2e2;
 }
 textarea,
 input {
   width: 100%;
   box-sizing: border-box;
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid #475569;
   background: #0f172a;
   color: #e2e8f0;
   padding: 12px;
+  font: inherit;
+}
+textarea::placeholder,
+input::placeholder {
+  color: #64748b;
 }
 textarea {
-  min-height: 110px;
+  min-height: 108px;
+  resize: vertical;
+}
+.message-composer textarea {
+  min-height: 132px;
 }
 .stack,
 label {
@@ -77,9 +179,9 @@ label {
   gap: 10px;
 }
 label {
-  margin: 10px 0;
+  margin: 0;
   color: #cbd5e1;
-  font-weight: 700;
+  font-weight: 800;
 }
 .output,
 .status {
@@ -87,9 +189,10 @@ label {
   overflow: auto;
   background: #0f172a;
   border: 1px solid #475569;
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 12px;
   color: #e2e8f0;
+  max-height: 280px;
 }
 .chat-header {
   display: grid;
@@ -97,28 +200,35 @@ label {
   gap: 16px;
   align-items: start;
 }
-.context-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.context-card,
+.helper-text {
   background: #0f172a;
   border: 1px solid #475569;
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 12px;
   color: #cbd5e1;
   font-size: 14px;
+}
+.context-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.helper-text {
+  margin: 0;
 }
 .transcript {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 560px;
+  min-height: 360px;
+  max-height: 620px;
   overflow: auto;
   background: #0f172a;
   border: 1px solid #475569;
-  border-radius: 16px;
+  border-radius: 18px;
   padding: 14px;
-  margin: 16px 0;
+  margin: 18px 0;
 }
 .empty-chat {
   color: #94a3b8;
@@ -126,16 +236,17 @@ label {
 }
 .chat-message {
   border: 1px solid #334155;
-  border-radius: 14px;
-  padding: 12px;
+  border-radius: 16px;
+  padding: 13px;
   background: #111827;
 }
 .chat-message.user {
-  margin-left: clamp(0px, 12vw, 160px);
+  margin-left: clamp(0px, 12vw, 180px);
   border-color: #38bdf8;
+  background: #0c2438;
 }
 .chat-message.assistant {
-  margin-right: clamp(0px, 12vw, 160px);
+  margin-right: clamp(0px, 12vw, 180px);
   border-color: #22c55e;
 }
 .chat-message.pending {
@@ -147,10 +258,6 @@ label {
 }
 .chat-meta,
 .tool-evidence {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
   color: #cbd5e1;
   font-size: 13px;
 }
@@ -160,21 +267,66 @@ label {
 .tool-evidence {
   margin-top: 10px;
 }
+.tool-evidence span,
+.pill {
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
 .tool-evidence span {
   background: #172554;
   border: 1px solid #1d4ed8;
-  border-radius: 999px;
-  padding: 4px 8px;
 }
-@media (max-width: 760px) {
-  .chat-header {
-    grid-template-columns: 1fr;
-  }
-  .chat-message.user,
-  .chat-message.assistant {
-    margin-left: 0;
-    margin-right: 0;
-  }
+.pill {
+  color: #e0f2fe;
+  background: #164e63;
+  border: 1px solid #0891b2;
+}
+.pill.dirty,
+.pill.busy,
+.pill.saving {
+  color: #fffbeb;
+  background: #78350f;
+  border-color: #f59e0b;
+}
+.pill.saved,
+.pill.ok {
+  color: #dcfce7;
+  background: #14532d;
+  border-color: #22c55e;
+}
+.pill.error {
+  color: #fee2e2;
+  background: #7f1d1d;
+  border-color: #ef4444;
+}
+.settings-panel {
+  padding: 0;
+  overflow: hidden;
+}
+.settings-panel summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 18px 20px;
+  cursor: pointer;
+  color: #e2e8f0;
+  font-weight: 900;
+}
+.settings-panel summary small {
+  color: #94a3b8;
+  font-weight: 700;
+}
+.settings-panel[open] summary {
+  border-bottom: 1px solid #334155;
+}
+.settings-grid {
+  padding: 20px;
+}
+.danger-card {
+  border-color: #7f1d1d;
 }
 .status.ok {
   border-color: #22c55e;
@@ -185,6 +337,20 @@ label {
 .status.busy {
   border-color: #38bdf8;
 }
+.status.idle {
+  border-color: #64748b;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 code {
   background: #0f172a;
   padding: 2px 5px;
@@ -193,4 +359,47 @@ code {
 footer {
   margin-top: 24px;
   color: #cbd5e1;
+}
+@media (max-width: 960px) {
+  .product-grid,
+  .signin-card,
+  .inline-form {
+    grid-template-columns: 1fr;
+  }
+  .trainer-card {
+    min-height: auto;
+  }
+}
+@media (max-width: 760px) {
+  .shell {
+    padding: 18px;
+  }
+  .hero,
+  article,
+  footer,
+  .signin-card,
+  .settings-panel,
+  .status-card {
+    border-radius: 18px;
+  }
+  .chat-header {
+    grid-template-columns: 1fr;
+  }
+  .chat-message.user,
+  .chat-message.assistant {
+    margin-left: 0;
+    margin-right: 0;
+  }
+  .transcript {
+    min-height: 300px;
+    max-height: 520px;
+  }
+  .settings-panel summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .button-row,
+  .button-row button {
+    width: 100%;
+  }
 }
