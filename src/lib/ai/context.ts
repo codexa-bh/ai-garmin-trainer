@@ -41,10 +41,20 @@ export type TrainerProfile = {
   constraints: string[];
 };
 
+export type TrainerMemory = {
+  id: string;
+  category: "learned_preference" | "temporary_constraint" | "commitment";
+  value: string;
+  provenanceText: string;
+  expiresAt: Date | null;
+  reconfirmAfter: Date | null;
+};
+
 export function buildTrainerContext(input: {
   activities: NormalizedActivity[];
   health: NormalizedDailyHealth[];
   profile: TrainerProfile;
+  learnedMemories?: TrainerMemory[];
   recentMessages: string[];
 }): string {
   const recentActivities = input.activities.slice(0, 8).map((a) => {
@@ -70,14 +80,25 @@ export function buildTrainerContext(input: {
       (h) =>
         `${h.date}: sleep ${h.sleepMinutes ?? "n/a"}m, RHR ${h.restingHeartRate ?? "n/a"}, HRV ${h.hrvMs ?? h.hrvStatus ?? "n/a"}, stress ${h.stressAvg ?? "n/a"}, steps ${h.steps ?? "n/a"}, calories ${h.calories ?? "n/a"}, body battery ${h.bodyBatteryAvg ?? "n/a"}, availability ${h.availability}`,
     );
+  const learnedMemories = (input.learnedMemories ?? [])
+    .slice(0, 8)
+    .map((item) => {
+      const expiry = item.expiresAt
+        ? ` expires ${item.expiresAt.toISOString().slice(0, 10)}`
+        : item.reconfirmAfter
+          ? ` reconfirm after ${item.reconfirmAfter.toISOString().slice(0, 10)}`
+          : " durable until changed";
+      return `${item.category}: ${compactText(item.value, 220)} (${item.provenanceText};${expiry})`;
+    });
   return [
-    `Goals: ${input.profile.goals.join(", ") || "not set"}`,
-    `Preferred sports: ${input.profile.sports.join(", ") || "not set"}`,
-    `Constraints: ${input.profile.constraints.join(", ") || "not set"}`,
+    `Explicit Profile goals: ${input.profile.goals.join(", ") || "not set"}`,
+    `Explicit Profile sports: ${input.profile.sports.join(", ") || "not set"}`,
+    `Explicit Profile constraints: ${input.profile.constraints.join(", ") || "not set"}`,
+    `Confirmed learned memories:\n${learnedMemories.join("\n") || "None confirmed"}`,
     `Recent activities:\n${recentActivities.join("\n") || "No activities imported"}`,
     `Recovery:\n${health.join("\n") || "No recovery data imported"}`,
     `Recent conversation:\n${input.recentMessages.slice(-6).join("\n")}`,
   ].join("\n\n");
 }
 
-export const TRAINER_SYSTEM_PROMPT = `You are a private fitness trainer for a single user. Give grounded, non-medical training guidance only. Cite the activity date, metric, or trend you used in ordinary language. If data is missing, say it is missing and do not infer measurements. Do not diagnose, treat, prescribe medication, or claim emergency guidance. Minimize sensitive detail and never ask for Garmin credentials.`;
+export const TRAINER_SYSTEM_PROMPT = `You are a private fitness trainer for a single user. Give grounded, non-medical training guidance only. Cite the activity date, metric, or trend you used in ordinary language. If data is missing, say it is missing and do not infer measurements. Treat Explicit Profile, confirmed learned memories, Garmin source facts, and recent transcript as distinct sources. Never create durable learned memory unless the user explicitly confirms it; expired or pending memory is inactive. Do not diagnose, treat, prescribe medication, or claim emergency guidance. Minimize sensitive detail and never ask for Garmin credentials.`;

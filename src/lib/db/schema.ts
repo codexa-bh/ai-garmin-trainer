@@ -211,6 +211,29 @@ export const trainerProfile = sqliteTable("trainer_profile", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
+export const trainerMemory = sqliteTable("trainer_memory", {
+  id: text("id").primaryKey(),
+  category: text("category").notNull(),
+  value: text("value").notNull(),
+  status: text("status").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceRef: text("source_ref"),
+  provenanceText: text("provenance_text").notNull(),
+  validFrom: integer("valid_from", { mode: "timestamp" }),
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+  reconfirmAfter: integer("reconfirm_after", { mode: "timestamp" }),
+  supersedesId: text("supersedes_id"),
+  supersededById: text("superseded_by_id"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const appMetadata = sqliteTable("app_metadata", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 export const healthDateIdx = uniqueIndex("health_date_idx").on(
   dailyHealth.date,
 );

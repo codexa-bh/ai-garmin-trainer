@@ -3,12 +3,17 @@
 Automated validation:
 
 ```bash
+npm run doctor -- --json
 npm run format
 npm run lint
 npm run typecheck
 npm run test
+npm run eval:reliability
+npm run deps:evidence -- --output ./tmp/dependency-evidence.json
 npm run build
 ```
+
+`npm run doctor` and dependency evidence output are allowlisted support artifacts. Review before sharing; they must not contain credentials, token contents, provider keys, prompts, precise GPS streams, or raw connector payloads.
 
 Live smoke with local secrets:
 
@@ -22,10 +27,12 @@ Live smoke with local secrets:
 8. Chat with OpenAI/DeepSeek using imported facts. Ask for a specific activity analysis and verify the response cites deterministic tool results rather than inventing calculations from summaries.
 9. Restart the app and verify conversation/profile/detail coverage persistence.
 10. Edit profile memory and verify later responses reflect the correction.
-11. Clear chat/profile, then disconnect/delete Garmin data and verify activity detail tables are also removed and the state is reconnectable.
+11. Clear chat/profile/learned memory, then disconnect/delete Garmin data and verify activity detail tables are also removed and the state is reconnectable.
 
 Privacy checks:
 
 - Connector runs over stdio with a narrow `GARMIN_ENABLED_TOOLS` allowlist.
 - Raw connector JSON/FIT bytes are normalized in memory, not logged, and not retained as app-owned files.
 - LLM tools return bounded local SQLite summaries/slices and include privacy notes; they do not expose credentials, token paths, raw FIT bytes, or unrestricted history.
+- Learned memory is retrieved only after user confirmation; pending, deleted, rejected, superseded, expired, or reconfirmation-due records are inactive.
+- Local production smoke uses `npm run build` plus `npm run start:local`; loopback access is supported, LAN/public exposure is not.

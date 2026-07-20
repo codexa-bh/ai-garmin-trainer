@@ -159,6 +159,7 @@ vi.mock("@/lib/db/repository", () => ({
     preferences: {},
     constraints: [],
   }),
+  listActiveTrainerMemories: () => [],
   listActivityDetailAvailability: () => [],
   listRecentActivities: () => [],
   listRecentDailyHealth: () => [],

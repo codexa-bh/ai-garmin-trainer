@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { getOptionalEnv } from "../env";
-import { createSchemaSql } from "./migrations";
+import { migrateDatabase } from "./migrations";
 import type {
   NormalizedActivity,
   NormalizedDailyHealth,
@@ -17,7 +17,7 @@ import type {
   ActivityStreamPoint,
   NormalizedActivityDetail,
 } from "../garmin/detail-types";
-import type { TrainerProfile } from "../ai/context";
+import type { TrainerMemory, TrainerProfile } from "../ai/context";
 
 let database: Database.Database | undefined;
 let lastChatMessageTimestamp = 0;
@@ -66,7 +66,7 @@ export function getDatabase(): Database.Database {
   const env = getOptionalEnv();
   mkdirSync(dirname(env.DATABASE_PATH), { recursive: true });
   database = new Database(env.DATABASE_PATH);
-  for (const statement of createSchemaSql()) database.exec(statement);
+  migrateDatabase(database);
   ensureActivityDetailColumns(database);
   return database;
 }
@@ -635,6 +635,164 @@ export function saveTrainerProfile(profile: TrainerProfile): TrainerProfile {
   return getTrainerProfile();
 }
 
+export type TrainerMemoryStatus =
+  | "pending_confirmation"
+  | "confirmed"
+  | "expired"
+  | "superseded"
+  | "deleted"
+  | "rejected";
+
+export type TrainerMemoryCategory = TrainerMemory["category"];
+
+export type StoredTrainerMemory = TrainerMemory & {
+  status: TrainerMemoryStatus;
+  sourceType: string;
+  sourceRef: string | null;
+  validFrom: Date | null;
+  supersedesId: string | null;
+  supersededById: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type TrainerMemoryRow = {
+  id: string;
+  category: TrainerMemoryCategory;
+  value: string;
+  status: TrainerMemoryStatus;
+  sourceType: string;
+  sourceRef: string | null;
+  provenanceText: string;
+  validFrom: number | null;
+  expiresAt: number | null;
+  reconfirmAfter: number | null;
+  supersedesId: string | null;
+  supersededById: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function mapTrainerMemory(row: TrainerMemoryRow): StoredTrainerMemory {
+  return {
+    id: row.id,
+    category: row.category,
+    value: row.value,
+    status: row.status,
+    sourceType: row.sourceType,
+    sourceRef: row.sourceRef,
+    provenanceText: row.provenanceText,
+    validFrom: row.validFrom ? new Date(row.validFrom) : null,
+    expiresAt: row.expiresAt ? new Date(row.expiresAt) : null,
+    reconfirmAfter: row.reconfirmAfter ? new Date(row.reconfirmAfter) : null,
+    supersedesId: row.supersedesId,
+    supersededById: row.supersededById,
+    createdAt: new Date(row.createdAt),
+    updatedAt: new Date(row.updatedAt),
+  };
+}
+
+export function createTrainerMemoryProposal(input: {
+  category: TrainerMemoryCategory;
+  value: string;
+  sourceType: string;
+  sourceRef?: string | null;
+  provenanceText: string;
+  validFrom?: Date | null;
+  expiresAt?: Date | null;
+  reconfirmAfter?: Date | null;
+  supersedesId?: string | null;
+}): StoredTrainerMemory {
+  const now = Date.now();
+  const id = `memory-${now}-${Math.random().toString(36).slice(2, 10)}`;
+  getDatabase()
+    .prepare(
+      `insert into trainer_memory (id, category, value, status, source_type, source_ref, provenance_text, valid_from, expires_at, reconfirm_after, supersedes_id, created_at, updated_at)
+       values (?, ?, ?, 'pending_confirmation', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      input.category,
+      input.value.slice(0, 1000),
+      input.sourceType,
+      input.sourceRef ?? null,
+      input.provenanceText.slice(0, 500),
+      input.validFrom?.getTime() ?? null,
+      input.expiresAt?.getTime() ?? null,
+      input.reconfirmAfter?.getTime() ?? null,
+      input.supersedesId ?? null,
+      now,
+      now,
+    );
+  return getTrainerMemory(id)!;
+}
+
+export function confirmTrainerMemory(id: string): StoredTrainerMemory {
+  const now = Date.now();
+  const existing = getTrainerMemory(id);
+  if (!existing) throw new Error(`Memory proposal not found: ${id}`);
+  if (existing.status !== "pending_confirmation") {
+    throw new Error(`Only pending memories can be confirmed: ${id}`);
+  }
+  const db = getDatabase();
+  db.transaction(() => {
+    if (existing.supersedesId) {
+      db.prepare(
+        "update trainer_memory set status = 'superseded', superseded_by_id = ?, updated_at = ? where id = ?",
+      ).run(id, now, existing.supersedesId);
+    }
+    db.prepare(
+      "update trainer_memory set status = 'confirmed', updated_at = ? where id = ?",
+    ).run(now, id);
+  })();
+  return getTrainerMemory(id)!;
+}
+
+export function getTrainerMemory(id: string): StoredTrainerMemory | null {
+  const row = getDatabase()
+    .prepare(
+      `select id, category, value, status, source_type as sourceType, source_ref as sourceRef, provenance_text as provenanceText, valid_from as validFrom, expires_at as expiresAt, reconfirm_after as reconfirmAfter, supersedes_id as supersedesId, superseded_by_id as supersededById, created_at as createdAt, updated_at as updatedAt from trainer_memory where id = ?`,
+    )
+    .get(id) as TrainerMemoryRow | undefined;
+  return row ? mapTrainerMemory(row) : null;
+}
+
+export function expireDueTrainerMemories(now = Date.now()): number {
+  const result = getDatabase()
+    .prepare(
+      `update trainer_memory set status = 'expired', updated_at = ?
+       where status = 'confirmed' and ((expires_at is not null and expires_at <= ?) or (reconfirm_after is not null and reconfirm_after <= ?))`,
+    )
+    .run(now, now, now);
+  return result.changes;
+}
+
+export function listActiveTrainerMemories(
+  limit = 8,
+  now = Date.now(),
+): StoredTrainerMemory[] {
+  expireDueTrainerMemories(now);
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 20);
+  const rows = getDatabase()
+    .prepare(
+      `select id, category, value, status, source_type as sourceType, source_ref as sourceRef, provenance_text as provenanceText, valid_from as validFrom, expires_at as expiresAt, reconfirm_after as reconfirmAfter, supersedes_id as supersedesId, superseded_by_id as supersededById, created_at as createdAt, updated_at as updatedAt
+       from trainer_memory
+       where status = 'confirmed'
+       order by updated_at desc
+       limit ?`,
+    )
+    .all(safeLimit) as TrainerMemoryRow[];
+  return rows.map(mapTrainerMemory);
+}
+
+export function forgetTrainerMemory(id: string): void {
+  getDatabase()
+    .prepare(
+      "update trainer_memory set status = 'deleted', updated_at = ? where id = ?",
+    )
+    .run(Date.now(), id);
+}
+
 export const DEFAULT_CONVERSATION_ID = "default";
 
 export type ChatRole = "user" | "assistant";
@@ -800,8 +958,9 @@ export function clearChatAndProfile(): string[] {
     db.prepare("delete from message").run();
     db.prepare("delete from conversation").run();
     db.prepare("delete from trainer_profile").run();
+    db.prepare("delete from trainer_memory").run();
   })();
-  return ["messages", "conversations", "trainer_profile"];
+  return ["messages", "conversations", "trainer_profile", "trainer_memory"];
 }
 
 export function clearGarminData(): string[] {

@@ -1,6 +1,8 @@
 {
   "scripts": {
     "dev": "next dev",
+    "doctor": "tsx scripts/doctor.ts",
+    "start:local": "next start --hostname 127.0.0.1 --port 3000",
     "build": "next build",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
@@ -8,6 +10,8 @@
     "format": "prettier --check .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "deps:evidence": "tsx scripts/dependency-evidence.ts",
+    "eval:reliability": "tsx scripts/evaluate-coaching.ts",
     "validate": "npm run format && npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
