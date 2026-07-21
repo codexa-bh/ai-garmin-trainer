@@ -76,22 +76,84 @@ const rankingEvidence = {
 };
 const summarizeActivityRankings = vi.fn(() => rankingEvidence);
 
-const verifyActivityReference = vi.fn(() => ({
-  tool: "activityVerification",
-  reference: {
-    garminId: null,
-    suppliedName: "Snežnik",
-    date: "2025-10-18",
+const verifyActivityReference = vi.fn(
+  (reference: {
+    garminId?: string | null;
+    suppliedName?: string | null;
+    date?: string | null;
+  }) => {
+    const suppliedName = reference.suppliedName ?? "Snežnik";
+    const base = {
+      tool: "activityVerification",
+      reference: {
+        garminId: reference.garminId ?? null,
+        suppliedName,
+        date: reference.date ?? null,
+      },
+      importedCoverage: {
+        activityCount: 301,
+        earliestDate: "2020-01-01",
+        latestDate: "2026-07-20",
+      },
+      privacy:
+        "Verified against local normalized SQLite activity summaries only.",
+    };
+    if (suppliedName === "Selo - Rašica") {
+      return {
+        ...base,
+        outcome: "found",
+        matches: [
+          {
+            garminId: "23667792496",
+            label: "Selo - Rašica",
+            labelSource: "garmin",
+            date: "2026-07-20",
+            sport: "hiking",
+            distanceMeters: 12340,
+            durationSec: 4567,
+            elevationGainMeters: 890,
+            avgHeartRate: 141,
+          },
+        ],
+      };
+    }
+    if (suppliedName === "Duplicate") {
+      return {
+        ...base,
+        outcome: "ambiguous",
+        matches: [
+          {
+            garminId: "dup-1",
+            label: "Duplicate",
+            labelSource: "garmin",
+            date: "2026-07-19",
+            sport: "hiking",
+            distanceMeters: null,
+            durationSec: null,
+            elevationGainMeters: null,
+            avgHeartRate: null,
+          },
+          {
+            garminId: "dup-2",
+            label: "Duplicate",
+            labelSource: "garmin",
+            date: "2026-07-18",
+            sport: "hiking",
+            distanceMeters: null,
+            durationSec: null,
+            elevationGainMeters: null,
+            avgHeartRate: null,
+          },
+        ],
+      };
+    }
+    return {
+      ...base,
+      outcome: "not_found",
+      matches: [],
+    };
   },
-  outcome: "not_found",
-  matches: [],
-  importedCoverage: {
-    activityCount: 301,
-    earliestDate: "2020-01-01",
-    latestDate: "2026-07-20",
-  },
-  privacy: "Verified against local normalized SQLite activity summaries only.",
-}));
+);
 
 const coverage = {
   total: 3,
@@ -385,6 +447,73 @@ describe("chat route bounded actions", () => {
     expect(payload.assistant.content).toContain(
       "Computed from local normalized SQLite activity summaries only",
     );
+  });
+
+  it("looks up a manufactured unquoted activity name across full history without latest analysis", async () => {
+    const prompt =
+      "Triglav summit hike.... give me activity id, give me all you know about it";
+
+    const payload = await postChat(prompt);
+
+    expect(verifyActivityReference).toHaveBeenCalledWith({
+      garminId: null,
+      suppliedName: "Triglav summit hike",
+      date: null,
+    });
+    expect(payload.toolEvidence?.tool).toBe("activityVerification");
+    expect(payload.assistant.content).toContain(
+      "No matching normalized local activity was found",
+    );
+    expect(payload.assistant.content).toContain("301 activities");
+    expect(payload.assistant.content).not.toContain("latest-999");
+    expect(payload.assistant.content).not.toContain("Newest unrelated");
+    expect(payload.assistant.content).not.toContain(
+      "Tool evidence: analyzeActivity",
+    );
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("returns a found named activity lookup with the correct Garmin ID and bounded summary fields", async () => {
+    const payload = await postChat("what is the Garmin ID for Selo - Rašica?");
+
+    expect(verifyActivityReference).toHaveBeenCalledWith({
+      garminId: null,
+      suppliedName: "Selo - Rašica",
+      date: null,
+    });
+    expect(payload.toolEvidence?.tool).toBe("activityVerification");
+    expect(payload.assistant.content).toContain("Garmin ID 23667792496");
+    expect(payload.assistant.content).toContain("sport hiking");
+    expect(payload.assistant.content).toContain("distance 12340 m");
+    expect(payload.assistant.content).not.toContain("latest-999");
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("returns bounded ambiguous candidates for duplicate named activity lookups", async () => {
+    const payload = await postChat("find activity named Duplicate");
+
+    expect(verifyActivityReference).toHaveBeenCalledWith({
+      garminId: null,
+      suppliedName: "Duplicate",
+      date: null,
+    });
+    expect(payload.toolEvidence?.tool).toBe("activityVerification");
+    expect(payload.assistant.content).toContain("dup-1");
+    expect(payload.assistant.content).toContain("dup-2");
+    expect(payload.assistant.content).not.toContain(
+      "Tool evidence: analyzeActivity",
+    );
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("preserves explicit latest activity analysis when latest is requested", async () => {
+    const payload = await postChat("Tell me about my latest activity");
+
+    expect(verifyActivityReference).not.toHaveBeenCalled();
+    expect(payload.assistant.content).toContain(
+      "Tool evidence: analyzeActivity",
+    );
+    expect(payload.assistant.content).toContain("latest-999");
   });
 
   it("treats a reported name/date correction as verification, not latest activity analysis", async () => {

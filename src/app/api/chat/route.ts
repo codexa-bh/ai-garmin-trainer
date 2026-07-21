@@ -57,6 +57,69 @@ function isCorrectionPrompt(text: string): boolean {
   );
 }
 
+function quotedActivityName(text: string): string | null {
+  return text.match(/["“](.{2,100}?)["”]/)?.[1]?.trim() || null;
+}
+
+function cleanLookupName(value: string): string | null {
+  let name = value
+    .normalize("NFKC")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[\s'"“”]+|[\s'"“”]+$/g, "");
+  name = name.split(/\s*(?:\.{2,}|[?!;])\s*/)[0]?.trim() ?? "";
+  name = name
+    .replace(
+      /\b(?:please\s+)?(?:give|tell|show|return|provide)\s+(?:me\s+)?(?:the\s+)?(?:garmin\s+)?(?:activity\s+)?(?:id|details?|all\s+you\s+know|everything\s+you\s+know|info|information)\b.*$/i,
+      "",
+    )
+    .replace(
+      /^(?:the\s+)?(?:activity|workout|run|ride|hike|effort)\s+(?:named|called)\s+/i,
+      "",
+    )
+    .replace(/^(?:named|called)\s+/i, "")
+    .replace(/[.,:]+$/g, "")
+    .trim();
+  if (!name || name.length < 2 || name.length > 100) return null;
+  if (
+    /^(?:it|that|this|this activity|the activity|activity|workout|run|ride|hike|effort)$/i.test(
+      name,
+    )
+  )
+    return null;
+  return name;
+}
+
+function hasActivityNameLookupIntent(text: string): boolean {
+  return /\b(activity\s+id|garmin\s+id|find\s+activity|look\s*up\s+activity|search\s+for\s+activity|activity\s+named|activity\s+called|do\s+i\s+have\s+(?:an?\s+)?(?:activity|workout|run|ride|hike|effort)|all\s+you\s+know\s+about|everything\s+you\s+know\s+about)\b/i.test(
+    text,
+  );
+}
+
+function extractActivityLookupName(text: string): string | null {
+  const quoted = quotedActivityName(text);
+  if (quoted) return cleanLookupName(quoted);
+  const patterns = [
+    /\bwhat(?:'s|\s+is)\s+(?:the\s+)?(?:garmin\s+)?(?:activity\s+)?id\s+(?:for|of)\s+(?<name>[^?\n\r]{2,120})/i,
+    /\b(?:garmin\s+)?(?:activity\s+)?id\s+(?:for|of)\s+(?<name>[^?\n\r]{2,120})/i,
+    /\b(?:find|look\s*up|lookup|search\s+for)\s+(?:an?\s+)?(?:activity|workout|run|ride|hike|effort)\s+(?:named|called)\s+(?<name>[^?\n\r]{2,120})/i,
+    /\bdo\s+i\s+have\s+(?:an?\s+)?(?:activity|workout|run|ride|hike|effort)\s+(?:named|called)?\s+(?<name>[^?\n\r]{2,120})/i,
+    /\b(?:activity|workout|run|ride|hike|effort)\s+(?:named|called)\s+(?<name>[^?\n\r]{2,120})/i,
+    /\b(?:give|tell|show)\s+(?:me\s+)?(?:all\s+you\s+know|everything\s+you\s+know|details?|info|information)\s+about\s+(?<name>[^?\n\r]{2,120})/i,
+  ];
+  for (const pattern of patterns) {
+    const candidate = text.match(pattern)?.groups?.name;
+    const cleaned = candidate ? cleanLookupName(candidate) : null;
+    if (cleaned) return cleaned;
+  }
+  if (!hasActivityNameLookupIntent(text)) return null;
+  const prefix = text.split(
+    /\b(?:give|tell|show|return|provide)\s+(?:me\s+)?(?:the\s+)?(?:garmin\s+)?(?:activity\s+)?(?:id|details?|all\s+you\s+know|everything\s+you\s+know|info|information)\b/i,
+  )[0];
+  return cleanLookupName(prefix);
+}
+
 function parseActivityReference(text: string): ActivityReferenceInput | null {
   const garminId = explicitGarminId(text);
   const date = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1] ?? null;
@@ -71,10 +134,7 @@ function parseActivityReference(text: string): ActivityReferenceInput | null {
         )[0]
         ?.trim() || null;
   }
-  if (!suppliedName) {
-    const quoted = text.match(/["“](.{2,80}?)["”]/)?.[1]?.trim();
-    suppliedName = quoted || null;
-  }
+  suppliedName = suppliedName || extractActivityLookupName(text);
   if (!garminId && !date && !suppliedName) return null;
   return { garminId, suppliedName, date };
 }
@@ -85,7 +145,13 @@ function activityVerificationRequest(
   const reference = parseActivityReference(text);
   if (!reference) return null;
   if (isCorrectionPrompt(text)) return reference;
-  if (/\b(verify|check|find|did i do|do i have|activity named)\b/i.test(text))
+  if (
+    reference.suppliedName &&
+    (/\b(verify|check|find|did i do|do i have|activity named|activity called)\b/i.test(
+      text,
+    ) ||
+      hasActivityNameLookupIntent(text))
+  )
     return reference;
   return null;
 }
@@ -190,8 +256,15 @@ function fallbackVerificationAnswer(
     );
   } else {
     const match = evidence.matches[0];
+    const summary = [
+      `sport ${match.sport}`,
+      `distance ${match.distanceMeters ?? "n/a"} m`,
+      `duration ${match.durationSec ?? "n/a"} s`,
+      `elevation gain ${match.elevationGainMeters ?? "n/a"} m`,
+      `avg HR ${match.avgHeartRate ?? "n/a"} bpm`,
+    ].join(", ");
     lines.push(
-      `Found one local match: ${match.date} ${match.label} (Garmin ID ${match.garminId}, ${match.labelSource} label).`,
+      `Found one local match: ${match.date} ${match.label} (Garmin ID ${match.garminId}, ${match.labelSource} label; ${summary}).`,
     );
   }
   if (recoveredRanking) {
