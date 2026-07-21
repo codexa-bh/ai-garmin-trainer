@@ -141,6 +141,11 @@ function fallbackRankingAnswer(evidence: ActivityRankingEvidence): string {
   const lines = [
     "Tool evidence: activityRanking (server-side deterministic local summaries).",
   ];
+  if (evidence.window) {
+    lines.push(
+      `Window: ${evidence.window.label}; included activities started on or after ${evidence.window.startedAfter.slice(0, 10)}.`,
+    );
+  }
   for (const metric of evidence.metrics) {
     const rows = evidence.rankings[metric];
     if (!rows.length) continue;
@@ -243,6 +248,15 @@ function apiMessage(message: StoredChatMessage) {
 
 function wantsSyncAction(text: string): boolean {
   return /\b(sync|synchroni[sz]e|import garmin|refresh garmin)\b/i.test(text);
+}
+
+function wantsActivityRanking(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    /\b(top|most|highest|longest|rank|ranking|hardest|demanding|biggest|compare|comparison)\b/.test(
+      lower,
+    ) && /\b(activit\w*|workout|run|ride|hike|effort|history)\b/.test(lower)
+  );
 }
 
 function wantsSyncStatus(text: string): boolean {
@@ -407,6 +421,12 @@ export async function POST(request: Request) {
       });
     }
 
+    const verificationReference = activityVerificationRequest(latestMessage);
+    const rankingEvidence =
+      explicitIds.length || !wantsActivityRanking(latestMessage)
+        ? null
+        : summarizeActivityRankings(latestMessage);
+
     if (wantsSyncStatus(latestMessage)) {
       const coverage = activityDetailCoverage();
       const counts = dataCounts();
@@ -437,7 +457,11 @@ export async function POST(request: Request) {
       });
     }
 
-    if (wantsSyncAction(latestMessage)) {
+    if (
+      wantsSyncAction(latestMessage) &&
+      !verificationReference &&
+      !rankingEvidence
+    ) {
       const result = await runGarminSync();
       const assistantText = `${result.status === "completed" ? "Garmin sync completed" : "Garmin sync failed"}: ${result.detail} Tool evidence: runGarminSync. Privacy boundary: read-only stdio connector, normalized SQLite writes only, no Garmin write-back.`;
       const grounding: ChatGrounding = {
@@ -466,7 +490,6 @@ export async function POST(request: Request) {
       });
     }
 
-    const verificationReference = activityVerificationRequest(latestMessage);
     if (verificationReference) {
       const verificationEvidence = verifyActivityReference(
         verificationReference,
@@ -508,9 +531,6 @@ export async function POST(request: Request) {
     );
     const activityIds =
       explicitIds.length > 1 ? explicitIds : activityId ? [activityId] : [];
-    const rankingEvidence = activityIds.length
-      ? null
-      : summarizeActivityRankings(latestMessage);
     const { model } = selectedModel();
     const system = buildSystemContext(messagesForContext);
 
@@ -551,7 +571,10 @@ export async function POST(request: Request) {
         privacy: rankingEvidence.privacy,
         summary: `Deterministic ranking metrics: ${rankingEvidence.metrics.join(", ") || "none"}; source/fallback labels supplied for ${Object.values(
           rankingEvidence.rankings,
-        ).reduce((count, rows) => count + rows.length, 0)} rows.`,
+        ).reduce(
+          (count, rows) => count + rows.length,
+          0,
+        )} rows${rankingEvidence.window ? `; window ${rankingEvidence.window.label} from ${rankingEvidence.window.startedAfter.slice(0, 10)}` : ""}.`,
       };
       assistantText = `${fallbackRankingAnswer(
         rankingEvidence,

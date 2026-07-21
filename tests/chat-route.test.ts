@@ -32,7 +32,7 @@ const backfillActivityDetail = vi.fn(async () => ({
   detail:
     "temporary connector error. Previous usable normalized detail was preserved.",
 }));
-const summarizeActivityRankings = vi.fn(() => ({
+const rankingEvidence = {
   tool: "activityRanking",
   privacy: "Computed from local normalized SQLite activity summaries only.",
   metrics: ["elevationGainMeters", "distanceMeters"],
@@ -71,7 +71,10 @@ const summarizeActivityRankings = vi.fn(() => ({
     avgHeartRate: [],
   },
   limitations: [],
-}));
+  window: undefined as
+    { label: string; days: number; startedAfter: string } | undefined,
+};
+const summarizeActivityRankings = vi.fn(() => rankingEvidence);
 
 const verifyActivityReference = vi.fn(() => ({
   tool: "activityVerification",
@@ -296,6 +299,16 @@ describe("chat route bounded actions", () => {
     expect(generateText).not.toHaveBeenCalled();
   });
 
+  it("preserves explicit Garmin sync commands", async () => {
+    const payload = await postChat("sync Garmin now");
+
+    expect(runGarminSync).toHaveBeenCalledOnce();
+    expect(summarizeActivityRankings).not.toHaveBeenCalled();
+    expect(generateText).not.toHaveBeenCalled();
+    expect(payload.toolEvidence?.tool).toBe("runGarminSync");
+    expect(payload.assistant.content).toContain("Garmin sync completed");
+  });
+
   it("runs forced targeted refresh with preservation evidence", async () => {
     const payload = await postChat(
       "Force refresh Garmin activity 123456 detail now",
@@ -348,6 +361,30 @@ describe("chat route bounded actions", () => {
     );
     expect(payload.assistant.content).not.toContain("Golovec trails");
     expect(payload.toolEvidence?.tool).toBe("activityRanking");
+  });
+
+  it("routes post-sync analytical ranking prompts away from rerunning sync", async () => {
+    summarizeActivityRankings.mockReturnValueOnce({
+      ...rankingEvidence,
+      window: {
+        label: "last 365 days",
+        days: 365,
+        startedAfter: "2025-07-21T12:00:00.000Z",
+      },
+    });
+    const prompt =
+      "ok good. Now We have full sync of all activites available. Therefore you can actually locate most demanding ones in last 365 days";
+
+    const payload = await postChat(prompt);
+
+    expect(runGarminSync).not.toHaveBeenCalled();
+    expect(summarizeActivityRankings).toHaveBeenCalledWith(prompt);
+    expect(generateText).not.toHaveBeenCalled();
+    expect(payload.toolEvidence?.tool).toBe("activityRanking");
+    expect(payload.assistant.content).toContain("Window: last 365 days");
+    expect(payload.assistant.content).toContain(
+      "Computed from local normalized SQLite activity summaries only",
+    );
   });
 
   it("treats a reported name/date correction as verification, not latest activity analysis", async () => {

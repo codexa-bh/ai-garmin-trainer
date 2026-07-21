@@ -191,12 +191,19 @@ export type ActivityRankingRow = {
   avgHeartRate: number | null;
 };
 
+export type ActivityRankingWindow = {
+  label: string;
+  days: number;
+  startedAfter: string;
+} | null;
+
 export type ActivityRankingEvidence = {
   tool: "activityRanking";
   privacy: string;
   metrics: RankingMetric[];
   rankings: Record<RankingMetric, ActivityRankingRow[]>;
   limitations: string[];
+  window?: ActivityRankingWindow;
 };
 
 function requestedRankingMetrics(text: string): RankingMetric[] {
@@ -221,6 +228,22 @@ function requestedRankingMetrics(text: string): RankingMetric[] {
   if (/\b(hr|heart rate|average heart|avg heart|pulse|intensity)\b/.test(lower))
     metrics.add("avgHeartRate");
   return [...metrics];
+}
+
+function requestedRankingWindow(
+  text: string,
+  now: Date,
+): ActivityRankingWindow {
+  const match = text.match(/\blast\s+(\d{1,5})\s+days?\b/i);
+  if (!match) return null;
+  const days = Number(match[1]);
+  if (!Number.isInteger(days) || days <= 0) return null;
+  const startedAfter = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  return {
+    label: `last ${days} ${days === 1 ? "day" : "days"}`,
+    days,
+    startedAfter: startedAfter.toISOString(),
+  };
 }
 
 function rankingRows(
@@ -257,10 +280,15 @@ function rankingRows(
 export function summarizeActivityRankings(
   prompt: string,
   limit = 5,
+  now = new Date(),
 ): ActivityRankingEvidence | null {
   const metrics = requestedRankingMetrics(prompt);
   if (!metrics.length) return null;
-  const activities = listActivitiesForComparison();
+  const window = requestedRankingWindow(prompt, now);
+  const startedAfter = window ? new Date(window.startedAfter) : null;
+  const activities = listActivitiesForComparison().filter(
+    (activity) => !startedAfter || activity.startedAt >= startedAfter,
+  );
   const rankings: Record<RankingMetric, ActivityRankingRow[]> = {
     elevationGainMeters: [],
     distanceMeters: [],
@@ -283,6 +311,7 @@ export function summarizeActivityRankings(
     metrics,
     rankings,
     limitations,
+    window,
   };
 }
 

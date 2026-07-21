@@ -213,6 +213,60 @@ describe("activity analytics", () => {
     expect(JSON.stringify(evidence)).not.toContain("Golovec trails");
   });
 
+  it("scopes ranking evidence to a requested last-days window", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const { summarizeActivityRankings } =
+      await import("../src/lib/analytics/activity");
+    repository.upsertActivities([
+      {
+        garminId: "in-window-demanding",
+        name: "Recent demanding climb",
+        sport: "hiking",
+        startedAt: new Date("2025-07-22T07:00:00Z"),
+        durationSec: 7200,
+        distanceMeters: 18000,
+        calories: null,
+        avgHeartRate: 155,
+        maxHeartRate: 178,
+        steps: null,
+        elevationGainMeters: 1300,
+        elevationLossMeters: 1200,
+        trainingEffect: null,
+      },
+      {
+        garminId: "older-demanding",
+        name: "Older bigger climb",
+        sport: "hiking",
+        startedAt: new Date("2025-07-20T07:00:00Z"),
+        durationSec: 20000,
+        distanceMeters: 50000,
+        calories: null,
+        avgHeartRate: 170,
+        maxHeartRate: 190,
+        steps: null,
+        elevationGainMeters: 5000,
+        elevationLossMeters: 4900,
+        trainingEffect: null,
+      },
+    ]);
+
+    const evidence = summarizeActivityRankings(
+      "locate most demanding activities in last 365 days",
+      5,
+      new Date("2026-07-21T12:00:00Z"),
+    );
+
+    expect(evidence?.window).toEqual({
+      label: "last 365 days",
+      days: 365,
+      startedAfter: "2025-07-21T12:00:00.000Z",
+    });
+    expect(evidence?.rankings.elevationGainMeters[0]?.garminId).toBe(
+      "in-window-demanding",
+    );
+    expect(JSON.stringify(evidence?.rankings)).not.toContain("older-demanding");
+  });
+
   it("ranks over the complete imported history beyond 250 recent activities", async () => {
     const repository = await import("../src/lib/db/repository");
     const { summarizeActivityRankings } =
