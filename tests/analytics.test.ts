@@ -212,4 +212,117 @@ describe("activity analytics", () => {
     expect(evidence?.rankings.distanceMeters[0]?.labelSource).toBe("fallback");
     expect(JSON.stringify(evidence)).not.toContain("Golovec trails");
   });
+
+  it("ranks over the complete imported history beyond 250 recent activities", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const { summarizeActivityRankings } =
+      await import("../src/lib/analytics/activity");
+    const activities = Array.from({ length: 260 }, (_, index) => ({
+      garminId: `recent-${index}`,
+      name: `Recent ${index}`,
+      sport: "running",
+      startedAt: new Date(Date.UTC(2026, 6, 20, 12, index)),
+      durationSec: 1800 + index,
+      distanceMeters: 5000 + index,
+      calories: null,
+      avgHeartRate: 130,
+      maxHeartRate: 160,
+      steps: null,
+      elevationGainMeters: 20 + index,
+      elevationLossMeters: null,
+      trainingEffect: null,
+    }));
+    repository.upsertActivities([
+      ...activities,
+      {
+        garminId: "old-winner",
+        name: "Old complete-history climb",
+        sport: "hiking",
+        startedAt: new Date("2020-01-01T07:00:00Z"),
+        durationSec: 10000,
+        distanceMeters: 30000,
+        calories: null,
+        avgHeartRate: 150,
+        maxHeartRate: 170,
+        steps: null,
+        elevationGainMeters: 5000,
+        elevationLossMeters: null,
+        trainingEffect: null,
+      },
+    ]);
+
+    const evidence = summarizeActivityRankings(
+      "Which activities have the most elevation?",
+    );
+
+    expect(evidence?.rankings.elevationGainMeters[0]?.garminId).toBe(
+      "old-winner",
+    );
+  });
+
+  it("verifies exact, missing, and ambiguous activity references with coverage", async () => {
+    const repository = await import("../src/lib/db/repository");
+    repository.upsertActivities([
+      {
+        garminId: "match-1",
+        name: "Snežnik",
+        sport: "hiking",
+        startedAt: new Date("2025-10-18T07:00:00Z"),
+        durationSec: 3600,
+        distanceMeters: 8000,
+        calories: null,
+        avgHeartRate: 140,
+        maxHeartRate: 170,
+        steps: null,
+        elevationGainMeters: 900,
+        elevationLossMeters: null,
+        trainingEffect: null,
+      },
+      {
+        garminId: "amb-1",
+        name: "Duplicate",
+        sport: "hiking",
+        startedAt: new Date("2025-10-19T07:00:00Z"),
+        durationSec: null,
+        distanceMeters: null,
+        calories: null,
+        avgHeartRate: null,
+        maxHeartRate: null,
+        steps: null,
+        elevationGainMeters: null,
+        elevationLossMeters: null,
+        trainingEffect: null,
+      },
+      {
+        garminId: "amb-2",
+        name: "Duplicate",
+        sport: "hiking",
+        startedAt: new Date("2025-10-20T07:00:00Z"),
+        durationSec: null,
+        distanceMeters: null,
+        calories: null,
+        avgHeartRate: null,
+        maxHeartRate: null,
+        steps: null,
+        elevationGainMeters: null,
+        elevationLossMeters: null,
+        trainingEffect: null,
+      },
+    ]);
+
+    expect(
+      repository.verifyActivityReference({
+        suppliedName: "Snežnik",
+        date: "2025-10-18",
+      }).outcome,
+    ).toBe("found");
+    expect(
+      repository.verifyActivityReference({ suppliedName: "Missing" }).outcome,
+    ).toBe("not_found");
+    const ambiguous = repository.verifyActivityReference({
+      suppliedName: "Duplicate",
+    });
+    expect(ambiguous.outcome).toBe("ambiguous");
+    expect(ambiguous.importedCoverage.activityCount).toBeGreaterThanOrEqual(3);
+  });
 });

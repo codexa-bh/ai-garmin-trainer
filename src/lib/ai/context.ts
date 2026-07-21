@@ -32,7 +32,12 @@ export function formatRecentChatHistory(
     const grounding = message.grounding?.tool
       ? ` [tool evidence: ${message.grounding.tool}${message.grounding.activityId ? ` activity ${message.grounding.activityId}` : ""}${message.grounding.activityName ? ` (${message.grounding.activityName})` : ""}${message.grounding.summary ? ` — ${compactText(message.grounding.summary, 180)}` : ""}]`
       : "";
-    return `${message.role}: ${compactText(message.content, 700)}${grounding}`;
+    if (message.role === "assistant") {
+      return message.grounding?.tool
+        ? `assistant: [prior assistant prose omitted as non-authoritative continuity]${grounding}`
+        : "assistant: [ungrounded prior assistant prose omitted as non-authoritative continuity]";
+    }
+    return `user: ${compactText(message.content, 700)}${grounding}`;
   });
 }
 

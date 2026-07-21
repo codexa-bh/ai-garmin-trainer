@@ -26,6 +26,9 @@ import {
   listRecentActivities,
   listRecentChatMessages,
   listRecentDailyHealth,
+  verifyActivityReference,
+  type ActivityReferenceInput,
+  type ActivityVerificationEvidence,
   type ChatGrounding,
   type StoredChatMessage,
 } from "@/lib/db/repository";
@@ -42,10 +45,49 @@ function explicitGarminId(text: string): string | null {
   return explicitGarminIds(text)[0] ?? null;
 }
 
-function isActivityAnalysisPrompt(text: string): boolean {
-  return /\b(activity|hike|run|ride|workout|result|analyse|analyze|latest|just went|vrh zakotja)\b/i.test(
+function isLatestActivityAnalysisPrompt(text: string): boolean {
+  return /\b(latest|most recent|last activity|last hike|last run|last ride|just went)\b/i.test(
     text,
   );
+}
+
+function isCorrectionPrompt(text: string): boolean {
+  return /\b(never did|did not do|didn't do|not my|wrong|fabricated|hallucinated|correction|dispute|isn't real|not real|does not exist|doesn't exist)\b/i.test(
+    text,
+  );
+}
+
+function parseActivityReference(text: string): ActivityReferenceInput | null {
+  const garminId = explicitGarminId(text);
+  const date = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1] ?? null;
+  let suppliedName: string | null = null;
+  if (date) {
+    const afterDate = text.slice(text.indexOf(date) + date.length);
+    suppliedName =
+      afterDate
+        .replace(/^[\s|:,-]+/, "")
+        .split(
+          /\s+[—–-]\s+|\s+I\s+|\s+never\s+|\s+did\s+not\s+|\s+didn't\s+/i,
+        )[0]
+        ?.trim() || null;
+  }
+  if (!suppliedName) {
+    const quoted = text.match(/["“](.{2,80}?)["”]/)?.[1]?.trim();
+    suppliedName = quoted || null;
+  }
+  if (!garminId && !date && !suppliedName) return null;
+  return { garminId, suppliedName, date };
+}
+
+function activityVerificationRequest(
+  text: string,
+): ActivityReferenceInput | null {
+  const reference = parseActivityReference(text);
+  if (!reference) return null;
+  if (isCorrectionPrompt(text)) return reference;
+  if (/\b(verify|check|find|did i do|do i have|activity named)\b/i.test(text))
+    return reference;
+  return null;
 }
 
 function isActivityFollowUp(text: string): boolean {
@@ -66,7 +108,8 @@ function resolveActivityId(
     (activity) => activity.name && lower.includes(activity.name.toLowerCase()),
   );
   if (byName) return byName.garminId;
-  if (isActivityAnalysisPrompt(text)) return activities[0]?.garminId ?? null;
+  if (isLatestActivityAnalysisPrompt(text))
+    return activities[0]?.garminId ?? null;
   if (isActivityFollowUp(text)) {
     const lastActivityEvidence = [...recentMessages]
       .reverse()
@@ -113,6 +156,62 @@ function fallbackRankingAnswer(evidence: ActivityRankingEvidence): string {
   if (evidence.limitations.length) lines.push(...evidence.limitations);
   lines.push(`Privacy: ${evidence.privacy}`);
   return lines.join("\n");
+}
+
+function fallbackVerificationAnswer(
+  evidence: ActivityVerificationEvidence,
+  recoveredRanking: ActivityRankingEvidence | null,
+): string {
+  const reference = [evidence.reference.date, evidence.reference.suppliedName]
+    .filter(Boolean)
+    .join(" | ");
+  const lines = [
+    "Tool evidence: activityVerification (server-side deterministic complete imported-history lookup).",
+    `Reference checked: ${reference || evidence.reference.garminId || "unspecified activity reference"}.`,
+    `Imported coverage checked: ${evidence.importedCoverage.activityCount} activities from ${evidence.importedCoverage.earliestDate ?? "n/a"} through ${evidence.importedCoverage.latestDate ?? "n/a"}.`,
+  ];
+  if (evidence.outcome === "not_found") {
+    lines.push(
+      "No matching normalized local activity was found in the complete imported corpus. That means it is not present in local imported data; it is not a claim about Garmin outside this app.",
+    );
+  } else if (evidence.outcome === "ambiguous") {
+    lines.push(
+      `The reference is ambiguous in local imported data: ${evidence.matches
+        .map(
+          (match) =>
+            `${match.date} ${match.label} (Garmin ID ${match.garminId})`,
+        )
+        .join("; ")}`,
+    );
+  } else {
+    const match = evidence.matches[0];
+    lines.push(
+      `Found one local match: ${match.date} ${match.label} (Garmin ID ${match.garminId}, ${match.labelSource} label).`,
+    );
+  }
+  if (recoveredRanking) {
+    lines.push(
+      "Corrected ranking rebuilt from deterministic local rows because the prior user ranking request was recoverable:",
+      fallbackRankingAnswer(recoveredRanking),
+    );
+  } else {
+    lines.push(
+      "I did not use prior ungrounded assistant prose as activity evidence. If you want, ask for the ranking/comparison again and I will rebuild it from local rows.",
+    );
+  }
+  lines.push(`Privacy: ${evidence.privacy}`);
+  return lines.join("\n");
+}
+
+function recoverPriorRankingRequest(
+  recentMessages: StoredChatMessage[],
+): ActivityRankingEvidence | null {
+  for (const message of [...recentMessages].reverse()) {
+    if (message.role !== "user") continue;
+    const evidence = summarizeActivityRankings(message.content);
+    if (evidence) return evidence;
+  }
+  return null;
 }
 
 function messageText(message: UIMessage): string {
@@ -367,6 +466,41 @@ export async function POST(request: Request) {
       });
     }
 
+    const verificationReference = activityVerificationRequest(latestMessage);
+    if (verificationReference) {
+      const verificationEvidence = verifyActivityReference(
+        verificationReference,
+      );
+      const recoveredRanking = recoverPriorRankingRequest(previousMessages);
+      const grounding: ChatGrounding = {
+        tool: "activityVerification",
+        privacy: verificationEvidence.privacy,
+        summary: `Outcome ${verificationEvidence.outcome}; checked ${verificationEvidence.importedCoverage.activityCount} imported activities${recoveredRanking ? "; recovered prior user ranking request" : ""}.`,
+      };
+      const assistantText = fallbackVerificationAnswer(
+        verificationEvidence,
+        recoveredRanking,
+      );
+      const assistantRecord = appendChatMessage({
+        conversationId,
+        role: "assistant",
+        content: assistantText,
+        grounding,
+      });
+      const messages = listRecentChatMessages(
+        conversationId,
+        CHAT_HISTORY_LIMIT,
+      );
+      return NextResponse.json({
+        conversationId,
+        messages: messages.map(apiMessage),
+        assistant: apiMessage(assistantRecord),
+        contextWindow: Math.min(messagesForContext.length, 10),
+        historyLimit: CHAT_HISTORY_LIMIT,
+        toolEvidence: grounding,
+      });
+    }
+
     const activityId = resolveActivityId(
       latestMessage,
       recentActivities,
@@ -412,7 +546,6 @@ export async function POST(request: Request) {
           .join("\n\n");
       assistantText = `${assistantText}\n\nTool evidence: analyzeActivity (server-side deterministic prefetch for ${activityIds.join(", ")})\nPrivacy boundary: ${analyses[0].privacy}`;
     } else if (rankingEvidence) {
-      const rankingJson = JSON.stringify(rankingEvidence).slice(0, 16000);
       grounding = {
         tool: "activityRanking",
         privacy: rankingEvidence.privacy,
@@ -420,14 +553,9 @@ export async function POST(request: Request) {
           rankingEvidence.rankings,
         ).reduce((count, rows) => count + rows.length, 0)} rows.`,
       };
-      const result = await generateText({
-        model,
-        system: `${system}\n\nDeterministic local activity-ranking evidence from normalized SQLite summaries (server-side prefetch; no provider tool loop):\n${rankingJson}\n\nWrite the answer only from these deterministic rows and the bounded recent conversation when useful. Do not introduce activity names, route names, trail names, or place names that are not present as labels in the JSON rows. If a labelSource is fallback, say it is a generic fallback label, not a Garmin activity name. If requested metrics are missing or unsupported, state the limitation instead of fabricating names or metrics. Mention Tool evidence: activityRanking.`,
-        prompt: latestMessage,
-      });
-      assistantText =
-        result.text.trim() || fallbackRankingAnswer(rankingEvidence);
-      assistantText = `${assistantText}\n\nTool evidence: activityRanking (server-side deterministic ranking over imported summaries)\nPrivacy boundary: ${rankingEvidence.privacy}`;
+      assistantText = `${fallbackRankingAnswer(
+        rankingEvidence,
+      )}\n\nTool evidence: activityRanking (server-side deterministic ranking over imported summaries)\nPrivacy boundary: ${rankingEvidence.privacy}`;
     } else {
       const result = await generateText({
         model,

@@ -73,6 +73,23 @@ const summarizeActivityRankings = vi.fn(() => ({
   limitations: [],
 }));
 
+const verifyActivityReference = vi.fn(() => ({
+  tool: "activityVerification",
+  reference: {
+    garminId: null,
+    suppliedName: "Snežnik",
+    date: "2025-10-18",
+  },
+  outcome: "not_found",
+  matches: [],
+  importedCoverage: {
+    activityCount: 301,
+    earliestDate: "2020-01-01",
+    latestDate: "2026-07-20",
+  },
+  privacy: "Verified against local normalized SQLite activity summaries only.",
+}));
+
 const coverage = {
   total: 3,
   pending: 2,
@@ -167,7 +184,7 @@ vi.mock("@/lib/db/repository", () => ({
     messages.push(message);
     return message;
   }),
-  listRecentChatMessages: vi.fn(() => messages),
+  listRecentChatMessages: vi.fn(() => [...messages]),
   clearConversationHistory: vi.fn(() => {
     messages = [];
   }),
@@ -222,7 +239,24 @@ vi.mock("@/lib/db/repository", () => ({
   }),
   listActiveTrainerMemories: () => [],
   listActivityDetailAvailability: () => [],
-  listRecentActivities: () => [],
+  listRecentActivities: () => [
+    {
+      garminId: "latest-999",
+      name: "Newest unrelated",
+      sport: "running",
+      startedAt: new Date("2026-07-20T06:00:00Z"),
+      durationSec: 1800,
+      distanceMeters: 5000,
+      calories: null,
+      avgHeartRate: 140,
+      maxHeartRate: 170,
+      steps: null,
+      elevationGainMeters: 50,
+      elevationLossMeters: 50,
+      trainingEffect: null,
+    },
+  ],
+  verifyActivityReference,
   listRecentDailyHealth: () => [],
 }));
 
@@ -249,6 +283,7 @@ describe("chat route bounded actions", () => {
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
     summarizeActivityRankings.mockClear();
+    verifyActivityReference.mockClear();
   });
 
   it("returns local sync status without a provider tool loop", async () => {
@@ -295,6 +330,10 @@ describe("chat route bounded actions", () => {
   });
 
   it("routes demanding activity rankings through deterministic local rows", async () => {
+    generateText.mockResolvedValueOnce({
+      text: "Provider invented Golovec trails should be ignored",
+    });
+
     const payload = await postChat(
       "Which are my most demanding activities by elevation and distance?",
     );
@@ -302,17 +341,85 @@ describe("chat route bounded actions", () => {
     expect(summarizeActivityRankings).toHaveBeenCalledWith(
       "Which are my most demanding activities by elevation and distance?",
     );
-    expect(generateText).toHaveBeenCalledOnce();
-    const calls = generateText.mock.calls as unknown as Array<
-      [{ system: string }]
-    >;
-    const call = calls[0][0];
-    expect(call.system).toContain("Source climb — Špik");
-    expect(call.system).toContain(
+    expect(generateText).not.toHaveBeenCalled();
+    expect(payload.assistant.content).toContain("Source climb — Špik");
+    expect(payload.assistant.content).toContain(
       "Imported running on 2026-07-02 (Garmin ID rank-2)",
     );
-    expect(call.system).toContain("Do not introduce activity names");
-    expect(call.system).not.toContain("Golovec trails");
+    expect(payload.assistant.content).not.toContain("Golovec trails");
     expect(payload.toolEvidence?.tool).toBe("activityRanking");
+  });
+
+  it("treats a reported name/date correction as verification, not latest activity analysis", async () => {
+    messages = [
+      {
+        id: "assistant-previous",
+        conversationId: "default",
+        role: "assistant",
+        content: "Your demanding hike was 2025-10-18 | Snežnik.",
+        grounding: null,
+        createdAt: new Date("2026-07-21T09:00:00Z"),
+      },
+    ];
+
+    const payload = await postChat(
+      "2025-10-18 | Snežnik — I never did this activity",
+    );
+
+    expect(verifyActivityReference).toHaveBeenCalledWith({
+      garminId: null,
+      suppliedName: "Snežnik",
+      date: "2025-10-18",
+    });
+    expect(payload.toolEvidence?.tool).toBe("activityVerification");
+    expect(payload.assistant.content).toContain(
+      "No matching normalized local activity was found",
+    );
+    expect(payload.assistant.content).toContain("301 activities");
+    expect(payload.assistant.content).not.toContain("latest-999");
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("recovers prior user ranking intent for a correction without trusting assistant prose", async () => {
+    messages = [
+      {
+        id: "user-ranking",
+        conversationId: "default",
+        role: "user",
+        content:
+          "Which are my most demanding activities by elevation and distance?",
+        grounding: null,
+        createdAt: new Date("2026-07-21T08:59:00Z"),
+      },
+      {
+        id: "assistant-previous",
+        conversationId: "default",
+        role: "assistant",
+        content: "The answer is a fabricated 2025-10-18 Snežnik activity.",
+        grounding: null,
+        createdAt: new Date("2026-07-21T09:00:00Z"),
+      },
+    ];
+
+    const payload = await postChat(
+      "2025-10-18 | Snežnik — I never did this activity",
+    );
+
+    expect(payload.toolEvidence?.tool).toBe("activityVerification");
+    expect(summarizeActivityRankings).toHaveBeenCalledWith(
+      "Which are my most demanding activities by elevation and distance?",
+    );
+    expect(payload.assistant.content).toContain("Corrected ranking rebuilt");
+    expect(payload.assistant.content).toContain("Source climb — Špik");
+    expect(payload.assistant.content).not.toContain("fabricated 2025-10-18");
+  });
+
+  it("does not select latest activity for a generic activity noun", async () => {
+    summarizeActivityRankings.mockReturnValueOnce(null as never);
+
+    const payload = await postChat("I never did this activity");
+
+    expect(payload.toolEvidence).toBeNull();
+    expect(generateText).toHaveBeenCalledOnce();
   });
 });

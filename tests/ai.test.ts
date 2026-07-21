@@ -140,6 +140,25 @@ describe("trainer AI", () => {
       "tool evidence: analyzeActivity activity 123456",
     );
     expect(history[1]).toContain("Vrh Zakotja");
+    expect(history[1]).not.toContain("Latest hike answer");
+  });
+
+  it("omits ungrounded assistant activity prose from hidden context", () => {
+    const history = formatRecentChatHistory([
+      {
+        role: "assistant",
+        content: "The invented activity was 2025-10-18 Snežnik.",
+        grounding: null,
+      },
+      {
+        role: "user",
+        content: "2025-10-18 | Snežnik — I never did this activity",
+      },
+    ]);
+
+    expect(history[0]).toContain("ungrounded prior assistant prose omitted");
+    expect(history[0]).not.toContain("invented activity");
+    expect(history[1]).toContain("2025-10-18 | Snežnik");
   });
 
   it("keeps a non-medical safety boundary", () => {

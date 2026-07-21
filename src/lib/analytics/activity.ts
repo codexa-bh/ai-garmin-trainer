@@ -260,7 +260,7 @@ export function summarizeActivityRankings(
 ): ActivityRankingEvidence | null {
   const metrics = requestedRankingMetrics(prompt);
   if (!metrics.length) return null;
-  const activities = listActivitiesForComparison(250);
+  const activities = listActivitiesForComparison();
   const rankings: Record<RankingMetric, ActivityRankingRow[]> = {
     elevationGainMeters: [],
     distanceMeters: [],

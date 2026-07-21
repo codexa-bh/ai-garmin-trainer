@@ -706,8 +706,140 @@ export function getActivityDetailForAnalytics(garminId: string): {
   };
 }
 
-export function listActivitiesForComparison(limit = 250): NormalizedActivity[] {
-  return listRecentActivities(limit);
+export function listActivitiesForComparison(
+  limit?: number,
+): NormalizedActivity[] {
+  const query = `select garmin_id as garminId, name, sport, started_at as startedAt, duration_sec as durationSec,
+              distance_meters as distanceMeters, calories, avg_heart_rate as avgHeartRate,
+              max_heart_rate as maxHeartRate, steps, elevation_gain_meters as elevationGainMeters,
+              elevation_loss_meters as elevationLossMeters, training_effect as trainingEffect
+       from activity order by started_at desc${limit ? " limit ?" : ""}`;
+  const statement = getDatabase().prepare(query);
+  const rows = (limit ? statement.all(limit) : statement.all()) as Array<{
+    garminId: string;
+    name: string | null;
+    sport: string;
+    startedAt: number;
+    durationSec: number | null;
+    distanceMeters: number | null;
+    calories: number | null;
+    avgHeartRate: number | null;
+    maxHeartRate: number | null;
+    steps: number | null;
+    elevationGainMeters: number | null;
+    elevationLossMeters: number | null;
+    trainingEffect: number | null;
+  }>;
+  return rows.map((row) => ({ ...row, startedAt: new Date(row.startedAt) }));
+}
+
+export type ActivityReferenceInput = {
+  garminId?: string | null;
+  suppliedName?: string | null;
+  date?: string | null;
+};
+
+export type ActivityVerificationEvidence = {
+  tool: "activityVerification";
+  reference: {
+    garminId: string | null;
+    suppliedName: string | null;
+    date: string | null;
+  };
+  outcome: "found" | "not_found" | "ambiguous";
+  matches: Array<{
+    garminId: string;
+    label: string;
+    labelSource: "garmin" | "fallback";
+    date: string;
+    sport: string;
+    distanceMeters: number | null;
+    durationSec: number | null;
+    elevationGainMeters: number | null;
+    avgHeartRate: number | null;
+  }>;
+  importedCoverage: {
+    activityCount: number;
+    earliestDate: string | null;
+    latestDate: string | null;
+  };
+  privacy: string;
+};
+
+function normalizeActivityReference(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+export function verifyActivityReference(
+  reference: ActivityReferenceInput,
+  matchLimit = 5,
+): ActivityVerificationEvidence {
+  const activities = listActivitiesForComparison();
+  const suppliedName = reference.suppliedName?.trim() || null;
+  const normalizedName = suppliedName
+    ? normalizeActivityReference(suppliedName)
+    : null;
+  const candidates = activities.filter((activity) => {
+    const date = activity.startedAt.toISOString().slice(0, 10);
+    if (reference.garminId && activity.garminId !== reference.garminId)
+      return false;
+    if (reference.date && date !== reference.date) return false;
+    if (normalizedName) {
+      const storedName = activity.name
+        ? normalizeActivityReference(activity.name)
+        : null;
+      if (storedName !== normalizedName) return false;
+    }
+    return true;
+  });
+  const boundedMatches = candidates.slice(0, matchLimit).map((activity) => {
+    const date = activity.startedAt.toISOString().slice(0, 10);
+    const sourceName = activity.name?.trim();
+    return {
+      garminId: activity.garminId,
+      label:
+        sourceName ||
+        `Imported ${activity.sport} on ${date} (Garmin ID ${activity.garminId})`,
+      labelSource: sourceName ? ("garmin" as const) : ("fallback" as const),
+      date,
+      sport: activity.sport,
+      distanceMeters: activity.distanceMeters,
+      durationSec: activity.durationSec,
+      elevationGainMeters: activity.elevationGainMeters,
+      avgHeartRate: activity.avgHeartRate,
+    };
+  });
+  const times = activities.map((activity) => activity.startedAt.getTime());
+  return {
+    tool: "activityVerification",
+    reference: {
+      garminId: reference.garminId ?? null,
+      suppliedName,
+      date: reference.date ?? null,
+    },
+    outcome:
+      candidates.length === 0
+        ? "not_found"
+        : candidates.length === 1
+          ? "found"
+          : "ambiguous",
+    matches: boundedMatches,
+    importedCoverage: {
+      activityCount: activities.length,
+      earliestDate: times.length
+        ? new Date(Math.min(...times)).toISOString().slice(0, 10)
+        : null,
+      latestDate: times.length
+        ? new Date(Math.max(...times)).toISOString().slice(0, 10)
+        : null,
+    },
+    privacy:
+      "Verified against local normalized SQLite activity summaries only; raw FIT, GPS streams, connector payloads, and credentials were not sent to the model.",
+  };
 }
 
 export function dataCounts(): {
