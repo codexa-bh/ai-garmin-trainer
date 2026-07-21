@@ -137,6 +137,52 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeTruthy();
   });
 
+  it("shows only a generic transcript marker for stored tool grounding", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Synthesized trainer answer from local evidence.",
+              createdAt: "2026-07-21T12:00:00.000Z",
+              grounding: {
+                tool: "rankActivities",
+                summary: "Detailed ranking rows should stay hidden.",
+                privacy: "Computed from local normalized SQLite only.",
+              },
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(
+      await screen.findByText(
+        "Synthesized trainer answer from local evidence.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Used local Garmin data.")).toBeTruthy();
+    expect(
+      screen.queryByText("Detailed ranking rows should stay hidden."),
+    ).toBeNull();
+    expect(
+      screen.queryByText("Computed from local normalized SQLite only."),
+    ).toBeNull();
+  });
+
   it("preserves dirty edits when a manual Profile reload returns late", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);

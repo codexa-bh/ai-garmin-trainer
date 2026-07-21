@@ -63,14 +63,9 @@ function plannerSystem(
   priorSteps: TrainerToolStep[],
 ): string {
   const prior = priorSteps.length
-    ? priorSteps
-        .map(
-          (step) =>
-            `Step ${step.index}: ${step.tool} ${step.status}; ${bounded(step.summary, 500)}; privacy: ${step.privacy}`,
-        )
-        .join("\n")
+    ? synthesisEvidenceForSteps(priorSteps)
     : "No prior tool step in this user turn.";
-  return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates must be verified before analysis.\n- Do not ask for credentials, raw FIT, full streams, filesystem paths, SQL, URLs, or arbitrary connector methods.\n- A user turn may execute at most two sequential tools. If a prior server step exists, either answer from that bounded evidence or select one valid second tool.\n\nCurrent turn server-authored prior tool summaries (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
+  return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates must be verified before analysis.\n- Do not ask for credentials, raw FIT, full streams, filesystem paths, SQL, URLs, or arbitrary connector methods.\n- A user turn may execute at most two sequential tools. If a prior server step exists, either answer in ordinary user-facing prose from that bounded evidence or select one valid second tool.\n- Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, SQL, raw FIT data, GPS streams, or unrestricted history in user-facing prose.\n\nCurrent turn server-authored prior tool evidence (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
 }
 
 function failedStep(index: 1 | 2, reason: string): TrainerToolStep {
@@ -83,6 +78,65 @@ function failedStep(index: 1 | 2, reason: string): TrainerToolStep {
       "No Garmin connector action or local analytics tool was executed for the rejected provider response.",
     reason,
   };
+}
+
+function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
+  return steps
+    .map((step) => {
+      const evidence = renderToolSteps([step])
+        .split("\n")
+        .filter((line) => !line.startsWith("Privacy:"))
+        .join("\n")
+        .replace(
+          /^Tool step \d+: [^(]+ \([^)]*\)\.\s*/,
+          `Evidence step ${step.index}: ${step.tool} ${step.status}. `,
+        );
+      return bounded(evidence, 1800);
+    })
+    .join("\n\n");
+}
+
+function finalAnswerSystem(
+  baseSystem: string,
+  steps: TrainerToolStep[],
+): string {
+  return `${baseSystem}\n\nTrainer final-answer synthesis policy:\n- Write the user-facing trainer answer from the server-authored tool evidence below.\n- Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, SQL, raw FIT data, GPS streams, or unrestricted history.\n- Cite dates, activities, rankings, metrics, and limitations in ordinary prose only when they appear in the server-authored evidence.\n- If the evidence is insufficient for part of the request, say what is missing instead of inventing Garmin facts.\n- Keep the answer concise, coaching-oriented, and non-medical.\n\nServer-authored tool evidence for this current user turn:\n${synthesisEvidenceForSteps(steps)}`;
+}
+
+function isAcceptableToolSynthesisText(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (/\bTool step \d+:/i.test(trimmed)) return false;
+  if (/^Privacy:/im.test(trimmed)) return false;
+  return true;
+}
+
+async function synthesizeFinalAnswer(
+  input: OrchestrateTrainerChatInput,
+  steps: TrainerToolStep[],
+): Promise<string | null> {
+  let result: RawGenerateTextResult;
+  try {
+    result = (await (
+      generateText as unknown as (
+        options: Record<string, unknown>,
+      ) => Promise<RawGenerateTextResult>
+    )({
+      model: input.model,
+      system: finalAnswerSystem(input.system, steps),
+      prompt: input.userRequest,
+      toolChoice: "none",
+    })) as RawGenerateTextResult;
+  } catch {
+    return null;
+  }
+
+  const text = result.text?.trim() ?? "";
+  const toolCalls = (result.toolCalls ?? [])
+    .map(extractToolCall)
+    .filter((call): call is TrainerToolCall => Boolean(call));
+  if (toolCalls.length || !isAcceptableToolSynthesisText(text)) return null;
+  return text;
 }
 
 export async function orchestrateTrainerChat(
@@ -129,8 +183,11 @@ export async function orchestrateTrainerChat(
       .filter((call): call is TrainerToolCall => Boolean(call));
     if (toolCalls.length === 0) {
       if (steps.length) {
+        const text = result.text?.trim() ?? "";
         return {
-          text: renderToolSteps(steps),
+          text: isAcceptableToolSynthesisText(text)
+            ? text
+            : renderToolSteps(steps),
           grounding: groundingForSteps(steps),
           toolSteps: steps,
           providerCalls,
@@ -205,7 +262,16 @@ export async function orchestrateTrainerChat(
       };
     }
 
-    if (steps.length >= MAX_TOOL_CALLS) break;
+    if (steps.length >= MAX_TOOL_CALLS) {
+      providerCalls += 1;
+      const text = await synthesizeFinalAnswer(input, steps);
+      return {
+        text: text ?? renderToolSteps(steps),
+        grounding: groundingForSteps(steps),
+        toolSteps: steps,
+        providerCalls,
+      };
+    }
   }
 
   return {

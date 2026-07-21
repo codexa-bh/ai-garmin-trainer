@@ -875,17 +875,11 @@ export function TrainerDashboard() {
                 </div>
                 <p>{item.content}</p>
                 {item.grounding ? (
-                  <div className="tool-evidence">
-                    <span>Tool evidence: {item.grounding.tool}</span>
-                    {item.grounding.activityId ? (
-                      <span>Activity {item.grounding.activityId}</span>
-                    ) : null}
-                    {item.grounding.summary ? (
-                      <span>{item.grounding.summary}</span>
-                    ) : null}
-                    {item.grounding.privacy ? (
-                      <span>Privacy: {item.grounding.privacy}</span>
-                    ) : null}
+                  <div
+                    className="tool-evidence"
+                    aria-label="Hidden grounding metadata available"
+                  >
+                    <span>Used local Garmin data.</span>
                   </div>
                 ) : null}
               </div>

@@ -168,7 +168,55 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(malformed.toolSteps[0]?.reason).toBe("malformed_input");
   });
 
-  it("formats ranking fallback text while preserving grounding and tool steps", async () => {
+  it("returns final provider synthesis text after one successful tool while preserving grounding", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "rankActivities",
+            input: {
+              metrics: [
+                "elevationGainMeters",
+                "distanceMeters",
+                "durationSec",
+                "avgHeartRate",
+              ],
+              windowDays: 365,
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "Your most demanding imported effort was Source climb — Špik, with 8,802 m of elevation gain and a marathon-length distance.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "rank my most demanding activities in the last 365 days",
+    });
+
+    expect(result.text).toBe(
+      "Your most demanding imported effort was Source climb — Špik, with 8,802 m of elevation gain and a marathon-length distance.",
+    );
+    expect(result.text).not.toContain("Tool step 1:");
+    expect(result.text).not.toContain("Privacy:");
+    expect(result.grounding?.tool).toBe("rankActivities");
+    expect(result.grounding?.toolSteps?.[0]).toMatchObject({
+      tool: "rankActivities",
+      status: "succeeded",
+    });
+    expect(result.toolSteps[0]?.result).toBe(rankingEvidence);
+    expect(generateText.mock.calls[1][0].system).toContain(
+      "server-authored prior tool evidence",
+    );
+    expect(generateText.mock.calls[1][0].system).toContain(
+      "Source climb — Špik",
+    );
+    expect(generateText.mock.calls[1][0].system).not.toContain("Tool step 1:");
+  });
+
+  it("falls back to deterministic ranking text when provider synthesis is empty", async () => {
     generateText
       .mockResolvedValueOnce({
         toolCalls: [
@@ -212,6 +260,49 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.toolSteps[0]?.result).toBe(rankingEvidence);
   });
 
+  it("synthesizes a final answer after two successful ordered tools", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "rankActivities",
+            input: { metrics: ["distanceMeters"], windowDays: 365 },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "rankActivities",
+            input: { metrics: ["elevationGainMeters"], windowDays: 365 },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "Across both ordered evidence steps, Source climb — Špik is the standout demanding activity.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "rank my most demanding activities in the last 365 days",
+    });
+
+    expect(result.text).toBe(
+      "Across both ordered evidence steps, Source climb — Špik is the standout demanding activity.",
+    );
+    expect(result.toolSteps.map((step) => step.tool)).toEqual([
+      "rankActivities",
+      "rankActivities",
+    ]);
+    expect(result.providerCalls).toBe(3);
+    expect(generateText.mock.calls[2][0]).toMatchObject({
+      toolChoice: "none",
+    });
+    expect(generateText.mock.calls[2][0].system).toContain("Evidence step 1");
+    expect(generateText.mock.calls[2][0].system).toContain("Evidence step 2");
+  });
+
   it("prevents duplicate side-effect tools across the two-call budget", async () => {
     generateText
       .mockResolvedValueOnce({
@@ -232,7 +323,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
       "duplicate_side_effect",
     );
     expect(generateText.mock.calls[1][0].system).toContain(
-      "Step 1: runGarminSync succeeded",
+      "Evidence step 1: runGarminSync succeeded",
     );
   });
 });

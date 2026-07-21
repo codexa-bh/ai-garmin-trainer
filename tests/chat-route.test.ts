@@ -152,9 +152,14 @@ const verifyActivityReference = vi.fn(
 );
 
 const generateText = vi.fn(
-  async (options: { prompt: string; system: string }) => {
+  async (options: { prompt: string; system: string; toolChoice?: string }) => {
+    if (options.toolChoice === "none") {
+      return {
+        text: "After checking the disputed reference and the ordered ranking evidence, the demanding-activity answer should stay grounded in imported local data only.",
+      };
+    }
     if (
-      options.system.includes("Step 1:") &&
+      options.system.includes("Evidence step 1:") &&
       options.prompt.includes("never did")
     ) {
       return {
@@ -167,7 +172,53 @@ const generateText = vi.fn(
         ],
       };
     }
-    if (options.system.includes("Step 1:")) return { text: "provider final" };
+    if (options.system.includes("Evidence step 1: getSyncStatus")) {
+      return {
+        text: "Your local Garmin import is available with detail coverage 1/3 terminal.",
+      };
+    }
+    if (options.system.includes("Evidence step 1: runGarminSync")) {
+      return {
+        text: "Garmin sync complete; the local normalized store was updated.",
+      };
+    }
+    if (options.system.includes("Evidence step 1: analyzeActivity")) {
+      if (options.system.includes("latest-999")) {
+        return {
+          text: "The latest imported local activity is latest-999, based on normalized analytics evidence.",
+        };
+      }
+      return {
+        text: "The selected local activities 111111, 222222, and 333333 are ready for comparison from normalized analytics evidence.",
+      };
+    }
+    if (options.system.includes("Evidence step 1: rankActivities")) {
+      return {
+        text: "Source climb — Špik stands out as the most demanding imported activity in the local ranking evidence.",
+      };
+    }
+    if (options.system.includes("Evidence step 1: verifyActivityReference")) {
+      if (options.system.includes("No matching normalized local activity")) {
+        return {
+          text: "No matching normalized local activity was found in the imported corpus, so I would not use an arbitrary latest fallback.",
+        };
+      }
+      if (options.system.includes("Garmin ID 23667792496")) {
+        return {
+          text: "I found Selo - Rašica as Garmin ID 23667792496 with distance 12340 m in local imported data.",
+        };
+      }
+      if (
+        options.system.includes("dup-1") &&
+        options.system.includes("dup-2")
+      ) {
+        return {
+          text: "The Duplicate reference is ambiguous between dup-1 and dup-2 in local imported data.",
+        };
+      }
+    }
+    if (options.system.includes("Evidence step 1:"))
+      return { text: "provider final" };
     const prompt = options.prompt;
     if (prompt.includes("sync status")) {
       return { toolCalls: [{ toolName: "getSyncStatus", input: {} }] };
@@ -672,9 +723,9 @@ describe("chat route LLM tool orchestration", () => {
       "rankActivities",
     ]);
     const secondCall = generateText.mock.calls[1][0] as { system: string };
-    expect(secondCall.system).toContain("server-authored prior tool summaries");
+    expect(secondCall.system).toContain("server-authored prior tool evidence");
     expect(secondCall.system).toContain(
-      "Step 1: verifyActivityReference succeeded",
+      "Evidence step 1: verifyActivityReference succeeded",
     );
     expect(secondCall.system).not.toContain("provider final");
   });
