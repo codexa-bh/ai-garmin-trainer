@@ -26,12 +26,15 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
   );
 }
 
-function profile(goals: string[] = ["Build hiking endurance"]) {
+function profile(
+  goals: string[] = ["Build hiking endurance"],
+  preferences: Record<string, unknown> = { coachingStyle: "direct" },
+) {
   return {
     goals,
     sports: ["hiking", "mountaineering"],
     constraints: ["no running this week"],
-    preferences: { coachingStyle: "direct" },
+    preferences,
   };
 }
 
@@ -84,9 +87,7 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(
       (screen.getByLabelText("Preferred sports") as HTMLTextAreaElement).value,
     ).toBe("hiking\nmountaineering");
-    expect(
-      (screen.getByLabelText("Preferences JSON") as HTMLTextAreaElement).value,
-    ).toContain('"coachingStyle": "direct"');
+    expect(screen.queryByLabelText("Preferences JSON")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalledWith(
       "/api/dev-login",
       expect.anything(),
@@ -191,9 +192,70 @@ describe("TrainerDashboard Profile hydration", () => {
       goals: ["Summit endurance", "Easy recovery"],
       sports: ["hiking", "cycling"],
       constraints: ["no running this week"],
-      preferences: {},
+      preferences: { coachingStyle: "direct" },
     });
     expect(goals.value).toBe("Summit endurance\nEasy recovery");
+  });
+});
+
+describe("TrainerDashboard primary Sync now", () => {
+  it("shows Sync now in the trainer header without opening Data & settings", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    const syncButton = screen.getByRole("button", {
+      name: "Sync now — import latest Garmin data",
+    });
+    expect(syncButton).toBeTruthy();
+    expect(syncButton.textContent).toContain("Sync now");
+  });
+
+  it("preserves hidden preferences when saving visible Profile fields", async () => {
+    let savedBody: unknown;
+    const seededPreferences = { coachingStyle: "direct", maxWeeklyHours: 10 };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url === "/api/profile" && init?.method === "GET")
+        return jsonResponse(
+          profile(["Build hiking endurance"], seededPreferences),
+        );
+      if (url === "/api/profile" && init?.method === "POST") {
+        savedBody = JSON.parse(String(init.body));
+        return jsonResponse({ ok: true, profile: savedBody });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+    const goals = (await screen.findByLabelText(
+      "Goals",
+    )) as HTMLTextAreaElement;
+
+    await waitFor(() => expect(goals.disabled).toBe(false));
+    fireEvent.change(goals, {
+      target: { value: "Updated endurance goal" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Profile" }));
+
+    fireEvent.click(screen.getByText("Current operation"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Profile: saved to local SQLite/)).toBeTruthy();
+    });
+    expect(savedBody).toMatchObject({
+      goals: ["Updated endurance goal"],
+      preferences: seededPreferences,
+    });
   });
 });
 

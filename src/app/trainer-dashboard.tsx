@@ -36,7 +36,6 @@ type ProfileResponse = { ok?: boolean; profile?: TrainerProfilePayload };
 type ProfileFields = {
   goals: string;
   sports: string;
-  preferences: string;
   constraints: string;
 };
 type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
@@ -45,7 +44,6 @@ type ProfileSaveState = "idle" | "saving" | "saved" | "error";
 const emptyProfileFields: ProfileFields = {
   goals: "",
   sports: "",
-  preferences: "{}",
   constraints: "",
 };
 
@@ -93,19 +91,8 @@ function profileToFields(profile: TrainerProfilePayload): ProfileFields {
   return {
     goals: linesToText(profile.goals),
     sports: linesToText(profile.sports),
-    preferences: JSON.stringify(profile.preferences ?? {}, null, 2),
     constraints: linesToText(profile.constraints),
   };
-}
-
-function parsePreferences(value: string): Record<string, unknown> {
-  const trimmed = value.trim();
-  if (!trimmed) return {};
-  const parsed = JSON.parse(trimmed) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Preferences must be a JSON object.");
-  }
-  return parsed as Record<string, unknown>;
 }
 
 function profileStatusLabel(
@@ -150,6 +137,7 @@ export function TrainerDashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const profileDirtyRef = useRef(false);
+  const profilePreferencesRef = useRef<Record<string, unknown>>({});
   const profileRequestRef = useRef(0);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptBottomRef = useRef<HTMLDivElement>(null);
@@ -218,6 +206,7 @@ export function TrainerDashboard() {
 
   function applyProfile(profile: TrainerProfilePayload) {
     setProfileFields(profileToFields(profile));
+    profilePreferencesRef.current = profile.preferences ?? {};
     setProfileDirty(false);
   }
 
@@ -416,28 +405,11 @@ export function TrainerDashboard() {
   }
 
   async function saveProfile() {
-    let preferences: Record<string, unknown>;
-    try {
-      preferences = parsePreferences(profileFields.preferences);
-    } catch (error) {
-      setProfileSaveState("error");
-      setProfileMessage(
-        error instanceof Error
-          ? error.message
-          : "Preferences must be valid JSON.",
-      );
-      setStatus({
-        kind: "error",
-        message: "Profile: preferences must be a JSON object before saving.",
-      });
-      return;
-    }
-
     const submittedProfile: TrainerProfilePayload = {
       goals: textToLines(profileFields.goals),
       sports: textToLines(profileFields.sports),
       constraints: textToLines(profileFields.constraints),
-      preferences,
+      preferences: profilePreferencesRef.current,
     };
 
     setProfileSaveState("saving");
@@ -541,22 +513,33 @@ export function TrainerDashboard() {
                 your saved Profile when available.
               </p>
             </div>
-            <div className="context-card" aria-label="Recent context window">
-              <strong>Recent context</strong>
-              <span>
-                {contextWindow}/{historyLimit} local messages sent to grounding
-              </span>
-              <span>Conversation: {conversationId}</span>
-              {latestToolEvidence ? (
+            <div className="chat-header-actions">
+              <button
+                type="button"
+                className="primary-action"
+                onClick={syncNow}
+                aria-label="Sync now — import latest Garmin data"
+              >
+                Sync now
+              </button>
+              <div className="context-card" aria-label="Recent context window">
+                <strong>Recent context</strong>
                 <span>
-                  Last tool: {latestToolEvidence.tool}
-                  {latestToolEvidence.activityName
-                    ? ` — ${latestToolEvidence.activityName}`
-                    : ""}
+                  {contextWindow}/{historyLimit} local messages sent to
+                  grounding
                 </span>
-              ) : (
-                <span>No tool evidence yet</span>
-              )}
+                <span>Conversation: {conversationId}</span>
+                {latestToolEvidence ? (
+                  <span>
+                    Last tool: {latestToolEvidence.tool}
+                    {latestToolEvidence.activityName
+                      ? ` — ${latestToolEvidence.activityName}`
+                      : ""}
+                  </span>
+                ) : (
+                  <span>No tool evidence yet</span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -724,18 +707,6 @@ export function TrainerDashboard() {
                     updateProfileField("constraints", event.target.value)
                   }
                   placeholder="no running this week"
-                  disabled={profileControlsDisabled}
-                />
-              </label>
-              <label>
-                Preferences (JSON)
-                <textarea
-                  aria-label="Preferences JSON"
-                  value={profileFields.preferences}
-                  onChange={(event) =>
-                    updateProfileField("preferences", event.target.value)
-                  }
-                  placeholder={'{"coachingStyle":"direct"}'}
                   disabled={profileControlsDisabled}
                 />
               </label>
