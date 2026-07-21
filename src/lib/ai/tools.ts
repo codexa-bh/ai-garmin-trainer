@@ -101,6 +101,33 @@ const generatedAnalysisCriterionSchema = z.enum([
   "trainingEffect",
 ]);
 
+const generatedAnalysisFilterTermSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(40)
+  .regex(/^[\p{L}\p{N}][\p{L}\p{N}\s_-]*$/u);
+
+const generatedAnalysisActivityFilterSchema = z
+  .object({
+    includeSports: z
+      .array(generatedAnalysisFilterTermSchema)
+      .min(1)
+      .max(8)
+      .optional(),
+    excludeSports: z
+      .array(generatedAnalysisFilterTermSchema)
+      .min(1)
+      .max(8)
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      Boolean(value.includeSports?.length || value.excludeSports?.length),
+    { message: "At least one include or exclude filter term is required." },
+  );
+
 export const trainerToolInputSchemas = {
   runGarminSync: emptyInputSchema,
   getSyncStatus: z
@@ -138,6 +165,7 @@ export const trainerToolInputSchemas = {
       request: z.string().trim().min(5).max(500),
       criterion: generatedAnalysisCriterionSchema,
       requestedCount: z.number().int().min(1).max(25).default(10),
+      activityFilter: generatedAnalysisActivityFilterSchema.optional(),
       script: z.string().trim().min(20).max(12000).optional(),
     })
     .strict(),
@@ -186,7 +214,7 @@ export const trainerToolDefinitions = {
   }),
   runGeneratedGarminAnalysis: tool({
     description:
-      "Run a server-sandboxed read-only Python Garmin analysis when a user asks for ad hoc ranking/counting/computation that exceeds fixed typed tools. Provide the user's request, a clear criterion, requestedCount, and optionally generated Python that writes a JSON RESULT from the provided bundle. Use demand_score for a disclosed composite demanding-effort ranking; use sport_aware_demand_score for resort/downhill snowboarding so calories, distance, descent, duration, HR, and training effect are prioritized over lift-assisted ascent. Ask a clarification instead of calling this tool when the criterion is materially ambiguous. Never include filesystem paths, SQL, URLs, connector methods, credentials, environment data, or raw prompt/history dumps.",
+      "Run a server-sandboxed read-only Python Garmin analysis when a user asks for ad hoc ranking/counting/computation that exceeds fixed typed tools. Provide the user's request, a clear criterion, requestedCount, and optionally generated Python that writes a JSON RESULT from the provided bundle. Encode explicit sport/activity subset constraints from the current user request in activityFilter.includeSports or activityFilter.excludeSports (for example hiking-only or skip snowboarding); the server applies these filters before execution and rejects out-of-filter ranking rows. Use demand_score for a disclosed composite demanding-effort ranking; use sport_aware_demand_score for resort/downhill snowboarding so calories, distance, descent, duration, HR, and training effect are prioritized over lift-assisted ascent. Ask a clarification instead of calling this tool when the criterion is materially ambiguous. Never include filesystem paths, SQL, URLs, connector methods, credentials, environment data, or raw prompt/history dumps.",
     inputSchema: trainerToolInputSchemas.runGeneratedGarminAnalysis,
   }),
 } satisfies Record<TrainerToolName, unknown>;
@@ -485,7 +513,7 @@ export async function executeTrainerTool(input: {
           status: result.status,
           summary:
             result.status === "succeeded"
-              ? `Generated Garmin analysis ${result.criterion}; ${result.result?.returnedCount ?? 0}/${result.requestedCount} ranking rows; script ${result.scriptHash.slice(0, 12)}; bundle activities ${result.manifest.tables.find((table) => table.name === "activities")?.rowCount ?? 0}.`
+              ? `Generated Garmin analysis ${result.criterion}; ${result.result?.returnedCount ?? 0}/${result.requestedCount} ranking rows; script ${result.scriptHash.slice(0, 12)}; bundle activities ${result.manifest.tables.find((table) => table.name === "activities")?.rowCount ?? 0}${result.manifest.activityFilter ? "; activity filter applied" : ""}.`
               : `Generated Garmin analysis blocked: ${result.reason ?? result.status}; script ${result.scriptHash.slice(0, 12)}.`,
           activityIds: result.result?.rows
             .map((row) => row.garminId)

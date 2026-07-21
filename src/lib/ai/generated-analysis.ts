@@ -21,6 +21,16 @@ export type GeneratedAnalysisCriterion =
   | "avgHeartRate"
   | "trainingEffect";
 
+export type GeneratedAnalysisActivityFilter = {
+  includeSports?: string[];
+  excludeSports?: string[];
+};
+
+type NormalizedGeneratedAnalysisActivityFilter = {
+  includeSports: string[];
+  excludeSports: string[];
+};
+
 export type GarminAnalysisBundle = {
   manifest: {
     generatedAt: string;
@@ -39,6 +49,7 @@ export type GarminAnalysisBundle = {
       maxRawPayloadBytes: number;
       maxOutputBytes: number;
     };
+    activityFilter?: NormalizedGeneratedAnalysisActivityFilter;
   };
   tables: {
     activities: unknown[];
@@ -91,6 +102,78 @@ const MAX_ROWS_PER_TABLE = 1000;
 const MAX_RAW_PAYLOADS = 100;
 const MAX_RAW_BYTES = 200000;
 const MAX_OUTPUT_BYTES = 12000;
+const MAX_FILTER_TERMS = 8;
+const MAX_FILTER_TERM_LENGTH = 40;
+
+function normalizeFilterText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeFilterTerms(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return [
+    ...new Set(
+      values
+        .map((value) =>
+          typeof value === "string" ? normalizeFilterText(value) : "",
+        )
+        .filter(
+          (value) =>
+            value.length >= 2 && value.length <= MAX_FILTER_TERM_LENGTH,
+        )
+        .slice(0, MAX_FILTER_TERMS),
+    ),
+  ];
+}
+
+function normalizeGeneratedAnalysisActivityFilter(
+  filter?: GeneratedAnalysisActivityFilter,
+): NormalizedGeneratedAnalysisActivityFilter {
+  return {
+    includeSports: normalizeFilterTerms(filter?.includeSports),
+    excludeSports: normalizeFilterTerms(filter?.excludeSports),
+  };
+}
+
+function hasActiveActivityFilter(
+  filter: NormalizedGeneratedAnalysisActivityFilter | undefined,
+): filter is NormalizedGeneratedAnalysisActivityFilter {
+  return Boolean(filter?.includeSports.length || filter?.excludeSports.length);
+}
+
+function activityFilterSearchText(activity: {
+  sport?: unknown;
+  label?: unknown;
+}): string {
+  return normalizeFilterText(
+    `${String(activity.sport ?? "")} ${String(activity.label ?? "")}`,
+  );
+}
+
+function activityMatchesTerm(
+  activity: { sport?: unknown; label?: unknown },
+  term: string,
+): boolean {
+  return activityFilterSearchText(activity).includes(term);
+}
+
+function activityPassesFilter(
+  activity: { sport?: unknown; label?: unknown },
+  filter: NormalizedGeneratedAnalysisActivityFilter,
+): boolean {
+  const included =
+    filter.includeSports.length === 0 ||
+    filter.includeSports.some((term) => activityMatchesTerm(activity, term));
+  const excluded = filter.excludeSports.some((term) =>
+    activityMatchesTerm(activity, term),
+  );
+  return included && !excluded;
+}
 
 function isoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
@@ -110,9 +193,12 @@ function safeActivityLabel(activity: {
 
 export function buildGarminAnalysisBundle(
   request: string,
+  activityFilter?: GeneratedAnalysisActivityFilter,
 ): GarminAnalysisBundle {
-  const activities = listActivitiesForComparison(MAX_ROWS_PER_TABLE).map(
-    (activity) => ({
+  const normalizedFilter =
+    normalizeGeneratedAnalysisActivityFilter(activityFilter);
+  const activities = listActivitiesForComparison(MAX_ROWS_PER_TABLE)
+    .map((activity) => ({
       garminId: activity.garminId,
       label: safeActivityLabel(activity),
       sport: activity.sport,
@@ -127,8 +213,8 @@ export function buildGarminAnalysisBundle(
       elevationGainMeters: activity.elevationGainMeters,
       elevationLossMeters: activity.elevationLossMeters,
       trainingEffect: activity.trainingEffect,
-    }),
-  );
+    }))
+    .filter((activity) => activityPassesFilter(activity, normalizedFilter));
   const dailyHealth = listRecentDailyHealth(366);
   const detailIds = activities
     .slice(0, 250)
@@ -182,6 +268,9 @@ export function buildGarminAnalysisBundle(
         maxRawPayloadBytes: MAX_RAW_BYTES,
         maxOutputBytes: MAX_OUTPUT_BYTES,
       },
+      activityFilter: hasActiveActivityFilter(normalizedFilter)
+        ? normalizedFilter
+        : undefined,
     },
     tables: { activities, dailyHealth, activityDetails },
     athleteBaseline: getGarminAthleteBaseline(),
@@ -331,13 +420,24 @@ function validateRankingResult(
   if (record.kind !== "ranking" || !Array.isArray(record.rows)) return null;
   if (record.rows.length > requestedCount || record.rows.length > 25)
     return null;
-  const knownIds = new Set(
-    (bundle.tables.activities as Array<{ garminId?: string }>).map(
-      (activity) => activity.garminId,
-    ),
+  const knownActivities = new Map(
+    (
+      bundle.tables.activities as Array<{
+        garminId?: string;
+        label?: string;
+        date?: string;
+        sport?: string;
+      }>
+    )
+      .filter((activity) => activity.garminId)
+      .map((activity) => [activity.garminId as string, activity]),
+  );
+  const filterIsActive = hasActiveActivityFilter(
+    bundle.manifest.activityFilter,
   );
   for (const row of record.rows) {
-    if (row.garminId && !knownIds.has(row.garminId)) return null;
+    if (row.garminId && !knownActivities.has(row.garminId)) return null;
+    if (filterIsActive && !row.garminId) return null;
     if (payloadHasSecretLikeText(row)) return null;
   }
   return {
@@ -345,19 +445,22 @@ function validateRankingResult(
     criterion: String(record.criterion ?? "generated analysis").slice(0, 120),
     requestedCount,
     returnedCount: record.rows.length,
-    rows: record.rows.map((row, index) => ({
-      rank: index + 1,
-      garminId: row.garminId?.slice(0, 80),
-      label: row.label?.slice(0, 160),
-      date: row.date?.slice(0, 40),
-      sport: row.sport?.slice(0, 40),
-      value:
-        typeof row.value === "number"
-          ? row.value
-          : String(row.value).slice(0, 80),
-      units: row.units?.slice(0, 80),
-      notes: row.notes?.slice(0, 160),
-    })),
+    rows: record.rows.map((row, index) => {
+      const activity = row.garminId ? knownActivities.get(row.garminId) : null;
+      return {
+        rank: index + 1,
+        garminId: row.garminId?.slice(0, 80),
+        label: (activity?.label ?? row.label)?.slice(0, 160),
+        date: (activity?.date ?? row.date)?.slice(0, 40),
+        sport: (activity?.sport ?? row.sport)?.slice(0, 40),
+        value:
+          typeof row.value === "number"
+            ? row.value
+            : String(row.value).slice(0, 80),
+        units: row.units?.slice(0, 80),
+        notes: row.notes?.slice(0, 160),
+      };
+    }),
     limitations: Array.isArray(record.limitations)
       ? record.limitations.map((item) => String(item).slice(0, 200)).slice(0, 5)
       : [],
@@ -368,15 +471,17 @@ export async function runGeneratedGarminAnalysis(input: {
   request: string;
   criterion: GeneratedAnalysisCriterion;
   requestedCount?: number;
+  activityFilter?: GeneratedAnalysisActivityFilter;
   script?: string;
 }): Promise<GeneratedAnalysisEvidence> {
   const requestedCount = Math.min(Math.max(input.requestedCount ?? 10, 1), 25);
-  const bundle = buildGarminAnalysisBundle(input.request);
+  const bundle = buildGarminAnalysisBundle(input.request, input.activityFilter);
   const executableBundle = {
     ...bundle,
     criterion: input.criterion,
     requestedCount,
     request: input.request,
+    activityFilter: bundle.manifest.activityFilter,
   };
   const script = input.script?.trim() || defaultRankingScript();
   const scriptHash = createHash("sha256").update(script).digest("hex");

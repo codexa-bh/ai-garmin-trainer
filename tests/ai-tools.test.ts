@@ -88,6 +88,17 @@ describe("trainer tool registry schemas", async () => {
         requestedCount: 5,
       }).success,
     ).toBe(true);
+    expect(
+      trainerToolInputSchemas.runGeneratedGarminAnalysis.safeParse({
+        request: "rank my hardest hiking activities only and skip snowboarding",
+        criterion: "demand_score",
+        requestedCount: 5,
+        activityFilter: {
+          includeSports: ["hiking"],
+          excludeSports: ["snowboarding"],
+        },
+      }).success,
+    ).toBe(true);
   });
 
   it("rejects unknown, malformed, empty, and unbounded inputs", () => {
@@ -116,6 +127,28 @@ describe("trainer tool registry schemas", async () => {
       validateTrainerToolCall({
         toolName: "getActivityDetailSlice",
         input: { garminId: "123456", pointOffset: -1, pointLimit: 1000 },
+      }),
+    ).toEqual({ ok: false, reason: "malformed_input" });
+    expect(
+      validateTrainerToolCall({
+        toolName: "runGeneratedGarminAnalysis",
+        input: {
+          request: "rank hiking activities",
+          criterion: "demand_score",
+          activityFilter: {
+            includeSports: Array.from({ length: 9 }, () => "hiking"),
+          },
+        },
+      }),
+    ).toEqual({ ok: false, reason: "malformed_input" });
+    expect(
+      validateTrainerToolCall({
+        toolName: "runGeneratedGarminAnalysis",
+        input: {
+          request: "rank hiking activities",
+          criterion: "demand_score",
+          activityFilter: { includeSports: ["../secrets"] },
+        },
       }),
     ).toEqual({ ok: false, reason: "malformed_input" });
   });

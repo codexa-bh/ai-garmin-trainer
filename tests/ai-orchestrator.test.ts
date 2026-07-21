@@ -310,6 +310,51 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).toContain("ten imported activities");
   });
 
+  it("passes hiking-only generated analysis filters through the planner tool call", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request:
+                "rank my hardest hiking activities only; skip snowboarding",
+              criterion: "demand_score",
+              requestedCount: 5,
+              activityFilter: {
+                includeSports: ["hiking"],
+                excludeSports: ["snowboarding"],
+              },
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "Using the hiking-only local bundle, the hardest hike was Generated activity 1.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "rank my hardest hiking activities only; skip snowboarding",
+    });
+
+    expect(generateText.mock.calls[0][0].system).toContain(
+      "activityFilter.includeSports or activityFilter.excludeSports",
+    );
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledWith({
+      request: "rank my hardest hiking activities only; skip snowboarding",
+      criterion: "demand_score",
+      requestedCount: 5,
+      activityFilter: {
+        includeSports: ["hiking"],
+        excludeSports: ["snowboarding"],
+      },
+    });
+    expect(result.grounding?.tool).toBe("runGeneratedGarminAnalysis");
+    expect(result.text).toContain("hiking-only");
+  });
+
   it("accepts sport-aware generated analysis for resort snowboarding prompts", async () => {
     const snowboardingEvidence = {
       ...generatedAnalysisEvidence,
