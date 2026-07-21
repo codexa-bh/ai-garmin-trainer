@@ -160,4 +160,56 @@ describe("activity analytics", () => {
       "No detailed FIT/stream backfill has been run for this activity yet.",
     );
   });
+
+  it("builds deterministic activity ranking evidence with grounded labels", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const { summarizeActivityRankings } =
+      await import("../src/lib/analytics/activity");
+    repository.upsertActivities([
+      {
+        garminId: "rank-1",
+        name: "Source climb — Špik",
+        sport: "hiking",
+        startedAt: new Date("2026-07-03T07:00:00Z"),
+        durationSec: 7200,
+        distanceMeters: 14000,
+        calories: null,
+        avgHeartRate: 150,
+        maxHeartRate: 170,
+        steps: null,
+        elevationGainMeters: 1200,
+        elevationLossMeters: 1100,
+        trainingEffect: null,
+      },
+      {
+        garminId: "rank-2",
+        name: null,
+        sport: "running",
+        startedAt: new Date("2026-07-02T07:00:00Z"),
+        durationSec: 3600,
+        distanceMeters: 21000,
+        calories: null,
+        avgHeartRate: 165,
+        maxHeartRate: 181,
+        steps: null,
+        elevationGainMeters: 40,
+        elevationLossMeters: 40,
+        trainingEffect: null,
+      },
+    ]);
+
+    const evidence = summarizeActivityRankings(
+      "Which are my most demanding activities by elevation, distance, duration, and HR?",
+    );
+
+    expect(evidence?.tool).toBe("activityRanking");
+    expect(evidence?.rankings.elevationGainMeters[0]?.label).toBe(
+      "Source climb — Špik",
+    );
+    expect(evidence?.rankings.distanceMeters[0]?.label).toBe(
+      "Imported running on 2026-07-02 (Garmin ID rank-2)",
+    );
+    expect(evidence?.rankings.distanceMeters[0]?.labelSource).toBe("fallback");
+    expect(JSON.stringify(evidence)).not.toContain("Golovec trails");
+  });
 });

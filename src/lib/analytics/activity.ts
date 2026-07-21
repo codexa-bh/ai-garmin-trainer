@@ -3,6 +3,10 @@ import {
   listActivitiesForComparison,
   listRecentDailyHealth,
 } from "@/lib/db/repository";
+import {
+  activityDate,
+  displayActivityLabel,
+} from "@/lib/analytics/activity-label";
 import type { ActivityStreamPoint } from "@/lib/garmin/detail-types";
 import type { NormalizedActivity } from "@/lib/garmin/types";
 
@@ -142,10 +146,12 @@ function similarEfforts(activity: NormalizedActivity | null) {
             ) / activity.elevationGainMeters
           : 0.25;
       const score = distanceScore + durationScore + elevationScore;
+      const display = displayActivityLabel(candidate);
       return {
         garminId: candidate.garminId,
-        name: candidate.name,
-        date: candidate.startedAt.toISOString().slice(0, 10),
+        name: display.label,
+        labelSource: display.labelSource,
+        date: activityDate(candidate),
         distanceKm: candidate.distanceMeters
           ? round(candidate.distanceMeters / 1000, 2)
           : null,
@@ -159,6 +165,125 @@ function similarEfforts(activity: NormalizedActivity | null) {
     })
     .sort((a, b) => a.similarityScore - b.similarityScore)
     .slice(0, 5);
+}
+
+type RankingMetric =
+  "elevationGainMeters" | "distanceMeters" | "durationSec" | "avgHeartRate";
+
+const metricLabels: Record<RankingMetric, { label: string; unit: string }> = {
+  elevationGainMeters: { label: "elevation gain", unit: "m" },
+  distanceMeters: { label: "distance", unit: "m" },
+  durationSec: { label: "duration", unit: "s" },
+  avgHeartRate: { label: "average heart rate", unit: "bpm" },
+};
+
+export type ActivityRankingRow = {
+  garminId: string;
+  label: string;
+  labelSource: "garmin" | "fallback";
+  date: string;
+  sport: string;
+  value: number;
+  unit: string;
+  distanceMeters: number | null;
+  durationSec: number | null;
+  elevationGainMeters: number | null;
+  avgHeartRate: number | null;
+};
+
+export type ActivityRankingEvidence = {
+  tool: "activityRanking";
+  privacy: string;
+  metrics: RankingMetric[];
+  rankings: Record<RankingMetric, ActivityRankingRow[]>;
+  limitations: string[];
+};
+
+function requestedRankingMetrics(text: string): RankingMetric[] {
+  const lower = text.toLowerCase();
+  const asksForRanking =
+    /\b(top|most|highest|longest|rank|ranking|hardest|demanding|biggest|compare|comparison)\b/.test(
+      lower,
+    ) && /\b(activit\w*|workout|run|ride|hike|effort|history)\b/.test(lower);
+  if (!asksForRanking) return [];
+  const metrics = new Set<RankingMetric>();
+  if (/\b(demanding|hardest|effort|top|most)\b/.test(lower)) {
+    metrics.add("elevationGainMeters");
+    metrics.add("distanceMeters");
+    metrics.add("durationSec");
+    metrics.add("avgHeartRate");
+  }
+  if (/\b(elevation|ascent|climb|vertical|gain)\b/.test(lower))
+    metrics.add("elevationGainMeters");
+  if (/\b(distance|longest|farther|farthest)\b/.test(lower))
+    metrics.add("distanceMeters");
+  if (/\b(duration|time|longest)\b/.test(lower)) metrics.add("durationSec");
+  if (/\b(hr|heart rate|average heart|avg heart|pulse|intensity)\b/.test(lower))
+    metrics.add("avgHeartRate");
+  return [...metrics];
+}
+
+function rankingRows(
+  activities: NormalizedActivity[],
+  metric: RankingMetric,
+  limit: number,
+): ActivityRankingRow[] {
+  return activities
+    .map((activity) => ({ activity, value: activity[metric] }))
+    .filter(
+      (item): item is { activity: NormalizedActivity; value: number } =>
+        typeof item.value === "number" && Number.isFinite(item.value),
+    )
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit)
+    .map(({ activity, value }) => {
+      const display = displayActivityLabel(activity);
+      return {
+        garminId: activity.garminId,
+        label: display.label,
+        labelSource: display.labelSource,
+        date: activityDate(activity),
+        sport: activity.sport,
+        value,
+        unit: metricLabels[metric].unit,
+        distanceMeters: activity.distanceMeters,
+        durationSec: activity.durationSec,
+        elevationGainMeters: activity.elevationGainMeters,
+        avgHeartRate: activity.avgHeartRate,
+      };
+    });
+}
+
+export function summarizeActivityRankings(
+  prompt: string,
+  limit = 5,
+): ActivityRankingEvidence | null {
+  const metrics = requestedRankingMetrics(prompt);
+  if (!metrics.length) return null;
+  const activities = listActivitiesForComparison(250);
+  const rankings: Record<RankingMetric, ActivityRankingRow[]> = {
+    elevationGainMeters: [],
+    distanceMeters: [],
+    durationSec: [],
+    avgHeartRate: [],
+  };
+  for (const metric of metrics) {
+    rankings[metric] = rankingRows(activities, metric, limit);
+  }
+  const limitations = metrics
+    .filter((metric) => rankings[metric].length === 0)
+    .map(
+      (metric) =>
+        `No imported activities have ${metricLabels[metric].label} values for a deterministic ranking.`,
+    );
+  return {
+    tool: "activityRanking",
+    privacy:
+      "Computed from local normalized SQLite activity summaries only; raw FIT, GPS streams, connector payloads, and credentials were not sent to the model.",
+    metrics,
+    rankings,
+    limitations,
+  };
 }
 
 export function analyzeStoredActivity(garminId: string) {
@@ -186,9 +311,10 @@ export function analyzeStoredActivity(garminId: string) {
     activity: activity
       ? {
           garminId: activity.garminId,
-          name: activity.name,
+          name: displayActivityLabel(activity).label,
+          labelSource: displayActivityLabel(activity).labelSource,
           sport: activity.sport,
-          date: activity.startedAt.toISOString().slice(0, 10),
+          date: activityDate(activity),
           distanceKm: distanceMeters ? round(distanceMeters / 1000, 2) : null,
           durationMin: durationSec ? round(durationSec / 60) : null,
           paceMinPerKm: paceMinPerKm(distanceMeters, durationSec),

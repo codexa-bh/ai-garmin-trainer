@@ -8,6 +8,12 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function sourceNameOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized || null;
+}
+
 export function normalizeActivity(
   payload: Partial<GarminActivityPayload> & Record<string, unknown>,
 ): NormalizedActivity {
@@ -26,11 +32,7 @@ export function normalizeActivity(
   return {
     garminId: String(garminId),
     name:
-      typeof payload.activityName === "string"
-        ? payload.activityName
-        : typeof payload.name === "string"
-          ? payload.name
-          : null,
+      sourceNameOrNull(payload.activityName) ?? sourceNameOrNull(payload.name),
     sport: type,
     startedAt,
     durationSec: numberOrNull(payload.duration ?? payload.duration_seconds),

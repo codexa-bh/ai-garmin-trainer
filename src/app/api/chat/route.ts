@@ -6,7 +6,11 @@ import {
   TRAINER_SYSTEM_PROMPT,
 } from "@/lib/ai/context";
 import { selectedModel } from "@/lib/ai/providers";
-import { analyzeStoredActivity } from "@/lib/analytics/activity";
+import {
+  analyzeStoredActivity,
+  summarizeActivityRankings,
+  type ActivityRankingEvidence,
+} from "@/lib/analytics/activity";
 import {
   activityDetailCoverage,
   appendChatMessage,
@@ -82,11 +86,32 @@ function fallbackActivityAnswer(
     .join(", ");
   return [
     `Tool evidence: analyzeActivity (server-side deterministic local analytics).`,
-    `Activity: ${activity.name ?? activity.garminId} on ${activity.date}, ${activity.distanceKm ?? "n/a"} km in ${activity.durationMin ?? "n/a"} min, pace ${activity.paceMinPerKm?.toFixed(1) ?? "n/a"} min/km.`,
+    `Activity: ${activity.name} on ${activity.date}, ${activity.distanceKm ?? "n/a"} km in ${activity.durationMin ?? "n/a"} min, pace ${activity.paceMinPerKm?.toFixed(1) ?? "n/a"} min/km.`,
     `Heart rate: avg ${activity.avgHeartRate ?? "n/a"} bpm, max ${activity.maxHeartRate ?? "n/a"} bpm; zones ${zones || "not available"}.`,
     `Detail: ${analysis.streamSummary.records} normalized records, ${analysis.laps.length} laps; similar efforts ${analysis.similarEfforts.length}.`,
     `Privacy: ${analysis.privacy}`,
   ].join("\n");
+}
+
+function fallbackRankingAnswer(evidence: ActivityRankingEvidence): string {
+  const lines = [
+    "Tool evidence: activityRanking (server-side deterministic local summaries).",
+  ];
+  for (const metric of evidence.metrics) {
+    const rows = evidence.rankings[metric];
+    if (!rows.length) continue;
+    lines.push(
+      `${metric}: ${rows
+        .map(
+          (row, index) =>
+            `${index + 1}. ${row.label} (${row.date}, Garmin ID ${row.garminId}, ${row.value}${row.unit}, ${row.labelSource} label)`,
+        )
+        .join("; ")}`,
+    );
+  }
+  if (evidence.limitations.length) lines.push(...evidence.limitations);
+  lines.push(`Privacy: ${evidence.privacy}`);
+  return lines.join("\n");
 }
 
 function messageText(message: UIMessage): string {
@@ -346,6 +371,9 @@ export async function POST(request: Request) {
     );
     const activityIds =
       explicitIds.length > 1 ? explicitIds : activityId ? [activityId] : [];
+    const rankingEvidence = activityIds.length
+      ? null
+      : summarizeActivityRankings(latestMessage);
     const { model } = selectedModel();
     const system = buildSystemContext(messagesForContext);
 
@@ -380,6 +408,23 @@ export async function POST(request: Request) {
           .map((analysis) => fallbackActivityAnswer(analysis))
           .join("\n\n");
       assistantText = `${assistantText}\n\nTool evidence: analyzeActivity (server-side deterministic prefetch for ${activityIds.join(", ")})\nPrivacy boundary: ${analyses[0].privacy}`;
+    } else if (rankingEvidence) {
+      const rankingJson = JSON.stringify(rankingEvidence).slice(0, 16000);
+      grounding = {
+        tool: "activityRanking",
+        privacy: rankingEvidence.privacy,
+        summary: `Deterministic ranking metrics: ${rankingEvidence.metrics.join(", ") || "none"}; source/fallback labels supplied for ${Object.values(
+          rankingEvidence.rankings,
+        ).reduce((count, rows) => count + rows.length, 0)} rows.`,
+      };
+      const result = await generateText({
+        model,
+        system: `${system}\n\nDeterministic local activity-ranking evidence from normalized SQLite summaries (server-side prefetch; no provider tool loop):\n${rankingJson}\n\nWrite the answer only from these deterministic rows and the bounded recent conversation when useful. Do not introduce activity names, route names, trail names, or place names that are not present as labels in the JSON rows. If a labelSource is fallback, say it is a generic fallback label, not a Garmin activity name. If requested metrics are missing or unsupported, state the limitation instead of fabricating names or metrics. Mention Tool evidence: activityRanking.`,
+        prompt: latestMessage,
+      });
+      assistantText =
+        result.text.trim() || fallbackRankingAnswer(rankingEvidence);
+      assistantText = `${assistantText}\n\nTool evidence: activityRanking (server-side deterministic ranking over imported summaries)\nPrivacy boundary: ${rankingEvidence.privacy}`;
     } else {
       const result = await generateText({
         model,

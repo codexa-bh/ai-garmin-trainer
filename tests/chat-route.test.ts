@@ -32,6 +32,46 @@ const backfillActivityDetail = vi.fn(async () => ({
   detail:
     "temporary connector error. Previous usable normalized detail was preserved.",
 }));
+const summarizeActivityRankings = vi.fn(() => ({
+  tool: "activityRanking",
+  privacy: "Computed from local normalized SQLite activity summaries only.",
+  metrics: ["elevationGainMeters", "distanceMeters"],
+  rankings: {
+    elevationGainMeters: [
+      {
+        garminId: "rank-1",
+        label: "Source climb — Špik",
+        labelSource: "garmin",
+        date: "2026-07-03",
+        sport: "hiking",
+        value: 1200,
+        unit: "m",
+        distanceMeters: 14000,
+        durationSec: 7200,
+        elevationGainMeters: 1200,
+        avgHeartRate: 150,
+      },
+    ],
+    distanceMeters: [
+      {
+        garminId: "rank-2",
+        label: "Imported running on 2026-07-02 (Garmin ID rank-2)",
+        labelSource: "fallback",
+        date: "2026-07-02",
+        sport: "running",
+        value: 21000,
+        unit: "m",
+        distanceMeters: 21000,
+        durationSec: 3600,
+        elevationGainMeters: 40,
+        avgHeartRate: 165,
+      },
+    ],
+    durationSec: [],
+    avgHeartRate: [],
+  },
+  limitations: [],
+}));
 
 const coverage = {
   total: 3,
@@ -68,6 +108,7 @@ vi.mock("@/lib/garmin/importer", () => ({
 }));
 
 vi.mock("@/lib/analytics/activity", () => ({
+  summarizeActivityRankings,
   analyzeStoredActivity: (garminId: string) => ({
     tool: "analyzeStoredActivity",
     privacy: "local normalized SQLite only",
@@ -183,6 +224,7 @@ describe("chat route bounded actions", () => {
     generateText.mockClear();
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
+    summarizeActivityRankings.mockClear();
   });
 
   it("returns local sync status without a provider tool loop", async () => {
@@ -226,5 +268,27 @@ describe("chat route bounded actions", () => {
     expect(payload.assistant.content).toContain(
       "Tool evidence: analyzeActivity",
     );
+  });
+
+  it("routes demanding activity rankings through deterministic local rows", async () => {
+    const payload = await postChat(
+      "Which are my most demanding activities by elevation and distance?",
+    );
+
+    expect(summarizeActivityRankings).toHaveBeenCalledWith(
+      "Which are my most demanding activities by elevation and distance?",
+    );
+    expect(generateText).toHaveBeenCalledOnce();
+    const calls = generateText.mock.calls as unknown as Array<
+      [{ system: string }]
+    >;
+    const call = calls[0][0];
+    expect(call.system).toContain("Source climb — Špik");
+    expect(call.system).toContain(
+      "Imported running on 2026-07-02 (Garmin ID rank-2)",
+    );
+    expect(call.system).toContain("Do not introduce activity names");
+    expect(call.system).not.toContain("Golovec trails");
+    expect(payload.toolEvidence?.tool).toBe("activityRanking");
   });
 });

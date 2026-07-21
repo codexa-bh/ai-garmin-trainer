@@ -1,3 +1,4 @@
+import { displayActivityLabel } from "../analytics/activity-label";
 import type {
   NormalizedActivity,
   NormalizedDailyHealth,
@@ -72,7 +73,10 @@ export function buildTrainerContext(input: {
       a.elevationGainMeters || a.elevationLossMeters
         ? `elevation +${a.elevationGainMeters ?? "n/a"}m/-${a.elevationLossMeters ?? "n/a"}m`
         : "elevation n/a";
-    return `${a.startedAt.toISOString().slice(0, 10)} ${a.name ? `${a.name} ` : ""}${a.sport}: ${distance}, ${duration}, ${pace}, avg HR ${a.avgHeartRate ?? "n/a"}, max HR ${a.maxHeartRate ?? "n/a"}, steps ${a.steps ?? "n/a"}, ${climb}, calories ${a.calories ?? "n/a"}`;
+    const display = displayActivityLabel(a);
+    const labelTag =
+      display.labelSource === "garmin" ? "Garmin name" : "fallback label";
+    return `${a.startedAt.toISOString().slice(0, 10)} ${display.label} [${labelTag}] ${a.sport}: ${distance}, ${duration}, ${pace}, avg HR ${a.avgHeartRate ?? "n/a"}, max HR ${a.maxHeartRate ?? "n/a"}, steps ${a.steps ?? "n/a"}, ${climb}, calories ${a.calories ?? "n/a"}`;
   });
   const health = input.health
     .slice(0, 10)

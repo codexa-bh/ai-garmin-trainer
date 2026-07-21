@@ -53,6 +53,31 @@ describe("Garmin boundary", () => {
     expect(normalizeDailyHealth("2026-07-01", {}).availability).toBe("missing");
   });
 
+  it("normalizes source activity names safely", () => {
+    const base = {
+      activityId: 123,
+      activityType: { typeKey: "running" },
+      startTimeLocal: "2026-07-01T07:00:00",
+    };
+
+    expect(
+      normalizeActivity({
+        ...base,
+        activityName: "  Jutranji tek — Rožnik  ",
+        name: "Fallback name",
+      }).name,
+    ).toBe("Jutranji tek — Rožnik");
+    expect(
+      normalizeActivity({ ...base, activityName: " ", name: "Bike" }).name,
+    ).toBe("Bike");
+    expect(normalizeActivity({ ...base, activityName: "\t\n" }).name).toBe(
+      null,
+    );
+    expect(
+      normalizeActivity({ ...base, name: "  Élan / Šmarna gora  " }).name,
+    ).toBe("Élan / Šmarna gora");
+  });
+
   it("normalizes detailed FIT parser payloads without retaining raw data", () => {
     const detail = normalizeActivityDetail("42", {
       session: { avg_heart_rate_bpm: 140, total_ascent_m: 220 },

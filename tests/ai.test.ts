@@ -25,6 +25,21 @@ describe("trainer AI", () => {
           elevationLossMeters: 70,
           trainingEffect: null,
         },
+        {
+          garminId: "2",
+          name: null,
+          sport: "cycling",
+          startedAt: new Date("2026-06-30T07:00:00Z"),
+          durationSec: 3600,
+          distanceMeters: 25000,
+          calories: null,
+          avgHeartRate: null,
+          maxHeartRate: null,
+          steps: null,
+          elevationGainMeters: null,
+          elevationLossMeters: null,
+          trainingEffect: null,
+        },
       ],
       health: [],
       profile: {
@@ -35,7 +50,10 @@ describe("trainer AI", () => {
       },
       recentMessages: ["How am I doing?"],
     });
-    expect(context).toContain("2026-07-01 Morning run running");
+    expect(context).toContain("2026-07-01 Morning run [Garmin name] running");
+    expect(context).toContain(
+      "2026-06-30 Imported cycling on 2026-06-30 (Garmin ID 2) [fallback label] cycling",
+    );
     expect(context).toContain("half marathon");
   });
 
