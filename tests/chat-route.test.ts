@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const generateText = vi.fn(async () => ({ text: "model response" }));
 const runGarminSync = vi.fn(async () => ({
   status: "completed",
   activitiesImported: 1,
@@ -32,16 +31,17 @@ const backfillActivityDetail = vi.fn(async () => ({
   detail:
     "temporary connector error. Previous usable normalized detail was preserved.",
 }));
+
 const rankingEvidence = {
-  tool: "activityRanking",
+  tool: "activityRanking" as const,
   privacy: "Computed from local normalized SQLite activity summaries only.",
-  metrics: ["elevationGainMeters", "distanceMeters"],
+  metrics: ["elevationGainMeters", "distanceMeters"] as const,
   rankings: {
     elevationGainMeters: [
       {
         garminId: "rank-1",
         label: "Source climb — Špik",
-        labelSource: "garmin",
+        labelSource: "garmin" as const,
         date: "2026-07-03",
         sport: "hiking",
         value: 1200,
@@ -56,7 +56,7 @@ const rankingEvidence = {
       {
         garminId: "rank-2",
         label: "Imported running on 2026-07-02 (Garmin ID rank-2)",
-        labelSource: "fallback",
+        labelSource: "fallback" as const,
         date: "2026-07-02",
         sport: "running",
         value: 21000,
@@ -71,9 +71,9 @@ const rankingEvidence = {
     avgHeartRate: [],
   },
   limitations: [],
-  window: undefined as
-    { label: string; days: number; startedAfter: string } | undefined,
+  window: null,
 };
+const rankActivities = vi.fn(() => rankingEvidence);
 const summarizeActivityRankings = vi.fn(() => rankingEvidence);
 
 const verifyActivityReference = vi.fn(
@@ -84,7 +84,7 @@ const verifyActivityReference = vi.fn(
   }) => {
     const suppliedName = reference.suppliedName ?? "Snežnik";
     const base = {
-      tool: "activityVerification",
+      tool: "activityVerification" as const,
       reference: {
         garminId: reference.garminId ?? null,
         suppliedName,
@@ -101,12 +101,12 @@ const verifyActivityReference = vi.fn(
     if (suppliedName === "Selo - Rašica") {
       return {
         ...base,
-        outcome: "found",
+        outcome: "found" as const,
         matches: [
           {
             garminId: "23667792496",
             label: "Selo - Rašica",
-            labelSource: "garmin",
+            labelSource: "garmin" as const,
             date: "2026-07-20",
             sport: "hiking",
             distanceMeters: 12340,
@@ -120,12 +120,12 @@ const verifyActivityReference = vi.fn(
     if (suppliedName === "Duplicate") {
       return {
         ...base,
-        outcome: "ambiguous",
+        outcome: "ambiguous" as const,
         matches: [
           {
             garminId: "dup-1",
             label: "Duplicate",
-            labelSource: "garmin",
+            labelSource: "garmin" as const,
             date: "2026-07-19",
             sport: "hiking",
             distanceMeters: null,
@@ -136,7 +136,7 @@ const verifyActivityReference = vi.fn(
           {
             garminId: "dup-2",
             label: "Duplicate",
-            labelSource: "garmin",
+            labelSource: "garmin" as const,
             date: "2026-07-18",
             sport: "hiking",
             distanceMeters: null,
@@ -147,11 +147,124 @@ const verifyActivityReference = vi.fn(
         ],
       };
     }
-    return {
-      ...base,
-      outcome: "not_found",
-      matches: [],
-    };
+    return { ...base, outcome: "not_found" as const, matches: [] };
+  },
+);
+
+const generateText = vi.fn(
+  async (options: { prompt: string; system: string }) => {
+    if (
+      options.system.includes("Step 1:") &&
+      options.prompt.includes("never did")
+    ) {
+      return {
+        text: "",
+        toolCalls: [
+          {
+            toolName: "rankActivities",
+            input: { metrics: ["elevationGainMeters", "distanceMeters"] },
+          },
+        ],
+      };
+    }
+    if (options.system.includes("Step 1:")) return { text: "provider final" };
+    const prompt = options.prompt;
+    if (prompt.includes("sync status")) {
+      return { toolCalls: [{ toolName: "getSyncStatus", input: {} }] };
+    }
+    if (prompt === "sync Garmin now") {
+      return { toolCalls: [{ toolName: "runGarminSync", input: {} }] };
+    }
+    if (prompt.includes("Force refresh")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "forceRefreshActivityDetail",
+            input: { garminId: "123456" },
+          },
+        ],
+      };
+    }
+    if (prompt.includes("Compare 111111")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "analyzeActivity",
+            input: {
+              selectors: [
+                { garminId: "111111" },
+                { garminId: "222222" },
+                { garminId: "333333" },
+              ],
+            },
+          },
+        ],
+      };
+    }
+    if (prompt.includes("most demanding") || prompt.includes("last 365 days")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "rankActivities",
+            input: {
+              metrics: ["elevationGainMeters", "distanceMeters"],
+              windowDays: prompt.includes("365") ? 365 : undefined,
+            },
+          },
+        ],
+      };
+    }
+    if (prompt.includes("Triglav summit hike")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "verifyActivityReference",
+            input: { suppliedName: "Triglav summit hike" },
+          },
+        ],
+      };
+    }
+    if (prompt.includes("Selo - Rašica")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "verifyActivityReference",
+            input: { suppliedName: "Selo - Rašica" },
+          },
+        ],
+      };
+    }
+    if (prompt.includes("Duplicate")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "verifyActivityReference",
+            input: { suppliedName: "Duplicate" },
+          },
+        ],
+      };
+    }
+    if (prompt.includes("latest activity")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "analyzeActivity",
+            input: { selectors: [{ latest: true }] },
+          },
+        ],
+      };
+    }
+    if (prompt.includes("never did") && prompt.includes("Snežnik")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "verifyActivityReference",
+            input: { suppliedName: "Snežnik", date: "2025-10-18" },
+          },
+        ],
+      };
+    }
+    return { text: "model response" };
   },
 );
 
@@ -178,6 +291,7 @@ let messages: Array<{
 
 vi.mock("ai", () => ({
   generateText,
+  tool: (definition: unknown) => definition,
 }));
 
 vi.mock("@/lib/ai/providers", () => ({
@@ -191,6 +305,7 @@ vi.mock("@/lib/garmin/importer", () => ({
 
 vi.mock("@/lib/analytics/activity", () => ({
   summarizeActivityRankings,
+  rankActivities,
   analyzeStoredActivity: (garminId: string) => ({
     tool: "analyzeStoredActivity",
     privacy: "local normalized SQLite only",
@@ -278,10 +393,11 @@ vi.mock("@/lib/db/repository", () => ({
     },
   }),
   getActivityByGarminId: vi.fn((garminId: string) =>
-    garminId === "123456"
+    ["123456", "111111", "222222", "333333", "latest-999"].includes(garminId)
       ? {
           garminId,
-          name: "Known activity",
+          name:
+            garminId === "123456" ? "Known activity" : `Activity ${garminId}`,
           sport: "hiking",
           startedAt: new Date("2026-07-01T07:00:00Z"),
           durationSec: 3600,
@@ -323,6 +439,11 @@ vi.mock("@/lib/db/repository", () => ({
   ],
   verifyActivityReference,
   listRecentDailyHealth: () => [],
+  getActivityDetailForAnalytics: () => ({
+    availability: null,
+    laps: [],
+    stream: [],
+  }),
 }));
 
 async function postChat(message: string) {
@@ -337,38 +458,45 @@ async function postChat(message: string) {
   );
   return response.json() as Promise<{
     assistant: { content: string };
-    toolEvidence?: { tool?: string; summary?: string };
+    toolEvidence?: {
+      tool?: string;
+      summary?: string;
+      toolSteps?: Array<{ tool: string }>;
+    } | null;
+    toolSteps?: Array<{ tool: string; status: string }>;
   }>;
 }
 
-describe("chat route bounded actions", () => {
+describe("chat route LLM tool orchestration", () => {
   beforeEach(() => {
     messages = [];
     generateText.mockClear();
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
-    summarizeActivityRankings.mockClear();
+    rankActivities.mockClear();
     verifyActivityReference.mockClear();
   });
 
-  it("returns local sync status without a provider tool loop", async () => {
+  it("lets the planner select local sync status and returns ordered grounding", async () => {
     const payload = await postChat(
       "What is my sync status and detail coverage?",
     );
 
-    expect(payload.toolEvidence?.tool).toBe("syncStatus");
+    expect(payload.toolEvidence?.tool).toBe("getSyncStatus");
+    expect(payload.toolSteps?.[0]).toMatchObject({
+      tool: "getSyncStatus",
+      status: "succeeded",
+    });
     expect(payload.assistant.content).toContain("detail coverage 1/3 terminal");
-    expect(generateText).not.toHaveBeenCalled();
+    expect(generateText).toHaveBeenCalledTimes(2);
   });
 
-  it("preserves explicit Garmin sync commands", async () => {
+  it("executes a selected Garmin sync once", async () => {
     const payload = await postChat("sync Garmin now");
 
     expect(runGarminSync).toHaveBeenCalledOnce();
-    expect(summarizeActivityRankings).not.toHaveBeenCalled();
-    expect(generateText).not.toHaveBeenCalled();
     expect(payload.toolEvidence?.tool).toBe("runGarminSync");
-    expect(payload.assistant.content).toContain("Garmin sync completed");
+    expect(payload.assistant.content).toContain("sync complete");
   });
 
   it("runs forced targeted refresh with preservation evidence", async () => {
@@ -385,207 +513,85 @@ describe("chat route bounded actions", () => {
     );
   });
 
-  it("grounds every explicit activity ID and warns against summary-only detail claims", async () => {
+  it("grounds every explicit activity ID through analyzeActivity", async () => {
     const payload = await postChat("Compare 111111 222222 333333");
 
-    expect(generateText).toHaveBeenCalledOnce();
-    const calls = generateText.mock.calls as unknown as Array<
-      [{ system: string }]
-    >;
-    const call = calls[0][0];
-    expect(call.system).toContain("111111");
-    expect(call.system).toContain("222222");
-    expect(call.system).toContain("333333");
-    expect(call.system).toContain(
-      "do not describe it as detailed FIT/stream analysis",
-    );
-    expect(payload.assistant.content).toContain(
-      "Tool evidence: analyzeActivity",
-    );
+    expect(payload.toolEvidence?.tool).toBe("analyzeActivity");
+    expect(payload.assistant.content).toContain("111111");
+    expect(payload.assistant.content).toContain("222222");
+    expect(payload.assistant.content).toContain("333333");
   });
 
-  it("routes demanding activity rankings through deterministic local rows", async () => {
-    generateText.mockResolvedValueOnce({
-      text: "Provider invented Golovec trails should be ignored",
-    });
-
+  it("routes demanding activity rankings through typed deterministic local rows", async () => {
     const payload = await postChat(
       "Which are my most demanding activities by elevation and distance?",
     );
 
-    expect(summarizeActivityRankings).toHaveBeenCalledWith(
-      "Which are my most demanding activities by elevation and distance?",
-    );
-    expect(generateText).not.toHaveBeenCalled();
-    expect(payload.assistant.content).toContain("Source climb — Špik");
-    expect(payload.assistant.content).toContain(
-      "Imported running on 2026-07-02 (Garmin ID rank-2)",
-    );
-    expect(payload.assistant.content).not.toContain("Golovec trails");
-    expect(payload.toolEvidence?.tool).toBe("activityRanking");
-  });
-
-  it("routes post-sync analytical ranking prompts away from rerunning sync", async () => {
-    summarizeActivityRankings.mockReturnValueOnce({
-      ...rankingEvidence,
-      window: {
-        label: "last 365 days",
-        days: 365,
-        startedAfter: "2025-07-21T12:00:00.000Z",
-      },
+    expect(rankActivities).toHaveBeenCalledWith({
+      metrics: ["elevationGainMeters", "distanceMeters"],
+      windowDays: undefined,
     });
-    const prompt =
-      "ok good. Now We have full sync of all activites available. Therefore you can actually locate most demanding ones in last 365 days";
-
-    const payload = await postChat(prompt);
-
-    expect(runGarminSync).not.toHaveBeenCalled();
-    expect(summarizeActivityRankings).toHaveBeenCalledWith(prompt);
-    expect(generateText).not.toHaveBeenCalled();
-    expect(payload.toolEvidence?.tool).toBe("activityRanking");
-    expect(payload.assistant.content).toContain("Window: last 365 days");
-    expect(payload.assistant.content).toContain(
-      "Computed from local normalized SQLite activity summaries only",
-    );
+    expect(payload.assistant.content).toContain("Source climb — Špik");
+    expect(payload.assistant.content).not.toContain("Provider invented");
+    expect(payload.toolEvidence?.tool).toBe("rankActivities");
   });
 
-  it("looks up a manufactured unquoted activity name across full history without latest analysis", async () => {
-    const prompt =
-      "Triglav summit hike.... give me activity id, give me all you know about it";
-
-    const payload = await postChat(prompt);
+  it("performs named lookup without arbitrary latest fallback", async () => {
+    const payload = await postChat(
+      "Triglav summit hike.... give me activity id, give me all you know about it",
+    );
 
     expect(verifyActivityReference).toHaveBeenCalledWith({
-      garminId: null,
       suppliedName: "Triglav summit hike",
-      date: null,
     });
-    expect(payload.toolEvidence?.tool).toBe("activityVerification");
+    expect(payload.toolEvidence?.tool).toBe("verifyActivityReference");
     expect(payload.assistant.content).toContain(
       "No matching normalized local activity was found",
     );
-    expect(payload.assistant.content).toContain("301 activities");
     expect(payload.assistant.content).not.toContain("latest-999");
-    expect(payload.assistant.content).not.toContain("Newest unrelated");
-    expect(payload.assistant.content).not.toContain(
-      "Tool evidence: analyzeActivity",
-    );
-    expect(generateText).not.toHaveBeenCalled();
   });
 
-  it("returns a found named activity lookup with the correct Garmin ID and bounded summary fields", async () => {
-    const payload = await postChat("what is the Garmin ID for Selo - Rašica?");
+  it("returns found and ambiguous lookup evidence", async () => {
+    const found = await postChat("what is the Garmin ID for Selo - Rašica?");
+    expect(found.assistant.content).toContain("Garmin ID 23667792496");
+    expect(found.assistant.content).toContain("distance 12340 m");
 
-    expect(verifyActivityReference).toHaveBeenCalledWith({
-      garminId: null,
-      suppliedName: "Selo - Rašica",
-      date: null,
-    });
-    expect(payload.toolEvidence?.tool).toBe("activityVerification");
-    expect(payload.assistant.content).toContain("Garmin ID 23667792496");
-    expect(payload.assistant.content).toContain("sport hiking");
-    expect(payload.assistant.content).toContain("distance 12340 m");
-    expect(payload.assistant.content).not.toContain("latest-999");
-    expect(generateText).not.toHaveBeenCalled();
+    messages = [];
+    const ambiguous = await postChat("find activity named Duplicate");
+    expect(ambiguous.assistant.content).toContain("dup-1");
+    expect(ambiguous.assistant.content).toContain("dup-2");
   });
 
-  it("returns bounded ambiguous candidates for duplicate named activity lookups", async () => {
-    const payload = await postChat("find activity named Duplicate");
+  it("supports latest analysis only when the planner explicitly selects it", async () => {
+    const latest = await postChat("Tell me about my latest activity");
+    expect(latest.toolEvidence?.tool).toBe("analyzeActivity");
+    expect(latest.assistant.content).toContain("latest-999");
 
-    expect(verifyActivityReference).toHaveBeenCalledWith({
-      garminId: null,
-      suppliedName: "Duplicate",
-      date: null,
-    });
-    expect(payload.toolEvidence?.tool).toBe("activityVerification");
-    expect(payload.assistant.content).toContain("dup-1");
-    expect(payload.assistant.content).toContain("dup-2");
-    expect(payload.assistant.content).not.toContain(
-      "Tool evidence: analyzeActivity",
-    );
-    expect(generateText).not.toHaveBeenCalled();
+    messages = [];
+    const generic = await postChat("I never did this activity");
+    expect(generic.toolEvidence).toBeNull();
+    expect(generic.assistant.content).toBe("model response");
   });
 
-  it("preserves explicit latest activity analysis when latest is requested", async () => {
-    const payload = await postChat("Tell me about my latest activity");
-
-    expect(verifyActivityReference).not.toHaveBeenCalled();
-    expect(payload.assistant.content).toContain(
-      "Tool evidence: analyzeActivity",
-    );
-    expect(payload.assistant.content).toContain("latest-999");
-  });
-
-  it("treats a reported name/date correction as verification, not latest activity analysis", async () => {
-    messages = [
-      {
-        id: "assistant-previous",
-        conversationId: "default",
-        role: "assistant",
-        content: "Your demanding hike was 2025-10-18 | Snežnik.",
-        grounding: null,
-        createdAt: new Date("2026-07-21T09:00:00Z"),
-      },
-    ];
-
+  it("uses a fresh second planner call with only server summaries", async () => {
     const payload = await postChat(
       "2025-10-18 | Snežnik — I never did this activity",
     );
 
     expect(verifyActivityReference).toHaveBeenCalledWith({
-      garminId: null,
       suppliedName: "Snežnik",
       date: "2025-10-18",
     });
-    expect(payload.toolEvidence?.tool).toBe("activityVerification");
-    expect(payload.assistant.content).toContain(
-      "No matching normalized local activity was found",
+    expect(rankActivities).toHaveBeenCalledOnce();
+    expect(payload.toolSteps?.map((step) => step.tool)).toEqual([
+      "verifyActivityReference",
+      "rankActivities",
+    ]);
+    const secondCall = generateText.mock.calls[1][0] as { system: string };
+    expect(secondCall.system).toContain("server-authored prior tool summaries");
+    expect(secondCall.system).toContain(
+      "Step 1: verifyActivityReference succeeded",
     );
-    expect(payload.assistant.content).toContain("301 activities");
-    expect(payload.assistant.content).not.toContain("latest-999");
-    expect(generateText).not.toHaveBeenCalled();
-  });
-
-  it("recovers prior user ranking intent for a correction without trusting assistant prose", async () => {
-    messages = [
-      {
-        id: "user-ranking",
-        conversationId: "default",
-        role: "user",
-        content:
-          "Which are my most demanding activities by elevation and distance?",
-        grounding: null,
-        createdAt: new Date("2026-07-21T08:59:00Z"),
-      },
-      {
-        id: "assistant-previous",
-        conversationId: "default",
-        role: "assistant",
-        content: "The answer is a fabricated 2025-10-18 Snežnik activity.",
-        grounding: null,
-        createdAt: new Date("2026-07-21T09:00:00Z"),
-      },
-    ];
-
-    const payload = await postChat(
-      "2025-10-18 | Snežnik — I never did this activity",
-    );
-
-    expect(payload.toolEvidence?.tool).toBe("activityVerification");
-    expect(summarizeActivityRankings).toHaveBeenCalledWith(
-      "Which are my most demanding activities by elevation and distance?",
-    );
-    expect(payload.assistant.content).toContain("Corrected ranking rebuilt");
-    expect(payload.assistant.content).toContain("Source climb — Špik");
-    expect(payload.assistant.content).not.toContain("fabricated 2025-10-18");
-  });
-
-  it("does not select latest activity for a generic activity noun", async () => {
-    summarizeActivityRankings.mockReturnValueOnce(null as never);
-
-    const payload = await postChat("I never did this activity");
-
-    expect(payload.toolEvidence).toBeNull();
-    expect(generateText).toHaveBeenCalledOnce();
+    expect(secondCall.system).not.toContain("provider final");
   });
 });

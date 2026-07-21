@@ -29,6 +29,11 @@ Live smoke with local secrets:
 10. Edit profile memory and verify later responses reflect the correction.
 11. Clear chat/profile/learned memory, then disconnect/delete Garmin data and verify activity detail tables are also removed and the state is reconnectable.
 
+Trainer chat orchestration checks:
+
+- Focused suites should cover the typed tool registry, planner-selected chat actions, two-step fresh-call orchestration, fail-closed invalid tool selections, and no-replay behavior. Use deterministic/provider-mocked tests for these paths when live provider credentials are unavailable.
+- Live provider smoke, when credentials are configured, should include one no-tool coaching request, one single-tool Garmin/status/ranking request, one two-step verification or sync follow-up, and one fail-closed invalid/unknown local-object case. Record only tool names/statuses, bounded timings, and redacted evidence.
+
 Privacy checks:
 
 - Connector runs over stdio with a narrow `GARMIN_ENABLED_TOOLS` allowlist.

@@ -1108,6 +1108,15 @@ export type ChatGrounding = {
   activityDate?: string | null;
   privacy?: string;
   summary?: string;
+  toolSteps?: Array<{
+    index: 1 | 2;
+    tool: string;
+    status: "succeeded" | "rejected" | "failed";
+    summary: string;
+    activityIds?: string[];
+    privacy: string;
+    reason?: string;
+  }>;
 };
 
 export type StoredChatMessage = {

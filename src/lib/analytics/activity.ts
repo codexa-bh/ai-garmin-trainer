@@ -167,7 +167,7 @@ function similarEfforts(activity: NormalizedActivity | null) {
     .slice(0, 5);
 }
 
-type RankingMetric =
+export type RankingMetric =
   "elevationGainMeters" | "distanceMeters" | "durationSec" | "avgHeartRate";
 
 const metricLabels: Record<RankingMetric, { label: string; unit: string }> = {
@@ -277,14 +277,27 @@ function rankingRows(
     });
 }
 
-export function summarizeActivityRankings(
-  prompt: string,
-  limit = 5,
-  now = new Date(),
-): ActivityRankingEvidence | null {
-  const metrics = requestedRankingMetrics(prompt);
-  if (!metrics.length) return null;
-  const window = requestedRankingWindow(prompt, now);
+export function rankActivities(input: {
+  metrics: RankingMetric[];
+  windowDays?: number;
+  limit?: number;
+  now?: Date;
+}): ActivityRankingEvidence {
+  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 5), 1), 5);
+  const now = input.now ?? new Date();
+  const metrics = [...new Set(input.metrics)].filter(
+    (metric): metric is RankingMetric =>
+      Object.prototype.hasOwnProperty.call(metricLabels, metric),
+  );
+  const window = input.windowDays
+    ? {
+        label: `last ${input.windowDays} ${input.windowDays === 1 ? "day" : "days"}`,
+        days: input.windowDays,
+        startedAfter: new Date(
+          now.getTime() - input.windowDays * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+      }
+    : null;
   const startedAfter = window ? new Date(window.startedAfter) : null;
   const activities = listActivitiesForComparison().filter(
     (activity) => !startedAfter || activity.startedAt >= startedAfter,
@@ -313,6 +326,22 @@ export function summarizeActivityRankings(
     limitations,
     window,
   };
+}
+
+export function summarizeActivityRankings(
+  prompt: string,
+  limit = 5,
+  now = new Date(),
+): ActivityRankingEvidence | null {
+  const metrics = requestedRankingMetrics(prompt);
+  if (!metrics.length) return null;
+  const window = requestedRankingWindow(prompt, now);
+  return rankActivities({
+    metrics,
+    windowDays: window?.days,
+    limit,
+    now,
+  });
 }
 
 export function analyzeStoredActivity(garminId: string) {
