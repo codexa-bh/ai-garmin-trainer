@@ -5,20 +5,28 @@ import {
   finishSyncRun,
   getActivityDetailForAnalytics,
   getCheckpoint,
+  getGarminAthleteBaseline,
   listActivityIdsNeedingDetail,
   recordActivityDetailAttempt,
+  recordGarminAthleteBaselineFailure,
   recordSyncRun,
   saveCheckpoint,
   upsertActivities,
   upsertActivityDetail,
   upsertDailyHealth,
+  writeGarminAthleteBaselineRefresh,
 } from "../db/repository";
 import { GarminMcpClient } from "./mcp-client";
+import {
+  hasUsableGarminAthleteBaseline,
+  normalizeGarminAthleteBaseline,
+} from "./athlete-normalize";
 import {
   normalizeActivityDetail,
   normalizeUnsupportedActivityDetail,
 } from "./detail-normalize";
 import { normalizeActivity, normalizeDailyHealth } from "./normalize";
+import type { GarminAthleteBaselineDto } from "./types";
 
 type ActivityPage = {
   activities?: Array<Record<string, unknown>>;
@@ -34,12 +42,19 @@ export type GarminSyncResult = {
   coverageStart: string;
   coverageEnd: string;
   detailCoverage: ReturnType<typeof activityDetailCoverage>;
+  athleteBaseline: GarminAthleteBaselineDto;
   detail: string;
 };
 
 export type GarminSyncProgress = {
   stage:
-    "starting" | "activities" | "health" | "detail" | "completed" | "failed";
+    | "starting"
+    | "athlete"
+    | "activities"
+    | "health"
+    | "detail"
+    | "completed"
+    | "failed";
   message: string;
   activitiesImported: number;
   healthDaysImported: number;
@@ -49,6 +64,7 @@ export type GarminSyncProgress = {
   date?: string;
   totalHealthDays?: number;
   completedHealthDays?: number;
+  athleteAvailability?: GarminAthleteBaselineDto["availability"];
 };
 
 type ProgressReporter = (progress: GarminSyncProgress) => void;
@@ -76,6 +92,59 @@ function eachDate(startDate: string, endDate: string): string[] {
   return days;
 }
 
+function compactError(error: unknown): string {
+  return (
+    error instanceof Error
+      ? error.message
+      : "Garmin athlete baseline fetch failed"
+  ).slice(0, 500);
+}
+
+async function fetchAndStoreAthleteBaseline(
+  client: GarminMcpClient,
+): Promise<GarminAthleteBaselineDto> {
+  const attemptedAt = new Date();
+  const previous = getGarminAthleteBaseline();
+  let profilePayload: unknown;
+  let ftpPayload: unknown;
+  const errors: string[] = [];
+  try {
+    profilePayload = parseToolJson(
+      await client.callTool("get_user_profile", {}),
+    );
+  } catch (error) {
+    errors.push(`profile: ${compactError(error)}`);
+  }
+  try {
+    ftpPayload = parseToolJson(await client.callTool("get_cycling_ftp", {}));
+  } catch (error) {
+    errors.push(`cycling FTP: ${compactError(error)}`);
+  }
+  if (!profilePayload && !ftpPayload) {
+    const preservedPrevious = Boolean(previous.fetchedAt);
+    recordGarminAthleteBaselineFailure({
+      attemptedAt,
+      errorMessage: errors.join("; ") || "Garmin athlete baseline fetch failed",
+      preservedPrevious,
+    });
+    return getGarminAthleteBaseline();
+  }
+  const snapshot = normalizeGarminAthleteBaseline({
+    profilePayload,
+    ftpPayload,
+    fetchedAt: new Date(),
+  });
+  const hasUsableSnapshot = hasUsableGarminAthleteBaseline(snapshot);
+  writeGarminAthleteBaselineRefresh({
+    snapshot: hasUsableSnapshot ? snapshot : null,
+    status: snapshot.availability,
+    attemptedAt,
+    errorMessage: errors.length ? errors.join("; ") : null,
+    preservedPrevious: false,
+  });
+  return getGarminAthleteBaseline();
+}
+
 export async function runGarminSync(
   onProgress: ProgressReporter = () => undefined,
 ): Promise<GarminSyncResult> {
@@ -87,6 +156,7 @@ export async function runGarminSync(
   let activitiesImported = 0;
   let healthDaysImported = 0;
   let detailsProcessed = 0;
+  let athleteBaseline = getGarminAthleteBaseline();
 
   try {
     onProgress({
@@ -96,6 +166,22 @@ export async function runGarminSync(
       healthDaysImported,
     });
     await client.start();
+    onProgress({
+      stage: "athlete",
+      message:
+        "Refreshing Garmin athlete baselines from approved read-only profile tools…",
+      activitiesImported,
+      healthDaysImported,
+      athleteAvailability: athleteBaseline.availability,
+    });
+    athleteBaseline = await fetchAndStoreAthleteBaseline(client);
+    onProgress({
+      stage: "athlete",
+      message: `Garmin athlete baseline refresh ${athleteBaseline.availability}; configured max HR and full HR-zone boundaries are unavailable from the pinned connector.`,
+      activitiesImported,
+      healthDaysImported,
+      athleteAvailability: athleteBaseline.availability,
+    });
     let page = Number(getCheckpoint("activity_page") ?? 0);
     while (true) {
       onProgress({
@@ -187,7 +273,8 @@ export async function runGarminSync(
       coverageStart: startDate,
       coverageEnd: endDate,
       detailCoverage: totals.detailCoverage,
-      detail: `Garmin sync completed through the pinned stdio MCP connector. Database now has ${totals.activities} activities, ${totals.healthDays} health days, and detail coverage ${totals.detailCoverage.terminal}/${totals.detailCoverage.total} terminal (${totals.detailCoverage.retryableFailures} retryable failures, ${totals.detailCoverage.pending} pending). Raw connector payloads were normalized in memory and not retained.`,
+      athleteBaseline,
+      detail: `Garmin sync completed through the pinned stdio MCP connector. Database now has ${totals.activities} activities, ${totals.healthDays} health days, detail coverage ${totals.detailCoverage.terminal}/${totals.detailCoverage.total} terminal (${totals.detailCoverage.retryableFailures} retryable failures, ${totals.detailCoverage.pending} pending), and athlete baseline status ${athleteBaseline.availability}. Raw connector payloads were normalized in memory and not retained; configured max HR and complete HR-zone boundaries were not estimated.`,
     };
     onProgress({
       stage: "completed",
@@ -196,6 +283,7 @@ export async function runGarminSync(
       healthDaysImported,
       detailsProcessed,
       detailTotal: detailIds.length,
+      athleteAvailability: athleteBaseline.availability,
     });
     return result;
   } catch (error) {
@@ -216,6 +304,7 @@ export async function runGarminSync(
       coverageStart: startDate,
       coverageEnd: endDate,
       detailCoverage: activityDetailCoverage(),
+      athleteBaseline,
       detail: message.slice(0, 1000),
     };
   } finally {

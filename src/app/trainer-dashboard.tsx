@@ -33,6 +33,38 @@ type TrainerProfilePayload = {
   constraints: string[];
 };
 type ProfileResponse = { ok?: boolean; profile?: TrainerProfilePayload };
+type AthleteBaselineAvailability =
+  "complete" | "partial" | "unavailable" | "failed";
+type AthleteBaselinePayload = {
+  availability: AthleteBaselineAvailability;
+  source: "garmin_mcp" | null;
+  fetchedAt: string | null;
+  lastAttemptAt: string | null;
+  preservedPrevious: boolean;
+  values: {
+    runningLactateThresholdHeartRateBpm: number | null;
+    cyclingLactateThresholdHeartRateBpm: number | null;
+    rowingLactateThresholdHeartRateBpm: number | null;
+    cyclingFtpWatts: number | null;
+    cyclingFtpMeasuredOn: string | null;
+    cyclingFtpSourceStale: boolean | null;
+    vo2MaxRunning: number | null;
+    vo2MaxCycling: number | null;
+    availableTrainingDays: string[];
+    preferredLongTrainingDays: string[];
+  };
+  unsupported: {
+    configuredMaxHeartRate: true;
+    completeHeartRateZoneBoundaries: true;
+    reason: "not_exposed_by_pinned_connector";
+  };
+};
+type ImportSummaryPayload = {
+  activities: number;
+  healthDays: number;
+  detailedActivities: number;
+  athleteBaseline: AthleteBaselinePayload;
+};
 type ProfileFields = {
   goals: string;
   sports: string;
@@ -45,6 +77,31 @@ const emptyProfileFields: ProfileFields = {
   goals: "",
   sports: "",
   constraints: "",
+};
+
+const emptyAthleteBaseline: AthleteBaselinePayload = {
+  availability: "unavailable",
+  source: null,
+  fetchedAt: null,
+  lastAttemptAt: null,
+  preservedPrevious: false,
+  values: {
+    runningLactateThresholdHeartRateBpm: null,
+    cyclingLactateThresholdHeartRateBpm: null,
+    rowingLactateThresholdHeartRateBpm: null,
+    cyclingFtpWatts: null,
+    cyclingFtpMeasuredOn: null,
+    cyclingFtpSourceStale: null,
+    vo2MaxRunning: null,
+    vo2MaxCycling: null,
+    availableTrainingDays: [],
+    preferredLongTrainingDays: [],
+  },
+  unsupported: {
+    configuredMaxHeartRate: true,
+    completeHeartRateZoneBoundaries: true,
+    reason: "not_exposed_by_pinned_connector",
+  },
 };
 
 async function readResponse(response: Response): Promise<string> {
@@ -95,6 +152,18 @@ function profileToFields(profile: TrainerProfilePayload): ProfileFields {
   };
 }
 
+function dateLabel(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "Not available";
+}
+
+function valueLabel(value: number | null, suffix = ""): string {
+  return value === null ? "Not available" : `${value}${suffix}`;
+}
+
+function dayListLabel(days: string[]): string {
+  return days.length ? days.join(", ") : "Not available";
+}
+
 function profileStatusLabel(
   fetchState: ProfileFetchState,
   saveState: ProfileSaveState,
@@ -133,6 +202,11 @@ export function TrainerDashboard() {
   const [profileMessage, setProfileMessage] = useState(
     "Saved local Profile will load from local SQLite.",
   );
+  const [athleteBaseline, setAthleteBaseline] =
+    useState<AthleteBaselinePayload | null>(null);
+  const [athleteBaselineMessage, setAthleteBaselineMessage] = useState(
+    "Garmin athlete baselines will load from the local import summary.",
+  );
   const [detailGarminId, setDetailGarminId] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -159,6 +233,7 @@ export function TrainerDashboard() {
   useEffect(() => {
     void loadChatHistory(false);
     void loadProfile("startup");
+    void loadImportSummary("startup", false);
   }, []);
   useEffect(() => {
     if (!forceNextScrollRef.current && !shouldAutoScrollRef.current) return;
@@ -332,6 +407,7 @@ export function TrainerDashboard() {
             healthDaysImported?: number;
             detailsProcessed?: number;
             detailTotal?: number;
+            athleteAvailability?: AthleteBaselineAvailability;
           };
           if (event.type === "result") {
             finalKind = event.status === "completed" ? "ok" : "error";
@@ -345,6 +421,7 @@ export function TrainerDashboard() {
           }
         }
       }
+      await loadImportSummary("sync", false);
       setStatus({ kind: finalKind, message: log.trim() || "Sync complete." });
     } catch (error) {
       setStatus({
@@ -354,8 +431,40 @@ export function TrainerDashboard() {
     }
   }
 
+  async function loadImportSummary(
+    trigger: "startup" | "manual" | "sync",
+    showStatus = true,
+  ) {
+    if (showStatus)
+      setStatus({ kind: "busy", message: "Import summary: loading…" });
+    try {
+      const payload = await readJsonResponse<ImportSummaryPayload>(
+        await fetch("/api/summary"),
+      );
+      const nextBaseline = payload.athleteBaseline ?? emptyAthleteBaseline;
+      setAthleteBaseline(nextBaseline);
+      setAthleteBaselineMessage(
+        `Athlete baseline ${nextBaseline.availability}; last attempt ${dateLabel(nextBaseline.lastAttemptAt)}.`,
+      );
+      if (showStatus)
+        setStatus({
+          kind: "ok",
+          message: `Import summary: ${payload.activities} activities, ${payload.healthDays} health days, ${payload.detailedActivities} detailed activities, athlete baseline ${nextBaseline.availability}.`,
+        });
+    } catch (error) {
+      setAthleteBaselineMessage(
+        `Athlete baseline summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      if (showStatus || trigger === "manual")
+        setStatus({
+          kind: "error",
+          message: `Import summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        });
+    }
+  }
+
   async function refreshSummary() {
-    await runAction("Import summary", () => fetch("/api/summary"));
+    await loadImportSummary("manual");
   }
 
   async function refreshDetailCoverage() {
@@ -759,6 +868,111 @@ export function TrainerDashboard() {
               </p>
               <button type="button" onClick={refreshSummary}>
                 Refresh import summary
+              </button>
+            </article>
+
+            <article
+              className="settings-card"
+              aria-labelledby="athlete-baseline-heading"
+            >
+              <h2 id="athlete-baseline-heading">Garmin athlete baselines</h2>
+              <p>
+                Read-only Garmin-derived thresholds and planning inputs are kept
+                separate from editable Profile fields and trainer memory.
+              </p>
+              <p className="helper-text" role="status" aria-live="polite">
+                {athleteBaselineMessage}
+              </p>
+              {athleteBaseline ? (
+                <dl className="compact-facts">
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{athleteBaseline.availability}</dd>
+                  </div>
+                  <div>
+                    <dt>Last successful refresh</dt>
+                    <dd>{dateLabel(athleteBaseline.fetchedAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>Running threshold HR</dt>
+                    <dd>
+                      {valueLabel(
+                        athleteBaseline.values
+                          .runningLactateThresholdHeartRateBpm,
+                        " bpm",
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Cycling threshold HR</dt>
+                    <dd>
+                      {valueLabel(
+                        athleteBaseline.values
+                          .cyclingLactateThresholdHeartRateBpm,
+                        " bpm",
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Rowing threshold HR</dt>
+                    <dd>
+                      {valueLabel(
+                        athleteBaseline.values
+                          .rowingLactateThresholdHeartRateBpm,
+                        " bpm",
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Cycling FTP</dt>
+                    <dd>
+                      {valueLabel(athleteBaseline.values.cyclingFtpWatts, " W")}
+                      {athleteBaseline.values.cyclingFtpMeasuredOn
+                        ? ` (${athleteBaseline.values.cyclingFtpMeasuredOn})`
+                        : ""}
+                      {athleteBaseline.values.cyclingFtpSourceStale
+                        ? " — connector labels stale"
+                        : ""}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Running VO2 max</dt>
+                    <dd>{valueLabel(athleteBaseline.values.vo2MaxRunning)}</dd>
+                  </div>
+                  <div>
+                    <dt>Cycling VO2 max</dt>
+                    <dd>{valueLabel(athleteBaseline.values.vo2MaxCycling)}</dd>
+                  </div>
+                  <div>
+                    <dt>Available training days</dt>
+                    <dd>
+                      {dayListLabel(
+                        athleteBaseline.values.availableTrainingDays,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Preferred long-training days</dt>
+                    <dd>
+                      {dayListLabel(
+                        athleteBaseline.values.preferredLongTrainingDays,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Configured max HR</dt>
+                    <dd>Not provided by the current pinned connector</dd>
+                  </div>
+                  <div>
+                    <dt>Complete HR-zone boundaries</dt>
+                    <dd>Not provided by the current pinned connector</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p>Not available until the local summary loads.</p>
+              )}
+              <button type="button" onClick={refreshSummary}>
+                Refresh athlete baselines
               </button>
             </article>
 

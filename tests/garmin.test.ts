@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assertReadOperation } from "../src/lib/garmin/client";
+import { normalizeGarminAthleteBaseline } from "../src/lib/garmin/athlete-normalize";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
 import {
   normalizeActivity,
@@ -35,10 +36,67 @@ describe("Garmin boundary", () => {
   it("allows only reviewed read operations", () => {
     expect(() => assertReadOperation("list_activities")).not.toThrow();
     expect(() => assertReadOperation("get_activity_fit_data")).not.toThrow();
+    expect(() => assertReadOperation("get_user_profile")).not.toThrow();
+    expect(() => assertReadOperation("get_cycling_ftp")).not.toThrow();
     expect(() => assertReadOperation("download_activity_file")).toThrow(
       /Blocked/,
     );
+    expect(() => assertReadOperation("set_user_profile")).toThrow(/Blocked/);
     expect(() => assertReadOperation("delete_activity")).toThrow(/Blocked/);
+  });
+
+  it("normalizes athlete baseline facts and excludes unsupported profile fields", () => {
+    const normalized = normalizeGarminAthleteBaseline({
+      profilePayload: {
+        userData: {
+          lactateThresholdHeartRate: 169,
+          lactateThresholdHeartRateCycling: "172",
+          lactateThresholdHeartRateRowing: -1,
+          vo2MaxRunning: 51.23,
+          vo2MaxCycling: Number.NaN,
+          availableTrainingDays: ["MONDAY", "wed", "Bogus", "monday"],
+          preferredLongTrainingDays: ["Sunday", "fri"],
+          birthDate: "1980-01-01",
+          gender: "private",
+          weight: 70,
+        },
+      },
+      ftpPayload: {
+        functional_threshold_power_watts: 255,
+        calendar_date: "2026-07-19",
+        is_stale: true,
+        sport: "cycling",
+      },
+      fetchedAt: new Date("2026-07-20T08:00:00Z"),
+    });
+
+    expect(normalized.availability).toBe("partial");
+    expect(normalized.values).toMatchObject({
+      runningLactateThresholdHeartRateBpm: 169,
+      cyclingLactateThresholdHeartRateBpm: 172,
+      rowingLactateThresholdHeartRateBpm: null,
+      cyclingFtpWatts: 255,
+      cyclingFtpMeasuredOn: "2026-07-19",
+      cyclingFtpSourceStale: true,
+      vo2MaxRunning: 51.2,
+      vo2MaxCycling: null,
+      availableTrainingDays: ["monday", "wednesday"],
+      preferredLongTrainingDays: ["friday", "sunday"],
+    });
+    expect(JSON.stringify(normalized)).not.toContain("birthDate");
+    expect(JSON.stringify(normalized)).not.toContain("gender");
+    expect(JSON.stringify(normalized)).not.toContain("weight");
+  });
+
+  it("treats all-null athlete baseline payloads as unavailable without estimating max HR", () => {
+    const normalized = normalizeGarminAthleteBaseline({
+      profilePayload: { userData: { lactateThresholdHeartRate: null } },
+      ftpPayload: { functional_threshold_power_watts: 0, sport: "cycling" },
+    });
+
+    expect(normalized.availability).toBe("unavailable");
+    expect(normalized.values.cyclingFtpWatts).toBeNull();
+    expect(JSON.stringify(normalized)).not.toContain("maxHeartRate");
   });
 
   it("normalizes activity and explicit missing health data", () => {

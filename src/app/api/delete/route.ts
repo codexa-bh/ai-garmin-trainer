@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       deleted,
       counts: dataCounts(),
       detail:
-        "Deleted normalized Garmin data, sync runs, and checkpoints managed by the app. External garmin-mcp-auth tokens were not deleted because the app did not create or own them.",
+        "Deleted normalized Garmin data, athlete baselines, sync runs, and checkpoints managed by the app. External garmin-mcp-auth tokens were not deleted because the app did not create or own them.",
     });
   }
   return NextResponse.json(

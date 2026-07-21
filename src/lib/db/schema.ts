@@ -170,6 +170,49 @@ export const activityStreamPoint = sqliteTable("activity_stream_point", {
   temperatureC: real("temperature_c"),
 });
 
+export const garminAthleteBaseline = sqliteTable("garmin_athlete_baseline", {
+  id: text("id").primaryKey().default("default"),
+  fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),
+  source: text("source").notNull(),
+  availability: text("availability").notNull(),
+  runningLactateThresholdHeartRateBpm: integer(
+    "running_lactate_threshold_heart_rate_bpm",
+  ),
+  cyclingLactateThresholdHeartRateBpm: integer(
+    "cycling_lactate_threshold_heart_rate_bpm",
+  ),
+  rowingLactateThresholdHeartRateBpm: integer(
+    "rowing_lactate_threshold_heart_rate_bpm",
+  ),
+  cyclingFtpWatts: integer("cycling_ftp_watts"),
+  cyclingFtpMeasuredOn: text("cycling_ftp_measured_on"),
+  cyclingFtpSourceStale: integer("cycling_ftp_source_stale", {
+    mode: "boolean",
+  }),
+  vo2MaxRunning: real("vo2_max_running"),
+  vo2MaxCycling: real("vo2_max_cycling"),
+  availableTrainingDaysJson: text("available_training_days_json")
+    .notNull()
+    .default("[]"),
+  preferredLongTrainingDaysJson: text("preferred_long_training_days_json")
+    .notNull()
+    .default("[]"),
+});
+
+export const garminAthleteBaselineAttempt = sqliteTable(
+  "garmin_athlete_baseline_attempt",
+  {
+    id: text("id").primaryKey().default("default"),
+    attemptedAt: integer("attempted_at", { mode: "timestamp" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    status: text("status").notNull(),
+    errorMessage: text("error_message"),
+    preservedPrevious: integer("preserved_previous", { mode: "boolean" })
+      .notNull()
+      .default(false),
+  },
+);
+
 export const syncRun = sqliteTable("sync_run", {
   id: text("id").primaryKey(),
   status: text("status").notNull(),

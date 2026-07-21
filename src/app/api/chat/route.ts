@@ -15,6 +15,7 @@ import {
   DEFAULT_CONVERSATION_ID,
   ensureConversation,
   getActivityByGarminId,
+  getGarminAthleteBaseline,
   getTrainerProfile,
   listActivityDetailAvailability,
   listActiveTrainerMemories,
@@ -160,6 +161,7 @@ function buildSystemContext(recentMessages: StoredChatMessage[]): string {
     activities: listRecentActivities(),
     health: listRecentDailyHealth(),
     profile: getTrainerProfile(),
+    athleteBaseline: getGarminAthleteBaseline(),
     learnedMemories: listActiveTrainerMemories(),
     recentMessages: formatRecentChatHistory(recentMessages, 10),
   })}\n\nDetailed activity availability (local SQLite):\n${detailAvailability || "No detailed activities backfilled yet"}\n\nImported data counts: ${counts.activities} activities, ${counts.healthDays} daily health records, and detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures). Recent conversation is bounded to the latest local turns and concise tool evidence only. Use only selected recent facts and explicit tool/local analytics results for detailed claims. Pending, expired, rejected, superseded, or deleted learned memories are not included and must not affect the answer. Never describe summary-only analytics as FIT/stream analysis; only claim detailed FIT/stream evidence when an activity has available or partial detail with records/laps. Never request or expose Garmin credentials, raw FIT bytes, raw connector payloads, or unbounded full-history/stream dumps.`;
@@ -284,7 +286,8 @@ export async function POST(request: Request) {
     if (wantsSyncStatus(latestMessage)) {
       const coverage = activityDetailCoverage();
       const counts = dataCounts();
-      const assistantText = `Local Garmin status: ${counts.activities} activity summaries, ${counts.healthDays} health days, detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures, ${coverage.preservedFailures} preserved failed refreshes). Tool evidence: syncStatus.`;
+      const athlete = getGarminAthleteBaseline();
+      const assistantText = `Local Garmin status: ${counts.activities} activity summaries, ${counts.healthDays} health days, detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures, ${coverage.preservedFailures} preserved failed refreshes), athlete baseline ${athlete.availability}${athlete.fetchedAt ? ` fetched ${athlete.fetchedAt.slice(0, 10)}` : " not yet fetched"}. Configured max HR and complete HR-zone boundaries are unavailable from the pinned connector and are not estimated. Tool evidence: syncStatus.`;
       const grounding: ChatGrounding = {
         tool: "syncStatus",
         privacy: "Read from local normalized SQLite only.",

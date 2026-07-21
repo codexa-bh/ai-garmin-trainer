@@ -198,6 +198,59 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 });
 
+describe("TrainerDashboard athlete baseline summary", () => {
+  it("renders read-only Garmin athlete baselines separately from Profile", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/summary")
+        return jsonResponse({
+          activities: 1,
+          healthDays: 2,
+          detailedActivities: 0,
+          athleteBaseline: {
+            availability: "partial",
+            source: "garmin_mcp",
+            fetchedAt: "2026-07-20T08:00:00.000Z",
+            lastAttemptAt: "2026-07-20T08:00:00.000Z",
+            preservedPrevious: false,
+            values: {
+              runningLactateThresholdHeartRateBpm: 168,
+              cyclingLactateThresholdHeartRateBpm: null,
+              rowingLactateThresholdHeartRateBpm: null,
+              cyclingFtpWatts: 250,
+              cyclingFtpMeasuredOn: "2026-07-19",
+              cyclingFtpSourceStale: false,
+              vo2MaxRunning: null,
+              vo2MaxCycling: null,
+              availableTrainingDays: ["monday", "wednesday"],
+              preferredLongTrainingDays: ["sunday"],
+            },
+            unsupported: {
+              configuredMaxHeartRate: true,
+              completeHeartRateZoneBoundaries: true,
+              reason: "not_exposed_by_pinned_connector",
+            },
+          },
+        });
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+
+    expect(await screen.findByText("Garmin athlete baselines")).toBeTruthy();
+    expect(screen.getByText("168 bpm")).toBeTruthy();
+    expect(screen.getByText("250 W (2026-07-19)")).toBeTruthy();
+    expect(
+      screen.getAllByText("Not provided by the current pinned connector"),
+    ).toHaveLength(2);
+    expect(screen.queryByLabelText("Running threshold HR")).toBeNull();
+  });
+});
+
 describe("TrainerDashboard primary Sync now", () => {
   it("shows Sync now in the trainer header without opening Data & settings", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {

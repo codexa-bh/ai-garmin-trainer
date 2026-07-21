@@ -24,6 +24,13 @@ describe("versioned SQLite migration foundation", () => {
         )
         .get(),
     ).toBeTruthy();
+    expect(
+      db
+        .prepare(
+          "select name from sqlite_master where type = 'table' and name = 'garmin_athlete_baseline'",
+        )
+        .get(),
+    ).toBeTruthy();
     db.close();
   });
 

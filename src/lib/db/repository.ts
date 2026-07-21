@@ -3,7 +3,11 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { getOptionalEnv } from "../env";
 import { migrateDatabase } from "./migrations";
+import { EMPTY_GARMIN_ATHLETE_VALUES } from "../garmin/athlete-normalize";
 import type {
+  GarminAthleteBaselineAvailability,
+  GarminAthleteBaselineDto,
+  GarminAthleteBaselineSnapshot,
   NormalizedActivity,
   NormalizedDailyHealth,
 } from "../garmin/types";
@@ -236,6 +240,172 @@ function parseJsonObject(value: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function parseJsonArray(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeGarminAthleteBaselineRefresh(input: {
+  snapshot: GarminAthleteBaselineSnapshot | null;
+  status: Exclude<GarminAthleteBaselineAvailability, "failed">;
+  attemptedAt: Date;
+  completedAt?: Date;
+  preservedPrevious?: boolean;
+  errorMessage?: string | null;
+}): void {
+  const db = getDatabase();
+  db.transaction(() => {
+    db.prepare("delete from garmin_athlete_baseline").run();
+    if (input.snapshot && input.snapshot.availability !== "unavailable") {
+      const values = input.snapshot.values;
+      db.prepare(
+        `insert into garmin_athlete_baseline (id, fetched_at, source, availability, running_lactate_threshold_heart_rate_bpm, cycling_lactate_threshold_heart_rate_bpm, rowing_lactate_threshold_heart_rate_bpm, cycling_ftp_watts, cycling_ftp_measured_on, cycling_ftp_source_stale, vo2_max_running, vo2_max_cycling, available_training_days_json, preferred_long_training_days_json)
+         values ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.snapshot.fetchedAt.getTime(),
+        input.snapshot.source,
+        input.snapshot.availability,
+        values.runningLactateThresholdHeartRateBpm,
+        values.cyclingLactateThresholdHeartRateBpm,
+        values.rowingLactateThresholdHeartRateBpm,
+        values.cyclingFtpWatts,
+        values.cyclingFtpMeasuredOn,
+        values.cyclingFtpSourceStale === null
+          ? null
+          : bool(values.cyclingFtpSourceStale),
+        values.vo2MaxRunning,
+        values.vo2MaxCycling,
+        JSON.stringify(values.availableTrainingDays),
+        JSON.stringify(values.preferredLongTrainingDays),
+      );
+    }
+    db.prepare(
+      `insert into garmin_athlete_baseline_attempt (id, attempted_at, completed_at, status, error_message, preserved_previous)
+       values ('default', ?, ?, ?, ?, ?)
+       on conflict(id) do update set
+         attempted_at=excluded.attempted_at,
+         completed_at=excluded.completed_at,
+         status=excluded.status,
+         error_message=excluded.error_message,
+         preserved_previous=excluded.preserved_previous`,
+    ).run(
+      input.attemptedAt.getTime(),
+      (input.completedAt ?? new Date()).getTime(),
+      input.status,
+      input.errorMessage?.slice(0, 500) ?? null,
+      bool(Boolean(input.preservedPrevious)),
+    );
+  })();
+}
+
+export function recordGarminAthleteBaselineFailure(input: {
+  attemptedAt: Date;
+  completedAt?: Date;
+  errorMessage: string;
+  preservedPrevious?: boolean;
+}): void {
+  getDatabase()
+    .prepare(
+      `insert into garmin_athlete_baseline_attempt (id, attempted_at, completed_at, status, error_message, preserved_previous)
+       values ('default', ?, ?, 'failed', ?, ?)
+       on conflict(id) do update set
+         attempted_at=excluded.attempted_at,
+         completed_at=excluded.completed_at,
+         status=excluded.status,
+         error_message=excluded.error_message,
+         preserved_previous=excluded.preserved_previous`,
+    )
+    .run(
+      input.attemptedAt.getTime(),
+      (input.completedAt ?? new Date()).getTime(),
+      input.errorMessage.slice(0, 500),
+      bool(Boolean(input.preservedPrevious)),
+    );
+}
+
+export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
+  const db = getDatabase();
+  const baseline = db
+    .prepare(
+      `select fetched_at as fetchedAt, source, availability, running_lactate_threshold_heart_rate_bpm as runningLactateThresholdHeartRateBpm, cycling_lactate_threshold_heart_rate_bpm as cyclingLactateThresholdHeartRateBpm, rowing_lactate_threshold_heart_rate_bpm as rowingLactateThresholdHeartRateBpm, cycling_ftp_watts as cyclingFtpWatts, cycling_ftp_measured_on as cyclingFtpMeasuredOn, cycling_ftp_source_stale as cyclingFtpSourceStale, vo2_max_running as vo2MaxRunning, vo2_max_cycling as vo2MaxCycling, available_training_days_json as availableTrainingDaysJson, preferred_long_training_days_json as preferredLongTrainingDaysJson from garmin_athlete_baseline where id = 'default'`,
+    )
+    .get() as
+    | {
+        fetchedAt: number;
+        source: "garmin_mcp";
+        availability: Exclude<GarminAthleteBaselineAvailability, "failed">;
+        runningLactateThresholdHeartRateBpm: number | null;
+        cyclingLactateThresholdHeartRateBpm: number | null;
+        rowingLactateThresholdHeartRateBpm: number | null;
+        cyclingFtpWatts: number | null;
+        cyclingFtpMeasuredOn: string | null;
+        cyclingFtpSourceStale: number | null;
+        vo2MaxRunning: number | null;
+        vo2MaxCycling: number | null;
+        availableTrainingDaysJson: string | null;
+        preferredLongTrainingDaysJson: string | null;
+      }
+    | undefined;
+  const attempt = db
+    .prepare(
+      `select attempted_at as attemptedAt, status, preserved_previous as preservedPrevious from garmin_athlete_baseline_attempt where id = 'default'`,
+    )
+    .get() as
+    | {
+        attemptedAt: number;
+        status: GarminAthleteBaselineAvailability;
+        preservedPrevious: number;
+      }
+    | undefined;
+  const values = baseline
+    ? {
+        runningLactateThresholdHeartRateBpm:
+          baseline.runningLactateThresholdHeartRateBpm,
+        cyclingLactateThresholdHeartRateBpm:
+          baseline.cyclingLactateThresholdHeartRateBpm,
+        rowingLactateThresholdHeartRateBpm:
+          baseline.rowingLactateThresholdHeartRateBpm,
+        cyclingFtpWatts: baseline.cyclingFtpWatts,
+        cyclingFtpMeasuredOn: baseline.cyclingFtpMeasuredOn,
+        cyclingFtpSourceStale:
+          baseline.cyclingFtpSourceStale === null
+            ? null
+            : Boolean(baseline.cyclingFtpSourceStale),
+        vo2MaxRunning: baseline.vo2MaxRunning,
+        vo2MaxCycling: baseline.vo2MaxCycling,
+        availableTrainingDays: parseJsonArray(
+          baseline.availableTrainingDaysJson,
+        ),
+        preferredLongTrainingDays: parseJsonArray(
+          baseline.preferredLongTrainingDaysJson,
+        ),
+      }
+    : { ...EMPTY_GARMIN_ATHLETE_VALUES };
+  return {
+    availability:
+      attempt?.status === "failed"
+        ? "failed"
+        : (baseline?.availability ?? attempt?.status ?? "unavailable"),
+    source: baseline?.source ?? null,
+    fetchedAt: baseline ? new Date(baseline.fetchedAt).toISOString() : null,
+    lastAttemptAt: attempt ? new Date(attempt.attemptedAt).toISOString() : null,
+    preservedPrevious: Boolean(attempt?.preservedPrevious),
+    values,
+    unsupported: {
+      configuredMaxHeartRate: true,
+      completeHeartRateZoneBoundaries: true,
+      reason: "not_exposed_by_pinned_connector",
+    },
+  };
 }
 
 export function upsertActivityDetail(detail: NormalizedActivityDetail): void {
@@ -570,6 +740,7 @@ export function importSummary(): {
   healthDays: number;
   detailedActivities: number;
   detailCoverage: ActivityDetailCoverage;
+  athleteBaseline: GarminAthleteBaselineDto;
   latestActivityDate: string | null;
   healthStartDate: string | null;
   healthEndDate: string | null;
@@ -583,6 +754,7 @@ export function importSummary(): {
     .get() as { start: string | null; end: string | null };
   return {
     ...counts,
+    athleteBaseline: getGarminAthleteBaseline(),
     latestActivityDate: latestActivity.value
       ? new Date(latestActivity.value).toISOString().slice(0, 10)
       : null,
@@ -969,6 +1141,8 @@ export function clearGarminData(): string[] {
     db.prepare("delete from activity_stream_point").run();
     db.prepare("delete from activity_lap").run();
     db.prepare("delete from activity_detail_availability").run();
+    db.prepare("delete from garmin_athlete_baseline").run();
+    db.prepare("delete from garmin_athlete_baseline_attempt").run();
     db.prepare("delete from activity").run();
     db.prepare("delete from daily_health").run();
     db.prepare("delete from sync_checkpoint").run();
@@ -978,6 +1152,8 @@ export function clearGarminData(): string[] {
     "activity_stream_point",
     "activity_lap",
     "activity_detail_availability",
+    "garmin_athlete_baseline",
+    "garmin_athlete_baseline_attempt",
     "activity",
     "daily_health",
     "sync_checkpoint",

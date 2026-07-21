@@ -1,4 +1,5 @@
 import type {
+  GarminAthleteBaselineDto,
   NormalizedActivity,
   NormalizedDailyHealth,
 } from "../garmin/types";
@@ -50,10 +51,49 @@ export type TrainerMemory = {
   reconfirmAfter: Date | null;
 };
 
+function formatAthleteBaseline(
+  athleteBaseline: GarminAthleteBaselineDto | null | undefined,
+): string {
+  if (!athleteBaseline || athleteBaseline.availability === "unavailable") {
+    return "No Garmin athlete baseline snapshot has been imported yet. Configured max HR and complete HR-zone boundaries are not provided by the current pinned connector; do not estimate them.";
+  }
+  const values = athleteBaseline.values;
+  const facts = [
+    values.runningLactateThresholdHeartRateBpm
+      ? `running lactate-threshold HR ${values.runningLactateThresholdHeartRateBpm} bpm`
+      : null,
+    values.cyclingLactateThresholdHeartRateBpm
+      ? `cycling lactate-threshold HR ${values.cyclingLactateThresholdHeartRateBpm} bpm`
+      : null,
+    values.rowingLactateThresholdHeartRateBpm
+      ? `rowing lactate-threshold HR ${values.rowingLactateThresholdHeartRateBpm} bpm`
+      : null,
+    values.cyclingFtpWatts
+      ? `cycling FTP ${values.cyclingFtpWatts} W${values.cyclingFtpMeasuredOn ? ` measured ${values.cyclingFtpMeasuredOn}` : ""}${values.cyclingFtpSourceStale ? " (connector labels stale)" : ""}`
+      : null,
+    values.vo2MaxRunning ? `running VO2 max ${values.vo2MaxRunning}` : null,
+    values.vo2MaxCycling ? `cycling VO2 max ${values.vo2MaxCycling}` : null,
+    values.availableTrainingDays.length
+      ? `available training days ${values.availableTrainingDays.join(", ")}`
+      : null,
+    values.preferredLongTrainingDays.length
+      ? `preferred long-training days ${values.preferredLongTrainingDays.join(", ")}`
+      : null,
+  ].filter(Boolean);
+  const freshness = athleteBaseline.fetchedAt
+    ? `fetched ${athleteBaseline.fetchedAt.slice(0, 10)}`
+    : "freshness unavailable";
+  const preserved = athleteBaseline.preservedPrevious
+    ? " Latest refresh failed; previous normalized Garmin athlete facts were preserved."
+    : "";
+  return `Garmin athlete baselines (${athleteBaseline.availability}, ${freshness}): ${facts.join("; ") || "no supported athlete facts available"}.${preserved} Configured max HR and complete HR-zone boundaries are not provided by the current pinned connector; do not estimate them.`;
+}
+
 export function buildTrainerContext(input: {
   activities: NormalizedActivity[];
   health: NormalizedDailyHealth[];
   profile: TrainerProfile;
+  athleteBaseline?: GarminAthleteBaselineDto | null;
   learnedMemories?: TrainerMemory[];
   recentMessages: string[];
 }): string {
@@ -95,6 +135,7 @@ export function buildTrainerContext(input: {
     `Explicit Profile sports: ${input.profile.sports.join(", ") || "not set"}`,
     `Explicit Profile constraints: ${input.profile.constraints.join(", ") || "not set"}`,
     `Confirmed learned memories:\n${learnedMemories.join("\n") || "None confirmed"}`,
+    formatAthleteBaseline(input.athleteBaseline),
     `Recent activities:\n${recentActivities.join("\n") || "No activities imported"}`,
     `Recovery:\n${health.join("\n") || "No recovery data imported"}`,
     `Recent conversation:\n${input.recentMessages.slice(-6).join("\n")}`,
