@@ -11,7 +11,7 @@ body {
   color: #e2e8f0;
 }
 .shell {
-  max-width: 1180px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 32px;
 }
@@ -55,7 +55,7 @@ p {
   gap: 18px;
 }
 .product-grid {
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.85fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
 .settings-grid {
@@ -63,7 +63,6 @@ p {
 }
 article,
 footer,
-.signin-card,
 .settings-panel,
 .status-card {
   background: rgba(30, 41, 59, 0.92);
@@ -77,26 +76,10 @@ footer,
 }
 .profile-card,
 .settings-card,
-.status-card,
-.signin-card {
+.status-card {
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-.compact-card {
-  gap: 12px;
-}
-.signin-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-}
-.inline-form {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  gap: 12px;
-  align-items: end;
 }
 .card-title-row,
 .button-row,
@@ -305,7 +288,8 @@ label {
   padding: 0;
   overflow: hidden;
 }
-.settings-panel summary {
+.settings-panel summary,
+.diagnostics-summary {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -319,11 +303,36 @@ label {
   color: #94a3b8;
   font-weight: 700;
 }
-.settings-panel[open] summary {
+.settings-panel[open] summary,
+.diagnostics-panel[open] summary {
   border-bottom: 1px solid #334155;
 }
 .settings-grid {
   padding: 20px;
+}
+.diagnostics-panel {
+  padding: 0;
+  overflow: hidden;
+}
+.diagnostics-summary {
+  cursor: pointer;
+  list-style: none;
+}
+.diagnostics-summary::-webkit-details-marker {
+  display: none;
+}
+.diagnostics-summary > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.diagnostics-summary #status-heading {
+  color: #e2e8f0;
+  font-size: 20px;
+  font-weight: 900;
+}
+.diagnostics-panel .status {
+  margin: 20px;
 }
 .danger-card {
   border-color: #7f1d1d;
@@ -361,9 +370,7 @@ footer {
   color: #cbd5e1;
 }
 @media (max-width: 960px) {
-  .product-grid,
-  .signin-card,
-  .inline-form {
+  .product-grid {
     grid-template-columns: 1fr;
   }
   .trainer-card {
@@ -377,7 +384,6 @@ footer {
   .hero,
   article,
   footer,
-  .signin-card,
   .settings-panel,
   .status-card {
     border-radius: 18px;
@@ -394,7 +400,8 @@ footer {
     min-height: 300px;
     max-height: 520px;
   }
-  .settings-panel summary {
+  .settings-panel summary,
+  .diagnostics-summary {
     align-items: flex-start;
     flex-direction: column;
   }

@@ -173,10 +173,6 @@ export function runDoctor(
   }
 
   const requiredPresence = [
-    ["BETTER_AUTH_SECRET", env.BETTER_AUTH_SECRET],
-    ["GOOGLE_CLIENT_ID", env.GOOGLE_CLIENT_ID],
-    ["GOOGLE_CLIENT_SECRET", env.GOOGLE_CLIENT_SECRET],
-    ["ALLOWED_GOOGLE_EMAILS", env.ALLOWED_GOOGLE_EMAILS],
     ["GARMIN_HISTORY_START_DATE", env.GARMIN_HISTORY_START_DATE],
   ] as const;
   for (const [name, value] of requiredPresence) {

@@ -10,10 +10,6 @@ import {
 
 const baseEnv = {
   NEXT_PUBLIC_APP_URL: "http://localhost:3000",
-  BETTER_AUTH_SECRET: "1234567890123456",
-  GOOGLE_CLIENT_ID: "google-client-id",
-  GOOGLE_CLIENT_SECRET: "google-client-secret",
-  ALLOWED_GOOGLE_EMAILS: "owner@example.com",
   DATABASE_PATH: join(
     mkdtempSync(join(tmpdir(), "doctor-db-")),
     "trainer.sqlite",
@@ -37,7 +33,6 @@ describe("source-beta doctor and redaction", () => {
       "network.loopback_only",
     );
     expect(text).not.toContain("sk-testdoctorredacted");
-    expect(text).not.toContain("google-client-secret");
   });
 
   it("fails closed for unsupported LAN/public exposure", () => {

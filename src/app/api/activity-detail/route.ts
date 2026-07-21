@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { requireSessionEmail } from "@/lib/auth/session";
 import {
   activityDetailCoverage,
   getActivityByGarminId,
@@ -11,7 +10,6 @@ import { backfillActivityDetail } from "@/lib/garmin/importer";
 
 export async function GET() {
   try {
-    await requireSessionEmail();
     return NextResponse.json({
       coverage: activityDetailCoverage(),
       availability: listActivityDetailAvailability(50),
@@ -27,14 +25,13 @@ export async function GET() {
       {
         error: error instanceof Error ? error.message : "detail status failed",
       },
-      { status: 401 },
+      { status: 500 },
     );
   }
 }
 
 export async function POST(request: Request) {
   try {
-    await requireSessionEmail();
     const body = (await request.json()) as {
       garminId?: string;
       force?: boolean;
@@ -72,7 +69,7 @@ export async function POST(request: Request) {
         error:
           error instanceof Error ? error.message : "detail backfill failed",
       },
-      { status: 401 },
+      { status: 500 },
     );
   }
 }

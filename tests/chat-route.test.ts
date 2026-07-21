@@ -58,10 +58,6 @@ vi.mock("ai", () => ({
   generateText,
 }));
 
-vi.mock("@/lib/auth/session", () => ({
-  requireSessionEmail: vi.fn(async () => "local@example.invalid"),
-}));
-
 vi.mock("@/lib/ai/providers", () => ({
   selectedModel: () => ({ model: "mock-model" }),
 }));

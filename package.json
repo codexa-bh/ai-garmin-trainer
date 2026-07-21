@@ -19,7 +19,6 @@
     "@ai-sdk/openai": "4.0.15",
     "@ai-sdk/react": "4.0.32",
     "ai": "7.0.29",
-    "better-auth": "1.6.23",
     "better-sqlite3": "12.11.1",
     "drizzle-orm": "0.45.2",
     "next": "16.2.10",

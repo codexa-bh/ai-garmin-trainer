@@ -17,8 +17,8 @@ npm run build
 
 Live smoke with local secrets:
 
-1. Sign in with an email in `ALLOWED_GOOGLE_EMAILS`.
-2. Confirm an unallowlisted Google account fails closed where practical.
+1. Start the app on loopback and verify the trainer loads chat/Profile without `/api/dev-login`, Google OAuth, cookies, or an email allowlist.
+2. Confirm LAN/public exposure remains unsupported and `npm run doctor` flags non-loopback URLs.
 3. Run out-of-band `garmin-mcp-auth` and verify connector status in the app. The current connector auth stores OAuth state at `~/.garminconnect/garmin_tokens.json`; verify only file existence, never contents.
 4. Sync activities to exhaustion and daily health from `GARMIN_HISTORY_START_DATE` through today.
 5. Enter one imported Garmin activity ID in Activity detail and run Backfill detail. Confirm the status reports normalized record/lap counts or an explicit unsupported/failed reason; no raw FIT files should be created by the app.

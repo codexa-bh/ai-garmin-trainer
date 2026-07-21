@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
 type ChatRole = "user" | "assistant";
@@ -39,8 +39,7 @@ type ProfileFields = {
   preferences: string;
   constraints: string;
 };
-type ProfileFetchState =
-  "idle" | "loading" | "loaded" | "unauthenticated" | "error";
+type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
 type ProfileSaveState = "idle" | "saving" | "saved" | "error";
 
 const emptyProfileFields: ProfileFields = {
@@ -118,7 +117,6 @@ function profileStatusLabel(
   if (dirty) return "Unsaved Profile changes";
   if (saveState === "saved") return "Profile saved";
   if (fetchState === "loading") return "Loading saved Profile…";
-  if (fetchState === "unauthenticated") return "Sign in to load Profile";
   if (fetchState === "error" || saveState === "error")
     return "Profile needs attention";
   if (fetchState === "loaded") return "Profile loaded";
@@ -126,10 +124,10 @@ function profileStatusLabel(
 }
 
 export function TrainerDashboard() {
-  const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>({
     kind: "idle",
-    message: "Ready. Sign in first, then verify the connector.",
+    message:
+      "Ready. Local trainer is available; verify the connector when needed.",
   });
   const [message, setMessage] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -146,11 +144,17 @@ export function TrainerDashboard() {
     useState<ProfileSaveState>("idle");
   const [isProfileDirty, setIsProfileDirty] = useState(false);
   const [profileMessage, setProfileMessage] = useState(
-    "Saved local Profile will load after sign-in.",
+    "Saved local Profile will load from local SQLite.",
   );
   const [detailGarminId, setDetailGarminId] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const profileDirtyRef = useRef(false);
   const profileRequestRef = useRef(0);
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const transcriptBottomRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const forceNextScrollRef = useRef(false);
 
   const latestToolEvidence = useMemo(
     () => [...chatMessages].reverse().find((item) => item.grounding)?.grounding,
@@ -168,6 +172,35 @@ export function TrainerDashboard() {
     void loadChatHistory(false);
     void loadProfile("startup");
   }, []);
+  useEffect(() => {
+    if (!forceNextScrollRef.current && !shouldAutoScrollRef.current) return;
+    scrollTranscriptToBottom(forceNextScrollRef.current ? "auto" : "smooth");
+    forceNextScrollRef.current = false;
+  }, [chatMessages, isChatLoading]);
+
+  function transcriptIsNearBottom(): boolean {
+    const transcript = transcriptRef.current;
+    if (!transcript) return true;
+    const remaining =
+      transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+    return remaining <= 96;
+  }
+
+  function rememberTranscriptFollowIntent() {
+    shouldAutoScrollRef.current = transcriptIsNearBottom();
+  }
+
+  function handleTranscriptScroll() {
+    shouldAutoScrollRef.current = transcriptIsNearBottom();
+  }
+
+  function scrollTranscriptToBottom(behavior: ScrollBehavior) {
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    transcript.scrollTop = transcript.scrollHeight;
+    transcriptBottomRef.current?.scrollIntoView?.({ block: "end", behavior });
+    shouldAutoScrollRef.current = true;
+  }
 
   function setProfileDirty(value: boolean) {
     profileDirtyRef.current = value;
@@ -188,24 +221,18 @@ export function TrainerDashboard() {
     setProfileDirty(false);
   }
 
-  async function loadProfile(trigger: "startup" | "post-login" | "manual") {
+  async function loadProfile(trigger: "startup" | "manual") {
     const requestId = profileRequestRef.current + 1;
     profileRequestRef.current = requestId;
     setProfileFetchState("loading");
     setProfileMessage(
-      trigger === "post-login"
-        ? "Loading saved Profile for this local session…"
+      trigger === "manual"
+        ? "Reloading saved local Profile…"
         : "Loading saved local Profile…",
     );
 
     try {
       const response = await fetch("/api/profile", { method: "GET" });
-      if (response.status === 401 || response.status === 403) {
-        if (profileRequestRef.current !== requestId) return;
-        setProfileFetchState("unauthenticated");
-        setProfileMessage("Sign in to load the Profile saved in local SQLite.");
-        return;
-      }
       const payload = await readJsonResponse<TrainerProfilePayload>(response);
       if (profileRequestRef.current !== requestId) return;
       setProfileFetchState("loaded");
@@ -235,6 +262,7 @@ export function TrainerDashboard() {
         await fetch("/api/chat", { method: "GET" }),
       );
       setConversationId(payload.conversationId);
+      rememberTranscriptFollowIntent();
       setChatMessages(payload.messages);
       setContextWindow(payload.contextWindow ?? 0);
       setHistoryLimit(payload.historyLimit ?? 12);
@@ -268,19 +296,6 @@ export function TrainerDashboard() {
         message: `${label}: ${error instanceof Error ? error.message : "failed"}`,
       });
     }
-  }
-
-  async function localDevLogin(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    await runAction("Local allowlist sign-in", () =>
-      fetch("/api/dev-login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(email.trim() ? { email } : {}),
-      }),
-    );
-    await loadChatHistory(false);
-    await loadProfile("post-login");
   }
 
   async function syncNow() {
@@ -474,6 +489,7 @@ export function TrainerDashboard() {
     setMessage("");
     setLastFailedMessage("");
     setIsChatLoading(true);
+    forceNextScrollRef.current = true;
     setChatMessages((items) => [...items, optimistic]);
     setStatus({ kind: "busy", message: "Chat: trainer is thinking…" });
     try {
@@ -485,6 +501,7 @@ export function TrainerDashboard() {
         }),
       );
       setConversationId(payload.conversationId);
+      rememberTranscriptFollowIntent();
       setChatMessages(payload.messages);
       setContextWindow(payload.contextWindow ?? payload.messages.length);
       setHistoryLimit(payload.historyLimit ?? historyLimit);
@@ -512,33 +529,6 @@ export function TrainerDashboard() {
 
   return (
     <section className="dashboard-shell" aria-label="AI trainer dashboard">
-      <article className="signin-card compact-card">
-        <div>
-          <p className="section-kicker">Local session</p>
-          <h2>Sign in</h2>
-          <p>
-            Use one-click local sign-in with the first configured{" "}
-            <code>ALLOWED_GOOGLE_EMAILS</code> entry, or type an allowlisted
-            email. Google OAuth remains configured through{" "}
-            <code>/api/auth</code>.
-          </p>
-        </div>
-        <div className="button-row">
-          <button type="button" onClick={() => localDevLogin()}>
-            Use configured local session
-          </button>
-        </div>
-        <form onSubmit={localDevLogin} className="inline-form">
-          <input
-            aria-label="Allowlisted email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-          <button type="submit">Use typed local session</button>
-        </form>
-      </article>
-
       <div className="product-grid">
         <article className="trainer-card" aria-labelledby="trainer-heading">
           <div className="chat-header">
@@ -570,7 +560,14 @@ export function TrainerDashboard() {
             </div>
           </div>
 
-          <div className="transcript" aria-live="polite">
+          <div
+            className="transcript"
+            ref={transcriptRef}
+            role="log"
+            aria-label="Chat transcript"
+            aria-live="polite"
+            onScroll={handleTranscriptScroll}
+          >
             {chatMessages.length === 0 && !isChatLoading ? (
               <p className="empty-chat">
                 No local chat history yet. Ask for an activity analysis, then
@@ -612,6 +609,7 @@ export function TrainerDashboard() {
                 <p>Trainer is thinking with bounded local history…</p>
               </div>
             ) : null}
+            <div ref={transcriptBottomRef} aria-hidden="true" />
           </div>
 
           <label className="message-composer">
@@ -658,218 +656,231 @@ export function TrainerDashboard() {
             ) : null}
           </div>
         </article>
-
-        <article className="profile-card" aria-labelledby="profile-heading">
-          <div className="card-title-row">
-            <div>
-              <p className="section-kicker">Trainer grounding</p>
-              <h2 id="profile-heading">Profile</h2>
-            </div>
-            <span
-              className={`pill ${isProfileDirty ? "dirty" : profileSaveState}`}
-              aria-live="polite"
-            >
-              {profileSummary}
-            </span>
-          </div>
-          <p>
-            Set one item per line. Saved Profile data is loaded from local
-            SQLite on startup and after sign-in, then used with imported Garmin
-            facts.
-          </p>
-          <p className="helper-text" role="status" aria-live="polite">
-            {profileMessage}
-          </p>
-          <label>
-            Goals
-            <textarea
-              aria-label="Goals"
-              value={profileFields.goals}
-              onChange={(event) =>
-                updateProfileField("goals", event.target.value)
-              }
-              placeholder="Build hiking endurance"
-              disabled={profileControlsDisabled}
-            />
-          </label>
-          <label>
-            Preferred sports
-            <textarea
-              aria-label="Preferred sports"
-              value={profileFields.sports}
-              onChange={(event) =>
-                updateProfileField("sports", event.target.value)
-              }
-              placeholder="hiking\nmountaineering"
-              disabled={profileControlsDisabled}
-            />
-          </label>
-          <label>
-            Constraints
-            <textarea
-              aria-label="Constraints"
-              value={profileFields.constraints}
-              onChange={(event) =>
-                updateProfileField("constraints", event.target.value)
-              }
-              placeholder="no running this week"
-              disabled={profileControlsDisabled}
-            />
-          </label>
-          <label>
-            Preferences (JSON)
-            <textarea
-              aria-label="Preferences JSON"
-              value={profileFields.preferences}
-              onChange={(event) =>
-                updateProfileField("preferences", event.target.value)
-              }
-              placeholder={'{"coachingStyle":"direct"}'}
-              disabled={profileControlsDisabled}
-            />
-          </label>
-          <div className="button-row">
-            <button
-              type="button"
-              onClick={saveProfile}
-              disabled={profileControlsDisabled}
-            >
-              {profileSaveState === "saving" ? "Saving…" : "Save Profile"}
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => loadProfile("manual")}
-              disabled={profileControlsDisabled}
-            >
-              Reload saved Profile
-            </button>
-          </div>
-        </article>
       </div>
 
-      <details className="settings-panel">
+      <details
+        className="settings-panel"
+        open={settingsOpen}
+        onToggle={(event) => setSettingsOpen(event.currentTarget.open)}
+      >
         <summary>
           <span>Data &amp; settings</span>
           <small>
             Connector, sync, import summary, activity detail, privacy
           </small>
         </summary>
-        <div className="settings-grid">
-          <article className="settings-card">
-            <h2>Connector &amp; sync</h2>
-            <p>
-              Run <code>garmin-mcp-auth</code> outside the app, then sync using
-              pinned local stdio read operations. The app never sees your Garmin
-              password.
-            </p>
-            <div className="button-row">
-              <button
-                type="button"
-                onClick={() =>
-                  runAction("Verify connector", () => fetch("/api/sync"))
-                }
-              >
-                Verify connector
-              </button>
-              <button type="button" onClick={syncNow}>
-                Sync now
-              </button>
-            </div>
-          </article>
+        {settingsOpen ? (
+          <div className="settings-grid">
+            <article className="profile-card" aria-labelledby="profile-heading">
+              <div className="card-title-row">
+                <div>
+                  <p className="section-kicker">Trainer grounding</p>
+                  <h2 id="profile-heading">Profile</h2>
+                </div>
+                <span
+                  className={`pill ${isProfileDirty ? "dirty" : profileSaveState}`}
+                  aria-live="polite"
+                >
+                  {profileSummary}
+                </span>
+              </div>
+              <p>
+                Set one item per line. Saved Profile data is loaded from local
+                SQLite on startup, then used with imported Garmin facts.
+              </p>
+              <p className="helper-text" role="status" aria-live="polite">
+                {profileMessage}
+              </p>
+              <label>
+                Goals
+                <textarea
+                  aria-label="Goals"
+                  value={profileFields.goals}
+                  onChange={(event) =>
+                    updateProfileField("goals", event.target.value)
+                  }
+                  placeholder="Build hiking endurance"
+                  disabled={profileControlsDisabled}
+                />
+              </label>
+              <label>
+                Preferred sports
+                <textarea
+                  aria-label="Preferred sports"
+                  value={profileFields.sports}
+                  onChange={(event) =>
+                    updateProfileField("sports", event.target.value)
+                  }
+                  placeholder="hiking\nmountaineering"
+                  disabled={profileControlsDisabled}
+                />
+              </label>
+              <label>
+                Constraints
+                <textarea
+                  aria-label="Constraints"
+                  value={profileFields.constraints}
+                  onChange={(event) =>
+                    updateProfileField("constraints", event.target.value)
+                  }
+                  placeholder="no running this week"
+                  disabled={profileControlsDisabled}
+                />
+              </label>
+              <label>
+                Preferences (JSON)
+                <textarea
+                  aria-label="Preferences JSON"
+                  value={profileFields.preferences}
+                  onChange={(event) =>
+                    updateProfileField("preferences", event.target.value)
+                  }
+                  placeholder={'{"coachingStyle":"direct"}'}
+                  disabled={profileControlsDisabled}
+                />
+              </label>
+              <div className="button-row">
+                <button
+                  type="button"
+                  onClick={saveProfile}
+                  disabled={profileControlsDisabled}
+                >
+                  {profileSaveState === "saving" ? "Saving…" : "Save Profile"}
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => loadProfile("manual")}
+                  disabled={profileControlsDisabled}
+                >
+                  Reload saved Profile
+                </button>
+              </div>
+            </article>
 
-          <article className="settings-card">
-            <h2>Import summary</h2>
-            <p>
-              Check imported totals, latest activity date, and health coverage
-              before asking the trainer to reason about trends.
-            </p>
-            <button type="button" onClick={refreshSummary}>
-              Refresh import summary
-            </button>
-          </article>
+            <article className="settings-card">
+              <h2>Connector &amp; sync</h2>
+              <p>
+                Run <code>garmin-mcp-auth</code> outside the app, then sync
+                using pinned local stdio read operations. The app never sees
+                your Garmin password.
+              </p>
+              <div className="button-row">
+                <button
+                  type="button"
+                  onClick={() =>
+                    runAction("Verify connector", () => fetch("/api/sync"))
+                  }
+                >
+                  Verify connector
+                </button>
+                <button type="button" onClick={syncNow}>
+                  Sync now
+                </button>
+              </div>
+            </article>
 
-          <article className="settings-card">
-            <h2>Activity detail</h2>
-            <p>
-              Force-refresh one imported activity or inspect total detail
-              coverage. Failed refreshes preserve the last usable normalized
-              detail; raw FIT payloads are discarded after normalization.
-            </p>
-            <label>
-              Garmin activity ID
-              <input
-                aria-label="Garmin activity ID"
-                placeholder="Garmin activity ID"
-                value={detailGarminId}
-                onChange={(event) => setDetailGarminId(event.target.value)}
-              />
-            </label>
-            <div className="button-row">
-              <button type="button" onClick={backfillDetail}>
-                Force refresh detail
+            <article className="settings-card">
+              <h2>Import summary</h2>
+              <p>
+                Check imported totals, latest activity date, and health coverage
+                before asking the trainer to reason about trends.
+              </p>
+              <button type="button" onClick={refreshSummary}>
+                Refresh import summary
               </button>
-              <button type="button" onClick={refreshDetailCoverage}>
-                Show detail coverage
-              </button>
-            </div>
-          </article>
+            </article>
 
-          <article className="settings-card danger-card">
-            <h2>Privacy &amp; deletion</h2>
-            <p>
-              Destructive local-only actions are separated from routine sync.
-              Use them only when you intend to remove stored chat/profile or
-              Garmin-derived data.
-            </p>
-            <div className="button-row">
-              <button
-                type="button"
-                className="danger-button"
-                onClick={() =>
-                  runAction("Clear chat/profile", () =>
-                    fetch("/api/delete", {
-                      method: "POST",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({ scope: "chat-profile" }),
-                    }),
-                  )
-                }
-              >
-                Clear chat/profile
-              </button>
-              <button
-                type="button"
-                className="danger-button"
-                onClick={() =>
-                  runAction("Disconnect Garmin/delete data", () =>
-                    fetch("/api/delete", {
-                      method: "POST",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({ scope: "garmin-all" }),
-                    }),
-                  )
-                }
-              >
-                Disconnect Garmin/delete data
-              </button>
-            </div>
-          </article>
-        </div>
+            <article className="settings-card">
+              <h2>Activity detail</h2>
+              <p>
+                Force-refresh one imported activity or inspect total detail
+                coverage. Failed refreshes preserve the last usable normalized
+                detail; raw FIT payloads are discarded after normalization.
+              </p>
+              <label>
+                Garmin activity ID
+                <input
+                  aria-label="Garmin activity ID"
+                  placeholder="Garmin activity ID"
+                  value={detailGarminId}
+                  onChange={(event) => setDetailGarminId(event.target.value)}
+                />
+              </label>
+              <div className="button-row">
+                <button type="button" onClick={backfillDetail}>
+                  Force refresh detail
+                </button>
+                <button type="button" onClick={refreshDetailCoverage}>
+                  Show detail coverage
+                </button>
+              </div>
+            </article>
+
+            <article className="settings-card danger-card">
+              <h2>Privacy &amp; deletion</h2>
+              <p>
+                Destructive local-only actions are separated from routine sync.
+                Use them only when you intend to remove stored chat/profile or
+                Garmin-derived data.
+              </p>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() =>
+                    runAction("Clear chat/profile", () =>
+                      fetch("/api/delete", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ scope: "chat-profile" }),
+                      }),
+                    )
+                  }
+                >
+                  Clear chat/profile
+                </button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() =>
+                    runAction("Disconnect Garmin/delete data", () =>
+                      fetch("/api/delete", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ scope: "garmin-all" }),
+                      }),
+                    )
+                  }
+                >
+                  Disconnect Garmin/delete data
+                </button>
+              </div>
+            </article>
+          </div>
+        ) : null}
       </details>
 
-      <aside className="status-card" aria-labelledby="status-heading">
-        <div className="card-title-row">
-          <div>
-            <p className="section-kicker">Diagnostics</p>
-            <h2 id="status-heading">Current operation</h2>
-          </div>
+      <details
+        className="status-card diagnostics-panel"
+        open={diagnosticsOpen}
+        onToggle={(event) => setDiagnosticsOpen(event.currentTarget.open)}
+      >
+        <summary className="diagnostics-summary">
+          <span>
+            <span className="section-kicker">Diagnostics</span>
+            <span id="status-heading" role="heading" aria-level={2}>
+              Current operation
+            </span>
+          </span>
           <span className={`pill ${status.kind}`}>{status.kind}</span>
-        </div>
-        <pre className={`status ${status.kind}`} aria-live="polite">
-          {status.message}
-        </pre>
-      </aside>
+        </summary>
+        {diagnosticsOpen ? (
+          <pre className={`status ${status.kind}`} aria-live="polite">
+            {status.message}
+          </pre>
+        ) : null}
+      </details>
     </section>
   );
 }

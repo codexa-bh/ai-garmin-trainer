@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { requireSessionEmail } from "@/lib/auth/session";
 import {
   clearChatAndProfile,
   clearGarminData,
@@ -7,7 +6,6 @@ import {
 } from "@/lib/db/repository";
 
 export async function POST(request: Request) {
-  await requireSessionEmail();
   const { scope } = (await request.json()) as {
     scope: "chat-profile" | "garmin-all";
   };

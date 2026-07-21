@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { requireSessionEmail } from "@/lib/auth/session";
 import { getTrainerProfile, saveTrainerProfile } from "@/lib/db/repository";
 import type { TrainerProfile } from "@/lib/ai/context";
 
@@ -18,12 +17,10 @@ function lines(value: unknown): string[] {
 }
 
 export async function GET() {
-  await requireSessionEmail();
   return NextResponse.json(getTrainerProfile());
 }
 
 export async function POST(request: Request) {
-  await requireSessionEmail();
   const body = (await request.json()) as Partial<TrainerProfile>;
   const profile = saveTrainerProfile({
     goals: lines(body.goals),

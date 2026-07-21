@@ -7,7 +7,6 @@ import {
 } from "@/lib/ai/context";
 import { selectedModel } from "@/lib/ai/providers";
 import { analyzeStoredActivity } from "@/lib/analytics/activity";
-import { requireSessionEmail } from "@/lib/auth/session";
 import {
   activityDetailCoverage,
   appendChatMessage,
@@ -169,7 +168,6 @@ function buildSystemContext(recentMessages: StoredChatMessage[]): string {
 
 export async function GET() {
   try {
-    await requireSessionEmail();
     ensureConversation();
     const messages = listRecentChatMessages(
       DEFAULT_CONVERSATION_ID,
@@ -184,14 +182,13 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "chat history failed" },
-      { status: 401 },
+      { status: 500 },
     );
   }
 }
 
 export async function DELETE() {
   try {
-    await requireSessionEmail();
     clearConversationHistory(DEFAULT_CONVERSATION_ID);
     ensureConversation();
     return NextResponse.json({
@@ -202,14 +199,13 @@ export async function DELETE() {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "chat clear failed" },
-      { status: 401 },
+      { status: 500 },
     );
   }
 }
 
 export async function POST(request: Request) {
   try {
-    await requireSessionEmail();
     const body = (await request.json()) as {
       conversationId?: string;
       message?: string;
@@ -414,7 +410,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "chat failed" },
-      { status: 401 },
+      { status: 500 },
     );
   }
 }
