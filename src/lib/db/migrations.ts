@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 1;
+export const LATEST_SCHEMA_VERSION = 2;
 export const SCHEMA_VERSION_KEY = "schema_version";
 
 const BASE_SCHEMA_SQL = [
@@ -14,6 +14,8 @@ const BASE_SCHEMA_SQL = [
   `create table if not exists activity_detail_attempt (garmin_id text primary key, attempted_at integer not null, completed_at integer, force integer not null default 0, status text not null, detail_status text, retryable integer not null default 0, error_class text, error_message text, preserved_previous integer not null default 0)`,
   `create table if not exists activity_lap (garmin_id text not null, lap_number integer not null, start_time text, duration_sec real, distance_meters real, avg_speed_mps real, avg_heart_rate real, max_heart_rate real, elevation_gain_meters real, elevation_loss_meters real, avg_power_watts real, normalized_power_watts real, primary key (garmin_id, lap_number))`,
   `create table if not exists activity_stream_point (garmin_id text not null, elapsed_sec integer not null, timestamp text, heart_rate integer, speed_mps real, altitude_meters real, grade_pct real, lat real, lon real, cadence real, power_watts real, temperature_c real, primary key (garmin_id, elapsed_sec))`,
+  `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`,
+  `create table if not exists garmin_athlete_baseline_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0)`,
   `create table if not exists sync_run (id text primary key, status text not null, started_at integer not null, finished_at integer, coverage_start text, coverage_end text, last_error text)`,
   `create table if not exists sync_checkpoint (key text primary key, value text not null, updated_at integer not null)`,
   `create table if not exists conversation (id text primary key, title text not null, created_at integer not null, updated_at integer not null)`,
@@ -34,6 +36,14 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     version: 1,
     name: "source_beta_foundation",
     statements: BASE_SCHEMA_SQL,
+  },
+  {
+    version: 2,
+    name: "garmin_athlete_baseline_latest_snapshot",
+    statements: [
+      `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`,
+      `create table if not exists garmin_athlete_baseline_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0)`,
+    ],
   },
 ];
 
@@ -60,6 +70,8 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "trainer_profile",
     "trainer_memory",
     "sync_run",
+    "garmin_athlete_baseline",
+    "garmin_athlete_baseline_attempt",
   ];
   return tables.some((table) => {
     if (!hasTable(db, table)) return false;

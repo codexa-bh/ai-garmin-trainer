@@ -57,6 +57,48 @@ describe("trainer AI", () => {
     expect(context).toContain("half marathon");
   });
 
+  it("labels Garmin athlete baselines separately and refuses unsupported max HR claims", () => {
+    const context = buildTrainerContext({
+      activities: [],
+      health: [],
+      profile: { goals: [], sports: [], preferences: {}, constraints: [] },
+      athleteBaseline: {
+        availability: "failed",
+        source: "garmin_mcp",
+        fetchedAt: "2026-07-20T08:00:00.000Z",
+        lastAttemptAt: "2026-07-21T08:00:00.000Z",
+        preservedPrevious: true,
+        values: {
+          runningLactateThresholdHeartRateBpm: 168,
+          cyclingLactateThresholdHeartRateBpm: null,
+          rowingLactateThresholdHeartRateBpm: null,
+          cyclingFtpWatts: null,
+          cyclingFtpMeasuredOn: null,
+          cyclingFtpSourceStale: null,
+          vo2MaxRunning: null,
+          vo2MaxCycling: null,
+          availableTrainingDays: [],
+          preferredLongTrainingDays: [],
+        },
+        unsupported: {
+          configuredMaxHeartRate: true,
+          completeHeartRateZoneBoundaries: true,
+          reason: "not_exposed_by_pinned_connector",
+        },
+      },
+      recentMessages: [],
+    });
+
+    expect(context).toContain("Garmin athlete baselines");
+    expect(context).toContain("running lactate-threshold HR 168 bpm");
+    expect(context).toContain(
+      "previous normalized Garmin athlete facts were preserved",
+    );
+    expect(context).toContain(
+      "Configured max HR and complete HR-zone boundaries are not provided",
+    );
+  });
+
   it("preserves source facts when applying profile corrections", () => {
     expect(
       applyProfilePatch(

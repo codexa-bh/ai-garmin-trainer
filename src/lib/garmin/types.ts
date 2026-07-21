@@ -44,6 +44,51 @@ export type NormalizedDailyHealth = {
   availability: "complete" | "partial" | "missing";
 };
 
+export type GarminAthleteBaselineAvailability =
+  "complete" | "partial" | "unavailable" | "failed";
+
+export type GarminAthleteBaselineValues = {
+  runningLactateThresholdHeartRateBpm: number | null;
+  cyclingLactateThresholdHeartRateBpm: number | null;
+  rowingLactateThresholdHeartRateBpm: number | null;
+  cyclingFtpWatts: number | null;
+  cyclingFtpMeasuredOn: string | null;
+  cyclingFtpSourceStale: boolean | null;
+  vo2MaxRunning: number | null;
+  vo2MaxCycling: number | null;
+  availableTrainingDays: string[];
+  preferredLongTrainingDays: string[];
+};
+
+export type GarminAthleteBaselineSnapshot = {
+  availability: Exclude<GarminAthleteBaselineAvailability, "failed">;
+  source: "garmin_mcp";
+  fetchedAt: Date;
+  values: GarminAthleteBaselineValues;
+};
+
+export type GarminAthleteBaselineAttempt = {
+  status: GarminAthleteBaselineAvailability;
+  attemptedAt: Date;
+  completedAt: Date | null;
+  errorMessage: string | null;
+  preservedPrevious: boolean;
+};
+
+export type GarminAthleteBaselineDto = {
+  availability: GarminAthleteBaselineAvailability;
+  source: "garmin_mcp" | null;
+  fetchedAt: string | null;
+  lastAttemptAt: string | null;
+  preservedPrevious: boolean;
+  values: GarminAthleteBaselineValues;
+  unsupported: {
+    configuredMaxHeartRate: true;
+    completeHeartRateZoneBoundaries: true;
+    reason: "not_exposed_by_pinned_connector";
+  };
+};
+
 export type GarminReadOperation =
   | "list_activities"
   | "get_sleep"
@@ -64,4 +109,6 @@ export type GarminReadOperation =
   | "get_activity_fit_data"
   | "get_stats"
   | "get_sleep_summary"
-  | "get_morning_training_readiness";
+  | "get_morning_training_readiness"
+  | "get_user_profile"
+  | "get_cycling_ftp";

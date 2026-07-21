@@ -171,6 +171,30 @@ vi.mock("@/lib/db/repository", () => ({
   clearConversationHistory: vi.fn(() => {
     messages = [];
   }),
+  getGarminAthleteBaseline: () => ({
+    availability: "partial",
+    source: "garmin_mcp",
+    fetchedAt: "2026-07-17T12:00:00.000Z",
+    lastAttemptAt: "2026-07-17T12:00:00.000Z",
+    preservedPrevious: false,
+    values: {
+      runningLactateThresholdHeartRateBpm: 168,
+      cyclingLactateThresholdHeartRateBpm: null,
+      rowingLactateThresholdHeartRateBpm: null,
+      cyclingFtpWatts: null,
+      cyclingFtpMeasuredOn: null,
+      cyclingFtpSourceStale: null,
+      vo2MaxRunning: null,
+      vo2MaxCycling: null,
+      availableTrainingDays: [],
+      preferredLongTrainingDays: [],
+    },
+    unsupported: {
+      configuredMaxHeartRate: true,
+      completeHeartRateZoneBoundaries: true,
+      reason: "not_exposed_by_pinned_connector",
+    },
+  }),
   getActivityByGarminId: vi.fn((garminId: string) =>
     garminId === "123456"
       ? {
