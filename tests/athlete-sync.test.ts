@@ -7,6 +7,7 @@ const dbDir = join(tmpdir(), "ai-garmin-athlete-sync-tests");
 const mcpState = {
   failAthlete: false,
   nullAthlete: false,
+  activities: [] as Array<Record<string, unknown>>,
 };
 
 vi.mock("../src/lib/garmin/mcp-client", () => ({
@@ -43,9 +44,22 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
         );
       }
       if (operation === "get_activities_by_date")
-        return JSON.stringify({ activities: [], has_more: false });
+        return JSON.stringify({
+          activities: mcpState.activities,
+          has_more: false,
+        });
       if (operation === "get_stats") return JSON.stringify({ steps: 1000 });
       if (operation === "get_sleep_summary") return JSON.stringify({});
+      if (operation === "get_activity_fit_data") {
+        return JSON.stringify({
+          records: [
+            {
+              timestamp: "2026-07-21T07:00:00Z",
+              heart_rate_bpm: 140,
+            },
+          ],
+        });
+      }
       throw new Error(`Unexpected operation ${operation}`);
     }
   },
@@ -58,6 +72,7 @@ beforeEach(() => {
   process.env.GARMIN_HISTORY_START_DATE = "2026-07-21";
   mcpState.failAthlete = false;
   mcpState.nullAthlete = false;
+  mcpState.activities = [];
   vi.resetModules();
 });
 
@@ -77,6 +92,27 @@ describe("Garmin sync athlete baseline stage", () => {
       availableTrainingDays: ["monday", "wednesday"],
     });
     expect(progress).toContain("athlete");
+  });
+
+  it("uses refresh copy when importing missing activity detail", async () => {
+    mcpState.activities = [
+      {
+        activityId: 123456,
+        activityType: { typeKey: "running" },
+        startTimeLocal: "2026-07-21T07:00:00",
+        duration: 1800,
+      },
+    ];
+    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const messages: string[] = [];
+
+    const result = await runGarminSync((event) => messages.push(event.message));
+
+    expect(result.status).toBe("completed");
+    expect(messages).toContain(
+      "Refreshing missing activity detail 1/1: 123456…",
+    );
+    expect(messages.join("\n")).not.toContain("Backfilling activity detail");
   });
 
   it("records unavailable athlete attempts for all-null profile facts", async () => {

@@ -26,6 +26,23 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
   );
 }
 
+function syncStreamResponse(events: unknown[]) {
+  const encoder = new TextEncoder();
+  return Promise.resolve(
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const event of events) {
+            controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          }
+          controller.close();
+        },
+      }),
+      { headers: { "content-type": "application/x-ndjson" } },
+    ),
+  );
+}
+
 function profile(
   goals: string[] = ["Build hiking endurance"],
   preferences: Record<string, unknown> = { coachingStyle: "direct" },
@@ -268,6 +285,104 @@ describe("TrainerDashboard primary Sync now", () => {
     });
     expect(syncButton).toBeTruthy();
     expect(syncButton.textContent).toContain("Sync now");
+  });
+
+  it("omits no-op detail queue copy from non-detail Sync now progress", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/summary") {
+        return jsonResponse({
+          activities: 247,
+          healthDays: 933,
+          detailedActivities: 247,
+        });
+      }
+      if (url === "/api/sync" && init?.method === "POST") {
+        return syncStreamResponse([
+          {
+            stage: "health",
+            message: "Imported daily health 1/1: 2026-07-21.",
+            activitiesImported: 247,
+            healthDaysImported: 933,
+          },
+          {
+            type: "result",
+            status: "completed",
+            activitiesImported: 247,
+            healthDaysImported: 933,
+            detailsProcessed: 0,
+            detail: "done",
+          },
+        ]);
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }),
+    );
+    fireEvent.click(screen.getByText("Current operation"));
+
+    await waitFor(() => {
+      const statusText =
+        screen.getByText(/health: Imported daily health 1\/1/).textContent ??
+        "";
+      expect(statusText).toContain("activities 247, health days 933");
+      expect(statusText).not.toContain("details 0/0");
+    });
+  });
+
+  it("uses clear activity-detail wording for detail Sync now progress", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/summary") {
+        return jsonResponse({
+          activities: 247,
+          healthDays: 933,
+          detailedActivities: 245,
+        });
+      }
+      if (url === "/api/sync" && init?.method === "POST") {
+        return syncStreamResponse([
+          {
+            stage: "detail",
+            message: "Refreshing missing activity detail 3/5: 123456…",
+            activitiesImported: 247,
+            healthDaysImported: 933,
+            detailsProcessed: 2,
+            detailTotal: 5,
+          },
+        ]);
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }),
+    );
+    fireEvent.click(screen.getByText("Current operation"));
+
+    await waitFor(() => {
+      const statusText =
+        screen.getByText(/detail: Refreshing missing activity detail 3\/5/)
+          .textContent ?? "";
+      expect(statusText).toContain("activity details 2/5");
+      expect(statusText).not.toContain(", details 2/5");
+    });
   });
 
   it("preserves hidden preferences when saving visible Profile fields", async () => {

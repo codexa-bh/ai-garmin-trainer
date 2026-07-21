@@ -72,6 +72,18 @@ type ProfileFields = {
 };
 type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
 type ProfileSaveState = "idle" | "saving" | "saved" | "error";
+type SyncProgressEvent = {
+  type?: string;
+  status?: string;
+  stage?: string;
+  message?: string;
+  detail?: string;
+  activitiesImported?: number;
+  healthDaysImported?: number;
+  detailsProcessed?: number;
+  detailTotal?: number | null;
+  athleteAvailability?: AthleteBaselineAvailability;
+};
 
 const emptyProfileFields: ProfileFields = {
   goals: "",
@@ -113,6 +125,25 @@ async function readResponse(response: Response): Promise<string> {
   } catch {
     return text;
   }
+}
+
+function formatDetailProgress(event: SyncProgressEvent): string | null {
+  const detailTotal = event.detailTotal ?? 0;
+  if (detailTotal > 0) {
+    return `activity details ${event.detailsProcessed ?? 0}/${detailTotal}`;
+  }
+  if (event.stage === "detail") return "activity details up to date";
+  return null;
+}
+
+function formatSyncProgressLine(event: SyncProgressEvent): string {
+  const progressParts = [
+    `activities ${event.activitiesImported ?? 0}`,
+    `health days ${event.healthDaysImported ?? 0}`,
+  ];
+  const detailProgress = formatDetailProgress(event);
+  if (detailProgress) progressParts.push(detailProgress);
+  return `${event.stage ?? "progress"}: ${event.message ?? "working"} (${progressParts.join(", ")})`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -397,27 +428,14 @@ export function TrainerDashboard() {
         buffer = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          const event = JSON.parse(line) as {
-            type?: string;
-            status?: string;
-            stage?: string;
-            message?: string;
-            detail?: string;
-            activitiesImported?: number;
-            healthDaysImported?: number;
-            detailsProcessed?: number;
-            detailTotal?: number;
-            athleteAvailability?: AthleteBaselineAvailability;
-          };
+          const event = JSON.parse(line) as SyncProgressEvent;
           if (event.type === "result") {
             finalKind = event.status === "completed" ? "ok" : "error";
             appendLine(
               `Result: ${event.status}. Activities: ${event.activitiesImported ?? 0}; health days: ${event.healthDaysImported ?? 0}; details processed: ${event.detailsProcessed ?? 0}. ${event.detail ?? ""}`,
             );
           } else {
-            appendLine(
-              `${event.stage ?? "progress"}: ${event.message ?? "working"} (activities ${event.activitiesImported ?? 0}, health days ${event.healthDaysImported ?? 0}, details ${event.detailsProcessed ?? 0}/${event.detailTotal ?? 0})`,
-            );
+            appendLine(formatSyncProgressLine(event));
           }
         }
       }

@@ -251,7 +251,7 @@ export async function runGarminSync(
     for (const [index, garminId] of detailIds.entries()) {
       onProgress({
         stage: "detail",
-        message: `Backfilling activity detail ${index + 1}/${detailIds.length}: ${garminId}…`,
+        message: `Refreshing missing activity detail ${index + 1}/${detailIds.length}: ${garminId}…`,
         activitiesImported,
         healthDaysImported,
         detailsProcessed,
