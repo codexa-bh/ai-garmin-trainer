@@ -4,6 +4,8 @@ import {
   analyzeStoredActivity,
   rankActivities,
   type ActivityRankingEvidence,
+  type ActivityRankingRow,
+  type RankingMetric,
 } from "@/lib/analytics/activity";
 import {
   activityDetailCoverage,
@@ -182,6 +184,57 @@ export type TrainerToolCall = {
 function boundedText(value: string, max = 500): string {
   const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
+}
+
+const rankingMetricLabels: Record<RankingMetric, string> = {
+  elevationGainMeters: "elevation gain",
+  distanceMeters: "distance",
+  durationSec: "duration",
+  avgHeartRate: "average heart rate",
+};
+
+function formatNumber(value: number, maximumFractionDigits = 0): string {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits,
+  }).format(value);
+}
+
+function formatRankingDuration(seconds: number): string {
+  const totalSeconds = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+  const parts: string[] = [];
+  if (hours) parts.push(`${hours}h`);
+  if (minutes || hours) parts.push(`${minutes}m`);
+  if (remainingSeconds || parts.length === 0)
+    parts.push(`${remainingSeconds}s`);
+  return parts.join(" ");
+}
+
+function formatRankingValue(metric: RankingMetric, value: number): string {
+  if (!Number.isFinite(value)) return "value unavailable";
+  switch (metric) {
+    case "elevationGainMeters":
+      return `${formatNumber(value)} m`;
+    case "distanceMeters": {
+      const kilometers = value / 1000;
+      const digits = kilometers >= 10 ? 1 : 2;
+      return `${formatNumber(kilometers, digits)} km`;
+    }
+    case "durationSec":
+      return formatRankingDuration(value);
+    case "avgHeartRate":
+      return `${formatNumber(value)} bpm`;
+  }
+}
+
+function renderActivityRankingRow(
+  metric: RankingMetric,
+  row: ActivityRankingRow,
+  index: number,
+): string {
+  return `${index + 1}. ${row.label} — ${formatRankingValue(metric, row.value)} (${row.date}, Garmin ID ${row.garminId}, ${row.labelSource} label).`;
 }
 
 function summarizeSyncStatus(limit = 10) {
@@ -472,8 +525,11 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
       for (const metric of evidence.metrics) {
         const rows = evidence.rankings[metric];
         if (!rows.length) continue;
+        lines.push(`Rankings by ${rankingMetricLabels[metric]}:`);
         lines.push(
-          `${metric}: ${rows.map((row, index) => `${index + 1}. ${row.label} (${row.date}, Garmin ID ${row.garminId}, ${row.value}${row.unit}, ${row.labelSource} label)`).join("; ")}`,
+          ...rows.map((row, index) =>
+            renderActivityRankingRow(metric, row, index),
+          ),
         );
       }
       if (evidence.limitations.length) lines.push(...evidence.limitations);
