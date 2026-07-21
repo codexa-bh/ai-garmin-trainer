@@ -288,6 +288,25 @@ let messages: Array<{
   grounding: Record<string, unknown> | null;
   createdAt: Date;
 }> = [];
+let memoryProposals: Array<{
+  id: string;
+  category: string;
+  value: string;
+  status: string;
+  sourceType: string;
+  sourceRef: string | null;
+  provenanceText: string;
+  createdAt: Date;
+  updatedAt: Date;
+}> = [];
+let activeMemories: Array<{
+  id: string;
+  category: "learned_preference";
+  value: string;
+  provenanceText: string;
+  expiresAt: null;
+  reconfirmAfter: null;
+}> = [];
 
 vi.mock("ai", () => ({
   generateText,
@@ -352,6 +371,21 @@ vi.mock("@/lib/db/repository", () => ({
     detailCoverage: coverage,
   }),
   ensureConversation: vi.fn(),
+  createTrainerMemoryProposal: vi.fn((input) => {
+    const memory = {
+      id: `memory-${memoryProposals.length + 1}`,
+      category: input.category,
+      value: input.value,
+      status: "pending_confirmation",
+      sourceType: input.sourceType,
+      sourceRef: input.sourceRef ?? null,
+      provenanceText: input.provenanceText,
+      createdAt: new Date("2026-07-17T12:00:00Z"),
+      updatedAt: new Date("2026-07-17T12:00:00Z"),
+    };
+    memoryProposals.push(memory);
+    return memory;
+  }),
   appendChatMessage: vi.fn((input) => {
     const message = {
       id: `${input.role}-${messages.length + 1}`,
@@ -364,9 +398,13 @@ vi.mock("@/lib/db/repository", () => ({
     messages.push(message);
     return message;
   }),
-  listRecentChatMessages: vi.fn(() => [...messages]),
-  clearConversationHistory: vi.fn(() => {
-    messages = [];
+  listRecentChatMessages: vi.fn((conversationId = "default") =>
+    messages.filter((message) => message.conversationId === conversationId),
+  ),
+  clearConversationHistory: vi.fn((conversationId = "default") => {
+    messages = messages.filter(
+      (message) => message.conversationId !== conversationId,
+    );
   }),
   getGarminAthleteBaseline: () => ({
     availability: "partial",
@@ -418,7 +456,7 @@ vi.mock("@/lib/db/repository", () => ({
     preferences: {},
     constraints: [],
   }),
-  listActiveTrainerMemories: () => [],
+  listActiveTrainerMemories: () => activeMemories,
   listActivityDetailAvailability: () => [],
   listRecentActivities: () => [
     {
@@ -446,14 +484,14 @@ vi.mock("@/lib/db/repository", () => ({
   }),
 }));
 
-async function postChat(message: string) {
+async function postChat(message: string, conversationId?: string) {
   vi.resetModules();
   const { POST } = await import("../src/app/api/chat/route");
   const response = await POST(
     new Request("http://localhost/api/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, conversationId }),
     }),
   );
   return response.json() as Promise<{
@@ -464,12 +502,18 @@ async function postChat(message: string) {
       toolSteps?: Array<{ tool: string }>;
     } | null;
     toolSteps?: Array<{ tool: string; status: string }>;
+    memoryProposal?:
+      | { status: "none" }
+      | { status: "pending"; id: string; value: string }
+      | { status: "skipped"; reason: string };
   }>;
 }
 
 describe("chat route LLM tool orchestration", () => {
   beforeEach(() => {
     messages = [];
+    memoryProposals = [];
+    activeMemories = [];
     generateText.mockClear();
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
@@ -571,6 +615,46 @@ describe("chat route LLM tool orchestration", () => {
     const generic = await postChat("I never did this activity");
     expect(generic.toolEvidence).toBeNull();
     expect(generic.assistant.content).toBe("model response");
+  });
+
+  it("creates a pending learned-memory proposal from explicit remember intent", async () => {
+    const payload = await postChat("remember that I prefer morning hikes");
+
+    expect(payload.memoryProposal).toMatchObject({
+      status: "pending",
+      value: "I prefer morning hikes",
+    });
+    expect(memoryProposals).toHaveLength(1);
+    expect(memoryProposals[0]).toMatchObject({
+      status: "pending_confirmation",
+      sourceType: "chat_explicit_intent",
+      sourceRef: "user-1",
+    });
+    const firstCall = generateText.mock.calls[0][0] as { system: string };
+    expect(firstCall.system).toContain(
+      "Confirmed learned memories:\nNone confirmed",
+    );
+  });
+
+  it("keeps manual new-chat context separate while retaining confirmed memories", async () => {
+    await postChat("Old transcript phrase should stay in default only");
+    activeMemories = [
+      {
+        id: "memory-active",
+        category: "learned_preference",
+        value: "Prefers morning hikes.",
+        provenanceText: "User approved memory.",
+        expiresAt: null,
+        reconfirmAfter: null,
+      },
+    ];
+    generateText.mockClear();
+
+    await postChat("How should I train tomorrow?", "local-new-chat-test");
+
+    const firstCall = generateText.mock.calls[0][0] as { system: string };
+    expect(firstCall.system).not.toContain("Old transcript phrase");
+    expect(firstCall.system).toContain("Prefers morning hikes");
   });
 
   it("uses a fresh second planner call with only server summaries", async () => {

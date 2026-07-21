@@ -83,7 +83,7 @@ describe("TrainerDashboard Profile hydration", () => {
   it("loads a saved Profile on no-auth startup but keeps it hidden until Data & settings opens", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile());
       return jsonResponse({ ok: true });
     });
@@ -114,7 +114,7 @@ describe("TrainerDashboard Profile hydration", () => {
   it("keeps Diagnostics collapsed until opened", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       return jsonResponse({ ok: true });
     });
@@ -140,7 +140,7 @@ describe("TrainerDashboard Profile hydration", () => {
   it("preserves dirty edits when a manual Profile reload returns late", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") {
         const profileGetCount = fetchMock.mock.calls.filter(
           ([calledUrl]) => String(calledUrl) === "/api/profile",
@@ -174,7 +174,7 @@ describe("TrainerDashboard Profile hydration", () => {
     let savedBody: unknown;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile" && init?.method === "GET")
         return jsonResponse(profile([]));
       if (url === "/api/profile" && init?.method === "POST") {
@@ -219,7 +219,7 @@ describe("TrainerDashboard athlete baseline summary", () => {
   it("renders read-only Garmin athlete baselines separately from Profile", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary")
         return jsonResponse({
@@ -272,7 +272,7 @@ describe("TrainerDashboard primary Sync now", () => {
   it("shows Sync now in the trainer header without opening Data & settings", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       return jsonResponse({ ok: true });
     });
@@ -290,7 +290,7 @@ describe("TrainerDashboard primary Sync now", () => {
   it("omits no-op detail queue copy from non-detail Sync now progress", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary") {
         return jsonResponse({
@@ -342,7 +342,7 @@ describe("TrainerDashboard primary Sync now", () => {
   it("uses clear activity-detail wording for detail Sync now progress", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary") {
         return jsonResponse({
@@ -390,7 +390,7 @@ describe("TrainerDashboard primary Sync now", () => {
     const seededPreferences = { coachingStyle: "direct", maxWeeklyHours: 10 };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile" && init?.method === "GET")
         return jsonResponse(
           profile(["Build hiking endurance"], seededPreferences),
@@ -427,6 +427,122 @@ describe("TrainerDashboard primary Sync now", () => {
   });
 });
 
+describe("TrainerDashboard memory and new chat", () => {
+  it("renders pending and confirmed memory controls", async () => {
+    let patchedBody: unknown;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory" && init?.method === "PATCH") {
+        patchedBody = JSON.parse(String(init.body));
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      }
+      if (url === "/api/memory")
+        return jsonResponse({
+          memories: [
+            {
+              id: "memory-pending",
+              category: "learned_preference",
+              value: "Prefers morning hikes",
+              status: "pending_confirmation",
+              provenanceText: "User explicitly asked to remember.",
+              expiresAt: null,
+              reconfirmAfter: null,
+              createdAt: "2026-07-17T12:00:00Z",
+              updatedAt: "2026-07-17T12:00:00Z",
+            },
+            {
+              id: "memory-confirmed",
+              category: "learned_preference",
+              value: "Likes easy recovery rides",
+              status: "confirmed",
+              provenanceText: "User approved memory.",
+              expiresAt: null,
+              reconfirmAfter: null,
+              createdAt: "2026-07-17T12:00:00Z",
+              updatedAt: "2026-07-17T12:00:00Z",
+            },
+          ],
+          pending: [{ id: "memory-pending" }],
+          confirmed: [{ id: "memory-confirmed" }],
+        });
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+
+    expect(await screen.findByText("Learned memories")).toBeTruthy();
+    expect(screen.getByText("Prefers morning hikes")).toBeTruthy();
+    expect(screen.getByText("Likes easy recovery rides")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await waitFor(() =>
+      expect(patchedBody).toMatchObject({
+        id: "memory-pending",
+        action: "approve",
+      }),
+    );
+  });
+
+  it("starts a manual new chat without replaying the visible transcript", async () => {
+    let postedBody: { conversationId?: string } | undefined;
+    const initialMessages = [
+      {
+        id: "assistant-old",
+        role: "assistant",
+        content: "Old visible transcript",
+        createdAt: "2026-07-17T12:00:00Z",
+      },
+    ];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      if (url.startsWith("/api/chat") && init?.method === "POST") {
+        postedBody = JSON.parse(String(init.body));
+        return jsonResponse({
+          conversationId: postedBody?.conversationId,
+          messages: [
+            {
+              id: "user-new",
+              role: "user",
+              content: "Fresh question",
+              createdAt: "2026-07-17T12:01:00Z",
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url.startsWith("/api/chat"))
+        return jsonResponse({ ...emptyChat, messages: initialMessages });
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(await screen.findByText("Old visible transcript")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Old visible transcript")).toBeNull();
+    });
+
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "Fresh question" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(postedBody?.conversationId).toMatch(/^local-/);
+    });
+  });
+});
+
 describe("TrainerDashboard transcript scrolling", () => {
   it("does not yank passive history reloads when the user has scrolled up", async () => {
     const initialMessages = [
@@ -450,7 +566,7 @@ describe("TrainerDashboard transcript scrolling", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/profile") return jsonResponse(profile([]));
-      if (url === "/api/chat") {
+      if (url.startsWith("/api/chat")) {
         chatGets += 1;
         return jsonResponse({
           ...emptyChat,
@@ -497,9 +613,9 @@ describe("TrainerDashboard transcript scrolling", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/profile") return jsonResponse(profile([]));
-      if (url === "/api/chat" && init?.method === "POST")
+      if (url.startsWith("/api/chat") && init?.method === "POST")
         return jsonResponse({ ...emptyChat, messages: responseMessages });
-      if (url === "/api/chat") return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);

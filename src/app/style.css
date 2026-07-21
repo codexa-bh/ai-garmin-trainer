@@ -222,6 +222,30 @@ button.primary-action:hover {
 .helper-text {
   margin: 0;
 }
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.memory-list h3 {
+  margin: 4px 0 0;
+  font-size: 16px;
+}
+.memory-item {
+  background: #0f172a;
+  border: 1px solid #475569;
+  border-radius: 16px;
+  padding: 12px;
+}
+.memory-item p {
+  margin: 0 0 8px;
+  color: #e2e8f0;
+}
+.memory-item small {
+  display: block;
+  margin-bottom: 10px;
+  color: #94a3b8;
+}
 .transcript {
   display: flex;
   flex-direction: column;

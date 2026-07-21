@@ -36,6 +36,39 @@ describe("confirmation-based learned memory", () => {
     expect(context).toContain("Prefers short hill intervals");
   });
 
+  it("lists pending/confirmed memories for review and removes rejected/forgotten memories from active use", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const pending = repository.createTrainerMemoryProposal({
+      category: "learned_preference",
+      value: "Prefers morning hikes before strength work.",
+      sourceType: "chat_explicit_intent",
+      provenanceText: "User explicitly asked to remember preference.",
+    });
+    const rejected = repository.createTrainerMemoryProposal({
+      category: "learned_preference",
+      value: "Wrong preference proposal.",
+      sourceType: "chat_explicit_intent",
+      provenanceText: "User rejected this proposal.",
+    });
+
+    expect(
+      repository.listTrainerMemoriesForReview().map((item) => item.status),
+    ).toEqual(["pending_confirmation", "pending_confirmation"]);
+
+    repository.confirmTrainerMemory(pending.id);
+    repository.rejectTrainerMemory(rejected.id);
+    expect(
+      repository.listActiveTrainerMemories().map((item) => item.id),
+    ).toEqual([pending.id]);
+    expect(
+      repository.listTrainerMemoriesForReview().map((item) => item.id),
+    ).toEqual([pending.id]);
+
+    repository.forgetTrainerMemory(pending.id);
+    expect(repository.listActiveTrainerMemories()).toEqual([]);
+    expect(repository.listTrainerMemoriesForReview()).toEqual([]);
+  });
+
   it("expires or reconfirms temporary memory before use", async () => {
     const repository = await import("../src/lib/db/repository");
     const proposal = repository.createTrainerMemoryProposal({

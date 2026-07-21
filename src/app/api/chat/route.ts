@@ -10,6 +10,7 @@ import { selectedModel } from "@/lib/ai/providers";
 import {
   appendChatMessage,
   clearConversationHistory,
+  createTrainerMemoryProposal,
   dataCounts,
   DEFAULT_CONVERSATION_ID,
   ensureConversation,
@@ -52,6 +53,78 @@ function apiMessage(message: StoredChatMessage) {
   };
 }
 
+function safeConversationId(value: string | null | undefined): string {
+  const candidate = value?.trim() || DEFAULT_CONVERSATION_ID;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$/.test(candidate)) {
+    throw new Error(
+      "Conversation id must be a local opaque id with letters, numbers, dashes, underscores, dots, or colons only",
+    );
+  }
+  return candidate;
+}
+
+type MemoryProposalResult =
+  | { status: "none" }
+  | { status: "pending"; id: string; value: string }
+  | { status: "skipped"; reason: string };
+
+function explicitMemoryText(message: string): string | null {
+  const trimmed = message.replace(/\s+/g, " ").trim();
+  const match =
+    /^(?:please\s+)?(?:can you\s+|could you\s+)?remember(?:\s+that)?[:\s]+(.+)$/i.exec(
+      trimmed,
+    );
+  const value = match?.[1]?.replace(/[.!?]+$/, "").trim();
+  return value || null;
+}
+
+function unsafeMemoryReason(value: string): string | null {
+  const lower = value.toLowerCase();
+  if (/\b(password|passcode|api key|secret|token|credential)\b/.test(lower)) {
+    return "Credential-like content was not proposed as learned memory.";
+  }
+  if (/\b(raw fit|fit bytes|connector payload|garmin password)\b/.test(lower)) {
+    return "Raw connector, FIT, or Garmin credential details cannot become learned memory.";
+  }
+  if (
+    /\b(diagnos(?:e|is|ed)|prescription|medication dosage|blood pressure|symptom)\b/.test(
+      lower,
+    )
+  ) {
+    return "Medical or sensitive health details need an explicit Profile/task flow, not learned memory.";
+  }
+  return null;
+}
+
+function maybeCreateMemoryProposal(
+  message: string,
+  sourceRef: string,
+): MemoryProposalResult {
+  const value = explicitMemoryText(message);
+  if (!value) return { status: "none" };
+  if (value.length > 500) {
+    return {
+      status: "skipped",
+      reason: "Remember request is too long for a learned-memory proposal.",
+    };
+  }
+  const unsafeReason = unsafeMemoryReason(value);
+  if (unsafeReason) return { status: "skipped", reason: unsafeReason };
+  const proposal = createTrainerMemoryProposal({
+    category: "learned_preference",
+    value,
+    sourceType: "chat_explicit_intent",
+    sourceRef,
+    provenanceText: `User explicitly asked to remember: ${value}`,
+  });
+  return { status: "pending", id: proposal.id, value: proposal.value };
+}
+
+function conversationIdFromRequest(request: Request): string {
+  const url = new URL(request.url);
+  return safeConversationId(url.searchParams.get("conversationId"));
+}
+
 function buildSystemContext(recentMessages: StoredChatMessage[]): string {
   const counts = dataCounts();
   const detailAvailability = listActivityDetailAvailability(12)
@@ -72,15 +145,13 @@ function buildSystemContext(recentMessages: StoredChatMessage[]): string {
   return `${TRAINER_SYSTEM_PROMPT}\n\nGrounding context:\n${context}`;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    ensureConversation();
-    const messages = listRecentChatMessages(
-      DEFAULT_CONVERSATION_ID,
-      CHAT_HISTORY_LIMIT,
-    );
+    const conversationId = conversationIdFromRequest(request);
+    ensureConversation(conversationId);
+    const messages = listRecentChatMessages(conversationId, CHAT_HISTORY_LIMIT);
     return NextResponse.json({
-      conversationId: DEFAULT_CONVERSATION_ID,
+      conversationId,
       messages: messages.map(apiMessage),
       contextWindow: Math.min(messages.length, 10),
       historyLimit: CHAT_HISTORY_LIMIT,
@@ -93,12 +164,13 @@ export async function GET() {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
-    clearConversationHistory(DEFAULT_CONVERSATION_ID);
-    ensureConversation();
+    const conversationId = conversationIdFromRequest(request);
+    clearConversationHistory(conversationId);
+    ensureConversation(conversationId);
     return NextResponse.json({
-      conversationId: DEFAULT_CONVERSATION_ID,
+      conversationId,
       messages: [],
       cleared: true,
     });
@@ -117,8 +189,7 @@ export async function POST(request: Request) {
       message?: string;
       messages?: UIMessage[];
     };
-    const conversationId =
-      body.conversationId?.trim() || DEFAULT_CONVERSATION_ID;
+    const conversationId = safeConversationId(body.conversationId);
     const latestMessage = latestRequestMessage(body);
     if (!latestMessage) {
       return NextResponse.json(
@@ -137,6 +208,10 @@ export async function POST(request: Request) {
       role: "user",
       content: latestMessage,
     });
+    const memoryProposal = maybeCreateMemoryProposal(
+      latestMessage,
+      userRecord.id,
+    );
     const messagesForContext = [...previousMessages, userRecord];
     const { model } = selectedModel();
     const result = await orchestrateTrainerChat({
@@ -169,6 +244,7 @@ export async function POST(request: Request) {
         privacy: step.privacy,
         reason: step.reason,
       })),
+      memoryProposal,
     });
   } catch (error) {
     return NextResponse.json(

@@ -1089,12 +1089,50 @@ export function listActiveTrainerMemories(
   return rows.map(mapTrainerMemory);
 }
 
-export function forgetTrainerMemory(id: string): void {
+export function listTrainerMemoriesForReview(
+  limit = 40,
+): StoredTrainerMemory[] {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 80);
+  const rows = getDatabase()
+    .prepare(
+      `select id, category, value, status, source_type as sourceType, source_ref as sourceRef, provenance_text as provenanceText, valid_from as validFrom, expires_at as expiresAt, reconfirm_after as reconfirmAfter, supersedes_id as supersedesId, superseded_by_id as supersededById, created_at as createdAt, updated_at as updatedAt
+       from trainer_memory
+       where status in ('pending_confirmation', 'confirmed')
+       order by status = 'pending_confirmation' desc, updated_at desc
+       limit ?`,
+    )
+    .all(safeLimit) as TrainerMemoryRow[];
+  return rows.map(mapTrainerMemory);
+}
+
+export function rejectTrainerMemory(id: string): StoredTrainerMemory {
+  const existing = getTrainerMemory(id);
+  if (!existing) throw new Error(`Memory proposal not found: ${id}`);
+  if (existing.status !== "pending_confirmation") {
+    throw new Error(`Only pending memories can be rejected: ${id}`);
+  }
+  getDatabase()
+    .prepare(
+      "update trainer_memory set status = 'rejected', updated_at = ? where id = ?",
+    )
+    .run(Date.now(), id);
+  return getTrainerMemory(id)!;
+}
+
+export function forgetTrainerMemory(id: string): StoredTrainerMemory {
+  const existing = getTrainerMemory(id);
+  if (!existing) throw new Error(`Memory not found: ${id}`);
+  if (!["pending_confirmation", "confirmed"].includes(existing.status)) {
+    throw new Error(
+      `Only pending or confirmed memories can be forgotten: ${id}`,
+    );
+  }
   getDatabase()
     .prepare(
       "update trainer_memory set status = 'deleted', updated_at = ? where id = ?",
     )
     .run(Date.now(), id);
+  return getTrainerMemory(id)!;
 }
 
 export const DEFAULT_CONVERSATION_ID = "default";

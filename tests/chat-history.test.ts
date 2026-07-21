@@ -49,4 +49,30 @@ describe("local chat history repository", () => {
     repository.clearConversationHistory();
     expect(repository.listRecentChatMessages()).toEqual([]);
   });
+
+  it("keeps manual new-chat conversations separate without deleting existing transcript", async () => {
+    const repository = await import("../src/lib/db/repository");
+
+    repository.appendChatMessage({
+      conversationId: repository.DEFAULT_CONVERSATION_ID,
+      role: "user",
+      content: "Old transcript phrase from the default conversation",
+    });
+    repository.appendChatMessage({
+      conversationId: "local-new-chat-test",
+      role: "user",
+      content: "Fresh conversation question",
+    });
+
+    expect(
+      repository
+        .listRecentChatMessages("local-new-chat-test")
+        .map((message) => message.content),
+    ).toEqual(["Fresh conversation question"]);
+    expect(
+      repository
+        .listRecentChatMessages(repository.DEFAULT_CONVERSATION_ID)
+        .map((message) => message.content),
+    ).toEqual(["Old transcript phrase from the default conversation"]);
+  });
 });

@@ -25,6 +25,34 @@ type ChatPayload = {
   contextWindow?: number;
   historyLimit?: number;
   toolEvidence?: ChatGrounding | null;
+  memoryProposal?:
+    | { status: "none" }
+    | { status: "pending"; id: string; value: string }
+    | { status: "skipped"; reason: string };
+};
+
+type MemoryItem = {
+  id: string;
+  category: "learned_preference" | "temporary_constraint" | "commitment";
+  value: string;
+  status:
+    | "pending_confirmation"
+    | "confirmed"
+    | "rejected"
+    | "deleted"
+    | "expired"
+    | "superseded";
+  provenanceText: string;
+  expiresAt: string | null;
+  reconfirmAfter: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type MemoryPayload = {
+  memories: MemoryItem[];
+  pending: MemoryItem[];
+  confirmed: MemoryItem[];
 };
 type TrainerProfilePayload = {
   goals: string[];
@@ -219,6 +247,12 @@ export function TrainerDashboard() {
   const [message, setMessage] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState("default");
+  const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const [memoryMessage, setMemoryMessage] = useState(
+    "Learned memories load from local SQLite and stay inactive until approved.",
+  );
+  const [isMemoryLoading, setIsMemoryLoading] = useState(false);
   const [contextWindow, setContextWindow] = useState(0);
   const [historyLimit, setHistoryLimit] = useState(12);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -253,6 +287,14 @@ export function TrainerDashboard() {
     () => [...chatMessages].reverse().find((item) => item.grounding)?.grounding,
     [chatMessages],
   );
+  const pendingMemories = useMemo(
+    () => memoryItems.filter((item) => item.status === "pending_confirmation"),
+    [memoryItems],
+  );
+  const confirmedMemories = useMemo(
+    () => memoryItems.filter((item) => item.status === "confirmed"),
+    [memoryItems],
+  );
   const profileSummary = profileStatusLabel(
     profileFetchState,
     profileSaveState,
@@ -263,6 +305,7 @@ export function TrainerDashboard() {
 
   useEffect(() => {
     void loadChatHistory(false);
+    void loadMemories(false);
     void loadProfile("startup");
     void loadImportSummary("startup", false);
   }, []);
@@ -349,23 +392,60 @@ export function TrainerDashboard() {
     }
   }
 
+  function chatUrl(id = conversationId): string {
+    return `/api/chat?conversationId=${encodeURIComponent(id)}`;
+  }
+
+  async function loadMemories(showStatus = true) {
+    if (showStatus)
+      setStatus({
+        kind: "busy",
+        message: "Memory: loading local learned memories…",
+      });
+    setIsMemoryLoading(true);
+    try {
+      const payload = await readJsonResponse<MemoryPayload>(
+        await fetch("/api/memory", { method: "GET" }),
+      );
+      const memories = payload.memories ?? [];
+      const pending = payload.pending ?? [];
+      const confirmed = payload.confirmed ?? [];
+      setMemoryItems(memories);
+      setMemoryMessage(
+        `Memory: ${pending.length} pending and ${confirmed.length} confirmed local memories.`,
+      );
+      if (showStatus)
+        setStatus({
+          kind: "ok",
+          message: "Memory: loaded local learned memories.",
+        });
+    } catch (error) {
+      const message = `Memory load failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      setMemoryMessage(message);
+      if (showStatus) setStatus({ kind: "error", message });
+    } finally {
+      setIsMemoryLoading(false);
+    }
+  }
+
   async function loadChatHistory(showStatus = true) {
     if (showStatus)
       setStatus({ kind: "busy", message: "Chat: loading local history…" });
     try {
       const payload = await readJsonResponse<ChatPayload>(
-        await fetch("/api/chat", { method: "GET" }),
+        await fetch(chatUrl(), { method: "GET" }),
       );
-      setConversationId(payload.conversationId);
+      const nextMessages = payload.messages ?? [];
+      setConversationId(payload.conversationId ?? conversationId);
       rememberTranscriptFollowIntent();
-      setChatMessages(payload.messages);
+      setChatMessages(nextMessages);
       setContextWindow(payload.contextWindow ?? 0);
       setHistoryLimit(payload.historyLimit ?? 12);
       setLastFailedMessage("");
       if (showStatus)
         setStatus({
           kind: "ok",
-          message: `Chat: loaded ${payload.messages.length} local messages.`,
+          message: `Chat: loaded ${nextMessages.length} local messages.`,
         });
     } catch (error) {
       if (showStatus)
@@ -513,21 +593,103 @@ export function TrainerDashboard() {
     setStatus({ kind: "busy", message: "Chat: clearing local history…" });
     try {
       const payload = await readJsonResponse<ChatPayload>(
-        await fetch("/api/chat", { method: "DELETE" }),
+        await fetch(chatUrl(), { method: "DELETE" }),
       );
-      setConversationId(payload.conversationId);
+      setConversationId(payload.conversationId ?? conversationId);
       setChatMessages([]);
       setContextWindow(0);
       setLastFailedMessage("");
       setStatus({
         kind: "ok",
-        message: "Chat: local conversation history cleared.",
+        message:
+          "Chat: local conversation history cleared for this conversation.",
       });
     } catch (error) {
       setStatus({
         kind: "error",
         message: `Chat clear failed: ${error instanceof Error ? error.message : "unknown error"}`,
       });
+    }
+  }
+
+  function startNewChat() {
+    if (isChatLoading) return;
+    const nextConversationId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setConversationId(nextConversationId);
+    setChatMessages([]);
+    setContextWindow(0);
+    setLastFailedMessage("");
+    forceNextScrollRef.current = true;
+    setStatus({
+      kind: "ok",
+      message:
+        "New chat started. Prior transcript stays in local SQLite but will not be sent in this conversation context; Profile, Garmin facts, and confirmed memories remain available.",
+    });
+  }
+
+  async function createMemoryProposal() {
+    const value = memoryDraft.trim();
+    if (!value) {
+      setMemoryMessage(
+        "Enter a low-risk preference or correction before proposing memory.",
+      );
+      return;
+    }
+    setIsMemoryLoading(true);
+    setStatus({ kind: "busy", message: "Memory: creating pending proposal…" });
+    try {
+      const payload = await readJsonResponse<MemoryPayload>(
+        await fetch("/api/memory", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            category: "learned_preference",
+            value,
+            provenanceText:
+              "User-entered memory proposal from Data & settings.",
+          }),
+        }),
+      );
+      setMemoryItems(payload.memories ?? []);
+      setMemoryDraft("");
+      setMemoryMessage(
+        "Memory proposal saved as pending; approve it before it can ground chat.",
+      );
+      setStatus({ kind: "ok", message: "Memory: pending proposal created." });
+    } catch (error) {
+      const message = `Memory proposal failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      setMemoryMessage(message);
+      setStatus({ kind: "error", message });
+    } finally {
+      setIsMemoryLoading(false);
+    }
+  }
+
+  async function actOnMemory(
+    id: string,
+    action: "approve" | "reject" | "forget",
+  ) {
+    setIsMemoryLoading(true);
+    setStatus({ kind: "busy", message: `Memory: ${action}…` });
+    try {
+      const payload = await readJsonResponse<MemoryPayload>(
+        await fetch("/api/memory", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id, action }),
+        }),
+      );
+      setMemoryItems(payload.memories ?? []);
+      setMemoryMessage(
+        `Memory: ${action} complete. Only confirmed active memories can ground chat.`,
+      );
+      setStatus({ kind: "ok", message: `Memory: ${action} complete.` });
+    } catch (error) {
+      const message = `Memory ${action} failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      setMemoryMessage(message);
+      setStatus({ kind: "error", message });
+    } finally {
+      setIsMemoryLoading(false);
     }
   }
 
@@ -599,14 +761,23 @@ export function TrainerDashboard() {
           body: JSON.stringify({ conversationId, message: trimmed }),
         }),
       );
-      setConversationId(payload.conversationId);
+      const nextMessages = payload.messages ?? [];
+      setConversationId(payload.conversationId ?? conversationId);
       rememberTranscriptFollowIntent();
-      setChatMessages(payload.messages);
-      setContextWindow(payload.contextWindow ?? payload.messages.length);
+      setChatMessages(nextMessages);
+      setContextWindow(payload.contextWindow ?? nextMessages.length);
       setHistoryLimit(payload.historyLimit ?? historyLimit);
+      const memorySuffix =
+        payload.memoryProposal?.status === "pending"
+          ? ` Pending learned-memory proposal created: ${payload.memoryProposal.value}`
+          : payload.memoryProposal?.status === "skipped"
+            ? ` Memory not proposed: ${payload.memoryProposal.reason}`
+            : "";
+      if (payload.memoryProposal?.status === "pending")
+        void loadMemories(false);
       setStatus({
         kind: "ok",
-        message: `Chat: response complete. Context used ${payload.contextWindow ?? payload.messages.length}/${payload.historyLimit ?? historyLimit} recent local turns${payload.toolEvidence?.tool ? ` with ${payload.toolEvidence.tool}` : ""}.`,
+        message: `Chat: response complete. Context used ${payload.contextWindow ?? nextMessages.length}/${payload.historyLimit ?? historyLimit} recent local turns${payload.toolEvidence?.tool ? ` with ${payload.toolEvidence.tool}` : ""}.${memorySuffix}`,
       });
     } catch (error) {
       setLastFailedMessage(trimmed);
@@ -636,11 +807,19 @@ export function TrainerDashboard() {
               <h2 id="trainer-heading">Trainer chat</h2>
               <p>
                 Ask for Garmin-grounded coaching. Responses cite relevant dates,
-                activities, trends, deterministic analytics tool results, and
-                your saved Profile when available.
+                activities, trends, deterministic analytics tool results, your
+                saved Profile, and approved learned memories when available.
               </p>
             </div>
             <div className="chat-header-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={startNewChat}
+                disabled={isChatLoading}
+              >
+                New chat
+              </button>
               <button
                 type="button"
                 className="primary-action"
@@ -652,8 +831,8 @@ export function TrainerDashboard() {
               <div className="context-card" aria-label="Recent context window">
                 <strong>Recent context</strong>
                 <span>
-                  {contextWindow}/{historyLimit} local messages sent to
-                  grounding
+                  {contextWindow}/{historyLimit} local messages from this
+                  conversation sent to grounding
                 </span>
                 <span>Conversation: {conversationId}</span>
                 {latestToolEvidence ? (
@@ -680,9 +859,10 @@ export function TrainerDashboard() {
           >
             {chatMessages.length === 0 && !isChatLoading ? (
               <p className="empty-chat">
-                No local chat history yet. Ask for an activity analysis, then
-                ask a follow-up; bounded turns, tool evidence, and Profile will
-                ground the response.
+                No local chat history in this conversation yet. Ask for an
+                activity analysis, or say “remember that I prefer morning hikes”
+                to create a pending memory. Bounded turns, tool evidence,
+                Profile, Garmin facts, and approved memories stay distinct.
               </p>
             ) : null}
             {chatMessages.map((item) => (
@@ -856,6 +1036,119 @@ export function TrainerDashboard() {
               </div>
             </article>
 
+            <article
+              className="settings-card memory-card"
+              aria-labelledby="memory-heading"
+            >
+              <div className="card-title-row">
+                <div>
+                  <p className="section-kicker">Confirmed memory</p>
+                  <h2 id="memory-heading">Learned memories</h2>
+                </div>
+                <span className="pill" aria-live="polite">
+                  {pendingMemories.length} pending · {confirmedMemories.length}{" "}
+                  confirmed
+                </span>
+              </div>
+              <p>
+                Learned memories are proposed only from explicit “remember
+                that…” intent or this form. Pending memories are inspectable but
+                do not ground answers until approved; forgotten memories become
+                inactive.
+              </p>
+              <p className="helper-text" role="status" aria-live="polite">
+                {memoryMessage}
+              </p>
+              <label>
+                Propose a learned preference or correction
+                <textarea
+                  aria-label="Propose learned memory"
+                  value={memoryDraft}
+                  onChange={(event) => setMemoryDraft(event.target.value)}
+                  placeholder="I prefer morning hikes and low-intensity recovery rides"
+                  disabled={isMemoryLoading}
+                />
+              </label>
+              <div className="button-row">
+                <button
+                  type="button"
+                  onClick={createMemoryProposal}
+                  disabled={isMemoryLoading}
+                >
+                  Propose memory
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => loadMemories()}
+                  disabled={isMemoryLoading}
+                >
+                  Reload memories
+                </button>
+              </div>
+              <div
+                className="memory-list"
+                aria-label="Pending learned memories"
+              >
+                <h3>Pending approval</h3>
+                {pendingMemories.length ? (
+                  pendingMemories.map((item) => (
+                    <div className="memory-item" key={item.id}>
+                      <p>{item.value}</p>
+                      <small>{item.provenanceText}</small>
+                      <div className="button-row">
+                        <button
+                          type="button"
+                          onClick={() => actOnMemory(item.id, "approve")}
+                          disabled={isMemoryLoading}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => actOnMemory(item.id, "reject")}
+                          disabled={isMemoryLoading}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p>No pending memory proposals.</p>
+                )}
+              </div>
+              <div
+                className="memory-list"
+                aria-label="Confirmed learned memories"
+              >
+                <h3>Confirmed and active</h3>
+                {confirmedMemories.length ? (
+                  confirmedMemories.map((item) => (
+                    <div className="memory-item" key={item.id}>
+                      <p>{item.value}</p>
+                      <small>
+                        Confirmed {dateLabel(item.updatedAt)} · {item.category}
+                      </small>
+                      <div className="button-row">
+                        <button
+                          type="button"
+                          className="danger-button"
+                          onClick={() => actOnMemory(item.id, "forget")}
+                          disabled={isMemoryLoading}
+                        >
+                          Forget
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p>No confirmed learned memories yet.</p>
+                )}
+              </div>
+            </article>
+
             <article className="settings-card">
               <h2>Connector &amp; sync</h2>
               <p>
@@ -1024,8 +1317,8 @@ export function TrainerDashboard() {
               <h2>Privacy &amp; deletion</h2>
               <p>
                 Destructive local-only actions are separated from routine sync.
-                Use them only when you intend to remove stored chat/profile or
-                Garmin-derived data.
+                Use them only when you intend to remove stored chat, Profile,
+                learned memories, or Garmin-derived data.
               </p>
               <div className="button-row">
                 <button
