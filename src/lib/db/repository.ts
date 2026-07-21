@@ -22,6 +22,11 @@ import type {
   NormalizedActivityDetail,
 } from "../garmin/detail-types";
 import type { TrainerMemory, TrainerProfile } from "../ai/context";
+import {
+  redactGarminRawPayload,
+  type GarminRawContentType,
+  type GarminRawSubjectType,
+} from "../garmin/raw-payload";
 
 let database: Database.Database | undefined;
 let lastChatMessageTimestamp = 0;
@@ -1135,6 +1140,108 @@ export function forgetTrainerMemory(id: string): StoredTrainerMemory {
   return getTrainerMemory(id)!;
 }
 
+export type GarminRawPayloadRecord = {
+  id: string;
+  sourceTool: string;
+  subjectType: GarminRawSubjectType;
+  subjectId: string;
+  fetchedAt: Date;
+  contentType: GarminRawContentType;
+  payload: unknown;
+  sha256: string;
+  redactionVersion: number;
+  redactedFieldCount: number;
+};
+
+export function upsertGarminRawPayload(input: {
+  sourceTool: string;
+  subjectType: GarminRawSubjectType;
+  subjectId: string;
+  payload: unknown;
+  fetchedAt?: Date;
+}): GarminRawPayloadRecord {
+  const redacted = redactGarminRawPayload(input.payload);
+  const fetchedAt = input.fetchedAt ?? new Date();
+  const id =
+    `${input.sourceTool}:${input.subjectType}:${input.subjectId}:${redacted.sha256}`.slice(
+      0,
+      240,
+    );
+  getDatabase()
+    .prepare(
+      `insert into garmin_raw_payload (id, source_tool, subject_type, subject_id, fetched_at, content_type, payload_json, payload_text, sha256, redaction_version, redacted_field_count)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       on conflict(id) do update set
+         fetched_at=excluded.fetched_at,
+         payload_json=excluded.payload_json,
+         payload_text=excluded.payload_text,
+         redacted_field_count=excluded.redacted_field_count`,
+    )
+    .run(
+      id,
+      input.sourceTool,
+      input.subjectType,
+      input.subjectId.slice(0, 120),
+      fetchedAt.getTime(),
+      redacted.contentType,
+      redacted.contentType === "json" ? JSON.stringify(redacted.payload) : null,
+      redacted.contentType === "text" ? String(redacted.payload) : null,
+      redacted.sha256,
+      redacted.redactionVersion,
+      redacted.redactedFieldCount,
+    );
+  return {
+    id,
+    sourceTool: input.sourceTool,
+    subjectType: input.subjectType,
+    subjectId: input.subjectId.slice(0, 120),
+    fetchedAt,
+    contentType: redacted.contentType,
+    payload: redacted.payload,
+    sha256: redacted.sha256,
+    redactionVersion: redacted.redactionVersion,
+    redactedFieldCount: redacted.redactedFieldCount,
+  };
+}
+
+function parseRawPayload(row: {
+  id: string;
+  sourceTool: string;
+  subjectType: GarminRawSubjectType;
+  subjectId: string;
+  fetchedAt: number;
+  contentType: GarminRawContentType;
+  payloadJson: string | null;
+  payloadText: string | null;
+  sha256: string;
+  redactionVersion: number;
+  redactedFieldCount: number;
+}): GarminRawPayloadRecord {
+  return {
+    ...row,
+    fetchedAt: new Date(row.fetchedAt),
+    payload:
+      row.contentType === "json" && row.payloadJson
+        ? (JSON.parse(row.payloadJson) as unknown)
+        : row.payloadText,
+  };
+}
+
+export function listGarminRawPayloadsForAnalysis(
+  limit = 100,
+): GarminRawPayloadRecord[] {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
+  const rows = getDatabase()
+    .prepare(
+      `select id, source_tool as sourceTool, subject_type as subjectType, subject_id as subjectId, fetched_at as fetchedAt, content_type as contentType, payload_json as payloadJson, payload_text as payloadText, sha256, redaction_version as redactionVersion, redacted_field_count as redactedFieldCount
+       from garmin_raw_payload
+       order by fetched_at desc
+       limit ?`,
+    )
+    .all(safeLimit) as Parameters<typeof parseRawPayload>[0][];
+  return rows.map(parseRawPayload);
+}
+
 export const DEFAULT_CONVERSATION_ID = "default";
 
 export type ChatRole = "user" | "assistant";
@@ -1317,6 +1424,7 @@ export function clearChatAndProfile(): string[] {
 export function clearGarminData(): string[] {
   const db = getDatabase();
   db.transaction(() => {
+    db.prepare("delete from garmin_raw_payload").run();
     db.prepare("delete from activity_stream_point").run();
     db.prepare("delete from activity_lap").run();
     db.prepare("delete from activity_detail_availability").run();
@@ -1328,6 +1436,7 @@ export function clearGarminData(): string[] {
     db.prepare("delete from sync_run").run();
   })();
   return [
+    "garmin_raw_payload",
     "activity_stream_point",
     "activity_lap",
     "activity_detail_availability",

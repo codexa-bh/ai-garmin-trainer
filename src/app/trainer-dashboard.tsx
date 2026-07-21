@@ -1286,7 +1286,8 @@ export function TrainerDashboard() {
               <p>
                 Force-refresh one imported activity or inspect total detail
                 coverage. Failed refreshes preserve the last usable normalized
-                detail; raw FIT payloads are discarded after normalization.
+                detail; redacted connector detail payloads may be retained
+                locally for generated analysis.
               </p>
               <label>
                 Garmin activity ID

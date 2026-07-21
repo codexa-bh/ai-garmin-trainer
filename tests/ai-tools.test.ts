@@ -19,6 +19,9 @@ vi.mock("@/lib/garmin/importer", () => ({
   backfillActivityDetail: vi.fn(),
   runGarminSync: vi.fn(),
 }));
+vi.mock("@/lib/ai/generated-analysis", () => ({
+  runGeneratedGarminAnalysis: vi.fn(),
+}));
 
 describe("trainer tool registry schemas", async () => {
   const {
@@ -27,7 +30,7 @@ describe("trainer tool registry schemas", async () => {
     validateTrainerToolCall,
   } = await import("../src/lib/ai/tools");
 
-  it("exposes all eight non-executing provider-visible capabilities", () => {
+  it("exposes all nine non-executing provider-visible capabilities", () => {
     expect(Object.keys(trainerToolDefinitions).sort()).toEqual(
       [
         "analyzeActivity",
@@ -37,6 +40,7 @@ describe("trainer tool registry schemas", async () => {
         "getSyncStatus",
         "rankActivities",
         "runGarminSync",
+        "runGeneratedGarminAnalysis",
         "verifyActivityReference",
       ].sort(),
     );
@@ -65,6 +69,15 @@ describe("trainer tool registry schemas", async () => {
         garminId: "123456",
         pointOffset: 0,
         pointLimit: 120,
+      }).success,
+    ).toBe(true);
+    expect(
+      trainerToolInputSchemas.runGeneratedGarminAnalysis.safeParse({
+        request: "top 10 hardest activities",
+        criterion: "demand_score",
+        requestedCount: 10,
+        script:
+          "RESULT = {'kind': 'ranking', 'criterion': 'demand_score', 'requestedCount': 10, 'returnedCount': 0, 'rows': [], 'limitations': []}",
       }).success,
     ).toBe(true);
   });

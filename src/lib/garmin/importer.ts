@@ -12,6 +12,7 @@ import {
   recordSyncRun,
   saveCheckpoint,
   upsertActivities,
+  upsertGarminRawPayload,
   upsertActivityDetail,
   upsertDailyHealth,
   writeGarminAthleteBaselineRefresh,
@@ -112,11 +113,23 @@ async function fetchAndStoreAthleteBaseline(
     profilePayload = parseToolJson(
       await client.callTool("get_user_profile", {}),
     );
+    upsertGarminRawPayload({
+      sourceTool: "get_user_profile",
+      subjectType: "athlete_baseline",
+      subjectId: "default:profile",
+      payload: profilePayload,
+    });
   } catch (error) {
     errors.push(`profile: ${compactError(error)}`);
   }
   try {
     ftpPayload = parseToolJson(await client.callTool("get_cycling_ftp", {}));
+    upsertGarminRawPayload({
+      sourceTool: "get_cycling_ftp",
+      subjectType: "athlete_baseline",
+      subjectId: "default:cycling_ftp",
+      payload: ftpPayload,
+    });
   } catch (error) {
     errors.push(`cycling FTP: ${compactError(error)}`);
   }
@@ -198,6 +211,12 @@ export async function runGarminSync(
         page_size: 100,
       });
       const parsed = parseToolJson(text) as ActivityPage;
+      upsertGarminRawPayload({
+        sourceTool: "get_activities_by_date",
+        subjectType: "activity_page",
+        subjectId: `${startDate}:${endDate}:page:${page}`,
+        payload: parsed,
+      });
       const normalized = (parsed.activities ?? []).map((activity) =>
         normalizeActivity(activity),
       );
@@ -230,6 +249,18 @@ export async function runGarminSync(
       const sleepText = await client.callTool("get_sleep_summary", { date });
       const stats = parseToolJson(statsText);
       const sleep = parseToolJson(sleepText);
+      upsertGarminRawPayload({
+        sourceTool: "get_stats",
+        subjectType: "daily_health",
+        subjectId: `${date}:stats`,
+        payload: stats,
+      });
+      upsertGarminRawPayload({
+        sourceTool: "get_sleep_summary",
+        subjectType: "daily_health",
+        subjectId: `${date}:sleep`,
+        payload: sleep,
+      });
       healthDaysImported += upsertDailyHealth([
         normalizeDailyHealth(date, { stats, sleep }),
       ]);
@@ -274,7 +305,7 @@ export async function runGarminSync(
       coverageEnd: endDate,
       detailCoverage: totals.detailCoverage,
       athleteBaseline,
-      detail: `Garmin sync completed through the pinned stdio MCP connector. Database now has ${totals.activities} activities, ${totals.healthDays} health days, detail coverage ${totals.detailCoverage.terminal}/${totals.detailCoverage.total} terminal (${totals.detailCoverage.retryableFailures} retryable failures, ${totals.detailCoverage.pending} pending), and athlete baseline status ${athleteBaseline.availability}. Raw connector payloads were normalized in memory and not retained; configured max HR and complete HR-zone boundaries were not estimated.`,
+      detail: `Garmin sync completed through the pinned stdio MCP connector. Database now has ${totals.activities} activities, ${totals.healthDays} health days, detail coverage ${totals.detailCoverage.terminal}/${totals.detailCoverage.total} terminal (${totals.detailCoverage.retryableFailures} retryable failures, ${totals.detailCoverage.pending} pending), and athlete baseline status ${athleteBaseline.availability}. Redacted raw connector payloads were retained locally for generated analysis; configured max HR and complete HR-zone boundaries were not estimated.`,
     };
     onProgress({
       stage: "completed",
@@ -369,6 +400,12 @@ async function fetchAndStoreActivityDetail(
       include_records: true,
     });
     const parsed = parseToolJson(text);
+    upsertGarminRawPayload({
+      sourceTool: "get_activity_fit_data",
+      subjectType: "activity_detail",
+      subjectId: garminId,
+      payload: parsed,
+    });
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const detail = normalizeActivityDetail(garminId, parsed);
       upsertActivityDetail(detail);
@@ -390,7 +427,7 @@ async function fetchAndStoreActivityDetail(
         lapCount: detail.lapCount,
         preservedPrevious: false,
         retryable: false,
-        detail: `Detailed Garmin activity ${garminId} normalized locally from FIT parser. Records: ${detail.recordCount}; laps: ${detail.lapCount}. Raw FIT/connector payload was discarded after normalization.`,
+        detail: `Detailed Garmin activity ${garminId} normalized locally from FIT parser. Records: ${detail.recordCount}; laps: ${detail.lapCount}. Redacted raw connector payload was retained locally for generated analysis.`,
       };
     }
     const unsupported = normalizeUnsupportedActivityDetail(

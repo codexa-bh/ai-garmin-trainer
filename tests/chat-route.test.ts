@@ -412,6 +412,39 @@ vi.mock("@/lib/analytics/activity", () => ({
   }),
 }));
 
+vi.mock("@/lib/ai/generated-analysis", () => ({
+  runGeneratedGarminAnalysis: vi.fn(async () => ({
+    tool: "generatedGarminAnalysis",
+    status: "succeeded",
+    criterion: "demand_score",
+    requestedCount: 10,
+    scriptHash: "abcdef1234567890",
+    manifest: {
+      generatedAt: "2026-07-21T12:00:00.000Z",
+      request: "top 10 demanding activities",
+      tables: [{ name: "activities", rowCount: 10 }],
+      rawPayloads: [],
+      limits: {
+        maxRowsPerTable: 1000,
+        maxRawPayloads: 100,
+        maxRawPayloadBytes: 200000,
+        maxOutputBytes: 12000,
+      },
+    },
+    result: {
+      kind: "ranking",
+      criterion: "demand_score",
+      requestedCount: 10,
+      returnedCount: 10,
+      rows: [],
+      limitations: [],
+    },
+    warnings: [],
+    privacy:
+      "Generated Python ran locally against an explicit read-only Garmin analysis bundle.",
+  })),
+}));
+
 vi.mock("@/lib/db/repository", () => ({
   DEFAULT_CONVERSATION_ID: "default",
   activityDetailCoverage: () => coverage,

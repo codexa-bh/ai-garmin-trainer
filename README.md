@@ -19,6 +19,6 @@ Run `npm run validate` for formatting, linting, type checking, tests, and produc
 - This is not medical software. It gives fitness coaching only and never diagnosis or treatment guidance.
 - Local app access has no sign-in gate and is supported only on private loopback/localhost; do not expose it on LAN, public hosts, tunnels, or deployments.
 - Garmin access is local-only through stdio to a pinned unofficial connector; HTTP transport and connector write operations are not used.
-- The trainer sees only app-normalized summaries selected for the current conversation, never Garmin credentials or raw connector payloads.
+- The trainer sees app-normalized summaries and, for generated analysis, bounded redacted local raw-payload snippets selected for the current request; it never sees Garmin credentials, token/auth/cookie fields, connector config, environment values, filesystem paths, or unrestricted raw dumps.
 - Profile, recent transcript, Garmin facts, and confirmed learned memories are separate concepts. Learned memories are inactive until confirmation; temporary constraints expire or require reconfirmation before use.
 - Clear chat/profile/learned memory independently from Garmin data, or disconnect Garmin and delete normalized Garmin records/checkpoints for a clean reconnectable state. See `docs/source-beta-readiness.md` for backup, restore, export, reset, uninstall, dependency-evidence, and support artifact boundaries.

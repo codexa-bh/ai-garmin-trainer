@@ -27,9 +27,9 @@ This repository is ready only for the next controlled clean-machine validation m
 | Restore                 | Stop the app, replace `DATABASE_PATH` with a backup SQLite file, run `npm run db:migrate`, and run `npm run doctor -- --json`. Automatic downgrade is not supported; pre-upgrade backups are the rollback boundary.                                                             |
 | Export                  | No one-click product export exists yet. For clean-machine validation, export is a manual SQLite copy after stopping the app. Exports must exclude `.env.local`, provider keys, Garmin token files, shell history, and diagnostics unless explicitly reviewed.                   |
 | Clear chat/profile      | Deletes conversations, messages, explicit profile, and confirmed/pending learned-memory rows. It preserves normalized Garmin data.                                                                                                                                              |
-| Delete Garmin data      | Deletes app-managed normalized Garmin rows, detail tables, sync runs, and checkpoints. It does not delete external Garmin token files.                                                                                                                                          |
+| Delete Garmin data      | Deletes app-managed normalized Garmin rows, detail tables, redacted raw-payload records, sync runs, and checkpoints. It does not delete external Garmin token files.                                                                                                            |
 | Garmin disconnect/reset | Stop the app, optionally delete app-managed normalized Garmin data, then manually remove the app-owned `GARMIN_MCP_TOKEN_DIR` or upstream `~/.garminconnect/garmin_tokens.json` if the user chooses to reset Garmin auth.                                                       |
-| Backup                  | Copy SQLite only after stopping the app. Do not bundle model-provider keys, Garmin token contents, prompts, raw connector payloads, or precise GPS streams into support artifacts.                                                                                              |
+| Backup                  | Copy SQLite only after stopping the app and remember it may contain redacted local Garmin raw-payload records. Do not bundle model-provider keys, Garmin token contents, prompts, raw connector dumps, unredacted raw payloads, or precise GPS streams into support artifacts.  |
 | Uninstall               | Stop `npm run start:local`, remove the source/worktree directory, optionally remove SQLite data/backups, optionally remove app-owned Garmin token directory, and remove `.env.local`/provider keys. No background service or launch item is installed by this source-beta path. |
 
 ## Memory and coaching reliability
@@ -39,7 +39,7 @@ The product treats source categories separately:
 - Explicit Profile: user-authored goals, sports, preferences, and constraints.
 - Confirmed learned memories: low-risk preferences/corrections that affect future answers only after user confirmation.
 - Temporary constraints/commitments: active only until `expires_at` or `reconfirm_after`.
-- Garmin facts: normalized source data and deterministic analytics, not generic memory.
+- Garmin facts: normalized source data, redacted local raw-payload records for generated analysis, and deterministic/generated analytics, not generic memory.
 - Recent transcript: bounded context only, untrusted for policy/tool/deletion decisions.
 
 Pending, rejected, superseded, deleted, expired, or reconfirmation-due learned memories are not retrieved into model context. The deterministic `npm run eval:reliability` gate covers critical deletion, diagnostic redaction, prompt-injection, non-medical safety, missing/detail evidence, and expired-memory cases without snapshotting provider prose.
@@ -48,7 +48,7 @@ Pending, rejected, superseded, deleted, expired, or reconfirmation-due learned m
 
 - Run `npm run doctor` or `npm run doctor -- --json` for support triage.
 - Review output before sharing even though it is redacted by default.
-- Never share `.env.local`, model-provider keys, Garmin token files, token contents, raw connector payloads, precise GPS streams, full prompts/chat logs, shell history, screenshots containing secrets, or raw SQLite files in public or broad support channels.
+- Never share `.env.local`, model-provider keys, Garmin token files, token contents, raw connector dumps, unreviewed raw-payload records, precise GPS streams, full prompts/chat logs, shell history, screenshots containing secrets, or raw SQLite files in public or broad support channels.
 
 ## Dependency evidence
 

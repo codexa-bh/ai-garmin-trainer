@@ -20,6 +20,10 @@ import {
   type ActivityVerificationEvidence,
 } from "@/lib/db/repository";
 import { backfillActivityDetail, runGarminSync } from "@/lib/garmin/importer";
+import {
+  runGeneratedGarminAnalysis,
+  type GeneratedAnalysisEvidence,
+} from "@/lib/ai/generated-analysis";
 
 const garminIdSchema = z
   .string()
@@ -59,7 +63,8 @@ export type TrainerToolName =
   | "analyzeActivity"
   | "forceRefreshActivityDetail"
   | "getActivityDetailAvailability"
-  | "getActivityDetailSlice";
+  | "getActivityDetailSlice"
+  | "runGeneratedGarminAnalysis";
 
 const emptyInputSchema = z.object({}).strict();
 
@@ -85,6 +90,15 @@ const latestSelectorSchema = z
   .strict();
 
 const idSelectorSchema = z.object({ garminId: garminIdSchema }).strict();
+
+const generatedAnalysisCriterionSchema = z.enum([
+  "demand_score",
+  "elevationGainMeters",
+  "distanceMeters",
+  "durationSec",
+  "avgHeartRate",
+  "trainingEffect",
+]);
 
 export const trainerToolInputSchemas = {
   runGarminSync: emptyInputSchema,
@@ -116,6 +130,14 @@ export const trainerToolInputSchemas = {
       garminId: garminIdSchema,
       pointOffset: z.number().int().min(0).default(0),
       pointLimit: z.number().int().min(1).max(120).default(60),
+    })
+    .strict(),
+  runGeneratedGarminAnalysis: z
+    .object({
+      request: z.string().trim().min(5).max(500),
+      criterion: generatedAnalysisCriterionSchema,
+      requestedCount: z.number().int().min(1).max(25).default(10),
+      script: z.string().trim().min(20).max(12000).optional(),
     })
     .strict(),
 } satisfies Record<TrainerToolName, z.ZodTypeAny>;
@@ -160,6 +182,11 @@ export const trainerToolDefinitions = {
     description:
       "Return a bounded normalized local detail slice for a known imported Garmin ID. Never request raw FIT, full streams, credentials, URLs, paths, or connector methods.",
     inputSchema: trainerToolInputSchemas.getActivityDetailSlice,
+  }),
+  runGeneratedGarminAnalysis: tool({
+    description:
+      "Run a server-sandboxed read-only Python Garmin analysis when a user asks for ad hoc ranking/counting/computation that exceeds fixed typed tools. Provide the user's request, a clear criterion, requestedCount, and optionally generated Python that writes a JSON RESULT from the provided bundle. Use demand_score for a disclosed composite demanding-effort ranking; ask a clarification instead of calling this tool when the criterion is materially ambiguous. Never include filesystem paths, SQL, URLs, connector methods, credentials, environment data, or raw prompt/history dumps.",
+    inputSchema: trainerToolInputSchemas.runGeneratedGarminAnalysis,
   }),
 } satisfies Record<TrainerToolName, unknown>;
 
@@ -427,7 +454,7 @@ export async function executeTrainerTool(input: {
           summary: `Forced local detail refresh for ${args.garminId}: ${result.status}, detail status ${result.detailStatus}, records ${result.recordCount}, laps ${result.lapCount}, retryable ${result.retryable ? "yes" : "no"}, preserved previous usable detail ${result.preservedPrevious ? "yes" : "no"}.`,
           activityIds: [args.garminId],
           privacy:
-            "Server-side bounded action used a read-only Garmin connector call and discarded raw connector payloads.",
+            "Server-side bounded action used a read-only Garmin connector call and retained only redacted local connector payloads for generated analysis.",
           reason:
             result.status === "completed" ? undefined : "detail_refresh_failed",
           result,
@@ -444,6 +471,27 @@ export async function executeTrainerTool(input: {
           activityIds: result.map((row) => row.garminId),
           privacy:
             "Local SQLite availability metadata only; no Garmin credentials, raw FIT, or full stream data included.",
+          result,
+        };
+      }
+      case "runGeneratedGarminAnalysis": {
+        const result = await runGeneratedGarminAnalysis(
+          input.args as Parameters<typeof runGeneratedGarminAnalysis>[0],
+        );
+        return {
+          index: input.index,
+          tool: input.toolName,
+          status: result.status,
+          summary:
+            result.status === "succeeded"
+              ? `Generated Garmin analysis ${result.criterion}; ${result.result?.returnedCount ?? 0}/${result.requestedCount} ranking rows; script ${result.scriptHash.slice(0, 12)}; bundle activities ${result.manifest.tables.find((table) => table.name === "activities")?.rowCount ?? 0}.`
+              : `Generated Garmin analysis blocked: ${result.reason ?? result.status}; script ${result.scriptHash.slice(0, 12)}.`,
+          activityIds: result.result?.rows
+            .map((row) => row.garminId)
+            .filter((id): id is string => Boolean(id))
+            .slice(0, 10),
+          privacy: result.privacy,
+          reason: result.status === "succeeded" ? undefined : result.reason,
           result,
         };
       }
@@ -551,6 +599,28 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
         const match = evidence.matches[0];
         lines.push(
           `Found one local match: ${match.date} ${match.label} (Garmin ID ${match.garminId}, ${match.labelSource} label; sport ${match.sport}, distance ${match.distanceMeters ?? "n/a"} m, duration ${match.durationSec ?? "n/a"} s, elevation gain ${match.elevationGainMeters ?? "n/a"} m, avg HR ${match.avgHeartRate ?? "n/a"} bpm).`,
+        );
+      }
+    }
+    if (step.tool === "runGeneratedGarminAnalysis" && step.result) {
+      const evidence = step.result as GeneratedAnalysisEvidence;
+      if (evidence.status === "succeeded" && evidence.result) {
+        lines.push(
+          `Generated analysis criterion: ${evidence.result.criterion}; returned ${evidence.result.returnedCount}/${evidence.result.requestedCount}; script hash ${evidence.scriptHash.slice(0, 12)}.`,
+        );
+        for (const row of evidence.result.rows) {
+          lines.push(
+            `${row.rank}. ${row.label ?? row.garminId ?? "activity"} — ${row.value}${row.units ? ` ${row.units}` : ""}${row.date ? ` (${row.date}` : ""}${row.sport ? `, ${row.sport}` : ""}${row.date ? ")" : ""}${row.garminId ? `; Garmin ID ${row.garminId}` : ""}.`,
+          );
+        }
+        if (evidence.result.limitations.length)
+          lines.push(...evidence.result.limitations);
+        lines.push(
+          `Data bundle: ${evidence.manifest.tables.map((table) => `${table.name} ${table.rowCount}`).join(", ")}; raw payload metadata rows ${evidence.manifest.rawPayloads.length}; local-only execution.`,
+        );
+      } else {
+        lines.push(
+          `Generated analysis did not run to completion: ${evidence.reason ?? evidence.status}.`,
         );
       }
     }

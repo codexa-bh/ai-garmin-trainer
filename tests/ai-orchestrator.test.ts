@@ -85,6 +85,45 @@ const rankingEvidence = {
   },
 };
 const rankActivities = vi.fn(() => rankingEvidence);
+const generatedAnalysisEvidence = {
+  tool: "generatedGarminAnalysis" as const,
+  status: "succeeded" as const,
+  criterion: "demand_score",
+  requestedCount: 10,
+  scriptHash: "abcdef1234567890",
+  manifest: {
+    generatedAt: "2026-07-21T12:00:00.000Z",
+    request: "top 10 demanding activities",
+    tables: [{ name: "activities", rowCount: 12 }],
+    rawPayloads: [],
+    limits: {
+      maxRowsPerTable: 1000,
+      maxRawPayloads: 100,
+      maxRawPayloadBytes: 200000,
+      maxOutputBytes: 12000,
+    },
+  },
+  result: {
+    kind: "ranking" as const,
+    criterion: "demand_score",
+    requestedCount: 10,
+    returnedCount: 10,
+    rows: Array.from({ length: 10 }, (_, index) => ({
+      rank: index + 1,
+      garminId: `generated-${index + 1}`,
+      label: `Generated activity ${index + 1}`,
+      date: "2026-07-01",
+      sport: "running",
+      value: 100 - index,
+      units: "composite score",
+    })),
+    limitations: [],
+  },
+  warnings: [],
+  privacy:
+    "Generated Python ran locally against an explicit read-only Garmin analysis bundle.",
+};
+const runGeneratedGarminAnalysis = vi.fn(async () => generatedAnalysisEvidence);
 
 vi.mock("ai", () => ({
   generateText,
@@ -97,6 +136,9 @@ vi.mock("@/lib/garmin/importer", () => ({
 vi.mock("@/lib/analytics/activity", () => ({
   analyzeStoredActivity: vi.fn(),
   rankActivities,
+}));
+vi.mock("@/lib/ai/generated-analysis", () => ({
+  runGeneratedGarminAnalysis,
 }));
 vi.mock("@/lib/db/repository", () => ({
   activityDetailCoverage: vi.fn(),
@@ -117,6 +159,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     runGarminSync.mockClear();
     rankActivities.mockReset();
     rankActivities.mockImplementation(() => rankingEvidence);
+    runGeneratedGarminAnalysis.mockClear();
   });
 
   it("rejects multiple provider tool calls without executing any", async () => {
@@ -214,6 +257,57 @@ describe("trainer orchestrator fail-closed policy", async () => {
       "Source climb — Špik",
     );
     expect(generateText.mock.calls[1][0].system).not.toContain("Tool step 1:");
+  });
+
+  it("asks a clarification instead of generated execution for ambiguous criteria", async () => {
+    generateText.mockResolvedValueOnce({
+      text: "What should demanding mean here: duration, elevation, average heart rate, or a disclosed composite score?",
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "rank my top activities",
+    });
+
+    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
+    expect(result.toolSteps).toEqual([]);
+    expect(result.text).toContain("What should demanding mean");
+  });
+
+  it("uses generated analysis for top-10 ad hoc rankings without the old five-row cap", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request: "top 10 most demanding activities",
+              criterion: "demand_score",
+              requestedCount: 10,
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "Using a local composite demand score, I found ten imported activities led by Generated activity 1.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "top 10 most demanding activities",
+    });
+
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledWith({
+      request: "top 10 most demanding activities",
+      criterion: "demand_score",
+      requestedCount: 10,
+    });
+    expect(result.grounding?.tool).toBe("runGeneratedGarminAnalysis");
+    expect(result.toolSteps[0]?.result).toBe(generatedAnalysisEvidence);
+    expect(result.toolSteps[0]?.summary).toContain("10/10 ranking rows");
+    expect(result.text).toContain("ten imported activities");
   });
 
   it("falls back to deterministic ranking text when provider synthesis is empty", async () => {

@@ -213,6 +213,20 @@ export const garminAthleteBaselineAttempt = sqliteTable(
   },
 );
 
+export const garminRawPayload = sqliteTable("garmin_raw_payload", {
+  id: text("id").primaryKey(),
+  sourceTool: text("source_tool").notNull(),
+  subjectType: text("subject_type").notNull(),
+  subjectId: text("subject_id").notNull(),
+  fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),
+  contentType: text("content_type").notNull(),
+  payloadJson: text("payload_json"),
+  payloadText: text("payload_text"),
+  sha256: text("sha256").notNull(),
+  redactionVersion: integer("redaction_version").notNull(),
+  redactedFieldCount: integer("redacted_field_count").notNull().default(0),
+});
+
 export const syncRun = sqliteTable("sync_run", {
   id: text("id").primaryKey(),
   status: text("status").notNull(),
