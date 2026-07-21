@@ -80,6 +80,14 @@ describe("trainer tool registry schemas", async () => {
           "RESULT = {'kind': 'ranking', 'criterion': 'demand_score', 'requestedCount': 10, 'returnedCount': 0, 'rows': [], 'limitations': []}",
       }).success,
     ).toBe(true);
+    expect(
+      trainerToolInputSchemas.runGeneratedGarminAnalysis.safeParse({
+        request:
+          "rank resort snowboarding by effort using descent and calories",
+        criterion: "sport_aware_demand_score",
+        requestedCount: 5,
+      }).success,
+    ).toBe(true);
   });
 
   it("rejects unknown, malformed, empty, and unbounded inputs", () => {

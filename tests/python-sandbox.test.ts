@@ -15,6 +15,22 @@ describe("generated Python sandbox", () => {
     });
   });
 
+  it("allows denied-looking words in comments, strings, and result notes", async () => {
+    const result = await runGeneratedPythonAnalysis({
+      script: [
+        "# Safe note: import token wording from a user label is not code.",
+        "rows = []",
+        "for activity in bundle['activities']:",
+        "    rows.append({'label': activity['label'], 'notes': 'token/import/from words are harmless notes'})",
+        "RESULT = {'kind': 'ranking', 'rows': rows}",
+      ].join("\n"),
+      bundle: { activities: [{ label: "Snowboard token import from label" }] },
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(JSON.stringify(result)).toContain("harmless notes");
+  });
+
   it.each([
     ["filesystem", "RESULT = open('/etc/passwd').read()"],
     ["network", "import socket\nRESULT = {}"],
@@ -22,6 +38,10 @@ describe("generated Python sandbox", () => {
     ["environment", "import os\nRESULT = os.environ"],
     ["dangerous import", "RESULT = __import__('os')"],
     ["eval", "RESULT = eval('1 + 1')"],
+    ["dunder", "RESULT = bundle.__class__"],
+    ["introspection", "RESULT = getattr(bundle, 'items')"],
+    ["from import", "from math import sqrt\nRESULT = sqrt(4)"],
+    ["unbounded loop", "while True:\n    pass"],
   ])("rejects denied %s access", async (_label, script) => {
     const result = await runGeneratedPythonAnalysis({ script, bundle: {} });
     expect(result.status).toBe("rejected");

@@ -27,12 +27,9 @@ const DEFAULT_MAX_STDOUT_BYTES = 4096;
 const DEFAULT_MAX_RESULT_BYTES = 12000;
 const MAX_SCRIPT_BYTES = 12000;
 
-const DENIED_PATTERN =
-  /(?:^|[^A-Za-z0-9_])(?:open|eval|exec|compile|__import__|input|globals|locals|vars|dir|getattr|setattr|delattr|memoryview|breakpoint)(?:[^A-Za-z0-9_]|$)|__|\b(?:os|subprocess|socket|pathlib|shutil|requests|urllib|http|ftplib|sqlite3|ctypes|multiprocessing|threading|asyncio|importlib|builtins|sys)\b|\bimport\b|\bfrom\b|\bwhile\b/i;
-
 const PYTHON_WRAPPER = String.raw`
 import ast, contextlib, io, json, resource, signal, sys
-DENIED_NAMES = {"open", "eval", "exec", "compile", "__import__", "input", "globals", "locals", "vars", "dir", "getattr", "setattr", "delattr", "breakpoint"}
+DENIED_NAMES = {"open", "eval", "exec", "compile", "__import__", "input", "globals", "locals", "vars", "dir", "getattr", "setattr", "delattr", "memoryview", "breakpoint"}
 DENIED_MODULES = {"os", "subprocess", "socket", "pathlib", "shutil", "requests", "urllib", "http", "ftplib", "sqlite3", "ctypes", "multiprocessing", "threading", "asyncio", "importlib", "builtins", "sys"}
 SAFE_BUILTINS = {"abs": abs, "all": all, "any": any, "bool": bool, "dict": dict, "enumerate": enumerate, "filter": filter, "float": float, "int": int, "isinstance": isinstance, "len": len, "list": list, "map": map, "max": max, "min": min, "print": print, "range": range, "round": round, "set": set, "sorted": sorted, "str": str, "sum": sum, "tuple": tuple, "zip": zip}
 
@@ -49,6 +46,8 @@ try:
 except SyntaxError as exc:
     fail("rejected", "syntax_error", str(exc)[:300])
 for node in ast.walk(tree):
+    if isinstance(node, ast.While):
+        fail("rejected", "loop_disabled", "Generated Python while loops are disabled in the local sandbox.")
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         names = [alias.name.split(".")[0] for alias in getattr(node, "names", [])]
         if isinstance(node, ast.ImportFrom) and node.module:
@@ -100,15 +99,6 @@ export async function runGeneratedPythonAnalysis(
       reason: "script_size",
       message:
         "Generated Python script is empty or exceeds the sandbox script cap.",
-      warnings: [],
-    };
-  }
-  const staticMatch = request.script.match(DENIED_PATTERN);
-  if (staticMatch) {
-    return {
-      status: "rejected",
-      reason: "static_denied_token",
-      message: `Generated Python contains denied token ${staticMatch[0].trim() || "<token>"}.`,
       warnings: [],
     };
   }

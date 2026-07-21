@@ -310,6 +310,72 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).toContain("ten imported activities");
   });
 
+  it("accepts sport-aware generated analysis for resort snowboarding prompts", async () => {
+    const snowboardingEvidence = {
+      ...generatedAnalysisEvidence,
+      criterion: "sport_aware_demand_score",
+      requestedCount: 5,
+      result: {
+        ...generatedAnalysisEvidence.result,
+        criterion: "sport_aware_demand_score",
+        requestedCount: 5,
+        returnedCount: 1,
+        rows: [
+          {
+            rank: 1,
+            garminId: "snowboard-effort",
+            label: "Resort snowboard hard laps",
+            date: "2026-02-02",
+            sport: "snowboarding",
+            value: 15.2,
+            units: "sport-aware composite score",
+            notes:
+              "850 kcal; 18 km; 1,700 m descent; ascent excluded for resort context",
+          },
+        ],
+        limitations: [],
+      },
+    };
+    runGeneratedGarminAnalysis.mockResolvedValueOnce(snowboardingEvidence);
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request:
+                "Which resort snowboarding days were most demanding, ignoring lift-assisted ascent?",
+              criterion: "sport_aware_demand_score",
+              requestedCount: 5,
+              script:
+                "# safe wording: import token from label is not code\nRESULT = {'kind': 'ranking', 'criterion': 'sport_aware_demand_score', 'requestedCount': 5, 'returnedCount': 0, 'rows': [], 'limitations': []}",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "For resort snowboarding, the hard-lap day leads on calories, distance, and descent; I would not treat lift ascent as the training-load driver.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest:
+        "Which resort snowboarding days were most demanding, ignoring lift-assisted ascent?",
+    });
+
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledWith({
+      request:
+        "Which resort snowboarding days were most demanding, ignoring lift-assisted ascent?",
+      criterion: "sport_aware_demand_score",
+      requestedCount: 5,
+      script:
+        "# safe wording: import token from label is not code\nRESULT = {'kind': 'ranking', 'criterion': 'sport_aware_demand_score', 'requestedCount': 5, 'returnedCount': 0, 'rows': [], 'limitations': []}",
+    });
+    expect(result.toolSteps[0]?.summary).not.toContain("static_denied_token");
+    expect(result.text).toContain("lift ascent");
+  });
+
   it("falls back to deterministic ranking text when provider synthesis is empty", async () => {
     generateText
       .mockResolvedValueOnce({

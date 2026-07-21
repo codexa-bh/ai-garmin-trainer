@@ -14,6 +14,7 @@ import { payloadHasSecretLikeText } from "@/lib/garmin/raw-payload";
 
 export type GeneratedAnalysisCriterion =
   | "demand_score"
+  | "sport_aware_demand_score"
   | "elevationGainMeters"
   | "distanceMeters"
   | "durationSec"
@@ -193,25 +194,91 @@ export function defaultRankingScript(): string {
 activities = bundle["tables"]["activities"]
 criterion = bundle.get("criterion", "demand_score")
 requested_count = int(bundle.get("requestedCount", 10))
+request_text = str(bundle.get("request") or bundle.get("manifest", {}).get("request") or "").lower()
+request_is_snowboarding = "snowboard" in request_text
 
 def number(value):
     return value if isinstance(value, (int, float)) else None
 
+def compact_number(value, digits=0):
+    rounded = round(value, digits)
+    return ("{:,.0f}" if digits == 0 else "{:,.1f}").format(rounded)
+
+def activity_text(activity):
+    return (str(activity.get("sport") or "") + " " + str(activity.get("label") or "")).lower()
+
+def is_snowboarding_activity(activity):
+    return "snowboard" in activity_text(activity)
+
+def sport_aware_snowboarding_score(activity):
+    notes = []
+    limitations = []
+    score = 0
+    calories = number(activity.get("calories"))
+    distance = number(activity.get("distanceMeters"))
+    descent = number(activity.get("elevationLossMeters"))
+    duration = number(activity.get("durationSec"))
+    avg_hr = number(activity.get("avgHeartRate"))
+    max_hr = number(activity.get("maxHeartRate"))
+    training_effect = number(activity.get("trainingEffect"))
+    if calories is None:
+        limitations.append("calories unavailable")
+    else:
+        score += calories / 100
+        notes.append(compact_number(calories) + " kcal")
+    if distance is None:
+        limitations.append("distance unavailable")
+    else:
+        score += distance / 10000
+        notes.append(compact_number(distance / 1000, 1) + " km")
+    if descent is None:
+        limitations.append("descent unavailable")
+    else:
+        score += descent / 500
+        notes.append(compact_number(descent) + " m descent")
+    if duration is not None:
+        score += duration / 3600
+        notes.append(compact_number(duration / 60) + " min")
+    if avg_hr is not None:
+        score += avg_hr / 100
+        notes.append(compact_number(avg_hr) + " bpm avg HR")
+    elif max_hr is not None:
+        score += max_hr / 150
+        notes.append(compact_number(max_hr) + " bpm max HR")
+    if training_effect is not None:
+        score += training_effect
+        notes.append("TE " + compact_number(training_effect, 1))
+    notes.append("ascent excluded for resort/lift context")
+    if limitations:
+        notes.extend(limitations)
+    return score, "; ".join(notes), limitations
+
 def score(activity):
+    if criterion == "sport_aware_demand_score":
+        return sport_aware_snowboarding_score(activity)
     if criterion == "demand_score":
+        if request_is_snowboarding and is_snowboarding_activity(activity):
+            return sport_aware_snowboarding_score(activity)
         duration = number(activity.get("durationSec")) or 0
         distance = number(activity.get("distanceMeters")) or 0
         elevation = number(activity.get("elevationGainMeters")) or 0
         hr = number(activity.get("avgHeartRate")) or 0
         te = number(activity.get("trainingEffect")) or 0
-        return duration / 3600 + distance / 10000 + elevation / 500 + hr / 100 + te
-    return number(activity.get(criterion))
+        return duration / 3600 + distance / 10000 + elevation / 500 + hr / 100 + te, "", []
+    value = number(activity.get(criterion))
+    return value, "", []
 ranked = []
+all_limitations = []
 for activity in activities:
-    value = score(activity)
+    if criterion == "sport_aware_demand_score" and request_is_snowboarding and not is_snowboarding_activity(activity):
+        continue
+    value, notes, limitations = score(activity)
     if value is None:
         continue
-    ranked.append((float(value), activity))
+    for limitation in limitations:
+        if limitation not in all_limitations:
+            all_limitations.append(limitation)
+    ranked.append((float(value), activity, notes))
 ranked = sorted(ranked, key=lambda item: item[0], reverse=True)[:requested_count]
 rows = []
 for index, item in enumerate(ranked):
@@ -224,15 +291,32 @@ for index, item in enumerate(ranked):
         "date": activity.get("date"),
         "sport": activity.get("sport"),
         "value": round(value, 2),
-        "units": "composite score" if criterion == "demand_score" else criterion,
+        "units": "sport-aware composite score" if criterion == "sport_aware_demand_score" else ("composite score" if criterion == "demand_score" else criterion),
+        "notes": item[2],
     })
+limitations = []
+if len(rows) >= requested_count:
+    limitations = []
+else:
+    limitations = ["Fewer matching imported activities were available than requested."]
+if criterion == "sport_aware_demand_score" and request_is_snowboarding and not rows:
+    limitations.append("No imported snowboarding activities matched the request.")
+for limitation in all_limitations:
+    if limitation == "calories unavailable":
+        message = "Some snowboarding rows report calories are missing in local data; scores use distance, descent, duration, heart-rate, and training-effect fields that are available."
+    elif limitation == "descent unavailable":
+        message = "Some snowboarding rows have descent unavailable; scores do not invent elevation loss."
+    else:
+        message = "Some snowboarding rows have " + limitation + "; scores use remaining available local metrics."
+    if message not in limitations:
+        limitations.append(message)
 RESULT = {
     "kind": "ranking",
     "criterion": criterion,
     "requestedCount": requested_count,
     "returnedCount": len(rows),
     "rows": rows,
-    "limitations": [] if len(rows) >= requested_count else ["Fewer matching imported activities were available than requested."],
+    "limitations": limitations[:5],
 }
 `;
 }
@@ -292,6 +376,7 @@ export async function runGeneratedGarminAnalysis(input: {
     ...bundle,
     criterion: input.criterion,
     requestedCount,
+    request: input.request,
   };
   const script = input.script?.trim() || defaultRankingScript();
   const scriptHash = createHash("sha256").update(script).digest("hex");

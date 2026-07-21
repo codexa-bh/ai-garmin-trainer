@@ -93,6 +93,7 @@ const idSelectorSchema = z.object({ garminId: garminIdSchema }).strict();
 
 const generatedAnalysisCriterionSchema = z.enum([
   "demand_score",
+  "sport_aware_demand_score",
   "elevationGainMeters",
   "distanceMeters",
   "durationSec",
@@ -185,7 +186,7 @@ export const trainerToolDefinitions = {
   }),
   runGeneratedGarminAnalysis: tool({
     description:
-      "Run a server-sandboxed read-only Python Garmin analysis when a user asks for ad hoc ranking/counting/computation that exceeds fixed typed tools. Provide the user's request, a clear criterion, requestedCount, and optionally generated Python that writes a JSON RESULT from the provided bundle. Use demand_score for a disclosed composite demanding-effort ranking; ask a clarification instead of calling this tool when the criterion is materially ambiguous. Never include filesystem paths, SQL, URLs, connector methods, credentials, environment data, or raw prompt/history dumps.",
+      "Run a server-sandboxed read-only Python Garmin analysis when a user asks for ad hoc ranking/counting/computation that exceeds fixed typed tools. Provide the user's request, a clear criterion, requestedCount, and optionally generated Python that writes a JSON RESULT from the provided bundle. Use demand_score for a disclosed composite demanding-effort ranking; use sport_aware_demand_score for resort/downhill snowboarding so calories, distance, descent, duration, HR, and training effect are prioritized over lift-assisted ascent. Ask a clarification instead of calling this tool when the criterion is materially ambiguous. Never include filesystem paths, SQL, URLs, connector methods, credentials, environment data, or raw prompt/history dumps.",
     inputSchema: trainerToolInputSchemas.runGeneratedGarminAnalysis,
   }),
 } satisfies Record<TrainerToolName, unknown>;
@@ -610,7 +611,7 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
         );
         for (const row of evidence.result.rows) {
           lines.push(
-            `${row.rank}. ${row.label ?? row.garminId ?? "activity"} — ${row.value}${row.units ? ` ${row.units}` : ""}${row.date ? ` (${row.date}` : ""}${row.sport ? `, ${row.sport}` : ""}${row.date ? ")" : ""}${row.garminId ? `; Garmin ID ${row.garminId}` : ""}.`,
+            `${row.rank}. ${row.label ?? row.garminId ?? "activity"} — ${row.value}${row.units ? ` ${row.units}` : ""}${row.date ? ` (${row.date}` : ""}${row.sport ? `, ${row.sport}` : ""}${row.date ? ")" : ""}${row.garminId ? `; Garmin ID ${row.garminId}` : ""}${row.notes ? `; ${row.notes}` : ""}.`,
           );
         }
         if (evidence.result.limitations.length)
