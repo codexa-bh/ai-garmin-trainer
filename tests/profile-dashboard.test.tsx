@@ -150,7 +150,7 @@ describe("TrainerDashboard Profile hydration", () => {
               content: "Synthesized trainer answer from local evidence.",
               createdAt: "2026-07-21T12:00:00.000Z",
               grounding: {
-                tool: "runGeneratedGarminAnalysis",
+                tool: "runMathAnalysis",
                 summary: "Detailed ranking rows should stay hidden.",
                 privacy: "Computed from local normalized SQLite only.",
               },

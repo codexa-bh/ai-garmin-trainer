@@ -54,8 +54,6 @@ const runMathAnalysis = vi.fn(({ rowsByResult, inputResult, operation }) => ({
   truncated: false,
   privacy: "math privacy",
 }));
-const runGeneratedGarminAnalysis = vi.fn();
-
 vi.mock("ai", () => ({
   generateText,
   tool: (definition: unknown) => definition,
@@ -63,9 +61,6 @@ vi.mock("ai", () => ({
 vi.mock("@/lib/garmin/importer", () => ({
   runGarminSync,
   backfillActivityDetail: vi.fn(),
-}));
-vi.mock("@/lib/ai/generated-analysis", () => ({
-  runGeneratedGarminAnalysis,
 }));
 vi.mock("@/lib/ai/sql-analysis", () => ({
   describeGarminDatabase,
@@ -94,7 +89,6 @@ describe("trainer orchestrator fail-closed policy", async () => {
     describeGarminDatabase.mockClear();
     runReadOnlySql.mockClear();
     runMathAnalysis.mockClear();
-    runGeneratedGarminAnalysis.mockReset();
   });
 
   it("fails closed for multiple provider tool calls with a side-effect tool", async () => {
@@ -242,18 +236,17 @@ describe("trainer orchestrator fail-closed policy", async () => {
             toolName: "runMathAnalysis",
             input: {
               inputResult: "activity_rows",
-              operation: "sportNormalizedDemand",
-              orderBy: [
-                { field: "sport_normalized_demand_score", direction: "desc" },
-              ],
+              operation: "score",
+              formula: "duration_sec + elevation_gain_meters * 2",
+              orderBy: [{ field: "score", direction: "desc" }],
               limit: 10,
-              outputName: "demand_scores",
+              outputName: "criteria_scores",
             },
           },
         ],
       })
       .mockResolvedValueOnce({
-        text: "The most demanding local activities are led by the long ride, using SQL rows and a bounded score.",
+        text: "The most demanding local activities are led by Long ride, using model-selected duration plus elevation criteria over SQL rows and a bounded score.",
       });
 
     const result = await orchestrateTrainerChat({
@@ -266,6 +259,9 @@ describe("trainer orchestrator fail-closed policy", async () => {
       "guarded SQL/math by default",
     );
     expect(generateText.mock.calls[0][0].system).toContain(
+      "model-selected scores",
+    );
+    expect(generateText.mock.calls[0][0].system).not.toContain(
       "sportNormalizedDemand",
     );
     expect(generateText.mock.calls[0][0].system).not.toContain(
@@ -277,11 +273,15 @@ describe("trainer orchestrator fail-closed policy", async () => {
       maxRows: 50,
       resultName: "activity_rows",
     });
-    expect(runMathAnalysis).toHaveBeenCalledTimes(1);
-    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
+    expect(runMathAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "score",
+        formula: "duration_sec + elevation_gain_meters * 2",
+      }),
+    );
     expect(result.grounding?.tool).toBe("runMathAnalysis");
     expect(result.toolSteps).toHaveLength(3);
-    expect(result.text).toContain("transparent local score");
+    expect(result.text).toContain("bounded score");
     expect(result.text).toContain("Long ride");
   });
 
@@ -306,12 +306,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
       .mockReturnValueOnce({
         status: "succeeded",
         resultName: "demand_rows",
-        columns: [{ name: "garmin_id" }, { name: "demand_score" }],
+        columns: [{ name: "garmin_id" }, { name: "criteria_score" }],
         rows: [
           {
             garmin_id: "activity-2",
             name: "Long ride",
-            demand_score: 123,
+            criteria_score: 123,
           },
         ],
         rowCount: 1,
@@ -339,7 +339,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
           {
             toolName: "runReadOnlySql",
             input: {
-              sql: "select garmin_id, name, duration_sec as demand_score from activity order by started_at desc",
+              sql: "select garmin_id, name, duration_sec as criteria_score from activity order by started_at desc",
               resultName: "demand_rows",
             },
           },
@@ -360,7 +360,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(generateText.mock.calls[2][0].system).toContain(
       "Allowed activity columns",
     );
-    expect(result.text).toContain("transparent local score");
+    expect(result.text).toContain("corrected SQL columns");
     expect(result.text).toContain("Long ride");
     expect(result.text).not.toContain("Tool step");
     expect(result.toolSteps.map((step) => step.status)).toEqual([
@@ -495,12 +495,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
       userRequest: "rank activities",
     });
 
-    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
     expect(result.toolSteps[0]).toMatchObject({
-      tool: "runGeneratedGarminAnalysis",
+      tool: "providerToolSelection",
       status: "rejected",
-      reason: "generated_analysis_disabled",
+      reason: "unknown_tool",
     });
-    expect(result.text).toContain("SQL");
+    expect(result.text).toContain("safe local Garmin tool");
   });
 });

@@ -123,7 +123,7 @@ describe("trainer AI", () => {
           role: "assistant",
           content: "Latest hike answer",
           grounding: {
-            tool: "runGeneratedGarminAnalysis",
+            tool: "runMathAnalysis",
             activityId: "123456",
             activityName: "Vrh Zakotja",
             summary: "12 km hike with normalized local stream evidence",
@@ -137,7 +137,7 @@ describe("trainer AI", () => {
     expect(history.join("\n")).not.toContain("old turn");
     expect(history[0]).toMatch(/^user:/);
     expect(history[1]).toContain(
-      "tool evidence: runGeneratedGarminAnalysis activity 123456",
+      "tool evidence: runMathAnalysis activity 123456",
     );
     expect(history[1]).toContain("Vrh Zakotja");
     expect(history[1]).not.toContain("Latest hike answer");

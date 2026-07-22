@@ -13,10 +13,6 @@ import {
 } from "@/lib/db/repository";
 import { backfillActivityDetail, runGarminSync } from "@/lib/garmin/importer";
 import {
-  runGeneratedGarminAnalysis,
-  type GeneratedAnalysisEvidence,
-} from "@/lib/ai/generated-analysis";
-import {
   describeGarminDatabase,
   runReadOnlySql,
   type AnalysisResult,
@@ -60,8 +56,7 @@ export type TrainerToolName =
   | "getActivityDetailSlice"
   | "describeGarminDatabase"
   | "runReadOnlySql"
-  | "runMathAnalysis"
-  | "runGeneratedGarminAnalysis";
+  | "runMathAnalysis";
 
 const emptyInputSchema = z.object({}).strict();
 
@@ -78,39 +73,6 @@ const verifyActivityReferenceSchema = z
       message: "At least one activity reference field is required.",
     },
   );
-
-const generatedAnalysisSelectionTermSchema = z
-  .string()
-  .trim()
-  .min(2)
-  .max(40)
-  .regex(/^[\p{L}\p{N}][\p{L}\p{N}\s_-]*$/u);
-
-const generatedAnalysisActivitySelectionSchema = z
-  .object({
-    includeText: z
-      .array(generatedAnalysisSelectionTermSchema)
-      .min(1)
-      .max(8)
-      .optional(),
-    excludeText: z
-      .array(generatedAnalysisSelectionTermSchema)
-      .min(1)
-      .max(8)
-      .optional(),
-  })
-  .strict()
-  .refine(
-    (value) => Boolean(value.includeText?.length || value.excludeText?.length),
-    { message: "At least one include or exclude selection term is required." },
-  );
-
-const generatedAnalysisDatasetSchema = z.enum([
-  "activities",
-  "dailyHealth",
-  "activityDetails",
-  "rawPayloads",
-]);
 
 const sqlResultNameSchema = z
   .string()
@@ -130,7 +92,6 @@ const mathFieldSchema = z
 const mathOperationSchema = z.enum([
   "score",
   "normalize",
-  "sportNormalizedDemand",
   "aggregate",
   "correlate",
   "summarize",
@@ -191,19 +152,6 @@ export const trainerToolInputSchemas = {
       outputName: sqlResultNameSchema,
     })
     .strict(),
-  runGeneratedGarminAnalysis: z
-    .object({
-      request: z.string().trim().min(5).max(500),
-      datasets: z
-        .array(generatedAnalysisDatasetSchema)
-        .min(1)
-        .max(4)
-        .optional(),
-      requestedCount: z.number().int().min(1).max(25).default(10),
-      activitySelection: generatedAnalysisActivitySelectionSchema.optional(),
-      script: z.string().trim().min(20).max(12000),
-    })
-    .strict(),
 } satisfies Record<TrainerToolName, z.ZodTypeAny>;
 
 export const trainerToolDefinitions = {
@@ -249,13 +197,8 @@ export const trainerToolDefinitions = {
   }),
   runMathAnalysis: tool({
     description:
-      "Run bounded TypeScript math over a prior same-turn runReadOnlySql result handle. Supports scoring/custom formulas over numeric columns, sportNormalizedDemand for generic most-demanding activity rankings with within-sport percentiles and sparse-data limitations, normalization/ranking, simple aggregation/grouping, summaries, ordering, and top-N output. No scripts, DB/filesystem/network/process/environment/connector access.",
+      "Run bounded TypeScript math over a prior same-turn runReadOnlySql result handle. Supports model-selected scoring/custom formulas over numeric columns, normalization/ranking, simple aggregation/grouping, summaries, ordering, and top-N output. Formulas can contain only column names, numbers, parentheses, and + - * / operators; null/missing numeric values are treated as zero. No demand-specific rubrics, scripts, DB/filesystem/network/process/environment/connector access.",
     inputSchema: trainerToolInputSchemas.runMathAnalysis,
-  }),
-  runGeneratedGarminAnalysis: tool({
-    description:
-      "Deprecated internal fallback only: server-sandboxed Python over bounded Garmin datasets. Do not choose for ordinary ad hoc analytics; use describeGarminDatabase, runReadOnlySql, and runMathAnalysis instead. This tool is disabled unless ENABLE_GENERATED_GARMIN_ANALYSIS=true.",
-    inputSchema: trainerToolInputSchemas.runGeneratedGarminAnalysis,
   }),
 } satisfies Record<TrainerToolName, unknown>;
 
@@ -299,34 +242,6 @@ export function clearTrainerAnalysisResultHandles(): void {
 function boundedText(value: string, max = 500): string {
   const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
-}
-
-const GENERATED_ACTIVITY_FIELDS = [
-  "garminId",
-  "label",
-  "sport",
-  "date",
-  "startedAt",
-  "durationSec",
-  "distanceMeters",
-  "calories",
-  "avgHeartRate",
-  "maxHeartRate",
-  "steps",
-  "elevationGainMeters",
-  "elevationLossMeters",
-  "trainingEffect",
-];
-
-function generatedAnalysisCorrectionContext(
-  evidence: GeneratedAnalysisEvidence,
-): string {
-  const datasets = evidence.manifest.datasets
-    .map((dataset) => `${dataset.name}:${dataset.rowCount}`)
-    .join(", ");
-  const allowedImports =
-    evidence.manifest.scriptContract.allowedImports.join(", ");
-  return `Correction context: selected datasets ${datasets || "none"}; allowed imports ${allowedImports}; common activities fields ${GENERATED_ACTIVITY_FIELDS.join(", ")}; RESULT must be JSON with nonempty kind, optional title/summary/metrics, optional rows no larger than requestedCount ${evidence.requestedCount}, and limitations; max output bytes ${evidence.manifest.limits.maxOutputBytes}.`;
 }
 
 function summarizeSyncStatus(limit = 10) {
@@ -512,52 +427,11 @@ export async function executeTrainerTool(input: {
           summary:
             result.status === "succeeded"
               ? `Math ${result.operation} ${result.resultName}; returned ${result.returnedRows}/${result.rowCount} rows${result.truncated ? "; truncated" : ""}.`
-              : `Math analysis rejected: ${result.reason ?? result.status}.`,
+              : `Math analysis rejected: ${result.reason ?? result.status}${args.formula ? ` for formula ${boundedText(args.formula, 180)}` : ""}.`,
           privacy: result.privacy,
           reason: result.status === "succeeded" ? undefined : result.reason,
           failureMessage:
             result.status === "succeeded" ? undefined : result.message,
-          result,
-        };
-      }
-      case "runGeneratedGarminAnalysis": {
-        if (process.env.ENABLE_GENERATED_GARMIN_ANALYSIS !== "true") {
-          return {
-            index: input.index,
-            tool: input.toolName,
-            status: "rejected",
-            summary:
-              "Generated Garmin Python analysis is disabled by default; use read-only SQL and bounded math tools.",
-            privacy:
-              "No generated Python ran; local analytics should use guarded SQL/math over normalized SQLite data.",
-            reason: "generated_analysis_disabled",
-          };
-        }
-        const result = await runGeneratedGarminAnalysis(
-          input.args as Parameters<typeof runGeneratedGarminAnalysis>[0],
-        );
-        return {
-          index: input.index,
-          tool: input.toolName,
-          status: result.status,
-          summary:
-            result.status === "succeeded"
-              ? `Generated Garmin dataset script ${result.result?.kind ?? "result"}; ${result.result?.returnedCount ?? 0}/${result.requestedCount} rows; script ${result.scriptHash.slice(0, 12)}; datasets ${result.manifest.datasets.map((dataset) => `${dataset.name}:${dataset.rowCount}`).join(", ")}${result.manifest.activitySelection ? "; activity selection applied" : ""}.`
-              : `Generated Garmin analysis blocked: ${result.reason ?? result.status}; script ${result.scriptHash.slice(0, 12)}; ${result.correctionAllowed ? "correction feedback may be offered" : "correction feedback is not offered"}.`,
-          activityIds: result.result?.rows
-            ?.map((row) => row.garminId)
-            .filter((id): id is string => typeof id === "string")
-            .slice(0, 10),
-          privacy: result.privacy,
-          reason: result.status === "succeeded" ? undefined : result.reason,
-          correctionAllowed:
-            result.status === "succeeded"
-              ? undefined
-              : result.correctionAllowed,
-          failureMessage:
-            result.status === "succeeded" ? undefined : result.message,
-          correctionHint:
-            result.status === "succeeded" ? undefined : result.correctionHint,
           result,
         };
       }
@@ -695,43 +569,6 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
           lines.push(`${index + 1}. ${JSON.stringify(row).slice(0, 500)}`);
       } else if (evidence.message)
         lines.push(`Bounded math detail: ${evidence.message}`);
-    }
-    if (step.tool === "runGeneratedGarminAnalysis" && step.result) {
-      const evidence = step.result as GeneratedAnalysisEvidence;
-      if (evidence.status === "succeeded" && evidence.result) {
-        lines.push(
-          `Generated dataset script result: ${evidence.result.title ?? evidence.result.kind}; returned ${evidence.result.returnedCount ?? evidence.result.rows?.length ?? 0}/${evidence.result.requestedCount}; script hash ${evidence.scriptHash.slice(0, 12)}.`,
-        );
-        if (typeof evidence.result.summary === "string")
-          lines.push(evidence.result.summary);
-        for (const row of evidence.result.rows ?? []) {
-          const label = String(
-            row.label ?? row.garminId ?? `row ${row.rank ?? ""}`,
-          ).trim();
-          const value =
-            row.value ?? row.count ?? row.score ?? row.metric ?? "computed";
-          lines.push(
-            `${row.rank ?? "-"}. ${label} — ${String(value).slice(0, 120)}${row.units ? ` ${String(row.units).slice(0, 40)}` : ""}${row.date ? ` (${String(row.date).slice(0, 40)}` : ""}${row.sport ? `, ${String(row.sport).slice(0, 40)}` : ""}${row.date ? ")" : ""}${row.garminId ? `; Garmin ID ${String(row.garminId).slice(0, 80)}` : ""}${row.notes ? `; ${String(row.notes).slice(0, 160)}` : ""}.`,
-          );
-        }
-        if (evidence.result.limitations.length)
-          lines.push(...evidence.result.limitations);
-        lines.push(
-          `Data bundle: ${evidence.manifest.datasets.map((dataset) => `${dataset.name} ${dataset.rowCount}`).join(", ")}; raw payload metadata rows ${evidence.manifest.rawPayloads.length}; local-only execution.`,
-        );
-      } else {
-        lines.push(
-          `Generated analysis did not run to completion: ${evidence.reason ?? evidence.status}.`,
-        );
-        if (evidence.message)
-          lines.push(`Bounded failure detail: ${evidence.message}.`);
-        if (evidence.correctionHint)
-          lines.push(`Correction guidance: ${evidence.correctionHint}`);
-        lines.push(generatedAnalysisCorrectionContext(evidence));
-        lines.push(
-          `Correction feedback: ${evidence.correctionAllowed ? "the model may choose a corrected generated-analysis call" : "correction feedback is not offered for this failure"}.`,
-        );
-      }
     }
     lines.push(`Privacy: ${step.privacy}`);
   }

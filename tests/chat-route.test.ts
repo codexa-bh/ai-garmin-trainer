@@ -137,7 +137,7 @@ const runReadOnlySql = vi.fn((input: { resultName?: string }) => ({
 const runMathAnalysis = vi.fn(
   (input: { inputResult: string; operation?: string }) => ({
     status: "succeeded",
-    resultName: "demand_scores",
+    resultName: "criteria_scores",
     inputResult: input.inputResult,
     operation: input.operation ?? "score",
     rows: [
@@ -145,8 +145,7 @@ const runMathAnalysis = vi.fn(
         garmin_id: "source-1",
         name: "Source climb — Špik",
         sport: "hiking",
-        sport_normalized_demand_score: 100,
-        available_metric_count: 6,
+        score: 100,
       },
     ],
     rowCount: 1,
@@ -199,7 +198,7 @@ const generateText = vi.fn(
     ) {
       if (options.prompt.toLowerCase().includes("snowboard")) {
         return {
-          text: "Under sport-normalized generic criteria, I checked whether snowboardings qualified without dumping raw tool steps.",
+          text: "Using model-selected generic criteria from SQL/math evidence, I checked whether snowboardings qualified without dumping raw tool steps.",
         };
       }
       return {
@@ -222,13 +221,9 @@ const generateText = vi.fn(
               toolName: "runMathAnalysis",
               input: {
                 inputResult: "demand_rows",
-                operation: "sportNormalizedDemand",
-                orderBy: [
-                  {
-                    field: "sport_normalized_demand_score",
-                    direction: "desc",
-                  },
-                ],
+                operation: "score",
+                formula: "duration_sec + elevation_gain_meters * 2",
+                orderBy: [{ field: "score", direction: "desc" }],
                 limit: 10,
               },
             },
@@ -429,63 +424,6 @@ vi.mock("@/lib/garmin/importer", () => ({
   backfillActivityDetail,
 }));
 
-const generatedDatasetEvidence = {
-  tool: "generatedGarminAnalysis" as const,
-  status: "succeeded" as const,
-  requestedCount: 10,
-  scriptHash: "abcdef1234567890",
-  manifest: {
-    generatedAt: "2026-07-21T12:00:00.000Z",
-    request: "top 10 generated dataset rows",
-    selectedDatasets: ["activities"],
-    datasets: [{ name: "activities", rowCount: 10, description: "" }],
-    tables: [{ name: "activities", rowCount: 10 }],
-    rawPayloads: [],
-    limits: {
-      maxRowsPerTable: 1000,
-      maxRawPayloads: 100,
-      maxRawPayloadBytes: 200000,
-      maxOutputBytes: 12000,
-    },
-    scriptContract: {
-      resultVariable: "RESULT" as const,
-      allowedImports: ["math"],
-      forbiddenAccess: ["filesystem"],
-    },
-  },
-  result: {
-    kind: "ranking",
-    title: "Generated dataset ranking",
-    requestedCount: 10,
-    returnedCount: 2,
-    rows: [
-      {
-        rank: 1,
-        garminId: "rank-1",
-        label: "Source climb — Špik",
-        value: 1200,
-        units: "computed",
-      },
-      {
-        rank: 2,
-        garminId: "latest-999",
-        label: "Latest activity latest-999",
-        value: 900,
-        units: "computed",
-      },
-    ],
-    limitations: [],
-  },
-  warnings: [],
-  privacy:
-    "Generated Python ran locally against explicit read-only Garmin datasets.",
-};
-const runGeneratedGarminAnalysis = vi.fn(async () => generatedDatasetEvidence);
-
-vi.mock("@/lib/ai/generated-analysis", () => ({
-  runGeneratedGarminAnalysis,
-}));
-
 vi.mock("@/lib/db/repository", () => ({
   DEFAULT_CONVERSATION_ID: "default",
   activityDetailCoverage: () => coverage,
@@ -642,7 +580,6 @@ describe("chat route LLM tool orchestration", () => {
     generateText.mockClear();
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
-    runGeneratedGarminAnalysis.mockClear();
     describeGarminDatabase.mockClear();
     runReadOnlySql.mockClear();
     runMathAnalysis.mockClear();
@@ -695,7 +632,6 @@ describe("chat route LLM tool orchestration", () => {
         maxRows: 3,
       }),
     );
-    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
   });
 
   it("routes demanding activity rankings through read-only SQL and bounded math", async () => {
@@ -706,17 +642,15 @@ describe("chat route LLM tool orchestration", () => {
     expect(runReadOnlySql).toHaveBeenCalledWith(
       expect.objectContaining({ resultName: "demand_rows", maxRows: 50 }),
     );
-    expect(runMathAnalysis).toHaveBeenCalledOnce();
-    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
+    expect(runMathAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "score" }),
+    );
     expect(payload.assistant.content).toContain("Source climb — Špik");
     expect(payload.assistant.content).not.toContain("Provider invented");
-    expect(runMathAnalysis).toHaveBeenCalledWith(
-      expect.objectContaining({ operation: "sportNormalizedDemand" }),
-    );
     expect(payload.toolEvidence?.tool).toBe("runMathAnalysis");
   });
 
-  it("answers snowboarding demand follow-ups with sport-normalized criteria", async () => {
+  it("answers snowboarding demand follow-ups with model-selected generic criteria", async () => {
     const payload = await postChat(
       "This looks pretty good list for hiking. But no snowboardings qualified? Could we invent the more generic criteria?",
     );
@@ -725,9 +659,11 @@ describe("chat route LLM tool orchestration", () => {
       expect.objectContaining({ resultName: "demand_rows", maxRows: 50 }),
     );
     expect(runMathAnalysis).toHaveBeenCalledWith(
-      expect.objectContaining({ operation: "sportNormalizedDemand" }),
+      expect.objectContaining({ operation: "score" }),
     );
-    expect(payload.assistant.content).toContain("sport-normalized");
+    expect(payload.assistant.content).toContain(
+      "model-selected generic criteria",
+    );
     expect(payload.assistant.content).toContain("snowboarding");
     expect(payload.assistant.content).not.toContain("Tool step");
     expect(payload.toolEvidence?.tool).toBe("runMathAnalysis");
@@ -861,7 +797,6 @@ describe("chat route LLM tool orchestration", () => {
       date: "2025-10-18",
     });
     expect(runReadOnlySql).not.toHaveBeenCalled();
-    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
     expect(payload.toolSteps?.map((step) => step.tool)).toEqual([
       "verifyActivityReference",
     ]);

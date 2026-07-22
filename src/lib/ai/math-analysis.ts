@@ -3,7 +3,6 @@ import type { AnalysisCell, AnalysisRow } from "@/lib/ai/sql-analysis";
 export type MathAnalysisOperation =
   | "score"
   | "normalize"
-  | "sportNormalizedDemand"
   | "aggregate"
   | "correlate"
   | "summarize"
@@ -43,11 +42,27 @@ const OPTIONAL_ACTIVITY_METRIC_COLUMNS = new Set([
   "elevation_gain_meters",
   "elevation_loss_meters",
   "training_effect",
-  "demand_score",
-  "sport_normalized_demand_score",
-  "absolute_demand_score",
-  "available_metric_count",
 ]);
+
+const FORMULA_COLUMN_ALIASES: Record<string, string> = {
+  duration: "duration_sec",
+  duration_seconds: "duration_sec",
+  time_sec: "duration_sec",
+  distance: "distance_meters",
+  distance_m: "distance_meters",
+  elevation: "elevation_gain_meters",
+  elevation_gain: "elevation_gain_meters",
+  elevation_gain_m: "elevation_gain_meters",
+  elevation_loss: "elevation_loss_meters",
+  elevation_loss_m: "elevation_loss_meters",
+  avg_hr: "avg_heart_rate",
+  average_heart_rate: "avg_heart_rate",
+  heart_rate: "avg_heart_rate",
+  max_hr: "max_heart_rate",
+  maximum_heart_rate: "max_heart_rate",
+  training_effect_score: "training_effect",
+  kcal: "calories",
+};
 
 type Token =
   | { type: "number"; value: number }
@@ -62,6 +77,23 @@ function safeResultName(value: string | undefined): string {
     .replace(/^_+|_+$/g, "")
     .slice(0, 40);
   return cleaned || "math_result";
+}
+
+function resultHandleKey(value: string): string {
+  return safeResultName(value).replace(/[_-]+/g, "");
+}
+
+function resolveRowsByResult(
+  rowsByResult: Map<string, AnalysisRow[]>,
+  inputResult: string,
+): AnalysisRow[] | undefined {
+  return (
+    rowsByResult.get(inputResult) ??
+    rowsByResult.get(safeResultName(inputResult)) ??
+    Array.from(rowsByResult.entries()).find(
+      ([name]) => resultHandleKey(name) === resultHandleKey(inputResult),
+    )?.[1]
+  );
 }
 
 function reject(
@@ -84,8 +116,6 @@ function reject(
       "The requested math column contains missing or non-numeric values.",
     non_finite_output: "The math formula produced a non-finite value.",
     unsupported_operation: "That bounded math operation is not supported.",
-    missing_sport_column:
-      "Sport-normalized demand scoring needs a sport column in the SQL rows.",
     oversized_output: "The math result exceeded the bounded evidence cap.",
   };
   return {
@@ -186,12 +216,16 @@ function numericForFormula(value: AnalysisCell): number | null {
   return numeric(value);
 }
 
+function formulaColumnName(identifier: string): string {
+  return FORMULA_COLUMN_ALIASES[identifier] ?? identifier;
+}
+
 function evaluateRpn(rpn: Token[], row: AnalysisRow): number | null {
   const stack: number[] = [];
   for (const token of rpn) {
     if (token.type === "number") stack.push(token.value);
     else if (token.type === "identifier") {
-      const value = numericForFormula(row[token.value]);
+      const value = numericForFormula(row[formulaColumnName(token.value)]);
       if (value === null) return null;
       stack.push(value);
     } else if (token.type === "operator") {
@@ -217,13 +251,28 @@ function rowBytes(rows: AnalysisRow[]): number {
   return new TextEncoder().encode(JSON.stringify(rows)).length;
 }
 
+function orderFieldName(field: string, rows: AnalysisRow[]): string {
+  if (field === "normalized_score") return "normalizedScore";
+  if (
+    field !== "score" &&
+    field.endsWith("_score") &&
+    rows.some((row) => Object.prototype.hasOwnProperty.call(row, "score"))
+  )
+    return "score";
+  return field;
+}
+
 function applyOrder(
   rows: AnalysisRow[],
   orderBy?: Array<{ field: string; direction: "asc" | "desc" }>,
 ): AnalysisRow[] | null {
   if (!orderBy?.length) return rows;
+  const normalizedOrderBy = orderBy.map((order) => ({
+    ...order,
+    field: orderFieldName(order.field, rows),
+  }));
   const sorted = [...rows];
-  for (const order of orderBy) {
+  for (const order of normalizedOrderBy) {
     if (
       !rows.every((row) =>
         Object.prototype.hasOwnProperty.call(row, order.field),
@@ -232,7 +281,7 @@ function applyOrder(
       return null;
   }
   sorted.sort((left, right) => {
-    for (const order of orderBy) {
+    for (const order of normalizedOrderBy) {
       const l = left[order.field];
       const r = right[order.field];
       if (l === r) continue;
@@ -271,11 +320,9 @@ function formulaRows(
   if (!tokens) return "unsafe_formula";
   const columns = new Set(Object.keys(rows[0] ?? {}));
   for (const token of tokens) {
-    if (
-      token.type === "identifier" &&
-      !columns.has(token.value) &&
-      !OPTIONAL_ACTIVITY_METRIC_COLUMNS.has(token.value)
-    )
+    if (token.type !== "identifier") continue;
+    const column = formulaColumnName(token.value);
+    if (!columns.has(column) && !OPTIONAL_ACTIVITY_METRIC_COLUMNS.has(column))
       return "unknown_column";
   }
   const rpn = toRpn(tokens);
@@ -335,186 +382,6 @@ function aggregateRows(
   });
 }
 
-type DemandMetric = {
-  field: string;
-  outputField: string;
-  weight: number;
-};
-
-const DEMAND_METRICS: DemandMetric[] = [
-  { field: "duration_sec", outputField: "duration_percentile", weight: 0.22 },
-  {
-    field: "distance_meters",
-    outputField: "distance_percentile",
-    weight: 0.12,
-  },
-  {
-    field: "elevation_gain_meters",
-    outputField: "elevation_gain_percentile",
-    weight: 0.14,
-  },
-  {
-    field: "elevation_loss_meters",
-    outputField: "elevation_loss_percentile",
-    weight: 0.08,
-  },
-  { field: "calories", outputField: "calories_percentile", weight: 0.18 },
-  {
-    field: "avg_heart_rate",
-    outputField: "avg_heart_rate_percentile",
-    weight: 0.1,
-  },
-  {
-    field: "max_heart_rate",
-    outputField: "max_heart_rate_percentile",
-    weight: 0.06,
-  },
-  {
-    field: "training_effect",
-    outputField: "training_effect_percentile",
-    weight: 0.1,
-  },
-];
-
-const MIN_SPORT_SAMPLE_SIZE = 3;
-
-function normalizeSportGroup(value: AnalysisCell): string {
-  const normalized = String(value ?? "unknown")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  if (!normalized) return "unknown";
-  if (normalized.includes("snowboard")) return "snowboarding";
-  if (normalized.includes("ski")) return "skiing";
-  if (normalized.includes("hike") || normalized.includes("walk"))
-    return "hiking";
-  if (normalized.includes("run")) return "running";
-  if (normalized.includes("cycl") || normalized.includes("bik"))
-    return "cycling";
-  return normalized;
-}
-
-function demandMetricValue(row: AnalysisRow, field: string): number | null {
-  const value = numeric(row[field]);
-  return value !== null && value > 0 ? value : null;
-}
-
-function percentileForValue(value: number, values: number[]): number {
-  if (!values.length) return 0;
-  if (values.length === 1) return 1;
-  const sorted = [...values].sort((left, right) => left - right);
-  const lowerCount = sorted.filter((candidate) => candidate < value).length;
-  const equalCount = sorted.filter((candidate) => candidate === value).length;
-  return Number(
-    ((lowerCount + (equalCount - 1) / 2) / (sorted.length - 1)).toFixed(6),
-  );
-}
-
-function absoluteDemandScore(row: AnalysisRow): number {
-  return (
-    (numeric(row.duration_sec) ?? 0) / 60 +
-    ((numeric(row.distance_meters) ?? 0) / 1000) * 3 +
-    (numeric(row.elevation_gain_meters) ?? 0) * 0.8 +
-    (numeric(row.calories) ?? 0) * 0.05 +
-    (numeric(row.avg_heart_rate) ?? 0) * 0.2 +
-    (numeric(row.max_heart_rate) ?? 0) * 0.1 +
-    (numeric(row.training_effect) ?? 0) * 40
-  );
-}
-
-function sportNormalizedDemandRows(
-  rows: AnalysisRow[],
-): AnalysisRow[] | string {
-  const columns = new Set(Object.keys(rows[0] ?? {}));
-  if (!columns.has("sport")) return "missing_sport_column";
-
-  const sportGroups = new Map<string, AnalysisRow[]>();
-  for (const row of rows) {
-    const group = normalizeSportGroup(row.sport);
-    sportGroups.set(group, [...(sportGroups.get(group) ?? []), row]);
-  }
-
-  const globalMetricValues = new Map<string, number[]>();
-  for (const metric of DEMAND_METRICS) {
-    globalMetricValues.set(
-      metric.field,
-      rows
-        .map((row) => demandMetricValue(row, metric.field))
-        .filter((value): value is number => value !== null),
-    );
-  }
-
-  return rows.map((row) => {
-    const sportGroup = normalizeSportGroup(row.sport);
-    const sportRows = sportGroups.get(sportGroup) ?? [row];
-    const sportSampleSize = sportRows.length;
-    const useSportPercentiles = sportSampleSize >= MIN_SPORT_SAMPLE_SIZE;
-    let weightedScore = 0;
-    let weightTotal = 0;
-    let availableMetricCount = 0;
-    const percentileFields: AnalysisRow = {};
-    const missingMetrics: string[] = [];
-    const fallbackMetrics: string[] = [];
-
-    for (const metric of DEMAND_METRICS) {
-      const value = demandMetricValue(row, metric.field);
-      if (value === null) {
-        missingMetrics.push(metric.field);
-        continue;
-      }
-      const sportMetricValues = sportRows
-        .map((candidate) => demandMetricValue(candidate, metric.field))
-        .filter((candidate): candidate is number => candidate !== null);
-      const referenceValues =
-        useSportPercentiles && sportMetricValues.length >= MIN_SPORT_SAMPLE_SIZE
-          ? sportMetricValues
-          : (globalMetricValues.get(metric.field) ?? []);
-      const percentile = percentileForValue(value, referenceValues);
-      percentileFields[metric.outputField] = percentile;
-      weightedScore += percentile * metric.weight;
-      weightTotal += metric.weight;
-      availableMetricCount += 1;
-      if (referenceValues !== sportMetricValues)
-        fallbackMetrics.push(metric.field);
-    }
-
-    const limitations: string[] = [];
-    if (!useSportPercentiles)
-      limitations.push(
-        `sparse sport history (${sportSampleSize} ${sportGroup} rows); global metric percentiles used`,
-      );
-    if (missingMetrics.length)
-      limitations.push(
-        `missing metrics excluded: ${missingMetrics.join(", ")}`,
-      );
-    if (fallbackMetrics.length && useSportPercentiles)
-      limitations.push(
-        `global fallback for sparse metrics: ${[...new Set(fallbackMetrics)].join(", ")}`,
-      );
-    if (sportGroup === "snowboarding" || sportGroup === "skiing")
-      limitations.push(
-        "resort/lift-assisted vertical can reflect terrain exposure more than physiological load",
-      );
-
-    const sportNormalizedDemandScore =
-      weightTotal > 0
-        ? Number(((weightedScore / weightTotal) * 100).toFixed(3))
-        : 0;
-    return {
-      ...row,
-      sport_group: sportGroup,
-      sport_sample_size: sportSampleSize,
-      ...percentileFields,
-      sport_normalized_demand_score: sportNormalizedDemandScore,
-      demand_score: sportNormalizedDemandScore,
-      absolute_demand_score: Number(absoluteDemandScore(row).toFixed(3)),
-      available_metric_count: availableMetricCount,
-      limitations: limitations.join("; ") || "none",
-    };
-  });
-}
-
 export function runMathAnalysis(input: {
   inputResult: string;
   operation: MathAnalysisOperation;
@@ -526,7 +393,7 @@ export function runMathAnalysis(input: {
   rowsByResult: Map<string, AnalysisRow[]>;
 }): MathAnalysisResult {
   const resultName = safeResultName(input.outputName);
-  const rows = input.rowsByResult.get(input.inputResult);
+  const rows = resolveRowsByResult(input.rowsByResult, input.inputResult);
   if (!rows)
     return reject(
       "unknown_result",
@@ -543,9 +410,7 @@ export function runMathAnalysis(input: {
     );
 
   let output: AnalysisRow[] | string;
-  if (input.operation === "sportNormalizedDemand") {
-    output = sportNormalizedDemandRows(rows);
-  } else if (
+  if (
     input.operation === "score" ||
     input.operation === "customFormula" ||
     input.operation === "normalize"
@@ -594,16 +459,9 @@ export function runMathAnalysis(input: {
   const defaultOrder =
     input.operation === "score" || input.operation === "customFormula"
       ? [{ field: "score", direction: "desc" } as const]
-      : input.operation === "sportNormalizedDemand"
-        ? [
-            {
-              field: "sport_normalized_demand_score",
-              direction: "desc",
-            } as const,
-          ]
-        : input.operation === "normalize"
-          ? [{ field: "normalizedScore", direction: "desc" } as const]
-          : undefined;
+      : input.operation === "normalize"
+        ? [{ field: "normalizedScore", direction: "desc" } as const]
+        : undefined;
   const ordered = applyOrder(output, input.orderBy ?? defaultOrder);
   if (!ordered)
     return reject(

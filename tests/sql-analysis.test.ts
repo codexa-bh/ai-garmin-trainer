@@ -79,7 +79,10 @@ describe("read-only Garmin SQL analysis", () => {
     expect(description.examples.join(" ")).toContain(
       "unixepoch('now', '-365 days') * 1000",
     );
-    expect(description.examples.join(" ")).toContain("sportNormalizedDemand");
+    expect(description.examples.join(" ")).toContain("model-selected formula");
+    expect(description.examples.join(" ")).not.toContain(
+      "sportNormalizedDemand",
+    );
     expect(JSON.stringify(description)).not.toContain("access_token");
     expect(JSON.stringify(description)).not.toContain("session token");
     expect(description.forbiddenDataClasses.join(" ")).toContain(
