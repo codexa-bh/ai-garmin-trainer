@@ -16,6 +16,17 @@ import {
   runGeneratedGarminAnalysis,
   type GeneratedAnalysisEvidence,
 } from "@/lib/ai/generated-analysis";
+import {
+  describeGarminDatabase,
+  runReadOnlySql,
+  type AnalysisResult,
+  type AnalysisRow,
+  type GarminDatabaseDescription,
+} from "@/lib/ai/sql-analysis";
+import {
+  runMathAnalysis,
+  type MathAnalysisResult,
+} from "@/lib/ai/math-analysis";
 
 const garminIdSchema = z
   .string()
@@ -47,6 +58,9 @@ export type TrainerToolName =
   | "forceRefreshActivityDetail"
   | "getActivityDetailAvailability"
   | "getActivityDetailSlice"
+  | "describeGarminDatabase"
+  | "runReadOnlySql"
+  | "runMathAnalysis"
   | "runGeneratedGarminAnalysis";
 
 const emptyInputSchema = z.object({}).strict();
@@ -98,6 +112,30 @@ const generatedAnalysisDatasetSchema = z.enum([
   "rawPayloads",
 ]);
 
+const sqlResultNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .regex(/^[A-Za-z][A-Za-z0-9_-]*$/)
+  .optional();
+
+const mathFieldSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
+
+const mathOperationSchema = z.enum([
+  "score",
+  "normalize",
+  "aggregate",
+  "correlate",
+  "summarize",
+  "customFormula",
+]);
+
 export const trainerToolInputSchemas = {
   runGarminSync: emptyInputSchema,
   getSyncStatus: z
@@ -113,6 +151,43 @@ export const trainerToolInputSchemas = {
       garminId: garminIdSchema,
       pointOffset: z.number().int().min(0).default(0),
       pointLimit: z.number().int().min(1).max(120).default(60),
+    })
+    .strict(),
+  describeGarminDatabase: emptyInputSchema,
+  runReadOnlySql: z
+    .object({
+      sql: z.string().trim().min(8).max(6000),
+      purpose: z.string().trim().min(2).max(300).optional(),
+      maxRows: z.number().int().min(1).max(200).default(50),
+      resultName: sqlResultNameSchema,
+    })
+    .strict(),
+  runMathAnalysis: z
+    .object({
+      inputResult: z.string().trim().min(1).max(40),
+      operation: mathOperationSchema,
+      formula: z
+        .string()
+        .trim()
+        .min(1)
+        .max(800)
+        .regex(/^[A-Za-z0-9_\s+\-*/()]+$/)
+        .optional(),
+      groupBy: z.array(mathFieldSchema).min(1).max(4).optional(),
+      orderBy: z
+        .array(
+          z
+            .object({
+              field: mathFieldSchema,
+              direction: z.enum(["asc", "desc"]),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(4)
+        .optional(),
+      limit: z.number().int().min(1).max(100).default(10),
+      outputName: sqlResultNameSchema,
     })
     .strict(),
   runGeneratedGarminAnalysis: z
@@ -161,9 +236,24 @@ export const trainerToolDefinitions = {
       "Return a bounded normalized local detail slice for a known imported Garmin ID. Never request raw FIT, full streams, credentials, URLs, paths, or connector methods.",
     inputSchema: trainerToolInputSchemas.getActivityDetailSlice,
   }),
+  describeGarminDatabase: tool({
+    description:
+      "Describe the compact analytical SQLite schema available for local Garmin analysis: allowed normalized tables/views, columns, units, date coverage, safe joins, examples, and forbidden private/secret/auth/path surfaces. Does not dump private rows.",
+    inputSchema: trainerToolInputSchemas.describeGarminDatabase,
+  }),
+  runReadOnlySql: tool({
+    description:
+      "Run one bounded read-only SELECT/WITH SQLite query over allowlisted normalized Garmin analytical tables. Use for ad hoc rankings, counts, summaries, windows, safe joins, and exploratory local trainer analytics after schema inspection. Writes, PRAGMAs, comments, multi-statements, disallowed tables, raw payloads, auth/session/account data, paths, and secrets are rejected. Returns capped rows plus a same-turn result handle for math.",
+    inputSchema: trainerToolInputSchemas.runReadOnlySql,
+  }),
+  runMathAnalysis: tool({
+    description:
+      "Run bounded TypeScript math over a prior same-turn runReadOnlySql result handle. Supports scoring/custom formulas over numeric columns, normalization/ranking, simple aggregation/grouping, summaries, ordering, and top-N output. No scripts, DB/filesystem/network/process/environment/connector access.",
+    inputSchema: trainerToolInputSchemas.runMathAnalysis,
+  }),
   runGeneratedGarminAnalysis: tool({
     description:
-      'Run a server-sandboxed read-only Python script over explicit bounded Garmin datasets when the user asks for ad hoc ranking, counting, summarizing, or computation. The model must author the script and set RESULT to JSON with a generic kind, optional title/summary/metrics, optional rows, and limitations; do not rely on app-owned criteria or hidden default scripts. Choose needed datasets from activities, dailyHealth, activityDetails, and rawPayloads. Common activity fields include garminId, label, sport, date, startedAt, durationSec, distanceMeters, calories, avgHeartRate, maxHeartRate, steps, elevationGainMeters, elevationLossMeters, and trainingEffect. Read from bundle["datasets"], bundle["tables"], bundle["manifest"], bundle["athleteBaseline"], request, and requestedCount. Use activitySelection.includeText/excludeText only as a generic dataset subset constraint from the current user request. Safe imports such as math, statistics, datetime, json, itertools, functools, collections, and decimal are allowed. Common rejected cases include non-JSON RESULT, invalid result shape, rows over requestedCount, Garmin IDs outside the selected dataset, secret/path/SQL/connector-looking output, forbidden imports/names/access, and oversized stdout/result. Filesystem, network, process, environment, SQL, connector handles, credentials, URLs, raw FIT bytes, and unrestricted streams are forbidden.',
+      "Deprecated internal fallback only: server-sandboxed Python over bounded Garmin datasets. Do not choose for ordinary ad hoc analytics; use describeGarminDatabase, runReadOnlySql, and runMathAnalysis instead. This tool is disabled unless ENABLE_GENERATED_GARMIN_ANALYSIS=true.",
     inputSchema: trainerToolInputSchemas.runGeneratedGarminAnalysis,
   }),
 } satisfies Record<TrainerToolName, unknown>;
@@ -171,7 +261,7 @@ export const trainerToolDefinitions = {
 export const trainerTools = trainerToolDefinitions;
 
 export type TrainerToolStep = {
-  index: 1 | 2 | 3;
+  index: 1 | 2 | 3 | 4;
   tool: TrainerToolName;
   status: "succeeded" | "rejected" | "failed";
   summary: string;
@@ -188,6 +278,12 @@ export type TrainerToolCall = {
   toolName: string;
   input: unknown;
 };
+
+const sameTurnSqlResults = new Map<string, AnalysisRow[]>();
+
+export function clearTrainerAnalysisResultHandles(): void {
+  sameTurnSqlResults.clear();
+}
 
 function boundedText(value: string, max = 500): string {
   const compact = value.replace(/\s+/g, " ").trim();
@@ -259,7 +355,7 @@ export function validateTrainerToolCall(
 }
 
 export async function executeTrainerTool(input: {
-  index: 1 | 2 | 3;
+  index: 1 | 2 | 3 | 4;
   toolName: TrainerToolName;
   args: unknown;
 }): Promise<TrainerToolStep> {
@@ -348,7 +444,77 @@ export async function executeTrainerTool(input: {
           result,
         };
       }
+      case "describeGarminDatabase": {
+        const result = describeGarminDatabase();
+        return {
+          index: input.index,
+          tool: input.toolName,
+          status: "succeeded",
+          summary: `Described ${result.tables.length} allowlisted analytical tables; forbidden auth/session/account/verification/secrets/path surfaces excluded.`,
+          privacy: result.privacy,
+          result,
+        };
+      }
+      case "runReadOnlySql": {
+        const result = runReadOnlySql(
+          input.args as Parameters<typeof runReadOnlySql>[0],
+        );
+        if (result.status === "succeeded")
+          sameTurnSqlResults.set(result.resultName, result.rows);
+        return {
+          index: input.index,
+          tool: input.toolName,
+          status: result.status,
+          summary:
+            result.status === "succeeded"
+              ? `Read-only SQL ${result.resultName}; returned ${result.returnedRows}/${result.rowCount} rows${result.truncated ? "; truncated" : ""}.`
+              : `Read-only SQL rejected: ${result.reason ?? result.status}.`,
+          privacy: result.privacy,
+          reason: result.status === "succeeded" ? undefined : result.reason,
+          failureMessage:
+            result.status === "succeeded" ? undefined : result.message,
+          result,
+        };
+      }
+      case "runMathAnalysis": {
+        const args = input.args as Omit<
+          Parameters<typeof runMathAnalysis>[0],
+          "rowsByResult"
+        >;
+        const result = runMathAnalysis({
+          ...args,
+          rowsByResult: sameTurnSqlResults,
+        });
+        if (result.status === "succeeded")
+          sameTurnSqlResults.set(result.resultName, result.rows);
+        return {
+          index: input.index,
+          tool: input.toolName,
+          status: result.status,
+          summary:
+            result.status === "succeeded"
+              ? `Math ${result.operation} ${result.resultName}; returned ${result.returnedRows}/${result.rowCount} rows${result.truncated ? "; truncated" : ""}.`
+              : `Math analysis rejected: ${result.reason ?? result.status}.`,
+          privacy: result.privacy,
+          reason: result.status === "succeeded" ? undefined : result.reason,
+          failureMessage:
+            result.status === "succeeded" ? undefined : result.message,
+          result,
+        };
+      }
       case "runGeneratedGarminAnalysis": {
+        if (process.env.ENABLE_GENERATED_GARMIN_ANALYSIS !== "true") {
+          return {
+            index: input.index,
+            tool: input.toolName,
+            status: "rejected",
+            summary:
+              "Generated Garmin Python analysis is disabled by default; use read-only SQL and bounded math tools.",
+            privacy:
+              "No generated Python ran; local analytics should use guarded SQL/math over normalized SQLite data.",
+            reason: "generated_analysis_disabled",
+          };
+        }
         const result = await runGeneratedGarminAnalysis(
           input.args as Parameters<typeof runGeneratedGarminAnalysis>[0],
         );
@@ -464,6 +630,37 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
           `Found one local match: ${match.date} ${match.label} (Garmin ID ${match.garminId}, ${match.labelSource} label; sport ${match.sport}, distance ${match.distanceMeters ?? "n/a"} m, duration ${match.durationSec ?? "n/a"} s, elevation gain ${match.elevationGainMeters ?? "n/a"} m, avg HR ${match.avgHeartRate ?? "n/a"} bpm).`,
         );
       }
+    }
+    if (step.tool === "describeGarminDatabase" && step.result) {
+      const evidence = step.result as GarminDatabaseDescription;
+      lines.push(
+        `Analytical tables: ${evidence.tables.map((table) => `${table.name} (${table.rowCount})`).join(", ")}.`,
+      );
+      lines.push(
+        `Forbidden data classes: ${evidence.forbiddenDataClasses.join("; ")}.`,
+      );
+    }
+    if (step.tool === "runReadOnlySql" && step.result) {
+      const evidence = step.result as AnalysisResult;
+      if (evidence.status === "succeeded") {
+        lines.push(
+          `SQL result handle ${evidence.resultName}: returned ${evidence.returnedRows}/${evidence.rowCount} rows${evidence.truncated ? " with truncation" : ""}.`,
+        );
+        for (const [index, row] of evidence.rows.slice(0, 20).entries())
+          lines.push(`${index + 1}. ${JSON.stringify(row).slice(0, 500)}`);
+      } else if (evidence.message)
+        lines.push(`Bounded SQL detail: ${evidence.message}`);
+    }
+    if (step.tool === "runMathAnalysis" && step.result) {
+      const evidence = step.result as MathAnalysisResult;
+      if (evidence.status === "succeeded") {
+        lines.push(
+          `Math result handle ${evidence.resultName}: ${evidence.operation} over ${evidence.inputResult}, returned ${evidence.returnedRows}/${evidence.rowCount} rows${evidence.truncated ? " with truncation" : ""}.`,
+        );
+        for (const [index, row] of evidence.rows.slice(0, 20).entries())
+          lines.push(`${index + 1}. ${JSON.stringify(row).slice(0, 500)}`);
+      } else if (evidence.message)
+        lines.push(`Bounded math detail: ${evidence.message}`);
     }
     if (step.tool === "runGeneratedGarminAnalysis" && step.result) {
       const evidence = step.result as GeneratedAnalysisEvidence;

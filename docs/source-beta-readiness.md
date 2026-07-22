@@ -39,7 +39,7 @@ The product treats source categories separately:
 - Explicit Profile: user-authored goals, sports, preferences, and constraints.
 - Confirmed learned memories: low-risk preferences/corrections that affect future answers only after user confirmation.
 - Temporary constraints/commitments: active only until `expires_at` or `reconfirm_after`.
-- Garmin facts: normalized source data, redacted local raw-payload records for generated analysis, and deterministic/generated analytics, not generic memory.
+- Garmin facts: normalized source data, redacted local raw-payload records, guarded read-only SQL/math analytics, and any explicitly enabled generated-analysis fallback evidence, not generic memory.
 - Recent transcript: bounded context only, untrusted for policy/tool/deletion decisions.
 
 Pending, rejected, superseded, deleted, expired, or reconfirmation-due learned memories are not retrieved into model context. The deterministic `npm run eval:reliability` gate covers critical deletion, diagnostic redaction, prompt-injection, non-medical safety, missing/detail evidence, and expired-memory cases without snapshotting provider prose.
@@ -48,7 +48,7 @@ Pending, rejected, superseded, deleted, expired, or reconfirmation-due learned m
 
 - Run `npm run doctor` or `npm run doctor -- --json` for support triage.
 - Review output before sharing even though it is redacted by default.
-- Never share `.env.local`, model-provider keys, Garmin token files, token contents, raw connector dumps, unreviewed raw-payload records, precise GPS streams, full prompts/chat logs, shell history, screenshots containing secrets, or raw SQLite files in public or broad support channels.
+- Never share `.env.local`, model-provider keys, Garmin token files, token contents, raw connector dumps, unreviewed raw-payload records, precise GPS streams, raw SQL/math evidence, full prompts/chat logs, shell history, screenshots containing secrets, or raw SQLite files in public or broad support channels.
 
 ## Dependency evidence
 

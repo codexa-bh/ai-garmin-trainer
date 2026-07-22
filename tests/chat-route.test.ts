@@ -107,6 +107,45 @@ const verifyActivityReference = vi.fn(
   },
 );
 
+const describeGarminDatabase = vi.fn(() => ({
+  tool: "describeGarminDatabase",
+  status: "succeeded",
+  tables: [{ name: "activity", rowCount: 301, columns: [] }],
+  forbiddenDataClasses: ["auth/session/account/verification rows"],
+  examples: [],
+  limits: {},
+  privacy: "schema privacy",
+}));
+const runReadOnlySql = vi.fn((input: { resultName?: string }) => ({
+  status: "succeeded",
+  resultName: input.resultName ?? "sql_rows",
+  columns: [{ name: "garmin_id" }, { name: "name" }],
+  rows: [
+    { garmin_id: "latest-999", name: "Newest unrelated", duration_sec: 1800 },
+    {
+      garmin_id: "source-1",
+      name: "Source climb — Špik",
+      duration_sec: 7200,
+      elevation_gain_meters: 1300,
+    },
+  ],
+  rowCount: 2,
+  returnedRows: 2,
+  truncated: false,
+  privacy: "sql privacy",
+}));
+const runMathAnalysis = vi.fn((input: { inputResult: string }) => ({
+  status: "succeeded",
+  resultName: "demand_scores",
+  inputResult: input.inputResult,
+  operation: "score",
+  rows: [{ garmin_id: "source-1", name: "Source climb — Špik", score: 100 }],
+  rowCount: 1,
+  returnedRows: 1,
+  truncated: false,
+  privacy: "math privacy",
+}));
+
 const generateText = vi.fn(
   async (options: { prompt: string; system: string; toolChoice?: string }) => {
     if (options.toolChoice === "none") {
@@ -116,19 +155,18 @@ const generateText = vi.fn(
     }
     if (
       options.system.includes("Evidence step 1:") &&
+      !options.system.includes("runReadOnlySql") &&
       options.prompt.includes("never did")
     ) {
       return {
         text: "",
         toolCalls: [
           {
-            toolName: "runGeneratedGarminAnalysis",
+            toolName: "runReadOnlySql",
             input: {
-              request: options.prompt,
-              datasets: ["activities"],
-              requestedCount: 5,
-              script:
-                "activities = bundle['datasets']['activities']\nRESULT = {'kind': 'ranking', 'rows': [], 'limitations': []}",
+              sql: "select garmin_id, name, duration_sec from activity order by duration_sec desc",
+              resultName: "verified_activity_rows",
+              maxRows: 5,
             },
           },
         ],
@@ -144,17 +182,34 @@ const generateText = vi.fn(
         text: "Garmin sync complete; the local normalized store was updated.",
       };
     }
-    if (
-      options.system.includes("Evidence step 1: runGeneratedGarminAnalysis")
-    ) {
+    if (options.system.includes("Evidence step 1: runMathAnalysis")) {
+      return {
+        text: "Source climb — Špik stands out in the bounded SQL/math evidence.",
+      };
+    }
+    if (options.system.includes("Evidence step 1: runReadOnlySql")) {
       if (options.prompt.includes("latest activity")) {
         return {
-          text: "The latest imported local activity is latest-999, based on generated dataset-script evidence.",
+          text: "The latest imported local activity is latest-999, based on read-only SQL evidence.",
         };
       }
-      return {
-        text: "Source climb — Špik stands out in the generated local dataset-script evidence.",
-      };
+      if (options.prompt.includes("most demanding")) {
+        return {
+          toolCalls: [
+            {
+              toolName: "runMathAnalysis",
+              input: {
+                inputResult: "demand_rows",
+                operation: "score",
+                formula: "duration_sec + elevation_gain_meters * 2",
+                orderBy: [{ field: "score", direction: "desc" }],
+                limit: 10,
+              },
+            },
+          ],
+        };
+      }
+      return { text: "provider final" };
     }
     if (options.system.includes("Evidence step 1: verifyActivityReference")) {
       if (options.system.includes("No matching normalized local activity")) {
@@ -199,13 +254,11 @@ const generateText = vi.fn(
       return {
         toolCalls: [
           {
-            toolName: "runGeneratedGarminAnalysis",
+            toolName: "runReadOnlySql",
             input: {
-              request: prompt,
-              datasets: ["activities", "activityDetails"],
-              requestedCount: 3,
-              script:
-                "RESULT = {'kind': 'ranking', 'rows': [{'rank': 1, 'garminId': '111111', 'value': 'selected'}, {'rank': 2, 'garminId': '222222', 'value': 'selected'}, {'rank': 3, 'garminId': '333333', 'value': 'selected'}], 'limitations': []}",
+              sql: "select garmin_id, name, duration_sec from activity where garmin_id in ('111111','222222','333333')",
+              resultName: "comparison_rows",
+              maxRows: 3,
             },
           },
         ],
@@ -215,13 +268,11 @@ const generateText = vi.fn(
       return {
         toolCalls: [
           {
-            toolName: "runGeneratedGarminAnalysis",
+            toolName: "runReadOnlySql",
             input: {
-              request: prompt,
-              datasets: ["activities"],
-              requestedCount: 10,
-              script:
-                "activities = bundle['datasets']['activities']\nRESULT = {'kind': 'ranking', 'title': 'Generated ranking', 'rows': [], 'limitations': []}",
+              sql: "select garmin_id, name, duration_sec, elevation_gain_meters from activity order by started_at desc",
+              resultName: "demand_rows",
+              maxRows: 50,
             },
           },
         ],
@@ -261,13 +312,11 @@ const generateText = vi.fn(
       return {
         toolCalls: [
           {
-            toolName: "runGeneratedGarminAnalysis",
+            toolName: "runReadOnlySql",
             input: {
-              request: prompt,
-              datasets: ["activities"],
-              requestedCount: 1,
-              script:
-                "RESULT = {'kind': 'ranking', 'rows': [{'rank': 1, 'garminId': 'latest-999', 'value': 'latest'}], 'limitations': []}",
+              sql: "select garmin_id, name, started_at from activity order by started_at desc",
+              resultName: "latest_activity",
+              maxRows: 1,
             },
           },
         ],
@@ -334,6 +383,15 @@ vi.mock("ai", () => ({
 
 vi.mock("@/lib/ai/providers", () => ({
   selectedModel: () => ({ model: "mock-model" }),
+}));
+
+vi.mock("@/lib/ai/sql-analysis", () => ({
+  describeGarminDatabase,
+  runReadOnlySql,
+}));
+
+vi.mock("@/lib/ai/math-analysis", () => ({
+  runMathAnalysis,
 }));
 
 vi.mock("@/lib/garmin/importer", () => ({
@@ -555,6 +613,9 @@ describe("chat route LLM tool orchestration", () => {
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
     runGeneratedGarminAnalysis.mockClear();
+    describeGarminDatabase.mockClear();
+    runReadOnlySql.mockClear();
+    runMathAnalysis.mockClear();
     verifyActivityReference.mockClear();
   });
 
@@ -594,32 +655,32 @@ describe("chat route LLM tool orchestration", () => {
     );
   });
 
-  it("routes explicit activity ID comparisons through generated dataset scripts", async () => {
+  it("routes explicit activity ID comparisons through read-only SQL", async () => {
     const payload = await postChat("Compare 111111 222222 333333");
 
-    expect(payload.toolEvidence?.tool).toBe("runGeneratedGarminAnalysis");
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledWith(
+    expect(payload.toolEvidence?.tool).toBe("runReadOnlySql");
+    expect(runReadOnlySql).toHaveBeenCalledWith(
       expect.objectContaining({
-        datasets: ["activities", "activityDetails"],
-        requestedCount: 3,
+        resultName: "comparison_rows",
+        maxRows: 3,
       }),
     );
+    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
   });
 
-  it("routes demanding activity rankings through generated dataset scripts", async () => {
+  it("routes demanding activity rankings through read-only SQL and bounded math", async () => {
     const payload = await postChat(
       "Which are my most demanding activities by elevation and distance?",
     );
 
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledWith(
-      expect.objectContaining({
-        datasets: ["activities"],
-        requestedCount: 10,
-      }),
+    expect(runReadOnlySql).toHaveBeenCalledWith(
+      expect.objectContaining({ resultName: "demand_rows", maxRows: 50 }),
     );
+    expect(runMathAnalysis).toHaveBeenCalledOnce();
+    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
     expect(payload.assistant.content).toContain("Source climb — Špik");
     expect(payload.assistant.content).not.toContain("Provider invented");
-    expect(payload.toolEvidence?.tool).toBe("runGeneratedGarminAnalysis");
+    expect(payload.toolEvidence?.tool).toBe("runMathAnalysis");
   });
 
   it("performs named lookup without arbitrary latest fallback", async () => {
@@ -648,9 +709,9 @@ describe("chat route LLM tool orchestration", () => {
     expect(ambiguous.assistant.content).toContain("dup-2");
   });
 
-  it("supports latest analysis only when the planner writes a dataset script", async () => {
+  it("supports latest analysis only when the planner writes a bounded SQL query", async () => {
     const latest = await postChat("Tell me about my latest activity");
-    expect(latest.toolEvidence?.tool).toBe("runGeneratedGarminAnalysis");
+    expect(latest.toolEvidence?.tool).toBe("runReadOnlySql");
     expect(latest.assistant.content).toContain("latest-999");
 
     messages = [];
@@ -708,10 +769,10 @@ describe("chat route LLM tool orchestration", () => {
       suppliedName: "Snežnik",
       date: "2025-10-18",
     });
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledOnce();
+    expect(runReadOnlySql).not.toHaveBeenCalled();
+    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
     expect(payload.toolSteps?.map((step) => step.tool)).toEqual([
       "verifyActivityReference",
-      "runGeneratedGarminAnalysis",
     ]);
     const secondCall = generateText.mock.calls[1][0] as { system: string };
     expect(secondCall.system).toContain("server-authored prior tool evidence");

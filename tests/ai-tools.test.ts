@@ -17,6 +17,13 @@ vi.mock("@/lib/garmin/importer", () => ({
 vi.mock("@/lib/ai/generated-analysis", () => ({
   runGeneratedGarminAnalysis: vi.fn(),
 }));
+vi.mock("@/lib/ai/sql-analysis", () => ({
+  describeGarminDatabase: vi.fn(),
+  runReadOnlySql: vi.fn(),
+}));
+vi.mock("@/lib/ai/math-analysis", () => ({
+  runMathAnalysis: vi.fn(),
+}));
 
 describe("trainer tool registry schemas", async () => {
   const {
@@ -25,15 +32,18 @@ describe("trainer tool registry schemas", async () => {
     validateTrainerToolCall,
   } = await import("../src/lib/ai/tools");
 
-  it("exposes generic dataset-script analysis plus data plumbing only", () => {
+  it("exposes guarded SQL/math analysis plus data plumbing", () => {
     expect(Object.keys(trainerToolDefinitions).sort()).toEqual(
       [
         "forceRefreshActivityDetail",
         "getActivityDetailAvailability",
+        "describeGarminDatabase",
         "getActivityDetailSlice",
         "getSyncStatus",
         "runGarminSync",
         "runGeneratedGarminAnalysis",
+        "runMathAnalysis",
+        "runReadOnlySql",
         "verifyActivityReference",
       ].sort(),
     );
@@ -46,7 +56,7 @@ describe("trainer tool registry schemas", async () => {
     ).toBe(true);
   });
 
-  it("accepts bounded generic dataset-script inputs", () => {
+  it("accepts bounded SQL/math and gated generated-analysis inputs", () => {
     expect(
       trainerToolInputSchemas.getActivityDetailSlice.safeParse({
         garminId: "123456",
@@ -55,14 +65,26 @@ describe("trainer tool registry schemas", async () => {
       }).success,
     ).toBe(true);
     expect(
+      trainerToolInputSchemas.runReadOnlySql.safeParse({
+        sql: "select garmin_id, duration_sec from activity order by duration_sec desc",
+        maxRows: 10,
+        resultName: "top_activities",
+      }).success,
+    ).toBe(true);
+    expect(
+      trainerToolInputSchemas.runMathAnalysis.safeParse({
+        inputResult: "top_activities",
+        operation: "score",
+        formula: "duration_sec + elevation_gain_meters * 2",
+        orderBy: [{ field: "score", direction: "desc" }],
+        limit: 10,
+      }).success,
+    ).toBe(true);
+    expect(
       trainerToolInputSchemas.runGeneratedGarminAnalysis.safeParse({
         request: "top 10 longest activities",
         datasets: ["activities", "dailyHealth"],
         requestedCount: 10,
-        activitySelection: {
-          includeText: ["hiking"],
-          excludeText: ["snowboarding"],
-        },
         script:
           "activities = bundle['datasets']['activities']\nRESULT = {'kind': 'ranking', 'rows': [], 'limitations': []}",
       }).success,
@@ -79,6 +101,18 @@ describe("trainer tool registry schemas", async () => {
     expect(
       validateTrainerToolCall({ toolName: "deleteEverything", input: {} }),
     ).toEqual({ ok: false, reason: "unknown_tool" });
+    expect(
+      validateTrainerToolCall({
+        toolName: "runReadOnlySql",
+        input: { sql: "x" },
+      }),
+    ).toEqual({ ok: false, reason: "malformed_input" });
+    expect(
+      validateTrainerToolCall({
+        toolName: "runMathAnalysis",
+        input: { inputResult: "x", operation: "score", formula: "process.env" },
+      }),
+    ).toEqual({ ok: false, reason: "malformed_input" });
     expect(
       validateTrainerToolCall({
         toolName: "verifyActivityReference",

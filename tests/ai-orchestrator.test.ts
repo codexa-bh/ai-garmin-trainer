@@ -1,56 +1,60 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GeneratedAnalysisEvidence } from "../src/lib/ai/generated-analysis";
 
 const generateText = vi.fn();
 const runGarminSync = vi.fn(async () => ({
   status: "completed",
   detail: "ok",
 }));
-const generatedAnalysisEvidence: GeneratedAnalysisEvidence = {
-  tool: "generatedGarminAnalysis" as const,
-  status: "succeeded" as const,
-  requestedCount: 10,
-  scriptHash: "abcdef1234567890",
-  manifest: {
-    generatedAt: "2026-07-21T12:00:00.000Z",
-    request: "top 10 longest activities",
-    selectedDatasets: ["activities"],
-    datasets: [{ name: "activities", rowCount: 12, description: "" }],
-    tables: [{ name: "activities", rowCount: 12 }],
-    rawPayloads: [],
-    limits: {
-      maxRowsPerTable: 1000,
-      maxRawPayloads: 100,
-      maxRawPayloadBytes: 200000,
-      maxOutputBytes: 12000,
+const describeGarminDatabase = vi.fn(() => ({
+  tool: "describeGarminDatabase",
+  status: "succeeded",
+  tables: [{ name: "activity", rowCount: 12, columns: [] }],
+  forbiddenDataClasses: ["auth/session/account/verification rows"],
+  examples: [],
+  limits: {},
+  privacy: "schema privacy",
+}));
+const runReadOnlySql = vi.fn(() => ({
+  status: "succeeded",
+  resultName: "activity_rows",
+  columns: [{ name: "garmin_id" }, { name: "duration_sec" }],
+  rows: [
+    {
+      garmin_id: "activity-1",
+      name: "Hill run",
+      duration_sec: 3600,
+      elevation_gain_meters: 450,
     },
-    scriptContract: {
-      resultVariable: "RESULT" as const,
-      allowedImports: ["math", "statistics"],
-      forbiddenAccess: ["filesystem"],
+    {
+      garmin_id: "activity-2",
+      name: "Long ride",
+      duration_sec: 7200,
+      elevation_gain_meters: 600,
     },
-  },
-  result: {
-    kind: "ranking",
-    title: "Longest activities",
-    requestedCount: 10,
-    returnedCount: 10,
-    rows: Array.from({ length: 10 }, (_, index) => ({
+  ],
+  rowCount: 2,
+  returnedRows: 2,
+  truncated: false,
+  privacy: "sql privacy",
+}));
+const runMathAnalysis = vi.fn(({ rowsByResult, inputResult }) => ({
+  status: "succeeded",
+  resultName: "demand_scores",
+  inputResult,
+  operation: "score",
+  rows: (rowsByResult.get(inputResult) ?? []).map(
+    (row: Record<string, unknown>, index: number) => ({
+      ...row,
       rank: index + 1,
-      garminId: `generated-${index + 1}`,
-      label: `Generated activity ${index + 1}`,
-      date: "2026-07-01",
-      sport: "running",
-      value: 100 - index,
-      units: "minutes",
-    })),
-    limitations: [],
-  },
-  warnings: [],
-  privacy:
-    "Generated Python ran locally against explicit read-only Garmin datasets.",
-};
-const runGeneratedGarminAnalysis = vi.fn(async () => generatedAnalysisEvidence);
+      score: index === 0 ? 10 : 9,
+    }),
+  ),
+  rowCount: 2,
+  returnedRows: 2,
+  truncated: false,
+  privacy: "math privacy",
+}));
+const runGeneratedGarminAnalysis = vi.fn();
 
 vi.mock("ai", () => ({
   generateText,
@@ -62,6 +66,13 @@ vi.mock("@/lib/garmin/importer", () => ({
 }));
 vi.mock("@/lib/ai/generated-analysis", () => ({
   runGeneratedGarminAnalysis,
+}));
+vi.mock("@/lib/ai/sql-analysis", () => ({
+  describeGarminDatabase,
+  runReadOnlySql,
+}));
+vi.mock("@/lib/ai/math-analysis", () => ({
+  runMathAnalysis,
 }));
 vi.mock("@/lib/db/repository", () => ({
   activityDetailCoverage: vi.fn(),
@@ -80,8 +91,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
     generateText.mockReset();
     runGarminSync.mockReset();
     runGarminSync.mockResolvedValue({ status: "completed", detail: "ok" });
+    describeGarminDatabase.mockClear();
+    runReadOnlySql.mockClear();
+    runMathAnalysis.mockClear();
     runGeneratedGarminAnalysis.mockReset();
-    runGeneratedGarminAnalysis.mockResolvedValue(generatedAnalysisEvidence);
   });
 
   it("rejects multiple provider tool calls without executing any", async () => {
@@ -120,8 +133,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
     generateText.mockResolvedValueOnce({
       toolCalls: [
         {
-          toolName: "runGeneratedGarminAnalysis",
-          input: { request: "rank activities", criterion: "demand_score" },
+          toolName: "runMathAnalysis",
+          input: {
+            inputResult: "missing",
+            operation: "score",
+            formula: "process.env",
+          },
         },
       ],
     });
@@ -133,96 +150,97 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(malformed.toolSteps[0]?.reason).toBe("malformed_input");
   });
 
-  it("uses generated dataset scripts for ad hoc rankings", async () => {
-    const script = `
-activities = bundle["datasets"]["activities"]
-ranked = sorted(activities, key=lambda item: item.get("durationSec") or 0, reverse=True)[:requestedCount]
-RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": index + 1, "garminId": row["garminId"], "value": row.get("durationSec"), "units": "s"} for index, row in enumerate(ranked)], "limitations": []}
-`;
+  it("uses schema, read-only SQL, and bounded math for ad hoc rankings", async () => {
     generateText
+      .mockResolvedValueOnce({
+        toolCalls: [{ toolName: "describeGarminDatabase", input: {} }],
+      })
       .mockResolvedValueOnce({
         toolCalls: [
           {
-            toolName: "runGeneratedGarminAnalysis",
+            toolName: "runReadOnlySql",
             input: {
-              request: "top 10 longest activities",
-              datasets: ["activities"],
-              requestedCount: 10,
-              script,
+              sql: "select garmin_id, name, duration_sec, elevation_gain_meters from activity order by started_at desc",
+              maxRows: 50,
+              resultName: "activity_rows",
             },
           },
         ],
       })
       .mockResolvedValueOnce({
-        text: "Using a local generated script, I found ten imported activities led by Generated activity 1.",
+        toolCalls: [
+          {
+            toolName: "runMathAnalysis",
+            input: {
+              inputResult: "activity_rows",
+              operation: "score",
+              formula: "duration_sec + elevation_gain_meters * 2",
+              orderBy: [{ field: "score", direction: "desc" }],
+              limit: 10,
+              outputName: "demand_scores",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "The most demanding local activities are led by the long ride, using SQL rows and a bounded score.",
       });
 
     const result = await orchestrateTrainerChat({
       model: "mock",
       system: "system",
-      userRequest: "top 10 longest activities",
+      userRequest: "top 10 most demanding activities in the last 365 days",
     });
 
     expect(generateText.mock.calls[0][0].system).toContain(
-      "LLM-authored Python script over explicit named datasets",
+      "guarded SQL/math by default",
     );
     expect(generateText.mock.calls[0][0].system).not.toContain(
-      "sport_aware_demand_score",
+      "LLM-authored Python script over explicit named datasets",
     );
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledWith({
-      request: "top 10 longest activities",
-      datasets: ["activities"],
-      requestedCount: 10,
-      script: script.trim(),
+    expect(describeGarminDatabase).toHaveBeenCalledTimes(1);
+    expect(runReadOnlySql).toHaveBeenCalledWith({
+      sql: "select garmin_id, name, duration_sec, elevation_gain_meters from activity order by started_at desc",
+      maxRows: 50,
+      resultName: "activity_rows",
     });
-    expect(result.grounding?.tool).toBe("runGeneratedGarminAnalysis");
-    expect(result.toolSteps[0]?.summary).toContain("dataset script");
-    expect(result.text).toContain("generated script");
+    expect(runMathAnalysis).toHaveBeenCalledTimes(1);
+    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
+    expect(result.grounding?.tool).toBe("runMathAnalysis");
+    expect(result.toolSteps).toHaveLength(3);
+    expect(result.text).toContain("SQL rows");
   });
 
-  it("passes generic activity selection through planner tool calls", async () => {
+  it("answers simpler analytics with SQL only", async () => {
     generateText
       .mockResolvedValueOnce({
         toolCalls: [
           {
-            toolName: "runGeneratedGarminAnalysis",
+            toolName: "runReadOnlySql",
             input: {
-              request: "count hiking activities only",
-              datasets: ["activities"],
-              requestedCount: 5,
-              activitySelection: { includeText: ["hiking"] },
-              script:
-                "activities = bundle['datasets']['activities']\nRESULT = {'kind': 'summary', 'summary': str(len(activities)), 'rows': [], 'limitations': []}",
+              sql: "select sport, count(*) as activities from activity group by sport",
+              resultName: "sport_counts",
             },
           },
         ],
       })
       .mockResolvedValueOnce({
-        text: "The generated script counted the hiking-only local bundle.",
+        text: "Your local activities are grouped by sport from SQL evidence.",
       });
 
     const result = await orchestrateTrainerChat({
       model: "mock",
       system: "system",
-      userRequest: "count hiking activities only",
+      userRequest: "count activities by sport",
     });
 
-    expect(generateText.mock.calls[0][0].system).toContain(
-      "activitySelection.includeText/excludeText",
-    );
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledWith({
-      request: "count hiking activities only",
-      datasets: ["activities"],
-      requestedCount: 5,
-      activitySelection: { includeText: ["hiking"] },
-      script:
-        "activities = bundle['datasets']['activities']\nRESULT = {'kind': 'summary', 'summary': str(len(activities)), 'rows': [], 'limitations': []}",
-    });
-    expect(result.grounding?.tool).toBe("runGeneratedGarminAnalysis");
-    expect(result.text).toContain("hiking-only");
+    expect(runReadOnlySql).toHaveBeenCalledTimes(1);
+    expect(runMathAnalysis).not.toHaveBeenCalled();
+    expect(result.grounding?.tool).toBe("runReadOnlySql");
+    expect(result.text).toContain("SQL evidence");
   });
 
-  it("prevents duplicate side-effect tools across the two-call budget", async () => {
+  it("prevents duplicate side-effect tools across the tool budget", async () => {
     generateText
       .mockResolvedValueOnce({
         toolCalls: [{ toolName: "runGarminSync", input: {} }],
@@ -241,228 +259,16 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
     expect(result.toolSteps.at(-1)?.reason).toBe("duplicate_side_effect");
   });
 
-  it("lets the model choose one corrected generated-analysis call after correction feedback", async () => {
-    const failedEvidence = {
-      ...generatedAnalysisEvidence,
-      status: "failed" as const,
-      reason: "runtime_error",
-      message: "NameError: name 'durationSec' is not defined",
-      correctionAllowed: true,
-      correctionHint:
-        "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
-      result: undefined,
-    };
-    runGeneratedGarminAnalysis
-      .mockResolvedValueOnce(failedEvidence)
-      .mockResolvedValueOnce(generatedAnalysisEvidence);
-    generateText
-      .mockResolvedValueOnce({
-        toolCalls: [
-          {
-            toolName: "runGeneratedGarminAnalysis",
-            input: {
-              request: "top 10 longest activities",
-              datasets: ["activities"],
-              requestedCount: 10,
-              script: "RESULT = durationSec  # missing field reference",
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        toolCalls: [
-          {
-            toolName: "runGeneratedGarminAnalysis",
-            input: {
-              request: "top 10 longest activities",
-              datasets: ["activities"],
-              requestedCount: 10,
-              script:
-                "activities = bundle['datasets']['activities']\nRESULT = {'kind': 'ranking', 'rows': [], 'limitations': []}",
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        text: "The corrected local generated script completed and produced the ranking.",
-      });
-
-    const result = await orchestrateTrainerChat({
-      model: "mock",
-      system: "system",
-      userRequest: "top 10 longest activities",
-    });
-
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(2);
-    expect(generateText.mock.calls[1][0].system).toContain("runtime_error");
-    expect(generateText.mock.calls[1][0].system).toContain(
-      "NameError: name 'durationSec' is not defined",
-    );
-    expect(generateText.mock.calls[1][0].system).toContain(
-      "Common activities fields include garminId",
-    );
-    expect(generateText.mock.calls[1][0].system).toContain(
-      "you may either select one fresh corrected runGeneratedGarminAnalysis call",
-    );
-    expect(result.toolSteps).toHaveLength(2);
-    expect(result.toolSteps[0]).toMatchObject({
-      status: "failed",
-      reason: "runtime_error",
-      correctionAllowed: true,
-    });
-    expect(result.text).toContain("corrected local generated script");
-  });
-
-  it("lets the model choose limitation prose after repairable generated-analysis failure", async () => {
-    runGeneratedGarminAnalysis.mockResolvedValueOnce({
-      ...generatedAnalysisEvidence,
-      status: "failed" as const,
-      reason: "runtime_error",
-      message: "division by zero",
-      correctionAllowed: true,
-      correctionHint:
-        "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
-      result: undefined,
-    });
-    generateText
-      .mockResolvedValueOnce({
-        toolCalls: [
-          {
-            toolName: "runGeneratedGarminAnalysis",
-            input: {
-              request: "rank activities",
-              datasets: ["activities"],
-              script: "RESULT = 1 / 0  # force runtime error",
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        text: "I couldn't complete that generated analysis from the local data, but you can try a narrower metric.",
-      });
-
-    const result = await orchestrateTrainerChat({
-      model: "mock",
-      system: "system",
-      userRequest: "rank activities",
-    });
-
-    expect(generateText).toHaveBeenCalledTimes(2);
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(1);
-    expect(result.toolSteps).toHaveLength(1);
-    expect(result.text).toContain("try a narrower metric");
-    expect(result.text).not.toContain("Tool step 1");
-  });
-
-  it("stops after two generated-analysis correction attempts and renders a concise limitation", async () => {
-    runGeneratedGarminAnalysis
-      .mockResolvedValueOnce({
-        ...generatedAnalysisEvidence,
-        status: "failed" as const,
-        reason: "runtime_error",
-        message: "division by zero",
-        correctionAllowed: true,
-        correctionHint:
-          "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
-        result: undefined,
-      })
-      .mockResolvedValueOnce({
-        ...generatedAnalysisEvidence,
-        status: "rejected" as const,
-        reason: "unsupported_import",
-        message:
-          "Generated Python attempted to import unsupported module pandas. Use only allowed imports: math, statistics.",
-        correctionAllowed: true,
-        correctionHint:
-          "Remove unsupported third-party imports and use only the listed standard-library imports; do not request new packages or unsafe access.",
-        scriptHash: "123456abcdef7890",
-        result: undefined,
-      })
-      .mockResolvedValueOnce({
-        ...generatedAnalysisEvidence,
-        status: "rejected" as const,
-        reason: "invalid_result_shape",
-        message:
-          "Generated Python RESULT did not match the bounded Garmin analysis result contract.",
-        correctionAllowed: true,
-        correctionHint:
-          "Set RESULT to an object with a nonempty kind, rows no larger than requestedCount, limitations, and only Garmin IDs from the provided activities dataset.",
-        scriptHash: "7890abcdef123456",
-        result: undefined,
-      });
-    generateText
-      .mockResolvedValueOnce({
-        toolCalls: [
-          {
-            toolName: "runGeneratedGarminAnalysis",
-            input: {
-              request: "rank activities",
-              datasets: ["activities"],
-              script: "RESULT = 1 / 0  # force runtime error",
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        toolCalls: [
-          {
-            toolName: "runGeneratedGarminAnalysis",
-            input: {
-              request: "rank activities",
-              datasets: ["activities"],
-              script:
-                "import pandas\nRESULT = {'kind': 'ranking', 'rows': [], 'limitations': []}",
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        toolCalls: [
-          {
-            toolName: "runGeneratedGarminAnalysis",
-            input: {
-              request: "rank activities",
-              datasets: ["activities"],
-              script:
-                "RESULT = {'kind': '', 'rows': [], 'limitations': []}  # invalid shape",
-            },
-          },
-        ],
-      });
-
-    const result = await orchestrateTrainerChat({
-      model: "mock",
-      system: "system",
-      userRequest: "rank activities",
-    });
-
-    expect(generateText).toHaveBeenCalledTimes(3);
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(3);
-    expect(result.text).toContain("after two correction attempts");
-    expect(result.text).toContain("invalid_result_shape");
-    expect(result.text).not.toContain("Tool step 3");
-  });
-
-  it("does not offer correction feedback for safety-denied generated analysis", async () => {
-    runGeneratedGarminAnalysis.mockResolvedValueOnce({
-      ...generatedAnalysisEvidence,
-      status: "rejected" as const,
-      reason: "denied_import",
-      message: "Generated Python attempted to import a denied module.",
-      correctionAllowed: false,
-      correctionHint:
-        "Correction feedback is not offered automatically for this failure; keep analysis within the local read-only dataset contract.",
-      result: undefined,
-    });
+  it("rejects generated Python because the default path is SQL/math", async () => {
     generateText.mockResolvedValueOnce({
       toolCalls: [
         {
           toolName: "runGeneratedGarminAnalysis",
           input: {
-            request: "read files",
+            request: "rank activities",
             datasets: ["activities"],
             script:
-              "import os\nRESULT = {'kind': 'summary', 'summary': str(os.environ), 'limitations': []}",
+              "RESULT = {'kind': 'ranking', 'rows': [], 'limitations': []}",
           },
         },
       ],
@@ -471,15 +277,15 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
     const result = await orchestrateTrainerChat({
       model: "mock",
       system: "system",
-      userRequest: "read files",
+      userRequest: "rank activities",
     });
 
-    expect(generateText).toHaveBeenCalledTimes(1);
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(1);
+    expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
     expect(result.toolSteps[0]).toMatchObject({
-      reason: "denied_import",
-      correctionAllowed: false,
+      tool: "runGeneratedGarminAnalysis",
+      status: "rejected",
+      reason: "generated_analysis_disabled",
     });
-    expect(result.text).toContain("within the local safety guardrails");
+    expect(result.text).toContain("SQL");
   });
 });
