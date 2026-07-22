@@ -10,6 +10,10 @@ Local-only, single-user private trainer MVP for importing Garmin Connect history
 4. Authenticate Garmin out of band with the pinned connector: `garmin-mcp-auth` (or the equivalent command provided by `Taxuspt/garmin_mcp` at commit `2974244bfda1595b00836b3f942f579ec2d6f7d6`). The app never asks for the Garmin password. Current connector auth writes OAuth state to its default `~/.garminconnect/garmin_tokens.json`; the app verifies that file exists without reading token contents.
 5. Run `npm install`, `npm run db:migrate`, `npm run build`, then `npm run start:local` for the production-style loopback runtime. Use `npm run dev` only for maintainer development.
 
+## Design reference
+
+See `docs/design-choices-and-boundaries.md` for the main design choices, app component responsibilities, and separation of concerns between AI reasoning, guarded SQL, bounded math, local storage, Garmin import, and UI/API routes.
+
 ## Validation
 
 Run `npm run validate` for formatting, linting, type checking, tests, and production build. Additional source-beta evidence commands are `npm run doctor -- --json`, `npm run eval:reliability`, and `npm run deps:evidence -- --output <path>`.
