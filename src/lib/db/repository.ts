@@ -1261,6 +1261,12 @@ export type ChatGrounding = {
     activityIds?: string[];
     privacy: string;
     reason?: string;
+    selection?: {
+      reason: "multiple_tool_calls";
+      count: number;
+      toolNames: string[];
+      selectedTool?: string;
+    };
   }>;
 };
 

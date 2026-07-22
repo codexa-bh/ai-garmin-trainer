@@ -125,6 +125,45 @@ function conversationIdFromRequest(request: Request): string {
   return safeConversationId(url.searchParams.get("conversationId"));
 }
 
+function isFailureMetaQuestion(message: string): boolean {
+  const normalized = message.toLowerCase().replace(/[^a-z0-9\s?]/g, " ");
+  return (
+    /\b(what went wrong|why did it fail|what happened|explain the error)\b/.test(
+      normalized,
+    ) || /^\s*why\s*\??\s*$/.test(normalized)
+  );
+}
+
+function latestFailedAssistantMessage(
+  messages: StoredChatMessage[],
+): StoredChatMessage | null {
+  const last = messages.at(-1);
+  if (last?.role !== "assistant") return null;
+  const failedStep = last.grounding?.toolSteps?.some(
+    (step) => step.status === "failed" || step.status === "rejected",
+  );
+  return failedStep ? last : null;
+}
+
+function explainPreviousToolFailure(message: StoredChatMessage): string {
+  const steps = message.grounding?.toolSteps ?? [];
+  const failed = [...steps]
+    .reverse()
+    .find((step) => step.status === "failed" || step.status === "rejected");
+  if (!failed)
+    return "I do not have a recorded tool failure in the previous assistant turn.";
+  if (
+    failed.tool === "providerToolSelection" ||
+    failed.reason === "invalid_tool_cardinality" ||
+    failed.reason === "multiple_tool_calls" ||
+    failed.reason?.startsWith("multiple_tool_calls")
+  ) {
+    return "The previous turn failed in tool selection: the model selected multiple tools in one step, so the server refused to execute them blindly. No unsafe Garmin sync/detail action was run. I should retry the analysis with one safe local SQL/math step at a time instead of dumping tool diagnostics into the chat.";
+  }
+  const reason = failed.reason ? ` Reason: ${failed.reason}.` : "";
+  return `The previous turn reached ${failed.tool} and it was ${failed.status}.${reason} ${failed.summary}`;
+}
+
 function buildSystemContext(recentMessages: StoredChatMessage[]): string {
   const counts = dataCounts();
   const detailAvailability = listActivityDetailAvailability(12)
@@ -212,6 +251,31 @@ export async function POST(request: Request) {
       latestMessage,
       userRecord.id,
     );
+    const previousFailure = latestFailedAssistantMessage(previousMessages);
+    if (previousFailure && isFailureMetaQuestion(latestMessage)) {
+      const assistantRecord = appendChatMessage({
+        conversationId,
+        role: "assistant",
+        content: explainPreviousToolFailure(previousFailure),
+        grounding: previousFailure.grounding,
+      });
+      const messages = listRecentChatMessages(
+        conversationId,
+        CHAT_HISTORY_LIMIT,
+      );
+
+      return NextResponse.json({
+        conversationId,
+        messages: messages.map(apiMessage),
+        assistant: apiMessage(assistantRecord),
+        contextWindow: Math.min(messages.length, 10),
+        historyLimit: CHAT_HISTORY_LIMIT,
+        toolEvidence: previousFailure.grounding,
+        toolSteps: [],
+        memoryProposal,
+      });
+    }
+
     const messagesForContext = [...previousMessages, userRecord];
     const { model } = selectedModel();
     const result = await orchestrateTrainerChat({
@@ -243,6 +307,7 @@ export async function POST(request: Request) {
         activityIds: step.activityIds,
         privacy: step.privacy,
         reason: step.reason,
+        selection: step.selection,
       })),
       memoryProposal,
     });

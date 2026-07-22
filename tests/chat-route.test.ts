@@ -598,9 +598,9 @@ async function postChat(message: string, conversationId?: string) {
     toolEvidence?: {
       tool?: string;
       summary?: string;
-      toolSteps?: Array<{ tool: string }>;
+      toolSteps?: Array<{ tool: string; status?: string; reason?: string }>;
     } | null;
-    toolSteps?: Array<{ tool: string; status: string }>;
+    toolSteps?: Array<{ tool: string; status: string; reason?: string }>;
     memoryProposal?:
       | { status: "none" }
       | { status: "pending"; id: string; value: string }
@@ -762,6 +762,47 @@ describe("chat route LLM tool orchestration", () => {
     const firstCall = generateText.mock.calls[0][0] as { system: string };
     expect(firstCall.system).not.toContain("Old transcript phrase");
     expect(firstCall.system).toContain("Prefers morning hikes");
+  });
+
+  it("answers what-went-wrong from previous failed grounding without new tools", async () => {
+    messages.push({
+      id: "assistant-failed-1",
+      conversationId: "meta-failure",
+      role: "assistant",
+      content: "Tool step 1: raw old transcript",
+      grounding: {
+        tool: "providerToolSelection",
+        summary: "Provider selected multiple tools.",
+        privacy: "No tool executed.",
+        toolSteps: [
+          {
+            index: 1,
+            tool: "providerToolSelection",
+            status: "rejected",
+            summary: "Provider selected 2 tools.",
+            privacy: "No tool executed.",
+            reason: "multiple_tool_calls",
+          },
+        ],
+      },
+      createdAt: new Date("2026-07-17T12:00:00Z"),
+    });
+
+    const payload = await postChat("what went wrong?", "meta-failure");
+
+    expect(generateText).not.toHaveBeenCalled();
+    expect(describeGarminDatabase).not.toHaveBeenCalled();
+    expect(runReadOnlySql).not.toHaveBeenCalled();
+    expect(payload.toolSteps).toEqual([]);
+    expect(payload.toolEvidence?.toolSteps?.[0]).toMatchObject({
+      tool: "providerToolSelection",
+      status: "rejected",
+      reason: "multiple_tool_calls",
+    });
+    expect(payload.assistant.content).toContain(
+      "model selected multiple tools",
+    );
+    expect(payload.assistant.content).not.toContain("Tool step");
   });
 
   it("uses a fresh second planner call with only server summaries", async () => {

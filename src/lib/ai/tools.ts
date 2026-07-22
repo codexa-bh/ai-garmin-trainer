@@ -260,9 +260,18 @@ export const trainerToolDefinitions = {
 
 export const trainerTools = trainerToolDefinitions;
 
+export type TrainerToolStepName = TrainerToolName | "providerToolSelection";
+
+export type TrainerToolSelectionMetadata = {
+  reason: "multiple_tool_calls";
+  count: number;
+  toolNames: string[];
+  selectedTool?: TrainerToolName;
+};
+
 export type TrainerToolStep = {
   index: 1 | 2 | 3 | 4;
-  tool: TrainerToolName;
+  tool: TrainerToolStepName;
   status: "succeeded" | "rejected" | "failed";
   summary: string;
   activityIds?: string[];
@@ -271,6 +280,7 @@ export type TrainerToolStep = {
   correctionAllowed?: boolean;
   failureMessage?: string;
   correctionHint?: string;
+  selection?: TrainerToolSelectionMetadata;
   result?: unknown;
 };
 
@@ -358,6 +368,7 @@ export async function executeTrainerTool(input: {
   index: 1 | 2 | 3 | 4;
   toolName: TrainerToolName;
   args: unknown;
+  selection?: TrainerToolSelectionMetadata;
 }): Promise<TrainerToolStep> {
   try {
     switch (input.toolName) {
@@ -728,8 +739,12 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
 
 export function groundingForSteps(steps: TrainerToolStep[]) {
   const finalStep =
-    [...steps].reverse().find((step) => step.status === "succeeded") ??
-    steps.at(-1);
+    [...steps]
+      .reverse()
+      .find(
+        (step) =>
+          step.status === "succeeded" && step.tool !== "providerToolSelection",
+      ) ?? steps.at(-1);
   if (!finalStep) return null;
   return {
     tool: finalStep.tool,
@@ -745,6 +760,7 @@ export function groundingForSteps(steps: TrainerToolStep[]) {
       privacy: step.privacy,
       reason: step.reason,
       correctionAllowed: step.correctionAllowed,
+      selection: step.selection,
     })),
   };
 }

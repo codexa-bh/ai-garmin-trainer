@@ -97,7 +97,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     runGeneratedGarminAnalysis.mockReset();
   });
 
-  it("rejects multiple provider tool calls without executing any", async () => {
+  it("fails closed for multiple provider tool calls with a side-effect tool", async () => {
     generateText.mockResolvedValueOnce({
       toolCalls: [
         { toolName: "runGarminSync", input: {} },
@@ -113,10 +113,73 @@ describe("trainer orchestrator fail-closed policy", async () => {
 
     expect(runGarminSync).not.toHaveBeenCalled();
     expect(result.toolSteps[0]).toMatchObject({
+      tool: "providerToolSelection",
       status: "rejected",
-      reason: "invalid_tool_cardinality",
+      reason: "multiple_tool_calls_with_side_effect",
     });
-    expect(result.text).toContain("invalid_tool_cardinality");
+    expect(result.text).toContain("selected more than one tool");
+    expect(result.text).not.toContain("Tool step");
+    expect(result.text).not.toContain("invalid_tool_cardinality");
+    expect(generateText.mock.calls[0][0]).toMatchObject({
+      parallelToolCalls: false,
+      providerOptions: {
+        openai: { parallelToolCalls: false },
+        deepseek: { parallelToolCalls: false },
+      },
+    });
+  });
+
+  it("selects one safe analytical tool from multiple provider tool calls", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [{ toolName: "describeGarminDatabase", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runMathAnalysis",
+            input: {
+              inputResult: "activity_rows",
+              operation: "score",
+              formula: "duration_sec",
+            },
+          },
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select garmin_id, name, duration_sec from activity order by duration_sec desc",
+              resultName: "activity_rows",
+              maxRows: 20,
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "The SQL-only answer is grounded and concise.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "invent more generic criteria for demanding activities",
+    });
+
+    expect(runReadOnlySql).toHaveBeenCalledTimes(1);
+    expect(runMathAnalysis).not.toHaveBeenCalled();
+    expect(result.toolSteps.map((step) => step.tool)).toEqual([
+      "describeGarminDatabase",
+      "runReadOnlySql",
+    ]);
+    expect(result.toolSteps[1]?.selection).toMatchObject({
+      reason: "multiple_tool_calls",
+      count: 2,
+      selectedTool: "runReadOnlySql",
+      toolNames: ["runMathAnalysis", "runReadOnlySql"],
+    });
+    expect(result.text).not.toContain("Tool step");
+    expect(result.grounding?.toolSteps?.[1]?.selection?.selectedTool).toBe(
+      "runReadOnlySql",
+    );
   });
 
   it("rejects removed fixed-analysis tools and malformed generic inputs", async () => {
@@ -128,7 +191,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
       system: "system",
       userRequest: "rank my activities",
     });
-    expect(removed.toolSteps[0]?.reason).toBe("unknown_tool");
+    expect(removed.toolSteps[0]).toMatchObject({
+      tool: "providerToolSelection",
+      reason: "unknown_tool",
+    });
 
     generateText.mockResolvedValueOnce({
       toolCalls: [
@@ -147,7 +213,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
       system: "system",
       userRequest: "bad args",
     });
-    expect(malformed.toolSteps[0]?.reason).toBe("malformed_input");
+    expect(malformed.toolSteps[0]).toMatchObject({
+      tool: "runMathAnalysis",
+      reason: "malformed_input",
+    });
   });
 
   it("uses schema, read-only SQL, and bounded math for ad hoc rankings", async () => {

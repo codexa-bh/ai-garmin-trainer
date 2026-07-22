@@ -8,7 +8,9 @@ import {
   validateTrainerToolCall,
   type TrainerToolCall,
   type TrainerToolName,
+  type TrainerToolSelectionMetadata,
   type TrainerToolStep,
+  type TrainerToolStepName,
 } from "@/lib/ai/tools";
 import type { AnalysisResult, AnalysisRow } from "@/lib/ai/sql-analysis";
 import type { ChatGrounding } from "@/lib/db/repository";
@@ -75,16 +77,31 @@ function plannerSystem(
   return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates should be verified before ambiguous user references drive analysis.\n- For ad hoc Garmin analytics, ranking, counting, summarizing, or computation, use guarded SQL/math by default: describeGarminDatabase if the schema is needed, then runReadOnlySql, then optional runMathAnalysis over the returned same-turn result handle. For broad ranking/count/window prompts, do not use verifyActivityReference; after describeGarminDatabase, choose runReadOnlySql with exact columns/examples from the schema evidence rather than asking for schema again.\n- The SQL tool accepts one SELECT/WITH query over allowlisted normalized analytical tables only. Do not request writes, PRAGMAs, ATTACH/DETACH, comments, stacked statements, auth/session/account/verification tables, raw payload dumps, filesystem paths, secrets, connector handles, environment/process/network data, or raw FIT/full stream dumps.\n- Use SQL for filtering/windowing/grouping/safe joins and use math for bounded scores, formulas, normalization/ranking, simple aggregation, summaries, and top-N output over prior SQL rows. Formula variables must be SQL result columns; if data is missing/null, state the limitation.\n- Tool budget for one user turn: at most one schema call, two SQL calls, one math call, and four total tool executions. Side-effect tools remain deduped and should not be combined with broad analytics unless the user explicitly asks and the sequence is safe.\n- runGeneratedGarminAnalysis is deprecated and disabled by default; do not choose it for ordinary ad hoc analytics.\n- If a prior server step exists and no safe next tool is needed, answer in ordinary user-facing prose from that bounded evidence. Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, raw SQL text unless explicitly requested, raw FIT data, GPS streams, generated Python source, or unrestricted history in user-facing prose.\n\nCurrent turn server-authored prior tool evidence (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
 }
 
-function failedStep(index: 1 | 2 | 3 | 4, reason: string): TrainerToolStep {
+function failedStep(
+  index: 1 | 2 | 3 | 4,
+  reason: string,
+  tool: TrainerToolStepName = "providerToolSelection",
+  summary?: string,
+): TrainerToolStep {
   return {
     index,
-    tool: "verifyActivityReference",
+    tool,
     status: "rejected",
-    summary: `Provider tool selection was rejected: ${reason}.`,
+    summary: summary ?? `Provider tool selection was rejected: ${reason}.`,
     privacy:
       "No Garmin connector action or local analytics tool was executed for the rejected provider response.",
     reason,
   };
+}
+
+function providerSelectionFailureText(step: TrainerToolStep): string {
+  if (step.reason === "multiple_tool_calls")
+    return "I tried to continue the local Garmin analysis, but the model selected multiple tools at once. I did not run an unsafe action. Please ask me to retry the ranking with one SQL query, or narrow the criteria you want me to use.";
+  if (step.reason === "multiple_tool_calls_with_side_effect")
+    return "The model selected more than one tool, including a tool that can change local sync/detail state. I did not run those actions blindly. Please ask for the single sync, refresh, status, or analysis action you want next.";
+  if (step.reason === "multiple_tool_calls_no_safe_tool")
+    return "The model selected multiple tools, but none was safe and valid to run as the next single action. I did not execute them blindly; please retry with one narrower local Garmin request.";
+  return "I could not select a safe local Garmin tool for that response, so I did not execute any tool. Please retry with one narrower request.";
 }
 
 function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
@@ -205,6 +222,106 @@ function isAcceptableToolSynthesisText(text: string): boolean {
   return true;
 }
 
+function canToolRunWithinBudget(
+  toolName: TrainerToolName,
+  analysisToolCounts: Map<TrainerToolName, number>,
+): boolean {
+  const currentCount = analysisToolCounts.get(toolName) ?? 0;
+  if (toolName === "describeGarminDatabase")
+    return currentCount < MAX_SCHEMA_CALLS;
+  if (toolName === "runReadOnlySql") return currentCount < MAX_SQL_CALLS;
+  if (toolName === "runMathAnalysis") return currentCount < MAX_MATH_CALLS;
+  return true;
+}
+
+function selectedToolPriority(
+  toolName: TrainerToolName,
+  priorSteps: TrainerToolStep[],
+): number {
+  const hasSchema = priorSteps.some(
+    (step) =>
+      step.tool === "describeGarminDatabase" && step.status === "succeeded",
+  );
+  const hasSql = priorSteps.some(
+    (step) => step.tool === "runReadOnlySql" && step.status === "succeeded",
+  );
+  const hasMath = priorSteps.some(
+    (step) => step.tool === "runMathAnalysis" && step.status === "succeeded",
+  );
+  if (!hasSchema && toolName === "describeGarminDatabase") return 0;
+  if (hasSchema && !hasSql && toolName === "runReadOnlySql") return 0;
+  if (hasSql && !hasMath && toolName === "runMathAnalysis") return 0;
+  if (toolName === "runReadOnlySql") return 1;
+  if (toolName === "runMathAnalysis") return 2;
+  if (toolName === "describeGarminDatabase") return 3;
+  return 10;
+}
+
+function selectOneSafeToolCall(input: {
+  toolCalls: TrainerToolCall[];
+  priorSteps: TrainerToolStep[];
+  analysisToolCounts: Map<TrainerToolName, number>;
+}):
+  | { ok: true; call: TrainerToolCall; metadata: TrainerToolSelectionMetadata }
+  | { ok: false; step: TrainerToolStep } {
+  const toolNames = input.toolCalls
+    .map((call) => call.toolName)
+    .filter((toolName, index, names) => names.indexOf(toolName) === index)
+    .slice(0, 8);
+  const validCalls = input.toolCalls.flatMap((call, order) => {
+    const accepted = validateTrainerToolCall(call);
+    if (!accepted.ok) return [];
+    return [{ call, order, toolName: accepted.toolName }];
+  });
+  const sideEffectCalls = validCalls.filter((item) =>
+    SIDE_EFFECT_TOOLS.has(item.toolName),
+  );
+  const stepIndex = (input.priorSteps.length + 1) as 1 | 2 | 3 | 4;
+  if (sideEffectCalls.length) {
+    return {
+      ok: false,
+      step: failedStep(
+        stepIndex,
+        "multiple_tool_calls_with_side_effect",
+        "providerToolSelection",
+        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ")}); at least one can change local sync/detail state, so none was executed.`,
+      ),
+    };
+  }
+  const candidates = validCalls
+    .filter((item) =>
+      canToolRunWithinBudget(item.toolName, input.analysisToolCounts),
+    )
+    .sort((left, right) => {
+      const priority =
+        selectedToolPriority(left.toolName, input.priorSteps) -
+        selectedToolPriority(right.toolName, input.priorSteps);
+      return priority || left.order - right.order;
+    });
+  const selected = candidates[0];
+  if (!selected) {
+    return {
+      ok: false,
+      step: failedStep(
+        stepIndex,
+        "multiple_tool_calls_no_safe_tool",
+        "providerToolSelection",
+        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}); none was a safe valid next tool.`,
+      ),
+    };
+  }
+  return {
+    ok: true,
+    call: selected.call,
+    metadata: {
+      reason: "multiple_tool_calls",
+      count: input.toolCalls.length,
+      toolNames,
+      selectedTool: selected.toolName,
+    },
+  };
+}
+
 function canOfferGeneratedAnalysisCorrectionStep(
   step: TrainerToolStep,
 ): boolean {
@@ -250,10 +367,29 @@ function sqlLimitationText(steps: TrainerToolStep[]): string | null {
   return `I couldn't complete that local Garmin ranking after ${attemptText}.${reason}${hint}`;
 }
 
+function genericToolLimitationText(steps: TrainerToolStep[]): string | null {
+  const failed = [...steps]
+    .reverse()
+    .find((step) => step.status === "failed" || step.status === "rejected");
+  if (!failed || failed.tool === "providerToolSelection") return null;
+  const reason = failed.reason ? ` Reason: ${failed.reason}.` : "";
+  return `I couldn't complete the local ${failed.tool} request within the safety guardrails.${reason} ${failed.summary}`;
+}
+
 function toolFailureLimitationText(steps: TrainerToolStep[]): string {
+  const providerSelectionFailure = [...steps]
+    .reverse()
+    .find(
+      (step) =>
+        step.tool === "providerToolSelection" && step.status !== "succeeded",
+    );
   return (
+    (providerSelectionFailure
+      ? providerSelectionFailureText(providerSelectionFailure)
+      : null) ??
     generatedAnalysisLimitationText(steps) ??
     sqlLimitationText(steps) ??
+    genericToolLimitationText(steps) ??
     "I couldn't complete that local Garmin tool request within the safety guardrails. Please try a narrower request."
   );
 }
@@ -338,6 +474,11 @@ export async function orchestrateTrainerChat(
         prompt: input.userRequest,
         tools: trainerToolDefinitions,
         toolChoice: "auto",
+        parallelToolCalls: false,
+        providerOptions: {
+          openai: { parallelToolCalls: false },
+          deepseek: { parallelToolCalls: false },
+        },
       })) as RawGenerateTextResult;
     } catch {
       if (steps.length) {
@@ -391,39 +532,54 @@ export async function orchestrateTrainerChat(
     }
 
     const stepIndex = (steps.length + 1) as 1 | 2 | 3 | 4;
-    if (toolCalls.length !== 1) {
-      const step = failedStep(stepIndex, "invalid_tool_cardinality");
-      const allSteps = steps.length ? [...steps, step] : [step];
-      return {
-        text:
-          demandRankingAnswer(input.userRequest, allSteps) ??
-          renderToolSteps(allSteps),
-        grounding: groundingForSteps(allSteps),
-        toolSteps: allSteps,
-        providerCalls,
-      };
+    let selectedToolCall = toolCalls[0];
+    let selectionMetadata: TrainerToolSelectionMetadata | undefined;
+    if (toolCalls.length > 1) {
+      const selection = selectOneSafeToolCall({
+        toolCalls,
+        priorSteps: steps,
+        analysisToolCounts,
+      });
+      if (!selection.ok) {
+        const allSteps = [...steps, selection.step];
+        return {
+          text: toolFailureLimitationText(allSteps),
+          grounding: groundingForSteps(allSteps),
+          toolSteps: allSteps,
+          providerCalls,
+        };
+      }
+      selectedToolCall = selection.call;
+      selectionMetadata = selection.metadata;
     }
     if (steps.length >= MAX_TOOL_CALLS) {
-      const step = failedStep(2, "tool_budget_exceeded");
+      const step = failedStep(
+        2,
+        "tool_budget_exceeded",
+        "providerToolSelection",
+      );
       const allSteps = [...steps, step];
       return {
-        text:
-          demandRankingAnswer(input.userRequest, allSteps) ??
-          renderToolSteps(allSteps),
+        text: toolFailureLimitationText(allSteps),
         grounding: groundingForSteps(allSteps),
         toolSteps: allSteps,
         providerCalls,
       };
     }
 
-    const accepted = validateTrainerToolCall(toolCalls[0]);
+    const accepted = validateTrainerToolCall(selectedToolCall);
     if (!accepted.ok) {
-      const step = failedStep(stepIndex, accepted.reason);
+      const attemptedTool =
+        Object.prototype.hasOwnProperty.call(
+          trainerToolDefinitions,
+          selectedToolCall.toolName,
+        ) && typeof selectedToolCall.toolName === "string"
+          ? (selectedToolCall.toolName as TrainerToolName)
+          : "providerToolSelection";
+      const step = failedStep(stepIndex, accepted.reason, attemptedTool);
       const allSteps = [...steps, step];
       return {
-        text:
-          demandRankingAnswer(input.userRequest, allSteps) ??
-          renderToolSteps(allSteps),
+        text: toolFailureLimitationText(allSteps),
         grounding: groundingForSteps(allSteps),
         toolSteps: allSteps,
         providerCalls,
@@ -431,9 +587,14 @@ export async function orchestrateTrainerChat(
     }
     if (SIDE_EFFECT_TOOLS.has(accepted.toolName)) {
       if (sideEffectsUsed.has(accepted.toolName)) {
-        const step = failedStep(stepIndex, "duplicate_side_effect");
+        const step = failedStep(
+          stepIndex,
+          "duplicate_side_effect",
+          accepted.toolName,
+          `${accepted.toolName} was rejected because that side-effect tool was already used in this turn.`,
+        );
         return {
-          text: renderToolSteps([...steps, step]),
+          text: toolFailureLimitationText([...steps, step]),
           grounding: groundingForSteps([...steps, step]),
           toolSteps: [...steps, step],
           providerCalls,
@@ -442,15 +603,13 @@ export async function orchestrateTrainerChat(
       sideEffectsUsed.add(accepted.toolName);
     }
     const currentCount = analysisToolCounts.get(accepted.toolName) ?? 0;
-    const budgetExceeded =
-      (accepted.toolName === "describeGarminDatabase" &&
-        currentCount >= MAX_SCHEMA_CALLS) ||
-      (accepted.toolName === "runReadOnlySql" &&
-        currentCount >= MAX_SQL_CALLS) ||
-      (accepted.toolName === "runMathAnalysis" &&
-        currentCount >= MAX_MATH_CALLS);
-    if (budgetExceeded) {
-      const step = failedStep(stepIndex, "tool_budget_exceeded");
+    if (!canToolRunWithinBudget(accepted.toolName, analysisToolCounts)) {
+      const step = failedStep(
+        stepIndex,
+        "tool_budget_exceeded",
+        accepted.toolName,
+        `${accepted.toolName} was rejected because the per-turn tool budget was already exhausted.`,
+      );
       const allSteps = [...steps, step];
       const deterministic = demandRankingAnswer(input.userRequest, allSteps);
       const synthesized =
@@ -475,6 +634,7 @@ export async function orchestrateTrainerChat(
       toolName: accepted.toolName,
       args: accepted.input,
     });
+    if (selectionMetadata) step.selection = selectionMetadata;
     steps.push(step);
 
     if (step.status !== "succeeded") {
@@ -503,7 +663,7 @@ export async function orchestrateTrainerChat(
         text:
           demandRankingAnswer(input.userRequest, steps) ??
           generatedAnalysisLimitationText(steps) ??
-          renderToolSteps(steps),
+          toolFailureLimitationText(steps),
         grounding: groundingForSteps(steps),
         toolSteps: steps,
         providerCalls,
