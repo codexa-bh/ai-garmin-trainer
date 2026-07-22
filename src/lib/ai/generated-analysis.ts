@@ -105,6 +105,9 @@ export type GeneratedAnalysisEvidence = {
   manifest: GarminAnalysisBundle["manifest"];
   result?: GeneratedDatasetScriptResult;
   reason?: string;
+  message?: string;
+  retryable?: boolean;
+  correctionHint?: string;
   warnings: string[];
   privacy: string;
 };
@@ -141,6 +144,72 @@ const SAFE_IMPORTS = [
   "math",
   "statistics",
 ];
+
+const RETRYABLE_GENERATED_ANALYSIS_REASONS = new Set([
+  "runtime_error",
+  "syntax_error",
+  "non_json_result",
+  "invalid_result_shape",
+  "result_too_large",
+  "stdout_too_large",
+  "timeout",
+]);
+
+const NON_RETRYABLE_GENERATED_ANALYSIS_REASONS = new Set([
+  "denied_import",
+  "denied_name",
+  "dunder_access",
+  "loop_disabled",
+  "script_size",
+  "python_unavailable",
+  "invalid_sandbox_result",
+  "no_sandbox_result",
+]);
+
+function boundedDiagnosticText(value: string, max = 300): string {
+  const compact = value
+    .replace(/(?:\/Users\/|\/home\/|file:\/\/)[^\s,;)]*/gi, "[path]")
+    .replace(/https?:\/\/[^\s,;)]*/gi, "[url]")
+    .replace(/\b(?:SELECT|INSERT|UPDATE|DELETE)\b[^.;]*/gi, "[sql]")
+    .replace(
+      /\b(?:DATABASE_URL|GARMIN_[A-Z0-9_]*|process\.env)\b/gi,
+      "[secret]",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+  return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
+}
+
+export function isRetryableGeneratedAnalysisReason(
+  reason: string | undefined,
+): boolean {
+  if (!reason) return false;
+  if (NON_RETRYABLE_GENERATED_ANALYSIS_REASONS.has(reason)) return false;
+  return RETRYABLE_GENERATED_ANALYSIS_REASONS.has(reason);
+}
+
+export function generatedAnalysisCorrectionHint(
+  reason: string | undefined,
+): string {
+  switch (reason) {
+    case "runtime_error":
+      return "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.";
+    case "syntax_error":
+      return "Fix Python syntax and return a valid RESULT object; do not change sandbox boundaries.";
+    case "non_json_result":
+      return "Set RESULT to JSON-serializable strings, numbers, booleans, arrays, or objects only.";
+    case "invalid_result_shape":
+      return "Set RESULT to an object with a nonempty kind, rows no larger than requestedCount, limitations, and only Garmin IDs from the provided activities dataset.";
+    case "result_too_large":
+      return "Reduce RESULT size by returning fewer rows, shorter strings, and compact metrics within requestedCount.";
+    case "stdout_too_large":
+      return "Avoid printing large output; put concise findings in RESULT instead.";
+    case "timeout":
+      return "Simplify computation and bound loops over the provided capped datasets.";
+    default:
+      return "The script cannot be retried automatically; keep analysis within the local read-only dataset contract.";
+  }
+}
 
 function normalizeFilterText(value: string): string {
   return value
@@ -522,6 +591,7 @@ export async function runGeneratedGarminAnalysis(input: {
     maxResultBytes: MAX_OUTPUT_BYTES,
   });
   if (sandbox.status !== "succeeded") {
+    const retryable = isRetryableGeneratedAnalysisReason(sandbox.reason);
     return {
       tool: "generatedGarminAnalysis",
       status: sandbox.status,
@@ -529,6 +599,9 @@ export async function runGeneratedGarminAnalysis(input: {
       scriptHash,
       manifest: bundle.manifest,
       reason: sandbox.reason,
+      message: boundedDiagnosticText(sandbox.message),
+      retryable,
+      correctionHint: generatedAnalysisCorrectionHint(sandbox.reason),
       warnings: sandbox.warnings,
       privacy,
     };
@@ -539,13 +612,18 @@ export async function runGeneratedGarminAnalysis(input: {
     bundle,
   );
   if (!result) {
+    const reason = "invalid_result_shape";
     return {
       tool: "generatedGarminAnalysis",
       status: "rejected",
       requestedCount,
       scriptHash,
       manifest: bundle.manifest,
-      reason: "invalid_result_shape",
+      reason,
+      message:
+        "Generated Python RESULT did not match the bounded Garmin analysis result contract.",
+      retryable: isRetryableGeneratedAnalysisReason(reason),
+      correctionHint: generatedAnalysisCorrectionHint(reason),
       warnings: sandbox.warnings,
       privacy,
     };

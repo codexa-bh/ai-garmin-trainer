@@ -200,4 +200,64 @@ describe("trainer generated dataset-script renderer", async () => {
       "Privacy: No Garmin connector action or local analytics tool was executed",
     );
   });
+
+  it("renders bounded generated-analysis failure feedback without raw scripts or private data", () => {
+    const text = renderToolSteps([
+      {
+        index: 1,
+        tool: "runGeneratedGarminAnalysis",
+        status: "failed",
+        summary:
+          "Generated Garmin analysis blocked: runtime_error; script abcdef123456; one correction attempt is allowed.",
+        privacy:
+          "Generated Python ran locally against explicit read-only Garmin datasets; no credentials, environment, filesystem paths, connector handles, SQL, or unrestricted raw streams were exposed.",
+        reason: "runtime_error",
+        retryable: true,
+        failureMessage: "NameError: name 'durationSec' is not defined",
+        correctionHint:
+          "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
+        result: {
+          tool: "generatedGarminAnalysis",
+          status: "failed",
+          requestedCount: 5,
+          scriptHash: "abcdef1234567890",
+          manifest: {
+            generatedAt: "2026-07-21T12:00:00.000Z",
+            request: "rank activities",
+            selectedDatasets: ["activities"],
+            datasets: [{ name: "activities", rowCount: 1, description: "" }],
+            tables: [{ name: "activities", rowCount: 1 }],
+            rawPayloads: [],
+            limits: {
+              maxRowsPerTable: 1000,
+              maxRawPayloads: 100,
+              maxRawPayloadBytes: 200000,
+              maxOutputBytes: 12000,
+            },
+            scriptContract: {
+              resultVariable: "RESULT",
+              allowedImports: ["math"],
+              forbiddenAccess: ["filesystem"],
+            },
+          },
+          reason: "runtime_error",
+          message: "NameError: name 'durationSec' is not defined",
+          retryable: true,
+          correctionHint:
+            "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
+          warnings: [],
+          privacy:
+            "Generated Python ran locally against explicit read-only Garmin datasets.",
+        },
+      },
+    ]);
+
+    expect(text).toContain("Bounded failure detail");
+    expect(text).toContain("Correction guidance");
+    expect(text).toContain("Retry eligibility: one corrected");
+    expect(text).not.toContain("RESULT =");
+    expect(text).not.toContain("/Users/");
+    expect(text).not.toContain("GARMIN_");
+    expect(text).not.toContain("DATABASE_URL");
+  });
 });

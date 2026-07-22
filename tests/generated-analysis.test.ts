@@ -156,7 +156,7 @@ RESULT = {
     expect(JSON.stringify(evidence.result)).not.toContain("snowboard-excluded");
   });
 
-  it("rejects generated rows outside the provided dataset", async () => {
+  it("rejects generated rows outside the provided dataset with retry guidance", async () => {
     const repository = await import("../src/lib/db/repository");
     const { runGeneratedGarminAnalysis } =
       await import("../src/lib/ai/generated-analysis");
@@ -188,6 +188,8 @@ RESULT = {
 
     expect(evidence.status).toBe("rejected");
     expect(evidence.reason).toBe("invalid_result_shape");
+    expect(evidence.retryable).toBe(true);
+    expect(evidence.correctionHint).toContain("provided activities dataset");
   });
 
   it("allows safe imports and rejects forbidden filesystem imports distinctly", async () => {
@@ -209,5 +211,48 @@ RESULT = {
         bundle: {},
       }),
     ).resolves.toMatchObject({ status: "rejected", reason: "denied_import" });
+  });
+
+  it("classifies repairable generated-analysis failures separately from safety denials", async () => {
+    const { isRetryableGeneratedAnalysisReason, runGeneratedGarminAnalysis } =
+      await import("../src/lib/ai/generated-analysis");
+
+    expect(isRetryableGeneratedAnalysisReason("runtime_error")).toBe(true);
+    expect(isRetryableGeneratedAnalysisReason("syntax_error")).toBe(true);
+    expect(isRetryableGeneratedAnalysisReason("non_json_result")).toBe(true);
+    expect(isRetryableGeneratedAnalysisReason("invalid_result_shape")).toBe(
+      true,
+    );
+    expect(isRetryableGeneratedAnalysisReason("denied_import")).toBe(false);
+    expect(isRetryableGeneratedAnalysisReason("dunder_access")).toBe(false);
+    expect(isRetryableGeneratedAnalysisReason("python_unavailable")).toBe(
+      false,
+    );
+
+    const runtime = await runGeneratedGarminAnalysis({
+      request: "rank activities",
+      datasets: ["activities"],
+      script: "RESULT = 1 / 0",
+    });
+    expect(runtime).toMatchObject({
+      status: "failed",
+      reason: "runtime_error",
+      retryable: true,
+    });
+    expect(runtime.message).toContain("division by zero");
+    expect(runtime.correctionHint).toContain("fields present");
+
+    const denied = await runGeneratedGarminAnalysis({
+      request: "read files",
+      datasets: ["activities"],
+      script:
+        "import os\nRESULT = {'kind': 'summary', 'summary': os.getcwd(), 'limitations': []}",
+    });
+    expect(denied).toMatchObject({
+      status: "rejected",
+      reason: "denied_import",
+      retryable: false,
+    });
+    expect(denied.correctionHint).toContain("cannot be retried");
   });
 });

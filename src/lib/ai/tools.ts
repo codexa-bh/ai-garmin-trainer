@@ -163,7 +163,7 @@ export const trainerToolDefinitions = {
   }),
   runGeneratedGarminAnalysis: tool({
     description:
-      "Run a server-sandboxed read-only Python script over explicit bounded Garmin datasets when the user asks for ad hoc ranking, counting, summarizing, or computation. The model must author the script and set RESULT to JSON with a generic kind, optional title/summary/metrics, optional rows, and limitations; do not rely on app-owned criteria or hidden default scripts. Choose needed datasets from activities, dailyHealth, activityDetails, and rawPayloads. Use activitySelection.includeText/excludeText only as a generic dataset subset constraint from the current user request. Safe imports such as math, statistics, datetime, json, itertools, functools, collections, and decimal are allowed; filesystem, network, process, environment, SQL, connector handles, credentials, URLs, raw FIT bytes, and unrestricted streams are forbidden.",
+      'Run a server-sandboxed read-only Python script over explicit bounded Garmin datasets when the user asks for ad hoc ranking, counting, summarizing, or computation. The model must author the script and set RESULT to JSON with a generic kind, optional title/summary/metrics, optional rows, and limitations; do not rely on app-owned criteria or hidden default scripts. Choose needed datasets from activities, dailyHealth, activityDetails, and rawPayloads. Common activity fields include garminId, label, sport, date, startedAt, durationSec, distanceMeters, calories, avgHeartRate, maxHeartRate, steps, elevationGainMeters, elevationLossMeters, and trainingEffect. Read from bundle["datasets"], bundle["tables"], bundle["manifest"], bundle["athleteBaseline"], request, and requestedCount. Use activitySelection.includeText/excludeText only as a generic dataset subset constraint from the current user request. Safe imports such as math, statistics, datetime, json, itertools, functools, collections, and decimal are allowed. Common rejected cases include non-JSON RESULT, invalid result shape, rows over requestedCount, Garmin IDs outside the selected dataset, secret/path/SQL/connector-looking output, forbidden imports/names/access, and oversized stdout/result. Filesystem, network, process, environment, SQL, connector handles, credentials, URLs, raw FIT bytes, and unrestricted streams are forbidden.',
     inputSchema: trainerToolInputSchemas.runGeneratedGarminAnalysis,
   }),
 } satisfies Record<TrainerToolName, unknown>;
@@ -178,6 +178,9 @@ export type TrainerToolStep = {
   activityIds?: string[];
   privacy: string;
   reason?: string;
+  retryable?: boolean;
+  failureMessage?: string;
+  correctionHint?: string;
   result?: unknown;
 };
 
@@ -328,13 +331,19 @@ export async function executeTrainerTool(input: {
           summary:
             result.status === "succeeded"
               ? `Generated Garmin dataset script ${result.result?.kind ?? "result"}; ${result.result?.returnedCount ?? 0}/${result.requestedCount} rows; script ${result.scriptHash.slice(0, 12)}; datasets ${result.manifest.datasets.map((dataset) => `${dataset.name}:${dataset.rowCount}`).join(", ")}${result.manifest.activitySelection ? "; activity selection applied" : ""}.`
-              : `Generated Garmin analysis blocked: ${result.reason ?? result.status}; script ${result.scriptHash.slice(0, 12)}.`,
+              : `Generated Garmin analysis blocked: ${result.reason ?? result.status}; script ${result.scriptHash.slice(0, 12)}; ${result.retryable ? "one correction attempt is allowed" : "automatic correction is not allowed"}.`,
           activityIds: result.result?.rows
             ?.map((row) => row.garminId)
             .filter((id): id is string => typeof id === "string")
             .slice(0, 10),
           privacy: result.privacy,
           reason: result.status === "succeeded" ? undefined : result.reason,
+          retryable:
+            result.status === "succeeded" ? undefined : result.retryable,
+          failureMessage:
+            result.status === "succeeded" ? undefined : result.message,
+          correctionHint:
+            result.status === "succeeded" ? undefined : result.correctionHint,
           result,
         };
       }
@@ -453,6 +462,13 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
         lines.push(
           `Generated analysis did not run to completion: ${evidence.reason ?? evidence.status}.`,
         );
+        if (evidence.message)
+          lines.push(`Bounded failure detail: ${evidence.message}.`);
+        if (evidence.correctionHint)
+          lines.push(`Correction guidance: ${evidence.correctionHint}`);
+        lines.push(
+          `Retry eligibility: ${evidence.retryable ? "one corrected generated-analysis attempt may be made" : "automatic correction is not allowed for this failure"}.`,
+        );
       }
     }
     lines.push(`Privacy: ${step.privacy}`);
@@ -478,6 +494,7 @@ export function groundingForSteps(steps: TrainerToolStep[]) {
       activityIds: step.activityIds?.slice(0, 10),
       privacy: step.privacy,
       reason: step.reason,
+      retryable: step.retryable,
     })),
   };
 }

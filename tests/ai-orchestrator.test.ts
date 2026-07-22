@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { GeneratedAnalysisEvidence } from "../src/lib/ai/generated-analysis";
 
 const generateText = vi.fn();
 const runGarminSync = vi.fn(async () => ({
   status: "completed",
   detail: "ok",
 }));
-const generatedAnalysisEvidence = {
+const generatedAnalysisEvidence: GeneratedAnalysisEvidence = {
   tool: "generatedGarminAnalysis" as const,
   status: "succeeded" as const,
   requestedCount: 10,
@@ -77,8 +78,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
 
   beforeEach(() => {
     generateText.mockReset();
-    runGarminSync.mockClear();
-    runGeneratedGarminAnalysis.mockClear();
+    runGarminSync.mockReset();
+    runGarminSync.mockResolvedValue({ status: "completed", detail: "ok" });
+    runGeneratedGarminAnalysis.mockReset();
+    runGeneratedGarminAnalysis.mockResolvedValue(generatedAnalysisEvidence);
   });
 
   it("rejects multiple provider tool calls without executing any", async () => {
@@ -236,5 +239,178 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
 
     expect(runGarminSync).toHaveBeenCalledTimes(1);
     expect(result.toolSteps.at(-1)?.reason).toBe("duplicate_side_effect");
+  });
+
+  it("retries one repairable generated-analysis runtime failure with bounded feedback", async () => {
+    const failedEvidence = {
+      ...generatedAnalysisEvidence,
+      status: "failed" as const,
+      reason: "runtime_error",
+      message: "NameError: name 'durationSec' is not defined",
+      retryable: true,
+      correctionHint:
+        "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
+      result: undefined,
+    };
+    runGeneratedGarminAnalysis
+      .mockResolvedValueOnce(failedEvidence)
+      .mockResolvedValueOnce(generatedAnalysisEvidence);
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request: "top 10 longest activities",
+              datasets: ["activities"],
+              requestedCount: 10,
+              script: "RESULT = durationSec  # missing field reference",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request: "top 10 longest activities",
+              datasets: ["activities"],
+              requestedCount: 10,
+              script:
+                "activities = bundle['datasets']['activities']\nRESULT = {'kind': 'ranking', 'rows': [], 'limitations': []}",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "The corrected local generated script completed and produced the ranking.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "top 10 longest activities",
+    });
+
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(2);
+    expect(generateText.mock.calls[1][0].system).toContain("runtime_error");
+    expect(generateText.mock.calls[1][0].system).toContain(
+      "NameError: name 'durationSec' is not defined",
+    );
+    expect(generateText.mock.calls[1][0].system).toContain(
+      "Common activities fields include garminId",
+    );
+    expect(result.toolSteps).toHaveLength(2);
+    expect(result.toolSteps[0]).toMatchObject({
+      status: "failed",
+      reason: "runtime_error",
+      retryable: true,
+    });
+    expect(result.text).toContain("corrected local generated script");
+  });
+
+  it("stops after one generated-analysis correction attempt and renders a concise limitation", async () => {
+    runGeneratedGarminAnalysis
+      .mockResolvedValueOnce({
+        ...generatedAnalysisEvidence,
+        status: "failed" as const,
+        reason: "runtime_error",
+        message: "division by zero",
+        retryable: true,
+        correctionHint:
+          "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
+        result: undefined,
+      })
+      .mockResolvedValueOnce({
+        ...generatedAnalysisEvidence,
+        status: "rejected" as const,
+        reason: "invalid_result_shape",
+        message:
+          "Generated Python RESULT did not match the bounded Garmin analysis result contract.",
+        retryable: true,
+        correctionHint:
+          "Set RESULT to an object with a nonempty kind, rows no larger than requestedCount, limitations, and only Garmin IDs from the provided activities dataset.",
+        scriptHash: "123456abcdef7890",
+        result: undefined,
+      });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request: "rank activities",
+              datasets: ["activities"],
+              script: "RESULT = 1 / 0  # force runtime error",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request: "rank activities",
+              datasets: ["activities"],
+              script:
+                "RESULT = {'kind': '', 'rows': [], 'limitations': []}  # invalid shape",
+            },
+          },
+        ],
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "rank activities",
+    });
+
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(2);
+    expect(result.text).toContain("after one correction attempt");
+    expect(result.text).toContain("invalid_result_shape");
+    expect(result.text).not.toContain("Tool step 2");
+  });
+
+  it("does not retry safety-denied generated analysis", async () => {
+    runGeneratedGarminAnalysis.mockResolvedValueOnce({
+      ...generatedAnalysisEvidence,
+      status: "rejected" as const,
+      reason: "denied_import",
+      message: "Generated Python attempted to import a denied module.",
+      retryable: false,
+      correctionHint:
+        "The script cannot be retried automatically; keep analysis within the local read-only dataset contract.",
+      result: undefined,
+    });
+    generateText.mockResolvedValueOnce({
+      toolCalls: [
+        {
+          toolName: "runGeneratedGarminAnalysis",
+          input: {
+            request: "read files",
+            datasets: ["activities"],
+            script:
+              "import os\nRESULT = {'kind': 'summary', 'summary': str(os.environ), 'limitations': []}",
+          },
+        },
+      ],
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "read files",
+    });
+
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(1);
+    expect(result.toolSteps[0]).toMatchObject({
+      reason: "denied_import",
+      retryable: false,
+    });
+    expect(result.text).toContain("within the local safety guardrails");
   });
 });
