@@ -28,10 +28,18 @@ const DEFAULT_MAX_RESULT_BYTES = 12000;
 const MAX_SCRIPT_BYTES = 12000;
 
 const PYTHON_WRAPPER = String.raw`
-import ast, contextlib, io, json, resource, signal, sys
+import ast, contextlib, importlib, io, json, resource, signal, sys
 DENIED_NAMES = {"open", "eval", "exec", "compile", "__import__", "input", "globals", "locals", "vars", "dir", "getattr", "setattr", "delattr", "memoryview", "breakpoint"}
-DENIED_MODULES = {"os", "subprocess", "socket", "pathlib", "shutil", "requests", "urllib", "http", "ftplib", "sqlite3", "ctypes", "multiprocessing", "threading", "asyncio", "importlib", "builtins", "sys"}
-SAFE_BUILTINS = {"abs": abs, "all": all, "any": any, "bool": bool, "dict": dict, "enumerate": enumerate, "filter": filter, "float": float, "int": int, "isinstance": isinstance, "len": len, "list": list, "map": map, "max": max, "min": min, "print": print, "range": range, "round": round, "set": set, "sorted": sorted, "str": str, "sum": sum, "tuple": tuple, "zip": zip}
+DENIED_MODULES = {"os", "subprocess", "socket", "pathlib", "shutil", "requests", "urllib", "http", "ftplib", "sqlite3", "ctypes", "multiprocessing", "threading", "asyncio", "importlib", "builtins", "sys", "site", "pip"}
+ALLOWED_MODULES = {"collections", "datetime", "decimal", "functools", "itertools", "json", "math", "statistics"}
+
+def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    root = str(name).split(".")[0]
+    if level != 0 or root not in ALLOWED_MODULES:
+        raise ImportError("Generated Python attempted to import a denied module.")
+    return importlib.import_module(name)
+
+SAFE_BUILTINS = {"abs": abs, "all": all, "any": any, "bool": bool, "dict": dict, "enumerate": enumerate, "filter": filter, "float": float, "int": int, "isinstance": isinstance, "len": len, "list": list, "map": map, "max": max, "min": min, "print": print, "range": range, "round": round, "set": set, "sorted": sorted, "str": str, "sum": sum, "tuple": tuple, "zip": zip, "Exception": Exception, "ValueError": ValueError, "__import__": safe_import}
 
 def fail(status, reason, message):
     print(json.dumps({"status": status, "reason": reason, "message": message, "warnings": []}))
@@ -48,13 +56,16 @@ except SyntaxError as exc:
 for node in ast.walk(tree):
     if isinstance(node, ast.While):
         fail("rejected", "loop_disabled", "Generated Python while loops are disabled in the local sandbox.")
-    if isinstance(node, (ast.Import, ast.ImportFrom)):
-        names = [alias.name.split(".")[0] for alias in getattr(node, "names", [])]
-        if isinstance(node, ast.ImportFrom) and node.module:
-            names.append(node.module.split(".")[0])
-        if any(name in DENIED_MODULES for name in names):
+    if isinstance(node, ast.Import):
+        names = [alias.name.split(".")[0] for alias in node.names]
+        if any(name in DENIED_MODULES or name not in ALLOWED_MODULES for name in names):
             fail("rejected", "denied_import", "Generated Python attempted to import a denied module.")
-        fail("rejected", "imports_disabled", "Generated Python imports are disabled in the local sandbox.")
+    if isinstance(node, ast.ImportFrom):
+        if node.level != 0:
+            fail("rejected", "denied_import", "Generated Python attempted a relative import.")
+        name = node.module.split(".")[0] if node.module else ""
+        if name in DENIED_MODULES or name not in ALLOWED_MODULES:
+            fail("rejected", "denied_import", "Generated Python attempted to import a denied module.")
     if isinstance(node, ast.Attribute) and "__" in node.attr:
         fail("rejected", "dunder_access", "Generated Python attempted dunder/introspection access.")
     if isinstance(node, ast.Name):
@@ -69,7 +80,17 @@ try:
 except Exception:
     pass
 signal.alarm(2)
-namespace = {"__builtins__": SAFE_BUILTINS, "bundle": request.get("bundle"), "RESULT": None}
+bundle = request.get("bundle") or {}
+namespace = {
+    "__builtins__": SAFE_BUILTINS,
+    "bundle": bundle,
+    "datasets": bundle.get("datasets", {}) if isinstance(bundle, dict) else {},
+    "tables": bundle.get("tables", {}) if isinstance(bundle, dict) else {},
+    "manifest": bundle.get("manifest", {}) if isinstance(bundle, dict) else {},
+    "request": bundle.get("request", "") if isinstance(bundle, dict) else "",
+    "requestedCount": bundle.get("requestedCount", 10) if isinstance(bundle, dict) else 10,
+    "RESULT": None,
+}
 stdout = io.StringIO()
 try:
     with contextlib.redirect_stdout(stdout):

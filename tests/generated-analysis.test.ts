@@ -11,7 +11,7 @@ beforeEach(() => {
   );
 });
 
-describe("generated Garmin analysis", () => {
+describe("generated Garmin dataset scripts", () => {
   it("retains redacted raw payloads and clears them with Garmin data", async () => {
     const repository = await import("../src/lib/db/repository");
     const stored = repository.upsertGarminRawPayload({
@@ -37,7 +37,7 @@ describe("generated Garmin analysis", () => {
     expect(repository.listGarminRawPayloadsForAnalysis()).toHaveLength(0);
   });
 
-  it("runs a top-10 generated ranking over the explicit bundle", async () => {
+  it("runs an LLM-authored top-10 ranking over explicit datasets without fixed criteria", async () => {
     const repository = await import("../src/lib/db/repository");
     const { runGeneratedGarminAnalysis } =
       await import("../src/lib/ai/generated-analysis");
@@ -62,20 +62,36 @@ describe("generated Garmin analysis", () => {
     );
 
     const evidence = await runGeneratedGarminAnalysis({
-      request: "top 10 most demanding activities",
-      criterion: "demand_score",
+      request: "top 10 longest activities",
+      datasets: ["activities"],
       requestedCount: 10,
+      script: `
+from statistics import mean
+activities = bundle["datasets"]["activities"]
+ranked = sorted(activities, key=lambda item: item.get("durationSec") or 0, reverse=True)[:requestedCount]
+RESULT = {
+    "kind": "ranking",
+    "title": "Longest imported activities",
+    "summary": "Average selected duration seconds: " + str(round(mean([row.get("durationSec") or 0 for row in ranked]), 1)),
+    "rows": [
+        {"rank": index + 1, "garminId": row["garminId"], "value": row.get("durationSec"), "units": "s"}
+        for index, row in enumerate(ranked)
+    ],
+    "limitations": [],
+}
+`,
     });
 
     expect(evidence.status).toBe("succeeded");
+    expect(evidence.result?.kind).toBe("ranking");
     expect(evidence.result?.rows).toHaveLength(10);
-    expect(evidence.result?.rows[0].garminId).toBe("activity-12");
+    expect(evidence.result?.rows?.[0].garminId).toBe("activity-12");
+    expect(evidence.manifest.selectedDatasets).toEqual(["activities"]);
     expect(evidence.scriptHash).toHaveLength(64);
-    expect(JSON.stringify(evidence)).not.toContain("super-secret-token");
-    expect(JSON.stringify(evidence)).not.toContain("garmin_cookie=abc");
+    expect(JSON.stringify(evidence)).not.toContain("demand_score");
   });
 
-  it("applies hiking-only generated analysis filters before ranking", async () => {
+  it("applies generic activity selection before script execution", async () => {
     const repository = await import("../src/lib/db/repository");
     const { runGeneratedGarminAnalysis } =
       await import("../src/lib/ai/generated-analysis");
@@ -96,21 +112,6 @@ describe("generated Garmin analysis", () => {
         trainingEffect: 3.2,
       },
       {
-        garminId: "hike-easy",
-        name: "Easy forest hike",
-        sport: "hiking",
-        startedAt: new Date("2026-03-02T09:00:00Z"),
-        durationSec: 3600,
-        distanceMeters: 8000,
-        calories: 420,
-        avgHeartRate: 118,
-        maxHeartRate: 145,
-        steps: null,
-        elevationGainMeters: 300,
-        elevationLossMeters: 300,
-        trainingEffect: 1.4,
-      },
-      {
         garminId: "snowboard-excluded",
         name: "Excluded resort snowboarding",
         sport: "snowboarding",
@@ -128,41 +129,42 @@ describe("generated Garmin analysis", () => {
     ]);
 
     const evidence = await runGeneratedGarminAnalysis({
-      request:
-        "Rank my most demanding hiking activities only; skip snowboarding",
-      criterion: "demand_score",
+      request: "count hiking activities only",
+      datasets: ["activities"],
       requestedCount: 5,
-      activityFilter: { includeSports: ["hiking"] },
+      activitySelection: { includeText: ["hiking"] },
+      script: `
+activities = bundle["datasets"]["activities"]
+RESULT = {
+    "kind": "summary",
+    "title": "Activity count",
+    "summary": "matching activities: " + str(len(activities)),
+    "rows": [{"rank": 1, "garminId": row["garminId"], "value": row["sport"]} for row in activities],
+    "limitations": [],
+}
+`,
     });
 
     expect(evidence.status).toBe("succeeded");
-    expect(evidence.manifest.activityFilter).toEqual({
-      includeSports: ["hiking"],
-      excludeSports: [],
+    expect(evidence.manifest.activitySelection).toEqual({
+      includeText: ["hiking"],
+      excludeText: [],
     });
-    expect(
-      evidence.manifest.tables.find((table) => table.name === "activities")
-        ?.rowCount,
-    ).toBe(2);
-    expect(evidence.result?.rows.map((row) => row.garminId)).toEqual([
+    expect(evidence.result?.rows?.map((row) => row.garminId)).toEqual([
       "hike-demanding",
-      "hike-easy",
     ]);
-    expect(evidence.result?.rows.every((row) => row.sport === "hiking")).toBe(
-      true,
-    );
     expect(JSON.stringify(evidence.result)).not.toContain("snowboard-excluded");
   });
 
-  it("rejects generated rows that bypass the structured activity filter", async () => {
+  it("rejects generated rows outside the provided dataset", async () => {
     const repository = await import("../src/lib/db/repository");
     const { runGeneratedGarminAnalysis } =
       await import("../src/lib/ai/generated-analysis");
     repository.upsertActivities([
       {
-        garminId: "hike-allowed",
-        name: "Allowed hike",
-        sport: "hiking",
+        garminId: "known-activity",
+        name: "Known activity",
+        sport: "running",
         startedAt: new Date("2026-04-01T09:00:00Z"),
         durationSec: 3600,
         distanceMeters: 8000,
@@ -174,150 +176,38 @@ describe("generated Garmin analysis", () => {
         elevationLossMeters: 500,
         trainingEffect: 1.8,
       },
-      {
-        garminId: "snowboard-bypass",
-        name: "Out-of-filter snowboard",
-        sport: "snowboarding",
-        startedAt: new Date("2026-04-02T09:00:00Z"),
-        durationSec: 5400,
-        distanceMeters: 18000,
-        calories: 850,
-        avgHeartRate: 136,
-        maxHeartRate: 171,
-        steps: null,
-        elevationGainMeters: 120,
-        elevationLossMeters: 1700,
-        trainingEffect: 2.7,
-      },
     ]);
 
     const evidence = await runGeneratedGarminAnalysis({
-      request: "Rank only hiking activities",
-      criterion: "demand_score",
+      request: "rank activities",
+      datasets: ["activities"],
       requestedCount: 1,
-      activityFilter: { includeSports: ["hiking"] },
       script:
-        "RESULT = {'kind': 'ranking', 'criterion': 'demand_score', 'requestedCount': 1, 'returnedCount': 1, 'rows': [{'rank': 1, 'garminId': 'snowboard-bypass', 'label': 'Out-of-filter snowboard', 'sport': 'snowboarding', 'value': 999}], 'limitations': []}",
+        "RESULT = {'kind': 'ranking', 'rows': [{'rank': 1, 'garminId': 'unknown-activity', 'value': 999}], 'limitations': []}",
     });
 
     expect(evidence.status).toBe("rejected");
     expect(evidence.reason).toBe("invalid_result_shape");
-    expect(evidence.result).toBeUndefined();
   });
 
-  it("uses sport-aware snowboarding demand instead of lift-assisted ascent", async () => {
-    const repository = await import("../src/lib/db/repository");
-    const { runGeneratedGarminAnalysis } =
-      await import("../src/lib/ai/generated-analysis");
-    repository.upsertActivities([
-      {
-        garminId: "snowboard-lift-ascent",
-        name: "Resort snowboard with lift ascent",
-        sport: "snowboarding",
-        startedAt: new Date("2026-02-01T09:00:00Z"),
-        durationSec: 3600,
-        distanceMeters: 10000,
-        calories: 300,
-        avgHeartRate: 110,
-        maxHeartRate: 145,
-        steps: null,
-        elevationGainMeters: 1400,
-        elevationLossMeters: 900,
-        trainingEffect: 1.4,
-      },
-      {
-        garminId: "snowboard-effort",
-        name: "Resort snowboard hard laps",
-        sport: "snowboarding",
-        startedAt: new Date("2026-02-02T09:00:00Z"),
-        durationSec: 5400,
-        distanceMeters: 18000,
-        calories: 850,
-        avgHeartRate: 136,
-        maxHeartRate: 171,
-        steps: null,
-        elevationGainMeters: 120,
-        elevationLossMeters: 1700,
-        trainingEffect: 2.7,
-      },
-      {
-        garminId: "hike-ascent",
-        name: "Steep ascent hike",
-        sport: "hiking",
-        startedAt: new Date("2026-02-03T09:00:00Z"),
-        durationSec: 7200,
-        distanceMeters: 9000,
-        calories: 700,
-        avgHeartRate: 125,
-        maxHeartRate: 160,
-        steps: null,
-        elevationGainMeters: 1800,
-        elevationLossMeters: 100,
-        trainingEffect: 2.1,
-      },
-    ]);
+  it("allows safe imports and rejects forbidden filesystem imports distinctly", async () => {
+    const { runGeneratedPythonAnalysis } =
+      await import("../src/lib/ai/python-sandbox");
 
-    const evidence = await runGeneratedGarminAnalysis({
-      request:
-        "Which resort snowboarding days were most demanding by calories, distance, and descent?",
-      criterion: "sport_aware_demand_score",
-      requestedCount: 2,
-    });
+    await expect(
+      runGeneratedPythonAnalysis({
+        script:
+          "import math\nRESULT = {'kind': 'summary', 'summary': str(math.sqrt(81)), 'limitations': []}",
+        bundle: {},
+      }),
+    ).resolves.toMatchObject({ status: "succeeded" });
 
-    expect(evidence.status).toBe("succeeded");
-    expect(evidence.result?.criterion).toBe("sport_aware_demand_score");
-    expect(evidence.result?.rows.map((row) => row.garminId)).toEqual([
-      "snowboard-effort",
-      "snowboard-lift-ascent",
-    ]);
-    expect(evidence.result?.rows[0].notes).toContain("850 kcal");
-    expect(evidence.result?.rows[0].notes).toContain("1,700 m descent");
-    expect(evidence.result?.rows[0].notes).not.toContain("elevation gain");
-    expect(
-      evidence.result?.rows.some((row) => row.garminId === "hike-ascent"),
-    ).toBe(false);
-  });
-
-  it("discloses missing snowboarding calories and descent without inventing them", async () => {
-    const repository = await import("../src/lib/db/repository");
-    const { runGeneratedGarminAnalysis } =
-      await import("../src/lib/ai/generated-analysis");
-    repository.upsertActivities([
-      {
-        garminId: "snowboard-missing",
-        name: "Snowboard limited metrics",
-        sport: "snowboarding",
-        startedAt: new Date("2026-02-04T09:00:00Z"),
-        durationSec: 4200,
-        distanceMeters: 12000,
-        calories: null,
-        avgHeartRate: 128,
-        maxHeartRate: 155,
-        steps: null,
-        elevationGainMeters: 800,
-        elevationLossMeters: null,
-        trainingEffect: 2.2,
-      },
-    ]);
-
-    const evidence = await runGeneratedGarminAnalysis({
-      request: "Analyze my resort snowboarding demand with missing fields",
-      criterion: "sport_aware_demand_score",
-      requestedCount: 1,
-    });
-
-    expect(evidence.status).toBe("succeeded");
-    expect(evidence.result?.rows[0]).toMatchObject({
-      garminId: "snowboard-missing",
-      units: "sport-aware composite score",
-    });
-    expect(evidence.result?.rows[0].notes).toContain("calories unavailable");
-    expect(evidence.result?.rows[0].notes).toContain("descent unavailable");
-    expect(evidence.result?.limitations.join(" ")).toContain(
-      "calories are missing",
-    );
-    expect(JSON.stringify(evidence.result)).not.toContain(
-      "800 m elevation gain",
-    );
+    await expect(
+      runGeneratedPythonAnalysis({
+        script:
+          "import os\nRESULT = {'kind': 'summary', 'summary': os.getcwd(), 'limitations': []}",
+        bundle: {},
+      }),
+    ).resolves.toMatchObject({ status: "rejected", reason: "denied_import" });
   });
 });

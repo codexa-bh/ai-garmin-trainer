@@ -12,29 +12,29 @@ import {
 } from "@/lib/ai/python-sandbox";
 import { payloadHasSecretLikeText } from "@/lib/garmin/raw-payload";
 
-export type GeneratedAnalysisCriterion =
-  | "demand_score"
-  | "sport_aware_demand_score"
-  | "elevationGainMeters"
-  | "distanceMeters"
-  | "durationSec"
-  | "avgHeartRate"
-  | "trainingEffect";
+export type GeneratedAnalysisDatasetName =
+  "activities" | "dailyHealth" | "activityDetails" | "rawPayloads";
 
-export type GeneratedAnalysisActivityFilter = {
-  includeSports?: string[];
-  excludeSports?: string[];
+export type GeneratedAnalysisActivitySelection = {
+  includeText?: string[];
+  excludeText?: string[];
 };
 
-type NormalizedGeneratedAnalysisActivityFilter = {
-  includeSports: string[];
-  excludeSports: string[];
+type NormalizedGeneratedAnalysisActivitySelection = {
+  includeText: string[];
+  excludeText: string[];
 };
 
 export type GarminAnalysisBundle = {
   manifest: {
     generatedAt: string;
     request: string;
+    selectedDatasets: GeneratedAnalysisDatasetName[];
+    datasets: Array<{
+      name: GeneratedAnalysisDatasetName;
+      rowCount: number;
+      description: string;
+    }>;
     tables: Array<{ name: string; rowCount: number }>;
     rawPayloads: Array<{
       id: string;
@@ -49,7 +49,25 @@ export type GarminAnalysisBundle = {
       maxRawPayloadBytes: number;
       maxOutputBytes: number;
     };
-    activityFilter?: NormalizedGeneratedAnalysisActivityFilter;
+    activitySelection?: NormalizedGeneratedAnalysisActivitySelection;
+    scriptContract: {
+      resultVariable: "RESULT";
+      allowedImports: string[];
+      forbiddenAccess: string[];
+    };
+  };
+  datasets: {
+    activities: unknown[];
+    dailyHealth: unknown[];
+    activityDetails: unknown[];
+    rawPayloads: Array<{
+      id: string;
+      sourceTool: string;
+      subjectType: string;
+      subjectId: string;
+      contentType: string;
+      payload: unknown;
+    }>;
   };
   tables: {
     activities: unknown[];
@@ -67,43 +85,62 @@ export type GarminAnalysisBundle = {
   }>;
 };
 
+export type GeneratedDatasetScriptResult = {
+  kind: string;
+  title?: string;
+  requestedCount?: number;
+  returnedCount?: number;
+  rows?: Array<Record<string, unknown>>;
+  summary?: unknown;
+  metrics?: unknown;
+  limitations: string[];
+  [key: string]: unknown;
+};
+
 export type GeneratedAnalysisEvidence = {
   tool: "generatedGarminAnalysis";
   status: "succeeded" | "rejected" | "failed";
-  criterion: string;
   requestedCount: number;
   scriptHash: string;
   manifest: GarminAnalysisBundle["manifest"];
-  result?: GeneratedRankingResult;
+  result?: GeneratedDatasetScriptResult;
   reason?: string;
   warnings: string[];
   privacy: string;
-};
-
-export type GeneratedRankingResult = {
-  kind: "ranking";
-  criterion: string;
-  requestedCount: number;
-  returnedCount: number;
-  rows: Array<{
-    rank: number;
-    garminId?: string;
-    label?: string;
-    date?: string;
-    sport?: string;
-    value: number | string;
-    units?: string;
-    notes?: string;
-  }>;
-  limitations: string[];
 };
 
 const MAX_ROWS_PER_TABLE = 1000;
 const MAX_RAW_PAYLOADS = 100;
 const MAX_RAW_BYTES = 200000;
 const MAX_OUTPUT_BYTES = 12000;
-const MAX_FILTER_TERMS = 8;
-const MAX_FILTER_TERM_LENGTH = 40;
+const MAX_SELECTION_TERMS = 8;
+const MAX_SELECTION_TERM_LENGTH = 40;
+const DEFAULT_DATASETS: GeneratedAnalysisDatasetName[] = [
+  "activities",
+  "dailyHealth",
+  "activityDetails",
+  "rawPayloads",
+];
+const DATASET_DESCRIPTIONS: Record<GeneratedAnalysisDatasetName, string> = {
+  activities:
+    "Bounded normalized Garmin activity summaries with IDs, labels, dates, sports, duration, distance, heart-rate, elevation, calories, steps, and training-effect fields.",
+  dailyHealth:
+    "Recent normalized daily health/recovery rows available in local SQLite.",
+  activityDetails:
+    "Bounded normalized activity detail slices for selected local activities; stream/lap rows are capped.",
+  rawPayloads:
+    "Redacted Garmin raw payload snapshots retained by the app; metadata is always explicit and payload bytes are capped.",
+};
+const SAFE_IMPORTS = [
+  "collections",
+  "datetime",
+  "decimal",
+  "functools",
+  "itertools",
+  "json",
+  "math",
+  "statistics",
+];
 
 function normalizeFilterText(value: string): string {
   return value
@@ -114,7 +151,7 @@ function normalizeFilterText(value: string): string {
     .trim();
 }
 
-function normalizeFilterTerms(values: unknown): string[] {
+function normalizeSelectionTerms(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
   return [
     ...new Set(
@@ -124,29 +161,31 @@ function normalizeFilterTerms(values: unknown): string[] {
         )
         .filter(
           (value) =>
-            value.length >= 2 && value.length <= MAX_FILTER_TERM_LENGTH,
+            value.length >= 2 && value.length <= MAX_SELECTION_TERM_LENGTH,
         )
-        .slice(0, MAX_FILTER_TERMS),
+        .slice(0, MAX_SELECTION_TERMS),
     ),
   ];
 }
 
-function normalizeGeneratedAnalysisActivityFilter(
-  filter?: GeneratedAnalysisActivityFilter,
-): NormalizedGeneratedAnalysisActivityFilter {
+function normalizeGeneratedAnalysisActivitySelection(
+  selection?: GeneratedAnalysisActivitySelection,
+): NormalizedGeneratedAnalysisActivitySelection {
   return {
-    includeSports: normalizeFilterTerms(filter?.includeSports),
-    excludeSports: normalizeFilterTerms(filter?.excludeSports),
+    includeText: normalizeSelectionTerms(selection?.includeText),
+    excludeText: normalizeSelectionTerms(selection?.excludeText),
   };
 }
 
-function hasActiveActivityFilter(
-  filter: NormalizedGeneratedAnalysisActivityFilter | undefined,
-): filter is NormalizedGeneratedAnalysisActivityFilter {
-  return Boolean(filter?.includeSports.length || filter?.excludeSports.length);
+function hasActiveActivitySelection(
+  selection: NormalizedGeneratedAnalysisActivitySelection | undefined,
+): selection is NormalizedGeneratedAnalysisActivitySelection {
+  return Boolean(
+    selection?.includeText.length || selection?.excludeText.length,
+  );
 }
 
-function activityFilterSearchText(activity: {
+function activitySearchText(activity: {
   sport?: unknown;
   label?: unknown;
 }): string {
@@ -159,17 +198,17 @@ function activityMatchesTerm(
   activity: { sport?: unknown; label?: unknown },
   term: string,
 ): boolean {
-  return activityFilterSearchText(activity).includes(term);
+  return activitySearchText(activity).includes(term);
 }
 
-function activityPassesFilter(
+function activityPassesSelection(
   activity: { sport?: unknown; label?: unknown },
-  filter: NormalizedGeneratedAnalysisActivityFilter,
+  selection: NormalizedGeneratedAnalysisActivitySelection,
 ): boolean {
   const included =
-    filter.includeSports.length === 0 ||
-    filter.includeSports.some((term) => activityMatchesTerm(activity, term));
-  const excluded = filter.excludeSports.some((term) =>
+    selection.includeText.length === 0 ||
+    selection.includeText.some((term) => activityMatchesTerm(activity, term));
+  const excluded = selection.excludeText.some((term) =>
     activityMatchesTerm(activity, term),
   );
   return included && !excluded;
@@ -191,13 +230,28 @@ function safeActivityLabel(activity: {
   );
 }
 
+function normalizeDatasets(
+  datasets?: GeneratedAnalysisDatasetName[],
+): GeneratedAnalysisDatasetName[] {
+  if (!datasets?.length) return [...DEFAULT_DATASETS];
+  return [...new Set(datasets)].filter((name) =>
+    DEFAULT_DATASETS.includes(name),
+  );
+}
+
 export function buildGarminAnalysisBundle(
   request: string,
-  activityFilter?: GeneratedAnalysisActivityFilter,
+  options: {
+    datasets?: GeneratedAnalysisDatasetName[];
+    activitySelection?: GeneratedAnalysisActivitySelection;
+  } = {},
 ): GarminAnalysisBundle {
-  const normalizedFilter =
-    normalizeGeneratedAnalysisActivityFilter(activityFilter);
-  const activities = listActivitiesForComparison(MAX_ROWS_PER_TABLE)
+  const selectedDatasets = normalizeDatasets(options.datasets);
+  const selected = new Set(selectedDatasets);
+  const normalizedSelection = normalizeGeneratedAnalysisActivitySelection(
+    options.activitySelection,
+  );
+  const allActivities = listActivitiesForComparison(MAX_ROWS_PER_TABLE)
     .map((activity) => ({
       garminId: activity.garminId,
       label: safeActivityLabel(activity),
@@ -214,215 +268,162 @@ export function buildGarminAnalysisBundle(
       elevationLossMeters: activity.elevationLossMeters,
       trainingEffect: activity.trainingEffect,
     }))
-    .filter((activity) => activityPassesFilter(activity, normalizedFilter));
-  const dailyHealth = listRecentDailyHealth(366);
-  const detailIds = activities
+    .filter((activity) =>
+      activityPassesSelection(activity, normalizedSelection),
+    );
+  const activities = selected.has("activities") ? allActivities : [];
+  const dailyHealth = selected.has("dailyHealth")
+    ? listRecentDailyHealth(366)
+    : [];
+  const detailIds = allActivities
     .slice(0, 250)
     .map((activity) => activity.garminId);
-  const activityDetails = detailIds.map((garminId) => {
-    const detail = getActivityDetailForAnalytics(garminId);
-    return {
-      garminId,
-      availability: detail.availability,
-      session: detail.session,
-      derived: detail.derived,
-      laps: detail.laps.slice(0, 50),
-      stream: detail.stream.slice(0, 500),
-      totalStreamPoints: detail.stream.length,
-    };
-  });
+  const activityDetails = selected.has("activityDetails")
+    ? detailIds.map((garminId) => {
+        const detail = getActivityDetailForAnalytics(garminId);
+        return {
+          garminId,
+          availability: detail.availability,
+          session: detail.session,
+          derived: detail.derived,
+          laps: detail.laps.slice(0, 50),
+          stream: detail.stream.slice(0, 500),
+          totalStreamPoints: detail.stream.length,
+        };
+      })
+    : [];
   let rawBytes = 0;
-  const rawPayloads = listGarminRawPayloadsForAnalysis(MAX_RAW_PAYLOADS)
-    .map((raw) => {
-      const payloadText = JSON.stringify(raw.payload) ?? "";
-      rawBytes += Buffer.byteLength(payloadText, "utf8");
-      return {
-        id: raw.id,
-        sourceTool: raw.sourceTool,
-        subjectType: raw.subjectType,
-        subjectId: raw.subjectId,
-        contentType: raw.contentType,
-        payload: raw.payload,
-      };
-    })
-    .filter(() => rawBytes <= MAX_RAW_BYTES);
-  return {
-    manifest: {
-      generatedAt: new Date().toISOString(),
-      request: request.slice(0, 500),
-      tables: [
-        { name: "activities", rowCount: activities.length },
-        { name: "dailyHealth", rowCount: dailyHealth.length },
-        { name: "activityDetails", rowCount: activityDetails.length },
-      ],
-      rawPayloads: rawPayloads.map((raw) => ({
-        id: raw.id,
-        sourceTool: raw.sourceTool,
-        subjectType: raw.subjectType,
-        subjectId: raw.subjectId,
-        contentType: raw.contentType,
-      })),
-      limits: {
-        maxRowsPerTable: MAX_ROWS_PER_TABLE,
-        maxRawPayloads: MAX_RAW_PAYLOADS,
-        maxRawPayloadBytes: MAX_RAW_BYTES,
-        maxOutputBytes: MAX_OUTPUT_BYTES,
-      },
-      activityFilter: hasActiveActivityFilter(normalizedFilter)
-        ? normalizedFilter
-        : undefined,
+  const rawPayloads = selected.has("rawPayloads")
+    ? listGarminRawPayloadsForAnalysis(MAX_RAW_PAYLOADS)
+        .map((raw) => {
+          const payloadText = JSON.stringify(raw.payload) ?? "";
+          rawBytes += Buffer.byteLength(payloadText, "utf8");
+          return {
+            id: raw.id,
+            sourceTool: raw.sourceTool,
+            subjectType: raw.subjectType,
+            subjectId: raw.subjectId,
+            contentType: raw.contentType,
+            payload: raw.payload,
+          };
+        })
+        .filter(() => rawBytes <= MAX_RAW_BYTES)
+    : [];
+  const datasetRows: Record<GeneratedAnalysisDatasetName, number> = {
+    activities: activities.length,
+    dailyHealth: dailyHealth.length,
+    activityDetails: activityDetails.length,
+    rawPayloads: rawPayloads.length,
+  };
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    request: request.slice(0, 500),
+    selectedDatasets,
+    datasets: selectedDatasets.map((name) => ({
+      name,
+      rowCount: datasetRows[name],
+      description: DATASET_DESCRIPTIONS[name],
+    })),
+    tables: [
+      { name: "activities", rowCount: activities.length },
+      { name: "dailyHealth", rowCount: dailyHealth.length },
+      { name: "activityDetails", rowCount: activityDetails.length },
+    ],
+    rawPayloads: rawPayloads.map((raw) => ({
+      id: raw.id,
+      sourceTool: raw.sourceTool,
+      subjectType: raw.subjectType,
+      subjectId: raw.subjectId,
+      contentType: raw.contentType,
+    })),
+    limits: {
+      maxRowsPerTable: MAX_ROWS_PER_TABLE,
+      maxRawPayloads: MAX_RAW_PAYLOADS,
+      maxRawPayloadBytes: MAX_RAW_BYTES,
+      maxOutputBytes: MAX_OUTPUT_BYTES,
     },
+    activitySelection: hasActiveActivitySelection(normalizedSelection)
+      ? normalizedSelection
+      : undefined,
+    scriptContract: {
+      resultVariable: "RESULT" as const,
+      allowedImports: SAFE_IMPORTS,
+      forbiddenAccess: [
+        "filesystem",
+        "network",
+        "process/subprocess",
+        "environment",
+        "SQL/database handles",
+        "Garmin connector handles or credentials",
+        "raw FIT bytes or unrestricted streams",
+      ],
+    },
+  };
+  const datasets = { activities, dailyHealth, activityDetails, rawPayloads };
+  return {
+    manifest,
+    datasets,
     tables: { activities, dailyHealth, activityDetails },
     athleteBaseline: getGarminAthleteBaseline(),
     rawPayloads,
   };
 }
 
-export function defaultRankingScript(): string {
-  return `
-activities = bundle["tables"]["activities"]
-criterion = bundle.get("criterion", "demand_score")
-requested_count = int(bundle.get("requestedCount", 10))
-request_text = str(bundle.get("request") or bundle.get("manifest", {}).get("request") or "").lower()
-request_is_snowboarding = "snowboard" in request_text
-
-def number(value):
-    return value if isinstance(value, (int, float)) else None
-
-def compact_number(value, digits=0):
-    rounded = round(value, digits)
-    return ("{:,.0f}" if digits == 0 else "{:,.1f}").format(rounded)
-
-def activity_text(activity):
-    return (str(activity.get("sport") or "") + " " + str(activity.get("label") or "")).lower()
-
-def is_snowboarding_activity(activity):
-    return "snowboard" in activity_text(activity)
-
-def sport_aware_snowboarding_score(activity):
-    notes = []
-    limitations = []
-    score = 0
-    calories = number(activity.get("calories"))
-    distance = number(activity.get("distanceMeters"))
-    descent = number(activity.get("elevationLossMeters"))
-    duration = number(activity.get("durationSec"))
-    avg_hr = number(activity.get("avgHeartRate"))
-    max_hr = number(activity.get("maxHeartRate"))
-    training_effect = number(activity.get("trainingEffect"))
-    if calories is None:
-        limitations.append("calories unavailable")
-    else:
-        score += calories / 100
-        notes.append(compact_number(calories) + " kcal")
-    if distance is None:
-        limitations.append("distance unavailable")
-    else:
-        score += distance / 10000
-        notes.append(compact_number(distance / 1000, 1) + " km")
-    if descent is None:
-        limitations.append("descent unavailable")
-    else:
-        score += descent / 500
-        notes.append(compact_number(descent) + " m descent")
-    if duration is not None:
-        score += duration / 3600
-        notes.append(compact_number(duration / 60) + " min")
-    if avg_hr is not None:
-        score += avg_hr / 100
-        notes.append(compact_number(avg_hr) + " bpm avg HR")
-    elif max_hr is not None:
-        score += max_hr / 150
-        notes.append(compact_number(max_hr) + " bpm max HR")
-    if training_effect is not None:
-        score += training_effect
-        notes.append("TE " + compact_number(training_effect, 1))
-    notes.append("ascent excluded for resort/lift context")
-    if limitations:
-        notes.extend(limitations)
-    return score, "; ".join(notes), limitations
-
-def score(activity):
-    if criterion == "sport_aware_demand_score":
-        return sport_aware_snowboarding_score(activity)
-    if criterion == "demand_score":
-        if request_is_snowboarding and is_snowboarding_activity(activity):
-            return sport_aware_snowboarding_score(activity)
-        duration = number(activity.get("durationSec")) or 0
-        distance = number(activity.get("distanceMeters")) or 0
-        elevation = number(activity.get("elevationGainMeters")) or 0
-        hr = number(activity.get("avgHeartRate")) or 0
-        te = number(activity.get("trainingEffect")) or 0
-        return duration / 3600 + distance / 10000 + elevation / 500 + hr / 100 + te, "", []
-    value = number(activity.get(criterion))
-    return value, "", []
-ranked = []
-all_limitations = []
-for activity in activities:
-    if criterion == "sport_aware_demand_score" and request_is_snowboarding and not is_snowboarding_activity(activity):
-        continue
-    value, notes, limitations = score(activity)
-    if value is None:
-        continue
-    for limitation in limitations:
-        if limitation not in all_limitations:
-            all_limitations.append(limitation)
-    ranked.append((float(value), activity, notes))
-ranked = sorted(ranked, key=lambda item: item[0], reverse=True)[:requested_count]
-rows = []
-for index, item in enumerate(ranked):
-    value = item[0]
-    activity = item[1]
-    rows.append({
-        "rank": index + 1,
-        "garminId": activity.get("garminId"),
-        "label": activity.get("label"),
-        "date": activity.get("date"),
-        "sport": activity.get("sport"),
-        "value": round(value, 2),
-        "units": "sport-aware composite score" if criterion == "sport_aware_demand_score" else ("composite score" if criterion == "demand_score" else criterion),
-        "notes": item[2],
-    })
-limitations = []
-if len(rows) >= requested_count:
-    limitations = []
-else:
-    limitations = ["Fewer matching imported activities were available than requested."]
-if criterion == "sport_aware_demand_score" and request_is_snowboarding and not rows:
-    limitations.append("No imported snowboarding activities matched the request.")
-for limitation in all_limitations:
-    if limitation == "calories unavailable":
-        message = "Some snowboarding rows report calories are missing in local data; scores use distance, descent, duration, heart-rate, and training-effect fields that are available."
-    elif limitation == "descent unavailable":
-        message = "Some snowboarding rows have descent unavailable; scores do not invent elevation loss."
-    else:
-        message = "Some snowboarding rows have " + limitation + "; scores use remaining available local metrics."
-    if message not in limitations:
-        limitations.append(message)
-RESULT = {
-    "kind": "ranking",
-    "criterion": criterion,
-    "requestedCount": requested_count,
-    "returnedCount": len(rows),
-    "rows": rows,
-    "limitations": limitations[:5],
-}
-`;
+function truncateString(value: string, max: number): string {
+  return value.length > max ? value.slice(0, max) : value;
 }
 
-function validateRankingResult(
+function sanitizeJsonValue(value: unknown, depth = 0): unknown {
+  if (depth > 6) return "[depth-limit]";
+  if (value === null) return null;
+  if (typeof value === "string") return truncateString(value, 1000);
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 50).map((item) => sanitizeJsonValue(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).slice(
+      0,
+      40,
+    );
+    return Object.fromEntries(
+      entries.map(([key, item]) => [
+        truncateString(key.replace(/[^\p{L}\p{N}\s_.:-]+/gu, ""), 80),
+        sanitizeJsonValue(item, depth + 1),
+      ]),
+    );
+  }
+  return String(value).slice(0, 200);
+}
+
+function resultHasForbiddenText(value: unknown): boolean {
+  const text =
+    typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+  return (
+    payloadHasSecretLikeText(value) ||
+    /(?:\/Users\/|\/home\/|file:\/\/|https?:\/\/|\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b|process\.env|DATABASE_URL|GARMIN_|connector|sqlite|\.fit\b)/i.test(
+      text,
+    )
+  );
+}
+
+function validateDatasetScriptResult(
   value: unknown,
   requestedCount: number,
   bundle: GarminAnalysisBundle,
-): GeneratedRankingResult | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as GeneratedRankingResult;
-  if (record.kind !== "ranking" || !Array.isArray(record.rows)) return null;
-  if (record.rows.length > requestedCount || record.rows.length > 25)
-    return null;
+): GeneratedDatasetScriptResult | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const sanitized = sanitizeJsonValue(value) as Record<string, unknown>;
+  if (resultHasForbiddenText(sanitized)) return null;
+  const kind =
+    typeof sanitized.kind === "string" && sanitized.kind.trim()
+      ? sanitized.kind.trim().slice(0, 40)
+      : null;
+  if (!kind) return null;
   const knownActivities = new Map(
     (
-      bundle.tables.activities as Array<{
+      bundle.datasets.activities as Array<{
         garminId?: string;
         label?: string;
         date?: string;
@@ -432,61 +433,87 @@ function validateRankingResult(
       .filter((activity) => activity.garminId)
       .map((activity) => [activity.garminId as string, activity]),
   );
-  const filterIsActive = hasActiveActivityFilter(
-    bundle.manifest.activityFilter,
-  );
-  for (const row of record.rows) {
-    if (row.garminId && !knownActivities.has(row.garminId)) return null;
-    if (filterIsActive && !row.garminId) return null;
-    if (payloadHasSecretLikeText(row)) return null;
+  const rows = Array.isArray(sanitized.rows)
+    ? (sanitized.rows as unknown[]).slice(0, 25)
+    : undefined;
+  if (Array.isArray(sanitized.rows) && sanitized.rows.length > requestedCount) {
+    return null;
   }
+  if (Array.isArray(sanitized.rows) && sanitized.rows.length > 25) return null;
+  const filterIsActive = hasActiveActivitySelection(
+    bundle.manifest.activitySelection,
+  );
+  const normalizedRows = rows?.map((row, index) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+    const record = row as Record<string, unknown>;
+    const garminId =
+      typeof record.garminId === "string" ? record.garminId : undefined;
+    if (garminId && !knownActivities.has(garminId)) return null;
+    if (filterIsActive && !garminId) return null;
+    const activity = garminId ? knownActivities.get(garminId) : null;
+    return {
+      ...record,
+      rank:
+        typeof record.rank === "number" && Number.isFinite(record.rank)
+          ? record.rank
+          : index + 1,
+      garminId: garminId?.slice(0, 80),
+      label:
+        typeof record.label === "string"
+          ? record.label.slice(0, 160)
+          : activity?.label?.slice(0, 160),
+      date:
+        typeof record.date === "string"
+          ? record.date.slice(0, 40)
+          : activity?.date?.slice(0, 40),
+      sport:
+        typeof record.sport === "string"
+          ? record.sport.slice(0, 40)
+          : activity?.sport?.slice(0, 40),
+    };
+  });
+  if (normalizedRows?.some((row) => row === null)) return null;
+  const limitations = Array.isArray(sanitized.limitations)
+    ? sanitized.limitations
+        .map((item) => String(item).slice(0, 200))
+        .slice(0, 5)
+    : [];
   return {
-    kind: "ranking",
-    criterion: String(record.criterion ?? "generated analysis").slice(0, 120),
+    ...sanitized,
+    kind,
+    title:
+      typeof sanitized.title === "string"
+        ? sanitized.title.slice(0, 120)
+        : undefined,
     requestedCount,
-    returnedCount: record.rows.length,
-    rows: record.rows.map((row, index) => {
-      const activity = row.garminId ? knownActivities.get(row.garminId) : null;
-      return {
-        rank: index + 1,
-        garminId: row.garminId?.slice(0, 80),
-        label: (activity?.label ?? row.label)?.slice(0, 160),
-        date: (activity?.date ?? row.date)?.slice(0, 40),
-        sport: (activity?.sport ?? row.sport)?.slice(0, 40),
-        value:
-          typeof row.value === "number"
-            ? row.value
-            : String(row.value).slice(0, 80),
-        units: row.units?.slice(0, 80),
-        notes: row.notes?.slice(0, 160),
-      };
-    }),
-    limitations: Array.isArray(record.limitations)
-      ? record.limitations.map((item) => String(item).slice(0, 200)).slice(0, 5)
-      : [],
+    returnedCount:
+      normalizedRows?.length ?? Number(sanitized.returnedCount ?? 0),
+    rows: normalizedRows as Array<Record<string, unknown>> | undefined,
+    limitations,
   };
 }
 
 export async function runGeneratedGarminAnalysis(input: {
   request: string;
-  criterion: GeneratedAnalysisCriterion;
+  datasets?: GeneratedAnalysisDatasetName[];
   requestedCount?: number;
-  activityFilter?: GeneratedAnalysisActivityFilter;
-  script?: string;
+  activitySelection?: GeneratedAnalysisActivitySelection;
+  script: string;
 }): Promise<GeneratedAnalysisEvidence> {
   const requestedCount = Math.min(Math.max(input.requestedCount ?? 10, 1), 25);
-  const bundle = buildGarminAnalysisBundle(input.request, input.activityFilter);
+  const bundle = buildGarminAnalysisBundle(input.request, {
+    datasets: input.datasets,
+    activitySelection: input.activitySelection,
+  });
   const executableBundle = {
     ...bundle,
-    criterion: input.criterion,
-    requestedCount,
     request: input.request,
-    activityFilter: bundle.manifest.activityFilter,
+    requestedCount,
   };
-  const script = input.script?.trim() || defaultRankingScript();
+  const script = input.script.trim();
   const scriptHash = createHash("sha256").update(script).digest("hex");
   const privacy =
-    "Generated Python ran locally against an explicit read-only Garmin analysis bundle; no credentials, environment, filesystem paths, connector handles, or raw secret fields were exposed.";
+    "Generated Python ran locally against explicit read-only Garmin datasets; no credentials, environment, filesystem paths, connector handles, SQL, or unrestricted raw streams were exposed.";
   const sandbox = await runGeneratedPythonAnalysis({
     script,
     bundle: executableBundle,
@@ -498,7 +525,6 @@ export async function runGeneratedGarminAnalysis(input: {
     return {
       tool: "generatedGarminAnalysis",
       status: sandbox.status,
-      criterion: input.criterion,
       requestedCount,
       scriptHash,
       manifest: bundle.manifest,
@@ -507,12 +533,15 @@ export async function runGeneratedGarminAnalysis(input: {
       privacy,
     };
   }
-  const result = validateRankingResult(sandbox.result, requestedCount, bundle);
+  const result = validateDatasetScriptResult(
+    sandbox.result,
+    requestedCount,
+    bundle,
+  );
   if (!result) {
     return {
       tool: "generatedGarminAnalysis",
       status: "rejected",
-      criterion: input.criterion,
       requestedCount,
       scriptHash,
       manifest: bundle.manifest,
@@ -524,7 +553,6 @@ export async function runGeneratedGarminAnalysis(input: {
   return {
     tool: "generatedGarminAnalysis",
     status: "succeeded",
-    criterion: result.criterion,
     requestedCount,
     scriptHash,
     manifest: bundle.manifest,

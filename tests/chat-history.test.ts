@@ -24,7 +24,7 @@ describe("local chat history repository", () => {
       role: "assistant",
       content: "Tool-grounded answer",
       grounding: {
-        tool: "analyzeActivity",
+        tool: "runGeneratedGarminAnalysis",
         activityId: "123456",
         activityName: "Vrh Zakotja",
         privacy: "normalized local analytics only",
@@ -43,7 +43,7 @@ describe("local chat history repository", () => {
       "assistant",
       "user",
     ]);
-    expect(recentTwo[0].grounding?.tool).toBe("analyzeActivity");
+    expect(recentTwo[0].grounding?.tool).toBe("runGeneratedGarminAnalysis");
     expect(recentTwo[0].grounding?.activityName).toBe("Vrh Zakotja");
 
     repository.clearConversationHistory();

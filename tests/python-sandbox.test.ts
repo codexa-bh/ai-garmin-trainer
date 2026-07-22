@@ -40,12 +40,25 @@ describe("generated Python sandbox", () => {
     ["eval", "RESULT = eval('1 + 1')"],
     ["dunder", "RESULT = bundle.__class__"],
     ["introspection", "RESULT = getattr(bundle, 'items')"],
-    ["from import", "from math import sqrt\nRESULT = sqrt(4)"],
+    ["denied from import", "from os import environ\nRESULT = environ"],
     ["unbounded loop", "while True:\n    pass"],
   ])("rejects denied %s access", async (_label, script) => {
     const result = await runGeneratedPythonAnalysis({ script, bundle: {} });
     expect(result.status).toBe("rejected");
     expect(JSON.stringify(result)).not.toContain("/etc/passwd");
+  });
+
+  it("allows curated safe imports and from-import helpers", async () => {
+    const result = await runGeneratedPythonAnalysis({
+      script:
+        "from math import sqrt\nimport statistics\nRESULT = {'kind': 'summary', 'value': sqrt(4) + statistics.mean([1, 3])}",
+      bundle: {},
+    });
+
+    expect(result).toMatchObject({
+      status: "succeeded",
+      result: { kind: "summary", value: 4 },
+    });
   });
 
   it("fails closed on oversized stdout", async () => {

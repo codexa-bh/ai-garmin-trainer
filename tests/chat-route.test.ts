@@ -32,50 +32,6 @@ const backfillActivityDetail = vi.fn(async () => ({
     "temporary connector error. Previous usable normalized detail was preserved.",
 }));
 
-const rankingEvidence = {
-  tool: "activityRanking" as const,
-  privacy: "Computed from local normalized SQLite activity summaries only.",
-  metrics: ["elevationGainMeters", "distanceMeters"] as const,
-  rankings: {
-    elevationGainMeters: [
-      {
-        garminId: "rank-1",
-        label: "Source climb — Špik",
-        labelSource: "garmin" as const,
-        date: "2026-07-03",
-        sport: "hiking",
-        value: 1200,
-        unit: "m",
-        distanceMeters: 14000,
-        durationSec: 7200,
-        elevationGainMeters: 1200,
-        avgHeartRate: 150,
-      },
-    ],
-    distanceMeters: [
-      {
-        garminId: "rank-2",
-        label: "Imported running on 2026-07-02 (Garmin ID rank-2)",
-        labelSource: "fallback" as const,
-        date: "2026-07-02",
-        sport: "running",
-        value: 21000,
-        unit: "m",
-        distanceMeters: 21000,
-        durationSec: 3600,
-        elevationGainMeters: 40,
-        avgHeartRate: 165,
-      },
-    ],
-    durationSec: [],
-    avgHeartRate: [],
-  },
-  limitations: [],
-  window: null,
-};
-const rankActivities = vi.fn(() => rankingEvidence);
-const summarizeActivityRankings = vi.fn(() => rankingEvidence);
-
 const verifyActivityReference = vi.fn(
   (reference: {
     garminId?: string | null;
@@ -166,8 +122,14 @@ const generateText = vi.fn(
         text: "",
         toolCalls: [
           {
-            toolName: "rankActivities",
-            input: { metrics: ["elevationGainMeters", "distanceMeters"] },
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request: options.prompt,
+              datasets: ["activities"],
+              requestedCount: 5,
+              script:
+                "activities = bundle['datasets']['activities']\nRESULT = {'kind': 'ranking', 'rows': [], 'limitations': []}",
+            },
           },
         ],
       };
@@ -182,19 +144,16 @@ const generateText = vi.fn(
         text: "Garmin sync complete; the local normalized store was updated.",
       };
     }
-    if (options.system.includes("Evidence step 1: analyzeActivity")) {
-      if (options.system.includes("latest-999")) {
+    if (
+      options.system.includes("Evidence step 1: runGeneratedGarminAnalysis")
+    ) {
+      if (options.prompt.includes("latest activity")) {
         return {
-          text: "The latest imported local activity is latest-999, based on normalized analytics evidence.",
+          text: "The latest imported local activity is latest-999, based on generated dataset-script evidence.",
         };
       }
       return {
-        text: "The selected local activities 111111, 222222, and 333333 are ready for comparison from normalized analytics evidence.",
-      };
-    }
-    if (options.system.includes("Evidence step 1: rankActivities")) {
-      return {
-        text: "Source climb — Špik stands out as the most demanding imported activity in the local ranking evidence.",
+        text: "Source climb — Špik stands out in the generated local dataset-script evidence.",
       };
     }
     if (options.system.includes("Evidence step 1: verifyActivityReference")) {
@@ -240,13 +199,13 @@ const generateText = vi.fn(
       return {
         toolCalls: [
           {
-            toolName: "analyzeActivity",
+            toolName: "runGeneratedGarminAnalysis",
             input: {
-              selectors: [
-                { garminId: "111111" },
-                { garminId: "222222" },
-                { garminId: "333333" },
-              ],
+              request: prompt,
+              datasets: ["activities", "activityDetails"],
+              requestedCount: 3,
+              script:
+                "RESULT = {'kind': 'ranking', 'rows': [{'rank': 1, 'garminId': '111111', 'value': 'selected'}, {'rank': 2, 'garminId': '222222', 'value': 'selected'}, {'rank': 3, 'garminId': '333333', 'value': 'selected'}], 'limitations': []}",
             },
           },
         ],
@@ -256,10 +215,13 @@ const generateText = vi.fn(
       return {
         toolCalls: [
           {
-            toolName: "rankActivities",
+            toolName: "runGeneratedGarminAnalysis",
             input: {
-              metrics: ["elevationGainMeters", "distanceMeters"],
-              windowDays: prompt.includes("365") ? 365 : undefined,
+              request: prompt,
+              datasets: ["activities"],
+              requestedCount: 10,
+              script:
+                "activities = bundle['datasets']['activities']\nRESULT = {'kind': 'ranking', 'title': 'Generated ranking', 'rows': [], 'limitations': []}",
             },
           },
         ],
@@ -299,8 +261,14 @@ const generateText = vi.fn(
       return {
         toolCalls: [
           {
-            toolName: "analyzeActivity",
-            input: { selectors: [{ latest: true }] },
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request: prompt,
+              datasets: ["activities"],
+              requestedCount: 1,
+              script:
+                "RESULT = {'kind': 'ranking', 'rows': [{'rank': 1, 'garminId': 'latest-999', 'value': 'latest'}], 'limitations': []}",
+            },
           },
         ],
       };
@@ -373,76 +341,61 @@ vi.mock("@/lib/garmin/importer", () => ({
   backfillActivityDetail,
 }));
 
-vi.mock("@/lib/analytics/activity", () => ({
-  summarizeActivityRankings,
-  rankActivities,
-  analyzeStoredActivity: (garminId: string) => ({
-    tool: "analyzeStoredActivity",
-    privacy: "local normalized SQLite only",
-    activity: {
-      garminId,
-      name: `Activity ${garminId}`,
-      sport: "hiking",
-      date: "2026-07-01",
-      distanceKm: 10,
-      durationMin: 100,
-      paceMinPerKm: 10,
-      avgHeartRate: 140,
-      maxHeartRate: 170,
-      elevationGainMeters: 500,
+const generatedDatasetEvidence = {
+  tool: "generatedGarminAnalysis" as const,
+  status: "succeeded" as const,
+  requestedCount: 10,
+  scriptHash: "abcdef1234567890",
+  manifest: {
+    generatedAt: "2026-07-21T12:00:00.000Z",
+    request: "top 10 generated dataset rows",
+    selectedDatasets: ["activities"],
+    datasets: [{ name: "activities", rowCount: 10, description: "" }],
+    tables: [{ name: "activities", rowCount: 10 }],
+    rawPayloads: [],
+    limits: {
+      maxRowsPerTable: 1000,
+      maxRawPayloads: 100,
+      maxRawPayloadBytes: 200000,
+      maxOutputBytes: 12000,
     },
-    availability: null,
-    streamSummary: {
-      records: 0,
-      avgHeartRate: null,
-      avgSpeedMps: null,
-      avgGradePct: null,
-      minAltitudeMeters: null,
-      maxAltitudeMeters: null,
+    scriptContract: {
+      resultVariable: "RESULT" as const,
+      allowedImports: ["math"],
+      forbiddenAccess: ["filesystem"],
     },
-    heartRateZones: [],
-    climbs: [],
-    laps: [],
-    connectorDerived: null,
-    similarEfforts: [],
-    recoveryAfterActivity: [],
-    limitations: [
-      "No detailed FIT/stream backfill has been run for this activity yet.",
+  },
+  result: {
+    kind: "ranking",
+    title: "Generated dataset ranking",
+    requestedCount: 10,
+    returnedCount: 2,
+    rows: [
+      {
+        rank: 1,
+        garminId: "rank-1",
+        label: "Source climb — Špik",
+        value: 1200,
+        units: "computed",
+      },
+      {
+        rank: 2,
+        garminId: "latest-999",
+        label: "Latest activity latest-999",
+        value: 900,
+        units: "computed",
+      },
     ],
-  }),
-}));
+    limitations: [],
+  },
+  warnings: [],
+  privacy:
+    "Generated Python ran locally against explicit read-only Garmin datasets.",
+};
+const runGeneratedGarminAnalysis = vi.fn(async () => generatedDatasetEvidence);
 
 vi.mock("@/lib/ai/generated-analysis", () => ({
-  runGeneratedGarminAnalysis: vi.fn(async () => ({
-    tool: "generatedGarminAnalysis",
-    status: "succeeded",
-    criterion: "demand_score",
-    requestedCount: 10,
-    scriptHash: "abcdef1234567890",
-    manifest: {
-      generatedAt: "2026-07-21T12:00:00.000Z",
-      request: "top 10 demanding activities",
-      tables: [{ name: "activities", rowCount: 10 }],
-      rawPayloads: [],
-      limits: {
-        maxRowsPerTable: 1000,
-        maxRawPayloads: 100,
-        maxRawPayloadBytes: 200000,
-        maxOutputBytes: 12000,
-      },
-    },
-    result: {
-      kind: "ranking",
-      criterion: "demand_score",
-      requestedCount: 10,
-      returnedCount: 10,
-      rows: [],
-      limitations: [],
-    },
-    warnings: [],
-    privacy:
-      "Generated Python ran locally against an explicit read-only Garmin analysis bundle.",
-  })),
+  runGeneratedGarminAnalysis,
 }));
 
 vi.mock("@/lib/db/repository", () => ({
@@ -601,7 +554,7 @@ describe("chat route LLM tool orchestration", () => {
     generateText.mockClear();
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
-    rankActivities.mockClear();
+    runGeneratedGarminAnalysis.mockClear();
     verifyActivityReference.mockClear();
   });
 
@@ -641,27 +594,32 @@ describe("chat route LLM tool orchestration", () => {
     );
   });
 
-  it("grounds every explicit activity ID through analyzeActivity", async () => {
+  it("routes explicit activity ID comparisons through generated dataset scripts", async () => {
     const payload = await postChat("Compare 111111 222222 333333");
 
-    expect(payload.toolEvidence?.tool).toBe("analyzeActivity");
-    expect(payload.assistant.content).toContain("111111");
-    expect(payload.assistant.content).toContain("222222");
-    expect(payload.assistant.content).toContain("333333");
+    expect(payload.toolEvidence?.tool).toBe("runGeneratedGarminAnalysis");
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        datasets: ["activities", "activityDetails"],
+        requestedCount: 3,
+      }),
+    );
   });
 
-  it("routes demanding activity rankings through typed deterministic local rows", async () => {
+  it("routes demanding activity rankings through generated dataset scripts", async () => {
     const payload = await postChat(
       "Which are my most demanding activities by elevation and distance?",
     );
 
-    expect(rankActivities).toHaveBeenCalledWith({
-      metrics: ["elevationGainMeters", "distanceMeters"],
-      windowDays: undefined,
-    });
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        datasets: ["activities"],
+        requestedCount: 10,
+      }),
+    );
     expect(payload.assistant.content).toContain("Source climb — Špik");
     expect(payload.assistant.content).not.toContain("Provider invented");
-    expect(payload.toolEvidence?.tool).toBe("rankActivities");
+    expect(payload.toolEvidence?.tool).toBe("runGeneratedGarminAnalysis");
   });
 
   it("performs named lookup without arbitrary latest fallback", async () => {
@@ -690,9 +648,9 @@ describe("chat route LLM tool orchestration", () => {
     expect(ambiguous.assistant.content).toContain("dup-2");
   });
 
-  it("supports latest analysis only when the planner explicitly selects it", async () => {
+  it("supports latest analysis only when the planner writes a dataset script", async () => {
     const latest = await postChat("Tell me about my latest activity");
-    expect(latest.toolEvidence?.tool).toBe("analyzeActivity");
+    expect(latest.toolEvidence?.tool).toBe("runGeneratedGarminAnalysis");
     expect(latest.assistant.content).toContain("latest-999");
 
     messages = [];
@@ -750,10 +708,10 @@ describe("chat route LLM tool orchestration", () => {
       suppliedName: "Snežnik",
       date: "2025-10-18",
     });
-    expect(rankActivities).toHaveBeenCalledOnce();
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledOnce();
     expect(payload.toolSteps?.map((step) => step.tool)).toEqual([
       "verifyActivityReference",
-      "rankActivities",
+      "runGeneratedGarminAnalysis",
     ]);
     const secondCall = generateText.mock.calls[1][0] as { system: string };
     expect(secondCall.system).toContain("server-authored prior tool evidence");

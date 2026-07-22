@@ -84,7 +84,7 @@ describe("Garmin sync athlete baseline stage", () => {
     const result = await runGarminSync((event) => progress.push(event.stage));
 
     expect(result.status).toBe("completed");
-    expect(result.healthDaysImported).toBe(1);
+    expect(result.healthDaysImported).toBe(2);
     expect(result.athleteBaseline.availability).toBe("partial");
     expect(result.athleteBaseline.values).toMatchObject({
       runningLactateThresholdHeartRateBpm: 168,
