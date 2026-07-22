@@ -178,7 +178,7 @@ export type TrainerToolStep = {
   activityIds?: string[];
   privacy: string;
   reason?: string;
-  retryable?: boolean;
+  correctionAllowed?: boolean;
   failureMessage?: string;
   correctionHint?: string;
   result?: unknown;
@@ -331,15 +331,17 @@ export async function executeTrainerTool(input: {
           summary:
             result.status === "succeeded"
               ? `Generated Garmin dataset script ${result.result?.kind ?? "result"}; ${result.result?.returnedCount ?? 0}/${result.requestedCount} rows; script ${result.scriptHash.slice(0, 12)}; datasets ${result.manifest.datasets.map((dataset) => `${dataset.name}:${dataset.rowCount}`).join(", ")}${result.manifest.activitySelection ? "; activity selection applied" : ""}.`
-              : `Generated Garmin analysis blocked: ${result.reason ?? result.status}; script ${result.scriptHash.slice(0, 12)}; ${result.retryable ? "one correction attempt is allowed" : "automatic correction is not allowed"}.`,
+              : `Generated Garmin analysis blocked: ${result.reason ?? result.status}; script ${result.scriptHash.slice(0, 12)}; ${result.correctionAllowed ? "correction feedback may be offered" : "correction feedback is not offered"}.`,
           activityIds: result.result?.rows
             ?.map((row) => row.garminId)
             .filter((id): id is string => typeof id === "string")
             .slice(0, 10),
           privacy: result.privacy,
           reason: result.status === "succeeded" ? undefined : result.reason,
-          retryable:
-            result.status === "succeeded" ? undefined : result.retryable,
+          correctionAllowed:
+            result.status === "succeeded"
+              ? undefined
+              : result.correctionAllowed,
           failureMessage:
             result.status === "succeeded" ? undefined : result.message,
           correctionHint:
@@ -467,7 +469,7 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
         if (evidence.correctionHint)
           lines.push(`Correction guidance: ${evidence.correctionHint}`);
         lines.push(
-          `Retry eligibility: ${evidence.retryable ? "one corrected generated-analysis attempt may be made" : "automatic correction is not allowed for this failure"}.`,
+          `Correction feedback: ${evidence.correctionAllowed ? "the model may choose one corrected generated-analysis call" : "correction feedback is not offered for this failure"}.`,
         );
       }
     }
@@ -494,7 +496,7 @@ export function groundingForSteps(steps: TrainerToolStep[]) {
       activityIds: step.activityIds?.slice(0, 10),
       privacy: step.privacy,
       reason: step.reason,
-      retryable: step.retryable,
+      correctionAllowed: step.correctionAllowed,
     })),
   };
 }

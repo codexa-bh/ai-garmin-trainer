@@ -241,13 +241,13 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
     expect(result.toolSteps.at(-1)?.reason).toBe("duplicate_side_effect");
   });
 
-  it("retries one repairable generated-analysis runtime failure with bounded feedback", async () => {
+  it("lets the model choose one corrected generated-analysis call after correction feedback", async () => {
     const failedEvidence = {
       ...generatedAnalysisEvidence,
       status: "failed" as const,
       reason: "runtime_error",
       message: "NameError: name 'durationSec' is not defined",
-      retryable: true,
+      correctionAllowed: true,
       correctionHint:
         "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
       result: undefined,
@@ -301,13 +301,57 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
     expect(generateText.mock.calls[1][0].system).toContain(
       "Common activities fields include garminId",
     );
+    expect(generateText.mock.calls[1][0].system).toContain(
+      "you may either select one fresh corrected runGeneratedGarminAnalysis call",
+    );
     expect(result.toolSteps).toHaveLength(2);
     expect(result.toolSteps[0]).toMatchObject({
       status: "failed",
       reason: "runtime_error",
-      retryable: true,
+      correctionAllowed: true,
     });
     expect(result.text).toContain("corrected local generated script");
+  });
+
+  it("lets the model choose limitation prose after repairable generated-analysis failure", async () => {
+    runGeneratedGarminAnalysis.mockResolvedValueOnce({
+      ...generatedAnalysisEvidence,
+      status: "failed" as const,
+      reason: "runtime_error",
+      message: "division by zero",
+      correctionAllowed: true,
+      correctionHint:
+        "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
+      result: undefined,
+    });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request: "rank activities",
+              datasets: ["activities"],
+              script: "RESULT = 1 / 0  # force runtime error",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "I couldn't complete that generated analysis from the local data, but you can try a narrower metric.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "rank activities",
+    });
+
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(1);
+    expect(result.toolSteps).toHaveLength(1);
+    expect(result.text).toContain("try a narrower metric");
+    expect(result.text).not.toContain("Tool step 1");
   });
 
   it("stops after one generated-analysis correction attempt and renders a concise limitation", async () => {
@@ -317,7 +361,7 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
         status: "failed" as const,
         reason: "runtime_error",
         message: "division by zero",
-        retryable: true,
+        correctionAllowed: true,
         correctionHint:
           "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
         result: undefined,
@@ -328,7 +372,7 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
         reason: "invalid_result_shape",
         message:
           "Generated Python RESULT did not match the bounded Garmin analysis result contract.",
-        retryable: true,
+        correctionAllowed: true,
         correctionHint:
           "Set RESULT to an object with a nonempty kind, rows no larger than requestedCount, limitations, and only Garmin IDs from the provided activities dataset.",
         scriptHash: "123456abcdef7890",
@@ -374,15 +418,15 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
     expect(result.text).not.toContain("Tool step 2");
   });
 
-  it("does not retry safety-denied generated analysis", async () => {
+  it("does not offer correction feedback for safety-denied generated analysis", async () => {
     runGeneratedGarminAnalysis.mockResolvedValueOnce({
       ...generatedAnalysisEvidence,
       status: "rejected" as const,
       reason: "denied_import",
       message: "Generated Python attempted to import a denied module.",
-      retryable: false,
+      correctionAllowed: false,
       correctionHint:
-        "The script cannot be retried automatically; keep analysis within the local read-only dataset contract.",
+        "Correction feedback is not offered automatically for this failure; keep analysis within the local read-only dataset contract.",
       result: undefined,
     });
     generateText.mockResolvedValueOnce({
@@ -409,7 +453,7 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
     expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(1);
     expect(result.toolSteps[0]).toMatchObject({
       reason: "denied_import",
-      retryable: false,
+      correctionAllowed: false,
     });
     expect(result.text).toContain("within the local safety guardrails");
   });

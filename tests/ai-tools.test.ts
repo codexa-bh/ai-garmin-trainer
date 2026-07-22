@@ -208,11 +208,11 @@ describe("trainer generated dataset-script renderer", async () => {
         tool: "runGeneratedGarminAnalysis",
         status: "failed",
         summary:
-          "Generated Garmin analysis blocked: runtime_error; script abcdef123456; one correction attempt is allowed.",
+          "Generated Garmin analysis blocked: runtime_error; script abcdef123456; correction feedback may be offered.",
         privacy:
           "Generated Python ran locally against explicit read-only Garmin datasets; no credentials, environment, filesystem paths, connector handles, SQL, or unrestricted raw streams were exposed.",
         reason: "runtime_error",
-        retryable: true,
+        correctionAllowed: true,
         failureMessage: "NameError: name 'durationSec' is not defined",
         correctionHint:
           "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
@@ -242,7 +242,7 @@ describe("trainer generated dataset-script renderer", async () => {
           },
           reason: "runtime_error",
           message: "NameError: name 'durationSec' is not defined",
-          retryable: true,
+          correctionAllowed: true,
           correctionHint:
             "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.",
           warnings: [],
@@ -254,7 +254,9 @@ describe("trainer generated dataset-script renderer", async () => {
 
     expect(text).toContain("Bounded failure detail");
     expect(text).toContain("Correction guidance");
-    expect(text).toContain("Retry eligibility: one corrected");
+    expect(text).toContain(
+      "Correction feedback: the model may choose one corrected",
+    );
     expect(text).not.toContain("RESULT =");
     expect(text).not.toContain("/Users/");
     expect(text).not.toContain("GARMIN_");

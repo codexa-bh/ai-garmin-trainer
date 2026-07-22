@@ -106,7 +106,7 @@ export type GeneratedAnalysisEvidence = {
   result?: GeneratedDatasetScriptResult;
   reason?: string;
   message?: string;
-  retryable?: boolean;
+  correctionAllowed?: boolean;
   correctionHint?: string;
   warnings: string[];
   privacy: string;
@@ -145,7 +145,7 @@ const SAFE_IMPORTS = [
   "statistics",
 ];
 
-const RETRYABLE_GENERATED_ANALYSIS_REASONS = new Set([
+const CORRECTABLE_GENERATED_ANALYSIS_REASONS = new Set([
   "runtime_error",
   "syntax_error",
   "non_json_result",
@@ -155,7 +155,7 @@ const RETRYABLE_GENERATED_ANALYSIS_REASONS = new Set([
   "timeout",
 ]);
 
-const NON_RETRYABLE_GENERATED_ANALYSIS_REASONS = new Set([
+const NON_CORRECTABLE_GENERATED_ANALYSIS_REASONS = new Set([
   "denied_import",
   "denied_name",
   "dunder_access",
@@ -180,12 +180,12 @@ function boundedDiagnosticText(value: string, max = 300): string {
   return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
 }
 
-export function isRetryableGeneratedAnalysisReason(
+export function canOfferGeneratedAnalysisCorrection(
   reason: string | undefined,
 ): boolean {
   if (!reason) return false;
-  if (NON_RETRYABLE_GENERATED_ANALYSIS_REASONS.has(reason)) return false;
-  return RETRYABLE_GENERATED_ANALYSIS_REASONS.has(reason);
+  if (NON_CORRECTABLE_GENERATED_ANALYSIS_REASONS.has(reason)) return false;
+  return CORRECTABLE_GENERATED_ANALYSIS_REASONS.has(reason);
 }
 
 export function generatedAnalysisCorrectionHint(
@@ -207,7 +207,7 @@ export function generatedAnalysisCorrectionHint(
     case "timeout":
       return "Simplify computation and bound loops over the provided capped datasets.";
     default:
-      return "The script cannot be retried automatically; keep analysis within the local read-only dataset contract.";
+      return "Correction feedback is not offered automatically for this failure; keep analysis within the local read-only dataset contract.";
   }
 }
 
@@ -591,7 +591,9 @@ export async function runGeneratedGarminAnalysis(input: {
     maxResultBytes: MAX_OUTPUT_BYTES,
   });
   if (sandbox.status !== "succeeded") {
-    const retryable = isRetryableGeneratedAnalysisReason(sandbox.reason);
+    const correctionAllowed = canOfferGeneratedAnalysisCorrection(
+      sandbox.reason,
+    );
     return {
       tool: "generatedGarminAnalysis",
       status: sandbox.status,
@@ -600,7 +602,7 @@ export async function runGeneratedGarminAnalysis(input: {
       manifest: bundle.manifest,
       reason: sandbox.reason,
       message: boundedDiagnosticText(sandbox.message),
-      retryable,
+      correctionAllowed,
       correctionHint: generatedAnalysisCorrectionHint(sandbox.reason),
       warnings: sandbox.warnings,
       privacy,
@@ -622,7 +624,7 @@ export async function runGeneratedGarminAnalysis(input: {
       reason,
       message:
         "Generated Python RESULT did not match the bounded Garmin analysis result contract.",
-      retryable: isRetryableGeneratedAnalysisReason(reason),
+      correctionAllowed: canOfferGeneratedAnalysisCorrection(reason),
       correctionHint: generatedAnalysisCorrectionHint(reason),
       warnings: sandbox.warnings,
       privacy,

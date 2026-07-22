@@ -156,7 +156,7 @@ RESULT = {
     expect(JSON.stringify(evidence.result)).not.toContain("snowboard-excluded");
   });
 
-  it("rejects generated rows outside the provided dataset with retry guidance", async () => {
+  it("rejects generated rows outside the provided dataset with correction guidance", async () => {
     const repository = await import("../src/lib/db/repository");
     const { runGeneratedGarminAnalysis } =
       await import("../src/lib/ai/generated-analysis");
@@ -188,7 +188,7 @@ RESULT = {
 
     expect(evidence.status).toBe("rejected");
     expect(evidence.reason).toBe("invalid_result_shape");
-    expect(evidence.retryable).toBe(true);
+    expect(evidence.correctionAllowed).toBe(true);
     expect(evidence.correctionHint).toContain("provided activities dataset");
   });
 
@@ -213,19 +213,19 @@ RESULT = {
     ).resolves.toMatchObject({ status: "rejected", reason: "denied_import" });
   });
 
-  it("classifies repairable generated-analysis failures separately from safety denials", async () => {
-    const { isRetryableGeneratedAnalysisReason, runGeneratedGarminAnalysis } =
+  it("classifies correction-offer failures separately from safety denials", async () => {
+    const { canOfferGeneratedAnalysisCorrection, runGeneratedGarminAnalysis } =
       await import("../src/lib/ai/generated-analysis");
 
-    expect(isRetryableGeneratedAnalysisReason("runtime_error")).toBe(true);
-    expect(isRetryableGeneratedAnalysisReason("syntax_error")).toBe(true);
-    expect(isRetryableGeneratedAnalysisReason("non_json_result")).toBe(true);
-    expect(isRetryableGeneratedAnalysisReason("invalid_result_shape")).toBe(
+    expect(canOfferGeneratedAnalysisCorrection("runtime_error")).toBe(true);
+    expect(canOfferGeneratedAnalysisCorrection("syntax_error")).toBe(true);
+    expect(canOfferGeneratedAnalysisCorrection("non_json_result")).toBe(true);
+    expect(canOfferGeneratedAnalysisCorrection("invalid_result_shape")).toBe(
       true,
     );
-    expect(isRetryableGeneratedAnalysisReason("denied_import")).toBe(false);
-    expect(isRetryableGeneratedAnalysisReason("dunder_access")).toBe(false);
-    expect(isRetryableGeneratedAnalysisReason("python_unavailable")).toBe(
+    expect(canOfferGeneratedAnalysisCorrection("denied_import")).toBe(false);
+    expect(canOfferGeneratedAnalysisCorrection("dunder_access")).toBe(false);
+    expect(canOfferGeneratedAnalysisCorrection("python_unavailable")).toBe(
       false,
     );
 
@@ -237,7 +237,7 @@ RESULT = {
     expect(runtime).toMatchObject({
       status: "failed",
       reason: "runtime_error",
-      retryable: true,
+      correctionAllowed: true,
     });
     expect(runtime.message).toContain("division by zero");
     expect(runtime.correctionHint).toContain("fields present");
@@ -251,8 +251,10 @@ RESULT = {
     expect(denied).toMatchObject({
       status: "rejected",
       reason: "denied_import",
-      retryable: false,
+      correctionAllowed: false,
     });
-    expect(denied.correctionHint).toContain("cannot be retried");
+    expect(denied.correctionHint).toContain(
+      "Correction feedback is not offered",
+    );
   });
 });

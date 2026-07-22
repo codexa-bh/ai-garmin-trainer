@@ -65,7 +65,7 @@ function plannerSystem(
   const prior = priorSteps.length
     ? synthesisEvidenceForSteps(priorSteps)
     : "No prior tool step in this user turn.";
-  return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates should be verified before scripts depend on ambiguous user references.\n- For ad hoc Garmin analytics, ranking, counting, summarizing, or computation, use runGeneratedGarminAnalysis with an LLM-authored Python script over explicit named datasets. Do not choose app-defined analysis tools, fixed criteria, hidden default scripts, or sport-specific scoring modes.\n- The generated script must read only bundle["datasets"], bundle["tables"], bundle["manifest"], bundle["athleteBaseline"], request, and requestedCount; it must set RESULT to JSON with a generic kind, optional title/summary/metrics, optional rows, and limitations.\n- Use datasets to request only the bounded local data needed: activities, dailyHealth, activityDetails, and/or rawPayloads. Common activities fields include garminId, label, sport, date, startedAt, durationSec, distanceMeters, calories, avgHeartRate, maxHeartRate, steps, elevationGainMeters, elevationLossMeters, and trainingEffect. Use activitySelection.includeText/excludeText only for generic dataset subsetting explicitly requested by the user, not as an analysis criterion.\n- Safe Python imports are limited to math, statistics, datetime, json, itertools, functools, collections, and decimal. Common rejected generated-analysis cases include non-JSON RESULT, invalid result shape, rows over requestedCount, Garmin IDs outside the selected dataset, secret/path/SQL/connector-looking output, forbidden imports/names/access, and oversized stdout/result. Do not ask for credentials, raw FIT, full streams, filesystem paths, SQL, URLs, arbitrary connector methods, environment data, process/subprocess access, network access, or generated code that attempts those accesses.\n- A user turn may execute at most two sequential tools. If a prior generated-analysis failure is marked retryable, select at most one fresh corrected runGeneratedGarminAnalysis call using the bounded reason/detail/hint and the manifest contract; do not repeat forbidden access attempts or weaken boundaries. If a prior server step exists and no safe correction tool is needed, answer in ordinary user-facing prose from that bounded evidence or select one valid second tool.\n- Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, SQL, raw FIT data, GPS streams, generated Python source, or unrestricted history in user-facing prose.\n\nCurrent turn server-authored prior tool evidence (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
+  return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates should be verified before scripts depend on ambiguous user references.\n- For ad hoc Garmin analytics, ranking, counting, summarizing, or computation, use runGeneratedGarminAnalysis with an LLM-authored Python script over explicit named datasets. Do not choose app-defined analysis tools, fixed criteria, hidden default scripts, or sport-specific scoring modes.\n- The generated script must read only bundle["datasets"], bundle["tables"], bundle["manifest"], bundle["athleteBaseline"], request, and requestedCount; it must set RESULT to JSON with a generic kind, optional title/summary/metrics, optional rows, and limitations.\n- Use datasets to request only the bounded local data needed: activities, dailyHealth, activityDetails, and/or rawPayloads. Common activities fields include garminId, label, sport, date, startedAt, durationSec, distanceMeters, calories, avgHeartRate, maxHeartRate, steps, elevationGainMeters, elevationLossMeters, and trainingEffect. Use activitySelection.includeText/excludeText only for generic dataset subsetting explicitly requested by the user, not as an analysis criterion.\n- Safe Python imports are limited to math, statistics, datetime, json, itertools, functools, collections, and decimal. Common rejected generated-analysis cases include non-JSON RESULT, invalid result shape, rows over requestedCount, Garmin IDs outside the selected dataset, secret/path/SQL/connector-looking output, forbidden imports/names/access, and oversized stdout/result. Do not ask for credentials, raw FIT, full streams, filesystem paths, SQL, URLs, arbitrary connector methods, environment data, process/subprocess access, network access, or generated code that attempts those accesses.\n- A user turn may execute at most two sequential tools. If a prior generated-analysis failure says correction feedback is allowed, you may either select one fresh corrected runGeneratedGarminAnalysis call using the bounded reason/detail/hint and manifest contract, or answer with a concise limitation from the evidence. Do not repeat forbidden access attempts or weaken boundaries. If a prior server step exists and no safe correction tool is needed, answer in ordinary user-facing prose from that bounded evidence or select one valid second tool.\n- Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, SQL, raw FIT data, GPS streams, generated Python source, or unrestricted history in user-facing prose.\n\nCurrent turn server-authored prior tool evidence (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
 }
 
 function failedStep(index: 1 | 2, reason: string): TrainerToolStep {
@@ -111,15 +111,19 @@ function isAcceptableToolSynthesisText(text: string): boolean {
   return true;
 }
 
-function isRetryableGeneratedAnalysisStep(step: TrainerToolStep): boolean {
+function canOfferGeneratedAnalysisCorrectionStep(
+  step: TrainerToolStep,
+): boolean {
   return (
     step.tool === "runGeneratedGarminAnalysis" &&
     step.status !== "succeeded" &&
-    step.retryable === true
+    step.correctionAllowed === true
   );
 }
 
-function hasGeneratedAnalysisRetryBeenUsed(steps: TrainerToolStep[]): boolean {
+function hasGeneratedAnalysisCorrectionAttemptBeenUsed(
+  steps: TrainerToolStep[],
+): boolean {
   return steps.some(
     (step, index) => index > 0 && step.tool === "runGeneratedGarminAnalysis",
   );
@@ -291,8 +295,8 @@ export async function orchestrateTrainerChat(
 
     if (step.status !== "succeeded") {
       if (
-        isRetryableGeneratedAnalysisStep(step) &&
-        !hasGeneratedAnalysisRetryBeenUsed(steps) &&
+        canOfferGeneratedAnalysisCorrectionStep(step) &&
+        !hasGeneratedAnalysisCorrectionAttemptBeenUsed(steps) &&
         steps.length < MAX_TOOL_CALLS &&
         plannerCall + 1 < MAX_PLANNER_CALLS
       ) {
