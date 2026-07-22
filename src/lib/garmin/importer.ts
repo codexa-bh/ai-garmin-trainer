@@ -7,6 +7,7 @@ import {
   getCheckpoint,
   getGarminAthleteBaseline,
   listActivityIdsNeedingDetail,
+  listRecentActivities,
   recordActivityDetailAttempt,
   recordGarminAthleteBaselineFailure,
   recordSyncRun,
@@ -18,6 +19,7 @@ import {
   writeGarminAthleteBaselineRefresh,
 } from "../db/repository";
 import { GarminMcpClient } from "./mcp-client";
+import { fetchFitBaselineWithLocalWrapper } from "./fit-baseline";
 import {
   hasUsableGarminAthleteBaseline,
   normalizeGarminAthleteBaseline,
@@ -103,6 +105,7 @@ function compactError(error: unknown): string {
 
 async function fetchAndStoreAthleteBaseline(
   client: GarminMcpClient,
+  fitPayload?: unknown,
 ): Promise<GarminAthleteBaselineDto> {
   const attemptedAt = new Date();
   const previous = getGarminAthleteBaseline();
@@ -145,6 +148,7 @@ async function fetchAndStoreAthleteBaseline(
   const snapshot = normalizeGarminAthleteBaseline({
     profilePayload,
     ftpPayload,
+    fitPayload,
     fetchedAt: new Date(),
   });
   const hasUsableSnapshot = hasUsableGarminAthleteBaseline(snapshot);
@@ -156,6 +160,36 @@ async function fetchAndStoreAthleteBaseline(
     preservedPrevious: false,
   });
   return getGarminAthleteBaseline();
+}
+
+async function fetchFitAthleteBaselinePayload(
+  client: GarminMcpClient,
+): Promise<unknown> {
+  const recent = listRecentActivities(6);
+  for (const activity of recent) {
+    try {
+      const parsed = parseToolJson(
+        await client.callTool("get_activity_fit_data", {
+          activity_id: activity.garminId,
+          include_records: false,
+        }),
+      );
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        ("zones_target" in parsed || "zonesTarget" in parsed)
+      ) {
+        return parsed;
+      }
+    } catch {
+      // FIT detail is best-effort for athlete-baseline recovery; normal detail
+      // refresh records per-activity failures later without blocking sync.
+    }
+  }
+  return fetchFitBaselineWithLocalWrapper(
+    recent.map((activity) => activity.garminId),
+  );
 }
 
 export async function runGarminSync(
@@ -190,7 +224,7 @@ export async function runGarminSync(
     athleteBaseline = await fetchAndStoreAthleteBaseline(client);
     onProgress({
       stage: "athlete",
-      message: `Garmin athlete baseline refresh ${athleteBaseline.availability}; configured max HR and full HR-zone boundaries are unavailable from the pinned connector.`,
+      message: `Garmin athlete baseline refresh ${athleteBaseline.availability}; checking recent FIT zones target for configured max HR after activity import.`,
       activitiesImported,
       healthDaysImported,
       athleteAvailability: athleteBaseline.availability,
@@ -231,6 +265,21 @@ export async function runGarminSync(
       });
       if (!parsed.has_more) break;
       page = parsed.next_page ?? page + 1;
+    }
+
+    const fitBaselinePayload = await fetchFitAthleteBaselinePayload(client);
+    if (fitBaselinePayload) {
+      athleteBaseline = await fetchAndStoreAthleteBaseline(
+        client,
+        fitBaselinePayload,
+      );
+      onProgress({
+        stage: "athlete",
+        message: `Garmin athlete baseline refresh ${athleteBaseline.availability}; configured max HR ${athleteBaseline.values.configuredMaxHeartRateBpm ? "recovered from FIT zones target" : "unavailable"}; HR zones ${athleteBaseline.values.heartRateZones.status}.`,
+        activitiesImported,
+        healthDaysImported,
+        athleteAvailability: athleteBaseline.availability,
+      });
     }
 
     const resumeDate = getCheckpoint("health_next_date") ?? startDate;

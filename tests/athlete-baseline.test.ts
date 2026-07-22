@@ -23,6 +23,13 @@ function snapshot(overrides: Partial<GarminAthleteBaselineSnapshot> = {}) {
     source: "garmin_mcp",
     fetchedAt: new Date("2026-07-20T08:00:00Z"),
     values: {
+      configuredMaxHeartRateBpm: null,
+      heartRateZones: {
+        status: "unavailable",
+        source: null,
+        formula: null,
+        boundaries: [],
+      },
       runningLactateThresholdHeartRateBpm: 168,
       cyclingLactateThresholdHeartRateBpm: null,
       rowingLactateThresholdHeartRateBpm: null,
@@ -53,6 +60,13 @@ describe("Garmin athlete baseline repository", () => {
       source: "garmin_mcp",
       fetchedAt: "2026-07-20T08:00:00.000Z",
       values: {
+        configuredMaxHeartRateBpm: null,
+        heartRateZones: {
+          status: "unavailable",
+          source: null,
+          formula: null,
+          boundaries: [],
+        },
         runningLactateThresholdHeartRateBpm: 168,
         cyclingFtpWatts: 250,
         availableTrainingDays: ["monday", "wednesday"],

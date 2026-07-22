@@ -184,6 +184,10 @@ export const garminAthleteBaseline = sqliteTable("garmin_athlete_baseline", {
   rowingLactateThresholdHeartRateBpm: integer(
     "rowing_lactate_threshold_heart_rate_bpm",
   ),
+  configuredMaxHeartRateBpm: integer("configured_max_heart_rate_bpm"),
+  heartRateZonesStatus: text("heart_rate_zones_status"),
+  heartRateZonesFormula: text("heart_rate_zones_formula"),
+  heartRateZonesJson: text("heart_rate_zones_json").notNull().default("[]"),
   cyclingFtpWatts: integer("cycling_ftp_watts"),
   cyclingFtpMeasuredOn: text("cycling_ftp_measured_on"),
   cyclingFtpSourceStale: integer("cycling_ftp_source_stale", {

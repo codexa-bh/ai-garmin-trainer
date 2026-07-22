@@ -47,7 +47,23 @@ export type NormalizedDailyHealth = {
 export type GarminAthleteBaselineAvailability =
   "complete" | "partial" | "unavailable" | "failed";
 
+export type HeartRateZoneBoundaryDto = {
+  zone: 1 | 2 | 3 | 4 | 5;
+  label: string | null;
+  lowerBpm: number;
+  upperBpm: number | null;
+};
+
+export type HeartRateZoneSetDto = {
+  status: "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
+  source: "garmin_mcp" | "derived" | null;
+  formula: string | null;
+  boundaries: HeartRateZoneBoundaryDto[];
+};
+
 export type GarminAthleteBaselineValues = {
+  configuredMaxHeartRateBpm: number | null;
+  heartRateZones: HeartRateZoneSetDto;
   runningLactateThresholdHeartRateBpm: number | null;
   cyclingLactateThresholdHeartRateBpm: number | null;
   rowingLactateThresholdHeartRateBpm: number | null;
@@ -83,9 +99,10 @@ export type GarminAthleteBaselineDto = {
   preservedPrevious: boolean;
   values: GarminAthleteBaselineValues;
   unsupported: {
-    configuredMaxHeartRate: true;
-    completeHeartRateZoneBoundaries: true;
-    reason: "not_exposed_by_pinned_connector";
+    configuredMaxHeartRate: boolean;
+    completeHeartRateZoneBoundaries: boolean;
+    reason:
+      "not_exposed_by_pinned_connector" | "derived_from_garmin_max_hr" | null;
   };
 };
 

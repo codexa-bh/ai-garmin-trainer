@@ -52,6 +52,7 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
       if (operation === "get_sleep_summary") return JSON.stringify({});
       if (operation === "get_activity_fit_data") {
         return JSON.stringify({
+          zones_target: { max_heart_rate: 190 },
           records: [
             {
               timestamp: "2026-07-21T07:00:00Z",

@@ -69,6 +69,13 @@ describe("trainer AI", () => {
         lastAttemptAt: "2026-07-21T08:00:00.000Z",
         preservedPrevious: true,
         values: {
+          configuredMaxHeartRateBpm: null,
+          heartRateZones: {
+            status: "unavailable",
+            source: null,
+            formula: null,
+            boundaries: [],
+          },
           runningLactateThresholdHeartRateBpm: 168,
           cyclingLactateThresholdHeartRateBpm: null,
           rowingLactateThresholdHeartRateBpm: null,
@@ -94,9 +101,7 @@ describe("trainer AI", () => {
     expect(context).toContain(
       "previous normalized Garmin athlete facts were preserved",
     );
-    expect(context).toContain(
-      "Configured max HR and complete HR-zone boundaries are not provided",
-    );
+    expect(context).toContain("Do not estimate configured max HR");
   });
 
   it("preserves source facts when applying profile corrections", () => {

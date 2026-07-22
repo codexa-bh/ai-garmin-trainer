@@ -61,10 +61,19 @@ function formatAthleteBaseline(
   athleteBaseline: GarminAthleteBaselineDto | null | undefined,
 ): string {
   if (!athleteBaseline || athleteBaseline.availability === "unavailable") {
-    return "No Garmin athlete baseline snapshot has been imported yet. Configured max HR and complete HR-zone boundaries are not provided by the current pinned connector; do not estimate them.";
+    return "No Garmin athlete baseline snapshot has been imported yet. Do not estimate configured max HR. Treat derived HR zones as estimates derived from Garmin-provided max HR, not Garmin-configured zone boundaries.";
   }
   const values = athleteBaseline.values;
+  const zoneFacts = athleteBaseline.values.heartRateZones.boundaries.length
+    ? `HR zones ${athleteBaseline.values.heartRateZones.status}: ${athleteBaseline.values.heartRateZones.boundaries.map((zone) => `Z${zone.zone} ${zone.lowerBpm}-${zone.upperBpm ?? "max"} bpm`).join(", ")}`
+    : athleteBaseline.values.configuredMaxHeartRateBpm
+      ? "HR zones unavailable despite Garmin max HR"
+      : null;
   const facts = [
+    values.configuredMaxHeartRateBpm
+      ? `configured max HR ${values.configuredMaxHeartRateBpm} bpm (Garmin FIT zones target)`
+      : null,
+    zoneFacts,
     values.runningLactateThresholdHeartRateBpm
       ? `running lactate-threshold HR ${values.runningLactateThresholdHeartRateBpm} bpm`
       : null,
@@ -75,7 +84,7 @@ function formatAthleteBaseline(
       ? `rowing lactate-threshold HR ${values.rowingLactateThresholdHeartRateBpm} bpm`
       : null,
     values.cyclingFtpWatts
-      ? `cycling FTP ${values.cyclingFtpWatts} W${values.cyclingFtpMeasuredOn ? ` measured ${values.cyclingFtpMeasuredOn}` : ""}${values.cyclingFtpSourceStale ? " (connector labels stale)" : ""}`
+      ? `cycling FTP ${values.cyclingFtpWatts} W${values.cyclingFtpMeasuredOn ? ` measured ${values.cyclingFtpMeasuredOn}` : ""}${values.cyclingFtpSourceStale ? " (source marked stale by connector)" : ""}`
       : null,
     values.vo2MaxRunning ? `running VO2 max ${values.vo2MaxRunning}` : null,
     values.vo2MaxCycling ? `cycling VO2 max ${values.vo2MaxCycling}` : null,
@@ -92,7 +101,7 @@ function formatAthleteBaseline(
   const preserved = athleteBaseline.preservedPrevious
     ? " Latest refresh failed; previous normalized Garmin athlete facts were preserved."
     : "";
-  return `Garmin athlete baselines (${athleteBaseline.availability}, ${freshness}): ${facts.join("; ") || "no supported athlete facts available"}.${preserved} Configured max HR and complete HR-zone boundaries are not provided by the current pinned connector; do not estimate them.`;
+  return `Garmin athlete baselines (${athleteBaseline.availability}, ${freshness}): ${facts.join("; ") || "no supported athlete facts available"}.${preserved} Do not estimate configured max HR. Treat derived HR zones as estimates derived from Garmin-provided max HR, not Garmin-configured zone boundaries.`;
 }
 
 export function buildTrainerContext(input: {

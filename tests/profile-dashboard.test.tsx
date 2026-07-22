@@ -279,6 +279,13 @@ describe("TrainerDashboard athlete baseline summary", () => {
             lastAttemptAt: "2026-07-20T08:00:00.000Z",
             preservedPrevious: false,
             values: {
+              configuredMaxHeartRateBpm: null,
+              heartRateZones: {
+                status: "unavailable",
+                source: null,
+                formula: null,
+                boundaries: [],
+              },
               runningLactateThresholdHeartRateBpm: 168,
               cyclingLactateThresholdHeartRateBpm: null,
               rowingLactateThresholdHeartRateBpm: null,
@@ -308,8 +315,8 @@ describe("TrainerDashboard athlete baseline summary", () => {
     expect(screen.getByText("168 bpm")).toBeTruthy();
     expect(screen.getByText("250 W (2026-07-19)")).toBeTruthy();
     expect(
-      screen.getAllByText("Not provided by the current pinned connector"),
-    ).toHaveLength(2);
+      screen.getByText("Unavailable from current Garmin source"),
+    ).toBeTruthy();
     expect(screen.queryByLabelText("Running threshold HR")).toBeNull();
   });
 });

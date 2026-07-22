@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 3;
+export const LATEST_SCHEMA_VERSION = 4;
 export const SCHEMA_VERSION_KEY = "schema_version";
 
 const BASE_SCHEMA_SQL = [
@@ -53,6 +53,16 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     statements: [
       `create table if not exists garmin_raw_payload (id text primary key, source_tool text not null, subject_type text not null, subject_id text not null, fetched_at integer not null, content_type text not null, payload_json text, payload_text text, sha256 text not null, redaction_version integer not null, redacted_field_count integer not null default 0)`,
       `create index if not exists garmin_raw_payload_subject_idx on garmin_raw_payload(subject_type, subject_id)`,
+    ],
+  },
+  {
+    version: 4,
+    name: "garmin_athlete_baseline_hr_zones",
+    statements: [
+      `alter table garmin_athlete_baseline add column configured_max_heart_rate_bpm integer`,
+      `alter table garmin_athlete_baseline add column heart_rate_zones_status text`,
+      `alter table garmin_athlete_baseline add column heart_rate_zones_formula text`,
+      `alter table garmin_athlete_baseline add column heart_rate_zones_json text not null default '[]'`,
     ],
   },
 ];

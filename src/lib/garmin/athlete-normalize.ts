@@ -2,6 +2,7 @@ import type {
   GarminAthleteBaselineAvailability,
   GarminAthleteBaselineSnapshot,
   GarminAthleteBaselineValues,
+  HeartRateZoneBoundaryDto,
 } from "./types";
 
 const WEEKDAYS = [
@@ -34,7 +35,16 @@ const WEEKDAY_ALIASES = new Map<string, string>([
   ["sunday", "sunday"],
 ]);
 
+const EMPTY_HEART_RATE_ZONES = {
+  status: "unavailable" as const,
+  source: null,
+  formula: null,
+  boundaries: [],
+};
+
 export const EMPTY_GARMIN_ATHLETE_VALUES: GarminAthleteBaselineValues = {
+  configuredMaxHeartRateBpm: null,
+  heartRateZones: EMPTY_HEART_RATE_ZONES,
   runningLactateThresholdHeartRateBpm: null,
   cyclingLactateThresholdHeartRateBpm: null,
   rowingLactateThresholdHeartRateBpm: null,
@@ -136,6 +146,38 @@ function ftpData(ftpPayload: unknown): JsonObject {
   return objectValue(root.userData) ?? root;
 }
 
+function deriveHeartRateZonesFromMax(maxHeartRate: number | null) {
+  if (maxHeartRate === null) return EMPTY_HEART_RATE_ZONES;
+  const percentages = [0.5, 0.6, 0.7, 0.8, 0.9] as const;
+  const labels = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5"] as const;
+  const lowerBounds = percentages.map((pct) => Math.round(maxHeartRate * pct));
+  if (
+    lowerBounds.some(
+      (value, index) => index > 0 && value <= lowerBounds[index - 1],
+    )
+  )
+    return EMPTY_HEART_RATE_ZONES;
+  const boundaries = lowerBounds.map((lowerBpm, index) => ({
+    zone: (index + 1) as 1 | 2 | 3 | 4 | 5,
+    label: labels[index],
+    lowerBpm,
+    upperBpm: index === 4 ? null : lowerBounds[index + 1] - 1,
+  })) satisfies HeartRateZoneBoundaryDto[];
+  return {
+    status: "derived_from_garmin_max_hr" as const,
+    source: "derived" as const,
+    formula: "50/60/70/80/90% of Garmin FIT zones_target max_heart_rate",
+    boundaries,
+  };
+}
+
+function fitData(input: unknown): JsonObject {
+  const root = objectValue(input) ?? {};
+  return (
+    objectValue(root.zones_target) ?? objectValue(root.zonesTarget) ?? root
+  );
+}
+
 function hasApprovedFact(values: GarminAthleteBaselineValues): boolean {
   return (
     values.runningLactateThresholdHeartRateBpm !== null ||
@@ -144,6 +186,8 @@ function hasApprovedFact(values: GarminAthleteBaselineValues): boolean {
     values.cyclingFtpWatts !== null ||
     values.vo2MaxRunning !== null ||
     values.vo2MaxCycling !== null ||
+    values.configuredMaxHeartRateBpm !== null ||
+    values.heartRateZones.status !== "unavailable" ||
     values.availableTrainingDays.length > 0 ||
     values.preferredLongTrainingDays.length > 0
   );
@@ -157,6 +201,8 @@ function hasAllCoreFacts(values: GarminAthleteBaselineValues): boolean {
     values.cyclingFtpWatts !== null &&
     values.vo2MaxRunning !== null &&
     values.vo2MaxCycling !== null &&
+    values.configuredMaxHeartRateBpm !== null &&
+    values.heartRateZones.status !== "unavailable" &&
     values.availableTrainingDays.length > 0 &&
     values.preferredLongTrainingDays.length > 0
   );
@@ -165,16 +211,25 @@ function hasAllCoreFacts(values: GarminAthleteBaselineValues): boolean {
 export function normalizeGarminAthleteBaseline(input: {
   profilePayload?: unknown;
   ftpPayload?: unknown;
+  fitPayload?: unknown;
   fetchedAt?: Date;
 }): GarminAthleteBaselineSnapshot {
   const userData = userDataFromProfile(input.profilePayload);
   const ftp = ftpData(input.ftpPayload);
   const sport = typeof ftp.sport === "string" ? ftp.sport.toLowerCase() : null;
+  const fit = fitData(input.fitPayload);
+  const configuredMaxHeartRateBpm = boundedInteger(
+    fit.max_heart_rate ?? fit.maxHeartRate,
+    80,
+    240,
+  );
   const cyclingFtpWatts =
     !sport || sport === "cycling" || sport === "bike" || sport === "biking"
       ? boundedInteger(ftp.functional_threshold_power_watts, 50, 700)
       : null;
   const values: GarminAthleteBaselineValues = {
+    configuredMaxHeartRateBpm,
+    heartRateZones: deriveHeartRateZonesFromMax(configuredMaxHeartRateBpm),
     runningLactateThresholdHeartRateBpm: boundedInteger(
       userData.lactateThresholdHeartRate,
       80,

@@ -61,6 +61,7 @@ describe("Garmin boundary", () => {
           weight: 70,
         },
       },
+      fitPayload: { zones_target: { max_heart_rate: 190 } },
       ftpPayload: {
         functional_threshold_power_watts: 255,
         calendar_date: "2026-07-19",
@@ -72,6 +73,17 @@ describe("Garmin boundary", () => {
 
     expect(normalized.availability).toBe("partial");
     expect(normalized.values).toMatchObject({
+      configuredMaxHeartRateBpm: 190,
+      heartRateZones: {
+        status: "derived_from_garmin_max_hr",
+        boundaries: [
+          { zone: 1, label: "Zone 1", lowerBpm: 95, upperBpm: 113 },
+          { zone: 2, label: "Zone 2", lowerBpm: 114, upperBpm: 132 },
+          { zone: 3, label: "Zone 3", lowerBpm: 133, upperBpm: 151 },
+          { zone: 4, label: "Zone 4", lowerBpm: 152, upperBpm: 170 },
+          { zone: 5, label: "Zone 5", lowerBpm: 171, upperBpm: null },
+        ],
+      },
       runningLactateThresholdHeartRateBpm: 169,
       cyclingLactateThresholdHeartRateBpm: 172,
       rowingLactateThresholdHeartRateBpm: null,

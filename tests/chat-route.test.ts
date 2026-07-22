@@ -476,6 +476,13 @@ vi.mock("@/lib/db/repository", () => ({
     lastAttemptAt: "2026-07-17T12:00:00.000Z",
     preservedPrevious: false,
     values: {
+      configuredMaxHeartRateBpm: null,
+      heartRateZones: {
+        status: "unavailable",
+        source: null,
+        formula: null,
+        boundaries: [],
+      },
       runningLactateThresholdHeartRateBpm: 168,
       cyclingLactateThresholdHeartRateBpm: null,
       rowingLactateThresholdHeartRateBpm: null,

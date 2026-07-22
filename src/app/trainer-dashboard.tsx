@@ -70,6 +70,19 @@ type AthleteBaselinePayload = {
   lastAttemptAt: string | null;
   preservedPrevious: boolean;
   values: {
+    configuredMaxHeartRateBpm: number | null;
+    heartRateZones: {
+      status:
+        "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
+      source: "garmin_mcp" | "derived" | null;
+      formula: string | null;
+      boundaries: Array<{
+        zone: 1 | 2 | 3 | 4 | 5;
+        label: string | null;
+        lowerBpm: number;
+        upperBpm: number | null;
+      }>;
+    };
     runningLactateThresholdHeartRateBpm: number | null;
     cyclingLactateThresholdHeartRateBpm: number | null;
     rowingLactateThresholdHeartRateBpm: number | null;
@@ -82,9 +95,10 @@ type AthleteBaselinePayload = {
     preferredLongTrainingDays: string[];
   };
   unsupported: {
-    configuredMaxHeartRate: true;
-    completeHeartRateZoneBoundaries: true;
-    reason: "not_exposed_by_pinned_connector";
+    configuredMaxHeartRate: boolean;
+    completeHeartRateZoneBoundaries: boolean;
+    reason:
+      "not_exposed_by_pinned_connector" | "derived_from_garmin_max_hr" | null;
   };
 };
 type ImportSummaryPayload = {
@@ -126,6 +140,13 @@ const emptyAthleteBaseline: AthleteBaselinePayload = {
   lastAttemptAt: null,
   preservedPrevious: false,
   values: {
+    configuredMaxHeartRateBpm: null,
+    heartRateZones: {
+      status: "unavailable",
+      source: null,
+      formula: null,
+      boundaries: [],
+    },
     runningLactateThresholdHeartRateBpm: null,
     cyclingLactateThresholdHeartRateBpm: null,
     rowingLactateThresholdHeartRateBpm: null,
@@ -1236,7 +1257,7 @@ export function TrainerDashboard() {
                         ? ` (${athleteBaseline.values.cyclingFtpMeasuredOn})`
                         : ""}
                       {athleteBaseline.values.cyclingFtpSourceStale
-                        ? " — connector labels stale"
+                        ? " — source marked stale by connector"
                         : ""}
                     </dd>
                   </div>
@@ -1266,11 +1287,20 @@ export function TrainerDashboard() {
                   </div>
                   <div>
                     <dt>Configured max HR</dt>
-                    <dd>Not provided by the current pinned connector</dd>
+                    <dd>
+                      {valueLabel(
+                        athleteBaseline.values.configuredMaxHeartRateBpm,
+                        " bpm",
+                      )}
+                    </dd>
                   </div>
                   <div>
-                    <dt>Complete HR-zone boundaries</dt>
-                    <dd>Not provided by the current pinned connector</dd>
+                    <dt>HR-zone boundaries</dt>
+                    <dd>
+                      {athleteBaseline.values.heartRateZones.boundaries.length
+                        ? `${athleteBaseline.values.heartRateZones.status === "derived_from_garmin_max_hr" ? "Derived estimate" : "Garmin configured"}: ${athleteBaseline.values.heartRateZones.boundaries.map((zone) => `Z${zone.zone} ${zone.lowerBpm}-${zone.upperBpm ?? "max"}`).join(", ")}`
+                        : "Unavailable from current Garmin source"}
+                    </dd>
                   </div>
                 </dl>
               ) : (
