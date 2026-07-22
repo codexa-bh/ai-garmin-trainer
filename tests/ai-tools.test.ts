@@ -255,7 +255,13 @@ describe("trainer generated dataset-script renderer", async () => {
     expect(text).toContain("Bounded failure detail");
     expect(text).toContain("Correction guidance");
     expect(text).toContain(
-      "Correction feedback: the model may choose one corrected",
+      "Correction context: selected datasets activities:1",
+    );
+    expect(text).toContain("allowed imports math");
+    expect(text).toContain("common activities fields garminId");
+    expect(text).toContain("RESULT must be JSON");
+    expect(text).toContain(
+      "Correction feedback: the model may choose a corrected",
     );
     expect(text).not.toContain("RESULT =");
     expect(text).not.toContain("/Users/");

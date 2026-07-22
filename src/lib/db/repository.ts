@@ -1254,7 +1254,7 @@ export type ChatGrounding = {
   privacy?: string;
   summary?: string;
   toolSteps?: Array<{
-    index: 1 | 2;
+    index: 1 | 2 | 3;
     tool: string;
     status: "succeeded" | "rejected" | "failed";
     summary: string;

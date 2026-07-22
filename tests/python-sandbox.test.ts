@@ -48,6 +48,31 @@ describe("generated Python sandbox", () => {
     expect(JSON.stringify(result)).not.toContain("/etc/passwd");
   });
 
+  it("classifies unsupported imports separately from dangerous denied imports", async () => {
+    await expect(
+      runGeneratedPythonAnalysis({
+        script:
+          "import pandas\nRESULT = {'kind': 'summary', 'limitations': []}",
+        bundle: {},
+      }),
+    ).resolves.toMatchObject({
+      status: "rejected",
+      reason: "unsupported_import",
+      message: expect.stringContaining("pandas"),
+    });
+
+    await expect(
+      runGeneratedPythonAnalysis({
+        script: "import os\nRESULT = os.environ",
+        bundle: {},
+      }),
+    ).resolves.toMatchObject({
+      status: "rejected",
+      reason: "denied_import",
+      message: expect.stringContaining("os"),
+    });
+  });
+
   it("allows curated safe imports and from-import helpers", async () => {
     const result = await runGeneratedPythonAnalysis({
       script:

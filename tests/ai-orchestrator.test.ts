@@ -354,7 +354,7 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
     expect(result.text).not.toContain("Tool step 1");
   });
 
-  it("stops after one generated-analysis correction attempt and renders a concise limitation", async () => {
+  it("stops after two generated-analysis correction attempts and renders a concise limitation", async () => {
     runGeneratedGarminAnalysis
       .mockResolvedValueOnce({
         ...generatedAnalysisEvidence,
@@ -369,13 +369,25 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
       .mockResolvedValueOnce({
         ...generatedAnalysisEvidence,
         status: "rejected" as const,
+        reason: "unsupported_import",
+        message:
+          "Generated Python attempted to import unsupported module pandas. Use only allowed imports: math, statistics.",
+        correctionAllowed: true,
+        correctionHint:
+          "Remove unsupported third-party imports and use only the listed standard-library imports; do not request new packages or unsafe access.",
+        scriptHash: "123456abcdef7890",
+        result: undefined,
+      })
+      .mockResolvedValueOnce({
+        ...generatedAnalysisEvidence,
+        status: "rejected" as const,
         reason: "invalid_result_shape",
         message:
           "Generated Python RESULT did not match the bounded Garmin analysis result contract.",
         correctionAllowed: true,
         correctionHint:
           "Set RESULT to an object with a nonempty kind, rows no larger than requestedCount, limitations, and only Garmin IDs from the provided activities dataset.",
-        scriptHash: "123456abcdef7890",
+        scriptHash: "7890abcdef123456",
         result: undefined,
       });
     generateText
@@ -387,6 +399,19 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
               request: "rank activities",
               datasets: ["activities"],
               script: "RESULT = 1 / 0  # force runtime error",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runGeneratedGarminAnalysis",
+            input: {
+              request: "rank activities",
+              datasets: ["activities"],
+              script:
+                "import pandas\nRESULT = {'kind': 'ranking', 'rows': [], 'limitations': []}",
             },
           },
         ],
@@ -411,11 +436,11 @@ RESULT = {"kind": "ranking", "title": "Longest activities", "rows": [{"rank": in
       userRequest: "rank activities",
     });
 
-    expect(generateText).toHaveBeenCalledTimes(2);
-    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(2);
-    expect(result.text).toContain("after one correction attempt");
+    expect(generateText).toHaveBeenCalledTimes(3);
+    expect(runGeneratedGarminAnalysis).toHaveBeenCalledTimes(3);
+    expect(result.text).toContain("after two correction attempts");
     expect(result.text).toContain("invalid_result_shape");
-    expect(result.text).not.toContain("Tool step 2");
+    expect(result.text).not.toContain("Tool step 3");
   });
 
   it("does not offer correction feedback for safety-denied generated analysis", async () => {

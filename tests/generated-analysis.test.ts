@@ -219,6 +219,9 @@ RESULT = {
 
     expect(canOfferGeneratedAnalysisCorrection("runtime_error")).toBe(true);
     expect(canOfferGeneratedAnalysisCorrection("syntax_error")).toBe(true);
+    expect(canOfferGeneratedAnalysisCorrection("unsupported_import")).toBe(
+      true,
+    );
     expect(canOfferGeneratedAnalysisCorrection("non_json_result")).toBe(true);
     expect(canOfferGeneratedAnalysisCorrection("invalid_result_shape")).toBe(
       true,
@@ -241,6 +244,20 @@ RESULT = {
     });
     expect(runtime.message).toContain("division by zero");
     expect(runtime.correctionHint).toContain("fields present");
+
+    const unsupported = await runGeneratedGarminAnalysis({
+      request: "use pandas",
+      datasets: ["activities"],
+      script:
+        "import pandas\nRESULT = {'kind': 'summary', 'summary': 'x', 'limitations': []}",
+    });
+    expect(unsupported).toMatchObject({
+      status: "rejected",
+      reason: "unsupported_import",
+      correctionAllowed: true,
+    });
+    expect(unsupported.message).toContain("pandas");
+    expect(unsupported.correctionHint).toContain("unsupported third-party");
 
     const denied = await runGeneratedGarminAnalysis({
       request: "read files",

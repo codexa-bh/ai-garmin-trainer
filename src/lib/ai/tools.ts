@@ -171,7 +171,7 @@ export const trainerToolDefinitions = {
 export const trainerTools = trainerToolDefinitions;
 
 export type TrainerToolStep = {
-  index: 1 | 2;
+  index: 1 | 2 | 3;
   tool: TrainerToolName;
   status: "succeeded" | "rejected" | "failed";
   summary: string;
@@ -192,6 +192,34 @@ export type TrainerToolCall = {
 function boundedText(value: string, max = 500): string {
   const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
+}
+
+const GENERATED_ACTIVITY_FIELDS = [
+  "garminId",
+  "label",
+  "sport",
+  "date",
+  "startedAt",
+  "durationSec",
+  "distanceMeters",
+  "calories",
+  "avgHeartRate",
+  "maxHeartRate",
+  "steps",
+  "elevationGainMeters",
+  "elevationLossMeters",
+  "trainingEffect",
+];
+
+function generatedAnalysisCorrectionContext(
+  evidence: GeneratedAnalysisEvidence,
+): string {
+  const datasets = evidence.manifest.datasets
+    .map((dataset) => `${dataset.name}:${dataset.rowCount}`)
+    .join(", ");
+  const allowedImports =
+    evidence.manifest.scriptContract.allowedImports.join(", ");
+  return `Correction context: selected datasets ${datasets || "none"}; allowed imports ${allowedImports}; common activities fields ${GENERATED_ACTIVITY_FIELDS.join(", ")}; RESULT must be JSON with nonempty kind, optional title/summary/metrics, optional rows no larger than requestedCount ${evidence.requestedCount}, and limitations; max output bytes ${evidence.manifest.limits.maxOutputBytes}.`;
 }
 
 function summarizeSyncStatus(limit = 10) {
@@ -231,7 +259,7 @@ export function validateTrainerToolCall(
 }
 
 export async function executeTrainerTool(input: {
-  index: 1 | 2;
+  index: 1 | 2 | 3;
   toolName: TrainerToolName;
   args: unknown;
 }): Promise<TrainerToolStep> {
@@ -468,8 +496,9 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
           lines.push(`Bounded failure detail: ${evidence.message}.`);
         if (evidence.correctionHint)
           lines.push(`Correction guidance: ${evidence.correctionHint}`);
+        lines.push(generatedAnalysisCorrectionContext(evidence));
         lines.push(
-          `Correction feedback: ${evidence.correctionAllowed ? "the model may choose one corrected generated-analysis call" : "correction feedback is not offered for this failure"}.`,
+          `Correction feedback: ${evidence.correctionAllowed ? "the model may choose a corrected generated-analysis call" : "correction feedback is not offered for this failure"}.`,
         );
       }
     }

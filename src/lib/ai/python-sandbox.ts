@@ -33,10 +33,22 @@ DENIED_NAMES = {"open", "eval", "exec", "compile", "__import__", "input", "globa
 DENIED_MODULES = {"os", "subprocess", "socket", "pathlib", "shutil", "requests", "urllib", "http", "ftplib", "sqlite3", "ctypes", "multiprocessing", "threading", "asyncio", "importlib", "builtins", "sys", "site", "pip"}
 ALLOWED_MODULES = {"collections", "datetime", "decimal", "functools", "itertools", "json", "math", "statistics"}
 
+def import_failure_reason(root, level=0):
+    if level != 0:
+        return ("denied_import", "Generated Python attempted a relative import.")
+    if root in DENIED_MODULES:
+        return ("denied_import", f"Generated Python attempted to import denied module {root}.")
+    if root not in ALLOWED_MODULES:
+        allowed = ", ".join(sorted(ALLOWED_MODULES))
+        return ("unsupported_import", f"Generated Python attempted to import unsupported module {root}. Use only allowed imports: {allowed}.")
+    return None
+
 def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
     root = str(name).split(".")[0]
-    if level != 0 or root not in ALLOWED_MODULES:
-        raise ImportError("Generated Python attempted to import a denied module.")
+    failure = import_failure_reason(root, level)
+    if failure:
+        reason, message = failure
+        raise ImportError(f"{reason}: {message}")
     return importlib.import_module(name)
 
 SAFE_BUILTINS = {"abs": abs, "all": all, "any": any, "bool": bool, "dict": dict, "enumerate": enumerate, "filter": filter, "float": float, "int": int, "isinstance": isinstance, "len": len, "list": list, "map": map, "max": max, "min": min, "print": print, "range": range, "round": round, "set": set, "sorted": sorted, "str": str, "sum": sum, "tuple": tuple, "zip": zip, "Exception": Exception, "ValueError": ValueError, "__import__": safe_import}
@@ -57,15 +69,18 @@ for node in ast.walk(tree):
     if isinstance(node, ast.While):
         fail("rejected", "loop_disabled", "Generated Python while loops are disabled in the local sandbox.")
     if isinstance(node, ast.Import):
-        names = [alias.name.split(".")[0] for alias in node.names]
-        if any(name in DENIED_MODULES or name not in ALLOWED_MODULES for name in names):
-            fail("rejected", "denied_import", "Generated Python attempted to import a denied module.")
+        for alias in node.names:
+            root = alias.name.split(".")[0]
+            failure = import_failure_reason(root)
+            if failure:
+                reason, message = failure
+                fail("rejected", reason, message)
     if isinstance(node, ast.ImportFrom):
-        if node.level != 0:
-            fail("rejected", "denied_import", "Generated Python attempted a relative import.")
-        name = node.module.split(".")[0] if node.module else ""
-        if name in DENIED_MODULES or name not in ALLOWED_MODULES:
-            fail("rejected", "denied_import", "Generated Python attempted to import a denied module.")
+        root = node.module.split(".")[0] if node.module else ""
+        failure = import_failure_reason(root, node.level)
+        if failure:
+            reason, message = failure
+            fail("rejected", reason, message)
     if isinstance(node, ast.Attribute) and "__" in node.attr:
         fail("rejected", "dunder_access", "Generated Python attempted dunder/introspection access.")
     if isinstance(node, ast.Name):
@@ -95,6 +110,13 @@ stdout = io.StringIO()
 try:
     with contextlib.redirect_stdout(stdout):
         exec(compile(tree, "<generated-garmin-analysis>", "exec"), namespace, namespace)
+except ImportError as exc:
+    message = str(exc)[:300]
+    if message.startswith("unsupported_import: "):
+        fail("rejected", "unsupported_import", message.split(": ", 1)[1])
+    if message.startswith("denied_import: "):
+        fail("rejected", "denied_import", message.split(": ", 1)[1])
+    fail("failed", "runtime_error", message)
 except BaseException as exc:
     fail("failed", "runtime_error", str(exc)[:300])
 output = stdout.getvalue()

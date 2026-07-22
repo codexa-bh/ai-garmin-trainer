@@ -148,6 +148,7 @@ const SAFE_IMPORTS = [
 const CORRECTABLE_GENERATED_ANALYSIS_REASONS = new Set([
   "runtime_error",
   "syntax_error",
+  "unsupported_import",
   "non_json_result",
   "invalid_result_shape",
   "result_too_large",
@@ -196,6 +197,8 @@ export function generatedAnalysisCorrectionHint(
       return "Fix the Python exception by using only fields present in the selected bundle datasets and setting RESULT to bounded JSON.";
     case "syntax_error":
       return "Fix Python syntax and return a valid RESULT object; do not change sandbox boundaries.";
+    case "unsupported_import":
+      return "Remove unsupported third-party imports and use only the listed standard-library imports; do not request new packages or unsafe access.";
     case "non_json_result":
       return "Set RESULT to JSON-serializable strings, numbers, booleans, arrays, or objects only.";
     case "invalid_result_shape":
