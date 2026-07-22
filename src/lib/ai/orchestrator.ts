@@ -10,6 +10,7 @@ import {
   type TrainerToolName,
   type TrainerToolStep,
 } from "@/lib/ai/tools";
+import type { MathAnalysisResult } from "@/lib/ai/math-analysis";
 import type { AnalysisResult, AnalysisRow } from "@/lib/ai/sql-analysis";
 import type { ChatGrounding } from "@/lib/db/repository";
 
@@ -72,7 +73,8 @@ function plannerSystem(
   const prior = priorSteps.length
     ? synthesisEvidenceForSteps(priorSteps)
     : "No prior tool step in this user turn.";
-  return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates should be verified before ambiguous user references drive analysis.\n- For ad hoc Garmin analytics, ranking, counting, summarizing, or computation, use guarded SQL/math by default: describeGarminDatabase if the schema is needed, then runReadOnlySql, then optional runMathAnalysis over the returned same-turn result handle. For broad ranking/count/window prompts, do not use verifyActivityReference; after describeGarminDatabase, choose runReadOnlySql with exact columns/examples from the schema evidence rather than asking for schema again.\n- The SQL tool accepts one SELECT/WITH query over allowlisted normalized analytical tables only. Do not request writes, PRAGMAs, ATTACH/DETACH, comments, stacked statements, auth/session/account/verification tables, raw payload dumps, filesystem paths, secrets, connector handles, environment/process/network data, or raw FIT/full stream dumps.\n- Use SQL for filtering/windowing/grouping/safe joins and use math for bounded scores, formulas, normalization/ranking, simple aggregation, summaries, and top-N output over prior SQL rows. Formula variables must be SQL result columns; if data is missing/null, state the limitation.\n- Tool budget for one user turn: at most one schema call, two SQL calls, one math call, and four total tool executions. Side-effect tools remain deduped and should not be combined with broad analytics unless the user explicitly asks and the sequence is safe.\n- runGeneratedGarminAnalysis is deprecated and disabled by default; do not choose it for ordinary ad hoc analytics.\n- If a prior server step exists and no safe next tool is needed, answer in ordinary user-facing prose from that bounded evidence. Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, raw SQL text unless explicitly requested, raw FIT data, GPS streams, generated Python source, or unrestricted history in user-facing prose.\n\nCurrent turn server-authored prior tool evidence (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
+  return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates should be verified before ambiguous user references drive analysis.\n- For ad hoc Garmin analytics, ranking, counting, summarizing, or computation, use guarded SQL/math by default: describeGarminDatabase if the schema is needed, then runReadOnlySql, then optional runMathAnalysis over the returned same-turn result handle. For broad ranking/count/window prompts, do not use verifyActivityReference; after describeGarminDatabase, choose runReadOnlySql with exact columns/examples from the schema evidence rather than asking for schema again.\n- The SQL tool accepts one SELECT/WITH query over allowlisted normalized analytical tables only. Do not request writes, PRAGMAs, ATTACH/DETACH, comments, stacked statements, auth/session/account/verification tables, raw payload dumps, filesystem paths, secrets, connector handles, environment/process/network data, or raw FIT/full stream dumps.\n- Use SQL for filtering/windowing/grouping/safe joins and use math for bounded scores, formulas, sport-normalized demand scoring, normalization/ranking, simple aggregation, summaries, and top-N output over prior SQL rows. Formula variables must be SQL result columns; if data is missing/null, state the limitation.
+- For generic “most demanding activities” or follow-ups asking whether snowboardings/skiing qualified under generic criteria, extract last-365-days activity rows with sport, date, duration, distance, elevation gain/loss, calories, HR, and training effect, then call runMathAnalysis with operation sportNormalizedDemand and rank by sport_normalized_demand_score. Explain it is a local sport-normalized heuristic with sparse/missing-field limitations, not official Garmin training load.\n- Tool budget for one user turn: at most one schema call, two SQL calls, one math call, and four total tool executions. Side-effect tools remain deduped and should not be combined with broad analytics unless the user explicitly asks and the sequence is safe.\n- runGeneratedGarminAnalysis is deprecated and disabled by default; do not choose it for ordinary ad hoc analytics.\n- If a prior server step exists and no safe next tool is needed, answer in ordinary user-facing prose from that bounded evidence. Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, raw SQL text unless explicitly requested, raw FIT data, GPS streams, generated Python source, or unrestricted history in user-facing prose.\n\nCurrent turn server-authored prior tool evidence (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
 }
 
 function failedStep(index: 1 | 2 | 3 | 4, reason: string): TrainerToolStep {
@@ -110,12 +112,58 @@ function finalAnswerSystem(
   return `${baseSystem}\n\nTrainer final-answer synthesis policy:\n- Write the user-facing trainer answer from the server-authored tool evidence below.\n- Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, SQL, raw FIT data, GPS streams, generated Python source, or unrestricted history.\n- Cite dates, activities, rankings, metrics, and limitations in ordinary prose only when they appear in the server-authored evidence.\n- If the evidence is insufficient for part of the request, say what is missing instead of inventing Garmin facts.\n- Keep the answer concise, coaching-oriented, and non-medical.\n\nServer-authored tool evidence for this current user turn:\n${synthesisEvidenceForSteps(steps)}`;
 }
 
+function isSnowSportDemandFollowUp(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    /\b(snowboard|ski)\w*\b/.test(lower) &&
+    /\b(qualified|qualify|generic criteria|more generic|demanding|demand)\b/.test(
+      lower,
+    )
+  );
+}
+
 function isDemandRankingRequest(text: string): boolean {
   const lower = text.toLowerCase();
   return (
-    /\b(top\s*10|top ten|rank|ranking|most demanding|demanding)\b/.test(
+    (/\b(top\s*10|top ten|rank|ranking|most demanding|demanding)\b/.test(
       lower,
-    ) && /\bactivit(?:y|ies|es)\b/.test(lower)
+    ) &&
+      /\bactivit(?:y|ies|es)\b/.test(lower)) ||
+    isSnowSportDemandFollowUp(text)
+  );
+}
+
+function hasSportNormalizedMathStep(steps: TrainerToolStep[]): boolean {
+  return steps.some(
+    (step) =>
+      step.tool === "runMathAnalysis" &&
+      (step.result as MathAnalysisResult | undefined)?.operation ===
+        "sportNormalizedDemand",
+  );
+}
+
+function canAutoRunSportNormalizedDemand(
+  request: string,
+  steps: TrainerToolStep[],
+  step: TrainerToolStep,
+  analysisToolCounts: Map<TrainerToolName, number>,
+): boolean {
+  if (!isDemandRankingRequest(request)) return false;
+  if (hasSportNormalizedMathStep(steps)) return false;
+  if (analysisToolCounts.get("runMathAnalysis") ?? 0) return false;
+  if (steps.length >= MAX_TOOL_CALLS) return false;
+  if (step.tool !== "runReadOnlySql" || step.status !== "succeeded")
+    return false;
+  const result = step.result as AnalysisResult | undefined;
+  const first = result?.rows[0];
+  return Boolean(
+    first &&
+    Object.prototype.hasOwnProperty.call(first, "sport") &&
+    (Object.prototype.hasOwnProperty.call(first, "duration_sec") ||
+      Object.prototype.hasOwnProperty.call(first, "distance_meters") ||
+      Object.prototype.hasOwnProperty.call(first, "elevation_gain_meters") ||
+      Object.prototype.hasOwnProperty.call(first, "elevation_loss_meters") ||
+      Object.prototype.hasOwnProperty.call(first, "calories")),
   );
 }
 
@@ -140,6 +188,8 @@ function rowDate(row: AnalysisRow): string | null {
 }
 
 function demandScore(row: AnalysisRow): number {
+  const sportNormalized = numericRowValue(row, "sport_normalized_demand_score");
+  if (sportNormalized > 0) return sportNormalized;
   const explicit = numericRowValue(row, "demand_score");
   if (explicit > 0) return explicit;
   return (
@@ -173,28 +223,57 @@ function demandRankingAnswer(
   steps: TrainerToolStep[],
 ): string | null {
   if (!isDemandRankingRequest(request)) return null;
+  const mathStep = [...steps]
+    .reverse()
+    .find(
+      (step) =>
+        step.tool === "runMathAnalysis" &&
+        step.status === "succeeded" &&
+        (step.result as MathAnalysisResult | undefined)?.operation ===
+          "sportNormalizedDemand",
+    );
+  const mathResult = mathStep?.result as MathAnalysisResult | undefined;
   const sqlStep = [...steps]
     .reverse()
     .find(
       (step) => step.tool === "runReadOnlySql" && step.status === "succeeded",
     );
-  const result = sqlStep?.result as AnalysisResult | undefined;
-  if (!result) return null;
-  const rows = result.rows;
+  const sqlResult = sqlStep?.result as AnalysisResult | undefined;
+  const rows = mathResult?.rows ?? sqlResult?.rows ?? [];
+  const rowCount = mathResult?.rowCount ?? sqlResult?.rowCount ?? rows.length;
   if (!rows.length) return null;
-  const ranked = rows
+
+  const ordered = rows
     .map((row) => ({ row, score: demandScore(row) }))
     .filter((item) => item.score > 0)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 10);
+    .sort((left, right) => right.score - left.score);
+  const ranked = ordered.slice(0, 10);
   if (!ranked.length) return null;
+  const usesSportNormalized = ranked.some(
+    ({ row }) => numericRowValue(row, "sport_normalized_demand_score") > 0,
+  );
   const lines = ranked.map(({ row, score }, index) => {
     const date = rowDate(row);
     const sport = typeof row.sport === "string" ? row.sport : "activity";
     const dateText = date ? ` (${date}, ${sport})` : ` (${sport})`;
-    return `${index + 1}. ${rowLabel(row)}${dateText} — score ${score.toFixed(1)}; ${formatMetric(row)}.`;
+    const available = numericRowValue(row, "available_metric_count");
+    const availabilityText = available ? `; ${available} metric families` : "";
+    return `${index + 1}. ${rowLabel(row)}${dateText} — ${usesSportNormalized ? "sport-normalized demand" : "score"} ${score.toFixed(1)}${availabilityText}; ${formatMetric(row)}.`;
   });
-  return `I treated “most demanding” as a transparent local score: duration minutes + 3×distance km + 0.8×elevation gain meters + 0.05×calories + 0.2×average HR + 0.1×max HR + 40×training effect, using 0 where a metric was missing. From the ${result.rowCount} activity rows available for the last-365-days query, the top ${ranked.length} are:\n\n${lines.join("\n")}\n\nLimitations: this is a heuristic over normalized local SQLite summaries, not a medical/training-load diagnosis; missing HR, calorie, or training-effect fields can move an activity down.`;
+  const asksSnow = /\b(snowboard|ski)\w*\b/.test(request.toLowerCase());
+  const snowIndex = ordered.findIndex(({ row }) => {
+    const sportText =
+      `${String(row.sport ?? "")} ${String(row.sport_group ?? "")}`.toLowerCase();
+    return /snowboard|ski/.test(sportText);
+  });
+  const snowText = asksSnow
+    ? snowIndex >= 0
+      ? `\n\nSnowboarding/skiing check: ${rowLabel(ordered[snowIndex].row)} ranked #${snowIndex + 1} under these criteria. ${String(ordered[snowIndex].row.limitations ?? "").replace(/^none$/, "")}`.trimEnd()
+      : "\n\nSnowboarding/skiing check: I did not find a snowboarding or skiing row in the bounded ranking evidence for this turn."
+    : "";
+  if (usesSportNormalized)
+    return `I treated “most demanding” as a local sport-normalized heuristic: each activity is compared with the user's own history for that sport group across available duration, distance, elevation gain/loss, calories, heart-rate, and training-effect metric families, then available percentiles are combined without turning missing fields into zero-only penalties. From the ${rowCount} activity rows scored for the last-365-days query, the top ${ranked.length} are:\n\n${lines.join("\n")}${snowText}\n\nLimitations: this is not an official Garmin training-load or medical score; sparse sports fall back to global percentiles and resort/lift-assisted vertical may reflect terrain exposure more than physiological load.`;
+  return `I treated “most demanding” as a transparent local score: duration minutes + 3×distance km + 0.8×elevation gain meters + 0.05×calories + 0.2×average HR + 0.1×max HR + 40×training effect. From the ${rowCount} activity rows available for the last-365-days query, the top ${ranked.length} are:\n\n${lines.join("\n")}\n\nLimitations: this is a heuristic over normalized local SQLite summaries, not a medical/training-load diagnosis; missing HR, calorie, or training-effect fields can move an activity down.`;
 }
 
 function isAcceptableToolSynthesisText(text: string): boolean {
@@ -476,6 +555,54 @@ export async function orchestrateTrainerChat(
       args: accepted.input,
     });
     steps.push(step);
+
+    if (
+      canAutoRunSportNormalizedDemand(
+        input.userRequest,
+        steps,
+        step,
+        analysisToolCounts,
+      )
+    ) {
+      const sqlResult = step.result as AnalysisResult;
+      analysisToolCounts.set(
+        "runMathAnalysis",
+        (analysisToolCounts.get("runMathAnalysis") ?? 0) + 1,
+      );
+      const mathStep = await executeTrainerTool({
+        index: (steps.length + 1) as 1 | 2 | 3 | 4,
+        toolName: "runMathAnalysis",
+        args: {
+          inputResult: sqlResult.resultName,
+          operation: "sportNormalizedDemand",
+          orderBy: [
+            { field: "sport_normalized_demand_score", direction: "desc" },
+          ],
+          limit: isSnowSportDemandFollowUp(input.userRequest) ? 100 : 10,
+          outputName: "sport_normalized_demand",
+        },
+      });
+      steps.push(mathStep);
+      const deterministic = demandRankingAnswer(input.userRequest, steps);
+      if (mathStep.status === "succeeded" && deterministic) {
+        return {
+          text: deterministic,
+          grounding: groundingForSteps(steps),
+          toolSteps: steps,
+          providerCalls,
+        };
+      }
+      if (mathStep.status !== "succeeded") {
+        const synthesized =
+          deterministic ?? (await synthesizeFinalAnswer(input, steps));
+        return {
+          text: synthesized ?? toolFailureLimitationText(steps),
+          grounding: groundingForSteps(steps),
+          toolSteps: steps,
+          providerCalls,
+        };
+      }
+    }
 
     if (step.status !== "succeeded") {
       if (

@@ -543,7 +543,7 @@ export function describeGarminDatabase(): GarminDatabaseDescription {
       forbiddenDataClasses: FORBIDDEN_DATA_CLASSES,
       examples: [
         "select garmin_id, name, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec from activity order by duration_sec desc limit 10",
-        "select garmin_id, coalesce(name, sport || ' on ' || date(started_at / 1000, 'unixepoch')) as label, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, elevation_gain_meters, training_effect, (coalesce(duration_sec, 0) / 60.0 + coalesce(distance_meters, 0) / 1000.0 * 3.0 + coalesce(elevation_gain_meters, 0) * 0.8 + coalesce(calories, 0) * 0.05 + coalesce(avg_heart_rate, 0) * 0.2 + coalesce(training_effect, 0) * 40.0) as demand_score from activity where started_at >= unixepoch('now', '-365 days') * 1000 order by demand_score desc limit 10",
+        "select garmin_id, coalesce(name, sport || ' on ' || date(started_at / 1000, 'unixepoch')) as label, name, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, elevation_gain_meters, elevation_loss_meters, training_effect from activity where started_at >= unixepoch('now', '-365 days') * 1000 order by started_at desc limit 200 -- then runMathAnalysis sportNormalizedDemand over this result for generic demand rankings",
         "select sport, count(*) as activities, avg(duration_sec) as avg_duration_sec from activity group by sport order by activities desc",
         "select a.garmin_id, a.name, d.status, d.record_count from activity a join activity_detail_availability d on d.garmin_id = a.garmin_id limit 20",
       ],
