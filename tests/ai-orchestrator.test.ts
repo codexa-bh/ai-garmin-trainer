@@ -37,11 +37,11 @@ const runReadOnlySql = vi.fn((): Record<string, unknown> => ({
   truncated: false,
   privacy: "sql privacy",
 }));
-const runMathAnalysis = vi.fn(({ rowsByResult, inputResult }) => ({
+const runMathAnalysis = vi.fn(({ rowsByResult, inputResult, operation }) => ({
   status: "succeeded",
   resultName: "demand_scores",
   inputResult,
-  operation: "score",
+  operation: operation ?? "score",
   rows: (rowsByResult.get(inputResult) ?? []).map(
     (row: Record<string, unknown>, index: number) => ({
       ...row,
@@ -242,9 +242,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
             toolName: "runMathAnalysis",
             input: {
               inputResult: "activity_rows",
-              operation: "score",
-              formula: "duration_sec + elevation_gain_meters * 2",
-              orderBy: [{ field: "score", direction: "desc" }],
+              operation: "sportNormalizedDemand",
+              orderBy: [
+                { field: "sport_normalized_demand_score", direction: "desc" },
+              ],
               limit: 10,
               outputName: "demand_scores",
             },
@@ -263,6 +264,9 @@ describe("trainer orchestrator fail-closed policy", async () => {
 
     expect(generateText.mock.calls[0][0].system).toContain(
       "guarded SQL/math by default",
+    );
+    expect(generateText.mock.calls[0][0].system).toContain(
+      "sportNormalizedDemand",
     );
     expect(generateText.mock.calls[0][0].system).not.toContain(
       "LLM-authored Python script over explicit named datasets",

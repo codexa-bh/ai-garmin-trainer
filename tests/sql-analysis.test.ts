@@ -79,7 +79,7 @@ describe("read-only Garmin SQL analysis", () => {
     expect(description.examples.join(" ")).toContain(
       "unixepoch('now', '-365 days') * 1000",
     );
-    expect(description.examples.join(" ")).toContain("demand_score");
+    expect(description.examples.join(" ")).toContain("sportNormalizedDemand");
     expect(JSON.stringify(description)).not.toContain("access_token");
     expect(JSON.stringify(description)).not.toContain("session token");
     expect(description.forbiddenDataClasses.join(" ")).toContain(
@@ -112,13 +112,13 @@ describe("read-only Garmin SQL analysis", () => {
     expect(result.privacy).toContain("Read-only local SQLite");
   });
 
-  it("runs a last-365-days demand-ranking activity query over exact exposed columns", async () => {
+  it("runs a last-365-days demand candidate extraction query over exact exposed columns", async () => {
     await seedActivities();
     const { runReadOnlySql } = await import("../src/lib/ai/sql-analysis");
 
     const result = runReadOnlySql({
-      resultName: "demand_ranking",
-      maxRows: 10,
+      resultName: "demand_candidates",
+      maxRows: 200,
       sql: `
         select garmin_id,
                coalesce(name, sport || ' on ' || date(started_at / 1000, 'unixepoch')) as label,
@@ -130,27 +130,28 @@ describe("read-only Garmin SQL analysis", () => {
                avg_heart_rate,
                max_heart_rate,
                elevation_gain_meters,
-               training_effect,
-               (coalesce(duration_sec, 0) / 60.0
-                + coalesce(distance_meters, 0) / 1000.0 * 3.0
-                + coalesce(elevation_gain_meters, 0) * 0.8
-                + coalesce(calories, 0) * 0.05
-                + coalesce(avg_heart_rate, 0) * 0.2
-                + coalesce(training_effect, 0) * 40.0) as demand_score
+               elevation_loss_meters,
+               training_effect
         from activity
         where started_at >= unixepoch('2026-07-22', '-365 days') * 1000
-        order by demand_score desc
-        limit 10
+        order by started_at desc
+        limit 200
       `,
     });
 
     expect(result.status).toBe("succeeded");
-    expect(result.rows[0]).toMatchObject({
-      garmin_id: "ride-1",
-      label: "Long ride",
-      sport: "cycling",
-    });
-    expect(result.rows[0]?.demand_score).toBeTypeOf("number");
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          garmin_id: "ride-1",
+          label: "Long ride",
+          sport: "cycling",
+        }),
+      ]),
+    );
+    expect(result.columns.map((column) => column.name)).toContain(
+      "elevation_loss_meters",
+    );
   });
 
   it("returns sanitized correctable SQL schema errors without paths or secrets", async () => {

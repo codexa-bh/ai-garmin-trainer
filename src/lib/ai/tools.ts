@@ -130,6 +130,7 @@ const mathFieldSchema = z
 const mathOperationSchema = z.enum([
   "score",
   "normalize",
+  "sportNormalizedDemand",
   "aggregate",
   "correlate",
   "summarize",
@@ -248,7 +249,7 @@ export const trainerToolDefinitions = {
   }),
   runMathAnalysis: tool({
     description:
-      "Run bounded TypeScript math over a prior same-turn runReadOnlySql result handle. Supports scoring/custom formulas over numeric columns, normalization/ranking, simple aggregation/grouping, summaries, ordering, and top-N output. No scripts, DB/filesystem/network/process/environment/connector access.",
+      "Run bounded TypeScript math over a prior same-turn runReadOnlySql result handle. Supports scoring/custom formulas over numeric columns, sportNormalizedDemand for generic most-demanding activity rankings with within-sport percentiles and sparse-data limitations, normalization/ranking, simple aggregation/grouping, summaries, ordering, and top-N output. No scripts, DB/filesystem/network/process/environment/connector access.",
     inputSchema: trainerToolInputSchemas.runMathAnalysis,
   }),
   runGeneratedGarminAnalysis: tool({

@@ -134,17 +134,27 @@ const runReadOnlySql = vi.fn((input: { resultName?: string }) => ({
   truncated: false,
   privacy: "sql privacy",
 }));
-const runMathAnalysis = vi.fn((input: { inputResult: string }) => ({
-  status: "succeeded",
-  resultName: "demand_scores",
-  inputResult: input.inputResult,
-  operation: "score",
-  rows: [{ garmin_id: "source-1", name: "Source climb — Špik", score: 100 }],
-  rowCount: 1,
-  returnedRows: 1,
-  truncated: false,
-  privacy: "math privacy",
-}));
+const runMathAnalysis = vi.fn(
+  (input: { inputResult: string; operation?: string }) => ({
+    status: "succeeded",
+    resultName: "demand_scores",
+    inputResult: input.inputResult,
+    operation: input.operation ?? "score",
+    rows: [
+      {
+        garmin_id: "source-1",
+        name: "Source climb — Špik",
+        sport: "hiking",
+        sport_normalized_demand_score: 100,
+        available_metric_count: 6,
+      },
+    ],
+    rowCount: 1,
+    returnedRows: 1,
+    truncated: false,
+    privacy: "math privacy",
+  }),
+);
 
 const generateText = vi.fn(
   async (options: { prompt: string; system: string; toolChoice?: string }) => {
@@ -187,6 +197,11 @@ const generateText = vi.fn(
       options.system.includes("Evidence step 2: runMathAnalysis") ||
       options.system.includes("Evidence step 3: runMathAnalysis")
     ) {
+      if (options.prompt.toLowerCase().includes("snowboard")) {
+        return {
+          text: "Under sport-normalized generic criteria, I checked whether snowboardings qualified without dumping raw tool steps.",
+        };
+      }
       return {
         text: "Source climb — Špik stands out in the bounded SQL/math evidence.",
       };
@@ -197,16 +212,23 @@ const generateText = vi.fn(
           text: "The latest imported local activity is latest-999, based on read-only SQL evidence.",
         };
       }
-      if (options.prompt.includes("most demanding")) {
+      if (
+        options.prompt.includes("most demanding") ||
+        options.prompt.toLowerCase().includes("snowboard")
+      ) {
         return {
           toolCalls: [
             {
               toolName: "runMathAnalysis",
               input: {
                 inputResult: "demand_rows",
-                operation: "score",
-                formula: "duration_sec + elevation_gain_meters * 2",
-                orderBy: [{ field: "score", direction: "desc" }],
+                operation: "sportNormalizedDemand",
+                orderBy: [
+                  {
+                    field: "sport_normalized_demand_score",
+                    direction: "desc",
+                  },
+                ],
                 limit: 10,
               },
             },
@@ -268,7 +290,11 @@ const generateText = vi.fn(
         ],
       };
     }
-    if (prompt.includes("most demanding") || prompt.includes("last 365 days")) {
+    if (
+      prompt.includes("most demanding") ||
+      prompt.includes("last 365 days") ||
+      prompt.toLowerCase().includes("snowboard")
+    ) {
       return {
         toolCalls: [
           {
@@ -684,6 +710,26 @@ describe("chat route LLM tool orchestration", () => {
     expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
     expect(payload.assistant.content).toContain("Source climb — Špik");
     expect(payload.assistant.content).not.toContain("Provider invented");
+    expect(runMathAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "sportNormalizedDemand" }),
+    );
+    expect(payload.toolEvidence?.tool).toBe("runMathAnalysis");
+  });
+
+  it("answers snowboarding demand follow-ups with sport-normalized criteria", async () => {
+    const payload = await postChat(
+      "This looks pretty good list for hiking. But no snowboardings qualified? Could we invent the more generic criteria?",
+    );
+
+    expect(runReadOnlySql).toHaveBeenCalledWith(
+      expect.objectContaining({ resultName: "demand_rows", maxRows: 50 }),
+    );
+    expect(runMathAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "sportNormalizedDemand" }),
+    );
+    expect(payload.assistant.content).toContain("sport-normalized");
+    expect(payload.assistant.content).toContain("snowboarding");
+    expect(payload.assistant.content).not.toContain("Tool step");
     expect(payload.toolEvidence?.tool).toBe("runMathAnalysis");
   });
 
