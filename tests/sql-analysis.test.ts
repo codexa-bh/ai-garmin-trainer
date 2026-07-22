@@ -75,6 +75,11 @@ describe("read-only Garmin SQL analysis", () => {
       "daily_health",
     );
     expect(JSON.stringify(description)).toContain("duration_sec");
+    expect(JSON.stringify(description)).toContain("source_updated_at");
+    expect(description.examples.join(" ")).toContain(
+      "unixepoch('now', '-365 days') * 1000",
+    );
+    expect(description.examples.join(" ")).toContain("demand_score");
     expect(JSON.stringify(description)).not.toContain("access_token");
     expect(JSON.stringify(description)).not.toContain("session token");
     expect(description.forbiddenDataClasses.join(" ")).toContain(
@@ -105,6 +110,66 @@ describe("read-only Garmin SQL analysis", () => {
     });
     expect(result.returnedRows).toBe(2);
     expect(result.privacy).toContain("Read-only local SQLite");
+  });
+
+  it("runs a last-365-days demand-ranking activity query over exact exposed columns", async () => {
+    await seedActivities();
+    const { runReadOnlySql } = await import("../src/lib/ai/sql-analysis");
+
+    const result = runReadOnlySql({
+      resultName: "demand_ranking",
+      maxRows: 10,
+      sql: `
+        select garmin_id,
+               coalesce(name, sport || ' on ' || date(started_at / 1000, 'unixepoch')) as label,
+               sport,
+               date(started_at / 1000, 'unixepoch') as date,
+               duration_sec,
+               distance_meters,
+               calories,
+               avg_heart_rate,
+               max_heart_rate,
+               elevation_gain_meters,
+               training_effect,
+               (coalesce(duration_sec, 0) / 60.0
+                + coalesce(distance_meters, 0) / 1000.0 * 3.0
+                + coalesce(elevation_gain_meters, 0) * 0.8
+                + coalesce(calories, 0) * 0.05
+                + coalesce(avg_heart_rate, 0) * 0.2
+                + coalesce(training_effect, 0) * 40.0) as demand_score
+        from activity
+        where started_at >= unixepoch('2026-07-22', '-365 days') * 1000
+        order by demand_score desc
+        limit 10
+      `,
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.rows[0]).toMatchObject({
+      garmin_id: "ride-1",
+      label: "Long ride",
+      sport: "cycling",
+    });
+    expect(result.rows[0]?.demand_score).toBeTypeOf("number");
+  });
+
+  it("returns sanitized correctable SQL schema errors without paths or secrets", async () => {
+    await seedActivities();
+    const { runReadOnlySql } = await import("../src/lib/ai/sql-analysis");
+
+    const result = runReadOnlySql({
+      sql: "select activity_id, start_time from activity order by start_time desc",
+      resultName: "bad_activity_query",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.reason).toBe("unknown_column");
+    expect(result.correctionAllowed).toBe(true);
+    expect(result.message).toContain("activity_id");
+    expect(result.message).toContain("Allowed activity columns");
+    expect(result.message).toContain("started_at");
+    expect(JSON.stringify(result)).not.toContain(process.env.DATABASE_PATH);
+    expect(JSON.stringify(result)).not.toContain("OPENAI_API_KEY");
   });
 
   it("rejects writes, pragmas, comments, multi-statements, and disallowed tables", async () => {

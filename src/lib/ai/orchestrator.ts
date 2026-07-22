@@ -10,6 +10,7 @@ import {
   type TrainerToolName,
   type TrainerToolStep,
 } from "@/lib/ai/tools";
+import type { AnalysisResult, AnalysisRow } from "@/lib/ai/sql-analysis";
 import type { ChatGrounding } from "@/lib/db/repository";
 
 const MAX_PLANNER_CALLS = 5;
@@ -71,7 +72,7 @@ function plannerSystem(
   const prior = priorSteps.length
     ? synthesisEvidenceForSteps(priorSteps)
     : "No prior tool step in this user turn.";
-  return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates should be verified before ambiguous user references drive analysis.\n- For ad hoc Garmin analytics, ranking, counting, summarizing, or computation, use guarded SQL/math by default: describeGarminDatabase if the schema is needed, then runReadOnlySql, then optional runMathAnalysis over the returned same-turn result handle.\n- The SQL tool accepts one SELECT/WITH query over allowlisted normalized analytical tables only. Do not request writes, PRAGMAs, ATTACH/DETACH, comments, stacked statements, auth/session/account/verification tables, raw payload dumps, filesystem paths, secrets, connector handles, environment/process/network data, or raw FIT/full stream dumps.\n- Use SQL for filtering/windowing/grouping/safe joins and use math for bounded scores, formulas, normalization/ranking, simple aggregation, summaries, and top-N output over prior SQL rows. Formula variables must be SQL result columns; if data is missing/null, state the limitation.\n- Tool budget for one user turn: at most one schema call, two SQL calls, one math call, and four total tool executions. Side-effect tools remain deduped and should not be combined with broad analytics unless the user explicitly asks and the sequence is safe.\n- runGeneratedGarminAnalysis is deprecated and disabled by default; do not choose it for ordinary ad hoc analytics.\n- If a prior server step exists and no safe next tool is needed, answer in ordinary user-facing prose from that bounded evidence. Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, raw SQL text unless explicitly requested, raw FIT data, GPS streams, generated Python source, or unrestricted history in user-facing prose.\n\nCurrent turn server-authored prior tool evidence (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
+  return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates should be verified before ambiguous user references drive analysis.\n- For ad hoc Garmin analytics, ranking, counting, summarizing, or computation, use guarded SQL/math by default: describeGarminDatabase if the schema is needed, then runReadOnlySql, then optional runMathAnalysis over the returned same-turn result handle. For broad ranking/count/window prompts, do not use verifyActivityReference; after describeGarminDatabase, choose runReadOnlySql with exact columns/examples from the schema evidence rather than asking for schema again.\n- The SQL tool accepts one SELECT/WITH query over allowlisted normalized analytical tables only. Do not request writes, PRAGMAs, ATTACH/DETACH, comments, stacked statements, auth/session/account/verification tables, raw payload dumps, filesystem paths, secrets, connector handles, environment/process/network data, or raw FIT/full stream dumps.\n- Use SQL for filtering/windowing/grouping/safe joins and use math for bounded scores, formulas, normalization/ranking, simple aggregation, summaries, and top-N output over prior SQL rows. Formula variables must be SQL result columns; if data is missing/null, state the limitation.\n- Tool budget for one user turn: at most one schema call, two SQL calls, one math call, and four total tool executions. Side-effect tools remain deduped and should not be combined with broad analytics unless the user explicitly asks and the sequence is safe.\n- runGeneratedGarminAnalysis is deprecated and disabled by default; do not choose it for ordinary ad hoc analytics.\n- If a prior server step exists and no safe next tool is needed, answer in ordinary user-facing prose from that bounded evidence. Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, raw SQL text unless explicitly requested, raw FIT data, GPS streams, generated Python source, or unrestricted history in user-facing prose.\n\nCurrent turn server-authored prior tool evidence (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
 }
 
 function failedStep(index: 1 | 2 | 3 | 4, reason: string): TrainerToolStep {
@@ -109,6 +110,93 @@ function finalAnswerSystem(
   return `${baseSystem}\n\nTrainer final-answer synthesis policy:\n- Write the user-facing trainer answer from the server-authored tool evidence below.\n- Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, SQL, raw FIT data, GPS streams, generated Python source, or unrestricted history.\n- Cite dates, activities, rankings, metrics, and limitations in ordinary prose only when they appear in the server-authored evidence.\n- If the evidence is insufficient for part of the request, say what is missing instead of inventing Garmin facts.\n- Keep the answer concise, coaching-oriented, and non-medical.\n\nServer-authored tool evidence for this current user turn:\n${synthesisEvidenceForSteps(steps)}`;
 }
 
+function isDemandRankingRequest(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    /\b(top\s*10|top ten|rank|ranking|most demanding|demanding)\b/.test(
+      lower,
+    ) && /\bactivit(?:y|ies|es)\b/.test(lower)
+  );
+}
+
+function numericRowValue(row: AnalysisRow, key: string): number {
+  const value = row[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function rowLabel(row: AnalysisRow): string {
+  const name = typeof row.name === "string" ? row.name.trim() : "";
+  const sport = typeof row.sport === "string" ? row.sport : "activity";
+  const date = rowDate(row);
+  return name || `${sport}${date ? ` on ${date}` : ""}`;
+}
+
+function rowDate(row: AnalysisRow): string | null {
+  if (typeof row.date === "string" && /^20\d{2}-\d{2}-\d{2}/.test(row.date))
+    return row.date.slice(0, 10);
+  if (typeof row.started_at === "number" && Number.isFinite(row.started_at))
+    return new Date(row.started_at).toISOString().slice(0, 10);
+  return null;
+}
+
+function demandScore(row: AnalysisRow): number {
+  const explicit = numericRowValue(row, "demand_score");
+  if (explicit > 0) return explicit;
+  return (
+    numericRowValue(row, "duration_sec") / 60 +
+    (numericRowValue(row, "distance_meters") / 1000) * 3 +
+    numericRowValue(row, "elevation_gain_meters") * 0.8 +
+    numericRowValue(row, "calories") * 0.05 +
+    numericRowValue(row, "avg_heart_rate") * 0.2 +
+    numericRowValue(row, "max_heart_rate") * 0.1 +
+    numericRowValue(row, "training_effect") * 40
+  );
+}
+
+function formatMetric(row: AnalysisRow): string {
+  const parts: string[] = [];
+  const duration = numericRowValue(row, "duration_sec");
+  const distance = numericRowValue(row, "distance_meters");
+  const elevation = numericRowValue(row, "elevation_gain_meters");
+  const calories = numericRowValue(row, "calories");
+  const avgHr = numericRowValue(row, "avg_heart_rate");
+  if (duration) parts.push(`${Math.round(duration / 60)} min`);
+  if (distance) parts.push(`${(distance / 1000).toFixed(1)} km`);
+  if (elevation) parts.push(`+${Math.round(elevation)} m`);
+  if (calories) parts.push(`${Math.round(calories)} kcal`);
+  if (avgHr) parts.push(`avg HR ${Math.round(avgHr)}`);
+  return parts.join(", ") || "available summary metrics";
+}
+
+function demandRankingAnswer(
+  request: string,
+  steps: TrainerToolStep[],
+): string | null {
+  if (!isDemandRankingRequest(request)) return null;
+  const sqlStep = [...steps]
+    .reverse()
+    .find(
+      (step) => step.tool === "runReadOnlySql" && step.status === "succeeded",
+    );
+  const result = sqlStep?.result as AnalysisResult | undefined;
+  if (!result) return null;
+  const rows = result.rows;
+  if (!rows.length) return null;
+  const ranked = rows
+    .map((row) => ({ row, score: demandScore(row) }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 10);
+  if (!ranked.length) return null;
+  const lines = ranked.map(({ row, score }, index) => {
+    const date = rowDate(row);
+    const sport = typeof row.sport === "string" ? row.sport : "activity";
+    const dateText = date ? ` (${date}, ${sport})` : ` (${sport})`;
+    return `${index + 1}. ${rowLabel(row)}${dateText} — score ${score.toFixed(1)}; ${formatMetric(row)}.`;
+  });
+  return `I treated “most demanding” as a transparent local score: duration minutes + 3×distance km + 0.8×elevation gain meters + 0.05×calories + 0.2×average HR + 0.1×max HR + 40×training effect, using 0 where a metric was missing. From the ${result.rowCount} activity rows available for the last-365-days query, the top ${ranked.length} are:\n\n${lines.join("\n")}\n\nLimitations: this is a heuristic over normalized local SQLite summaries, not a medical/training-load diagnosis; missing HR, calorie, or training-effect fields can move an activity down.`;
+}
+
 function isAcceptableToolSynthesisText(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
@@ -133,6 +221,41 @@ function generatedAnalysisCorrectionAttemptsUsed(
   return steps.filter(
     (step, index) => index > 0 && step.tool === "runGeneratedGarminAnalysis",
   ).length;
+}
+
+function canOfferSqlCorrectionStep(step: TrainerToolStep): boolean {
+  return (
+    step.tool === "runReadOnlySql" &&
+    step.status !== "succeeded" &&
+    step.correctionAllowed === true
+  );
+}
+
+function sqlLimitationText(steps: TrainerToolStep[]): string | null {
+  const failedSql = steps
+    .filter(
+      (step) => step.tool === "runReadOnlySql" && step.status !== "succeeded",
+    )
+    .at(-1);
+  if (!failedSql) return null;
+  const sqlAttempts = steps.filter(
+    (step) => step.tool === "runReadOnlySql",
+  ).length;
+  const reason = failedSql.reason ? ` Reason: ${failedSql.reason}.` : "";
+  const hint = failedSql.correctionHint
+    ? ` ${failedSql.correctionHint}`
+    : " I can try again with a simpler ranking such as duration, distance, elevation gain, calories, or heart rate if you choose one.";
+  const attemptText =
+    sqlAttempts === 1 ? "one SQL attempt" : `${sqlAttempts} SQL attempts`;
+  return `I couldn't complete that local Garmin ranking after ${attemptText}.${reason}${hint}`;
+}
+
+function toolFailureLimitationText(steps: TrainerToolStep[]): string {
+  return (
+    generatedAnalysisLimitationText(steps) ??
+    sqlLimitationText(steps) ??
+    "I couldn't complete that local Garmin tool request within the safety guardrails. Please try a narrower request."
+  );
 }
 
 function generatedAnalysisLimitationText(
@@ -182,6 +305,7 @@ async function synthesizeFinalAnswer(
   } catch {
     return null;
   }
+  if (!result) return null;
 
   const text = result.text?.trim() ?? "";
   const toolCalls = (result.toolCalls ?? [])
@@ -218,8 +342,7 @@ export async function orchestrateTrainerChat(
     } catch {
       if (steps.length) {
         return {
-          text:
-            generatedAnalysisLimitationText(steps) ?? renderToolSteps(steps),
+          text: toolFailureLimitationText(steps),
           grounding: groundingForSteps(steps),
           toolSteps: steps,
           providerCalls,
@@ -238,12 +361,20 @@ export async function orchestrateTrainerChat(
       .filter((call): call is TrainerToolCall => Boolean(call));
     if (toolCalls.length === 0) {
       if (steps.length) {
+        const deterministic = demandRankingAnswer(input.userRequest, steps);
+        if (deterministic)
+          return {
+            text: deterministic,
+            grounding: groundingForSteps(steps),
+            toolSteps: steps,
+            providerCalls,
+          };
         const text = result.text?.trim() ?? "";
+        const synthesized = isAcceptableToolSynthesisText(text)
+          ? text
+          : await synthesizeFinalAnswer(input, steps);
         return {
-          text: isAcceptableToolSynthesisText(text)
-            ? text
-            : (generatedAnalysisLimitationText(steps) ??
-              renderToolSteps(steps)),
+          text: synthesized ?? toolFailureLimitationText(steps),
           grounding: groundingForSteps(steps),
           toolSteps: steps,
           providerCalls,
@@ -262,19 +393,25 @@ export async function orchestrateTrainerChat(
     const stepIndex = (steps.length + 1) as 1 | 2 | 3 | 4;
     if (toolCalls.length !== 1) {
       const step = failedStep(stepIndex, "invalid_tool_cardinality");
+      const allSteps = steps.length ? [...steps, step] : [step];
       return {
-        text: renderToolSteps([step]),
-        grounding: groundingForSteps([step]),
-        toolSteps: [step],
+        text:
+          demandRankingAnswer(input.userRequest, allSteps) ??
+          renderToolSteps(allSteps),
+        grounding: groundingForSteps(allSteps),
+        toolSteps: allSteps,
         providerCalls,
       };
     }
     if (steps.length >= MAX_TOOL_CALLS) {
       const step = failedStep(2, "tool_budget_exceeded");
+      const allSteps = [...steps, step];
       return {
-        text: renderToolSteps([...steps, step]),
-        grounding: groundingForSteps([...steps, step]),
-        toolSteps: [...steps, step],
+        text:
+          demandRankingAnswer(input.userRequest, allSteps) ??
+          renderToolSteps(allSteps),
+        grounding: groundingForSteps(allSteps),
+        toolSteps: allSteps,
         providerCalls,
       };
     }
@@ -282,10 +419,13 @@ export async function orchestrateTrainerChat(
     const accepted = validateTrainerToolCall(toolCalls[0]);
     if (!accepted.ok) {
       const step = failedStep(stepIndex, accepted.reason);
+      const allSteps = [...steps, step];
       return {
-        text: renderToolSteps([...steps, step]),
-        grounding: groundingForSteps([...steps, step]),
-        toolSteps: [...steps, step],
+        text:
+          demandRankingAnswer(input.userRequest, allSteps) ??
+          renderToolSteps(allSteps),
+        grounding: groundingForSteps(allSteps),
+        toolSteps: allSteps,
         providerCalls,
       };
     }
@@ -311,10 +451,14 @@ export async function orchestrateTrainerChat(
         currentCount >= MAX_MATH_CALLS);
     if (budgetExceeded) {
       const step = failedStep(stepIndex, "tool_budget_exceeded");
+      const allSteps = [...steps, step];
+      const deterministic = demandRankingAnswer(input.userRequest, allSteps);
+      const synthesized =
+        deterministic ?? (await synthesizeFinalAnswer(input, allSteps));
       return {
-        text: renderToolSteps([...steps, step]),
-        grounding: groundingForSteps([...steps, step]),
-        toolSteps: [...steps, step],
+        text: synthesized ?? toolFailureLimitationText(allSteps),
+        grounding: groundingForSteps(allSteps),
+        toolSteps: allSteps,
         providerCalls,
       };
     }
@@ -335,16 +479,31 @@ export async function orchestrateTrainerChat(
 
     if (step.status !== "succeeded") {
       if (
-        canOfferGeneratedAnalysisCorrectionStep(step) &&
-        generatedAnalysisCorrectionAttemptsUsed(steps) <
-          MAX_GENERATED_ANALYSIS_CORRECTION_ATTEMPTS &&
+        ((canOfferGeneratedAnalysisCorrectionStep(step) &&
+          generatedAnalysisCorrectionAttemptsUsed(steps) <
+            MAX_GENERATED_ANALYSIS_CORRECTION_ATTEMPTS) ||
+          canOfferSqlCorrectionStep(step)) &&
         steps.length < MAX_TOOL_CALLS &&
         plannerCall + 1 < MAX_PLANNER_CALLS
       ) {
         continue;
       }
+      if (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis") {
+        const deterministic = demandRankingAnswer(input.userRequest, steps);
+        const synthesized =
+          deterministic ?? (await synthesizeFinalAnswer(input, steps));
+        return {
+          text: synthesized ?? toolFailureLimitationText(steps),
+          grounding: groundingForSteps(steps),
+          toolSteps: steps,
+          providerCalls,
+        };
+      }
       return {
-        text: generatedAnalysisLimitationText(steps) ?? renderToolSteps(steps),
+        text:
+          demandRankingAnswer(input.userRequest, steps) ??
+          generatedAnalysisLimitationText(steps) ??
+          renderToolSteps(steps),
         grounding: groundingForSteps(steps),
         toolSteps: steps,
         providerCalls,
@@ -353,9 +512,10 @@ export async function orchestrateTrainerChat(
 
     if (steps.length >= MAX_GENERAL_TOOL_CALLS) {
       providerCalls += 1;
-      const text = await synthesizeFinalAnswer(input, steps);
+      const deterministic = demandRankingAnswer(input.userRequest, steps);
+      const text = deterministic ?? (await synthesizeFinalAnswer(input, steps));
       return {
-        text: text ?? renderToolSteps(steps),
+        text: text ?? toolFailureLimitationText(steps),
         grounding: groundingForSteps(steps),
         toolSteps: steps,
         providerCalls,
@@ -364,7 +524,9 @@ export async function orchestrateTrainerChat(
   }
 
   return {
-    text: renderToolSteps(steps),
+    text:
+      demandRankingAnswer(input.userRequest, steps) ??
+      toolFailureLimitationText(steps),
     grounding: groundingForSteps(steps),
     toolSteps: steps,
     providerCalls,

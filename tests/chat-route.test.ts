@@ -182,7 +182,11 @@ const generateText = vi.fn(
         text: "Garmin sync complete; the local normalized store was updated.",
       };
     }
-    if (options.system.includes("Evidence step 1: runMathAnalysis")) {
+    if (
+      options.system.includes("Evidence step 1: runMathAnalysis") ||
+      options.system.includes("Evidence step 2: runMathAnalysis") ||
+      options.system.includes("Evidence step 3: runMathAnalysis")
+    ) {
       return {
         text: "Source climb — Špik stands out in the bounded SQL/math evidence.",
       };

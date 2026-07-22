@@ -32,6 +32,19 @@ const MATH_LIMITS = {
   maxOutputBytes: 60_000,
 };
 
+const OPTIONAL_ACTIVITY_METRIC_COLUMNS = new Set([
+  "duration_sec",
+  "distance_meters",
+  "calories",
+  "avg_heart_rate",
+  "max_heart_rate",
+  "steps",
+  "elevation_gain_meters",
+  "elevation_loss_meters",
+  "training_effect",
+  "demand_score",
+]);
+
 type Token =
   | { type: "number"; value: number }
   | { type: "identifier"; value: string }
@@ -162,12 +175,17 @@ function numeric(value: AnalysisCell): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function numericForFormula(value: AnalysisCell): number | null {
+  if (value === null || value === undefined) return 0;
+  return numeric(value);
+}
+
 function evaluateRpn(rpn: Token[], row: AnalysisRow): number | null {
   const stack: number[] = [];
   for (const token of rpn) {
     if (token.type === "number") stack.push(token.value);
     else if (token.type === "identifier") {
-      const value = numeric(row[token.value]);
+      const value = numericForFormula(row[token.value]);
       if (value === null) return null;
       stack.push(value);
     } else if (token.type === "operator") {
@@ -247,7 +265,11 @@ function formulaRows(
   if (!tokens) return "unsafe_formula";
   const columns = new Set(Object.keys(rows[0] ?? {}));
   for (const token of tokens) {
-    if (token.type === "identifier" && !columns.has(token.value))
+    if (
+      token.type === "identifier" &&
+      !columns.has(token.value) &&
+      !OPTIONAL_ACTIVITY_METRIC_COLUMNS.has(token.value)
+    )
       return "unknown_column";
   }
   const rpn = toRpn(tokens);

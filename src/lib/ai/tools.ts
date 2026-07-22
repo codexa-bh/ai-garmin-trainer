@@ -471,6 +471,12 @@ export async function executeTrainerTool(input: {
               : `Read-only SQL rejected: ${result.reason ?? result.status}.`,
           privacy: result.privacy,
           reason: result.status === "succeeded" ? undefined : result.reason,
+          correctionAllowed:
+            result.status === "succeeded"
+              ? undefined
+              : result.correctionAllowed,
+          correctionHint:
+            result.status === "succeeded" ? undefined : result.correctionHint,
           failureMessage:
             result.status === "succeeded" ? undefined : result.message,
           result,
@@ -636,6 +642,19 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
       lines.push(
         `Analytical tables: ${evidence.tables.map((table) => `${table.name} (${table.rowCount})`).join(", ")}.`,
       );
+      for (const table of evidence.tables) {
+        const columns = table.columns
+          .map((column) =>
+            column.unit ? `${column.name} (${column.unit})` : column.name,
+          )
+          .join(", ");
+        const dateRange = table.dateRange
+          ? ` Date range ${table.dateRange.min ?? "n/a"} to ${table.dateRange.max ?? "n/a"}.`
+          : "";
+        lines.push(`${table.name} columns: ${columns}.${dateRange}`);
+      }
+      if (evidence.examples.length)
+        lines.push(`Safe SQL examples: ${evidence.examples.join(" | ")}`);
       lines.push(
         `Forbidden data classes: ${evidence.forbiddenDataClasses.join("; ")}.`,
       );
@@ -648,8 +667,11 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
         );
         for (const [index, row] of evidence.rows.slice(0, 20).entries())
           lines.push(`${index + 1}. ${JSON.stringify(row).slice(0, 500)}`);
-      } else if (evidence.message)
+      } else if (evidence.message) {
         lines.push(`Bounded SQL detail: ${evidence.message}`);
+        if (evidence.correctionHint)
+          lines.push(`Correction guidance: ${evidence.correctionHint}`);
+      }
     }
     if (step.tool === "runMathAnalysis" && step.result) {
       const evidence = step.result as MathAnalysisResult;

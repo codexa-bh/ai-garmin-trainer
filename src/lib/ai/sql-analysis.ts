@@ -23,6 +23,11 @@ export type AnalysisResult = {
   truncated: boolean;
   reason?: string;
   message?: string;
+  correctionAllowed?: boolean;
+  correctionHint?: string;
+  sqliteMessage?: string;
+  missingIdentifier?: string;
+  schemaHints?: string[];
   privacy: string;
 };
 
@@ -105,6 +110,12 @@ const ANALYTICAL_SCHEMA: Record<
         nullable: true,
       },
       { name: "training_effect", type: "real", nullable: true },
+      {
+        name: "source_updated_at",
+        type: "integer",
+        unit: "Unix epoch ms",
+        nullable: true,
+      },
     ],
     joins: [
       "activity.garmin_id = activity_detail_availability.garmin_id",
@@ -297,12 +308,32 @@ function sanitizedMessage(reason: string): string {
       "The query returned too many columns for bounded evidence.",
     too_many_bytes: "The result was larger than the bounded evidence cap.",
     timeout: "The query exceeded the local runtime guard.",
+    unknown_column:
+      "SQLite rejected the query because it referenced an unknown column.",
+    unknown_table:
+      "SQLite rejected the query because it referenced an unknown table.",
+    ambiguous_column:
+      "SQLite rejected the query because a column name was ambiguous.",
+    syntax_error: "SQLite rejected the query syntax.",
     sql_error: "SQLite rejected the bounded query.",
   };
   return messages[reason] ?? "The query was rejected by local SQL guardrails.";
 }
 
-function reject(reason: string, resultName = "sql_result"): AnalysisResult {
+type SqlFailureDetails = {
+  message?: string;
+  correctionAllowed?: boolean;
+  correctionHint?: string;
+  sqliteMessage?: string;
+  missingIdentifier?: string;
+  schemaHints?: string[];
+};
+
+function reject(
+  reason: string,
+  resultName = "sql_result",
+  details: SqlFailureDetails = {},
+): AnalysisResult {
   return {
     status: "rejected",
     resultName,
@@ -312,7 +343,12 @@ function reject(reason: string, resultName = "sql_result"): AnalysisResult {
     returnedRows: 0,
     truncated: false,
     reason,
-    message: sanitizedMessage(reason),
+    message: details.message ?? sanitizedMessage(reason),
+    correctionAllowed: details.correctionAllowed,
+    correctionHint: details.correctionHint,
+    sqliteMessage: details.sqliteMessage,
+    missingIdentifier: details.missingIdentifier,
+    schemaHints: details.schemaHints,
     privacy: PRIVACY,
   };
 }
@@ -333,6 +369,12 @@ function normalizedTokens(sql: string): string[] {
   return Array.from(sql.toLowerCase().matchAll(/[a-z_][a-z0-9_]*/g)).map(
     (match) => match[0],
   );
+}
+
+function tableRefsForSql(sql: string): string[] {
+  return Array.from(
+    sql.matchAll(/\b(?:from|join)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi),
+  ).map((match) => match[1].toLowerCase());
 }
 
 function validateSql(
@@ -371,15 +413,85 @@ function validateSql(
     return { ok: false, reason: "forbidden_token" };
   if (tokens.some((token) => FORBIDDEN_IDENTIFIERS.has(token)))
     return { ok: false, reason: "disallowed_table" };
-  const tableRefs = Array.from(
-    trimmed.matchAll(/\b(?:from|join)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi),
-  ).map((match) => match[1].toLowerCase());
+  const tableRefs = tableRefsForSql(trimmed);
   if (
     !tableRefs.length ||
     tableRefs.some((table) => !ALLOWED_TABLES.has(table))
   )
     return { ok: false, reason: "disallowed_table" };
   return { ok: true };
+}
+
+function schemaHintsForSql(sql: string): string[] {
+  const tableRefs = tableRefsForSql(sql).filter((table) =>
+    ALLOWED_TABLES.has(table),
+  );
+  const uniqueRefs = Array.from(new Set(tableRefs));
+  const tables = uniqueRefs.length ? uniqueRefs : ["activity"];
+  return tables.slice(0, 3).map((table) => {
+    const columns = ANALYTICAL_SCHEMA[table]?.columns.map((column) =>
+      column.unit ? `${column.name} (${column.unit})` : column.name,
+    );
+    return columns?.length
+      ? `Allowed ${table} columns: ${columns.join(", ")}.`
+      : `Allowed analytical tables: ${Array.from(ALLOWED_TABLES).join(", ")}.`;
+  });
+}
+
+function compactSqliteMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw
+    .replace(/(?:[A-Za-z]:)?(?:\/[\w .:@-]+)+/g, "<redacted path>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
+function classifySqliteError(
+  error: unknown,
+  sql: string,
+): { reason: string } & SqlFailureDetails {
+  const sqliteMessage = compactSqliteMessage(error);
+  const lower = sqliteMessage.toLowerCase();
+  let reason = "sql_error";
+  let missingIdentifier: string | undefined;
+  const missingColumn = /no such column:\s*([A-Za-z_][A-Za-z0-9_.]*)/i.exec(
+    sqliteMessage,
+  );
+  const missingTable = /no such table:\s*([A-Za-z_][A-Za-z0-9_]*)/i.exec(
+    sqliteMessage,
+  );
+  const ambiguousColumn =
+    /ambiguous column name:\s*([A-Za-z_][A-Za-z0-9_.]*)/i.exec(sqliteMessage);
+  if (missingColumn) {
+    reason = "unknown_column";
+    missingIdentifier = missingColumn[1];
+  } else if (missingTable) {
+    reason = "unknown_table";
+    missingIdentifier = missingTable[1];
+  } else if (ambiguousColumn) {
+    reason = "ambiguous_column";
+    missingIdentifier = ambiguousColumn[1];
+  } else if (lower.includes("syntax error")) {
+    reason = "syntax_error";
+  }
+  const schemaHints = schemaHintsForSql(sql);
+  const detailParts = [
+    `${sanitizedMessage(reason)} SQLite detail: ${sqliteMessage}.`,
+  ];
+  if (missingIdentifier)
+    detailParts.push(`Referenced identifier: ${missingIdentifier}.`);
+  detailParts.push(...schemaHints);
+  return {
+    reason,
+    message: detailParts.join(" "),
+    correctionAllowed: true,
+    correctionHint:
+      "Correct the SQL using exact allowlisted table/column names from describeGarminDatabase; for last-365-days activity windows use started_at >= unixepoch('now', '-365 days') * 1000.",
+    sqliteMessage,
+    missingIdentifier,
+    schemaHints,
+  };
 }
 
 function describeColumns(rows: AnalysisRow[]): AnalysisColumnDescriptor[] {
@@ -431,6 +543,7 @@ export function describeGarminDatabase(): GarminDatabaseDescription {
       forbiddenDataClasses: FORBIDDEN_DATA_CLASSES,
       examples: [
         "select garmin_id, name, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec from activity order by duration_sec desc limit 10",
+        "select garmin_id, coalesce(name, sport || ' on ' || date(started_at / 1000, 'unixepoch')) as label, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, elevation_gain_meters, training_effect, (coalesce(duration_sec, 0) / 60.0 + coalesce(distance_meters, 0) / 1000.0 * 3.0 + coalesce(elevation_gain_meters, 0) * 0.8 + coalesce(calories, 0) * 0.05 + coalesce(avg_heart_rate, 0) * 0.2 + coalesce(training_effect, 0) * 40.0) as demand_score from activity where started_at >= unixepoch('now', '-365 days') * 1000 order by demand_score desc limit 10",
         "select sport, count(*) as activities, avg(duration_sec) as avg_duration_sec from activity group by sport order by activities desc",
         "select a.garmin_id, a.name, d.status, d.record_count from activity a join activity_detail_availability d on d.garmin_id = a.garmin_id limit 20",
       ],
@@ -496,8 +609,12 @@ export function runReadOnlySql(input: {
       truncated,
       privacy: PRIVACY,
     };
-  } catch {
-    return { ...reject("sql_error", resultName), status: "failed" };
+  } catch (error) {
+    const details = classifySqliteError(error, sql);
+    return {
+      ...reject(details.reason, resultName, details),
+      status: "failed",
+    };
   } finally {
     db.close();
   }

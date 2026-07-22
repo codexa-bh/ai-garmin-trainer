@@ -43,6 +43,35 @@ describe("bounded Garmin math analysis", () => {
     expect(result.truncated).toBe(true);
   });
 
+  it("treats missing nullable score inputs as zero without rejecting a demand ranking", () => {
+    const result = runMathAnalysis({
+      inputResult: "activity_rows",
+      operation: "score",
+      formula:
+        "duration_sec + distance_meters + elevation_gain_meters * 2 + avg_heart_rate",
+      orderBy: [{ field: "score", direction: "desc" }],
+      limit: 2,
+      rowsByResult: rowsByResult([
+        {
+          garmin_id: "complete",
+          duration_sec: 3600,
+          elevation_gain_meters: 300,
+          avg_heart_rate: 140,
+        },
+        {
+          garmin_id: "missing_hr",
+          duration_sec: 7200,
+          elevation_gain_meters: null,
+          avg_heart_rate: null,
+        },
+      ]),
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0]).toMatchObject({ garmin_id: "missing_hr" });
+  });
+
   it("normalizes formulas and summarizes numeric columns", () => {
     const normalized = runMathAnalysis({
       inputResult: "activity_rows",

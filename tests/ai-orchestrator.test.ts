@@ -14,7 +14,7 @@ const describeGarminDatabase = vi.fn(() => ({
   limits: {},
   privacy: "schema privacy",
 }));
-const runReadOnlySql = vi.fn(() => ({
+const runReadOnlySql = vi.fn((): Record<string, unknown> => ({
   status: "succeeded",
   resultName: "activity_rows",
   columns: [{ name: "garmin_id" }, { name: "duration_sec" }],
@@ -208,7 +208,149 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(runGeneratedGarminAnalysis).not.toHaveBeenCalled();
     expect(result.grounding?.tool).toBe("runMathAnalysis");
     expect(result.toolSteps).toHaveLength(3);
-    expect(result.text).toContain("SQL rows");
+    expect(result.text).toContain("transparent local score");
+    expect(result.text).toContain("Long ride");
+  });
+
+  it("allows a correctable SQL schema error to lead to one corrected SQL call and final synthesis", async () => {
+    runReadOnlySql
+      .mockReturnValueOnce({
+        status: "failed",
+        resultName: "bad_rows",
+        columns: [],
+        rows: [],
+        rowCount: 0,
+        returnedRows: 0,
+        truncated: false,
+        reason: "unknown_column",
+        message:
+          "SQLite rejected the query because it referenced an unknown column. Referenced identifier: activity_id. Allowed activity columns: garmin_id, name, sport, started_at.",
+        correctionAllowed: true,
+        correctionHint:
+          "Use exact activity columns such as garmin_id and started_at.",
+        privacy: "sql privacy",
+      })
+      .mockReturnValueOnce({
+        status: "succeeded",
+        resultName: "demand_rows",
+        columns: [{ name: "garmin_id" }, { name: "demand_score" }],
+        rows: [
+          {
+            garmin_id: "activity-2",
+            name: "Long ride",
+            demand_score: 123,
+          },
+        ],
+        rowCount: 1,
+        returnedRows: 1,
+        truncated: false,
+        privacy: "sql privacy",
+      });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [{ toolName: "describeGarminDatabase", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select activity_id from activity order by start_time desc",
+              resultName: "bad_rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select garmin_id, name, duration_sec as demand_score from activity order by started_at desc",
+              resultName: "demand_rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "Using the corrected SQL columns, your most demanding activity is Long ride.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "top 10 most demanding activities in the last 365 days",
+    });
+
+    expect(runReadOnlySql).toHaveBeenCalledTimes(2);
+    expect(generateText.mock.calls[2][0].system).toContain("unknown_column");
+    expect(generateText.mock.calls[2][0].system).toContain(
+      "Allowed activity columns",
+    );
+    expect(result.text).toContain("transparent local score");
+    expect(result.text).toContain("Long ride");
+    expect(result.text).not.toContain("Tool step");
+    expect(result.toolSteps.map((step) => step.status)).toEqual([
+      "succeeded",
+      "failed",
+      "succeeded",
+    ]);
+  });
+
+  it("returns user-facing prose after repeated SQL failure instead of raw tool steps", async () => {
+    runReadOnlySql.mockReturnValue({
+      status: "failed",
+      resultName: "bad_rows",
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      returnedRows: 0,
+      truncated: false,
+      reason: "unknown_column",
+      message:
+        "SQLite rejected the query because it referenced an unknown column.",
+      correctionAllowed: true,
+      correctionHint:
+        "Use exact activity columns such as garmin_id and started_at.",
+      privacy: "sql privacy",
+    });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select activity_id from activity",
+              resultName: "bad_rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select activity_id from activity",
+              resultName: "bad_rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ text: "Tool step 1: raw debug" })
+      .mockResolvedValueOnce({
+        text: "I couldn't complete that ranking from local SQL after a correction, but I can retry with duration, distance, elevation, or calories.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "top 10 most demanding activities",
+    });
+
+    expect(runReadOnlySql).toHaveBeenCalledTimes(2);
+    expect(result.text).not.toContain("Tool step");
+    expect(result.text).toContain("couldn't complete");
   });
 
   it("answers simpler analytics with SQL only", async () => {
