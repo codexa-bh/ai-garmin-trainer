@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
 type ChatRole = "user" | "assistant";
@@ -299,6 +299,146 @@ function profileStatusLabel(
   return "Profile ready";
 }
 
+function safeMarkdownHref(value: string): string | null {
+  try {
+    const url = new URL(value, "http://localhost");
+    if (["http:", "https:", "mailto:"].includes(url.protocol)) return value;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
+  const pattern = /(\[[^\]]+\]\([^\s)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    const token = match[0];
+    const key = `${keyPrefix}-${match.index}`;
+    const link = token.match(/^\[([^\]]+)\]\(([^\s)]+)\)$/);
+    if (link) {
+      const href = safeMarkdownHref(link[2]);
+      nodes.push(
+        href ? (
+          <a key={key} href={href} rel="noreferrer noopener">
+            {link[1]}
+          </a>
+        ) : (
+          <span key={key}>{link[1]}</span>
+        ),
+      );
+    } else if (token.startsWith("`")) {
+      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else if (token.startsWith("**")) {
+      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("*")) {
+      nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
+    }
+    lastIndex = pattern.lastIndex;
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+function AssistantContent({ content }: { content: string }) {
+  const blocks: ReactNode[] = [];
+  const lines = content.split(/\r?\n/);
+  let paragraph: string[] = [];
+  let list: Array<{ ordered: boolean; text: string }> = [];
+  let codeLines: string[] | null = null;
+
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    const text = paragraph.join(" ");
+    blocks.push(
+      <p key={`p-${blocks.length}`}>
+        {renderInlineMarkdown(text, `p-${blocks.length}`)}
+      </p>,
+    );
+    paragraph = [];
+  }
+
+  function flushList() {
+    if (!list.length) return;
+    const ordered = list[0].ordered;
+    const items = list;
+    const ListTag = ordered ? "ol" : "ul";
+    blocks.push(
+      <ListTag key={`l-${blocks.length}`}>
+        {items.map((item, index) => (
+          <li key={index}>
+            {renderInlineMarkdown(item.text, `li-${blocks.length}-${index}`)}
+          </li>
+        ))}
+      </ListTag>,
+    );
+    list = [];
+  }
+
+  for (const line of lines) {
+    if (codeLines) {
+      if (line.trim().startsWith("```")) {
+        blocks.push(
+          <pre key={`code-${blocks.length}`}>
+            <code>{codeLines.join("\n")}</code>
+          </pre>,
+        );
+        codeLines = null;
+      } else {
+        codeLines.push(line);
+      }
+      continue;
+    }
+    if (line.trim().startsWith("```")) {
+      flushParagraph();
+      flushList();
+      codeLines = [];
+      continue;
+    }
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const HeadingTag = `h${Math.min(heading[1].length + 2, 5)}` as
+        "h3" | "h4" | "h5";
+      blocks.push(
+        <HeadingTag key={`h-${blocks.length}`}>
+          {renderInlineMarkdown(heading[2], `h-${blocks.length}`)}
+        </HeadingTag>,
+      );
+      continue;
+    }
+    const listItem = line.match(/^\s*(?:([-*])|(\d+)\.)\s+(.+)$/);
+    if (listItem) {
+      flushParagraph();
+      list.push({ ordered: Boolean(listItem[2]), text: listItem[3] });
+      continue;
+    }
+    flushList();
+    paragraph.push(line.trim());
+  }
+  if (codeLines) {
+    blocks.push(
+      <pre key={`code-${blocks.length}`}>
+        <code>{codeLines.join("\n")}</code>
+      </pre>,
+    );
+  }
+  flushParagraph();
+  flushList();
+  return (
+    <div className="assistant-content">{blocks.length ? blocks : <p />}</div>
+  );
+}
+
 export function TrainerDashboard() {
   const [status, setStatus] = useState<Status>({
     kind: "idle",
@@ -313,6 +453,10 @@ export function TrainerDashboard() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isConversationDrawerOpen, setIsConversationDrawerOpen] =
     useState(false);
+  const [desktopSidebarExpanded, setDesktopSidebarExpanded] = useState(true);
+  const [openConversationMenuId, setOpenConversationMenuId] = useState<
+    string | null
+  >(null);
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [memoryHealth, setMemoryHealth] = useState<MemoryHealth | null>(null);
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
@@ -353,6 +497,8 @@ export function TrainerDashboard() {
   const forceNextScrollRef = useRef(false);
   const chatAbortRef = useRef<AbortController | null>(null);
   const conversationButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   const activeConversation = useMemo(
@@ -394,6 +540,39 @@ export function TrainerDashboard() {
     scrollTranscriptToBottom(forceNextScrollRef.current ? "auto" : "smooth");
     forceNextScrollRef.current = false;
   }, [chatMessages, isChatLoading]);
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (openConversationMenuId) {
+        setOpenConversationMenuId(null);
+        return;
+      }
+      if (settingsOpen) {
+        setSettingsOpen(false);
+        settingsButtonRef.current?.focus();
+        return;
+      }
+      if (isConversationDrawerOpen) {
+        setIsConversationDrawerOpen(false);
+        conversationButtonRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isConversationDrawerOpen, openConversationMenuId, settingsOpen]);
+  useEffect(() => {
+    if (settingsOpen) settingsCloseRef.current?.focus();
+  }, [settingsOpen]);
+
+  function closeSettingsSheet() {
+    setSettingsOpen(false);
+    settingsButtonRef.current?.focus();
+  }
+
+  function closeConversationDrawer() {
+    setIsConversationDrawerOpen(false);
+    conversationButtonRef.current?.focus();
+  }
 
   function transcriptIsNearBottom(): boolean {
     const transcript = transcriptRef.current;
@@ -824,17 +1003,6 @@ export function TrainerDashboard() {
     }
   }
 
-  async function deleteActiveConversation() {
-    await deleteConversationById(
-      conversationId,
-      activeConversation?.title ?? "this chat",
-    );
-  }
-
-  async function clearChatHistory() {
-    await deleteActiveConversation();
-  }
-
   async function startNewChat() {
     if (isChatLoading) return;
     setStatus({
@@ -1136,30 +1304,76 @@ export function TrainerDashboard() {
     await submitChat(messageInputRef.current?.value ?? message);
   }
 
+  const conversationRows = conversations.length
+    ? conversations
+    : [
+        {
+          id: conversationId,
+          title: activeConversation?.title ?? "Trainer chat",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
   return (
-    <section className="dashboard-shell" aria-label="AI trainer dashboard">
-      <div className="product-grid chat-app-shell">
+    <section
+      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"}`}
+      aria-label="AI trainer dashboard"
+    >
+      <header className="app-topbar">
         <button
           type="button"
-          className="drawer-toggle"
-          onClick={() => setIsConversationDrawerOpen(true)}
+          className="chrome-button sidebar-toggle"
+          onClick={() => {
+            if (window.matchMedia("(max-width: 960px)").matches) {
+              setIsConversationDrawerOpen(true);
+            } else {
+              setDesktopSidebarExpanded((expanded) => !expanded);
+            }
+          }}
           ref={conversationButtonRef}
+          aria-label="Toggle conversation history"
+          aria-expanded={desktopSidebarExpanded || isConversationDrawerOpen}
         >
           Conversations
         </button>
+        <div className="brand-lockup" aria-label="AI Garmin Connect Trainer">
+          <span className="brand-mark" aria-hidden="true">
+            ⌁
+          </span>
+          <span>AI Trainer</span>
+        </div>
+        <h1
+          className="active-conversation-title"
+          title={activeConversation?.title ?? "Trainer chat"}
+        >
+          {activeConversation?.title ?? "Trainer chat"}
+        </h1>
+        <button
+          type="button"
+          className="chrome-button"
+          onClick={() => setSettingsOpen(true)}
+          ref={settingsButtonRef}
+          aria-label="Data & settings"
+        >
+          Settings
+        </button>
+      </header>
+
+      <div className="chat-workspace">
         <aside
           className={`conversation-sidebar ${isConversationDrawerOpen ? "open" : ""}`}
           aria-label="Conversation history"
         >
           <div className="sidebar-header">
-            <strong>Chats</strong>
+            <div>
+              <p className="section-kicker">History</p>
+              <strong>Conversations</strong>
+            </div>
             <button
               type="button"
-              className="secondary-button drawer-close"
-              onClick={() => {
-                setIsConversationDrawerOpen(false);
-                conversationButtonRef.current?.focus();
-              }}
+              className="chrome-button drawer-close"
+              onClick={closeConversationDrawer}
             >
               Close
             </button>
@@ -1176,8 +1390,8 @@ export function TrainerDashboard() {
             role="list"
             aria-label="Saved conversations"
           >
-            {conversations.length ? (
-              conversations.map((item) => (
+            {conversationRows.length ? (
+              conversationRows.map((item) => (
                 <div
                   role="listitem"
                   className={`conversation-item ${item.id === conversationId ? "active" : ""}`}
@@ -1186,7 +1400,10 @@ export function TrainerDashboard() {
                   <button
                     type="button"
                     className="conversation-select"
-                    onClick={() => selectConversation(item.id)}
+                    onClick={() => {
+                      setOpenConversationMenuId(null);
+                      void selectConversation(item.id);
+                    }}
                     aria-current={
                       item.id === conversationId ? "true" : undefined
                     }
@@ -1194,16 +1411,51 @@ export function TrainerDashboard() {
                     <span>{item.title}</span>
                     <small>{dateLabel(item.updatedAt)}</small>
                   </button>
-                  <button
-                    type="button"
-                    className="conversation-delete"
-                    onClick={() => deleteConversationById(item.id, item.title)}
-                    disabled={isChatLoading}
-                    aria-label={`Delete conversation "${item.title}"`}
-                    title="Delete this local conversation and its messages"
-                  >
-                    Delete
-                  </button>
+                  <div className="conversation-menu-wrap">
+                    <button
+                      type="button"
+                      className="conversation-menu-trigger"
+                      aria-label={`Conversation options for "${item.title}"`}
+                      aria-haspopup="menu"
+                      aria-expanded={openConversationMenuId === item.id}
+                      onClick={() =>
+                        setOpenConversationMenuId((openId) =>
+                          openId === item.id ? null : item.id,
+                        )
+                      }
+                    >
+                      ⋯
+                    </button>
+                    {openConversationMenuId === item.id ? (
+                      <div className="conversation-menu" role="menu">
+                        {item.id === conversationId ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenConversationMenuId(null);
+                              void loadChatHistory();
+                            }}
+                            disabled={isChatLoading}
+                          >
+                            Reload history
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="danger-menu-item"
+                          onClick={() => {
+                            setOpenConversationMenuId(null);
+                            void deleteConversationById(item.id, item.title);
+                          }}
+                          disabled={isChatLoading}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               ))
             ) : (
@@ -1216,57 +1468,20 @@ export function TrainerDashboard() {
             type="button"
             className="drawer-backdrop"
             aria-label="Close conversation drawer"
-            onClick={() => setIsConversationDrawerOpen(false)}
+            onClick={closeConversationDrawer}
           />
         ) : null}
-        <article className="trainer-card" aria-labelledby="trainer-heading">
-          <div className="chat-header">
+
+        <section className="trainer-card" aria-labelledby="trainer-heading">
+          <div className="trainer-heading-row">
             <div>
               <p className="section-kicker">Daily trainer</p>
-              <h2 id="trainer-heading">Trainer chat</h2>
-              <p>
-                Ask for Garmin-grounded coaching. Responses cite relevant dates,
-                activities, trends, deterministic analytics tool results, your
-                saved Profile, and bounded semantic memory when available.
-              </p>
+              <h2 id="trainer-heading">Chat with your private coach</h2>
             </div>
-            <div className="chat-header-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setIsConversationDrawerOpen(true)}
-              >
-                Browse chats
-              </button>
-              <button
-                type="button"
-                className="primary-action"
-                onClick={syncNow}
-                aria-label="Sync now — import latest Garmin data"
-              >
-                Sync now
-              </button>
-              <div className="context-card" aria-label="Recent context window">
-                <strong>Recent context</strong>
-                <span>
-                  {contextWindow}/{historyLimit} local messages from this
-                  conversation sent to grounding
-                </span>
-                <span>
-                  Conversation: {activeConversation?.title ?? conversationId}
-                </span>
-                {latestToolEvidence ? (
-                  <span>
-                    Last tool: {latestToolEvidence.tool}
-                    {latestToolEvidence.activityName
-                      ? ` — ${latestToolEvidence.activityName}`
-                      : ""}
-                  </span>
-                ) : (
-                  <span>No tool evidence yet</span>
-                )}
-              </div>
-            </div>
+            <p className="context-chip" title="Local context window">
+              {contextWindow}/{historyLimit} local messages
+              {latestToolEvidence ? " · grounded" : ""}
+            </p>
           </div>
 
           <div
@@ -1288,13 +1503,13 @@ export function TrainerDashboard() {
               </button>
             ) : null}
             {chatMessages.length === 0 && !isChatLoading ? (
-              <p className="empty-chat">
-                No local chat history in this conversation yet. Ask for an
-                activity analysis. Completed turns can create safe semantic
-                memory automatically when memory is enabled. Bounded turns, tool
-                evidence, Profile, Garmin facts, and retrieved memories stay
-                distinct.
-              </p>
+              <div className="empty-chat empty-chat-hero">
+                <p>
+                  Start with the latest training question. Profile, memory,
+                  Garmin data, diagnostics, and privacy controls are in
+                  Settings.
+                </p>
+              </div>
             ) : null}
             {chatMessages.map((item) => (
               <div key={item.id} className={`chat-message ${item.role}`}>
@@ -1304,7 +1519,11 @@ export function TrainerDashboard() {
                     {new Date(item.createdAt).toLocaleString()}
                   </time>
                 </div>
-                <p>{item.content}</p>
+                {item.role === "assistant" ? (
+                  <AssistantContent content={item.content} />
+                ) : (
+                  <p>{item.content}</p>
+                )}
                 {item.grounding ? (
                   <div
                     className="tool-evidence"
@@ -1328,534 +1547,523 @@ export function TrainerDashboard() {
             <div ref={transcriptBottomRef} aria-hidden="true" />
           </div>
 
-          <label className="message-composer">
-            <span className="visually-hidden">Message</span>
-            <textarea
-              aria-label="Message"
-              ref={messageInputRef}
-              placeholder="Ask about my latest hike, then try: what should I do tomorrow based on that?"
-              value={message}
-              onChange={(event) => setMessage(event.currentTarget.value)}
-              onInput={(event) => setMessage(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void sendChat();
-                }
-              }}
-            />
-          </label>
-          <div className="button-row">
-            <button type="button" onClick={sendChat} disabled={isChatLoading}>
-              {isChatLoading ? "Streaming…" : "Send"}
-            </button>
-            {isChatLoading ? (
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={cancelChat}
-              >
-                Cancel
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => loadChatHistory()}
-              disabled={isChatLoading}
-            >
-              Reload history
-            </button>
-            <button
-              type="button"
-              className="danger-button"
-              onClick={clearChatHistory}
-              disabled={isChatLoading}
-            >
-              Delete chat
-            </button>
-            {lastFailedMessage ? (
-              <button
-                type="button"
-                onClick={() => submitChat(lastFailedMessage)}
+          <div className="composer-dock" aria-label="Message composer">
+            <label className="message-composer">
+              <span className="visually-hidden">Message</span>
+              <textarea
+                aria-label="Message"
+                ref={messageInputRef}
+                placeholder="Ask about my latest hike, then try: what should I do tomorrow based on that?"
+                value={message}
                 disabled={isChatLoading}
+                onChange={(event) => setMessage(event.currentTarget.value)}
+                onInput={(event) => setMessage(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendChat();
+                  }
+                }}
+              />
+            </label>
+            <div className="composer-actions">
+              {lastFailedMessage && !isChatLoading ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => submitChat(lastFailedMessage)}
+                >
+                  Retry
+                </button>
+              ) : null}
+              {isChatLoading ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={cancelChat}
+                >
+                  Cancel
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={sendChat}
+                disabled={isChatLoading || !message.trim()}
               >
-                Retry last message
+                {isChatLoading ? "Streaming…" : "Send"}
               </button>
-            ) : null}
+            </div>
           </div>
-        </article>
+        </section>
       </div>
 
-      <details
-        className="settings-panel"
-        open={settingsOpen}
-        onToggle={(event) => setSettingsOpen(event.currentTarget.open)}
-      >
-        <summary>
-          <span>Data &amp; settings</span>
-          <small>
-            Connector, sync, import summary, activity detail, privacy
-          </small>
-        </summary>
-        {settingsOpen ? (
-          <div className="settings-grid">
-            <article className="profile-card" aria-labelledby="profile-heading">
-              <div className="card-title-row">
-                <div>
-                  <p className="section-kicker">Trainer grounding</p>
-                  <h2 id="profile-heading">Profile</h2>
-                </div>
-                <span
-                  className={`pill ${isProfileDirty ? "dirty" : profileSaveState}`}
-                  aria-live="polite"
-                >
-                  {profileSummary}
-                </span>
+      {settingsOpen ? (
+        <div className="modal-layer" role="presentation">
+          <button
+            type="button"
+            className="settings-backdrop"
+            aria-label="Close settings"
+            onClick={closeSettingsSheet}
+          />
+          <aside
+            className="settings-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-heading"
+          >
+            <header className="sheet-header">
+              <div>
+                <p className="section-kicker">Settings</p>
+                <h2 id="settings-heading">Data &amp; settings</h2>
               </div>
-              <p>
-                Set one item per line. Saved Profile data is loaded from local
-                SQLite on startup, then used with imported Garmin facts.
-              </p>
-              <p className="helper-text" role="status" aria-live="polite">
-                {profileMessage}
-              </p>
-              <label>
-                Goals
-                <textarea
-                  aria-label="Goals"
-                  value={profileFields.goals}
-                  onChange={(event) =>
-                    updateProfileField("goals", event.target.value)
-                  }
-                  placeholder="Build hiking endurance"
-                  disabled={profileControlsDisabled}
-                />
-              </label>
-              <label>
-                Preferred sports
-                <textarea
-                  aria-label="Preferred sports"
-                  value={profileFields.sports}
-                  onChange={(event) =>
-                    updateProfileField("sports", event.target.value)
-                  }
-                  placeholder="hiking\nmountaineering"
-                  disabled={profileControlsDisabled}
-                />
-              </label>
-              <label>
-                Constraints
-                <textarea
-                  aria-label="Constraints"
-                  value={profileFields.constraints}
-                  onChange={(event) =>
-                    updateProfileField("constraints", event.target.value)
-                  }
-                  placeholder="no running this week"
-                  disabled={profileControlsDisabled}
-                />
-              </label>
-              <div className="button-row">
-                <button
-                  type="button"
-                  onClick={saveProfile}
-                  disabled={profileControlsDisabled}
-                >
-                  {profileSaveState === "saving" ? "Saving…" : "Save Profile"}
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => loadProfile("manual")}
-                  disabled={profileControlsDisabled}
-                >
-                  Reload saved Profile
-                </button>
-              </div>
-            </article>
-
-            <article
-              className="settings-card memory-card"
-              aria-labelledby="memory-heading"
-            >
-              <div className="card-title-row">
-                <div>
-                  <p className="section-kicker">Confirmed memory</p>
-                  <h2 id="memory-heading">Learned memories</h2>
-                </div>
-                <span className="pill" aria-live="polite">
-                  {memoryHealth?.status ?? "loading"} · {visibleMemories.length}{" "}
-                  shown
-                </span>
-              </div>
-              <p>
-                Embedded SQLite memory stores low-risk conversation continuity
-                and saved preferences automatically after a complete persisted
-                answer. Retrieved memory is bounded, source-labelled, and lower
-                authority than Profile, current corrections, and Garmin facts.
-              </p>
-              <p className="helper-text" role="status" aria-live="polite">
-                {memoryMessage}
-              </p>
-              <div className="button-row">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setMemoryEnabled(!(memoryHealth?.enabled ?? false))
-                  }
-                  disabled={isMemoryLoading}
-                >
-                  {memoryHealth?.enabled ? "Disable memory" : "Enable memory"}
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => loadMemories()}
-                  disabled={isMemoryLoading}
-                >
-                  Reload memories
-                </button>
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() => actOnMemory("clear")}
-                  disabled={isMemoryLoading || !visibleMemories.length}
-                >
-                  Clear all memory
-                </button>
-              </div>
-              <div
-                className="memory-list"
-                aria-label="Inspectable semantic memories"
+              <button
+                type="button"
+                className="chrome-button"
+                onClick={closeSettingsSheet}
+                ref={settingsCloseRef}
               >
-                <h3>Inspectable semantic memories</h3>
-                {visibleMemories.length ? (
-                  visibleMemories.map((item) => (
-                    <div className="memory-item" key={item.id}>
-                      {editingMemoryId === item.id ? (
-                        <label>
-                          Edit memory
-                          <textarea
-                            aria-label="Edit memory"
-                            value={editingMemoryText}
-                            onChange={(event) =>
-                              setEditingMemoryText(event.target.value)
-                            }
-                            disabled={isMemoryLoading}
-                          />
-                        </label>
-                      ) : (
-                        <p>{item.text}</p>
-                      )}
-                      <small>
-                        {item.kind} ·{" "}
-                        {item.conversationId
-                          ? `conversation ${item.conversationId}`
-                          : "cross-conversation"}
-                        {item.updatedAt
-                          ? ` · updated ${dateLabel(item.updatedAt)}`
-                          : ""}
-                      </small>
-                      <div className="button-row">
+                Close
+              </button>
+            </header>
+
+            <div className="settings-groups">
+              <details className="settings-card" open>
+                <summary>
+                  Profile / trainer grounding{" "}
+                  <span
+                    className={`pill ${isProfileDirty ? "dirty" : profileSaveState}`}
+                  >
+                    {profileSummary}
+                  </span>
+                </summary>
+                <p>
+                  Set one item per line. Saved Profile data is loaded from local
+                  SQLite on startup, then used with imported Garmin facts.
+                </p>
+                <p className="helper-text" role="status" aria-live="polite">
+                  {profileMessage}
+                </p>
+                <label>
+                  Goals
+                  <textarea
+                    aria-label="Goals"
+                    value={profileFields.goals}
+                    onChange={(event) =>
+                      updateProfileField("goals", event.target.value)
+                    }
+                    placeholder="Build hiking endurance"
+                    disabled={profileControlsDisabled}
+                  />
+                </label>
+                <label>
+                  Preferred sports
+                  <textarea
+                    aria-label="Preferred sports"
+                    value={profileFields.sports}
+                    onChange={(event) =>
+                      updateProfileField("sports", event.target.value)
+                    }
+                    placeholder="hiking\nmountaineering"
+                    disabled={profileControlsDisabled}
+                  />
+                </label>
+                <label>
+                  Constraints
+                  <textarea
+                    aria-label="Constraints"
+                    value={profileFields.constraints}
+                    onChange={(event) =>
+                      updateProfileField("constraints", event.target.value)
+                    }
+                    placeholder="no running this week"
+                    disabled={profileControlsDisabled}
+                  />
+                </label>
+                <div className="button-row">
+                  <button
+                    type="button"
+                    onClick={saveProfile}
+                    disabled={profileControlsDisabled}
+                  >
+                    {profileSaveState === "saving" ? "Saving…" : "Save Profile"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => loadProfile("manual")}
+                    disabled={profileControlsDisabled}
+                  >
+                    Reload saved Profile
+                  </button>
+                </div>
+              </details>
+
+              <details className="settings-card" open>
+                <summary>
+                  Learned memory{" "}
+                  <span className="pill" aria-live="polite">
+                    {memoryHealth?.status ?? "loading"} ·{" "}
+                    {visibleMemories.length} shown
+                  </span>
+                </summary>
+                <p>
+                  Embedded SQLite memory stores low-risk conversation continuity
+                  and saved preferences after complete persisted answers.
+                </p>
+                <p className="helper-text" role="status" aria-live="polite">
+                  {memoryMessage}
+                </p>
+                <div className="button-row">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMemoryEnabled(!(memoryHealth?.enabled ?? false))
+                    }
+                    disabled={isMemoryLoading}
+                  >
+                    {memoryHealth?.enabled ? "Disable memory" : "Enable memory"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => loadMemories()}
+                    disabled={isMemoryLoading}
+                  >
+                    Reload memories
+                  </button>
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => actOnMemory("clear")}
+                    disabled={isMemoryLoading || !visibleMemories.length}
+                  >
+                    Clear all memory
+                  </button>
+                </div>
+                <div
+                  className="memory-list"
+                  aria-label="Inspectable semantic memories"
+                >
+                  <h3>Inspectable semantic memories</h3>
+                  {visibleMemories.length ? (
+                    visibleMemories.map((item) => (
+                      <div className="memory-item" key={item.id}>
                         {editingMemoryId === item.id ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                actOnMemory(
-                                  "update",
-                                  item.id,
-                                  editingMemoryText,
-                                )
+                          <label>
+                            Edit memory
+                            <textarea
+                              aria-label="Edit memory"
+                              value={editingMemoryText}
+                              onChange={(event) =>
+                                setEditingMemoryText(event.target.value)
                               }
                               disabled={isMemoryLoading}
-                            >
-                              Save edit
-                            </button>
+                            />
+                          </label>
+                        ) : (
+                          <p>{item.text}</p>
+                        )}
+                        <small>
+                          {item.kind} ·{" "}
+                          {item.conversationId
+                            ? `conversation ${item.conversationId}`
+                            : "cross-conversation"}
+                          {item.updatedAt
+                            ? ` · updated ${dateLabel(item.updatedAt)}`
+                            : ""}
+                        </small>
+                        <div className="button-row">
+                          {editingMemoryId === item.id ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  actOnMemory(
+                                    "update",
+                                    item.id,
+                                    editingMemoryText,
+                                  )
+                                }
+                                disabled={isMemoryLoading}
+                              >
+                                Save edit
+                              </button>
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                onClick={() => {
+                                  setEditingMemoryId(null);
+                                  setEditingMemoryText("");
+                                }}
+                                disabled={isMemoryLoading}
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
                             <button
                               type="button"
                               className="secondary-button"
                               onClick={() => {
-                                setEditingMemoryId(null);
-                                setEditingMemoryText("");
+                                setEditingMemoryId(item.id);
+                                setEditingMemoryText(item.text);
                               }}
                               disabled={isMemoryLoading}
                             >
-                              Cancel
+                              Edit
                             </button>
-                          </>
-                        ) : (
+                          )}
                           <button
                             type="button"
-                            className="secondary-button"
-                            onClick={() => {
-                              setEditingMemoryId(item.id);
-                              setEditingMemoryText(item.text);
-                            }}
+                            className="danger-button"
+                            onClick={() => actOnMemory("delete", item.id)}
                             disabled={isMemoryLoading}
                           >
-                            Edit
+                            Delete
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          className="danger-button"
-                          onClick={() => actOnMemory("delete", item.id)}
-                          disabled={isMemoryLoading}
-                        >
-                          Delete
-                        </button>
+                        </div>
                       </div>
+                    ))
+                  ) : (
+                    <p>
+                      No inspectable semantic memories. If memory is enabled and
+                      ready, new completed chats can create memories
+                      automatically.
+                    </p>
+                  )}
+                </div>
+              </details>
+
+              <details className="settings-card" open>
+                <summary>Garmin data and sync</summary>
+                <p>
+                  Run <code>garmin-mcp-auth</code> outside the app, then sync
+                  using pinned local stdio read operations. The app never sees
+                  your Garmin password.
+                </p>
+                <div className="button-row">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      runAction("Verify connector", () => fetch("/api/sync"))
+                    }
+                  >
+                    Verify connector
+                  </button>
+                  <button
+                    type="button"
+                    onClick={syncNow}
+                    aria-label="Sync now — import latest Garmin data"
+                  >
+                    Sync now
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={refreshSummary}
+                  >
+                    Refresh import summary
+                  </button>
+                </div>
+                <p className="helper-text" role="status" aria-live="polite">
+                  {athleteBaselineMessage}
+                </p>
+                {athleteBaseline ? (
+                  <dl className="compact-facts">
+                    <div>
+                      <dt>Status</dt>
+                      <dd>{athleteBaseline.availability}</dd>
                     </div>
-                  ))
+                    <div>
+                      <dt>Last successful refresh</dt>
+                      <dd>{dateLabel(athleteBaseline.fetchedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Running threshold HR</dt>
+                      <dd>
+                        {valueLabel(
+                          athleteBaseline.values
+                            .runningLactateThresholdHeartRateBpm,
+                          " bpm",
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Cycling threshold HR</dt>
+                      <dd>
+                        {valueLabel(
+                          athleteBaseline.values
+                            .cyclingLactateThresholdHeartRateBpm,
+                          " bpm",
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Rowing threshold HR</dt>
+                      <dd>
+                        {valueLabel(
+                          athleteBaseline.values
+                            .rowingLactateThresholdHeartRateBpm,
+                          " bpm",
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Cycling FTP</dt>
+                      <dd>
+                        {valueLabel(
+                          athleteBaseline.values.cyclingFtpWatts,
+                          " W",
+                        )}
+                        {athleteBaseline.values.cyclingFtpMeasuredOn
+                          ? ` (${athleteBaseline.values.cyclingFtpMeasuredOn})`
+                          : ""}
+                        {athleteBaseline.values.cyclingFtpSourceStale
+                          ? " — source marked stale by connector"
+                          : ""}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Running VO2 max</dt>
+                      <dd>
+                        {valueLabel(athleteBaseline.values.vo2MaxRunning)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Cycling VO2 max</dt>
+                      <dd>
+                        {valueLabel(athleteBaseline.values.vo2MaxCycling)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Available training days</dt>
+                      <dd>
+                        {dayListLabel(
+                          athleteBaseline.values.availableTrainingDays,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Preferred long-training days</dt>
+                      <dd>
+                        {dayListLabel(
+                          athleteBaseline.values.preferredLongTrainingDays,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Configured max HR</dt>
+                      <dd>
+                        {valueLabel(
+                          athleteBaseline.values.configuredMaxHeartRateBpm,
+                          " bpm",
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>HR-zone boundaries</dt>
+                      <dd>
+                        {athleteBaseline.values.heartRateZones.boundaries.length
+                          ? `${athleteBaseline.values.heartRateZones.status === "derived_from_garmin_max_hr" ? "Derived estimate" : "Garmin configured"}: ${athleteBaseline.values.heartRateZones.boundaries.map((zone) => `Z${zone.zone} ${zone.lowerBpm}-${zone.upperBpm ?? "max"}`).join(", ")}`
+                          : "Unavailable from current Garmin source"}
+                      </dd>
+                    </div>
+                  </dl>
                 ) : (
-                  <p>
-                    No inspectable semantic memories. If memory is enabled and
-                    ready, new completed chats can create memories
-                    automatically.
-                  </p>
+                  <p>Not available until the local summary loads.</p>
                 )}
-              </div>
-            </article>
+                <div className="detail-tools">
+                  <label>
+                    Garmin activity ID
+                    <input
+                      aria-label="Garmin activity ID"
+                      placeholder="Garmin activity ID"
+                      value={detailGarminId}
+                      onChange={(event) =>
+                        setDetailGarminId(event.target.value)
+                      }
+                    />
+                  </label>
+                  <div className="button-row">
+                    <button type="button" onClick={backfillDetail}>
+                      Force refresh detail
+                    </button>
+                    <button type="button" onClick={refreshDetailCoverage}>
+                      Show detail coverage
+                    </button>
+                  </div>
+                </div>
+              </details>
 
-            <article className="settings-card">
-              <h2>Connector &amp; sync</h2>
-              <p>
-                Run <code>garmin-mcp-auth</code> outside the app, then sync
-                using pinned local stdio read operations. The app never sees
-                your Garmin password.
-              </p>
-              <div className="button-row">
-                <button
-                  type="button"
-                  onClick={() =>
-                    runAction("Verify connector", () => fetch("/api/sync"))
-                  }
-                >
-                  Verify connector
-                </button>
-                <button type="button" onClick={syncNow}>
-                  Sync now
-                </button>
-              </div>
-            </article>
+              <details
+                className="settings-card diagnostics-card"
+                open={diagnosticsOpen}
+                onToggle={(event) =>
+                  setDiagnosticsOpen(event.currentTarget.open)
+                }
+              >
+                <summary>
+                  <span>Diagnostics / Current operation</span>
+                  <span className={`pill ${status.kind}`}>{status.kind}</span>
+                </summary>
+                {diagnosticsOpen ? (
+                  <pre className={`status ${status.kind}`} aria-live="polite">
+                    {status.message}
+                  </pre>
+                ) : null}
+              </details>
 
-            <article className="settings-card">
-              <h2>Import summary</h2>
-              <p>
-                Check imported totals, latest activity date, and health coverage
-                before asking the trainer to reason about trends.
-              </p>
-              <button type="button" onClick={refreshSummary}>
-                Refresh import summary
-              </button>
-            </article>
-
-            <article
-              className="settings-card"
-              aria-labelledby="athlete-baseline-heading"
-            >
-              <h2 id="athlete-baseline-heading">Garmin athlete baselines</h2>
-              <p>
-                Read-only Garmin-derived thresholds and planning inputs are kept
-                separate from editable Profile fields and trainer memory.
-              </p>
-              <p className="helper-text" role="status" aria-live="polite">
-                {athleteBaselineMessage}
-              </p>
-              {athleteBaseline ? (
-                <dl className="compact-facts">
-                  <div>
-                    <dt>Status</dt>
-                    <dd>{athleteBaseline.availability}</dd>
-                  </div>
-                  <div>
-                    <dt>Last successful refresh</dt>
-                    <dd>{dateLabel(athleteBaseline.fetchedAt)}</dd>
-                  </div>
-                  <div>
-                    <dt>Running threshold HR</dt>
-                    <dd>
-                      {valueLabel(
-                        athleteBaseline.values
-                          .runningLactateThresholdHeartRateBpm,
-                        " bpm",
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Cycling threshold HR</dt>
-                    <dd>
-                      {valueLabel(
-                        athleteBaseline.values
-                          .cyclingLactateThresholdHeartRateBpm,
-                        " bpm",
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Rowing threshold HR</dt>
-                    <dd>
-                      {valueLabel(
-                        athleteBaseline.values
-                          .rowingLactateThresholdHeartRateBpm,
-                        " bpm",
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Cycling FTP</dt>
-                    <dd>
-                      {valueLabel(athleteBaseline.values.cyclingFtpWatts, " W")}
-                      {athleteBaseline.values.cyclingFtpMeasuredOn
-                        ? ` (${athleteBaseline.values.cyclingFtpMeasuredOn})`
-                        : ""}
-                      {athleteBaseline.values.cyclingFtpSourceStale
-                        ? " — source marked stale by connector"
-                        : ""}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Running VO2 max</dt>
-                    <dd>{valueLabel(athleteBaseline.values.vo2MaxRunning)}</dd>
-                  </div>
-                  <div>
-                    <dt>Cycling VO2 max</dt>
-                    <dd>{valueLabel(athleteBaseline.values.vo2MaxCycling)}</dd>
-                  </div>
-                  <div>
-                    <dt>Available training days</dt>
-                    <dd>
-                      {dayListLabel(
-                        athleteBaseline.values.availableTrainingDays,
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Preferred long-training days</dt>
-                    <dd>
-                      {dayListLabel(
-                        athleteBaseline.values.preferredLongTrainingDays,
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Configured max HR</dt>
-                    <dd>
-                      {valueLabel(
-                        athleteBaseline.values.configuredMaxHeartRateBpm,
-                        " bpm",
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>HR-zone boundaries</dt>
-                    <dd>
-                      {athleteBaseline.values.heartRateZones.boundaries.length
-                        ? `${athleteBaseline.values.heartRateZones.status === "derived_from_garmin_max_hr" ? "Derived estimate" : "Garmin configured"}: ${athleteBaseline.values.heartRateZones.boundaries.map((zone) => `Z${zone.zone} ${zone.lowerBpm}-${zone.upperBpm ?? "max"}`).join(", ")}`
-                        : "Unavailable from current Garmin source"}
-                    </dd>
-                  </div>
-                </dl>
-              ) : (
-                <p>Not available until the local summary loads.</p>
-              )}
-              <button type="button" onClick={refreshSummary}>
-                Refresh athlete baselines
-              </button>
-            </article>
-
-            <article className="settings-card">
-              <h2>Activity detail</h2>
-              <p>
-                Force-refresh one imported activity or inspect total detail
-                coverage. Failed refreshes preserve the last usable normalized
-                detail; redacted connector detail payloads may be retained
-                locally for generated analysis.
-              </p>
-              <label>
-                Garmin activity ID
-                <input
-                  aria-label="Garmin activity ID"
-                  placeholder="Garmin activity ID"
-                  value={detailGarminId}
-                  onChange={(event) => setDetailGarminId(event.target.value)}
-                />
-              </label>
-              <div className="button-row">
-                <button type="button" onClick={backfillDetail}>
-                  Force refresh detail
-                </button>
-                <button type="button" onClick={refreshDetailCoverage}>
-                  Show detail coverage
-                </button>
-              </div>
-            </article>
-
-            <article className="settings-card danger-card">
-              <h2>Privacy &amp; deletion</h2>
-              <p>
-                Destructive local-only actions are separated from routine sync.
-                Use them only when you intend to remove stored chat, Profile,
-                learned memories, or Garmin-derived data.
-              </p>
-              <div className="button-row">
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() =>
-                    runAction("Clear chat/profile", () =>
-                      fetch("/api/delete", {
-                        method: "POST",
-                        headers: { "content-type": "application/json" },
-                        body: JSON.stringify({ scope: "chat-profile" }),
-                      }),
-                    )
-                  }
-                >
-                  Clear chat/profile
-                </button>
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() =>
-                    runAction("Disconnect Garmin/delete data", () =>
-                      fetch("/api/delete", {
-                        method: "POST",
-                        headers: { "content-type": "application/json" },
-                        body: JSON.stringify({ scope: "garmin-all" }),
-                      }),
-                    )
-                  }
-                >
-                  Disconnect Garmin/delete data
-                </button>
-              </div>
-            </article>
-          </div>
-        ) : null}
-      </details>
-
-      <details
-        className="status-card diagnostics-panel"
-        open={diagnosticsOpen}
-        onToggle={(event) => setDiagnosticsOpen(event.currentTarget.open)}
-      >
-        <summary className="diagnostics-summary">
-          <span>
-            <span className="section-kicker">Diagnostics</span>
-            <span id="status-heading" role="heading" aria-level={2}>
-              Current operation
-            </span>
-          </span>
-          <span className={`pill ${status.kind}`}>{status.kind}</span>
-        </summary>
-        {diagnosticsOpen ? (
-          <pre className={`status ${status.kind}`} aria-live="polite">
-            {status.message}
-          </pre>
-        ) : null}
-      </details>
+              <details className="settings-card danger-card" open>
+                <summary>Safety, privacy, and deletion</summary>
+                <p>
+                  <strong>Not medical advice.</strong> Fitness guidance only;
+                  seek qualified care for medical concerns.
+                </p>
+                <p>
+                  Provider disclosure: selected conversation context may be sent
+                  to the configured AI provider. Local safety boundary: run on
+                  localhost/private loopback only, never public or LAN-exposed.
+                  Garmin credential safety: authenticate out of band and never
+                  paste passwords, token contents, provider keys, or raw
+                  payloads into the app.
+                </p>
+                <div className="button-row">
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() =>
+                      runAction("Clear chat/profile", () =>
+                        fetch("/api/delete", {
+                          method: "POST",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({ scope: "chat-profile" }),
+                        }),
+                      )
+                    }
+                  >
+                    Clear chat/profile
+                  </button>
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() =>
+                      runAction("Disconnect Garmin/delete data", () =>
+                        fetch("/api/delete", {
+                          method: "POST",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({ scope: "garmin-all" }),
+                        }),
+                      )
+                    }
+                  >
+                    Disconnect Garmin/delete data
+                  </button>
+                </div>
+              </details>
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </section>
   );
 }

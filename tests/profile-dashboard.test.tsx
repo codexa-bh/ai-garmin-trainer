@@ -56,7 +56,20 @@ function profile(
 }
 
 function openSettings() {
-  fireEvent.click(screen.getByText("Data & settings"));
+  fireEvent.click(screen.getByRole("button", { name: "Data & settings" }));
+}
+
+async function openConversationMenu(title: string) {
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: `Conversation options for "${title}"`,
+    }),
+  );
+}
+
+async function clickConversationMenuItem(title: string, name: string) {
+  await openConversationMenu(title);
+  fireEvent.click(screen.getByRole("menuitem", { name }));
 }
 
 function setTranscriptMetrics(
@@ -129,7 +142,8 @@ describe("TrainerDashboard Profile hydration", () => {
       ),
     ).toBeNull();
 
-    fireEvent.click(screen.getByText("Current operation"));
+    openSettings();
+    fireEvent.click(screen.getByText(/Current operation/));
 
     expect(
       await screen.findByText(
@@ -197,6 +211,68 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeNull();
   });
 
+  it("renders the minimal chat shell and grouped settings disclosure", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(
+      screen.getByRole("button", { name: "Toggle conversation history" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Trainer chat" })).toBeTruthy();
+    expect(screen.queryByText("AI Garmin Connect Trainer")).toBeNull();
+
+    openSettings();
+
+    expect(
+      screen.getByRole("dialog", { name: "Data & settings" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/Not medical advice/)).toBeTruthy();
+  });
+
+  it("renders safe assistant Markdown while keeping unsafe links inert", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-markdown",
+              role: "assistant",
+              content:
+                "## Plan\nUse **easy aerobic** work with [safe ref](https://example.test) and [bad ref](javascript:alert(1)).\n- Keep it light\n```txt\nraw <b>html</b> stays text\n```\n<img src=x onerror=alert(1)>",
+              createdAt: "2026-07-21T12:00:00.000Z",
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(await screen.findByRole("heading", { name: "Plan" })).toBeTruthy();
+    expect(screen.getByText("easy aerobic").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "safe ref" })).toHaveProperty(
+      "href",
+      "https://example.test/",
+    );
+    expect(screen.getByText("bad ref").closest("a")).toBeNull();
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByText(/raw <b>html<\/b> stays text/)).toBeTruthy();
+  });
+
   it("preserves dirty edits when a manual Profile reload returns late", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -260,7 +336,7 @@ describe("TrainerDashboard Profile hydration", () => {
     fireEvent.change(sports, { target: { value: "hiking\ncycling" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Profile" }));
 
-    fireEvent.click(screen.getByText("Current operation"));
+    fireEvent.click(screen.getByText(/Current operation/));
 
     await waitFor(() => {
       expect(screen.getByText("Profile: saved to local SQLite.")).toBeTruthy();
@@ -325,7 +401,7 @@ describe("TrainerDashboard athlete baseline summary", () => {
     render(React.createElement(TrainerDashboard));
     openSettings();
 
-    expect(await screen.findByText("Garmin athlete baselines")).toBeTruthy();
+    expect(await screen.findByText("Running threshold HR")).toBeTruthy();
     expect(screen.getByText("168 bpm")).toBeTruthy();
     expect(screen.getByText("250 W (2026-07-19)")).toBeTruthy();
     expect(
@@ -336,7 +412,7 @@ describe("TrainerDashboard athlete baseline summary", () => {
 });
 
 describe("TrainerDashboard primary Sync now", () => {
-  it("shows Sync now in the trainer header without opening Data & settings", async () => {
+  it("moves Sync now into grouped Settings instead of the chat header", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -346,6 +422,14 @@ describe("TrainerDashboard primary Sync now", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }),
+    ).toBeNull();
+
+    openSettings();
 
     const syncButton = screen.getByRole("button", {
       name: "Sync now — import latest Garmin data",
@@ -389,13 +473,14 @@ describe("TrainerDashboard primary Sync now", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
+    openSettings();
 
     fireEvent.click(
       screen.getByRole("button", {
         name: "Sync now — import latest Garmin data",
       }),
     );
-    fireEvent.click(screen.getByText("Current operation"));
+    fireEvent.click(screen.getByText(/Current operation/));
 
     await waitFor(() => {
       const statusText =
@@ -435,13 +520,14 @@ describe("TrainerDashboard primary Sync now", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
+    openSettings();
 
     fireEvent.click(
       screen.getByRole("button", {
         name: "Sync now — import latest Garmin data",
       }),
     );
-    fireEvent.click(screen.getByText("Current operation"));
+    fireEvent.click(screen.getByText(/Current operation/));
 
     await waitFor(() => {
       const statusText =
@@ -482,7 +568,7 @@ describe("TrainerDashboard primary Sync now", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save Profile" }));
 
-    fireEvent.click(screen.getByText("Current operation"));
+    fireEvent.click(screen.getByText(/Current operation/));
 
     await waitFor(() => {
       expect(screen.getByText(/Profile: saved to local SQLite/)).toBeTruthy();
@@ -554,7 +640,7 @@ describe("TrainerDashboard memory and new chat", () => {
     render(React.createElement(TrainerDashboard));
     openSettings();
 
-    expect(await screen.findByText("Learned memories")).toBeTruthy();
+    expect(await screen.findByText("Learned memory")).toBeTruthy();
     expect(screen.getByText("Prefers morning hikes")).toBeTruthy();
     expect(screen.getByText("Likes easy recovery rides")).toBeTruthy();
 
@@ -647,11 +733,7 @@ describe("TrainerDashboard memory and new chat", () => {
     render(React.createElement(TrainerDashboard));
 
     expect(await screen.findByText("Active visible transcript")).toBeTruthy();
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: 'Delete conversation "Previous climb chat"',
-      }),
-    );
+    await clickConversationMenuItem("Previous climb chat", "Delete");
 
     await waitFor(() => {
       expect(screen.queryByText("Previous climb chat")).toBeNull();
@@ -711,11 +793,7 @@ describe("TrainerDashboard memory and new chat", () => {
 
     render(React.createElement(TrainerDashboard));
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: 'Delete conversation "Previous climb chat"',
-      }),
-    );
+    await clickConversationMenuItem("Previous climb chat", "Delete");
 
     expect(confirmMock).toHaveBeenCalledWith(
       expect.stringContaining("saved memories stay unchanged"),
@@ -800,9 +878,7 @@ describe("TrainerDashboard memory and new chat", () => {
     render(React.createElement(TrainerDashboard));
 
     expect(await screen.findByText("Active answer before delete")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: 'Delete conversation "Active plan"' }),
-    );
+    await clickConversationMenuItem("Active plan", "Delete");
 
     expect(await screen.findByText("Remaining chat transcript")).toBeTruthy();
     expect(screen.queryByText("Active answer before delete")).toBeNull();
@@ -858,14 +934,12 @@ describe("TrainerDashboard memory and new chat", () => {
       target: { value: "Hold this stream open" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await openConversationMenu("Previous climb chat");
 
     await waitFor(() => {
       expect(
-        (
-          screen.getByRole("button", {
-            name: 'Delete conversation "Previous climb chat"',
-          }) as HTMLButtonElement
-        ).disabled,
+        (screen.getByRole("menuitem", { name: "Delete" }) as HTMLButtonElement)
+          .disabled,
       ).toBe(true);
     });
 
@@ -885,7 +959,7 @@ describe("TrainerDashboard memory and new chat", () => {
       expect(
         (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
           .disabled,
-      ).toBe(false);
+      ).toBe(true);
     });
   });
 
@@ -1004,7 +1078,7 @@ describe("TrainerDashboard transcript scrolling", () => {
     });
     fireEvent.scroll(transcript);
 
-    fireEvent.click(screen.getByRole("button", { name: "Reload history" }));
+    await clickConversationMenuItem("Trainer chat", "Reload history");
 
     expect(await screen.findByText("Passive later answer")).toBeTruthy();
     expect(transcript.scrollTop).toBe(100);
