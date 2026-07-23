@@ -6,7 +6,22 @@ SQLite remains the canonical store for transcript, Profile, Garmin facts, and de
 
 ## Configuration
 
-Set `MEMORY_ENABLED=true` to enable retrieval and post-completion ingestion. Memory embeddings use the existing provider credential contract rather than a separate memory-only key. The supported provider-backed setup uses `OPENAI_API_KEY` for OpenAI-compatible embeddings:
+Set `MEMORY_ENABLED=true` to enable retrieval and post-completion ingestion. For no-paid local semantic memory, use Ollama with a small purpose-built embedding model:
+
+```bash
+ollama pull nomic-embed-text
+```
+
+```env
+MEMORY_ENABLED=true
+MEMORY_EMBEDDING_PROVIDER=ollama
+MEMORY_EMBEDDING_MODEL=nomic-embed-text
+MEMORY_EMBEDDING_BASE_URL=http://127.0.0.1:11434
+```
+
+The Ollama path is loopback-only. It sends compact filtered memory text to the local daemon, does not require `OPENAI_API_KEY`, and does not send Garmin credentials, raw connector payloads, or unrestricted transcripts. Health is `ready` only when the local daemon/model embedding endpoint returns a valid vector. If Ollama is stopped, slow, missing the model, configured with a non-loopback URL, or returns a malformed embedding, memory reports an actionable not-ready state and chat remains available without memory retrieval/ingestion.
+
+OpenAI-compatible embeddings remain supported through the existing `OPENAI_API_KEY` contract, not a separate memory-only key:
 
 ```env
 MEMORY_ENABLED=true
@@ -16,9 +31,9 @@ OPENAI_API_KEY=...
 MEMORY_EMBEDDING_DIMS=1536
 ```
 
-DeepSeek is the default chat provider in `AI_PROVIDER=auto`, but DeepSeek chat credentials do not currently imply embedding capability. If `OPENAI_API_KEY` is missing or still contains a placeholder example value, enabled memory reports `misconfigured` instead of ready and chat remains available without memory retrieval/ingestion. For local non-provider tests, set `MEMORY_EMBEDDING_PROVIDER=deterministic`; deterministic vectors are useful for validation but are not semantic provider embeddings.
+DeepSeek is the default chat provider in `AI_PROVIDER=auto`, but DeepSeek chat credentials do not currently imply embedding capability. Chat models such as Gemma are also not the preferred memory embedding mechanism: embedding-specific models such as `nomic-embed-text` are smaller, faster, and trained to produce stable semantic vectors, while local chat/tool reasoning is a separate follow-up evaluation. If `OPENAI_API_KEY` is missing or still contains a placeholder example value, enabled OpenAI memory reports `misconfigured` instead of ready. For local non-provider tests, set `MEMORY_EMBEDDING_PROVIDER=deterministic`; deterministic vectors are useful for validation but are not semantic provider embeddings.
 
-`npm run doctor -- --json` reports the selected chat provider, fallback mode, and memory readiness without printing keys, prompts, raw transcripts, vectors, or local file contents.
+`npm run doctor -- --json` reports the selected chat provider, fallback mode, and memory readiness, including Ollama daemon/model remediation, without printing keys, prompts, raw transcripts, vectors, or local file contents.
 
 ## Privacy and controls
 

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeEach(() => {
   vi.resetModules();
+  vi.unstubAllGlobals();
   process.env.DATABASE_PATH = join(
     mkdtempSync(join(tmpdir(), "trainer-sqlite-memory-")),
     "test.sqlite",
@@ -41,6 +42,96 @@ describe("embedded SQLite semantic memory adapter", () => {
       true,
     );
     expect(results.some((item) => item.kind === "saved_preference")).toBe(true);
+  });
+
+  it("stores normalized semantic memory with mocked Ollama embeddings", async () => {
+    process.env.MEMORY_EMBEDDING_PROVIDER = "ollama";
+    delete process.env.MEMORY_EMBEDDING_MODEL;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ embeddings: [[3, 4]] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+
+    await module.trainerMemoryStore().addCompletedTurn({
+      conversationId: "ollama-chat",
+      userMessageId: "u-ollama",
+      assistantMessageId: "a-ollama",
+      userText: "remember that I prefer short easy runs after travel",
+      assistantText: "I will account for easy post-travel runs.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+
+    const row = repository
+      .getDatabase()
+      .prepare(
+        "select embedding_json as embeddingJson, embedding_model as embeddingModel from semantic_memory limit 1",
+      )
+      .get() as { embeddingJson: string; embeddingModel: string };
+    const embedding = JSON.parse(row.embeddingJson) as number[];
+    expect(row.embeddingModel).toBe("nomic-embed-text");
+    expect(embedding[0]).toBeCloseTo(0.6);
+    expect(embedding[1]).toBeCloseTo(0.8);
+  });
+
+  it("reports Ollama model-missing health without listing memories", async () => {
+    process.env.MEMORY_EMBEDDING_PROVIDER = "ollama";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: 'model "nomic-embed-text" not found, try pulling it first',
+            }),
+            { status: 404, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const module = await import("../src/lib/memory/sqlite-adapter");
+
+    const health = await module.trainerMemoryStore().health();
+
+    expect(health).toMatchObject({
+      ready: false,
+      status: "degraded",
+      embeddingProvider: "ollama",
+      embeddingConfigured: false,
+    });
+    expect(health.detail).toContain("ollama pull nomic-embed-text");
+  });
+
+  it("rejects malformed Ollama embedding vectors", async () => {
+    process.env.MEMORY_EMBEDDING_PROVIDER = "ollama";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ embeddings: [[]] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    const module = await import("../src/lib/memory/sqlite-adapter");
+
+    await expect(
+      module.trainerMemoryStore().addCompletedTurn({
+        conversationId: "ollama-invalid",
+        userMessageId: "u-invalid",
+        assistantMessageId: "a-invalid",
+        userText: "remember that invalid vectors should fail safely",
+        assistantText: "I will not persist malformed embeddings.",
+        completedAt: new Date("2026-07-23T12:00:00Z"),
+      }),
+    ).rejects.toThrow("memory embedding Ollama response invalid vector");
   });
 
   it("migrates only active confirmed legacy memories idempotently", async () => {

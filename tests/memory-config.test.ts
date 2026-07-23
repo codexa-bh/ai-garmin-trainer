@@ -51,6 +51,40 @@ describe("memory runtime configuration", () => {
     expect(memoryConfigProblems(config)).toEqual([]);
   });
 
+  it("accepts Ollama embeddings with local defaults and no provider key", async () => {
+    const { getOptionalEnv, memoryRuntimeConfig, memoryConfigProblems } =
+      await modules();
+    const env = getOptionalEnv({
+      MEMORY_ENABLED: "true",
+      MEMORY_EMBEDDING_PROVIDER: "ollama",
+      OPENAI_API_KEY: "replace-with-openai-key",
+    });
+
+    const config = memoryRuntimeConfig(env);
+
+    expect(config.embeddingProvider).toBe("ollama");
+    expect(config.embeddingModel).toBe("nomic-embed-text");
+    expect(config.embeddingBaseUrl).toBe("http://127.0.0.1:11434");
+    expect(config.embeddingApiKey).toBeUndefined();
+    expect(memoryConfigProblems(config)).toEqual([]);
+  });
+
+  it("rejects non-loopback Ollama embedding base URLs", async () => {
+    const { getOptionalEnv, memoryRuntimeConfig, memoryConfigProblems } =
+      await modules();
+    const env = getOptionalEnv({
+      MEMORY_ENABLED: "true",
+      MEMORY_EMBEDDING_PROVIDER: "ollama",
+      MEMORY_EMBEDDING_BASE_URL: "https://example.com:11434",
+    });
+
+    const config = memoryRuntimeConfig(env);
+
+    expect(memoryConfigProblems(config)).toContain(
+      "memory embedding Ollama base URL must be loopback/local",
+    );
+  });
+
   it("keeps deterministic embeddings explicit and keyless", async () => {
     const { getOptionalEnv, memoryRuntimeConfig, memoryConfigProblems } =
       await modules();

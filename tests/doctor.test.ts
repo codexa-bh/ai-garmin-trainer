@@ -82,6 +82,34 @@ describe("source-beta doctor and redaction", () => {
     expect(text).not.toContain("MEMORY_EMBEDDING_API_KEY");
   });
 
+  it("fails closed for non-loopback Ollama memory embedding URLs", () => {
+    const report = runDoctor({
+      ...baseEnv,
+      MEMORY_ENABLED: "true",
+      MEMORY_EMBEDDING_PROVIDER: "ollama",
+      MEMORY_EMBEDDING_BASE_URL: "https://example.com:11434",
+    });
+    const memoryCheck = report.checks.find(
+      (item) => item.id === "memory.embedding",
+    );
+    const memoryFacts = report.facts.memory as {
+      embeddingProvider: string;
+      embeddingConfigured: boolean;
+      ollamaBaseUrlLoopback: boolean;
+    };
+
+    expect(memoryCheck).toMatchObject({
+      status: "fail",
+      className: "memory.ollama_non_loopback",
+    });
+    expect(memoryFacts).toMatchObject({
+      embeddingProvider: "ollama",
+      embeddingConfigured: true,
+      ollamaBaseUrlLoopback: false,
+    });
+    expect(JSON.stringify(report)).not.toContain("https://example.com:11434");
+  });
+
   it("redacts credentials, token contents, prompts, precise GPS, and raw payload canaries", () => {
     const raw = `OPENAI_API_KEY=sk-live-secret refresh_token="garmin-refresh" prompt="what did I say" lat=46.123456 lon=13.987654 rawPayload="connector body"`;
     const redacted = redactSensitiveText(raw);

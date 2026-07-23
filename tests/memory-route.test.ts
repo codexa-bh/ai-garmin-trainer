@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeEach(() => {
   vi.resetModules();
+  vi.unstubAllGlobals();
   process.env.DATABASE_PATH = join(
     mkdtempSync(join(tmpdir(), "trainer-memory-route-")),
     "test.sqlite",
@@ -68,6 +69,44 @@ describe("semantic memory API route", () => {
     expect(payload.health.detail).toContain(
       "OpenAI key missing or placeholder",
     );
+    expect(payload.memories).toEqual([]);
+  });
+
+  it("reports enabled Ollama memory as degraded when the local model is missing", async () => {
+    process.env.MEMORY_ENABLED = "true";
+    process.env.MEMORY_EMBEDDING_PROVIDER = "ollama";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: 'model "nomic-embed-text" not found, try pulling it first',
+            }),
+            { status: 404, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const { GET } = await route();
+
+    const payload = (await (await GET()).json()) as {
+      health: {
+        ready: boolean;
+        status: string;
+        embeddingConfigured: boolean;
+        embeddingProvider: string;
+        detail: string;
+      };
+      memories: unknown[];
+    };
+
+    expect(payload.health).toMatchObject({
+      ready: false,
+      status: "degraded",
+      embeddingConfigured: false,
+      embeddingProvider: "ollama",
+    });
+    expect(payload.health.detail).toContain("ollama pull nomic-embed-text");
     expect(payload.memories).toEqual([]);
   });
 

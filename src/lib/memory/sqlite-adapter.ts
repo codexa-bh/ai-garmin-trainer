@@ -92,6 +92,36 @@ function normalize(vector: number[]): number[] {
   return norm > 0 ? vector.map((value) => value / norm) : vector;
 }
 
+function providerVector(vector: unknown, label: string): number[] {
+  if (
+    !Array.isArray(vector) ||
+    vector.length === 0 ||
+    !vector.every(
+      (value) => typeof value === "number" && Number.isFinite(value),
+    )
+  )
+    throw new Error(`${label} response invalid vector`);
+  const normalized = normalize(vector);
+  if (!normalized.some((value) => value !== 0))
+    throw new Error(`${label} response invalid vector`);
+  return normalized;
+}
+
+function joinUrl(baseUrl: string, path: string): string {
+  return `${baseUrl.replace(/\/+$/, "")}${path}`;
+}
+
+function ollamaFailureMessage(
+  status: number,
+  error: unknown,
+  model: string,
+): string {
+  const detail = typeof error === "string" ? error.toLowerCase() : "";
+  if (status === 404 || detail.includes("not found") || detail.includes("pull"))
+    return `memory embedding Ollama model not found; run ollama pull ${model}`;
+  return `memory embedding Ollama HTTP ${status}`;
+}
+
 function cosine(a: number[], b: number[]): number {
   const length = Math.min(a.length, b.length);
   let score = 0;
@@ -174,9 +204,53 @@ export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
     if (this.config.embeddingProvider === "deterministic") {
       return deterministicEmbedding(text, this.config.embeddingDims);
     }
+    if (this.config.embeddingProvider === "ollama") {
+      const url = joinUrl(this.config.embeddingBaseUrl!, "/api/embed");
+      let response: Response;
+      try {
+        response = await withTimeout(
+          fetch(url, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              model: this.config.embeddingModel,
+              input: text,
+            }),
+          }),
+          this.config.timeoutMs,
+          "memory embedding Ollama",
+        );
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("timed out"))
+          throw new Error("memory embedding Ollama timed out");
+        throw new Error(
+          "memory embedding Ollama daemon unavailable; start Ollama",
+        );
+      }
+      const body = (await response.json().catch(() => ({}))) as {
+        embeddings?: unknown[];
+        embedding?: unknown;
+        error?: unknown;
+      };
+      if (!response.ok)
+        throw new Error(
+          ollamaFailureMessage(
+            response.status,
+            body.error,
+            this.config.embeddingModel,
+          ),
+        );
+      return providerVector(
+        body.embeddings?.[0] ?? body.embedding,
+        "memory embedding Ollama",
+      );
+    }
     if (!this.config.embeddingApiKey)
       throw new Error("memory embedding key missing");
-    const url = `${this.config.embeddingBaseUrl ?? "https://api.openai.com/v1"}/embeddings`;
+    const url = joinUrl(
+      this.config.embeddingBaseUrl ?? "https://api.openai.com/v1",
+      "/embeddings",
+    );
     const response = await withTimeout(
       fetch(url, {
         method: "POST",
@@ -196,12 +270,9 @@ export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
     if (!response.ok)
       throw new Error(`memory embedding HTTP ${response.status}`);
     const body = (await response.json()) as {
-      data?: Array<{ embedding?: number[] }>;
+      data?: Array<{ embedding?: unknown }>;
     };
-    const vector = body.data?.[0]?.embedding;
-    if (!vector?.length)
-      throw new Error("memory embedding response missing vector");
-    return normalize(vector);
+    return providerVector(body.data?.[0]?.embedding, "memory embedding");
   }
 
   private rows(): SemanticMemoryRow[] {
@@ -411,30 +482,34 @@ export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
     const problems = this.problems();
     const embeddingConfigured =
       this.config.embeddingProvider === "deterministic" ||
+      this.config.embeddingProvider === "ollama" ||
       Boolean(this.config.embeddingApiKey);
+    const base = {
+      provider: "app-sqlite-vector" as const,
+      vectorProvider: "sqlite" as const,
+      llmConfigured: false,
+      userDisabled: this.config.userDisabled,
+      embeddingProvider: this.config.embeddingProvider,
+      embeddingModel: this.config.embeddingModel,
+    };
     if (!this.config.configuredEnabled) {
       return {
+        ...base,
         enabled: false,
         ready: false,
         status: "disabled",
         detail: "Memory is disabled by MEMORY_ENABLED.",
-        provider: "app-sqlite-vector",
-        vectorProvider: "sqlite",
-        llmConfigured: false,
         embeddingConfigured,
         vectorConfigured: true,
-        userDisabled: this.config.userDisabled,
       };
     }
     if (this.config.userDisabled) {
       return {
+        ...base,
         enabled: false,
         ready: false,
         status: "disabled",
         detail: "Memory is disabled in local settings.",
-        provider: "app-sqlite-vector",
-        vectorProvider: "sqlite",
-        llmConfigured: false,
         embeddingConfigured,
         vectorConfigured: true,
         userDisabled: true,
@@ -442,14 +517,12 @@ export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
     }
     if (problems.length) {
       return {
+        ...base,
         enabled: true,
         ready: false,
         status: "misconfigured",
         detail: problems.join("; "),
-        provider: "app-sqlite-vector",
-        vectorProvider: "sqlite",
-        llmConfigured: false,
-        embeddingConfigured,
+        embeddingConfigured: false,
         vectorConfigured: true,
         userDisabled: false,
       };
@@ -458,33 +531,35 @@ export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
       getDatabase()
         .prepare("select count(*) as count from semantic_memory")
         .get();
+      if (this.config.embeddingProvider === "ollama")
+        await this.embedding("memory readiness probe");
+      const detail =
+        this.config.embeddingProvider === "deterministic"
+          ? "Embedded SQLite semantic memory is configured with deterministic local embeddings."
+          : this.config.embeddingProvider === "ollama"
+            ? `Embedded SQLite semantic memory is configured with local Ollama embeddings using ${this.config.embeddingModel}.`
+            : "Embedded SQLite semantic memory is configured with OpenAI-compatible embeddings via OPENAI_API_KEY.";
       return {
+        ...base,
         enabled: true,
         ready: true,
         status: "ready",
-        detail:
-          this.config.embeddingProvider === "deterministic"
-            ? "Embedded SQLite semantic memory is configured with deterministic local embeddings."
-            : "Embedded SQLite semantic memory is configured with OpenAI-compatible embeddings via OPENAI_API_KEY.",
-        provider: "app-sqlite-vector",
-        vectorProvider: "sqlite",
-        llmConfigured: false,
+        detail,
         embeddingConfigured: true,
         vectorConfigured: true,
         userDisabled: false,
       };
     } catch (error) {
       return {
+        ...base,
         enabled: true,
         ready: false,
         status: "degraded",
         detail:
           error instanceof Error ? error.message : "SQLite memory check failed",
-        provider: "app-sqlite-vector",
-        vectorProvider: "sqlite",
-        llmConfigured: false,
-        embeddingConfigured: true,
-        vectorConfigured: false,
+        embeddingConfigured: false,
+        vectorConfigured:
+          !(error instanceof Error) || !error.message.includes("SQLite"),
         userDisabled: false,
       };
     }

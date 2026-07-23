@@ -28,7 +28,7 @@ const optionalEnvSchema = z.object({
   DEEPSEEK_MODEL: z.string().default("deepseek-chat"),
   MEMORY_ENABLED: z.string().default("false"),
   MEMORY_EMBEDDING_PROVIDER: z
-    .enum(["openai", "deterministic"])
+    .enum(["openai", "deterministic", "ollama"])
     .default("openai"),
   MEMORY_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
   MEMORY_EMBEDDING_BASE_URL: z.string().optional(),

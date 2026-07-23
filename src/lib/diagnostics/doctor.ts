@@ -11,6 +11,11 @@ import {
 } from "../db/migrations";
 import { aiProviderStatus } from "../ai/providers";
 import { getOptionalEnv, hasConfiguredSecret } from "../env";
+import {
+  isLoopbackUrl,
+  OLLAMA_DEFAULT_BASE_URL,
+  OLLAMA_DEFAULT_EMBEDDING_MODEL,
+} from "../memory/config";
 import { redactDiagnosticValue } from "./redaction";
 
 export type DoctorStatus = "pass" | "warn" | "fail";
@@ -79,6 +84,103 @@ function loopbackHost(rawUrl: string): boolean {
     return ["localhost", "127.0.0.1", "::1"].includes(host);
   } catch {
     return false;
+  }
+}
+
+type OllamaProbe = {
+  ok: boolean;
+  className: string;
+  message: string;
+  remediation?: string;
+};
+
+function configuredOllamaModel(model: string): string {
+  return model === "text-embedding-3-small"
+    ? OLLAMA_DEFAULT_EMBEDDING_MODEL
+    : model;
+}
+
+function ollamaEndpoint(baseUrl: string): string {
+  return `${baseUrl.replace(/\/+$/, "")}/api/embed`;
+}
+
+function probeOllamaEmbedding(
+  baseUrl: string,
+  model: string,
+  timeoutMs: string,
+): OllamaProbe {
+  if (!isLoopbackUrl(baseUrl))
+    return {
+      ok: false,
+      className: "memory.ollama_non_loopback",
+      message:
+        "Ollama memory embeddings are configured with a non-loopback base URL; value content is not printed.",
+      remediation:
+        "Set MEMORY_EMBEDDING_BASE_URL=http://127.0.0.1:11434 or leave it unset for the local default.",
+    };
+  const timeoutSeconds = Math.max(
+    1,
+    Math.ceil(Number.parseInt(timeoutMs, 10) / 1000) || 8,
+  ).toString();
+  try {
+    const output = execFileSync(
+      "curl",
+      [
+        "-sS",
+        "--max-time",
+        timeoutSeconds,
+        "-X",
+        "POST",
+        ollamaEndpoint(baseUrl),
+        "-H",
+        "content-type: application/json",
+        "--data",
+        JSON.stringify({ model, input: "memory readiness probe" }),
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    const parsed = JSON.parse(output) as {
+      embeddings?: unknown[];
+      embedding?: unknown;
+      error?: unknown;
+    };
+    const vector = parsed.embeddings?.[0] ?? parsed.embedding;
+    if (
+      Array.isArray(vector) &&
+      vector.length > 0 &&
+      vector.every(
+        (value) => typeof value === "number" && Number.isFinite(value),
+      )
+    )
+      return {
+        ok: true,
+        className: "memory.ollama_ready",
+        message: `Ollama embedding model ${model} returned a valid local vector; vector content is not printed.`,
+      };
+    const error = typeof parsed.error === "string" ? parsed.error : "";
+    if (error.toLowerCase().includes("not found"))
+      return {
+        ok: false,
+        className: "memory.ollama_model_missing",
+        message: `Ollama embedding model ${model} is not available locally.`,
+        remediation: `Run ollama pull ${model}, then rerun npm run doctor.`,
+      };
+    return {
+      ok: false,
+      className: "memory.ollama_invalid_embedding",
+      message: `Ollama embedding model ${model} did not return a valid embedding vector; vector content is not printed.`,
+      remediation:
+        "Confirm the configured model supports embeddings, or set MEMORY_EMBEDDING_MODEL=nomic-embed-text.",
+    };
+  } catch {
+    return {
+      ok: false,
+      className: "memory.ollama_unavailable",
+      message:
+        "Ollama embedding probe could not reach the local daemon or timed out.",
+      remediation:
+        "Start Ollama on the local machine, verify http://127.0.0.1:11434 is reachable, and rerun npm run doctor.",
+    };
   }
 }
 
@@ -205,23 +307,45 @@ export function runDoctor(
   const memoryEnabled = ["1", "true", "yes", "on"].includes(
     env.MEMORY_ENABLED.toLowerCase(),
   );
-  const memoryEmbeddingKeyPresent =
+  const memoryEmbeddingModel =
+    env.MEMORY_EMBEDDING_PROVIDER === "ollama"
+      ? configuredOllamaModel(env.MEMORY_EMBEDDING_MODEL)
+      : env.MEMORY_EMBEDDING_MODEL;
+  const memoryEmbeddingConfigured =
     env.MEMORY_EMBEDDING_PROVIDER === "deterministic" ||
-    hasConfiguredSecret(env.OPENAI_API_KEY);
-  check(
-    checks,
-    !memoryEnabled || memoryEmbeddingKeyPresent ? "pass" : "fail",
-    "memory.embedding",
-    !memoryEnabled || memoryEmbeddingKeyPresent
-      ? "memory.embedding_configured_or_disabled"
-      : "memory.embedding_missing_openai_key",
-    memoryEnabled
-      ? `Embedded SQLite memory embedding provider ${env.MEMORY_EMBEDDING_PROVIDER}/${env.MEMORY_EMBEDDING_MODEL} ${memoryEmbeddingKeyPresent ? "is configured" : "is missing a valid OpenAI key or deterministic mode"}; key value is not printed.`
-      : "Embedded SQLite memory is disabled; embedding key is not required.",
-    !memoryEnabled || memoryEmbeddingKeyPresent
-      ? undefined
-      : "Set a valid OPENAI_API_KEY or MEMORY_EMBEDDING_PROVIDER=deterministic before enabling memory; DeepSeek chat does not imply embeddings.",
-  );
+    (env.MEMORY_EMBEDDING_PROVIDER === "openai" &&
+      hasConfiguredSecret(env.OPENAI_API_KEY)) ||
+    env.MEMORY_EMBEDDING_PROVIDER === "ollama";
+  if (memoryEnabled && env.MEMORY_EMBEDDING_PROVIDER === "ollama") {
+    const probe = probeOllamaEmbedding(
+      env.MEMORY_EMBEDDING_BASE_URL?.trim() || OLLAMA_DEFAULT_BASE_URL,
+      memoryEmbeddingModel,
+      env.MEMORY_TIMEOUT_MS,
+    );
+    check(
+      checks,
+      probe.ok ? "pass" : "fail",
+      "memory.embedding",
+      probe.className,
+      probe.message,
+      probe.remediation,
+    );
+  } else {
+    check(
+      checks,
+      !memoryEnabled || memoryEmbeddingConfigured ? "pass" : "fail",
+      "memory.embedding",
+      !memoryEnabled || memoryEmbeddingConfigured
+        ? "memory.embedding_configured_or_disabled"
+        : "memory.embedding_missing_openai_key",
+      memoryEnabled
+        ? `Embedded SQLite memory embedding provider ${env.MEMORY_EMBEDDING_PROVIDER}/${memoryEmbeddingModel} ${memoryEmbeddingConfigured ? "is configured" : "is missing a valid OpenAI key or deterministic mode"}; key value is not printed.`
+        : "Embedded SQLite memory is disabled; embedding key is not required.",
+      !memoryEnabled || memoryEmbeddingConfigured
+        ? undefined
+        : "Set a valid OPENAI_API_KEY, MEMORY_EMBEDDING_PROVIDER=ollama with a local embedding model, or MEMORY_EMBEDDING_PROVIDER=deterministic before enabling memory; DeepSeek chat does not imply embeddings.",
+    );
+  }
   check(
     checks,
     "pass",
@@ -321,8 +445,14 @@ export function runDoctor(
       provider: "app-sqlite-vector",
       vectorProvider: "sqlite",
       embeddingProvider: env.MEMORY_EMBEDDING_PROVIDER,
-      embeddingKeyPresent: memoryEmbeddingKeyPresent,
-      embeddingModel: env.MEMORY_EMBEDDING_MODEL,
+      embeddingConfigured: memoryEmbeddingConfigured,
+      embeddingModel: memoryEmbeddingModel,
+      ollamaBaseUrlLoopback:
+        env.MEMORY_EMBEDDING_PROVIDER === "ollama"
+          ? isLoopbackUrl(
+              env.MEMORY_EMBEDDING_BASE_URL?.trim() || OLLAMA_DEFAULT_BASE_URL,
+            )
+          : undefined,
     },
   }) as Record<string, unknown>;
 

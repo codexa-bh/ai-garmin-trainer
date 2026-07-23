@@ -86,6 +86,8 @@ type MemoryHealth = {
   provider: "app-sqlite-vector";
   vectorProvider: "sqlite";
   userDisabled: boolean;
+  embeddingProvider?: "openai" | "deterministic" | "ollama";
+  embeddingModel?: string;
 };
 
 type MemoryPayload = {
@@ -766,8 +768,11 @@ export function TrainerDashboard() {
       const memories = payload.memories ?? [];
       setMemoryItems(memories);
       setMemoryHealth(payload.health);
+      const providerDetail = payload.health.embeddingProvider
+        ? ` Provider: ${payload.health.embeddingProvider}${payload.health.embeddingModel ? `/${payload.health.embeddingModel}` : ""}.`
+        : "";
       setMemoryMessage(
-        `Memory: ${payload.health.status}; ${memories.length} inspectable semantic memories. ${payload.health.detail}`,
+        `Memory: ${payload.health.status}; ${memories.length} inspectable semantic memories. ${payload.health.detail}${providerDetail}`,
       );
       if (showStatus)
         setStatus({

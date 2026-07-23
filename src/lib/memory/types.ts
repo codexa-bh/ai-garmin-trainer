@@ -36,6 +36,8 @@ export type MemoryHealth = {
   embeddingConfigured: boolean;
   vectorConfigured: boolean;
   userDisabled: boolean;
+  embeddingProvider?: "openai" | "deterministic" | "ollama";
+  embeddingModel?: string;
 };
 
 export type CompletedTurn = {
