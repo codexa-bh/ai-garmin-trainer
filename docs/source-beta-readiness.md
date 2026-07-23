@@ -26,7 +26,7 @@ This repository is ready only for the next controlled clean-machine validation m
 | Schema upgrade          | `npm run db:migrate` records explicit schema version in `app_metadata`, creates/updates tables, backs up existing user-data databases before upgrade, and verifies integrity.                                                                                                   |
 | Restore                 | Stop the app, replace `DATABASE_PATH` with a backup SQLite file, run `npm run db:migrate`, and run `npm run doctor -- --json`. Automatic downgrade is not supported; pre-upgrade backups are the rollback boundary.                                                             |
 | Export                  | No one-click product export exists yet. For clean-machine validation, export is a manual SQLite copy after stopping the app. Exports must exclude `.env.local`, provider keys, Garmin token files, shell history, and diagnostics unless explicitly reviewed.                   |
-| Clear chat/profile      | Deletes conversations, messages, explicit profile, and confirmed/pending learned-memory rows. It preserves normalized Garmin data.                                                                                                                                              |
+| Clear chat/profile      | Deletes conversations, messages, and explicit profile. It preserves semantic memory and normalized Garmin data; use Clear all memory for semantic memory.                                                                                                                       |
 | Delete Garmin data      | Deletes app-managed normalized Garmin rows, detail tables, redacted raw-payload records, sync runs, and checkpoints. It does not delete external Garmin token files.                                                                                                            |
 | Garmin disconnect/reset | Stop the app, optionally delete app-managed normalized Garmin data, then manually remove the app-owned `GARMIN_MCP_TOKEN_DIR` or upstream `~/.garminconnect/garmin_tokens.json` if the user chooses to reset Garmin auth.                                                       |
 | Backup                  | Copy SQLite only after stopping the app and remember it may contain redacted local Garmin raw-payload records. Do not bundle model-provider keys, Garmin token contents, prompts, raw connector dumps, unredacted raw payloads, or precise GPS streams into support artifacts.  |
@@ -37,12 +37,12 @@ This repository is ready only for the next controlled clean-machine validation m
 The product treats source categories separately:
 
 - Explicit Profile: user-authored goals, sports, preferences, and constraints.
-- Confirmed learned memories: low-risk preferences/corrections that affect future answers only after user confirmation.
-- Temporary constraints/commitments: active only until `expires_at` or `reconfirm_after`.
+- Semantic memories: low-risk preferences/corrections and bounded continuity facts extracted only after completed persisted turns, stored in local SQLite with inspect/edit/delete/clear/disable controls.
+- Temporary constraints/commitments: active only until expiry metadata when represented safely.
 - Garmin facts: normalized source data, redacted local raw-payload records, guarded read-only SQL/math analytics, and any explicitly enabled generated-analysis fallback evidence, not generic memory.
 - Recent transcript: bounded context only, untrusted for policy/tool/deletion decisions.
 
-Pending, rejected, superseded, deleted, expired, or reconfirmation-due learned memories are not retrieved into model context. The deterministic `npm run eval:reliability` gate covers critical deletion, diagnostic redaction, prompt-injection, non-medical safety, missing/detail evidence, and expired-memory cases without snapshotting provider prose.
+Deleted, disabled, expired, or unavailable semantic memories are not retrieved into model context. The deterministic `npm run eval:reliability` gate covers critical deletion, diagnostic redaction, prompt-injection, non-medical safety, missing/detail evidence, and expired-memory cases without snapshotting provider prose.
 
 ## Diagnostics and support artifact rules
 

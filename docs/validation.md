@@ -27,7 +27,7 @@ Live smoke with local secrets:
 8. Chat with OpenAI/DeepSeek using imported facts. Ask for a specific activity comparison, count, or ranking and verify the planner uses `runGeneratedGarminAnalysis` with an LLM-authored bounded Python script over named datasets rather than provider-visible fixed analysis tools, hard-coded criteria, or hidden default scripts. Verify generated analysis returns bounded rows/summary evidence when available, local-only execution wording, dataset manifest limits, and no raw payload/secret dump; verify safe imports such as `math`/`statistics` work while filesystem/network/process/environment imports fail closed. When a repairable generated script/result failure occurs, verify bounded reason/detail/hint plus dataset/import/field/RESULT-contract context is offered to fresh planner calls and the model may either make up to two corrected generated-analysis attempts or answer with a concise limitation; unsupported third-party imports should be correctable, while dangerous safety-denial failures should not receive correction feedback and correction exhaustion should render a concise limitation.
 9. Restart the app and verify conversation/profile/detail coverage persistence.
 10. Edit profile memory and verify later responses reflect the correction.
-11. Clear chat/profile/learned memory, then disconnect/delete Garmin data and verify activity detail and `garmin_raw_payload` tables are also removed and the state is reconnectable.
+11. Clear chat/profile, clear semantic memory, then disconnect/delete Garmin data and verify activity detail and `garmin_raw_payload` tables are also removed and the state is reconnectable.
 
 Trainer chat orchestration checks:
 
@@ -39,5 +39,5 @@ Privacy checks:
 - Connector runs over stdio with a narrow `GARMIN_ENABLED_TOOLS` allowlist.
 - Raw connector JSON/detail payloads may be retained only as redacted local SQLite records for generated analysis; they are not logged or written as app-owned FIT/files, and obvious credential/token/auth/cookie/secret fields are redacted before storage/exposure.
 - LLM tools return bounded local SQLite summaries/slices or generated dataset-script manifests/results and include privacy notes; they do not expose credentials, token paths, raw FIT bytes, full raw payload dumps, generated filesystem/network/process/environment/SQL access, or unrestricted history. The generated-analysis sandbox validates executable Python AST nodes rather than scanning harmless comments/string literals for denied-looking words, and only permits a curated safe standard-library import subset.
-- Learned memory is retrieved only after user confirmation; pending, deleted, rejected, superseded, expired, or reconfirmation-due records are inactive.
+- Semantic memory is retrieved only after completed persisted turns, remains inspectable/editable/deletable/clearable/disableable, and deleted/disabled/expired records are inactive.
 - Local production smoke uses `npm run build` plus `npm run start:local`; loopback access is supported, LAN/public exposure is not.

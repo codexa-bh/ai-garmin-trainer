@@ -163,7 +163,20 @@ describe("TrainerDashboard Profile hydration", () => {
       }
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
-        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+        return jsonResponse({
+          health: {
+            enabled: false,
+            ready: false,
+            status: "disabled",
+            detail: "Memory disabled.",
+            provider: "app-sqlite-vector",
+            vectorProvider: "sqlite",
+            userDisabled: false,
+          },
+          memories: [],
+          enabled: false,
+          ready: false,
+        });
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -482,7 +495,7 @@ describe("TrainerDashboard primary Sync now", () => {
 });
 
 describe("TrainerDashboard memory and new chat", () => {
-  it("renders pending and confirmed memory controls", async () => {
+  it("renders semantic memory inspect/edit/delete controls", async () => {
     let patchedBody: unknown;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -490,36 +503,49 @@ describe("TrainerDashboard memory and new chat", () => {
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory" && init?.method === "PATCH") {
         patchedBody = JSON.parse(String(init.body));
-        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+        return jsonResponse({
+          health: {
+            enabled: true,
+            ready: true,
+            status: "ready",
+            detail: "Embedded SQLite semantic memory is configured.",
+            provider: "app-sqlite-vector",
+            vectorProvider: "sqlite",
+            userDisabled: false,
+          },
+          enabled: true,
+          ready: true,
+          memories: [],
+        });
       }
       if (url === "/api/memory")
         return jsonResponse({
+          health: {
+            enabled: true,
+            ready: true,
+            status: "ready",
+            detail: "Embedded SQLite semantic memory is configured.",
+            provider: "app-sqlite-vector",
+            vectorProvider: "sqlite",
+            userDisabled: false,
+          },
+          enabled: true,
+          ready: true,
           memories: [
             {
-              id: "memory-pending",
-              category: "learned_preference",
-              value: "Prefers morning hikes",
-              status: "pending_confirmation",
-              provenanceText: "User explicitly asked to remember.",
-              expiresAt: null,
-              reconfirmAfter: null,
-              createdAt: "2026-07-17T12:00:00Z",
+              id: "memory-one",
+              kind: "saved_preference",
+              text: "Prefers morning hikes",
+              conversationId: "chat-1",
               updatedAt: "2026-07-17T12:00:00Z",
             },
             {
-              id: "memory-confirmed",
-              category: "learned_preference",
-              value: "Likes easy recovery rides",
-              status: "confirmed",
-              provenanceText: "User approved memory.",
-              expiresAt: null,
-              reconfirmAfter: null,
-              createdAt: "2026-07-17T12:00:00Z",
+              id: "memory-two",
+              kind: "saved_preference",
+              text: "Likes easy recovery rides",
               updatedAt: "2026-07-17T12:00:00Z",
             },
           ],
-          pending: [{ id: "memory-pending" }],
-          confirmed: [{ id: "memory-confirmed" }],
         });
       return jsonResponse({ ok: true });
     });
@@ -532,11 +558,15 @@ describe("TrainerDashboard memory and new chat", () => {
     expect(screen.getByText("Prefers morning hikes")).toBeTruthy();
     expect(screen.getByText("Likes easy recovery rides")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    const editBox = screen.getByLabelText("Edit memory") as HTMLTextAreaElement;
+    fireEvent.change(editBox, { target: { value: "Prefers sunrise hikes" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save edit" }));
     await waitFor(() =>
       expect(patchedBody).toMatchObject({
-        id: "memory-pending",
-        action: "approve",
+        id: "memory-one",
+        action: "update",
+        text: "Prefers sunrise hikes",
       }),
     );
   });
@@ -873,7 +903,20 @@ describe("TrainerDashboard memory and new chat", () => {
       const url = String(input);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
-        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+        return jsonResponse({
+          health: {
+            enabled: false,
+            ready: false,
+            status: "disabled",
+            detail: "Memory disabled.",
+            provider: "app-sqlite-vector",
+            vectorProvider: "sqlite",
+            userDisabled: false,
+          },
+          memories: [],
+          enabled: false,
+          ready: false,
+        });
       if (url.startsWith("/api/chat") && init?.method === "POST") {
         postedBody = JSON.parse(String(init.body));
         return jsonResponse({

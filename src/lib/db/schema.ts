@@ -289,6 +289,22 @@ export const trainerMemory = sqliteTable("trainer_memory", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
+export const semanticMemory = sqliteTable("semantic_memory", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  kind: text("kind").notNull(),
+  text: text("text").notNull(),
+  status: text("status").notNull(),
+  embeddingJson: text("embedding_json").notNull(),
+  embeddingModel: text("embedding_model").notNull(),
+  sourceConversationId: text("source_conversation_id"),
+  sourceMessageIdsJson: text("source_message_ids_json").notNull().default("[]"),
+  source: text("source").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+});
+
 export const appMetadata = sqliteTable("app_metadata", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

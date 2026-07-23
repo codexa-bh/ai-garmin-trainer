@@ -10,13 +10,11 @@ import { selectedModel } from "@/lib/ai/providers";
 import {
   appendChatMessage,
   clearConversationHistory,
-  createTrainerMemoryProposal,
   dataCounts,
   ensureConversation,
   getGarminAthleteBaseline,
   getTrainerProfile,
   listActivityDetailAvailability,
-  listActiveTrainerMemories,
   listRecentActivities,
   listRecentChatMessages,
   listRecentDailyHealth,
@@ -24,8 +22,13 @@ import {
   type ChatGrounding,
   type StoredChatMessage,
 } from "@/lib/db/repository";
+import { trainerMemoryStore } from "@/lib/memory/sqlite-adapter";
+import { LOCAL_MEMORY_USER_ID, type RetrievedMemory } from "@/lib/memory/types";
 
 const CHAT_HISTORY_LIMIT = 12;
+const RECENT_CONTEXT_LIMIT = 6;
+
+type MemoryProposalResult = { status: "none" };
 
 function messageText(message: UIMessage): string {
   return String(
@@ -56,11 +59,6 @@ function apiMessage(message: StoredChatMessage) {
 
 type ApiChatMessage = ReturnType<typeof apiMessage>;
 
-type MemoryProposalResult =
-  | { status: "none" }
-  | { status: "pending"; id: string; value: string }
-  | { status: "skipped"; reason: string };
-
 type ChatStreamEvent =
   | { type: "start"; conversationId: string; userMessage: ApiChatMessage }
   | { type: "status"; message: string }
@@ -86,6 +84,26 @@ function streamJsonEvent(
 function visibleDeltas(text: string): string[] {
   const matches = text.match(/\S+\s*/g);
   return matches?.length ? matches : [text];
+}
+
+async function recordCompletedTurn(input: {
+  conversationId: string;
+  userRecord: StoredChatMessage;
+  assistantRecord: StoredChatMessage;
+  latestMessage: string;
+}): Promise<void> {
+  try {
+    await trainerMemoryStore().addCompletedTurn({
+      conversationId: input.conversationId,
+      userMessageId: input.userRecord.id,
+      assistantMessageId: input.assistantRecord.id,
+      userText: input.latestMessage,
+      assistantText: input.assistantRecord.content,
+      completedAt: input.assistantRecord.createdAt,
+    });
+  } catch {
+    // Chat remains available when memory extraction/vector dependencies fail.
+  }
 }
 
 function streamingResponse(input: {
@@ -123,7 +141,11 @@ function streamingResponse(input: {
           const { model } = selectedModel();
           const result = await orchestrateTrainerChat({
             model,
-            system: buildSystemContext(messagesForContext),
+            system: await buildSystemContext(
+              input.latestMessage,
+              messagesForContext,
+              input.conversationId,
+            ),
             userRequest: input.latestMessage,
           });
           text = result.text;
@@ -142,6 +164,12 @@ function streamingResponse(input: {
           content: text,
           grounding,
         });
+        await recordCompletedTurn({
+          conversationId: input.conversationId,
+          userRecord: input.userRecord,
+          assistantRecord,
+          latestMessage: input.latestMessage,
+        });
         const messages = listRecentChatMessages(
           input.conversationId,
           CHAT_HISTORY_LIMIT,
@@ -151,7 +179,10 @@ function streamingResponse(input: {
           type: "done",
           assistantMessage: apiMessage(assistantRecord),
           conversationId: input.conversationId,
-          contextWindow: Math.min(messagesForContext.length, 10),
+          contextWindow: Math.min(
+            messagesForContext.length,
+            RECENT_CONTEXT_LIMIT,
+          ),
           historyLimit: CHAT_HISTORY_LIMIT,
           memoryProposal: input.memoryProposal,
         });
@@ -176,58 +207,6 @@ function streamingResponse(input: {
       "cache-control": "no-store",
     },
   });
-}
-
-function explicitMemoryText(message: string): string | null {
-  const trimmed = message.replace(/\s+/g, " ").trim();
-  const match =
-    /^(?:please\s+)?(?:can you\s+|could you\s+)?remember(?:\s+that)?[:\s]+(.+)$/i.exec(
-      trimmed,
-    );
-  const value = match?.[1]?.replace(/[.!?]+$/, "").trim();
-  return value || null;
-}
-
-function unsafeMemoryReason(value: string): string | null {
-  const lower = value.toLowerCase();
-  if (/\b(password|passcode|api key|secret|token|credential)\b/.test(lower)) {
-    return "Credential-like content was not proposed as learned memory.";
-  }
-  if (/\b(raw fit|fit bytes|connector payload|garmin password)\b/.test(lower)) {
-    return "Raw connector, FIT, or Garmin credential details cannot become learned memory.";
-  }
-  if (
-    /\b(diagnos(?:e|is|ed)|prescription|medication dosage|blood pressure|symptom)\b/.test(
-      lower,
-    )
-  ) {
-    return "Medical or sensitive health details need an explicit Profile/task flow, not learned memory.";
-  }
-  return null;
-}
-
-function maybeCreateMemoryProposal(
-  message: string,
-  sourceRef: string,
-): MemoryProposalResult {
-  const value = explicitMemoryText(message);
-  if (!value) return { status: "none" };
-  if (value.length > 500) {
-    return {
-      status: "skipped",
-      reason: "Remember request is too long for a learned-memory proposal.",
-    };
-  }
-  const unsafeReason = unsafeMemoryReason(value);
-  if (unsafeReason) return { status: "skipped", reason: unsafeReason };
-  const proposal = createTrainerMemoryProposal({
-    category: "learned_preference",
-    value,
-    sourceType: "chat_explicit_intent",
-    sourceRef,
-    provenanceText: `User explicitly asked to remember: ${value}`,
-  });
-  return { status: "pending", id: proposal.id, value: proposal.value };
 }
 
 function conversationIdFromRequest(request: Request): string {
@@ -274,7 +253,11 @@ function explainPreviousToolFailure(message: StoredChatMessage): string {
   return `The previous turn reached ${failed.tool} and it was ${failed.status}.${reason} ${failed.summary}`;
 }
 
-function buildSystemContext(recentMessages: StoredChatMessage[]): string {
+async function buildSystemContext(
+  latestMessage: string,
+  recentMessages: StoredChatMessage[],
+  conversationId: string,
+): Promise<string> {
   const counts = dataCounts();
   const detailAvailability = listActivityDetailAvailability(12)
     .map(
@@ -283,14 +266,27 @@ function buildSystemContext(recentMessages: StoredChatMessage[]): string {
     )
     .join("\n");
   const coverage = counts.detailCoverage;
+  let retrievedMemories: RetrievedMemory[] = [];
+  try {
+    retrievedMemories = await trainerMemoryStore().search(
+      latestMessage,
+      { userId: LOCAL_MEMORY_USER_ID, conversationId },
+      8,
+    );
+  } catch {
+    retrievedMemories = [];
+  }
   const context = `${buildTrainerContext({
     activities: listRecentActivities(),
     health: listRecentDailyHealth(),
     profile: getTrainerProfile(),
     athleteBaseline: getGarminAthleteBaseline(),
-    learnedMemories: listActiveTrainerMemories(),
-    recentMessages: formatRecentChatHistory(recentMessages, 10),
-  })}\n\nDetailed activity availability (local SQLite):\n${detailAvailability || "No detailed activities backfilled yet"}\n\nImported data counts: ${counts.activities} activities, ${counts.healthDays} daily health records, and detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures). Recent conversation is bounded to the latest local turns and concise tool evidence only. Use only selected recent facts and explicit tool/local analytics results for detailed claims. Pending, expired, rejected, superseded, or deleted learned memories are not included and must not affect the answer. Never describe summary-only analytics as FIT/stream analysis; only claim detailed FIT/stream evidence when an activity has available or partial detail with records/laps. Never request or expose Garmin credentials, raw FIT bytes, raw connector payloads, or unbounded full-history/stream dumps.`;
+    retrievedMemories,
+    recentMessages: formatRecentChatHistory(
+      recentMessages,
+      RECENT_CONTEXT_LIMIT,
+    ),
+  })}\n\nDetailed activity availability (local SQLite):\n${detailAvailability || "No detailed activities backfilled yet"}\n\nImported data counts: ${counts.activities} activities, ${counts.healthDays} daily health records, and detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures). Recent conversation is bounded to the latest local turns and concise tool evidence only. Use only selected recent facts and explicit tool/local analytics results for detailed claims. Deleted, expired, disabled, unavailable, or unrelated memories are not included and must not affect the answer. Never describe summary-only analytics as FIT/stream analysis; only claim detailed FIT/stream evidence when an activity has available or partial detail with records/laps. Never request or expose Garmin credentials, raw FIT bytes, raw connector payloads, or unbounded full-history/stream dumps.`;
   return `${TRAINER_SYSTEM_PROMPT}\n\nGrounding context:\n${context}`;
 }
 
@@ -302,7 +298,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       conversationId,
       messages: messages.map(apiMessage),
-      contextWindow: Math.min(messages.length, 10),
+      contextWindow: Math.min(messages.length, RECENT_CONTEXT_LIMIT),
       historyLimit: CHAT_HISTORY_LIMIT,
     });
   } catch (error) {
@@ -358,10 +354,7 @@ export async function POST(request: Request) {
       role: "user",
       content: latestMessage,
     });
-    const memoryProposal = maybeCreateMemoryProposal(
-      latestMessage,
-      userRecord.id,
-    );
+    const memoryProposal: MemoryProposalResult = { status: "none" };
     if (body.stream === true) {
       return streamingResponse({
         conversationId,
@@ -381,6 +374,12 @@ export async function POST(request: Request) {
         content: explainPreviousToolFailure(previousFailure),
         grounding: previousFailure.grounding,
       });
+      await recordCompletedTurn({
+        conversationId,
+        userRecord,
+        assistantRecord,
+        latestMessage,
+      });
       const messages = listRecentChatMessages(
         conversationId,
         CHAT_HISTORY_LIMIT,
@@ -390,7 +389,7 @@ export async function POST(request: Request) {
         conversationId,
         messages: messages.map(apiMessage),
         assistant: apiMessage(assistantRecord),
-        contextWindow: Math.min(messages.length, 10),
+        contextWindow: Math.min(messages.length, RECENT_CONTEXT_LIMIT),
         historyLimit: CHAT_HISTORY_LIMIT,
         toolEvidence: previousFailure.grounding,
         toolSteps: [],
@@ -402,7 +401,11 @@ export async function POST(request: Request) {
     const { model } = selectedModel();
     const result = await orchestrateTrainerChat({
       model,
-      system: buildSystemContext(messagesForContext),
+      system: await buildSystemContext(
+        latestMessage,
+        messagesForContext,
+        conversationId,
+      ),
       userRequest: latestMessage,
     });
 
@@ -412,13 +415,19 @@ export async function POST(request: Request) {
       content: result.text,
       grounding: result.grounding,
     });
+    await recordCompletedTurn({
+      conversationId,
+      userRecord,
+      assistantRecord,
+      latestMessage,
+    });
     const messages = listRecentChatMessages(conversationId, CHAT_HISTORY_LIMIT);
 
     return NextResponse.json({
       conversationId,
       messages: messages.map(apiMessage),
       assistant: apiMessage(assistantRecord),
-      contextWindow: Math.min(messagesForContext.length, 10),
+      contextWindow: Math.min(messagesForContext.length, RECENT_CONTEXT_LIMIT),
       historyLimit: CHAT_HISTORY_LIMIT,
       toolEvidence: result.grounding,
       toolSteps: result.toolSteps.map((step) => ({

@@ -1,0 +1,67 @@
+import { getAppMetadata } from "../db/repository";
+import { getOptionalEnv, type AppEnv } from "../env";
+
+const DISABLED_METADATA_KEY = "memory.user_disabled";
+
+export type MemoryRuntimeConfig = {
+  configuredEnabled: boolean;
+  userDisabled: boolean;
+  effectiveEnabled: boolean;
+  embeddingProvider: "openai" | "deterministic";
+  embeddingModel: string;
+  embeddingApiKey?: string;
+  embeddingBaseUrl?: string;
+  embeddingDims: number;
+  timeoutMs: number;
+};
+
+function enabled(value: string | undefined): boolean {
+  return ["1", "true", "yes", "on"].includes((value ?? "").toLowerCase());
+}
+
+function optional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function integer(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function memoryUserDisabled(): boolean {
+  return getAppMetadata(DISABLED_METADATA_KEY) === "true";
+}
+
+export { DISABLED_METADATA_KEY };
+
+export function memoryRuntimeConfig(
+  env: AppEnv = getOptionalEnv(),
+): MemoryRuntimeConfig {
+  const configuredEnabled = enabled(env.MEMORY_ENABLED);
+  const userDisabled = memoryUserDisabled();
+  const embeddingProvider = env.MEMORY_EMBEDDING_PROVIDER;
+  const embeddingApiKey =
+    optional(env.MEMORY_EMBEDDING_API_KEY) ?? optional(env.OPENAI_API_KEY);
+  return {
+    configuredEnabled,
+    userDisabled,
+    effectiveEnabled: configuredEnabled && !userDisabled,
+    embeddingProvider,
+    embeddingModel: env.MEMORY_EMBEDDING_MODEL,
+    embeddingApiKey,
+    embeddingBaseUrl: optional(env.MEMORY_EMBEDDING_BASE_URL),
+    embeddingDims: integer(env.MEMORY_EMBEDDING_DIMS, 1536),
+    timeoutMs: integer(env.MEMORY_TIMEOUT_MS, 8000),
+  };
+}
+
+export function memoryConfigProblems(config: MemoryRuntimeConfig): string[] {
+  const problems: string[] = [];
+  if (!config.configuredEnabled) return problems;
+  if (config.embeddingProvider === "openai" && !config.embeddingApiKey)
+    problems.push("memory embedding key missing");
+  if (config.embeddingDims < 8)
+    problems.push("memory embedding dims too small");
+  return problems;
+}

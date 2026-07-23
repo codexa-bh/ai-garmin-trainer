@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       deleted: clearChatAndProfile(),
       counts: dataCounts(),
       detail:
-        "Cleared local conversations, messages, and trainer profile memory. Normalized Garmin data was preserved.",
+        "Cleared local conversations, messages, and trainer profile. semantic memory and normalized Garmin data were preserved; use Clear all memory for semantic memory.",
     });
   }
   if (scope === "garmin-all") {

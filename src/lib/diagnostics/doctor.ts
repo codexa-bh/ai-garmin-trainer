@@ -201,6 +201,38 @@ export function runDoctor(
       : `Set the BYO ${env.AI_PROVIDER} provider key in .env.local.`,
   );
 
+  const memoryEnabled = ["1", "true", "yes", "on"].includes(
+    env.MEMORY_ENABLED.toLowerCase(),
+  );
+  const memoryEmbeddingKeyPresent = Boolean(
+    env.MEMORY_EMBEDDING_PROVIDER === "deterministic" ||
+    env.MEMORY_EMBEDDING_API_KEY ||
+    env.OPENAI_API_KEY,
+  );
+  check(
+    checks,
+    !memoryEnabled || memoryEmbeddingKeyPresent ? "pass" : "fail",
+    "memory.embedding",
+    !memoryEnabled || memoryEmbeddingKeyPresent
+      ? "memory.embedding_configured_or_disabled"
+      : "memory.embedding_missing_key",
+    memoryEnabled
+      ? `Embedded SQLite memory embedding provider ${env.MEMORY_EMBEDDING_PROVIDER}/${env.MEMORY_EMBEDDING_MODEL} ${memoryEmbeddingKeyPresent ? "is configured" : "is missing a key"}; key value is not printed.`
+      : "Embedded SQLite memory is disabled; embedding key is not required.",
+    !memoryEnabled || memoryEmbeddingKeyPresent
+      ? undefined
+      : "Set MEMORY_EMBEDDING_API_KEY or OPENAI_API_KEY before enabling memory; DeepSeek chat does not imply embeddings.",
+  );
+  check(
+    checks,
+    "pass",
+    "memory.vector",
+    "memory.sqlite_embedded",
+    memoryEnabled
+      ? "Semantic memory vectors persist in the app-owned SQLite database; no hosted/vector sidecar service is configured."
+      : "Semantic memory is disabled; embedded SQLite vector storage will be used when enabled.",
+  );
+
   const token = tokenState(env);
   check(
     checks,
@@ -279,6 +311,14 @@ export function runDoctor(
     provider: {
       selected: env.AI_PROVIDER,
       keyPresent: providerKeyPresent,
+    },
+    memory: {
+      enabled: memoryEnabled,
+      provider: "app-sqlite-vector",
+      vectorProvider: "sqlite",
+      embeddingProvider: env.MEMORY_EMBEDDING_PROVIDER,
+      embeddingKeyPresent: memoryEmbeddingKeyPresent,
+      embeddingModel: env.MEMORY_EMBEDDING_MODEL,
     },
   }) as Record<string, unknown>;
 

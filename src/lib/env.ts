@@ -19,6 +19,15 @@ const optionalEnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   DEEPSEEK_API_KEY: z.string().optional(),
   DEEPSEEK_MODEL: z.string().default("deepseek-chat"),
+  MEMORY_ENABLED: z.string().default("false"),
+  MEMORY_EMBEDDING_PROVIDER: z
+    .enum(["openai", "deterministic"])
+    .default("openai"),
+  MEMORY_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
+  MEMORY_EMBEDDING_API_KEY: z.string().optional(),
+  MEMORY_EMBEDDING_BASE_URL: z.string().optional(),
+  MEMORY_EMBEDDING_DIMS: z.string().default("1536"),
+  MEMORY_TIMEOUT_MS: z.string().default("8000"),
 });
 
 export type AppEnv = z.infer<typeof optionalEnvSchema>;

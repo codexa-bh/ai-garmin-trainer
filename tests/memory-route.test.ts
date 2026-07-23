@@ -9,6 +9,7 @@ beforeEach(() => {
     mkdtempSync(join(tmpdir(), "trainer-memory-route-")),
     "test.sqlite",
   );
+  process.env.MEMORY_ENABLED = "false";
 });
 
 async function route() {
@@ -17,71 +18,49 @@ async function route() {
 
 function jsonRequest(body: unknown) {
   return new Request("http://localhost/api/memory", {
-    method: "POST",
+    method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
 }
 
-describe("memory API route", () => {
-  it("creates pending proposals and approves/rejects/forgets through explicit actions", async () => {
-    const { GET, POST, PATCH } = await route();
+describe("semantic memory API route", () => {
+  it("reports disabled semantic memory readiness without requiring vector/provider services", async () => {
+    const { GET } = await route();
 
-    const createdResponse = await POST(
-      jsonRequest({ value: "I prefer morning hikes" }),
-    );
-    const created = (await createdResponse.json()) as {
-      memory: { id: string; status: string; value: string };
-      pending: Array<{ id: string }>;
-      confirmed: Array<{ id: string }>;
+    const payload = (await (await GET()).json()) as {
+      health: { status: string; provider: string; vectorProvider: string };
+      memories: unknown[];
     };
-    expect(created.memory).toMatchObject({
-      status: "pending_confirmation",
-      value: "I prefer morning hikes",
+
+    expect(payload.health).toMatchObject({
+      status: "disabled",
+      provider: "app-sqlite-vector",
+      vectorProvider: "sqlite",
     });
-    expect(created.pending).toHaveLength(1);
-    expect(created.confirmed).toHaveLength(0);
-
-    const approvedResponse = await PATCH(
-      jsonRequest({ id: created.memory.id, action: "approve" }),
-    );
-    const approved = (await approvedResponse.json()) as {
-      confirmed: Array<{ id: string }>;
-    };
-    expect(approved.confirmed.map((item) => item.id)).toEqual([
-      created.memory.id,
-    ]);
-
-    const forgottenResponse = await PATCH(
-      jsonRequest({ id: created.memory.id, action: "forget" }),
-    );
-    const forgotten = (await forgottenResponse.json()) as {
-      memories: Array<{ id: string }>;
-    };
-    expect(forgotten.memories).toEqual([]);
-
-    const rejectedCreate = (await (
-      await POST(jsonRequest({ value: "Wrong preference" }))
-    ).json()) as { memory: { id: string } };
-    const rejectedResponse = await PATCH(
-      jsonRequest({ id: rejectedCreate.memory.id, action: "reject" }),
-    );
-    expect(rejectedResponse.status).toBe(200);
-
-    const list = (await (await GET()).json()) as { memories: unknown[] };
-    expect(list.memories).toEqual([]);
+    expect(payload.memories).toEqual([]);
   });
 
-  it("rejects empty, overlong, and credential-like memory proposals", async () => {
-    const { POST } = await route();
+  it("persists the local enable/disable control separately from memory contents", async () => {
+    const { PATCH } = await route();
 
-    expect((await POST(jsonRequest({ value: "" }))).status).toBe(400);
-    expect((await POST(jsonRequest({ value: "x".repeat(501) }))).status).toBe(
-      400,
+    const disabled = (await (
+      await PATCH(jsonRequest({ action: "set-enabled", enabled: false }))
+    ).json()) as { health: { userDisabled: boolean; status: string } };
+    expect(disabled.health.userDisabled).toBe(true);
+    expect(disabled.health.status).toBe("disabled");
+
+    const enabled = (await (
+      await PATCH(jsonRequest({ action: "set-enabled", enabled: true }))
+    ).json()) as { health: { userDisabled: boolean; status: string } };
+    expect(enabled.health.userDisabled).toBe(false);
+  });
+
+  it("rejects unsupported management actions", async () => {
+    const { PATCH } = await route();
+    const response = await PATCH(
+      jsonRequest({ action: "approve", id: "legacy" }),
     );
-    expect(
-      (await POST(jsonRequest({ value: "my Garmin password is secret" })))
-        .status,
-    ).toBe(400);
+    expect(response.status).toBe(400);
   });
 });

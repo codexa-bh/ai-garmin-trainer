@@ -392,13 +392,11 @@ let memoryProposals: Array<{
   createdAt: Date;
   updatedAt: Date;
 }> = [];
-let activeMemories: Array<{
+let retrievedMemories: Array<{
   id: string;
-  category: "learned_preference";
-  value: string;
-  provenanceText: string;
-  expiresAt: null;
-  reconfirmAfter: null;
+  kind: "saved_preference";
+  text: string;
+  conversationId?: string;
 }> = [];
 
 vi.mock("ai", () => ({
@@ -527,7 +525,6 @@ vi.mock("@/lib/db/repository", () => ({
     preferences: {},
     constraints: [],
   }),
-  listActiveTrainerMemories: () => activeMemories,
   listActivityDetailAvailability: () => [],
   listRecentActivities: () => [
     {
@@ -552,6 +549,13 @@ vi.mock("@/lib/db/repository", () => ({
     availability: null,
     laps: [],
     stream: [],
+  }),
+}));
+
+vi.mock("@/lib/memory/sqlite-adapter", () => ({
+  trainerMemoryStore: () => ({
+    search: vi.fn(async () => retrievedMemories),
+    addCompletedTurn: vi.fn(async () => undefined),
   }),
 }));
 
@@ -604,7 +608,7 @@ describe("chat route LLM tool orchestration", () => {
   beforeEach(() => {
     messages = [];
     memoryProposals = [];
-    activeMemories = [];
+    retrievedMemories = [];
     generateText.mockClear();
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
@@ -734,35 +738,26 @@ describe("chat route LLM tool orchestration", () => {
     expect(generic.assistant.content).toBe("model response");
   });
 
-  it("creates a pending learned-memory proposal from explicit remember intent", async () => {
+  it("does not create the retired pending learned-memory proposal from explicit remember intent", async () => {
     const payload = await postChat("remember that I prefer morning hikes");
 
-    expect(payload.memoryProposal).toMatchObject({
-      status: "pending",
-      value: "I prefer morning hikes",
-    });
-    expect(memoryProposals).toHaveLength(1);
-    expect(memoryProposals[0]).toMatchObject({
-      status: "pending_confirmation",
-      sourceType: "chat_explicit_intent",
-      sourceRef: "user-1",
-    });
+    expect(payload.memoryProposal).toMatchObject({ status: "none" });
+    expect(memoryProposals).toHaveLength(0);
     const firstCall = generateText.mock.calls[0][0] as { system: string };
+    expect(firstCall.system).toContain("Retrieved semantic memories");
     expect(firstCall.system).toContain(
-      "Confirmed learned memories:\nNone confirmed",
+      "No relevant semantic memories retrieved",
     );
   });
 
-  it("keeps manual new-chat context separate while retaining confirmed memories", async () => {
+  it("keeps manual new-chat transcript separate while allowing bounded semantic retrieval", async () => {
     await postChat("Old transcript phrase should stay in default only");
-    activeMemories = [
+    retrievedMemories = [
       {
         id: "memory-active",
-        category: "learned_preference",
-        value: "Prefers morning hikes.",
-        provenanceText: "User approved memory.",
-        expiresAt: null,
-        reconfirmAfter: null,
+        kind: "saved_preference",
+        text: "Prefers morning hikes.",
+        conversationId: "default",
       },
     ];
     generateText.mockClear();

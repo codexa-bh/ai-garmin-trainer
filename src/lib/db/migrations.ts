@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 4;
+export const LATEST_SCHEMA_VERSION = 5;
 export const SCHEMA_VERSION_KEY = "schema_version";
 
 const BASE_SCHEMA_SQL = [
@@ -24,6 +24,9 @@ const BASE_SCHEMA_SQL = [
   `create table if not exists message (id text primary key, conversation_id text not null, role text not null, content text not null, grounding_json text, created_at integer not null)`,
   `create table if not exists trainer_profile (id text primary key default 'default', goals_json text not null default '[]', sports_json text not null default '[]', preferences_json text not null default '{}', constraints_json text not null default '[]', updated_at integer not null)`,
   `create table if not exists trainer_memory (id text primary key, category text not null, value text not null, status text not null, source_type text not null, source_ref text, provenance_text text not null, valid_from integer, expires_at integer, reconfirm_after integer, supersedes_id text, superseded_by_id text, created_at integer not null, updated_at integer not null)`,
+  `create table if not exists semantic_memory (id text primary key, user_id text not null, kind text not null, text text not null, status text not null, embedding_json text not null, embedding_model text not null, source_conversation_id text, source_message_ids_json text not null default '[]', source text not null, created_at integer not null, updated_at integer not null, expires_at integer)`,
+  `create index if not exists semantic_memory_user_status_idx on semantic_memory(user_id, status, updated_at)`,
+  `create index if not exists semantic_memory_conversation_idx on semantic_memory(source_conversation_id)`,
   `create table if not exists app_metadata (key text primary key, value text not null, updated_at integer not null)`,
 ];
 
@@ -65,6 +68,15 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       `alter table garmin_athlete_baseline add column heart_rate_zones_json text not null default '[]'`,
     ],
   },
+  {
+    version: 5,
+    name: "embedded_semantic_memory",
+    statements: [
+      `create table if not exists semantic_memory (id text primary key, user_id text not null, kind text not null, text text not null, status text not null, embedding_json text not null, embedding_model text not null, source_conversation_id text, source_message_ids_json text not null default '[]', source text not null, created_at integer not null, updated_at integer not null, expires_at integer)`,
+      `create index if not exists semantic_memory_user_status_idx on semantic_memory(user_id, status, updated_at)`,
+      `create index if not exists semantic_memory_conversation_idx on semantic_memory(source_conversation_id)`,
+    ],
+  },
 ];
 
 export function createSchemaSql(): string[] {
@@ -89,6 +101,7 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "conversation",
     "trainer_profile",
     "trainer_memory",
+    "semantic_memory",
     "sync_run",
     "garmin_athlete_baseline",
     "garmin_athlete_baseline_attempt",

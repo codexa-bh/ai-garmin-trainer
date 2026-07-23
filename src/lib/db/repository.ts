@@ -80,6 +80,22 @@ export function getDatabase(): Database.Database {
   return database;
 }
 
+export function getAppMetadata(key: string): string | null {
+  const row = getDatabase()
+    .prepare("select value from app_metadata where key = ?")
+    .get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setAppMetadata(key: string, value: string): void {
+  getDatabase()
+    .prepare(
+      `insert into app_metadata (key, value, updated_at) values (?, ?, ?)
+       on conflict(key) do update set value = excluded.value, updated_at = excluded.updated_at`,
+    )
+    .run(key, value, Date.now());
+}
+
 export function upsertActivities(activities: NormalizedActivity[]): number {
   const db = getDatabase();
   const insert = db.prepare(`
@@ -1504,6 +1520,9 @@ export function deleteConversation(id = DEFAULT_CONVERSATION_ID): boolean {
     db.prepare("delete from message where conversation_id = ?").run(
       conversationId,
     );
+    db.prepare(
+      "update semantic_memory set status = 'deleted', updated_at = ? where source_conversation_id = ? and kind = 'conversation'",
+    ).run(Date.now(), conversationId);
     return db
       .prepare("delete from conversation where id = ?")
       .run(conversationId).changes;
@@ -1651,9 +1670,8 @@ export function clearChatAndProfile(): string[] {
     db.prepare("delete from message").run();
     db.prepare("delete from conversation").run();
     db.prepare("delete from trainer_profile").run();
-    db.prepare("delete from trainer_memory").run();
   })();
-  return ["messages", "conversations", "trainer_profile", "trainer_memory"];
+  return ["messages", "conversations", "trainer_profile"];
 }
 
 export function clearGarminData(): string[] {
