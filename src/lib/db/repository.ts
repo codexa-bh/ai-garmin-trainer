@@ -27,6 +27,7 @@ import {
   type GarminRawContentType,
   type GarminRawSubjectType,
 } from "../garmin/raw-payload";
+import { dailyHealthAvailability } from "../garmin/normalize";
 
 let database: Database.Database | undefined;
 let lastChatMessageTimestamp = 0;
@@ -142,8 +143,36 @@ export function upsertActivities(activities: NormalizedActivity[]): number {
   return activities.length;
 }
 
+function mergeDailyHealth(
+  previous: NormalizedDailyHealth,
+  incoming: NormalizedDailyHealth,
+): NormalizedDailyHealth {
+  const merged = {
+    date: incoming.date,
+    sleepMinutes: incoming.sleepMinutes ?? previous.sleepMinutes ?? null,
+    restingHeartRate:
+      incoming.restingHeartRate ?? previous.restingHeartRate ?? null,
+    hrvStatus: incoming.hrvStatus ?? previous.hrvStatus ?? null,
+    hrvMs: incoming.hrvMs ?? previous.hrvMs ?? null,
+    stressAvg: incoming.stressAvg ?? previous.stressAvg ?? null,
+    steps: incoming.steps ?? previous.steps ?? null,
+    calories: incoming.calories ?? previous.calories ?? null,
+    bodyBatteryAvg: incoming.bodyBatteryAvg ?? previous.bodyBatteryAvg ?? null,
+  };
+  return {
+    ...merged,
+    availability: dailyHealthAvailability(merged),
+  };
+}
+
 export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
   const db = getDatabase();
+  const byDate = db.prepare(`
+    select date, sleep_minutes as sleepMinutes, resting_heart_rate as restingHeartRate,
+           hrv_status as hrvStatus, hrv_ms as hrvMs, stress_avg as stressAvg,
+           steps, calories, body_battery_avg as bodyBatteryAvg, availability
+    from daily_health where date = ?
+  `);
   const insert = db.prepare(`
     insert into daily_health (date, sleep_minutes, resting_heart_rate, hrv_status, hrv_ms, stress_avg, steps, calories, body_battery_avg, availability)
     values (@date, @sleepMinutes, @restingHeartRate, @hrvStatus, @hrvMs, @stressAvg, @steps, @calories, @bodyBatteryAvg, @availability)
@@ -158,8 +187,15 @@ export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
       body_battery_avg=excluded.body_battery_avg,
       availability=excluded.availability
   `);
-  const run = getDatabase().transaction((items: NormalizedDailyHealth[]) => {
-    for (const day of items) insert.run(day);
+  const run = db.transaction((items: NormalizedDailyHealth[]) => {
+    for (const day of items) {
+      const previous = byDate.get(day.date) as
+        NormalizedDailyHealth | undefined;
+      const merged = previous
+        ? mergeDailyHealth(previous, day)
+        : { ...day, availability: dailyHealthAvailability(day) };
+      insert.run(merged);
+    }
   });
   run(days);
   return days.length;

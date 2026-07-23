@@ -14,6 +14,15 @@ function sourceNameOrNull(value: unknown): string | null {
   return normalized || null;
 }
 
+export function dailyHealthAvailability(
+  fields: Omit<NormalizedDailyHealth, "date" | "availability">,
+): NormalizedDailyHealth["availability"] {
+  const present = Object.values(fields).filter(
+    (value) => value !== null,
+  ).length;
+  return present === 0 ? "missing" : present >= 5 ? "complete" : "partial";
+}
+
 export function normalizeActivity(
   payload: Partial<GarminActivityPayload> & Record<string, unknown>,
 ): NormalizedActivity {
@@ -75,13 +84,9 @@ export function normalizeDailyHealth(
       numberOrNull(stats?.body_battery_current) ??
       numberOrNull(stats?.body_battery_highest),
   };
-  const present = Object.values(fields).filter(
-    (value) => value !== null,
-  ).length;
   return {
     date,
     ...fields,
-    availability:
-      present === 0 ? "missing" : present >= 5 ? "complete" : "partial",
+    availability: dailyHealthAvailability(fields),
   };
 }

@@ -95,6 +95,45 @@ function eachDate(startDate: string, endDate: string): string[] {
   return days;
 }
 
+function addUtcDays(date: string, days: number): string {
+  const cursor = new Date(`${date}T00:00:00Z`);
+  cursor.setUTCDate(cursor.getUTCDate() + days);
+  return isoDate(cursor);
+}
+
+function maxIsoDate(first: string, second: string): string {
+  return first > second ? first : second;
+}
+
+function dateRange(startDate: string, endDate: string): string[] {
+  return startDate <= endDate ? eachDate(startDate, endDate) : [];
+}
+
+export function dailyHealthImportPlan(input: {
+  historyStartDate: string;
+  resumeDate: string;
+  endDate: string;
+  recentWindowDays?: number;
+}): { dates: string[]; checkpointDates: string[]; recentDates: string[] } {
+  const recentWindowDays = Math.max(1, Math.trunc(input.recentWindowDays ?? 7));
+  const historicalDates = dateRange(
+    maxIsoDate(input.historyStartDate, input.resumeDate),
+    input.endDate,
+  );
+  const recentDates = dateRange(
+    maxIsoDate(
+      input.historyStartDate,
+      addUtcDays(input.endDate, 1 - recentWindowDays),
+    ),
+    input.endDate,
+  );
+  return {
+    dates: Array.from(new Set([...historicalDates, ...recentDates])).sort(),
+    checkpointDates: historicalDates,
+    recentDates,
+  };
+}
+
 function compactError(error: unknown): string {
   return (
     error instanceof Error
@@ -283,15 +322,20 @@ export async function runGarminSync(
     }
 
     const resumeDate = getCheckpoint("health_next_date") ?? startDate;
-    const dates = eachDate(resumeDate, endDate);
-    for (const [index, date] of dates.entries()) {
+    const healthPlan = dailyHealthImportPlan({
+      historyStartDate: startDate,
+      resumeDate,
+      endDate,
+    });
+    const checkpointDates = new Set(healthPlan.checkpointDates);
+    for (const [index, date] of healthPlan.dates.entries()) {
       onProgress({
         stage: "health",
-        message: `Backfilling daily health ${index + 1}/${dates.length}: ${date}…`,
+        message: `Refreshing daily health ${index + 1}/${healthPlan.dates.length}: ${date}…`,
         activitiesImported,
         healthDaysImported,
         date,
-        totalHealthDays: dates.length,
+        totalHealthDays: healthPlan.dates.length,
         completedHealthDays: index,
       });
       const statsText = await client.callTool("get_stats", { date });
@@ -313,16 +357,18 @@ export async function runGarminSync(
       healthDaysImported += upsertDailyHealth([
         normalizeDailyHealth(date, { stats, sleep }),
       ]);
-      const next = new Date(`${date}T00:00:00Z`);
-      next.setUTCDate(next.getUTCDate() + 1);
-      saveCheckpoint("health_next_date", isoDate(next));
+      if (checkpointDates.has(date)) {
+        const next = new Date(`${date}T00:00:00Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
+        saveCheckpoint("health_next_date", isoDate(next));
+      }
       onProgress({
         stage: "health",
-        message: `Imported daily health ${index + 1}/${dates.length}: ${date}.`,
+        message: `Imported daily health ${index + 1}/${healthPlan.dates.length}: ${date}.`,
         activitiesImported,
         healthDaysImported,
         date,
-        totalHealthDays: dates.length,
+        totalHealthDays: healthPlan.dates.length,
         completedHealthDays: index + 1,
       });
     }
