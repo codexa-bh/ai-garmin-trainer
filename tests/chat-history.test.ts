@@ -135,4 +135,83 @@ describe("local chat history repository", () => {
     ]);
     expect(repository.listRecentChatMessages("paged-chat", 2)).toHaveLength(2);
   });
+
+  it("deletes one conversation through the route while preserving other local data", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const route =
+      await import("../src/app/api/conversations/[conversationId]/route");
+
+    repository.saveTrainerProfile({
+      goals: ["Preserve this profile"],
+      sports: ["hiking"],
+      preferences: { coachingStyle: "direct" },
+      constraints: ["no racing"],
+    });
+    repository.upsertActivities([
+      {
+        garminId: "garmin-preserved-1",
+        name: "Preserved local activity",
+        sport: "hiking",
+        startedAt: new Date("2026-07-16T06:00:00Z"),
+        durationSec: 3600,
+        distanceMeters: 8000,
+        calories: 500,
+        avgHeartRate: 140,
+        maxHeartRate: 170,
+        steps: 9000,
+        elevationGainMeters: 700,
+        elevationLossMeters: 700,
+        trainingEffect: 3.1,
+      },
+    ]);
+    const memory = repository.createTrainerMemoryProposal({
+      category: "learned_preference",
+      value: "Prefers morning hikes",
+      sourceType: "chat",
+      sourceRef: "keep-chat",
+      provenanceText: "User asked to remember this preference.",
+    });
+    repository.confirmTrainerMemory(memory.id);
+    repository.appendChatMessage({
+      conversationId: "delete-chat",
+      role: "user",
+      content: "Delete only this transcript",
+    });
+    repository.appendChatMessage({
+      conversationId: "keep-chat",
+      role: "user",
+      content: "Keep this transcript",
+    });
+
+    const response = await route.DELETE(
+      new Request("http://local.test/api/conversations/delete-chat", {
+        method: "DELETE",
+      }),
+      { params: { conversationId: "delete-chat" } },
+    );
+    const payload = (await response.json()) as {
+      deleted: boolean;
+      conversationId: string;
+      nextConversationId: string;
+      conversations: Array<{ id: string }>;
+    };
+
+    expect(payload).toMatchObject({
+      deleted: true,
+      conversationId: "delete-chat",
+      nextConversationId: "keep-chat",
+    });
+    expect(payload.conversations.map((item) => item.id)).toEqual(["keep-chat"]);
+    expect(repository.listRecentChatMessages("delete-chat")).toEqual([]);
+    expect(
+      repository
+        .listRecentChatMessages("keep-chat")
+        .map((message) => message.content),
+    ).toEqual(["Keep this transcript"]);
+    expect(repository.getTrainerProfile().goals).toEqual([
+      "Preserve this profile",
+    ]);
+    expect(repository.listActiveTrainerMemories()).toHaveLength(1);
+    expect(repository.dataCounts().activities).toBe(1);
+  });
 });

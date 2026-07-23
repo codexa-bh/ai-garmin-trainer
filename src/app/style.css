@@ -236,25 +236,58 @@ label {
   overflow: auto;
 }
 .conversation-item {
-  display: flex;
+  display: grid;
   width: 100%;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
+  box-sizing: border-box;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #334155;
   border-radius: 14px;
-  border-color: #334155;
   background: #111827;
   color: #e2e8f0;
   text-align: left;
 }
 .conversation-item:hover,
+.conversation-item:focus-within,
 .conversation-item.active {
   background: #0c2438;
   border-color: #38bdf8;
 }
+button.conversation-select {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 12px 0 12px 12px;
+  border-radius: 14px 6px 6px 14px;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+}
+button.conversation-select:hover {
+  background: transparent;
+}
+.conversation-select span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .conversation-item small {
   color: #94a3b8;
   font-weight: 700;
+}
+button.conversation-delete {
+  margin-right: 8px;
+  padding: 7px 9px;
+  border-color: #fca5a5;
+  background: #3f1111;
+  color: #fecaca;
+  font-size: 12px;
+}
+button.conversation-delete:hover:not(:disabled) {
+  background: #7f1d1d;
+  color: #fee2e2;
 }
 button.primary-action {
   width: 100%;

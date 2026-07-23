@@ -76,6 +76,7 @@ function setTranscriptMetrics(
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -538,6 +539,324 @@ describe("TrainerDashboard memory and new chat", () => {
         action: "approve",
       }),
     );
+  });
+
+  it("deletes a previous saved conversation without selecting it", async () => {
+    const updatedAt = "2026-07-17T12:00:00.000Z";
+    let conversations = [
+      {
+        id: "default",
+        title: "Active plan",
+        createdAt: updatedAt,
+        updatedAt,
+      },
+      {
+        id: "previous-chat",
+        title: "Previous climb chat",
+        createdAt: updatedAt,
+        updatedAt,
+      },
+    ];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      if (url === "/api/conversations") return jsonResponse({ conversations });
+      if (
+        url === "/api/conversations/previous-chat" &&
+        init?.method === "DELETE"
+      ) {
+        conversations = conversations.filter(
+          (item) => item.id !== "previous-chat",
+        );
+        return jsonResponse({
+          deleted: true,
+          conversationId: "previous-chat",
+          nextConversationId: "default",
+          conversations,
+        });
+      }
+      if (url.startsWith("/api/conversations/default")) {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-active",
+              role: "assistant",
+              content: "Active visible transcript",
+              createdAt: updatedAt,
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url.startsWith("/api/conversations/previous-chat")) {
+        return jsonResponse({
+          conversationId: "previous-chat",
+          messages: [
+            {
+              id: "assistant-previous",
+              role: "assistant",
+              content: "Previous transcript should not open",
+              createdAt: updatedAt,
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    const confirmMock = vi.fn(() => true);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", confirmMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(await screen.findByText("Active visible transcript")).toBeTruthy();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: 'Delete conversation "Previous climb chat"',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Previous climb chat")).toBeNull();
+    });
+    expect(screen.getByText("Active visible transcript")).toBeTruthy();
+    expect(
+      screen.queryByText("Previous transcript should not open"),
+    ).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/conversations/previous-chat?"),
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Garmin data, Profile, and saved memories stay unchanged",
+      ),
+    );
+  });
+
+  it("keeps a previous saved conversation when delete confirmation is cancelled", async () => {
+    const updatedAt = "2026-07-17T12:00:00.000Z";
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      if (url === "/api/conversations")
+        return jsonResponse({
+          conversations: [
+            {
+              id: "default",
+              title: "Active plan",
+              createdAt: updatedAt,
+              updatedAt,
+            },
+            {
+              id: "previous-chat",
+              title: "Previous climb chat",
+              createdAt: updatedAt,
+              updatedAt,
+            },
+          ],
+        });
+      if (url.startsWith("/api/conversations/default"))
+        return jsonResponse({
+          conversationId: "default",
+          messages: [],
+          contextWindow: 0,
+          historyLimit: 12,
+        });
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    const confirmMock = vi.fn(() => false);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", confirmMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: 'Delete conversation "Previous climb chat"',
+      }),
+    );
+
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.stringContaining("saved memories stay unchanged"),
+    );
+    expect(screen.getByText("Previous climb chat")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/conversations/previous-chat",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("falls back to a remaining chat when deleting the active conversation from the list", async () => {
+    const updatedAt = "2026-07-17T12:00:00.000Z";
+    let conversations = [
+      {
+        id: "default",
+        title: "Active plan",
+        createdAt: updatedAt,
+        updatedAt,
+      },
+      {
+        id: "remaining-chat",
+        title: "Remaining chat",
+        createdAt: updatedAt,
+        updatedAt,
+      },
+    ];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      if (url === "/api/conversations") return jsonResponse({ conversations });
+      if (url === "/api/conversations/default" && init?.method === "DELETE") {
+        conversations = conversations.filter((item) => item.id !== "default");
+        return jsonResponse({
+          deleted: true,
+          conversationId: "default",
+          nextConversationId: "remaining-chat",
+          conversations,
+        });
+      }
+      if (url.startsWith("/api/conversations/default")) {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-active",
+              role: "assistant",
+              content: "Active answer before delete",
+              createdAt: updatedAt,
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url.startsWith("/api/conversations/remaining-chat")) {
+        return jsonResponse({
+          conversationId: "remaining-chat",
+          messages: [
+            {
+              id: "assistant-remaining",
+              role: "assistant",
+              content: "Remaining chat transcript",
+              createdAt: updatedAt,
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(await screen.findByText("Active answer before delete")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: 'Delete conversation "Active plan"' }),
+    );
+
+    expect(await screen.findByText("Remaining chat transcript")).toBeTruthy();
+    expect(screen.queryByText("Active answer before delete")).toBeNull();
+    expect(window.localStorage.getItem("trainer.activeConversationId")).toBe(
+      "remaining-chat",
+    );
+  });
+
+  it("disables saved-conversation deletion while a streamed answer is in flight", async () => {
+    const updatedAt = "2026-07-17T12:00:00.000Z";
+    let resolveChat!: (response: Response) => void;
+    const chatPost = new Promise<Response>((resolve) => {
+      resolveChat = resolve;
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      if (url === "/api/conversations")
+        return jsonResponse({
+          conversations: [
+            {
+              id: "default",
+              title: "Active plan",
+              createdAt: updatedAt,
+              updatedAt,
+            },
+            {
+              id: "previous-chat",
+              title: "Previous climb chat",
+              createdAt: updatedAt,
+              updatedAt,
+            },
+          ],
+        });
+      if (url.startsWith("/api/conversations/default"))
+        return jsonResponse({
+          conversationId: "default",
+          messages: [],
+          contextWindow: 0,
+          historyLimit: 12,
+        });
+      if (url === "/api/chat" && init?.method === "POST") return chatPost;
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "Hold this stream open" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(
+        (
+          screen.getByRole("button", {
+            name: 'Delete conversation "Previous climb chat"',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+    });
+
+    resolveChat(
+      new Response(
+        JSON.stringify({
+          conversationId: "default",
+          messages: [],
+          contextWindow: 0,
+          historyLimit: 12,
+          memoryProposal: { status: "none" },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
   });
 
   it("starts a manual new chat without replaying the visible transcript", async () => {

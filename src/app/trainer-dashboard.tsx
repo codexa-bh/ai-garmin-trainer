@@ -591,7 +591,7 @@ export function TrainerDashboard() {
       setContextWindow(Math.min(nextMessages.length, 10));
       setHistoryLimit(payload.historyLimit ?? 12);
       setLastFailedMessage("");
-      forceNextScrollRef.current = true;
+      if (!showStatus) forceNextScrollRef.current = true;
       if (showStatus)
         setStatus({
           kind: "ok",
@@ -769,7 +769,7 @@ export function TrainerDashboard() {
     );
   }
 
-  async function deleteActiveConversation() {
+  async function deleteConversationById(targetId: string, title: string) {
     if (isChatLoading) {
       setStatus({
         kind: "error",
@@ -778,25 +778,40 @@ export function TrainerDashboard() {
       });
       return;
     }
-    if (!window.confirm("Delete this local conversation and its messages?"))
+    const label = title.trim() || "this chat";
+    if (
+      !window.confirm(
+        `Delete local conversation "${label}" and its messages? Garmin data, Profile, and saved memories stay unchanged.`,
+      )
+    )
       return;
+    const isActiveDelete = targetId === conversationId;
     setStatus({ kind: "busy", message: "Conversation: deleting…" });
     try {
       const payload = await readJsonResponse<ConversationDeletePayload>(
-        await fetch(
-          `/api/conversations/${encodeURIComponent(conversationId)}`,
-          {
-            method: "DELETE",
-          },
-        ),
+        await fetch(`/api/conversations/${encodeURIComponent(targetId)}`, {
+          method: "DELETE",
+        }),
       );
       setConversations(payload.conversations ?? []);
-      setConversationId(payload.nextConversationId);
+      if (isActiveDelete) {
+        rememberTranscriptFollowIntent();
+        setChatMessages([]);
+        setHistoryCursor(null);
+        setContextWindow(0);
+        setLastFailedMessage("");
+        forceNextScrollRef.current = true;
+        setConversationId(payload.nextConversationId);
+      }
       setStatus({
         kind: "ok",
         message: payload.deleted
-          ? "Conversation deleted; a safe remaining/new conversation is selected."
-          : "Conversation was already absent; a safe conversation is selected.",
+          ? isActiveDelete
+            ? "Conversation deleted; a safe remaining/new conversation is selected. Garmin data, Profile, and saved memories stay unchanged."
+            : "Conversation deleted from saved chats. The current transcript, Garmin data, Profile, and saved memories stay unchanged."
+          : isActiveDelete
+            ? "Conversation was already absent; a safe conversation is selected."
+            : "Conversation was already absent; saved chats were refreshed.",
       });
     } catch (error) {
       setStatus({
@@ -804,6 +819,13 @@ export function TrainerDashboard() {
         message: `Conversation delete failed: ${error instanceof Error ? error.message : "unknown error"}`,
       });
     }
+  }
+
+  async function deleteActiveConversation() {
+    await deleteConversationById(
+      conversationId,
+      activeConversation?.title ?? "this chat",
+    );
   }
 
   async function clearChatHistory() {
@@ -1143,16 +1165,33 @@ export function TrainerDashboard() {
           >
             {conversations.length ? (
               conversations.map((item) => (
-                <button
-                  type="button"
+                <div
                   role="listitem"
                   className={`conversation-item ${item.id === conversationId ? "active" : ""}`}
                   key={item.id}
-                  onClick={() => selectConversation(item.id)}
                 >
-                  <span>{item.title}</span>
-                  <small>{dateLabel(item.updatedAt)}</small>
-                </button>
+                  <button
+                    type="button"
+                    className="conversation-select"
+                    onClick={() => selectConversation(item.id)}
+                    aria-current={
+                      item.id === conversationId ? "true" : undefined
+                    }
+                  >
+                    <span>{item.title}</span>
+                    <small>{dateLabel(item.updatedAt)}</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="conversation-delete"
+                    onClick={() => deleteConversationById(item.id, item.title)}
+                    disabled={isChatLoading}
+                    aria-label={`Delete conversation "${item.title}"`}
+                    title="Delete this local conversation and its messages"
+                  >
+                    Delete
+                  </button>
+                </div>
               ))
             ) : (
               <p className="empty-chat">No saved conversations yet.</p>
