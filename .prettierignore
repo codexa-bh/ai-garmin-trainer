@@ -5,3 +5,4 @@ data
 .garmin-token
 .garmin-mcp
 package-lock.json
+src/app/icon.svg

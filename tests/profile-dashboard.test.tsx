@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { metadata } from "../src/app/layout";
 import { TrainerDashboard } from "../src/app/trainer-dashboard";
 
 const emptyChat = {
@@ -59,6 +60,22 @@ function openSettings() {
   fireEvent.click(screen.getByRole("button", { name: "Data & settings" }));
 }
 
+function stubViewport(matches: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
 async function openConversationMenu(title: string) {
   fireEvent.click(
     await screen.findByRole("button", {
@@ -91,6 +108,15 @@ afterEach(() => {
   cleanup();
   window.localStorage.clear();
   vi.unstubAllGlobals();
+});
+
+describe("app metadata", () => {
+  it("uses the local Garmin AI Trainer tab title and favicon", () => {
+    expect(metadata.title).toBe("Garmin AI Trainer");
+    expect(metadata.icons).toEqual({
+      icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    });
+  });
 });
 
 describe("TrainerDashboard Profile hydration", () => {
@@ -220,11 +246,21 @@ describe("TrainerDashboard Profile hydration", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(React.createElement(TrainerDashboard));
+    stubViewport(false);
 
-    expect(
-      screen.getByRole("button", { name: "Toggle conversation history" }),
-    ).toBeTruthy();
+    const { container } = render(React.createElement(TrainerDashboard));
+
+    const conversationToggle = screen.getByRole("button", {
+      name: "Toggle conversation history",
+    });
+    const shell = container.querySelector(".dashboard-shell");
+    expect(conversationToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(shell?.classList.contains("sidebar-collapsed")).toBe(true);
+
+    fireEvent.click(conversationToggle);
+
+    expect(conversationToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(shell?.classList.contains("sidebar-collapsed")).toBe(false);
     expect(screen.getByRole("heading", { name: "Trainer chat" })).toBeTruthy();
     expect(screen.queryByText("AI Garmin Connect Trainer")).toBeNull();
 
@@ -232,6 +268,12 @@ describe("TrainerDashboard Profile hydration", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Data & settings" });
     expect(dialog).toBeTruthy();
+    const profileSummary = screen.getByText(/Profile \/ trainer grounding/);
+    expect(
+      profileSummary
+        .closest("details")
+        ?.classList.contains("profile-settings-card"),
+    ).toBe(true);
     expect(screen.getByLabelText("Goals")).toBeTruthy();
     expect(screen.getByText("Learned memory")).toBeTruthy();
     expect(

@@ -453,7 +453,7 @@ export function TrainerDashboard() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isConversationDrawerOpen, setIsConversationDrawerOpen] =
     useState(false);
-  const [desktopSidebarExpanded, setDesktopSidebarExpanded] = useState(true);
+  const [desktopSidebarExpanded, setDesktopSidebarExpanded] = useState(false);
   const [openConversationMenuId, setOpenConversationMenuId] = useState<
     string | null
   >(null);
@@ -1708,7 +1708,7 @@ export function TrainerDashboard() {
             </header>
 
             <div className="settings-groups">
-              <details className="settings-card" open>
+              <details className="settings-card profile-settings-card" open>
                 <summary>
                   Profile / trainer grounding{" "}
                   <span
