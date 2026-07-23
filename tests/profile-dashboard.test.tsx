@@ -211,7 +211,7 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeNull();
   });
 
-  it("renders the minimal chat shell and grouped settings disclosure", async () => {
+  it("renders the minimal chat shell and reachable grouped settings disclosure", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -230,10 +230,19 @@ describe("TrainerDashboard Profile hydration", () => {
 
     openSettings();
 
+    const dialog = screen.getByRole("dialog", { name: "Data & settings" });
+    expect(dialog).toBeTruthy();
+    expect(screen.getByLabelText("Goals")).toBeTruthy();
+    expect(screen.getByText("Learned memory")).toBeTruthy();
     expect(
-      screen.getByRole("dialog", { name: "Data & settings" }),
+      screen.getByRole("button", { name: "Verify connector" }),
     ).toBeTruthy();
+    expect(screen.getByLabelText("Garmin activity ID")).toBeTruthy();
+    expect(screen.getByText(/Current operation/)).toBeTruthy();
     expect(screen.getByText(/Not medical advice/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Clear chat/profile" }),
+    ).toBeTruthy();
   });
 
   it("renders safe assistant Markdown while keeping unsafe links inert", async () => {
@@ -412,7 +421,7 @@ describe("TrainerDashboard athlete baseline summary", () => {
 });
 
 describe("TrainerDashboard primary Sync now", () => {
-  it("moves Sync now into grouped Settings instead of the chat header", async () => {
+  it("keeps Sync now in the top bar before Settings opens", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -423,19 +432,19 @@ describe("TrainerDashboard primary Sync now", () => {
 
     render(React.createElement(TrainerDashboard));
 
-    expect(
-      screen.queryByRole("button", {
-        name: "Sync now — import latest Garmin data",
-      }),
-    ).toBeNull();
-
-    openSettings();
-
     const syncButton = screen.getByRole("button", {
       name: "Sync now — import latest Garmin data",
     });
     expect(syncButton).toBeTruthy();
     expect(syncButton.textContent).toContain("Sync now");
+
+    openSettings();
+
+    expect(
+      screen.getAllByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }),
+    ).toHaveLength(1);
   });
 
   it("omits no-op detail queue copy from non-detail Sync now progress", async () => {
@@ -473,13 +482,13 @@ describe("TrainerDashboard primary Sync now", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
-    openSettings();
 
     fireEvent.click(
       screen.getByRole("button", {
         name: "Sync now — import latest Garmin data",
       }),
     );
+    openSettings();
     fireEvent.click(screen.getByText(/Current operation/));
 
     await waitFor(() => {
@@ -520,13 +529,13 @@ describe("TrainerDashboard primary Sync now", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
-    openSettings();
 
     fireEvent.click(
       screen.getByRole("button", {
         name: "Sync now — import latest Garmin data",
       }),
     );
+    openSettings();
     fireEvent.click(screen.getByText(/Current operation/));
 
     await waitFor(() => {
@@ -733,7 +742,12 @@ describe("TrainerDashboard memory and new chat", () => {
     render(React.createElement(TrainerDashboard));
 
     expect(await screen.findByText("Active visible transcript")).toBeTruthy();
-    await clickConversationMenuItem("Previous climb chat", "Delete");
+    await openConversationMenu("Previous climb chat");
+    expect(screen.getByRole("menu").className).toContain(
+      "conversation-menu-floating",
+    );
+    expect(screen.getByRole("menu").getAttribute("style")).toContain("top:");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
 
     await waitFor(() => {
       expect(screen.queryByText("Previous climb chat")).toBeNull();

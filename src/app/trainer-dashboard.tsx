@@ -457,6 +457,11 @@ export function TrainerDashboard() {
   const [openConversationMenuId, setOpenConversationMenuId] = useState<
     string | null
   >(null);
+  const [conversationMenuPosition, setConversationMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [memoryHealth, setMemoryHealth] = useState<MemoryHealth | null>(null);
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
@@ -500,6 +505,7 @@ export function TrainerDashboard() {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const isSyncingRef = useRef(false);
 
   const activeConversation = useMemo(
     () => conversations.find((item) => item.id === conversationId) ?? null,
@@ -544,7 +550,7 @@ export function TrainerDashboard() {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       if (openConversationMenuId) {
-        setOpenConversationMenuId(null);
+        closeConversationMenu();
         return;
       }
       if (settingsOpen) {
@@ -564,12 +570,54 @@ export function TrainerDashboard() {
     if (settingsOpen) settingsCloseRef.current?.focus();
   }, [settingsOpen]);
 
+  useEffect(() => {
+    if (!openConversationMenuId) return;
+    function closeOnViewportChange() {
+      closeConversationMenu();
+    }
+    window.addEventListener("resize", closeOnViewportChange);
+    return () => {
+      window.removeEventListener("resize", closeOnViewportChange);
+    };
+  }, [openConversationMenuId]);
+
+  function closeConversationMenu() {
+    setOpenConversationMenuId(null);
+    setConversationMenuPosition(null);
+  }
+
+  function toggleConversationMenu(itemId: string, trigger: HTMLButtonElement) {
+    if (openConversationMenuId === itemId) {
+      closeConversationMenu();
+      return;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    const menuWidth = 184;
+    const menuHeight = itemId === conversationId ? 104 : 58;
+    const viewportWidth = window.innerWidth || 1024;
+    const viewportHeight = window.innerHeight || 768;
+    const left = Math.min(
+      viewportWidth - menuWidth - 8,
+      Math.max(8, rect.right - menuWidth),
+    );
+    const belowTop = rect.bottom + 6;
+    const top =
+      belowTop + menuHeight > viewportHeight - 8
+        ? Math.max(8, rect.top - menuHeight - 6)
+        : belowTop;
+
+    setOpenConversationMenuId(itemId);
+    setConversationMenuPosition({ top, left });
+  }
+
   function closeSettingsSheet() {
     setSettingsOpen(false);
     settingsButtonRef.current?.focus();
   }
 
   function closeConversationDrawer() {
+    closeConversationMenu();
     setIsConversationDrawerOpen(false);
     conversationButtonRef.current?.focus();
   }
@@ -836,6 +884,9 @@ export function TrainerDashboard() {
   }
 
   async function syncNow() {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
+    setIsSyncing(true);
     setStatus({ kind: "busy", message: "Sync now: starting…" });
     try {
       const response = await fetch("/api/sync", { method: "POST" });
@@ -888,6 +939,9 @@ export function TrainerDashboard() {
         kind: "error",
         message: `Sync now failed: ${error instanceof Error ? error.message : "unknown error"}`,
       });
+    } finally {
+      isSyncingRef.current = false;
+      setIsSyncing(false);
     }
   }
 
@@ -1314,6 +1368,9 @@ export function TrainerDashboard() {
           updatedAt: new Date().toISOString(),
         },
       ];
+  const openConversationMenuItem = conversationRows.find(
+    (item) => item.id === openConversationMenuId,
+  );
 
   return (
     <section
@@ -1349,6 +1406,15 @@ export function TrainerDashboard() {
         >
           {activeConversation?.title ?? "Trainer chat"}
         </h1>
+        <button
+          type="button"
+          className="chrome-button sync-now-button"
+          onClick={syncNow}
+          disabled={isSyncing}
+          aria-label="Sync now — import latest Garmin data"
+        >
+          {isSyncing ? "Syncing…" : "Sync now"}
+        </button>
         <button
           type="button"
           className="chrome-button"
@@ -1401,7 +1467,7 @@ export function TrainerDashboard() {
                     type="button"
                     className="conversation-select"
                     onClick={() => {
-                      setOpenConversationMenuId(null);
+                      closeConversationMenu();
                       void selectConversation(item.id);
                     }}
                     aria-current={
@@ -1418,43 +1484,18 @@ export function TrainerDashboard() {
                       aria-label={`Conversation options for "${item.title}"`}
                       aria-haspopup="menu"
                       aria-expanded={openConversationMenuId === item.id}
-                      onClick={() =>
-                        setOpenConversationMenuId((openId) =>
-                          openId === item.id ? null : item.id,
-                        )
+                      aria-controls={
+                        openConversationMenuId === item.id
+                          ? "conversation-row-menu"
+                          : undefined
                       }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleConversationMenu(item.id, event.currentTarget);
+                      }}
                     >
                       ⋯
                     </button>
-                    {openConversationMenuId === item.id ? (
-                      <div className="conversation-menu" role="menu">
-                        {item.id === conversationId ? (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setOpenConversationMenuId(null);
-                              void loadChatHistory();
-                            }}
-                            disabled={isChatLoading}
-                          >
-                            Reload history
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="danger-menu-item"
-                          onClick={() => {
-                            setOpenConversationMenuId(null);
-                            void deleteConversationById(item.id, item.title);
-                          }}
-                          disabled={isChatLoading}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ) : null}
                   </div>
                 </div>
               ))
@@ -1470,6 +1511,46 @@ export function TrainerDashboard() {
             aria-label="Close conversation drawer"
             onClick={closeConversationDrawer}
           />
+        ) : null}
+        {openConversationMenuItem && conversationMenuPosition ? (
+          <div
+            id="conversation-row-menu"
+            className="conversation-menu conversation-menu-floating"
+            role="menu"
+            style={{
+              top: conversationMenuPosition.top,
+              left: conversationMenuPosition.left,
+            }}
+          >
+            {openConversationMenuItem.id === conversationId ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  closeConversationMenu();
+                  void loadChatHistory();
+                }}
+                disabled={isChatLoading}
+              >
+                Reload history
+              </button>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className="danger-menu-item"
+              onClick={() => {
+                closeConversationMenu();
+                void deleteConversationById(
+                  openConversationMenuItem.id,
+                  openConversationMenuItem.title,
+                );
+              }}
+              disabled={isChatLoading}
+            >
+              Delete
+            </button>
+          </div>
         ) : null}
 
         <section className="trainer-card" aria-labelledby="trainer-heading">
@@ -1852,13 +1933,6 @@ export function TrainerDashboard() {
                     }
                   >
                     Verify connector
-                  </button>
-                  <button
-                    type="button"
-                    onClick={syncNow}
-                    aria-label="Sync now — import latest Garmin data"
-                  >
-                    Sync now
                   </button>
                   <button
                     type="button"
