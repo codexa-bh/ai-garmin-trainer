@@ -1,5 +1,5 @@
 import { getAppMetadata } from "../db/repository";
-import { getOptionalEnv, type AppEnv } from "../env";
+import { configuredSecret, getOptionalEnv, type AppEnv } from "../env";
 
 const DISABLED_METADATA_KEY = "memory.user_disabled";
 
@@ -42,7 +42,9 @@ export function memoryRuntimeConfig(
   const userDisabled = memoryUserDisabled();
   const embeddingProvider = env.MEMORY_EMBEDDING_PROVIDER;
   const embeddingApiKey =
-    optional(env.MEMORY_EMBEDDING_API_KEY) ?? optional(env.OPENAI_API_KEY);
+    embeddingProvider === "openai"
+      ? configuredSecret(env.OPENAI_API_KEY)
+      : undefined;
   return {
     configuredEnabled,
     userDisabled,
@@ -60,7 +62,7 @@ export function memoryConfigProblems(config: MemoryRuntimeConfig): string[] {
   const problems: string[] = [];
   if (!config.configuredEnabled) return problems;
   if (config.embeddingProvider === "openai" && !config.embeddingApiKey)
-    problems.push("memory embedding key missing");
+    problems.push("memory embedding OpenAI key missing or placeholder");
   if (config.embeddingDims < 8)
     problems.push("memory embedding dims too small");
   return problems;

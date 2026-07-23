@@ -9,7 +9,8 @@ import {
   LATEST_SCHEMA_VERSION,
   runIntegrityCheck,
 } from "../db/migrations";
-import { getOptionalEnv } from "../env";
+import { aiProviderStatus } from "../ai/providers";
+import { getOptionalEnv, hasConfiguredSecret } from "../env";
 import { redactDiagnosticValue } from "./redaction";
 
 export type DoctorStatus = "pass" | "warn" | "fail";
@@ -186,42 +187,40 @@ export function runDoctor(
     );
   }
 
-  const providerKeyPresent =
-    env.AI_PROVIDER === "deepseek"
-      ? Boolean(env.DEEPSEEK_API_KEY)
-      : Boolean(env.OPENAI_API_KEY);
+  const provider = aiProviderStatus(env);
+  const providerKeyPresent = Boolean(provider.selected);
   check(
     checks,
     providerKeyPresent ? "pass" : "fail",
     "provider.key",
-    providerKeyPresent ? "provider.configured" : "provider.missing_key",
-    `${env.AI_PROVIDER} provider key ${providerKeyPresent ? "is configured" : "is missing"}; key value is not printed.`,
     providerKeyPresent
-      ? undefined
-      : `Set the BYO ${env.AI_PROVIDER} provider key in .env.local.`,
+      ? "provider.configured"
+      : (provider.failureClass ?? "provider.missing_key"),
+    providerKeyPresent
+      ? `AI provider ${provider.selected}/${provider.modelName} is selected by ${provider.selectionMode} configuration; key value is not printed.`
+      : `No usable AI provider key is configured for ${provider.requested}; missing and placeholder key values are treated as absent.`,
+    providerKeyPresent ? undefined : provider.remediation,
   );
 
   const memoryEnabled = ["1", "true", "yes", "on"].includes(
     env.MEMORY_ENABLED.toLowerCase(),
   );
-  const memoryEmbeddingKeyPresent = Boolean(
+  const memoryEmbeddingKeyPresent =
     env.MEMORY_EMBEDDING_PROVIDER === "deterministic" ||
-    env.MEMORY_EMBEDDING_API_KEY ||
-    env.OPENAI_API_KEY,
-  );
+    hasConfiguredSecret(env.OPENAI_API_KEY);
   check(
     checks,
     !memoryEnabled || memoryEmbeddingKeyPresent ? "pass" : "fail",
     "memory.embedding",
     !memoryEnabled || memoryEmbeddingKeyPresent
       ? "memory.embedding_configured_or_disabled"
-      : "memory.embedding_missing_key",
+      : "memory.embedding_missing_openai_key",
     memoryEnabled
-      ? `Embedded SQLite memory embedding provider ${env.MEMORY_EMBEDDING_PROVIDER}/${env.MEMORY_EMBEDDING_MODEL} ${memoryEmbeddingKeyPresent ? "is configured" : "is missing a key"}; key value is not printed.`
+      ? `Embedded SQLite memory embedding provider ${env.MEMORY_EMBEDDING_PROVIDER}/${env.MEMORY_EMBEDDING_MODEL} ${memoryEmbeddingKeyPresent ? "is configured" : "is missing a valid OpenAI key or deterministic mode"}; key value is not printed.`
       : "Embedded SQLite memory is disabled; embedding key is not required.",
     !memoryEnabled || memoryEmbeddingKeyPresent
       ? undefined
-      : "Set MEMORY_EMBEDDING_API_KEY or OPENAI_API_KEY before enabling memory; DeepSeek chat does not imply embeddings.",
+      : "Set a valid OPENAI_API_KEY or MEMORY_EMBEDDING_PROVIDER=deterministic before enabling memory; DeepSeek chat does not imply embeddings.",
   );
   check(
     checks,
@@ -309,8 +308,13 @@ export function runDoctor(
       httpTransportSupported: false,
     },
     provider: {
-      selected: env.AI_PROVIDER,
+      requested: provider.requested,
+      selected: provider.selected ?? "none",
+      selectionMode: provider.selectionMode ?? "none",
+      model: provider.modelName ?? "none",
       keyPresent: providerKeyPresent,
+      deepseekKeyPresent: provider.deepseekKeyConfigured,
+      openaiKeyPresent: provider.openaiKeyConfigured,
     },
     memory: {
       enabled: memoryEnabled,

@@ -462,7 +462,10 @@ export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
         enabled: true,
         ready: true,
         status: "ready",
-        detail: "Embedded SQLite semantic memory is configured.",
+        detail:
+          this.config.embeddingProvider === "deterministic"
+            ? "Embedded SQLite semantic memory is configured with deterministic local embeddings."
+            : "Embedded SQLite semantic memory is configured with OpenAI-compatible embeddings via OPENAI_API_KEY.",
         provider: "app-sqlite-vector",
         vectorProvider: "sqlite",
         llmConfigured: false,

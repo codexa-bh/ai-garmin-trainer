@@ -46,6 +46,42 @@ describe("source-beta doctor and redaction", () => {
     );
   });
 
+  it("reports DeepSeek-first provider selection and OpenAI memory embedding readiness without retired keys", () => {
+    writeFileSync(join(baseEnv.GARMIN_MCP_TOKEN_DIR, "state.json"), "{}\n");
+    const report = runDoctor({
+      ...baseEnv,
+      AI_PROVIDER: "auto",
+      DEEPSEEK_API_KEY: "ds-live-doctor-key",
+      OPENAI_API_KEY: "replace-with-openai-key",
+      MEMORY_ENABLED: "true",
+      MEMORY_EMBEDDING_PROVIDER: "openai",
+      MEMORY_EMBEDDING_API_KEY: "sk-retired-memory-key",
+    });
+    const providerFacts = report.facts.provider as {
+      selected: string;
+      selectionMode: string;
+      deepseekKeyPresent: boolean;
+      openaiKeyPresent: boolean;
+    };
+    const memoryCheck = report.checks.find(
+      (item) => item.id === "memory.embedding",
+    );
+    const text = JSON.stringify(report);
+
+    expect(providerFacts).toMatchObject({
+      selected: "deepseek",
+      selectionMode: "default",
+      deepseekKeyPresent: true,
+      openaiKeyPresent: false,
+    });
+    expect(memoryCheck).toMatchObject({
+      status: "fail",
+      className: "memory.embedding_missing_openai_key",
+    });
+    expect(text).not.toContain("sk-retired-memory-key");
+    expect(text).not.toContain("MEMORY_EMBEDDING_API_KEY");
+  });
+
   it("redacts credentials, token contents, prompts, precise GPS, and raw payload canaries", () => {
     const raw = `OPENAI_API_KEY=sk-live-secret refresh_token="garmin-refresh" prompt="what did I say" lat=46.123456 lon=13.987654 rawPayload="connector body"`;
     const redacted = redactSensitiveText(raw);

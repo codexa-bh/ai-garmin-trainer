@@ -6,19 +6,19 @@ SQLite remains the canonical store for transcript, Profile, Garmin facts, and de
 
 ## Configuration
 
-Set `MEMORY_ENABLED=true` to enable retrieval and post-completion ingestion. Configure an OpenAI-compatible embedding provider separately:
+Set `MEMORY_ENABLED=true` to enable retrieval and post-completion ingestion. Memory embeddings use the existing provider credential contract rather than a separate memory-only key. The supported provider-backed setup uses `OPENAI_API_KEY` for OpenAI-compatible embeddings:
 
 ```env
 MEMORY_ENABLED=true
 MEMORY_EMBEDDING_PROVIDER=openai
 MEMORY_EMBEDDING_MODEL=text-embedding-3-small
-MEMORY_EMBEDDING_API_KEY=...
+OPENAI_API_KEY=...
 MEMORY_EMBEDDING_DIMS=1536
 ```
 
-If `MEMORY_EMBEDDING_API_KEY` is omitted, the app falls back to `OPENAI_API_KEY`. DeepSeek chat does not imply embeddings. Embedding calls may incur provider cost; memory software/storage is local.
+DeepSeek is the default chat provider in `AI_PROVIDER=auto`, but DeepSeek chat credentials do not currently imply embedding capability. If `OPENAI_API_KEY` is missing or still contains a placeholder example value, enabled memory reports `misconfigured` instead of ready and chat remains available without memory retrieval/ingestion. For local non-provider tests, set `MEMORY_EMBEDDING_PROVIDER=deterministic`; deterministic vectors are useful for validation but are not semantic provider embeddings.
 
-`npm run doctor -- --json` reports memory readiness without printing keys, prompts, raw transcripts, vectors, or local file contents.
+`npm run doctor -- --json` reports the selected chat provider, fallback mode, and memory readiness without printing keys, prompts, raw transcripts, vectors, or local file contents.
 
 ## Privacy and controls
 

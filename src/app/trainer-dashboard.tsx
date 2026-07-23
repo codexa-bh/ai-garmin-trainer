@@ -1708,7 +1708,10 @@ export function TrainerDashboard() {
                 </summary>
                 <p>
                   Embedded SQLite memory stores low-risk conversation continuity
-                  and saved preferences after complete persisted answers.
+                  and saved preferences after complete persisted answers. Ready
+                  memory needs deterministic local embeddings or a valid OpenAI
+                  embedding key; DeepSeek chat alone does not provide
+                  embeddings.
                 </p>
                 <p className="helper-text" role="status" aria-live="polite">
                   {memoryMessage}

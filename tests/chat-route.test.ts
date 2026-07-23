@@ -398,6 +398,7 @@ let retrievedMemories: Array<{
   text: string;
   conversationId?: string;
 }> = [];
+let memoryAddShouldFail = false;
 
 vi.mock("ai", () => ({
   generateText,
@@ -555,7 +556,9 @@ vi.mock("@/lib/db/repository", () => ({
 vi.mock("@/lib/memory/sqlite-adapter", () => ({
   trainerMemoryStore: () => ({
     search: vi.fn(async () => retrievedMemories),
-    addCompletedTurn: vi.fn(async () => undefined),
+    addCompletedTurn: vi.fn(async () => {
+      if (memoryAddShouldFail) throw new Error("memory embedding failed");
+    }),
   }),
 }));
 
@@ -609,6 +612,7 @@ describe("chat route LLM tool orchestration", () => {
     messages = [];
     memoryProposals = [];
     retrievedMemories = [];
+    memoryAddShouldFail = false;
     generateText.mockClear();
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
@@ -748,6 +752,15 @@ describe("chat route LLM tool orchestration", () => {
     expect(firstCall.system).toContain(
       "No relevant semantic memories retrieved",
     );
+  });
+
+  it("keeps chat available when post-answer semantic memory ingestion fails", async () => {
+    memoryAddShouldFail = true;
+
+    const payload = await postChat("Tell me about my latest activity");
+
+    expect(payload.assistant.content).toContain("latest-999");
+    expect(payload.toolEvidence?.tool).toBe("runReadOnlySql");
   });
 
   it("keeps manual new-chat transcript separate while allowing bounded semantic retrieval", async () => {

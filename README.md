@@ -5,10 +5,10 @@ Local-only, single-user private trainer MVP for importing Garmin Connect history
 ## Quick start
 
 1. Install Node 22+ and Python tooling capable of running `uvx`.
-2. Copy `.env.example` to `.env.local` and fill in local secrets/provider keys. No local app sign-in, Google OAuth client, or allowlist is required for normal loopback use. Do not commit `.env.local`, SQLite files, backups, or Garmin token directories.
+2. Copy `.env.example` to `.env.local` and fill in local secrets/provider keys. `AI_PROVIDER=auto` is DeepSeek-first and falls back to OpenAI when no valid DeepSeek key is configured; placeholder example keys are treated as missing. No local app sign-in, Google OAuth client, or allowlist is required for normal loopback use. Do not commit `.env.local`, SQLite files, backups, or Garmin token directories.
 3. Run `npm run doctor` and fix any failed preflight checks. Doctor reports environment/config/database/provider/Garmin auth-state presence without printing secret values, token contents, prompts, precise GPS streams, or raw connector payloads.
 4. Authenticate Garmin out of band with the pinned connector: `garmin-mcp-auth` (or the equivalent command provided by `Taxuspt/garmin_mcp` at commit `2974244bfda1595b00836b3f942f579ec2d6f7d6`). The app never asks for the Garmin password. Current connector auth writes OAuth state to its default `~/.garminconnect/garmin_tokens.json`; the app verifies that file exists without reading token contents.
-5. Optional semantic memory: configure embedded SQLite semantic memory using `docs/memory.md`; leave `MEMORY_ENABLED=false` to run without semantic memory.
+5. Optional semantic memory: configure embedded SQLite semantic memory using `docs/memory.md`; provider-backed embeddings use the existing `OPENAI_API_KEY` contract, not a separate memory-only API key. Leave `MEMORY_ENABLED=false` to run without semantic memory.
 6. Run `npm install`, `npm run db:migrate`, `npm run build`, then `npm run start:local` for the production-style loopback runtime. Use `npm run dev` only for maintainer development.
 
 ## Design reference

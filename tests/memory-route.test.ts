@@ -10,6 +10,9 @@ beforeEach(() => {
     "test.sqlite",
   );
   process.env.MEMORY_ENABLED = "false";
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.MEMORY_EMBEDDING_API_KEY;
 });
 
 async function route() {
@@ -38,6 +41,33 @@ describe("semantic memory API route", () => {
       provider: "app-sqlite-vector",
       vectorProvider: "sqlite",
     });
+    expect(payload.memories).toEqual([]);
+  });
+
+  it("reports enabled memory as misconfigured when OpenAI embedding key is only a placeholder", async () => {
+    process.env.MEMORY_ENABLED = "true";
+    process.env.MEMORY_EMBEDDING_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "replace-with-openai-key";
+    const { GET } = await route();
+
+    const payload = (await (await GET()).json()) as {
+      health: {
+        ready: boolean;
+        status: string;
+        embeddingConfigured: boolean;
+        detail: string;
+      };
+      memories: unknown[];
+    };
+
+    expect(payload.health).toMatchObject({
+      ready: false,
+      status: "misconfigured",
+      embeddingConfigured: false,
+    });
+    expect(payload.health.detail).toContain(
+      "OpenAI key missing or placeholder",
+    );
     expect(payload.memories).toEqual([]);
   });
 
