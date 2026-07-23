@@ -55,8 +55,8 @@ p {
   gap: 18px;
 }
 .product-grid {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  align-items: stretch;
 }
 .settings-grid {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -72,7 +72,9 @@ footer,
   box-shadow: 0 12px 40px rgba(2, 6, 23, 0.18);
 }
 .trainer-card {
-  min-height: 720px;
+  min-height: min(78vh, 900px);
+  display: flex;
+  flex-direction: column;
 }
 .profile-card,
 .settings-card,
@@ -152,8 +154,20 @@ textarea {
   min-height: 108px;
   resize: vertical;
 }
+.message-composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-top: 10px;
+  background: linear-gradient(
+    180deg,
+    rgba(30, 41, 59, 0),
+    rgba(30, 41, 59, 0.96) 28%
+  );
+}
 .message-composer textarea {
-  min-height: 132px;
+  min-height: 64px;
+  max-height: 180px;
 }
 .stack,
 label {
@@ -188,6 +202,59 @@ label {
   flex-direction: column;
   gap: 12px;
   align-items: stretch;
+}
+.chat-app-shell {
+  position: relative;
+}
+.drawer-toggle {
+  display: none;
+}
+.conversation-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: min(78vh, 900px);
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid #334155;
+  border-radius: 22px;
+  padding: 16px;
+  box-shadow: 0 12px 40px rgba(2, 6, 23, 0.18);
+}
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.drawer-close {
+  display: none;
+}
+.conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+.conversation-item {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  border-radius: 14px;
+  border-color: #334155;
+  background: #111827;
+  color: #e2e8f0;
+  text-align: left;
+}
+.conversation-item:hover,
+.conversation-item.active {
+  background: #0c2438;
+  border-color: #38bdf8;
+}
+.conversation-item small {
+  color: #94a3b8;
+  font-weight: 700;
 }
 button.primary-action {
   width: 100%;
@@ -248,10 +315,11 @@ button.primary-action:hover {
 }
 .transcript {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 12px;
   min-height: 360px;
-  max-height: 620px;
+  max-height: none;
   overflow: auto;
   background: #0f172a;
   border: 1px solid #475569;
@@ -419,8 +487,36 @@ footer {
   .product-grid {
     grid-template-columns: 1fr;
   }
+  .drawer-toggle {
+    display: inline-flex;
+    width: fit-content;
+  }
+  .drawer-close {
+    display: inline-flex;
+  }
+  .conversation-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    width: min(86vw, 340px);
+    max-width: calc(100vw - 28px);
+    min-height: 100vh;
+    border-radius: 0 22px 22px 0;
+    transform: translateX(-110%);
+    transition: transform 160ms ease;
+  }
+  .conversation-sidebar.open {
+    transform: translateX(0);
+  }
+  .drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    border-radius: 0;
+    background: rgba(2, 6, 23, 0.68);
+  }
   .trainer-card {
-    min-height: auto;
+    min-height: 72vh;
   }
 }
 @media (max-width: 760px) {
@@ -447,7 +543,7 @@ footer {
   }
   .transcript {
     min-height: 300px;
-    max-height: 520px;
+    max-height: none;
   }
   .settings-panel summary,
   .diagnostics-summary {

@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbDir = join(tmpdir(), "ai-garmin-athlete-sync-tests");
 const mcpState = {
@@ -67,6 +67,8 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
 }));
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-07-22T12:00:00Z"));
   rmSync(dbDir, { recursive: true, force: true });
   mkdirSync(dbDir, { recursive: true });
   process.env.DATABASE_PATH = join(dbDir, `${crypto.randomUUID()}.sqlite`);
@@ -75,6 +77,10 @@ beforeEach(() => {
   mcpState.nullAthlete = false;
   mcpState.activities = [];
   vi.resetModules();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("Garmin sync athlete baseline stage", () => {

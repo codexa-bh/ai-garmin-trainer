@@ -426,6 +426,7 @@ vi.mock("@/lib/garmin/importer", () => ({
 
 vi.mock("@/lib/db/repository", () => ({
   DEFAULT_CONVERSATION_ID: "default",
+  safeConversationId: (value?: string | null) => value?.trim() || "default",
   activityDetailCoverage: () => coverage,
   dataCounts: () => ({
     activities: 3,
@@ -577,6 +578,26 @@ async function postChat(message: string, conversationId?: string) {
       | { status: "pending"; id: string; value: string }
       | { status: "skipped"; reason: string };
   }>;
+}
+
+async function postChatStream(message: string, conversationId?: string) {
+  vi.resetModules();
+  const { POST } = await import("../src/app/api/chat/route");
+  const response = await POST(
+    new Request("http://localhost/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message, conversationId, stream: true }),
+    }),
+  );
+  const body = await response.text();
+  return body
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map(
+      (line) => JSON.parse(line) as { type: string; [key: string]: unknown },
+    );
 }
 
 describe("chat route LLM tool orchestration", () => {
@@ -813,5 +834,34 @@ describe("chat route LLM tool orchestration", () => {
       "Evidence step 1: verifyActivityReference succeeded",
     );
     expect(secondCall.system).not.toContain("provider final");
+  });
+
+  it("streams only final assistant prose and persists one completed assistant", async () => {
+    const events = await postChatStream(
+      "Give me a simple recovery note",
+      "stream-test",
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "start",
+      "status",
+      "metadata",
+      "delta",
+      "delta",
+      "done",
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === "delta")
+        .map((event) => event.textDelta)
+        .join(""),
+    ).toBe("model response");
+    expect(messages).toHaveLength(2);
+    expect(messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+    ]);
+    expect(messages[1]?.content).toBe("model response");
+    expect(JSON.stringify(events)).not.toContain("Tool step");
   });
 });

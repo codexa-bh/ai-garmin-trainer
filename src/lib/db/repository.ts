@@ -1307,6 +1307,7 @@ export function listGarminRawPayloadsForAnalysis(
 }
 
 export const DEFAULT_CONVERSATION_ID = "default";
+const GENERIC_CONVERSATION_TITLES = new Set(["Trainer chat", "New chat"]);
 
 export type ChatRole = "user" | "assistant";
 
@@ -1348,6 +1349,14 @@ export type StoredConversation = {
   title: string;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type ConversationSummary = StoredConversation;
+
+export type ChatMessagePage = {
+  conversationId: string;
+  messages: StoredChatMessage[];
+  nextCursor: string | null;
 };
 
 type StoredMessageRow = {
@@ -1395,24 +1404,137 @@ function mapStoredConversation(row: StoredConversationRow): StoredConversation {
   };
 }
 
+export function safeConversationId(value: string | null | undefined): string {
+  const candidate = value?.trim() || DEFAULT_CONVERSATION_ID;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$/.test(candidate)) {
+    throw new Error(
+      "Conversation id must be a local opaque id with letters, numbers, dashes, underscores, dots, or colons only",
+    );
+  }
+  return candidate;
+}
+
+export function initialConversationTitle(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return "New chat";
+  const clipped = compact.length > 48 ? `${compact.slice(0, 47)}…` : compact;
+  return clipped || "New chat";
+}
+
+function conversationCursor(
+  row: Pick<StoredMessageRow, "createdAt" | "id">,
+): string {
+  return Buffer.from(`${row.createdAt}:${row.id}`, "utf8").toString(
+    "base64url",
+  );
+}
+
+function parseConversationCursor(cursor: string | null | undefined): {
+  createdAt: number;
+  id: string;
+} | null {
+  if (!cursor) return null;
+  try {
+    const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+    const separator = decoded.indexOf(":");
+    const createdAt = Number(decoded.slice(0, separator));
+    const id = decoded.slice(separator + 1);
+    if (!Number.isFinite(createdAt) || !id) return null;
+    return { createdAt, id };
+  } catch {
+    return null;
+  }
+}
+
+export function getConversation(
+  id = DEFAULT_CONVERSATION_ID,
+): StoredConversation | null {
+  const row = getDatabase()
+    .prepare(
+      "select id, title, created_at as createdAt, updated_at as updatedAt from conversation where id = ?",
+    )
+    .get(safeConversationId(id)) as StoredConversationRow | undefined;
+  return row ? mapStoredConversation(row) : null;
+}
+
 export function ensureConversation(
   id = DEFAULT_CONVERSATION_ID,
   title = "Trainer chat",
 ): StoredConversation {
+  const conversationId = safeConversationId(id);
   const now = Date.now();
   getDatabase()
     .prepare(
       `insert into conversation (id, title, created_at, updated_at)
        values (?, ?, ?, ?)
-       on conflict(id) do update set updated_at=excluded.updated_at`,
+       on conflict(id) do nothing`,
     )
-    .run(id, title.slice(0, 120) || "Trainer chat", now, now);
+    .run(conversationId, initialConversationTitle(title), now, now);
+  return getConversation(conversationId)!;
+}
+
+export function createConversation(input?: {
+  id?: string;
+  title?: string;
+}): StoredConversation {
+  const id = safeConversationId(
+    input?.id ??
+      `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
+  return ensureConversation(id, input?.title ?? "New chat");
+}
+
+export function listConversations(limit = 40): ConversationSummary[] {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 80);
+  const rows = getDatabase()
+    .prepare(
+      `select id, title, created_at as createdAt, updated_at as updatedAt
+       from conversation
+       order by updated_at desc, id desc
+       limit ?`,
+    )
+    .all(safeLimit) as StoredConversationRow[];
+  return rows.map(mapStoredConversation);
+}
+
+export function deleteConversation(id = DEFAULT_CONVERSATION_ID): boolean {
+  const conversationId = safeConversationId(id);
+  const db = getDatabase();
+  const changes = db.transaction(() => {
+    db.prepare("delete from message where conversation_id = ?").run(
+      conversationId,
+    );
+    return db
+      .prepare("delete from conversation where id = ?")
+      .run(conversationId).changes;
+  })();
+  return changes > 0;
+}
+
+function retitleInitialConversationIfNeeded(
+  conversationId: string,
+  role: ChatRole,
+  content: string,
+  createdAt: number,
+): void {
+  if (role !== "user") return;
   const row = getDatabase()
     .prepare(
-      "select id, title, created_at as createdAt, updated_at as updatedAt from conversation where id = ?",
+      `select c.title as title, count(m.id) as messageCount
+       from conversation c left join message m on m.conversation_id = c.id
+       where c.id = ?
+       group by c.id`,
     )
-    .get(id) as StoredConversationRow;
-  return mapStoredConversation(row);
+    .get(conversationId) as { title: string; messageCount: number } | undefined;
+  if (
+    !row ||
+    row.messageCount !== 1 ||
+    !GENERIC_CONVERSATION_TITLES.has(row.title)
+  )
+    return;
+  getDatabase()
+    .prepare("update conversation set title = ?, updated_at = ? where id = ?")
+    .run(initialConversationTitle(content), createdAt, conversationId);
 }
 
 export function appendChatMessage(input: {
@@ -1421,7 +1543,7 @@ export function appendChatMessage(input: {
   content: string;
   grounding?: ChatGrounding | null;
 }): StoredChatMessage {
-  const conversationId = input.conversationId ?? DEFAULT_CONVERSATION_ID;
+  const conversationId = safeConversationId(input.conversationId);
   ensureConversation(conversationId, input.content.slice(0, 80));
   const createdAt = nextChatMessageTimestamp();
   const id = `${conversationId}-${input.role}-${createdAt}-${Math.random().toString(36).slice(2, 10)}`;
@@ -1438,6 +1560,12 @@ export function appendChatMessage(input: {
       input.grounding ? JSON.stringify(input.grounding).slice(0, 4000) : null,
       createdAt,
     );
+  retitleInitialConversationIfNeeded(
+    conversationId,
+    input.role,
+    input.content,
+    createdAt,
+  );
   getDatabase()
     .prepare("update conversation set updated_at = ? where id = ?")
     .run(createdAt, conversationId);
@@ -1461,23 +1589,60 @@ export function listRecentChatMessages(
       `select id, conversation_id as conversationId, role, content, grounding_json as groundingJson, created_at as createdAt
        from message
        where conversation_id = ?
-       order by created_at desc
+       order by created_at desc, id desc
        limit ?`,
     )
-    .all(conversationId, safeLimit) as StoredMessageRow[];
+    .all(safeConversationId(conversationId), safeLimit) as StoredMessageRow[];
   return rows.reverse().map(mapStoredMessage);
+}
+
+export function listChatMessagePage(input: {
+  conversationId?: string;
+  cursor?: string | null;
+  limit?: number;
+}): ChatMessagePage {
+  const conversationId = safeConversationId(input.conversationId);
+  const safeLimit = Math.min(Math.max(Math.trunc(input.limit ?? 30), 1), 60);
+  const cursor = parseConversationCursor(input.cursor);
+  const sql = cursor
+    ? `select id, conversation_id as conversationId, role, content, grounding_json as groundingJson, created_at as createdAt
+       from message
+       where conversation_id = ? and (created_at < ? or (created_at = ? and id < ?))
+       order by created_at desc, id desc
+       limit ?`
+    : `select id, conversation_id as conversationId, role, content, grounding_json as groundingJson, created_at as createdAt
+       from message
+       where conversation_id = ?
+       order by created_at desc, id desc
+       limit ?`;
+  const params = cursor
+    ? [
+        conversationId,
+        cursor.createdAt,
+        cursor.createdAt,
+        cursor.id,
+        safeLimit + 1,
+      ]
+    : [conversationId, safeLimit + 1];
+  const rows = getDatabase()
+    .prepare(sql)
+    .all(...params) as StoredMessageRow[];
+  const visibleRows = rows.slice(0, safeLimit);
+  const nextCursor =
+    rows.length > safeLimit && visibleRows.length
+      ? conversationCursor(visibleRows[visibleRows.length - 1]!)
+      : null;
+  return {
+    conversationId,
+    messages: [...visibleRows].reverse().map(mapStoredMessage),
+    nextCursor,
+  };
 }
 
 export function clearConversationHistory(
   conversationId = DEFAULT_CONVERSATION_ID,
 ): void {
-  const db = getDatabase();
-  db.transaction(() => {
-    db.prepare("delete from message where conversation_id = ?").run(
-      conversationId,
-    );
-    db.prepare("delete from conversation where id = ?").run(conversationId);
-  })();
+  deleteConversation(conversationId);
 }
 
 export function clearChatAndProfile(): string[] {

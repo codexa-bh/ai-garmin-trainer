@@ -75,4 +75,64 @@ describe("local chat history repository", () => {
         .map((message) => message.content),
     ).toEqual(["Old transcript phrase from the default conversation"]);
   });
+
+  it("lists conversations by recent activity with deterministic first-message titles", async () => {
+    const repository = await import("../src/lib/db/repository");
+
+    repository.createConversation({ id: "empty-chat", title: "New chat" });
+    repository.appendChatMessage({
+      conversationId: "first-chat",
+      role: "user",
+      content: "   Plan    a low intensity recovery ride after yesterday   ",
+    });
+    repository.appendChatMessage({
+      conversationId: "second-chat",
+      role: "user",
+      content: "What was my most demanding hike this month?",
+    });
+
+    const summaries = repository.listConversations();
+    expect(summaries.map((item) => item.id).slice(0, 3)).toEqual([
+      "second-chat",
+      "first-chat",
+      "empty-chat",
+    ]);
+    expect(summaries.find((item) => item.id === "first-chat")?.title).toBe(
+      "Plan a low intensity recovery ride after yester…",
+    );
+  });
+
+  it("paginates display transcript history independently from recent grounding", async () => {
+    const repository = await import("../src/lib/db/repository");
+
+    for (let index = 1; index <= 7; index += 1) {
+      repository.appendChatMessage({
+        conversationId: "paged-chat",
+        role: index % 2 === 0 ? "assistant" : "user",
+        content: `message ${index}`,
+      });
+    }
+
+    const firstPage = repository.listChatMessagePage({
+      conversationId: "paged-chat",
+      limit: 3,
+    });
+    const secondPage = repository.listChatMessagePage({
+      conversationId: "paged-chat",
+      cursor: firstPage.nextCursor,
+      limit: 3,
+    });
+
+    expect(firstPage.messages.map((message) => message.content)).toEqual([
+      "message 5",
+      "message 6",
+      "message 7",
+    ]);
+    expect(secondPage.messages.map((message) => message.content)).toEqual([
+      "message 2",
+      "message 3",
+      "message 4",
+    ]);
+    expect(repository.listRecentChatMessages("paged-chat", 2)).toHaveLength(2);
+  });
 });

@@ -12,7 +12,6 @@ import {
   clearConversationHistory,
   createTrainerMemoryProposal,
   dataCounts,
-  DEFAULT_CONVERSATION_ID,
   ensureConversation,
   getGarminAthleteBaseline,
   getTrainerProfile,
@@ -21,6 +20,8 @@ import {
   listRecentActivities,
   listRecentChatMessages,
   listRecentDailyHealth,
+  safeConversationId,
+  type ChatGrounding,
   type StoredChatMessage,
 } from "@/lib/db/repository";
 
@@ -53,20 +54,129 @@ function apiMessage(message: StoredChatMessage) {
   };
 }
 
-function safeConversationId(value: string | null | undefined): string {
-  const candidate = value?.trim() || DEFAULT_CONVERSATION_ID;
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$/.test(candidate)) {
-    throw new Error(
-      "Conversation id must be a local opaque id with letters, numbers, dashes, underscores, dots, or colons only",
-    );
-  }
-  return candidate;
-}
+type ApiChatMessage = ReturnType<typeof apiMessage>;
 
 type MemoryProposalResult =
   | { status: "none" }
   | { status: "pending"; id: string; value: string }
   | { status: "skipped"; reason: string };
+
+type ChatStreamEvent =
+  | { type: "start"; conversationId: string; userMessage: ApiChatMessage }
+  | { type: "status"; message: string }
+  | { type: "delta"; textDelta: string }
+  | { type: "metadata"; grounding: ChatGrounding | null }
+  | {
+      type: "done";
+      assistantMessage: ApiChatMessage;
+      conversationId: string;
+      contextWindow: number;
+      historyLimit: number;
+      memoryProposal: MemoryProposalResult;
+    }
+  | { type: "error"; code: string; message: string; retryable: boolean };
+
+function streamJsonEvent(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  event: ChatStreamEvent,
+): void {
+  controller.enqueue(new TextEncoder().encode(`${JSON.stringify(event)}\n`));
+}
+
+function visibleDeltas(text: string): string[] {
+  const matches = text.match(/\S+\s*/g);
+  return matches?.length ? matches : [text];
+}
+
+function streamingResponse(input: {
+  conversationId: string;
+  latestMessage: string;
+  previousMessages: StoredChatMessage[];
+  userRecord: StoredChatMessage;
+  memoryProposal: MemoryProposalResult;
+  requestSignal: AbortSignal;
+}) {
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        streamJsonEvent(controller, {
+          type: "start",
+          conversationId: input.conversationId,
+          userMessage: apiMessage(input.userRecord),
+        });
+        streamJsonEvent(controller, {
+          type: "status",
+          message:
+            "Trainer is preparing a safe final answer from bounded local context.",
+        });
+        const previousFailure = latestFailedAssistantMessage(
+          input.previousMessages,
+        );
+        let text: string;
+        let grounding: ChatGrounding | null;
+        let messagesForContext = [...input.previousMessages, input.userRecord];
+
+        if (previousFailure && isFailureMetaQuestion(input.latestMessage)) {
+          text = explainPreviousToolFailure(previousFailure);
+          grounding = previousFailure.grounding;
+        } else {
+          const { model } = selectedModel();
+          const result = await orchestrateTrainerChat({
+            model,
+            system: buildSystemContext(messagesForContext),
+            userRequest: input.latestMessage,
+          });
+          text = result.text;
+          grounding = result.grounding;
+          streamJsonEvent(controller, { type: "metadata", grounding });
+        }
+
+        for (const textDelta of visibleDeltas(text)) {
+          if (input.requestSignal.aborted) throw new Error("stream aborted");
+          streamJsonEvent(controller, { type: "delta", textDelta });
+        }
+        if (input.requestSignal.aborted) throw new Error("stream aborted");
+        const assistantRecord = appendChatMessage({
+          conversationId: input.conversationId,
+          role: "assistant",
+          content: text,
+          grounding,
+        });
+        const messages = listRecentChatMessages(
+          input.conversationId,
+          CHAT_HISTORY_LIMIT,
+        );
+        messagesForContext = messages;
+        streamJsonEvent(controller, {
+          type: "done",
+          assistantMessage: apiMessage(assistantRecord),
+          conversationId: input.conversationId,
+          contextWindow: Math.min(messagesForContext.length, 10),
+          historyLimit: CHAT_HISTORY_LIMIT,
+          memoryProposal: input.memoryProposal,
+        });
+        controller.close();
+      } catch (error) {
+        streamJsonEvent(controller, {
+          type: "error",
+          code: input.requestSignal.aborted ? "aborted" : "chat_failed",
+          message:
+            error instanceof Error && error.message !== "stream aborted"
+              ? error.message
+              : "Chat stream stopped before a complete assistant answer was persisted.",
+          retryable: true,
+        });
+        controller.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+}
 
 function explicitMemoryText(message: string): string | null {
   const trimmed = message.replace(/\s+/g, " ").trim();
@@ -227,6 +337,7 @@ export async function POST(request: Request) {
       conversationId?: string;
       message?: string;
       messages?: UIMessage[];
+      stream?: boolean;
     };
     const conversationId = safeConversationId(body.conversationId);
     const latestMessage = latestRequestMessage(body);
@@ -251,6 +362,17 @@ export async function POST(request: Request) {
       latestMessage,
       userRecord.id,
     );
+    if (body.stream === true) {
+      return streamingResponse({
+        conversationId,
+        latestMessage,
+        previousMessages,
+        userRecord,
+        memoryProposal,
+        requestSignal: request.signal,
+      });
+    }
+
     const previousFailure = latestFailedAssistantMessage(previousMessages);
     if (previousFailure && isFailureMetaQuestion(latestMessage)) {
       const assistantRecord = appendChatMessage({
