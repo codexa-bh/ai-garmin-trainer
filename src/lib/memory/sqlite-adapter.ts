@@ -6,6 +6,10 @@ import {
   type MemoryRuntimeConfig,
 } from "./config";
 import {
+  extractMemoryCandidatesWithLlm,
+  memoryExtractionMode,
+} from "./extractor";
+import {
   classifyMemory,
   compactText,
   extractMemoryCandidates,
@@ -350,7 +354,11 @@ export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
     if (!this.config.effectiveEnabled) return;
     if (this.problems().length) throw new Error(this.problems().join("; "));
     await this.migrateLegacy();
-    const candidates = extractMemoryCandidates(input);
+    const mode = memoryExtractionMode();
+    const llmCandidates =
+      mode === "llm" ? await extractMemoryCandidatesWithLlm(input) : null;
+    const candidates =
+      mode === "off" ? [] : (llmCandidates ?? extractMemoryCandidates(input));
     for (const candidate of candidates) {
       await this.upsertMemory({
         id: stableId("semantic-candidate", [

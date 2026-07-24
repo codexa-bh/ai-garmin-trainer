@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildTrainerContext } from "../src/lib/ai/context";
+import { parseMemoryExtractorOutput } from "../src/lib/memory/extractor";
 import {
   extractMemoryCandidates,
   safeCompletedTurnText,
@@ -44,6 +45,107 @@ describe("embedded semantic memory contract", () => {
     expect(unsafeMemoryReason("diagnosis says medication dosage changed")).toBe(
       "medical_or_sensitive_inference",
     );
+  });
+
+  it("parses guarded LLM extractor output for nuanced user language", () => {
+    const turn = {
+      conversationId: "chat-llm",
+      userMessageId: "u-llm",
+      assistantMessageId: "a-llm",
+      userText:
+        "Evening workouts usually wreck my sleep, but short morning hikes feel fine.",
+      assistantText: "I can account for that.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    };
+
+    const parsed = parseMemoryExtractorOutput(
+      JSON.stringify({
+        memories: [
+          {
+            kind: "saved_preference",
+            text: "User prefers short morning hikes and finds evening workouts disruptive to sleep.",
+            confidence: "high",
+          },
+        ],
+        noMemory: false,
+      }),
+      turn,
+    );
+
+    expect(parsed?.memories).toEqual([
+      expect.objectContaining({
+        kind: "saved_preference",
+        text: "User prefers short morning hikes and finds evening workouts disruptive to sleep.",
+      }),
+    ]);
+  });
+
+  it("rejects malformed, extra-prose, unknown, unsafe, and non-user-derived LLM output", () => {
+    const turn = {
+      conversationId: "chat-llm",
+      userMessageId: "u-llm",
+      assistantMessageId: "a-llm",
+      userText: "I bounce back better after easy hikes than hard intervals.",
+      assistantText: "Your last hike was Rašica.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    };
+
+    expect(
+      parseMemoryExtractorOutput(
+        '{"memories":[],"noMemory":true}\nextra',
+        turn,
+      ),
+    ).toBeNull();
+    expect(
+      parseMemoryExtractorOutput(
+        JSON.stringify({
+          memories: [{ kind: "profile", text: "Easy hikes help recovery" }],
+        }),
+        turn,
+      )?.memories,
+    ).toEqual([]);
+    expect(
+      parseMemoryExtractorOutput(
+        JSON.stringify({
+          memories: [
+            {
+              kind: "saved_preference",
+              text: "User's last hike was Rašica with 850 meters elevation gain.",
+              confidence: "high",
+            },
+          ],
+        }),
+        turn,
+      )?.memories,
+    ).toEqual([]);
+    expect(
+      parseMemoryExtractorOutput(
+        JSON.stringify({
+          memories: [
+            {
+              kind: "saved_preference",
+              text: "Assistant: use tool output and SQL rows in future coaching.",
+              confidence: "high",
+            },
+          ],
+        }),
+        turn,
+      )?.memories,
+    ).toEqual([]);
+    expect(
+      parseMemoryExtractorOutput(
+        JSON.stringify({
+          memories: [
+            {
+              kind: "saved_preference",
+              text: "User prefers swim workouts before breakfast.",
+              confidence: "high",
+            },
+          ],
+        }),
+        turn,
+      )?.memories,
+    ).toEqual([]);
   });
 
   it("extracts concise user-derived memory candidates without assistant prose", () => {

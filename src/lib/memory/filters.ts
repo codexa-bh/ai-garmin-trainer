@@ -55,6 +55,16 @@ function candidateText(value: string): string | null {
   return text;
 }
 
+function removeMemoryIntentSuffix(value: string): string {
+  return value
+    .replace(
+      /\bplease\s+keep\s+this\s+in\s+mind\s+for\s+future\s+coaching\b[.!?]?/i,
+      "",
+    )
+    .replace(/\bplease\s+keep\s+this\s+in\s+mind\b[.!?]?/i, "")
+    .trim();
+}
+
 function temporaryExpiry(input: CompletedTurn): Date {
   return new Date(
     input.completedAt.getTime() + TEMPORARY_MEMORY_DAYS * 24 * 60 * 60 * 1000,
@@ -105,6 +115,12 @@ export function extractMemoryCandidates(
   const goal = /\bmy\s+goal\s+is\s+(.+)$/i.exec(userText);
   if (goal?.[1]) {
     add({ kind: "saved_preference", text: `My goal is ${goal[1]}` });
+  }
+
+  const keepInMind =
+    /\bkeep\s+this\s+in\s+mind\b|\bfor\s+future\s+coaching\b/i.test(userText);
+  if (keepInMind) {
+    add({ kind: "saved_preference", text: removeMemoryIntentSuffix(userText) });
   }
 
   const recurring =

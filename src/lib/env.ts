@@ -34,6 +34,10 @@ const optionalEnvSchema = z.object({
   MEMORY_EMBEDDING_BASE_URL: z.string().optional(),
   MEMORY_EMBEDDING_DIMS: z.string().default("1536"),
   MEMORY_TIMEOUT_MS: z.string().default("8000"),
+  MEMORY_EXTRACTION_MODE: z
+    .enum(["llm", "deterministic", "off"])
+    .default("llm"),
+  MEMORY_EXTRACTION_TIMEOUT_MS: z.string().default("3000"),
 });
 
 export type AppEnv = z.infer<typeof optionalEnvSchema>;

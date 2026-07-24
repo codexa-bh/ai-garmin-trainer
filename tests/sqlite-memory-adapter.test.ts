@@ -3,6 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const aiMocks = vi.hoisted(() => ({
+  generateText: vi.fn(),
+}));
+
+vi.mock("ai", () => ({
+  generateText: aiMocks.generateText,
+}));
+
 beforeEach(() => {
   vi.resetModules();
   vi.unstubAllGlobals();
@@ -13,6 +21,12 @@ beforeEach(() => {
   process.env.MEMORY_ENABLED = "true";
   process.env.MEMORY_EMBEDDING_PROVIDER = "deterministic";
   process.env.MEMORY_EMBEDDING_DIMS = "64";
+  delete process.env.MEMORY_EXTRACTION_MODE;
+  delete process.env.MEMORY_EXTRACTION_TIMEOUT_MS;
+  delete process.env.AI_PROVIDER;
+  delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  aiMocks.generateText.mockReset();
 });
 
 describe("embedded SQLite semantic memory adapter", () => {
@@ -57,6 +71,176 @@ describe("embedded SQLite semantic memory adapter", () => {
       true,
     );
     expect(results.some((item) => item.kind === "saved_preference")).toBe(true);
+  });
+
+  it("stores guarded LLM-extracted memory for nuanced natural language", async () => {
+    process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
+    aiMocks.generateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        memories: [
+          {
+            kind: "saved_preference",
+            text: "User prefers short morning hikes and finds evening workouts disruptive to sleep.",
+            confidence: "high",
+          },
+        ],
+        noMemory: false,
+      }),
+      toolCalls: [],
+    });
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+
+    await module.trainerMemoryStore().addCompletedTurn({
+      conversationId: "llm-chat",
+      userMessageId: "u-llm",
+      assistantMessageId: "a-llm",
+      userText:
+        "Evening workouts usually wreck my sleep, but short morning hikes feel fine.",
+      assistantText: "I can account for that.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+
+    const rows = repository
+      .getDatabase()
+      .prepare("select kind, text, source from semantic_memory")
+      .all() as Array<{ kind: string; text: string; source: string }>;
+    expect(rows).toEqual([
+      {
+        kind: "saved_preference",
+        text: "User prefers short morning hikes and finds evening workouts disruptive to sleep.",
+        source: "llm-completed-turn-user-fact",
+      },
+    ]);
+  });
+
+  it("stores no row for strict LLM no-memory output", async () => {
+    process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
+    aiMocks.generateText.mockResolvedValueOnce({
+      text: JSON.stringify({ memories: [], noMemory: true }),
+      toolCalls: [],
+    });
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+
+    await module.trainerMemoryStore().addCompletedTurn({
+      conversationId: "llm-none",
+      userMessageId: "u-none",
+      assistantMessageId: "a-none",
+      userText: "What were my top activities last year?",
+      assistantText: "I can analyze that from local Garmin data.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+
+    const row = repository
+      .getDatabase()
+      .prepare("select count(*) as count from semantic_memory")
+      .get() as { count: number };
+    expect(row.count).toBe(0);
+  });
+
+  it("falls back to deterministic extraction when LLM output is invalid", async () => {
+    process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
+    aiMocks.generateText.mockResolvedValueOnce({
+      text: 'Here is JSON: {"memories":[]}',
+      toolCalls: [],
+    });
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+
+    await module.trainerMemoryStore().addCompletedTurn({
+      conversationId: "llm-fallback",
+      userMessageId: "u-fallback",
+      assistantMessageId: "a-fallback",
+      userText: "remember that I prefer short easy runs after travel",
+      assistantText: "I will account for easy post-travel runs.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+
+    const row = repository
+      .getDatabase()
+      .prepare("select kind, text, source from semantic_memory")
+      .get() as { kind: string; text: string; source: string };
+    expect(row).toMatchObject({
+      kind: "saved_preference",
+      text: "I prefer short easy runs after travel",
+      source: "completed-turn-user-fact",
+    });
+  });
+
+  it("does not run deterministic extraction or create duplicates after LLM success", async () => {
+    process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
+    aiMocks.generateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        memories: [
+          {
+            kind: "saved_preference",
+            text: "I prefer morning hikes",
+            confidence: "high",
+          },
+        ],
+      }),
+      toolCalls: [],
+    });
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+
+    await module.trainerMemoryStore().addCompletedTurn({
+      conversationId: "llm-dedupe",
+      userMessageId: "u-dedupe",
+      assistantMessageId: "a-dedupe",
+      userText: "I prefer morning hikes",
+      assistantText: "I will account for that.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+
+    const rows = repository
+      .getDatabase()
+      .prepare("select text, source from semantic_memory")
+      .all() as Array<{ text: string; source: string }>;
+    expect(rows).toEqual([
+      {
+        text: "I prefer morning hikes",
+        source: "llm-completed-turn-user-fact",
+      },
+    ]);
+  });
+
+  it("honors deterministic and off memory extraction modes", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+    process.env.MEMORY_EXTRACTION_MODE = "deterministic";
+    process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
+    await module.trainerMemoryStore().addCompletedTurn({
+      conversationId: "mode-deterministic",
+      userMessageId: "u-mode-1",
+      assistantMessageId: "a-mode-1",
+      userText: "I prefer mellow hikes on recovery days",
+      assistantText: "I will account for that.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+    expect(aiMocks.generateText).not.toHaveBeenCalled();
+
+    process.env.MEMORY_EXTRACTION_MODE = "off";
+    await module.trainerMemoryStore().addCompletedTurn({
+      conversationId: "mode-off",
+      userMessageId: "u-mode-2",
+      assistantMessageId: "a-mode-2",
+      userText: "I prefer easy spins on Fridays",
+      assistantText: "I will account for that.",
+      completedAt: new Date("2026-07-23T12:01:00Z"),
+    });
+
+    const rows = repository
+      .getDatabase()
+      .prepare("select text, source from semantic_memory order by created_at")
+      .all() as Array<{ text: string; source: string }>;
+    expect(rows).toEqual([
+      {
+        text: "I prefer mellow hikes on recovery days",
+        source: "completed-turn-user-fact",
+      },
+    ]);
   });
 
   it("stores normalized semantic memory with mocked Ollama embeddings", async () => {
