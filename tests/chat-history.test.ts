@@ -50,6 +50,69 @@ describe("local chat history repository", () => {
     expect(repository.listRecentChatMessages()).toEqual([]);
   });
 
+  it("persists bounded assistant debug traces as valid JSON and loads older messages without traces", async () => {
+    const repository = await import("../src/lib/db/repository");
+
+    repository.appendChatMessage({
+      conversationId: "debug-chat",
+      role: "assistant",
+      content: "Plain older answer",
+    });
+    repository.appendChatMessage({
+      conversationId: "debug-chat",
+      role: "assistant",
+      content: "Tool-grounded answer without raw debug prose",
+      grounding: {
+        tool: "runReadOnlySql",
+        privacy: "normalized local analytics only",
+        debugTrace: {
+          schemaVersion: 1,
+          capturedAt: "2026-07-24T12:00:00.000Z",
+          provider: "deepseek",
+          model: "deepseek-chat",
+          userRequest: "Rank my most demanding activities",
+          providerCalls: [
+            {
+              index: 1,
+              purpose: "planner",
+              toolCalls: [
+                {
+                  toolName: "runReadOnlySql",
+                  input: { sql: "select " + "x".repeat(5000) },
+                },
+              ],
+            },
+          ],
+          toolSteps: [
+            {
+              index: 1,
+              tool: "runReadOnlySql",
+              status: "succeeded",
+              summary: "Returned bounded rows",
+              result: { rows: [{ note: "y".repeat(5000) }] },
+            },
+          ],
+          finalAnswer: "Final answer",
+          caps: { string: 1200 },
+          truncated: true,
+        },
+      },
+    });
+
+    const stored = repository.listRecentChatMessages("debug-chat", 5);
+    expect(stored[0].grounding).toBeNull();
+    expect(stored[1].grounding?.debugTrace?.schemaVersion).toBe(1);
+    expect(stored[1].content).not.toContain("Tool step");
+    const row = repository
+      .getDatabase()
+      .prepare(
+        "select grounding_json as groundingJson from message where id = ?",
+      )
+      .get(stored[1].id) as { groundingJson: string };
+    expect(() => JSON.parse(row.groundingJson)).not.toThrow();
+    expect(row.groundingJson.length).toBeLessThanOrEqual(24000);
+  });
+
   it("keeps manual new-chat conversations separate without deleting existing transcript", async () => {
     const repository = await import("../src/lib/db/repository");
 

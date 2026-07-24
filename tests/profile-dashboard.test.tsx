@@ -151,6 +151,86 @@ describe("TrainerDashboard Profile hydration", () => {
     );
   });
 
+  it("shows env-gated LLM debug traces in Settings without leaking them into the transcript", async () => {
+    const debugPayload = {
+      conversationId: "default",
+      messages: [
+        {
+          id: "assistant-debug-1",
+          role: "assistant",
+          content: "User-facing answer only.",
+          createdAt: "2026-07-24T12:00:00.000Z",
+          grounding: {
+            debugTrace: {
+              schemaVersion: 1,
+              capturedAt: "2026-07-24T12:00:00.000Z",
+              provider: "deepseek",
+              model: "deepseek-chat",
+              providerCalls: [{ index: 1, purpose: "planner" }],
+              toolSteps: [{ index: 1, tool: "runReadOnlySql" }],
+              finalAnswer: "User-facing answer only.",
+              caps: { string: 1200 },
+            },
+          },
+        },
+        {
+          id: "assistant-no-debug-1",
+          role: "assistant",
+          content: "Older assistant answer.",
+          createdAt: "2026-07-24T11:00:00.000Z",
+          grounding: null,
+        },
+      ],
+      contextWindow: 2,
+      historyLimit: 40,
+      llmDebugTracesEnabled: true,
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(debugPayload);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(await screen.findByText("User-facing answer only.")).toBeTruthy();
+    expect(screen.queryByText("runReadOnlySql")).toBeNull();
+
+    openSettings();
+
+    expect(
+      await screen.findByText("LLM debug traces", { exact: false }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Local developer diagnostics are enabled/),
+    ).toBeTruthy();
+    expect(screen.getByText(/runReadOnlySql/)).toBeTruthy();
+    expect(
+      screen.getByText("No debug trace captured for this assistant message."),
+    ).toBeTruthy();
+  });
+
+  it("keeps env-disabled LLM debug Settings section absent", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText("LLM debug traces", { exact: false }),
+      ).toBeNull(),
+    );
+  });
+
   it("keeps Diagnostics collapsed until opened", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);

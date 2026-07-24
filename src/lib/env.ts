@@ -38,6 +38,7 @@ const optionalEnvSchema = z.object({
     .enum(["llm", "deterministic", "off"])
     .default("llm"),
   MEMORY_EXTRACTION_TIMEOUT_MS: z.string().default("3000"),
+  LLM_DEBUG_TRACES: z.string().default("false"),
 });
 
 export type AppEnv = z.infer<typeof optionalEnvSchema>;
@@ -54,6 +55,12 @@ export function configuredSecret(
 
 export function hasConfiguredSecret(value: string | undefined): boolean {
   return Boolean(configuredSecret(value));
+}
+
+export function isLlmDebugTraceEnabled(
+  env: AppEnv = getOptionalEnv(),
+): boolean {
+  return /^(1|true|yes|on)$/i.test(env.LLM_DEBUG_TRACES.trim());
 }
 
 export function getOptionalEnv(

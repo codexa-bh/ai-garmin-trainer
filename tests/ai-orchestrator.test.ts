@@ -123,6 +123,70 @@ describe("trainer orchestrator fail-closed policy", async () => {
     });
   });
 
+  it("captures bounded debug traces only when requested", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: `select garmin_id, name from activity where name like '${"x".repeat(3000)}'`,
+              resultName: "activity_rows",
+              maxRows: 20,
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ text: "The debug-enabled final answer." });
+
+    const disabled = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "most demanding activities",
+    });
+    expect(disabled.debugTrace).toBeUndefined();
+
+    generateText.mockReset();
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: `select garmin_id, name from activity where name like '${"x".repeat(3000)}'`,
+              resultName: "activity_rows",
+              maxRows: 20,
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ text: "The debug-enabled final answer." });
+
+    const enabled = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "most demanding activities",
+      debug: { enabled: true, provider: "deepseek", model: "deepseek-chat" },
+    });
+
+    expect(enabled.debugTrace).toMatchObject({
+      schemaVersion: 1,
+      provider: "deepseek",
+      model: "deepseek-chat",
+      finalAnswer: "The debug-enabled final answer.",
+    });
+    expect(enabled.debugTrace?.providerCalls[0]).toMatchObject({
+      purpose: "planner",
+      toolCalls: [{ toolName: "runReadOnlySql", truncated: true }],
+    });
+    expect(enabled.debugTrace?.toolSteps[0]).toMatchObject({
+      tool: "runReadOnlySql",
+      status: "succeeded",
+      result: expect.objectContaining({ resultName: "activity_rows" }),
+    });
+    expect(JSON.stringify(enabled.debugTrace)).not.toContain("Tool step");
+  });
+
   it("selects one safe analytical tool from multiple provider tool calls", async () => {
     generateText
       .mockResolvedValueOnce({

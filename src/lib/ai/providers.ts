@@ -125,6 +125,7 @@ export function selectedModel() {
     return {
       provider: "deepseek" as const,
       selectionMode: status.selectionMode,
+      modelName: env.DEEPSEEK_MODEL,
       model: deepseek(env.DEEPSEEK_MODEL),
     };
   }
@@ -135,6 +136,7 @@ export function selectedModel() {
   return {
     provider: "openai" as const,
     selectionMode: status.selectionMode,
+    modelName: env.AI_MODEL,
     model: openai(env.AI_MODEL),
   };
 }

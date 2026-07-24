@@ -12,6 +12,12 @@ import {
   type TrainerToolStep,
   type TrainerToolStepName,
 } from "@/lib/ai/tools";
+import {
+  buildLlmDebugTrace,
+  debugProviderCall,
+  type LlmDebugProviderCall,
+  type LlmDebugTrace,
+} from "@/lib/ai/debug-trace";
 import type { ChatGrounding } from "@/lib/db/repository";
 
 const MAX_PLANNER_CALLS = 5;
@@ -29,6 +35,11 @@ export type OrchestrateTrainerChatInput = {
   model: unknown;
   system: string;
   userRequest: string;
+  debug?: {
+    enabled: boolean;
+    provider?: string;
+    model?: string | null;
+  };
 };
 
 export type OrchestrateTrainerChatResult = {
@@ -36,6 +47,7 @@ export type OrchestrateTrainerChatResult = {
   grounding: ChatGrounding | null;
   toolSteps: TrainerToolStep[];
   providerCalls: number;
+  debugTrace?: LlmDebugTrace;
 };
 
 type RawGenerateTextResult = {
@@ -290,6 +302,7 @@ function toolFailureLimitationText(steps: TrainerToolStep[]): string {
 async function synthesizeFinalAnswer(
   input: OrchestrateTrainerChatInput,
   steps: TrainerToolStep[],
+  recordProviderCall?: (call: LlmDebugProviderCall) => void,
 ): Promise<string | null> {
   let result: RawGenerateTextResult;
   try {
@@ -303,7 +316,14 @@ async function synthesizeFinalAnswer(
       prompt: input.userRequest,
       toolChoice: "none",
     })) as RawGenerateTextResult;
-  } catch {
+  } catch (error) {
+    recordProviderCall?.(
+      debugProviderCall({
+        index: 0,
+        purpose: "final_synthesis",
+        error: error instanceof Error ? error.message : "provider_exception",
+      }),
+    );
     return null;
   }
   if (!result) return null;
@@ -312,6 +332,14 @@ async function synthesizeFinalAnswer(
   const toolCalls = (result.toolCalls ?? [])
     .map(extractToolCall)
     .filter((call): call is TrainerToolCall => Boolean(call));
+  recordProviderCall?.(
+    debugProviderCall({
+      index: 0,
+      purpose: "final_synthesis",
+      toolCalls,
+      text,
+    }),
+  );
   if (toolCalls.length || !isAcceptableToolSynthesisText(text)) return null;
   return text;
 }
@@ -324,6 +352,32 @@ export async function orchestrateTrainerChat(
   const sideEffectsUsed = new Set<TrainerToolName>();
   const analysisToolCounts = new Map<TrainerToolName, number>();
   let providerCalls = 0;
+  const debugEnabled = input.debug?.enabled === true;
+  const debugProviderCalls: LlmDebugProviderCall[] = [];
+  const recordProviderCall = (call: LlmDebugProviderCall) => {
+    if (!debugEnabled) return;
+    debugProviderCalls.push({ ...call, index: debugProviderCalls.length + 1 });
+  };
+  const finish = (
+    result: Omit<OrchestrateTrainerChatResult, "debugTrace">,
+    finalAnswerSource?: LlmDebugTrace["finalAnswerSource"],
+  ) => {
+    if (!debugEnabled) return result;
+    return {
+      ...result,
+      debugTrace: buildLlmDebugTrace({
+        provider: input.debug?.provider,
+        model: input.debug?.model,
+        userRequest: input.userRequest,
+        providerCalls: debugProviderCalls,
+        toolSteps: result.toolSteps,
+        finalAnswer: result.text,
+        finalAnswerSource:
+          finalAnswerSource ??
+          (result.toolSteps.length ? "provider" : "direct"),
+      }),
+    };
+  };
 
   for (let plannerCall = 0; plannerCall < MAX_PLANNER_CALLS; plannerCall += 1) {
     providerCalls += 1;
@@ -345,47 +399,72 @@ export async function orchestrateTrainerChat(
           deepseek: { parallelToolCalls: false },
         },
       })) as RawGenerateTextResult;
-    } catch {
+    } catch (error) {
+      recordProviderCall(
+        debugProviderCall({
+          index: 0,
+          purpose: steps.length ? "failure_fallback" : "planner",
+          error: error instanceof Error ? error.message : "provider_exception",
+        }),
+      );
       if (steps.length) {
-        return {
-          text: toolFailureLimitationText(steps),
-          grounding: groundingForSteps(steps),
-          toolSteps: steps,
-          providerCalls,
-        };
+        return finish(
+          {
+            text: toolFailureLimitationText(steps),
+            grounding: groundingForSteps(steps),
+            toolSteps: steps,
+            providerCalls,
+          },
+          "deterministic_fallback",
+        );
       }
-      return {
-        text: "I could not get a valid response from the configured model. No Garmin tool was executed.",
-        grounding: null,
-        toolSteps: [],
-        providerCalls,
-      };
+      return finish(
+        {
+          text: "I could not get a valid response from the configured model. No Garmin tool was executed.",
+          grounding: null,
+          toolSteps: [],
+          providerCalls,
+        },
+        "deterministic_fallback",
+      );
     }
 
     const toolCalls = (result.toolCalls ?? [])
       .map(extractToolCall)
       .filter((call): call is TrainerToolCall => Boolean(call));
+    recordProviderCall(
+      debugProviderCall({
+        index: 0,
+        purpose: toolCalls.length
+          ? "planner"
+          : steps.length
+            ? "final_synthesis"
+            : "direct_answer",
+        toolCalls,
+        text: result.text?.trim() ?? "",
+      }),
+    );
     if (toolCalls.length === 0) {
       if (steps.length) {
         const text = result.text?.trim() ?? "";
         const synthesized = isAcceptableToolSynthesisText(text)
           ? text
-          : await synthesizeFinalAnswer(input, steps);
-        return {
+          : await synthesizeFinalAnswer(input, steps, recordProviderCall);
+        return finish({
           text: synthesized ?? toolFailureLimitationText(steps),
           grounding: groundingForSteps(steps),
           toolSteps: steps,
           providerCalls,
-        };
+        });
       }
       const text = result.text?.trim();
-      return {
+      return finish({
         text:
           text || "I could not produce a useful answer from the local context.",
         grounding: null,
         toolSteps: [],
         providerCalls,
-      };
+      });
     }
 
     const stepIndex = (steps.length + 1) as 1 | 2 | 3 | 4;
@@ -399,12 +478,15 @@ export async function orchestrateTrainerChat(
       });
       if (!selection.ok) {
         const allSteps = [...steps, selection.step];
-        return {
-          text: toolFailureLimitationText(allSteps),
-          grounding: groundingForSteps(allSteps),
-          toolSteps: allSteps,
-          providerCalls,
-        };
+        return finish(
+          {
+            text: toolFailureLimitationText(allSteps),
+            grounding: groundingForSteps(allSteps),
+            toolSteps: allSteps,
+            providerCalls,
+          },
+          "deterministic_fallback",
+        );
       }
       selectedToolCall = selection.call;
       selectionMetadata = selection.metadata;
@@ -416,12 +498,15 @@ export async function orchestrateTrainerChat(
         "providerToolSelection",
       );
       const allSteps = [...steps, step];
-      return {
-        text: toolFailureLimitationText(allSteps),
-        grounding: groundingForSteps(allSteps),
-        toolSteps: allSteps,
-        providerCalls,
-      };
+      return finish(
+        {
+          text: toolFailureLimitationText(allSteps),
+          grounding: groundingForSteps(allSteps),
+          toolSteps: allSteps,
+          providerCalls,
+        },
+        "deterministic_fallback",
+      );
     }
 
     const accepted = validateTrainerToolCall(selectedToolCall);
@@ -435,12 +520,15 @@ export async function orchestrateTrainerChat(
           : "providerToolSelection";
       const step = failedStep(stepIndex, accepted.reason, attemptedTool);
       const allSteps = [...steps, step];
-      return {
-        text: toolFailureLimitationText(allSteps),
-        grounding: groundingForSteps(allSteps),
-        toolSteps: allSteps,
-        providerCalls,
-      };
+      return finish(
+        {
+          text: toolFailureLimitationText(allSteps),
+          grounding: groundingForSteps(allSteps),
+          toolSteps: allSteps,
+          providerCalls,
+        },
+        "deterministic_fallback",
+      );
     }
     if (SIDE_EFFECT_TOOLS.has(accepted.toolName)) {
       if (sideEffectsUsed.has(accepted.toolName)) {
@@ -450,12 +538,15 @@ export async function orchestrateTrainerChat(
           accepted.toolName,
           `${accepted.toolName} was rejected because that side-effect tool was already used in this turn.`,
         );
-        return {
-          text: toolFailureLimitationText([...steps, step]),
-          grounding: groundingForSteps([...steps, step]),
-          toolSteps: [...steps, step],
-          providerCalls,
-        };
+        return finish(
+          {
+            text: toolFailureLimitationText([...steps, step]),
+            grounding: groundingForSteps([...steps, step]),
+            toolSteps: [...steps, step],
+            providerCalls,
+          },
+          "deterministic_fallback",
+        );
       }
       sideEffectsUsed.add(accepted.toolName);
     }
@@ -468,13 +559,20 @@ export async function orchestrateTrainerChat(
         `${accepted.toolName} was rejected because the per-turn tool budget was already exhausted.`,
       );
       const allSteps = [...steps, step];
-      const synthesized = await synthesizeFinalAnswer(input, allSteps);
-      return {
-        text: synthesized ?? toolFailureLimitationText(allSteps),
-        grounding: groundingForSteps(allSteps),
-        toolSteps: allSteps,
-        providerCalls,
-      };
+      const synthesized = await synthesizeFinalAnswer(
+        input,
+        allSteps,
+        recordProviderCall,
+      );
+      return finish(
+        {
+          text: synthesized ?? toolFailureLimitationText(allSteps),
+          grounding: groundingForSteps(allSteps),
+          toolSteps: allSteps,
+          providerCalls,
+        },
+        synthesized ? "provider" : "deterministic_fallback",
+      );
     }
     if (
       accepted.toolName === "describeGarminDatabase" ||
@@ -501,40 +599,60 @@ export async function orchestrateTrainerChat(
         continue;
       }
       if (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis") {
-        const synthesized = await synthesizeFinalAnswer(input, steps);
-        return {
-          text: synthesized ?? toolFailureLimitationText(steps),
+        const synthesized = await synthesizeFinalAnswer(
+          input,
+          steps,
+          recordProviderCall,
+        );
+        return finish(
+          {
+            text: synthesized ?? toolFailureLimitationText(steps),
+            grounding: groundingForSteps(steps),
+            toolSteps: steps,
+            providerCalls,
+          },
+          synthesized ? "provider" : "deterministic_fallback",
+        );
+      }
+      return finish(
+        {
+          text: toolFailureLimitationText(steps),
           grounding: groundingForSteps(steps),
           toolSteps: steps,
           providerCalls,
-        };
-      }
-      return {
-        text: toolFailureLimitationText(steps),
-        grounding: groundingForSteps(steps),
-        toolSteps: steps,
-        providerCalls,
-      };
+        },
+        "deterministic_fallback",
+      );
     }
 
     if (steps.length >= MAX_GENERAL_TOOL_CALLS) {
       providerCalls += 1;
-      const text = await synthesizeFinalAnswer(input, steps);
-      return {
-        text: text ?? toolFailureLimitationText(steps),
-        grounding: groundingForSteps(steps),
-        toolSteps: steps,
-        providerCalls,
-      };
+      const text = await synthesizeFinalAnswer(
+        input,
+        steps,
+        recordProviderCall,
+      );
+      return finish(
+        {
+          text: text ?? toolFailureLimitationText(steps),
+          grounding: groundingForSteps(steps),
+          toolSteps: steps,
+          providerCalls,
+        },
+        text ? "provider" : "deterministic_fallback",
+      );
     }
   }
 
-  return {
-    text: toolFailureLimitationText(steps),
-    grounding: groundingForSteps(steps),
-    toolSteps: steps,
-    providerCalls,
-  };
+  return finish(
+    {
+      text: toolFailureLimitationText(steps),
+      grounding: groundingForSteps(steps),
+      toolSteps: steps,
+      providerCalls,
+    },
+    "deterministic_fallback",
+  );
 }
 
 export const trainerOrchestrationLimits = {

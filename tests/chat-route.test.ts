@@ -406,7 +406,11 @@ vi.mock("ai", () => ({
 }));
 
 vi.mock("@/lib/ai/providers", () => ({
-  selectedModel: () => ({ model: "mock-model" }),
+  selectedModel: () => ({
+    model: "mock-model",
+    provider: "deepseek",
+    modelName: "deepseek-chat",
+  }),
 }));
 
 vi.mock("@/lib/ai/sql-analysis", () => ({
@@ -573,12 +577,14 @@ async function postChat(message: string, conversationId?: string) {
     }),
   );
   return response.json() as Promise<{
-    assistant: { content: string };
+    assistant: { content: string; grounding?: Record<string, unknown> | null };
+    messages?: Array<{ grounding?: Record<string, unknown> | null }>;
     contextWindow: number;
     historyLimit: number;
     toolEvidence?: {
       tool?: string;
       summary?: string;
+      debugTrace?: Record<string, unknown>;
       toolSteps?: Array<{ tool: string; status?: string; reason?: string }>;
     } | null;
     toolSteps?: Array<{ tool: string; status: string; reason?: string }>;
@@ -586,6 +592,7 @@ async function postChat(message: string, conversationId?: string) {
       | { status: "none" }
       | { status: "pending"; id: string; value: string }
       | { status: "skipped"; reason: string };
+    llmDebugTracesEnabled?: boolean;
   }>;
 }
 
@@ -615,6 +622,7 @@ describe("chat route LLM tool orchestration", () => {
     memoryProposals = [];
     retrievedMemories = [];
     memoryAddShouldFail = false;
+    delete process.env.LLM_DEBUG_TRACES;
     generateText.mockClear();
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
@@ -636,6 +644,39 @@ describe("chat route LLM tool orchestration", () => {
     });
     expect(payload.assistant.content).toContain("detail coverage 1/3 terminal");
     expect(generateText).toHaveBeenCalledTimes(2);
+  });
+
+  it("omits persisted debug traces from API payloads when the env flag is disabled", async () => {
+    const payload = await postChat(
+      "What is my sync status and detail coverage?",
+    );
+
+    expect(payload.llmDebugTracesEnabled).toBe(false);
+    expect(payload.assistant.grounding?.debugTrace).toBeUndefined();
+    expect(payload.messages?.at(-1)?.grounding?.debugTrace).toBeUndefined();
+    expect(messages.at(-1)?.grounding).not.toHaveProperty("debugTrace");
+  });
+
+  it("persists and returns bounded debug traces when the env flag is enabled", async () => {
+    process.env.LLM_DEBUG_TRACES = "true";
+
+    const payload = await postChat(
+      "What is my sync status and detail coverage?",
+    );
+
+    expect(payload.llmDebugTracesEnabled).toBe(true);
+    expect(payload.assistant.grounding?.debugTrace).toMatchObject({
+      schemaVersion: 1,
+      provider: "deepseek",
+      model: "deepseek-chat",
+      providerCalls: expect.any(Array),
+      toolSteps: [expect.objectContaining({ tool: "getSyncStatus" })],
+    });
+    expect(JSON.stringify(payload.assistant.grounding?.debugTrace)).toContain(
+      "getSyncStatus",
+    );
+    expect(payload.assistant.content).not.toContain("Tool step");
+    expect(messages.at(-1)?.grounding).toHaveProperty("debugTrace");
   });
 
   it("executes a selected Garmin sync once", async () => {

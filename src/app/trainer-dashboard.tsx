@@ -4,7 +4,22 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
 type ChatRole = "user" | "assistant";
+type LlmDebugTrace = {
+  schemaVersion: 1;
+  capturedAt: string;
+  provider?: string;
+  model?: string | null;
+  userRequest?: string;
+  providerCalls?: unknown[];
+  toolSteps?: unknown[];
+  finalAnswer?: string;
+  truncated?: boolean;
+  caps?: Record<string, number>;
+  [key: string]: unknown;
+};
+
 type ChatGrounding = {
+  debugTrace?: LlmDebugTrace;
   tool?: string;
   activityId?: string;
   activityName?: string | null;
@@ -27,6 +42,7 @@ type ChatPayload = {
   nextCursor?: string | null;
   toolEvidence?: ChatGrounding | null;
   memoryProposal?: MemoryProposalResult;
+  llmDebugTracesEnabled?: boolean;
 };
 
 type MemoryProposalResult =
@@ -64,6 +80,7 @@ type ChatStreamEvent =
       contextWindow: number;
       historyLimit: number;
       memoryProposal: MemoryProposalResult;
+      llmDebugTracesEnabled?: boolean;
     }
   | { type: "error"; code: string; message: string; retryable: boolean };
 
@@ -257,6 +274,17 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 
 function linesToText(items: string[] | undefined): string {
   return (items ?? []).join("\n");
+}
+
+function hasVisibleGrounding(grounding: ChatGrounding | null | undefined) {
+  if (!grounding) return false;
+  return Object.keys(grounding).some((key) => key !== "debugTrace");
+}
+
+function debugMessageSummary(message: ChatMessage): string {
+  const date = new Date(message.createdAt).toLocaleString();
+  const excerpt = message.content.replace(/\s+/g, " ").trim().slice(0, 80);
+  return `${date}${excerpt ? ` — ${excerpt}` : ""}`;
 }
 
 function textToLines(value: string): string[] {
@@ -494,6 +522,7 @@ export function TrainerDashboard() {
   const [detailGarminId, setDetailGarminId] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [llmDebugTracesEnabled, setLlmDebugTracesEnabled] = useState(false);
   const profileDirtyRef = useRef(false);
   const profilePreferencesRef = useRef<Record<string, unknown>>({});
   const profileRequestRef = useRef(0);
@@ -520,6 +549,11 @@ export function TrainerDashboard() {
   const visibleMemories = useMemo(
     () => memoryItems.slice(0, 12),
     [memoryItems],
+  );
+  const debugTraceMessages = useMemo(
+    () =>
+      [...chatMessages].filter((item) => item.role === "assistant").reverse(),
+    [chatMessages],
   );
   const profileSummary = profileStatusLabel(
     profileFetchState,
@@ -822,6 +856,7 @@ export function TrainerDashboard() {
       const nextMessages = payload.messages ?? [];
       rememberTranscriptFollowIntent();
       setChatMessages(nextMessages);
+      setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled === true);
       setHistoryCursor(payload.nextCursor ?? null);
       setContextWindow(
         payload.contextWindow ?? Math.min(nextMessages.length, 6),
@@ -855,6 +890,8 @@ export function TrainerDashboard() {
         }),
       );
       const olderMessages = payload.messages ?? [];
+      if (typeof payload.llmDebugTracesEnabled === "boolean")
+        setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled);
       setChatMessages((items) => [...olderMessages, ...items]);
       setHistoryCursor(payload.nextCursor ?? null);
       requestAnimationFrame(() => {
@@ -1273,6 +1310,7 @@ export function TrainerDashboard() {
         ]);
         setContextWindow(event.contextWindow);
         setHistoryLimit(event.historyLimit);
+        setLlmDebugTracesEnabled(event.llmDebugTracesEnabled === true);
         const memorySuffix =
           event.memoryProposal.status === "pending"
             ? ` Pending learned-memory proposal created: ${event.memoryProposal.value}`
@@ -1320,6 +1358,7 @@ export function TrainerDashboard() {
         const payload = (await response.json()) as ChatPayload;
         const nextMessages = payload.messages ?? [];
         setChatMessages(nextMessages);
+        setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled === true);
         setContextWindow(payload.contextWindow ?? nextMessages.length);
         setHistoryLimit(payload.historyLimit ?? historyLimit);
         if (payload.memoryProposal) void loadMemories(false);
@@ -1616,7 +1655,7 @@ export function TrainerDashboard() {
                 ) : (
                   <p>{item.content}</p>
                 )}
-                {item.grounding ? (
+                {hasVisibleGrounding(item.grounding) ? (
                   <div
                     className="tool-evidence"
                     aria-label="Hidden grounding metadata available"
@@ -2085,6 +2124,53 @@ export function TrainerDashboard() {
                   </div>
                 </div>
               </details>
+
+              {llmDebugTracesEnabled ? (
+                <details className="settings-card llm-debug-card" open>
+                  <summary>
+                    LLM debug traces{" "}
+                    <span className="pill">
+                      {debugTraceMessages.length} assistant turns
+                    </span>
+                  </summary>
+                  <p>
+                    Local developer diagnostics are enabled by environment
+                    configuration. Traces may include private normalized
+                    Garmin/chat/tool context and are inspectable only on this
+                    loopback app; Settings does not edit env files.
+                  </p>
+                  <div
+                    className="debug-trace-list"
+                    aria-label="LLM debug traces"
+                  >
+                    {debugTraceMessages.length ? (
+                      debugTraceMessages.map((item) => (
+                        <details className="debug-trace-item" key={item.id}>
+                          <summary>{debugMessageSummary(item)}</summary>
+                          {item.grounding?.debugTrace ? (
+                            <pre>
+                              {JSON.stringify(
+                                item.grounding.debugTrace,
+                                null,
+                                2,
+                              )}
+                            </pre>
+                          ) : (
+                            <p>
+                              No debug trace captured for this assistant
+                              message.
+                            </p>
+                          )}
+                        </details>
+                      ))
+                    ) : (
+                      <p>
+                        No assistant messages in the active conversation yet.
+                      </p>
+                    )}
+                  </div>
+                </details>
+              ) : null}
 
               <details
                 className="settings-card diagnostics-card"

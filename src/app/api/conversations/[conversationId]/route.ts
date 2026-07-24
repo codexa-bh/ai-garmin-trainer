@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isLlmDebugTraceEnabled } from "@/lib/env";
 import {
   createConversation,
   deleteConversation,
@@ -20,13 +21,23 @@ async function paramsFrom(context: RouteContext) {
 
 function apiMessage(
   message: ReturnType<typeof listChatMessagePage>["messages"][number],
+  includeDebugTrace = false,
 ) {
+  const grounding = includeDebugTrace
+    ? message.grounding
+    : message.grounding?.debugTrace
+      ? (() => {
+          const visibleGrounding = { ...message.grounding! };
+          delete visibleGrounding.debugTrace;
+          return Object.keys(visibleGrounding).length ? visibleGrounding : null;
+        })()
+      : message.grounding;
   return {
     id: message.id,
     conversationId: message.conversationId,
     role: message.role,
     content: message.content,
-    grounding: message.grounding,
+    grounding,
     createdAt: message.createdAt.toISOString(),
   };
 }
@@ -54,6 +65,7 @@ export async function GET(request: Request, context: RouteContext) {
         { status: 404 },
       );
     }
+    const debugTraceEnabled = isLlmDebugTraceEnabled();
     const page = listChatMessagePage({
       conversationId,
       cursor: url.searchParams.get("cursor"),
@@ -62,8 +74,11 @@ export async function GET(request: Request, context: RouteContext) {
     return NextResponse.json({
       conversation: conversationSummary(conversation),
       conversationId,
-      messages: page.messages.map(apiMessage),
+      messages: page.messages.map((message) =>
+        apiMessage(message, debugTraceEnabled),
+      ),
       nextCursor: page.nextCursor,
+      llmDebugTracesEnabled: debugTraceEnabled,
     });
   } catch (error) {
     return NextResponse.json(

@@ -183,7 +183,8 @@ body::before {
 
 .conversation-list,
 .settings-groups,
-.memory-list {
+.memory-list,
+.debug-trace-list {
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -635,6 +636,7 @@ input::placeholder {
 
 .settings-card,
 .memory-item,
+.debug-trace-item,
 .helper-text,
 .status {
   border: 1px solid var(--line);
@@ -695,6 +697,28 @@ label {
   max-height: 300px;
   overflow: auto;
   white-space: pre-wrap;
+}
+
+.llm-debug-card {
+  border-color: rgba(125, 211, 252, 0.35);
+}
+
+.debug-trace-item {
+  padding: 10px;
+}
+
+.debug-trace-item summary {
+  padding: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.debug-trace-item pre {
+  max-height: 360px;
+  margin: 10px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .compact-facts {

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import type { LlmDebugTrace } from "@/lib/ai/debug-trace";
 import { getOptionalEnv } from "../env";
 import { migrateDatabase } from "./migrations";
 import { EMPTY_GARMIN_ATHLETE_VALUES } from "../garmin/athlete-normalize";
@@ -1364,6 +1365,7 @@ const GENERIC_CONVERSATION_TITLES = new Set(["Trainer chat", "New chat"]);
 export type ChatRole = "user" | "assistant";
 
 export type ChatGrounding = {
+  debugTrace?: LlmDebugTrace;
   tool?: string;
   activityId?: string;
   activityName?: string | null;
@@ -1411,6 +1413,8 @@ export type ChatMessagePage = {
   nextCursor: string | null;
 };
 
+const MAX_GROUNDING_JSON_CHARS = 24000;
+
 type StoredMessageRow = {
   id: string;
   conversationId: string;
@@ -1434,6 +1438,84 @@ function parseGrounding(value: string | null): ChatGrounding | null {
   } catch {
     return null;
   }
+}
+
+function truncateJsonString(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}…`;
+}
+
+function compactGroundingForStorage(grounding: ChatGrounding): ChatGrounding {
+  if (!grounding.debugTrace) return grounding;
+  const trace = grounding.debugTrace;
+  return {
+    ...grounding,
+    debugTrace: {
+      ...trace,
+      userRequest: trace.userRequest
+        ? truncateJsonString(trace.userRequest, 1200)
+        : trace.userRequest,
+      finalAnswer: truncateJsonString(trace.finalAnswer, 2400),
+      providerCalls: trace.providerCalls.slice(0, 8).map((call) => ({
+        ...call,
+        text: call.text ? truncateJsonString(call.text, 700) : call.text,
+        truncated:
+          call.truncated || trace.providerCalls.length > 8 || undefined,
+      })),
+      toolSteps: trace.toolSteps.slice(0, 4).map((step) => ({
+        ...step,
+        result: step.result,
+        summary: step.summary
+          ? truncateJsonString(step.summary, 700)
+          : step.summary,
+        privacy: step.privacy
+          ? truncateJsonString(step.privacy, 500)
+          : step.privacy,
+      })),
+      truncated: trace.truncated || trace.providerCalls.length > 8 || undefined,
+    },
+  };
+}
+
+function groundingJsonForStorage(
+  grounding: ChatGrounding | null | undefined,
+): string | null {
+  if (!grounding) return null;
+  let candidate: ChatGrounding = grounding;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const json = JSON.stringify(candidate);
+    if (json.length <= MAX_GROUNDING_JSON_CHARS) return json;
+    candidate = compactGroundingForStorage(candidate);
+    if (candidate.debugTrace) {
+      candidate = {
+        ...candidate,
+        debugTrace: {
+          ...candidate.debugTrace,
+          userRequest: candidate.debugTrace.userRequest
+            ? truncateJsonString(candidate.debugTrace.userRequest, 600)
+            : candidate.debugTrace.userRequest,
+          finalAnswer: truncateJsonString(
+            candidate.debugTrace.finalAnswer,
+            1200,
+          ),
+          providerCalls: candidate.debugTrace.providerCalls.slice(0, 4),
+          toolSteps: candidate.debugTrace.toolSteps.map((step) => ({
+            index: step.index,
+            tool: step.tool,
+            status: step.status,
+            summary: step.summary
+              ? truncateJsonString(step.summary, 300)
+              : step.summary,
+            reason: step.reason,
+            truncated: true,
+          })),
+          truncated: true,
+        },
+      };
+    }
+  }
+  const fallback = { ...candidate, debugTrace: undefined };
+  return JSON.stringify(fallback);
 }
 
 function mapStoredMessage(row: StoredMessageRow): StoredChatMessage {
@@ -1612,7 +1694,7 @@ export function appendChatMessage(input: {
       conversationId,
       input.role,
       input.content.slice(0, 12000),
-      input.grounding ? JSON.stringify(input.grounding).slice(0, 4000) : null,
+      groundingJsonForStorage(input.grounding),
       createdAt,
     );
   retitleInitialConversationIfNeeded(

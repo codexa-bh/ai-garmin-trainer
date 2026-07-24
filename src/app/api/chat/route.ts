@@ -5,8 +5,13 @@ import {
   formatActiveChatTranscript,
   TRAINER_SYSTEM_PROMPT,
 } from "@/lib/ai/context";
+import {
+  fallbackLlmDebugTrace,
+  type LlmDebugTrace,
+} from "@/lib/ai/debug-trace";
 import { orchestrateTrainerChat } from "@/lib/ai/orchestrator";
 import { selectedModel } from "@/lib/ai/providers";
+import { isLlmDebugTraceEnabled } from "@/lib/env";
 import {
   appendChatMessage,
   clearConversationHistory,
@@ -46,13 +51,32 @@ function latestRequestMessage(body: {
   return body.messages?.map(messageText).filter(Boolean).at(-1) ?? "";
 }
 
-function apiMessage(message: StoredChatMessage) {
+function groundingForApi(
+  grounding: ChatGrounding | null,
+  includeDebugTrace: boolean,
+): ChatGrounding | null {
+  if (includeDebugTrace) return grounding;
+  if (!grounding?.debugTrace) return grounding;
+  const visibleGrounding = { ...grounding };
+  delete visibleGrounding.debugTrace;
+  return Object.keys(visibleGrounding).length ? visibleGrounding : null;
+}
+
+function withDebugTrace(
+  grounding: ChatGrounding | null,
+  debugTrace: LlmDebugTrace | undefined,
+): ChatGrounding | null {
+  if (!debugTrace) return grounding;
+  return { ...(grounding ?? {}), debugTrace };
+}
+
+function apiMessage(message: StoredChatMessage, includeDebugTrace = false) {
   return {
     id: message.id,
     conversationId: message.conversationId,
     role: message.role,
     content: message.content,
-    grounding: message.grounding,
+    grounding: groundingForApi(message.grounding, includeDebugTrace),
     createdAt: message.createdAt.toISOString(),
   };
 }
@@ -71,6 +95,7 @@ type ChatStreamEvent =
       contextWindow: number;
       historyLimit: number;
       memoryProposal: MemoryProposalResult;
+      llmDebugTracesEnabled?: boolean;
     }
   | { type: "error"; code: string; message: string; retryable: boolean };
 
@@ -117,6 +142,7 @@ function streamingResponse(input: {
   userRecord: StoredChatMessage;
   memoryProposal: MemoryProposalResult;
   requestSignal: AbortSignal;
+  debugTraceEnabled: boolean;
 }) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -124,7 +150,7 @@ function streamingResponse(input: {
         streamJsonEvent(controller, {
           type: "start",
           conversationId: input.conversationId,
-          userMessage: apiMessage(input.userRecord),
+          userMessage: apiMessage(input.userRecord, input.debugTraceEnabled),
         });
         streamJsonEvent(controller, {
           type: "status",
@@ -142,7 +168,7 @@ function streamingResponse(input: {
           text = explainPreviousToolFailure(previousFailure);
           grounding = previousFailure.grounding;
         } else {
-          const { model } = selectedModel();
+          const { model, provider, modelName } = selectedModel();
           const result = await orchestrateTrainerChat({
             model,
             system: await buildSystemContext(
@@ -151,10 +177,18 @@ function streamingResponse(input: {
               input.conversationId,
             ),
             userRequest: input.latestMessage,
+            debug: {
+              enabled: input.debugTraceEnabled,
+              provider,
+              model: modelName,
+            },
           });
           text = result.text;
-          grounding = result.grounding;
-          streamJsonEvent(controller, { type: "metadata", grounding });
+          grounding = withDebugTrace(result.grounding, result.debugTrace);
+          streamJsonEvent(controller, {
+            type: "metadata",
+            grounding: groundingForApi(grounding, false),
+          });
         }
 
         for (const textDelta of visibleDeltas(text)) {
@@ -181,11 +215,15 @@ function streamingResponse(input: {
         messagesForContext = messages;
         streamJsonEvent(controller, {
           type: "done",
-          assistantMessage: apiMessage(assistantRecord),
+          assistantMessage: apiMessage(
+            assistantRecord,
+            input.debugTraceEnabled,
+          ),
           conversationId: input.conversationId,
           contextWindow: activeTranscriptContext(messagesForContext).length,
           historyLimit: CHAT_HISTORY_LIMIT,
           memoryProposal: input.memoryProposal,
+          llmDebugTracesEnabled: input.debugTraceEnabled,
         });
         controller.close();
       } catch (error) {
@@ -291,13 +329,17 @@ async function buildSystemContext(
 export async function GET(request: Request) {
   try {
     const conversationId = conversationIdFromRequest(request);
+    const debugTraceEnabled = isLlmDebugTraceEnabled();
     ensureConversation(conversationId);
     const messages = listRecentChatMessages(conversationId, CHAT_HISTORY_LIMIT);
     return NextResponse.json({
       conversationId,
-      messages: messages.map(apiMessage),
+      messages: messages.map((message) =>
+        apiMessage(message, debugTraceEnabled),
+      ),
       contextWindow: activeTranscriptContext(messages).length,
       historyLimit: CHAT_HISTORY_LIMIT,
+      llmDebugTracesEnabled: debugTraceEnabled,
     });
   } catch (error) {
     return NextResponse.json(
@@ -334,6 +376,7 @@ export async function POST(request: Request) {
       stream?: boolean;
     };
     const conversationId = safeConversationId(body.conversationId);
+    const debugTraceEnabled = isLlmDebugTraceEnabled();
     const latestMessage = latestRequestMessage(body);
     if (!latestMessage) {
       return NextResponse.json(
@@ -361,16 +404,29 @@ export async function POST(request: Request) {
         userRecord,
         memoryProposal,
         requestSignal: request.signal,
+        debugTraceEnabled,
       });
     }
 
     const previousFailure = latestFailedAssistantMessage(previousMessages);
     if (previousFailure && isFailureMetaQuestion(latestMessage)) {
+      const text = explainPreviousToolFailure(previousFailure);
       const assistantRecord = appendChatMessage({
         conversationId,
         role: "assistant",
-        content: explainPreviousToolFailure(previousFailure),
-        grounding: previousFailure.grounding,
+        content: text,
+        grounding: withDebugTrace(
+          previousFailure.grounding,
+          debugTraceEnabled
+            ? fallbackLlmDebugTrace({
+                userRequest: latestMessage,
+                finalAnswer: text,
+                toolSteps: previousFailure.grounding?.toolSteps,
+                reason:
+                  "Explained the previous persisted tool failure without a new provider call.",
+              })
+            : undefined,
+        ),
       });
       await recordCompletedTurn({
         conversationId,
@@ -385,18 +441,21 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         conversationId,
-        messages: messages.map(apiMessage),
-        assistant: apiMessage(assistantRecord),
+        messages: messages.map((message) =>
+          apiMessage(message, debugTraceEnabled),
+        ),
+        assistant: apiMessage(assistantRecord, debugTraceEnabled),
         contextWindow: activeTranscriptContext(messages).length,
         historyLimit: CHAT_HISTORY_LIMIT,
         toolEvidence: previousFailure.grounding,
         toolSteps: [],
         memoryProposal,
+        llmDebugTracesEnabled: debugTraceEnabled,
       });
     }
 
     const messagesForContext = [...previousMessages, userRecord];
-    const { model } = selectedModel();
+    const { model, provider, modelName } = selectedModel();
     const result = await orchestrateTrainerChat({
       model,
       system: await buildSystemContext(
@@ -405,13 +464,14 @@ export async function POST(request: Request) {
         conversationId,
       ),
       userRequest: latestMessage,
+      debug: { enabled: debugTraceEnabled, provider, model: modelName },
     });
 
     const assistantRecord = appendChatMessage({
       conversationId,
       role: "assistant",
       content: result.text,
-      grounding: result.grounding,
+      grounding: withDebugTrace(result.grounding, result.debugTrace),
     });
     await recordCompletedTurn({
       conversationId,
@@ -423,8 +483,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       conversationId,
-      messages: messages.map(apiMessage),
-      assistant: apiMessage(assistantRecord),
+      messages: messages.map((message) =>
+        apiMessage(message, debugTraceEnabled),
+      ),
+      assistant: apiMessage(assistantRecord, debugTraceEnabled),
       contextWindow: activeTranscriptContext(messagesForContext).length,
       historyLimit: CHAT_HISTORY_LIMIT,
       toolEvidence: result.grounding,
@@ -439,6 +501,7 @@ export async function POST(request: Request) {
         selection: step.selection,
       })),
       memoryProposal,
+      llmDebugTracesEnabled: debugTraceEnabled,
     });
   } catch (error) {
     return NextResponse.json(
