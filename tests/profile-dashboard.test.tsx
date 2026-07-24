@@ -178,7 +178,7 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeTruthy();
   });
 
-  it("shows only a generic transcript marker for stored tool grounding", async () => {
+  it("labels active chat context and local evidence without the old local-message chip", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) {
@@ -197,8 +197,8 @@ describe("TrainerDashboard Profile hydration", () => {
               },
             },
           ],
-          contextWindow: 1,
-          historyLimit: 12,
+          contextWindow: 6,
+          historyLimit: 40,
         });
       }
       if (url === "/api/profile") return jsonResponse(profile([]));
@@ -228,13 +228,120 @@ describe("TrainerDashboard Profile hydration", () => {
         "Synthesized trainer answer from local evidence.",
       ),
     ).toBeTruthy();
+    const chip = screen.getByText("Active chat context · local evidence");
+    expect(chip.getAttribute("title")).toContain(
+      "6 of 40 selected session context lines",
+    );
+    expect(chip.getAttribute("aria-label")).toBe(
+      "Active chat context with local Garmin evidence",
+    );
     expect(screen.getByText("Used local Garmin data.")).toBeTruthy();
+    expect(screen.queryByText(/local messages/i)).toBeNull();
+    expect(screen.queryByText(/recent local turns/i)).toBeNull();
+    expect(screen.queryByText(/ · grounded/i)).toBeNull();
     expect(
       screen.queryByText("Detailed ranking rows should stay hidden."),
     ).toBeNull();
     expect(
       screen.queryByText("Computed from local normalized SQLite only."),
     ).toBeNull();
+  });
+
+  it("uses active chat context wording for non-streamed completion status", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory") return jsonResponse({ memories: [] });
+      if (url.startsWith("/api/chat") && init?.method === "POST") {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Use an easy aerobic effort tomorrow.",
+              createdAt: "2026-07-21T12:00:00.000Z",
+            },
+          ],
+          contextWindow: 5,
+          historyLimit: 40,
+        });
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+    fireEvent.click(screen.getByText(/Current operation/));
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "What should I do tomorrow?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(
+      await screen.findByText("Use an easy aerobic effort tomorrow."),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Chat: response complete. Active chat context selected 5 of 40 session lines.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/recent local turns/i)).toBeNull();
+  });
+
+  it("uses active chat context wording for streamed completion status", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory") return jsonResponse({ memories: [] });
+      if (url.startsWith("/api/chat") && init?.method === "POST") {
+        return syncStreamResponse([
+          {
+            type: "start",
+            userMessage: {
+              id: "user-1",
+              role: "user",
+              content: "What should I do tomorrow?",
+              createdAt: "2026-07-21T12:00:00.000Z",
+            },
+          },
+          { type: "delta", textDelta: "Keep tomorrow easy." },
+          {
+            type: "done",
+            assistantMessage: {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Keep tomorrow easy.",
+              createdAt: "2026-07-21T12:00:01.000Z",
+            },
+            contextWindow: 7,
+            historyLimit: 40,
+            memoryProposal: { status: "none" },
+          },
+        ]);
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+    fireEvent.click(screen.getByText(/Current operation/));
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "What should I do tomorrow?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Chat: streamed response complete. Active chat context selected 7 of 40 session lines.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/recent local turns/i)).toBeNull();
   });
 
   it("renders the minimal chat shell and reachable grouped settings disclosure", async () => {
@@ -1076,6 +1183,13 @@ describe("TrainerDashboard memory and new chat", () => {
     await waitFor(() => {
       expect(screen.queryByText("Old visible transcript")).toBeNull();
     });
+    openSettings();
+    fireEvent.click(screen.getByText(/Current operation/));
+    expect(
+      await screen.findByText(
+        "New chat created. Active session context reset; prior transcripts stay in local SQLite. Semantic memory, Profile, and Garmin facts remain available when configured.",
+      ),
+    ).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "Fresh question" },

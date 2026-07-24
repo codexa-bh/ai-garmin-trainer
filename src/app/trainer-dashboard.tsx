@@ -823,14 +823,16 @@ export function TrainerDashboard() {
       rememberTranscriptFollowIntent();
       setChatMessages(nextMessages);
       setHistoryCursor(payload.nextCursor ?? null);
-      setContextWindow(Math.min(nextMessages.length, 6));
+      setContextWindow(
+        payload.contextWindow ?? Math.min(nextMessages.length, 6),
+      );
       setHistoryLimit(payload.historyLimit ?? 12);
       setLastFailedMessage("");
       if (!showStatus) forceNextScrollRef.current = true;
       if (showStatus)
         setStatus({
           kind: "ok",
-          message: `Chat: loaded ${nextMessages.length} local messages.`,
+          message: `Chat: loaded ${nextMessages.length} messages from the local conversation.`,
         });
     } catch (error) {
       if (showStatus)
@@ -1091,7 +1093,7 @@ export function TrainerDashboard() {
       setStatus({
         kind: "ok",
         message:
-          "New chat created. Prior transcripts stay in local SQLite; bounded semantic retrieval, Profile, and Garmin facts remain available when configured.",
+          "New chat created. Active session context reset; prior transcripts stay in local SQLite. Semantic memory, Profile, and Garmin facts remain available when configured.",
       });
     } catch (error) {
       setStatus({
@@ -1282,7 +1284,7 @@ export function TrainerDashboard() {
         void loadConversations(false);
         setStatus({
           kind: "ok",
-          message: `Chat: streamed response complete. Context used ${event.contextWindow}/${event.historyLimit} recent local turns.${memorySuffix}`,
+          message: `Chat: streamed response complete. Active chat context selected ${event.contextWindow} of ${event.historyLimit} session lines.${memorySuffix}`,
         });
         return;
       }
@@ -1323,7 +1325,7 @@ export function TrainerDashboard() {
         if (payload.memoryProposal) void loadMemories(false);
         setStatus({
           kind: "ok",
-          message: `Chat: response complete. Context used ${payload.contextWindow ?? nextMessages.length}/${payload.historyLimit ?? historyLimit} recent local turns.`,
+          message: `Chat: response complete. Active chat context selected ${payload.contextWindow ?? nextMessages.length} of ${payload.historyLimit ?? historyLimit} session lines.`,
         });
         return;
       }
@@ -1564,9 +1566,13 @@ export function TrainerDashboard() {
               <p className="section-kicker">Daily trainer</p>
               <h2 id="trainer-heading">Chat with your private coach</h2>
             </div>
-            <p className="context-chip" title="Local context window">
-              {contextWindow}/{historyLimit} local messages
-              {latestToolEvidence ? " · grounded" : ""}
+            <p
+              className="context-chip"
+              title={`Active chat context is selected from this session within a safe budget: ${contextWindow} of ${historyLimit} selected session context lines. New chat resets this active context.${latestToolEvidence ? " Latest answer used local Garmin/tool evidence." : " Latest answer has no local Garmin/tool evidence marker."}`}
+              aria-label={`Active chat context${latestToolEvidence ? " with local Garmin evidence" : ""}`}
+            >
+              Active chat context
+              {latestToolEvidence ? " · local evidence" : ""}
             </p>
           </div>
 
