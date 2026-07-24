@@ -64,14 +64,9 @@ export type HeartRateZoneSetDto = {
 export type GarminAthleteBaselineValues = {
   configuredMaxHeartRateBpm: number | null;
   heartRateZones: HeartRateZoneSetDto;
-  runningLactateThresholdHeartRateBpm: number | null;
-  cyclingLactateThresholdHeartRateBpm: number | null;
-  rowingLactateThresholdHeartRateBpm: number | null;
   cyclingFtpWatts: number | null;
   cyclingFtpMeasuredOn: string | null;
   cyclingFtpSourceStale: boolean | null;
-  vo2MaxRunning: number | null;
-  vo2MaxCycling: number | null;
   availableTrainingDays: string[];
   preferredLongTrainingDays: string[];
 };

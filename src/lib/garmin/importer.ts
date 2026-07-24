@@ -155,23 +155,11 @@ async function fetchAndStoreAthleteBaseline(
     profilePayload = parseToolJson(
       await client.callTool("get_user_profile", {}),
     );
-    upsertGarminRawPayload({
-      sourceTool: "get_user_profile",
-      subjectType: "athlete_baseline",
-      subjectId: "default:profile",
-      payload: profilePayload,
-    });
   } catch (error) {
     errors.push(`profile: ${compactError(error)}`);
   }
   try {
     ftpPayload = parseToolJson(await client.callTool("get_cycling_ftp", {}));
-    upsertGarminRawPayload({
-      sourceTool: "get_cycling_ftp",
-      subjectType: "athlete_baseline",
-      subjectId: "default:cycling_ftp",
-      payload: ftpPayload,
-    });
   } catch (error) {
     errors.push(`cycling FTP: ${compactError(error)}`);
   }

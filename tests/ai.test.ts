@@ -76,16 +76,11 @@ describe("trainer AI", () => {
             formula: null,
             boundaries: [],
           },
-          runningLactateThresholdHeartRateBpm: 168,
-          cyclingLactateThresholdHeartRateBpm: null,
-          rowingLactateThresholdHeartRateBpm: null,
-          cyclingFtpWatts: null,
-          cyclingFtpMeasuredOn: null,
-          cyclingFtpSourceStale: null,
-          vo2MaxRunning: null,
-          vo2MaxCycling: null,
-          availableTrainingDays: [],
-          preferredLongTrainingDays: [],
+          cyclingFtpWatts: 250,
+          cyclingFtpMeasuredOn: "2026-07-19",
+          cyclingFtpSourceStale: false,
+          availableTrainingDays: ["monday"],
+          preferredLongTrainingDays: ["sunday"],
         },
         unsupported: {
           configuredMaxHeartRate: true,
@@ -97,7 +92,8 @@ describe("trainer AI", () => {
     });
 
     expect(context).toContain("Garmin athlete baselines");
-    expect(context).toContain("running lactate-threshold HR 168 bpm");
+    expect(context).not.toContain("lactate-threshold");
+    expect(context).not.toContain("VO2 max");
     expect(context).toContain(
       "previous normalized Garmin athlete facts were preserved",
     );

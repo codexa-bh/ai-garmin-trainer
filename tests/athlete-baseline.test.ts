@@ -30,14 +30,9 @@ function snapshot(overrides: Partial<GarminAthleteBaselineSnapshot> = {}) {
         formula: null,
         boundaries: [],
       },
-      runningLactateThresholdHeartRateBpm: 168,
-      cyclingLactateThresholdHeartRateBpm: null,
-      rowingLactateThresholdHeartRateBpm: null,
       cyclingFtpWatts: 250,
       cyclingFtpMeasuredOn: "2026-07-19",
       cyclingFtpSourceStale: false,
-      vo2MaxRunning: 52.1,
-      vo2MaxCycling: null,
       availableTrainingDays: ["monday", "wednesday"],
       preferredLongTrainingDays: ["sunday"],
     },
@@ -67,7 +62,6 @@ describe("Garmin athlete baseline repository", () => {
           formula: null,
           boundaries: [],
         },
-        runningLactateThresholdHeartRateBpm: 168,
         cyclingFtpWatts: 250,
         availableTrainingDays: ["monday", "wednesday"],
       },
@@ -98,7 +92,6 @@ describe("Garmin athlete baseline repository", () => {
       fetchedAt: "2026-07-20T08:00:00.000Z",
       lastAttemptAt: "2026-07-21T08:00:00.000Z",
       preservedPrevious: true,
-      values: { runningLactateThresholdHeartRateBpm: 168 },
     });
   });
 

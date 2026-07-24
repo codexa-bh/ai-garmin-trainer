@@ -1,7 +1,11 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 5;
+export const LATEST_SCHEMA_VERSION = 6;
 export const SCHEMA_VERSION_KEY = "schema_version";
+
+const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
+
+const ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, configured_max_heart_rate_bpm integer, heart_rate_zones_status text, heart_rate_zones_formula text, heart_rate_zones_json text not null default '[]', cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
 
 const BASE_SCHEMA_SQL = [
   `create table if not exists user (id text primary key, name text, email text not null unique, email_verified integer default 0, image text, created_at integer not null, updated_at integer not null)`,
@@ -14,7 +18,7 @@ const BASE_SCHEMA_SQL = [
   `create table if not exists activity_detail_attempt (garmin_id text primary key, attempted_at integer not null, completed_at integer, force integer not null default 0, status text not null, detail_status text, retryable integer not null default 0, error_class text, error_message text, preserved_previous integer not null default 0)`,
   `create table if not exists activity_lap (garmin_id text not null, lap_number integer not null, start_time text, duration_sec real, distance_meters real, avg_speed_mps real, avg_heart_rate real, max_heart_rate real, elevation_gain_meters real, elevation_loss_meters real, avg_power_watts real, normalized_power_watts real, primary key (garmin_id, lap_number))`,
   `create table if not exists activity_stream_point (garmin_id text not null, elapsed_sec integer not null, timestamp text, heart_rate integer, speed_mps real, altitude_meters real, grade_pct real, lat real, lon real, cadence real, power_watts real, temperature_c real, primary key (garmin_id, elapsed_sec))`,
-  `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`,
+  LEGACY_ATHLETE_BASELINE_TABLE_SQL,
   `create table if not exists garmin_athlete_baseline_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0)`,
   `create table if not exists garmin_raw_payload (id text primary key, source_tool text not null, subject_type text not null, subject_id text not null, fetched_at integer not null, content_type text not null, payload_json text, payload_text text, sha256 text not null, redaction_version integer not null, redacted_field_count integer not null default 0)`,
   `create index if not exists garmin_raw_payload_subject_idx on garmin_raw_payload(subject_type, subject_id)`,
@@ -46,7 +50,7 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     version: 2,
     name: "garmin_athlete_baseline_latest_snapshot",
     statements: [
-      `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`,
+      LEGACY_ATHLETE_BASELINE_TABLE_SQL,
       `create table if not exists garmin_athlete_baseline_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0)`,
     ],
   },
@@ -77,11 +81,30 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       `create index if not exists semantic_memory_conversation_idx on semantic_memory(source_conversation_id)`,
     ],
   },
+
+  {
+    version: 6,
+    name: "prune_athlete_baseline_fields",
+    statements: [
+      ATHLETE_BASELINE_TABLE_SQL.replace(
+        "create table if not exists garmin_athlete_baseline",
+        "create table garmin_athlete_baseline_next",
+      ),
+      `insert into garmin_athlete_baseline_next (id, fetched_at, source, availability, configured_max_heart_rate_bpm, heart_rate_zones_status, heart_rate_zones_formula, heart_rate_zones_json, cycling_ftp_watts, cycling_ftp_measured_on, cycling_ftp_source_stale, available_training_days_json, preferred_long_training_days_json)
+       select id, fetched_at, source, availability, configured_max_heart_rate_bpm, heart_rate_zones_status, heart_rate_zones_formula, heart_rate_zones_json, cycling_ftp_watts, cycling_ftp_measured_on, cycling_ftp_source_stale, available_training_days_json, preferred_long_training_days_json from garmin_athlete_baseline`,
+      `drop table garmin_athlete_baseline`,
+      `alter table garmin_athlete_baseline_next rename to garmin_athlete_baseline`,
+    ],
+  },
 ];
 
 export function createSchemaSql(): string[] {
   return [
-    ...BASE_SCHEMA_SQL,
+    ...BASE_SCHEMA_SQL.map((statement) =>
+      statement === LEGACY_ATHLETE_BASELINE_TABLE_SQL
+        ? ATHLETE_BASELINE_TABLE_SQL
+        : statement,
+    ),
     `insert into app_metadata (key, value, updated_at) values ('${SCHEMA_VERSION_KEY}', '${LATEST_SCHEMA_VERSION}', strftime('%s','now') * 1000) on conflict(key) do update set value=excluded.value, updated_at=excluded.updated_at`,
   ];
 }

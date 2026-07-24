@@ -103,20 +103,9 @@ function formatAthleteBaseline(
       ? `configured max HR ${values.configuredMaxHeartRateBpm} bpm (Garmin FIT zones target)`
       : null,
     zoneFacts,
-    values.runningLactateThresholdHeartRateBpm
-      ? `running lactate-threshold HR ${values.runningLactateThresholdHeartRateBpm} bpm`
-      : null,
-    values.cyclingLactateThresholdHeartRateBpm
-      ? `cycling lactate-threshold HR ${values.cyclingLactateThresholdHeartRateBpm} bpm`
-      : null,
-    values.rowingLactateThresholdHeartRateBpm
-      ? `rowing lactate-threshold HR ${values.rowingLactateThresholdHeartRateBpm} bpm`
-      : null,
     values.cyclingFtpWatts
       ? `cycling FTP ${values.cyclingFtpWatts} W${values.cyclingFtpMeasuredOn ? ` measured ${values.cyclingFtpMeasuredOn}` : ""}${values.cyclingFtpSourceStale ? " (source marked stale by connector)" : ""}`
       : null,
-    values.vo2MaxRunning ? `running VO2 max ${values.vo2MaxRunning}` : null,
-    values.vo2MaxCycling ? `cycling VO2 max ${values.vo2MaxCycling}` : null,
     values.availableTrainingDays.length
       ? `available training days ${values.availableTrainingDays.join(", ")}`
       : null,

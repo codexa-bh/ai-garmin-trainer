@@ -45,14 +45,9 @@ const EMPTY_HEART_RATE_ZONES = {
 export const EMPTY_GARMIN_ATHLETE_VALUES: GarminAthleteBaselineValues = {
   configuredMaxHeartRateBpm: null,
   heartRateZones: EMPTY_HEART_RATE_ZONES,
-  runningLactateThresholdHeartRateBpm: null,
-  cyclingLactateThresholdHeartRateBpm: null,
-  rowingLactateThresholdHeartRateBpm: null,
   cyclingFtpWatts: null,
   cyclingFtpMeasuredOn: null,
   cyclingFtpSourceStale: null,
-  vo2MaxRunning: null,
-  vo2MaxCycling: null,
   availableTrainingDays: [],
   preferredLongTrainingDays: [],
 };
@@ -86,13 +81,6 @@ function boundedInteger(
   if (!Number.isFinite(parsed) || parsed === null) return null;
   const rounded = Math.round(parsed);
   return rounded >= min && rounded <= max ? rounded : null;
-}
-
-function boundedVo2(value: unknown): number | null {
-  const parsed = fieldNumber(value);
-  if (!Number.isFinite(parsed) || parsed === null) return null;
-  const rounded = Math.round(parsed * 10) / 10;
-  return rounded >= 10 && rounded <= 100 ? rounded : null;
 }
 
 function normalizeDate(value: unknown): string | null {
@@ -180,12 +168,7 @@ function fitData(input: unknown): JsonObject {
 
 function hasApprovedFact(values: GarminAthleteBaselineValues): boolean {
   return (
-    values.runningLactateThresholdHeartRateBpm !== null ||
-    values.cyclingLactateThresholdHeartRateBpm !== null ||
-    values.rowingLactateThresholdHeartRateBpm !== null ||
     values.cyclingFtpWatts !== null ||
-    values.vo2MaxRunning !== null ||
-    values.vo2MaxCycling !== null ||
     values.configuredMaxHeartRateBpm !== null ||
     values.heartRateZones.status !== "unavailable" ||
     values.availableTrainingDays.length > 0 ||
@@ -195,12 +178,7 @@ function hasApprovedFact(values: GarminAthleteBaselineValues): boolean {
 
 function hasAllCoreFacts(values: GarminAthleteBaselineValues): boolean {
   return (
-    values.runningLactateThresholdHeartRateBpm !== null &&
-    values.cyclingLactateThresholdHeartRateBpm !== null &&
-    values.rowingLactateThresholdHeartRateBpm !== null &&
     values.cyclingFtpWatts !== null &&
-    values.vo2MaxRunning !== null &&
-    values.vo2MaxCycling !== null &&
     values.configuredMaxHeartRateBpm !== null &&
     values.heartRateZones.status !== "unavailable" &&
     values.availableTrainingDays.length > 0 &&
@@ -230,21 +208,6 @@ export function normalizeGarminAthleteBaseline(input: {
   const values: GarminAthleteBaselineValues = {
     configuredMaxHeartRateBpm,
     heartRateZones: deriveHeartRateZonesFromMax(configuredMaxHeartRateBpm),
-    runningLactateThresholdHeartRateBpm: boundedInteger(
-      userData.lactateThresholdHeartRate,
-      80,
-      230,
-    ),
-    cyclingLactateThresholdHeartRateBpm: boundedInteger(
-      userData.lactateThresholdHeartRateCycling,
-      80,
-      230,
-    ),
-    rowingLactateThresholdHeartRateBpm: boundedInteger(
-      userData.lactateThresholdHeartRateRowing,
-      80,
-      230,
-    ),
     cyclingFtpWatts,
     cyclingFtpMeasuredOn: cyclingFtpWatts
       ? normalizeDate(ftp.calendar_date)
@@ -252,8 +215,6 @@ export function normalizeGarminAthleteBaseline(input: {
     cyclingFtpSourceStale: cyclingFtpWatts
       ? normalizeBoolean(ftp.is_stale)
       : null,
-    vo2MaxRunning: boundedVo2(userData.vo2MaxRunning),
-    vo2MaxCycling: boundedVo2(userData.vo2MaxCycling),
     availableTrainingDays: normalizeWeekdays(userData.availableTrainingDays),
     preferredLongTrainingDays: normalizeWeekdays(
       userData.preferredLongTrainingDays,

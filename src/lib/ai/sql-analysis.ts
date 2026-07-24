@@ -224,13 +224,7 @@ const ANALYTICAL_SCHEMA: Record<
     columns: [
       { name: "availability", type: "text" },
       {
-        name: "running_lactate_threshold_heart_rate_bpm",
-        type: "integer",
-        unit: "bpm",
-        nullable: true,
-      },
-      {
-        name: "cycling_lactate_threshold_heart_rate_bpm",
+        name: "configured_max_heart_rate_bpm",
         type: "integer",
         unit: "bpm",
         nullable: true,
@@ -242,8 +236,13 @@ const ANALYTICAL_SCHEMA: Record<
         nullable: true,
       },
       { name: "cycling_ftp_measured_on", type: "text", nullable: true },
-      { name: "vo2_max_running", type: "real", nullable: true },
-      { name: "vo2_max_cycling", type: "real", nullable: true },
+      { name: "heart_rate_zones_status", type: "text", nullable: true },
+      { name: "available_training_days_json", type: "text", nullable: true },
+      {
+        name: "preferred_long_training_days_json",
+        type: "text",
+        nullable: true,
+      },
     ],
   },
 };

@@ -175,15 +175,6 @@ export const garminAthleteBaseline = sqliteTable("garmin_athlete_baseline", {
   fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),
   source: text("source").notNull(),
   availability: text("availability").notNull(),
-  runningLactateThresholdHeartRateBpm: integer(
-    "running_lactate_threshold_heart_rate_bpm",
-  ),
-  cyclingLactateThresholdHeartRateBpm: integer(
-    "cycling_lactate_threshold_heart_rate_bpm",
-  ),
-  rowingLactateThresholdHeartRateBpm: integer(
-    "rowing_lactate_threshold_heart_rate_bpm",
-  ),
   configuredMaxHeartRateBpm: integer("configured_max_heart_rate_bpm"),
   heartRateZonesStatus: text("heart_rate_zones_status"),
   heartRateZonesFormula: text("heart_rate_zones_formula"),
@@ -193,8 +184,6 @@ export const garminAthleteBaseline = sqliteTable("garmin_athlete_baseline", {
   cyclingFtpSourceStale: integer("cycling_ftp_source_stale", {
     mode: "boolean",
   }),
-  vo2MaxRunning: real("vo2_max_running"),
-  vo2MaxCycling: real("vo2_max_cycling"),
   availableTrainingDaysJson: text("available_training_days_json")
     .notNull()
     .default("[]"),

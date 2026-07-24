@@ -142,14 +142,9 @@ type AthleteBaselinePayload = {
         upperBpm: number | null;
       }>;
     };
-    runningLactateThresholdHeartRateBpm: number | null;
-    cyclingLactateThresholdHeartRateBpm: number | null;
-    rowingLactateThresholdHeartRateBpm: number | null;
     cyclingFtpWatts: number | null;
     cyclingFtpMeasuredOn: string | null;
     cyclingFtpSourceStale: boolean | null;
-    vo2MaxRunning: number | null;
-    vo2MaxCycling: number | null;
     availableTrainingDays: string[];
     preferredLongTrainingDays: string[];
   };
@@ -206,14 +201,9 @@ const emptyAthleteBaseline: AthleteBaselinePayload = {
       formula: null,
       boundaries: [],
     },
-    runningLactateThresholdHeartRateBpm: null,
-    cyclingLactateThresholdHeartRateBpm: null,
-    rowingLactateThresholdHeartRateBpm: null,
     cyclingFtpWatts: null,
     cyclingFtpMeasuredOn: null,
     cyclingFtpSourceStale: null,
-    vo2MaxRunning: null,
-    vo2MaxCycling: null,
     availableTrainingDays: [],
     preferredLongTrainingDays: [],
   },
@@ -2009,36 +1999,6 @@ export function TrainerDashboard() {
                       <dd>{dateLabel(athleteBaseline.fetchedAt)}</dd>
                     </div>
                     <div>
-                      <dt>Running threshold HR</dt>
-                      <dd>
-                        {valueLabel(
-                          athleteBaseline.values
-                            .runningLactateThresholdHeartRateBpm,
-                          " bpm",
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Cycling threshold HR</dt>
-                      <dd>
-                        {valueLabel(
-                          athleteBaseline.values
-                            .cyclingLactateThresholdHeartRateBpm,
-                          " bpm",
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Rowing threshold HR</dt>
-                      <dd>
-                        {valueLabel(
-                          athleteBaseline.values
-                            .rowingLactateThresholdHeartRateBpm,
-                          " bpm",
-                        )}
-                      </dd>
-                    </div>
-                    <div>
                       <dt>Cycling FTP</dt>
                       <dd>
                         {valueLabel(
@@ -2051,18 +2011,6 @@ export function TrainerDashboard() {
                         {athleteBaseline.values.cyclingFtpSourceStale
                           ? " — source marked stale by connector"
                           : ""}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Running VO2 max</dt>
-                      <dd>
-                        {valueLabel(athleteBaseline.values.vo2MaxRunning)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Cycling VO2 max</dt>
-                      <dd>
-                        {valueLabel(athleteBaseline.values.vo2MaxCycling)}
                       </dd>
                     </div>
                     <div>

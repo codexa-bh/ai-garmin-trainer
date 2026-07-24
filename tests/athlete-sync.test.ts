@@ -94,7 +94,6 @@ describe("Garmin sync athlete baseline stage", () => {
     expect(result.healthDaysImported).toBe(2);
     expect(result.athleteBaseline.availability).toBe("partial");
     expect(result.athleteBaseline.values).toMatchObject({
-      runningLactateThresholdHeartRateBpm: 168,
       cyclingFtpWatts: 250,
       availableTrainingDays: ["monday", "wednesday"],
     });
@@ -147,7 +146,7 @@ describe("Garmin sync athlete baseline stage", () => {
     expect(result.athleteBaseline).toMatchObject({
       availability: "failed",
       preservedPrevious: true,
-      values: { runningLactateThresholdHeartRateBpm: 168 },
+      values: { cyclingFtpWatts: 250 },
     });
   });
 });

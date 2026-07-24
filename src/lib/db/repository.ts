@@ -359,15 +359,12 @@ export function writeGarminAthleteBaselineRefresh(input: {
     if (input.snapshot && input.snapshot.availability !== "unavailable") {
       const values = input.snapshot.values;
       db.prepare(
-        `insert into garmin_athlete_baseline (id, fetched_at, source, availability, running_lactate_threshold_heart_rate_bpm, cycling_lactate_threshold_heart_rate_bpm, rowing_lactate_threshold_heart_rate_bpm, configured_max_heart_rate_bpm, heart_rate_zones_status, heart_rate_zones_formula, heart_rate_zones_json, cycling_ftp_watts, cycling_ftp_measured_on, cycling_ftp_source_stale, vo2_max_running, vo2_max_cycling, available_training_days_json, preferred_long_training_days_json)
-         values ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into garmin_athlete_baseline (id, fetched_at, source, availability, configured_max_heart_rate_bpm, heart_rate_zones_status, heart_rate_zones_formula, heart_rate_zones_json, cycling_ftp_watts, cycling_ftp_measured_on, cycling_ftp_source_stale, available_training_days_json, preferred_long_training_days_json)
+         values ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         input.snapshot.fetchedAt.getTime(),
         input.snapshot.source,
         input.snapshot.availability,
-        values.runningLactateThresholdHeartRateBpm,
-        values.cyclingLactateThresholdHeartRateBpm,
-        values.rowingLactateThresholdHeartRateBpm,
         values.configuredMaxHeartRateBpm,
         values.heartRateZones.status,
         values.heartRateZones.formula,
@@ -377,8 +374,6 @@ export function writeGarminAthleteBaselineRefresh(input: {
         values.cyclingFtpSourceStale === null
           ? null
           : bool(values.cyclingFtpSourceStale),
-        values.vo2MaxRunning,
-        values.vo2MaxCycling,
         JSON.stringify(values.availableTrainingDays),
         JSON.stringify(values.preferredLongTrainingDays),
       );
@@ -431,16 +426,13 @@ export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
   const db = getDatabase();
   const baseline = db
     .prepare(
-      `select fetched_at as fetchedAt, source, availability, running_lactate_threshold_heart_rate_bpm as runningLactateThresholdHeartRateBpm, cycling_lactate_threshold_heart_rate_bpm as cyclingLactateThresholdHeartRateBpm, rowing_lactate_threshold_heart_rate_bpm as rowingLactateThresholdHeartRateBpm, configured_max_heart_rate_bpm as configuredMaxHeartRateBpm, heart_rate_zones_status as heartRateZonesStatus, heart_rate_zones_formula as heartRateZonesFormula, heart_rate_zones_json as heartRateZonesJson, cycling_ftp_watts as cyclingFtpWatts, cycling_ftp_measured_on as cyclingFtpMeasuredOn, cycling_ftp_source_stale as cyclingFtpSourceStale, vo2_max_running as vo2MaxRunning, vo2_max_cycling as vo2MaxCycling, available_training_days_json as availableTrainingDaysJson, preferred_long_training_days_json as preferredLongTrainingDaysJson from garmin_athlete_baseline where id = 'default'`,
+      `select fetched_at as fetchedAt, source, availability, configured_max_heart_rate_bpm as configuredMaxHeartRateBpm, heart_rate_zones_status as heartRateZonesStatus, heart_rate_zones_formula as heartRateZonesFormula, heart_rate_zones_json as heartRateZonesJson, cycling_ftp_watts as cyclingFtpWatts, cycling_ftp_measured_on as cyclingFtpMeasuredOn, cycling_ftp_source_stale as cyclingFtpSourceStale, available_training_days_json as availableTrainingDaysJson, preferred_long_training_days_json as preferredLongTrainingDaysJson from garmin_athlete_baseline where id = 'default'`,
     )
     .get() as
     | {
         fetchedAt: number;
         source: "garmin_mcp";
         availability: Exclude<GarminAthleteBaselineAvailability, "failed">;
-        runningLactateThresholdHeartRateBpm: number | null;
-        cyclingLactateThresholdHeartRateBpm: number | null;
-        rowingLactateThresholdHeartRateBpm: number | null;
         configuredMaxHeartRateBpm: number | null;
         heartRateZonesStatus:
           | "garmin_configured"
@@ -452,8 +444,6 @@ export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
         cyclingFtpWatts: number | null;
         cyclingFtpMeasuredOn: string | null;
         cyclingFtpSourceStale: number | null;
-        vo2MaxRunning: number | null;
-        vo2MaxCycling: number | null;
         availableTrainingDaysJson: string | null;
         preferredLongTrainingDaysJson: string | null;
       }
@@ -471,12 +461,6 @@ export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
     | undefined;
   const values = baseline
     ? {
-        runningLactateThresholdHeartRateBpm:
-          baseline.runningLactateThresholdHeartRateBpm,
-        cyclingLactateThresholdHeartRateBpm:
-          baseline.cyclingLactateThresholdHeartRateBpm,
-        rowingLactateThresholdHeartRateBpm:
-          baseline.rowingLactateThresholdHeartRateBpm,
         configuredMaxHeartRateBpm: baseline.configuredMaxHeartRateBpm,
         heartRateZones: {
           status: baseline.heartRateZonesStatus ?? "unavailable",
@@ -495,8 +479,6 @@ export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
           baseline.cyclingFtpSourceStale === null
             ? null
             : Boolean(baseline.cyclingFtpSourceStale),
-        vo2MaxRunning: baseline.vo2MaxRunning,
-        vo2MaxCycling: baseline.vo2MaxCycling,
         availableTrainingDays: parseJsonArray(
           baseline.availableTrainingDaysJson,
         ),

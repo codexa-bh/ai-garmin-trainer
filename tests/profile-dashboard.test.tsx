@@ -614,14 +614,9 @@ describe("TrainerDashboard athlete baseline summary", () => {
                 formula: null,
                 boundaries: [],
               },
-              runningLactateThresholdHeartRateBpm: 168,
-              cyclingLactateThresholdHeartRateBpm: null,
-              rowingLactateThresholdHeartRateBpm: null,
               cyclingFtpWatts: 250,
               cyclingFtpMeasuredOn: "2026-07-19",
               cyclingFtpSourceStale: false,
-              vo2MaxRunning: null,
-              vo2MaxCycling: null,
               availableTrainingDays: ["monday", "wednesday"],
               preferredLongTrainingDays: ["sunday"],
             },
@@ -639,13 +634,13 @@ describe("TrainerDashboard athlete baseline summary", () => {
     render(React.createElement(TrainerDashboard));
     openSettings();
 
-    expect(await screen.findByText("Running threshold HR")).toBeTruthy();
-    expect(screen.getByText("168 bpm")).toBeTruthy();
+    expect(await screen.findByText("Cycling FTP")).toBeTruthy();
+    expect(screen.queryByText("Running threshold HR")).toBeNull();
+    expect(screen.queryByText("Running VO2 max")).toBeNull();
     expect(screen.getByText("250 W (2026-07-19)")).toBeTruthy();
     expect(
       screen.getByText("Unavailable from current Garmin source"),
     ).toBeTruthy();
-    expect(screen.queryByLabelText("Running threshold HR")).toBeNull();
   });
 });
 

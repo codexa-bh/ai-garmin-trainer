@@ -71,7 +71,7 @@ describe("Garmin boundary", () => {
       fetchedAt: new Date("2026-07-20T08:00:00Z"),
     });
 
-    expect(normalized.availability).toBe("partial");
+    expect(normalized.availability).toBe("complete");
     expect(normalized.values).toMatchObject({
       configuredMaxHeartRateBpm: 190,
       heartRateZones: {
@@ -84,17 +84,16 @@ describe("Garmin boundary", () => {
           { zone: 5, label: "Zone 5", lowerBpm: 171, upperBpm: null },
         ],
       },
-      runningLactateThresholdHeartRateBpm: 169,
-      cyclingLactateThresholdHeartRateBpm: 172,
-      rowingLactateThresholdHeartRateBpm: null,
       cyclingFtpWatts: 255,
       cyclingFtpMeasuredOn: "2026-07-19",
       cyclingFtpSourceStale: true,
-      vo2MaxRunning: 51.2,
-      vo2MaxCycling: null,
       availableTrainingDays: ["monday", "wednesday"],
       preferredLongTrainingDays: ["friday", "sunday"],
     });
+    expect(JSON.stringify(normalized)).not.toContain(
+      "lactateThresholdHeartRate",
+    );
+    expect(JSON.stringify(normalized)).not.toContain("vo2MaxRunning");
     expect(JSON.stringify(normalized)).not.toContain("birthDate");
     expect(JSON.stringify(normalized)).not.toContain("gender");
     expect(JSON.stringify(normalized)).not.toContain("weight");
