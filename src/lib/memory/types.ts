@@ -49,6 +49,13 @@ export type CompletedTurn = {
   completedAt: Date;
 };
 
+export type MemoryCandidate = {
+  kind: MemoryKind;
+  text: string;
+  source: string;
+  expiresAt?: Date | null;
+};
+
 export interface TrainerMemoryStore {
   addCompletedTurn(input: CompletedTurn): Promise<void>;
   search(

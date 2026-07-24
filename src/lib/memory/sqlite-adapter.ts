@@ -8,8 +8,8 @@ import {
 import {
   classifyMemory,
   compactText,
+  extractMemoryCandidates,
   memorySafeToRender,
-  safeCompletedTurnText,
   unsafeMemoryReason,
 } from "./filters";
 import {
@@ -169,24 +169,6 @@ function mapRow(
       : undefined,
   };
   return memorySafeToRender(item) ? item : null;
-}
-
-function extractSavedPreference(input: CompletedTurn): string | null {
-  const text = compactText(input.userText, 700);
-  const patterns = [
-    /(?:remember\s+that\s+)(.+)$/i,
-    /\bI\s+prefer\s+(.+)$/i,
-    /\bI\s+like\s+(.+)$/i,
-    /\bmy\s+goal\s+is\s+(.+)$/i,
-  ];
-  for (const pattern of patterns) {
-    const match = pattern.exec(text);
-    const value = match?.[1]?.replace(/[.!?]+$/, "").trim();
-    if (value && value.length <= 500 && !unsafeMemoryReason(value)) {
-      return pattern.source.includes("remember") ? value : text;
-    }
-  }
-  return null;
 }
 
 export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
@@ -368,30 +350,21 @@ export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
     if (!this.config.effectiveEnabled) return;
     if (this.problems().length) throw new Error(this.problems().join("; "));
     await this.migrateLegacy();
-    const turnText = safeCompletedTurnText(input);
-    if (!turnText) return;
-    await this.upsertMemory({
-      id: stableId("semantic-turn", [
-        input.userMessageId,
-        input.assistantMessageId,
-      ]),
-      kind: "conversation",
-      text: turnText,
-      source: "completed-turn",
-      conversationId: input.conversationId,
-      sourceMessageIds: [input.userMessageId, input.assistantMessageId],
-      createdAt: input.completedAt,
-    });
-    const preference = extractSavedPreference(input);
-    if (preference) {
+    const candidates = extractMemoryCandidates(input);
+    for (const candidate of candidates) {
       await this.upsertMemory({
-        id: stableId("semantic-pref", [input.userMessageId, preference]),
-        kind: "saved_preference",
-        text: preference,
-        source: "completed-turn-extracted-preference",
+        id: stableId("semantic-candidate", [
+          input.userMessageId,
+          candidate.kind,
+          candidate.text,
+        ]),
+        kind: candidate.kind,
+        text: candidate.text,
+        source: candidate.source,
         conversationId: input.conversationId,
-        sourceMessageIds: [input.userMessageId, input.assistantMessageId],
+        sourceMessageIds: [input.userMessageId],
         createdAt: input.completedAt,
+        expiresAt: candidate.expiresAt ?? null,
       });
     }
   }

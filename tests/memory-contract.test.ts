@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildTrainerContext } from "../src/lib/ai/context";
 import {
+  extractMemoryCandidates,
   safeCompletedTurnText,
   unsafeMemoryReason,
 } from "../src/lib/memory/filters";
@@ -23,7 +24,7 @@ describe("embedded semantic memory contract", () => {
       recentMessages: [],
     });
     expect(context).toContain("Retrieved semantic memories");
-    expect(context).toContain("untrusted user-derived context");
+    expect(context).toContain("concise user-derived cross-session context");
     expect(context).toContain("Prefers short hill intervals");
     expect(context).toContain(
       "Legacy confirmed memories pending semantic migration:\nNone",
@@ -45,8 +46,8 @@ describe("embedded semantic memory contract", () => {
     );
   });
 
-  it("builds bounded completed-turn text only for safe complete user and assistant text", () => {
-    const safe = safeCompletedTurnText({
+  it("extracts concise user-derived memory candidates without assistant prose", () => {
+    const turn = {
       conversationId: "chat-1",
       userMessageId: "u1",
       assistantMessageId: "a1",
@@ -54,8 +55,19 @@ describe("embedded semantic memory contract", () => {
       assistantText:
         "Got it — I will account for morning hike preferences in future plans.",
       completedAt: new Date("2026-07-23T12:00:00Z"),
-    });
-    expect(safe).toContain("User: I prefer morning hikes");
+    };
+    const safe = safeCompletedTurnText(turn);
+    expect(safe).toBe("I prefer morning hikes before strength work.");
+    expect(safe).not.toContain("Assistant:");
+
+    const candidates = extractMemoryCandidates(turn);
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        kind: "saved_preference",
+        text: "I prefer morning hikes before strength work",
+      }),
+    ]);
+    expect(candidates[0]?.text).not.toContain("Got it");
 
     const rejected = safeCompletedTurnText({
       conversationId: "chat-1",

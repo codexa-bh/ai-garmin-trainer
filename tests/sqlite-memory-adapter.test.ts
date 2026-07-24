@@ -16,7 +16,8 @@ beforeEach(() => {
 });
 
 describe("embedded SQLite semantic memory adapter", () => {
-  it("persists completed-turn memory and retrieves it after adapter re-creation", async () => {
+  it("persists concise user-derived memory and retrieves it after adapter re-creation", async () => {
+    const repository = await import("../src/lib/db/repository");
     const { LOCAL_MEMORY_USER_ID } = await import("../src/lib/memory/types");
     const firstModule = await import("../src/lib/memory/sqlite-adapter");
     await firstModule.trainerMemoryStore().addCompletedTurn({
@@ -27,6 +28,20 @@ describe("embedded SQLite semantic memory adapter", () => {
       assistantText: "I will keep sunrise hike preference in mind.",
       completedAt: new Date("2026-07-23T12:00:00Z"),
     });
+    const rows = repository
+      .getDatabase()
+      .prepare(
+        "select kind, text, source_message_ids_json as sourceIds from semantic_memory",
+      )
+      .all() as Array<{ kind: string; text: string; sourceIds: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "saved_preference" });
+    expect(rows[0]?.text).toBe(
+      "I prefer sunrise hikes before strength training",
+    );
+    expect(rows[0]?.text).not.toContain("Assistant:");
+    expect(rows[0]?.text).not.toContain("I will keep");
+    expect(JSON.parse(rows[0]?.sourceIds ?? "[]")).toEqual(["u1"]);
     firstModule.resetTrainerMemoryStore();
 
     const secondModule = await import("../src/lib/memory/sqlite-adapter");
@@ -134,6 +149,79 @@ describe("embedded SQLite semantic memory adapter", () => {
     ).rejects.toThrow("memory embedding Ollama response invalid vector");
   });
 
+  it("stores concise corrections and temporary plans without assistant prose", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+    const store = module.trainerMemoryStore();
+
+    await store.addCompletedTurn({
+      conversationId: "correction-chat",
+      userMessageId: "u-correction",
+      assistantMessageId: "a-correction",
+      userText: "Actually, I hate morning workouts.",
+      assistantText: "I will stop suggesting morning sessions.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+    await store.addCompletedTurn({
+      conversationId: "temporary-chat",
+      userMessageId: "u-temporary",
+      assistantMessageId: "a-temporary",
+      userText: "I did not go yesterday. I will try today. Sleep was poor.",
+      assistantText: "Based on Garmin context, keep it easy and avoid heroics.",
+      completedAt: new Date("2026-07-23T12:01:00Z"),
+    });
+
+    const rows = repository
+      .getDatabase()
+      .prepare(
+        "select kind, text, expires_at as expiresAt from semantic_memory order by created_at",
+      )
+      .all() as Array<{ kind: string; text: string; expiresAt: number | null }>;
+    expect(rows).toEqual([
+      expect.objectContaining({
+        kind: "correction",
+        text: "Correction: I hate morning workouts",
+        expiresAt: null,
+      }),
+      expect.objectContaining({ kind: "temporary" }),
+    ]);
+    expect(rows[1]?.text).toContain("I will try today");
+    expect(rows[1]?.text).not.toContain("Based on Garmin");
+    expect(rows[1]?.expiresAt).toBeGreaterThan(
+      new Date("2026-07-23T12:01:00Z").getTime(),
+    );
+  });
+
+  it("skips Garmin/tool-heavy and low-value transient turns", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+    const store = module.trainerMemoryStore();
+
+    await store.addCompletedTurn({
+      conversationId: "ranking-chat",
+      userMessageId: "u-ranking",
+      assistantMessageId: "a-ranking",
+      userText: "What are my top 10 most demanding activities this year?",
+      assistantText:
+        "Source climb — Špik ranks first using SQL rows and formula evidence.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+    await store.addCompletedTurn({
+      conversationId: "smalltalk-chat",
+      userMessageId: "u-smalltalk",
+      assistantMessageId: "a-smalltalk",
+      userText: "Thanks, that helps.",
+      assistantText: "Glad it helped.",
+      completedAt: new Date("2026-07-23T12:01:00Z"),
+    });
+
+    const row = repository
+      .getDatabase()
+      .prepare("select count(*) as count from semantic_memory")
+      .get() as { count: number };
+    expect(row.count).toBe(0);
+  });
+
   it("migrates only active confirmed legacy memories idempotently", async () => {
     const repository = await import("../src/lib/db/repository");
     const { LOCAL_MEMORY_USER_ID } = await import("../src/lib/memory/types");
@@ -213,12 +301,10 @@ describe("embedded SQLite semantic memory adapter", () => {
     ).toEqual([]);
   });
 
-  it("deletes conversation-scoped continuity when a conversation is deleted", async () => {
+  it("does not invent memory for generic discussion turns", async () => {
     const repository = await import("../src/lib/db/repository");
-    const { LOCAL_MEMORY_USER_ID } = await import("../src/lib/memory/types");
     const module = await import("../src/lib/memory/sqlite-adapter");
     const store = module.trainerMemoryStore();
-    repository.ensureConversation("delete-chat");
     await store.addCompletedTurn({
       conversationId: "delete-chat",
       userMessageId: "u-conv-delete",
@@ -228,21 +314,11 @@ describe("embedded SQLite semantic memory adapter", () => {
         "Blue trail shoes were noted as part of this conversation.",
       completedAt: new Date("2026-07-23T12:00:00Z"),
     });
-    expect(
-      await store.search(
-        "blue trail shoes",
-        { userId: LOCAL_MEMORY_USER_ID },
-        2,
-      ),
-    ).not.toEqual([]);
 
-    repository.deleteConversation("delete-chat");
-    expect(
-      await store.search(
-        "blue trail shoes",
-        { userId: LOCAL_MEMORY_USER_ID },
-        2,
-      ),
-    ).toEqual([]);
+    const row = repository
+      .getDatabase()
+      .prepare("select count(*) as count from semantic_memory")
+      .get() as { count: number };
+    expect(row.count).toBe(0);
   });
 });

@@ -1793,11 +1793,13 @@ export function TrainerDashboard() {
                   </span>
                 </summary>
                 <p>
-                  Embedded SQLite memory stores low-risk conversation continuity
-                  and saved preferences after complete persisted answers. Ready
-                  memory needs deterministic local embeddings or a valid OpenAI
-                  embedding key; DeepSeek chat alone does not provide
-                  embeddings.
+                  Embedded SQLite memory stores concise user-derived
+                  cross-session facts, preferences, corrections, and temporary
+                  plans after complete persisted answers; it is not a transcript
+                  archive. Current chats carry bounded same-chat continuity.
+                  Ready memory needs Ollama, deterministic local embeddings, or
+                  a valid OpenAI embedding key; DeepSeek chat alone does not
+                  provide embeddings.
                 </p>
                 <p className="helper-text" role="status" aria-live="polite">
                   {memoryMessage}
@@ -1916,8 +1918,9 @@ export function TrainerDashboard() {
                   ) : (
                     <p>
                       No inspectable semantic memories. If memory is enabled and
-                      ready, new completed chats can create memories
-                      automatically.
+                      ready, explicit preferences, goals, corrections, or useful
+                      temporary plans can create concise memories after complete
+                      chats; ordinary transient turns may create none.
                     </p>
                   )}
                 </div>

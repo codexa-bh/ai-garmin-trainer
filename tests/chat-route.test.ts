@@ -574,6 +574,8 @@ async function postChat(message: string, conversationId?: string) {
   );
   return response.json() as Promise<{
     assistant: { content: string };
+    contextWindow: number;
+    historyLimit: number;
     toolEvidence?: {
       tool?: string;
       summary?: string;
@@ -761,6 +763,32 @@ describe("chat route LLM tool orchestration", () => {
 
     expect(payload.assistant.content).toContain("latest-999");
     expect(payload.toolEvidence?.tool).toBe("runReadOnlySql");
+  });
+
+  it("uses earlier same-chat turns beyond the retired six-message window when budget allows", async () => {
+    messages = Array.from({ length: 14 }, (_, index) => ({
+      id: `seed-${index}`,
+      conversationId: "deep-context",
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content:
+        index === 0
+          ? "Anchor preference from much earlier in this chat: avoid steep descents today."
+          : `ordinary same-chat continuity turn ${index}`,
+      grounding: null,
+      createdAt: new Date(
+        `2026-07-17T12:${String(index).padStart(2, "0")}:00Z`,
+      ),
+    }));
+
+    const payload = await postChat(
+      "Use the earlier descent note when you answer.",
+      "deep-context",
+    );
+
+    const firstCall = generateText.mock.calls[0][0] as { system: string };
+    expect(firstCall.system).toContain("avoid steep descents today");
+    expect(payload.contextWindow).toBeGreaterThan(6);
+    expect(payload.historyLimit).toBe(40);
   });
 
   it("keeps manual new-chat transcript separate while allowing bounded semantic retrieval", async () => {

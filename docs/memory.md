@@ -2,7 +2,7 @@
 
 The trainer uses an app-owned semantic-memory adapter under `src/lib/memory`. The operator-approved T039 pivot stores memory text, metadata, lifecycle state, and embedding vectors directly in the local SQLite database (`DATABASE_PATH`). No Qdrant, Docker sidecar, hosted vector database, Mem0 Platform account, or public service is required.
 
-SQLite remains the canonical store for transcript, Profile, Garmin facts, and derived semantic memory. Semantic memory is still a bounded retrieval layer: Garmin measurements must come from local SQLite/tools at answer time, not from model-extracted memory.
+SQLite remains the canonical store for transcript, Profile, Garmin facts, and derived semantic memory. Chat transcripts provide same-chat continuity only for the active conversation and are selected under a safe context budget; starting a New chat is the reset boundary for that short-term transcript context. Semantic memory is a separate bounded retrieval layer for concise cross-session user facts: Garmin measurements must come from local SQLite/tools at answer time, not from model-extracted memory.
 
 ## Configuration
 
@@ -19,7 +19,7 @@ MEMORY_EMBEDDING_MODEL=nomic-embed-text
 MEMORY_EMBEDDING_BASE_URL=http://127.0.0.1:11434
 ```
 
-The Ollama path is loopback-only. It sends compact filtered memory text to the local daemon, does not require `OPENAI_API_KEY`, and does not send Garmin credentials, raw connector payloads, or unrestricted transcripts. Health is `ready` only when the local daemon/model embedding endpoint returns a valid vector. If Ollama is stopped, slow, missing the model, configured with a non-loopback URL, or returns a malformed embedding, memory reports an actionable not-ready state and chat remains available without memory retrieval/ingestion.
+The Ollama path is loopback-only. It sends concise filtered memory candidates to the local daemon, does not require `OPENAI_API_KEY`, and does not send Garmin credentials, raw connector payloads, assistant answer prose, or unrestricted transcripts. Health is `ready` only when the local daemon/model embedding endpoint returns a valid vector. If Ollama is stopped, slow, missing the model, configured with a non-loopback URL, or returns a malformed embedding, memory reports an actionable not-ready state and chat remains available without memory retrieval/ingestion.
 
 OpenAI-compatible embeddings remain supported through the existing `OPENAI_API_KEY` contract, not a separate memory-only key:
 
@@ -37,9 +37,9 @@ DeepSeek is the default chat provider in `AI_PROVIDER=auto`, but DeepSeek chat c
 
 ## Privacy and controls
 
-Memory ingestion runs only after a complete assistant answer has been persisted. Deterministic filters reject credential-like text, raw Garmin/FIT/connector payloads, precise stream/location markers, policy/prompt-injection text, and medical/sensitive inferences before storage or embedding. Retrieved memories are labelled as untrusted user-derived context and are lower authority than current user corrections, Profile, and Garmin/tool evidence.
+Memory ingestion runs only after a complete assistant answer has been persisted. It stores zero or more concise user-derived candidates for explicit preferences, goals, corrections, recurring constraints, or useful temporary plans; low-value transient turns commonly create no memory. The stored text is capped for inspectability and is derived from the user message, not the assistant response. Deterministic filters reject credential-like text, raw Garmin/FIT/connector payloads, precise stream/location markers, policy/prompt-injection text, assistant/tool prose, and medical/sensitive inferences before storage or embedding. Retrieved memories are labelled as user-derived cross-session context and are lower authority than current user corrections, the active chat transcript, Profile, and Garmin/tool evidence.
 
-The settings UI exposes readiness, enable/disable, inspect, edit, delete one, and clear all controls. Disable stops both retrieval and ingestion. Delete/clear affects subsequent answers immediately and does not delete Profile, chat transcript, or normalized Garmin data.
+The settings UI exposes readiness, enable/disable, inspect, edit, delete one, and clear all controls. Disable stops both retrieval and ingestion. Delete/clear affects subsequent answers immediately and does not delete Profile, chat transcript, or normalized Garmin data. Existing older noisy rows remain editable/deletable by the user; this release does not automatically clean historical memory.
 
 ## Backup, restore, and reset
 

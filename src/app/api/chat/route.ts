@@ -2,7 +2,7 @@ import { UIMessage } from "ai";
 import { NextResponse } from "next/server";
 import {
   buildTrainerContext,
-  formatRecentChatHistory,
+  formatActiveChatTranscript,
   TRAINER_SYSTEM_PROMPT,
 } from "@/lib/ai/context";
 import { orchestrateTrainerChat } from "@/lib/ai/orchestrator";
@@ -25,8 +25,8 @@ import {
 import { trainerMemoryStore } from "@/lib/memory/sqlite-adapter";
 import { LOCAL_MEMORY_USER_ID, type RetrievedMemory } from "@/lib/memory/types";
 
-const CHAT_HISTORY_LIMIT = 12;
-const RECENT_CONTEXT_LIMIT = 6;
+const CHAT_HISTORY_LIMIT = 40;
+const ACTIVE_TRANSCRIPT_CHAR_BUDGET = 6000;
 
 type MemoryProposalResult = { status: "none" };
 
@@ -84,6 +84,10 @@ function streamJsonEvent(
 function visibleDeltas(text: string): string[] {
   const matches = text.match(/\S+\s*/g);
   return matches?.length ? matches : [text];
+}
+
+function activeTranscriptContext(messages: StoredChatMessage[]): string[] {
+  return formatActiveChatTranscript(messages, ACTIVE_TRANSCRIPT_CHAR_BUDGET);
 }
 
 async function recordCompletedTurn(input: {
@@ -179,10 +183,7 @@ function streamingResponse(input: {
           type: "done",
           assistantMessage: apiMessage(assistantRecord),
           conversationId: input.conversationId,
-          contextWindow: Math.min(
-            messagesForContext.length,
-            RECENT_CONTEXT_LIMIT,
-          ),
+          contextWindow: activeTranscriptContext(messagesForContext).length,
           historyLimit: CHAT_HISTORY_LIMIT,
           memoryProposal: input.memoryProposal,
         });
@@ -282,11 +283,8 @@ async function buildSystemContext(
     profile: getTrainerProfile(),
     athleteBaseline: getGarminAthleteBaseline(),
     retrievedMemories,
-    recentMessages: formatRecentChatHistory(
-      recentMessages,
-      RECENT_CONTEXT_LIMIT,
-    ),
-  })}\n\nDetailed activity availability (local SQLite):\n${detailAvailability || "No detailed activities backfilled yet"}\n\nImported data counts: ${counts.activities} activities, ${counts.healthDays} daily health records, and detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures). Recent conversation is bounded to the latest local turns and concise tool evidence only. Use only selected recent facts and explicit tool/local analytics results for detailed claims. Deleted, expired, disabled, unavailable, or unrelated memories are not included and must not affect the answer. Never describe summary-only analytics as FIT/stream analysis; only claim detailed FIT/stream evidence when an activity has available or partial detail with records/laps. Never request or expose Garmin credentials, raw FIT bytes, raw connector payloads, or unbounded full-history/stream dumps.`;
+    recentMessages: activeTranscriptContext(recentMessages),
+  })}\n\nDetailed activity availability (local SQLite):\n${detailAvailability || "No detailed activities backfilled yet"}\n\nImported data counts: ${counts.activities} activities, ${counts.healthDays} daily health records, and detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures). Active conversation context is selected from the current chat up to a safe transcript budget; New chat is the reset boundary for this short-term context. Use only selected recent facts and explicit tool/local analytics results for detailed claims. Deleted, expired, disabled, unavailable, or unrelated memories are not included and must not affect the answer. Never describe summary-only analytics as FIT/stream analysis; only claim detailed FIT/stream evidence when an activity has available or partial detail with records/laps. Never request or expose Garmin credentials, raw FIT bytes, raw connector payloads, or unbounded full-history/stream dumps.`;
   return `${TRAINER_SYSTEM_PROMPT}\n\nGrounding context:\n${context}`;
 }
 
@@ -298,7 +296,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       conversationId,
       messages: messages.map(apiMessage),
-      contextWindow: Math.min(messages.length, RECENT_CONTEXT_LIMIT),
+      contextWindow: activeTranscriptContext(messages).length,
       historyLimit: CHAT_HISTORY_LIMIT,
     });
   } catch (error) {
@@ -389,7 +387,7 @@ export async function POST(request: Request) {
         conversationId,
         messages: messages.map(apiMessage),
         assistant: apiMessage(assistantRecord),
-        contextWindow: Math.min(messages.length, RECENT_CONTEXT_LIMIT),
+        contextWindow: activeTranscriptContext(messages).length,
         historyLimit: CHAT_HISTORY_LIMIT,
         toolEvidence: previousFailure.grounding,
         toolSteps: [],
@@ -427,7 +425,7 @@ export async function POST(request: Request) {
       conversationId,
       messages: messages.map(apiMessage),
       assistant: apiMessage(assistantRecord),
-      contextWindow: Math.min(messagesForContext.length, RECENT_CONTEXT_LIMIT),
+      contextWindow: activeTranscriptContext(messagesForContext).length,
       historyLimit: CHAT_HISTORY_LIMIT,
       toolEvidence: result.grounding,
       toolSteps: result.toolSteps.map((step) => ({
