@@ -113,6 +113,30 @@ type MemoryPayload = {
   enabled: boolean;
   ready: boolean;
 };
+type MemoryKindFilter = "all" | MemoryItem["kind"];
+type MemorySort = "newest" | "oldest" | "kind" | "text";
+
+const memoryKindOptions: { value: MemoryKindFilter; label: string }[] = [
+  { value: "all", label: "All kinds" },
+  { value: "conversation", label: "Conversation" },
+  { value: "saved_preference", label: "Saved preference" },
+  { value: "correction", label: "Correction" },
+  { value: "temporary", label: "Temporary" },
+];
+
+const memorySortOptions: { value: MemorySort; label: string }[] = [
+  { value: "newest", label: "Newest updated" },
+  { value: "oldest", label: "Oldest updated" },
+  { value: "kind", label: "Kind" },
+  { value: "text", label: "Text" },
+];
+
+const memoryKindLabels: Record<MemoryItem["kind"], string> = {
+  conversation: "Conversation",
+  saved_preference: "Saved preference",
+  correction: "Correction",
+  temporary: "Temporary",
+};
 type TrainerProfilePayload = {
   goals: string[];
   sports: string[];
@@ -294,6 +318,30 @@ function profileToFields(profile: TrainerProfilePayload): ProfileFields {
 
 function dateLabel(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "Not available";
+}
+
+function memoryTimestamp(item: MemoryItem): number {
+  const raw = item.updatedAt ?? item.createdAt ?? "";
+  const timestamp = raw ? Date.parse(raw) : Number.NaN;
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function compareMemoryText(first: MemoryItem, second: MemoryItem): number {
+  return first.text.localeCompare(second.text, undefined, {
+    sensitivity: "base",
+  });
+}
+
+function memoryScopeLabel(item: MemoryItem): string {
+  return item.conversationId
+    ? `Conversation ${item.conversationId}`
+    : "Cross-conversation";
+}
+
+function memoryUpdatedLabel(item: MemoryItem): string {
+  if (item.updatedAt) return `Updated ${dateLabel(item.updatedAt)}`;
+  if (item.createdAt) return `Created ${dateLabel(item.createdAt)}`;
+  return "No timestamp";
 }
 
 function valueLabel(value: number | null, suffix = ""): string {
@@ -579,6 +627,10 @@ export function TrainerDashboard() {
     "Semantic memory readiness will load from local settings.",
   );
   const [isMemoryLoading, setIsMemoryLoading] = useState(false);
+  const [memorySearchQuery, setMemorySearchQuery] = useState("");
+  const [memoryKindFilter, setMemoryKindFilter] =
+    useState<MemoryKindFilter>("all");
+  const [memorySort, setMemorySort] = useState<MemorySort>("newest");
   const [contextWindow, setContextWindow] = useState(0);
   const [historyLimit, setHistoryLimit] = useState(12);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -625,10 +677,56 @@ export function TrainerDashboard() {
     () => [...chatMessages].reverse().find((item) => item.grounding)?.grounding,
     [chatMessages],
   );
-  const visibleMemories = useMemo(
-    () => memoryItems.slice(0, 12),
-    [memoryItems],
-  );
+  const filteredMemories = useMemo(() => {
+    const query = memorySearchQuery.trim().toLocaleLowerCase();
+    return [...memoryItems]
+      .filter((item) => {
+        if (memoryKindFilter !== "all" && item.kind !== memoryKindFilter)
+          return false;
+        if (!query) return true;
+        const searchable = [
+          item.text,
+          memoryKindLabels[item.kind],
+          item.kind,
+          item.conversationId ?? "cross-conversation",
+          item.updatedAt ?? "",
+          item.createdAt ?? "",
+        ]
+          .join(" ")
+          .toLocaleLowerCase();
+        return searchable.includes(query);
+      })
+      .sort((first, second) => {
+        if (memorySort === "newest") {
+          return (
+            memoryTimestamp(second) - memoryTimestamp(first) ||
+            compareMemoryText(first, second) ||
+            first.id.localeCompare(second.id)
+          );
+        }
+        if (memorySort === "oldest") {
+          return (
+            memoryTimestamp(first) - memoryTimestamp(second) ||
+            compareMemoryText(first, second) ||
+            first.id.localeCompare(second.id)
+          );
+        }
+        if (memorySort === "kind") {
+          return (
+            memoryKindLabels[first.kind].localeCompare(
+              memoryKindLabels[second.kind],
+            ) ||
+            compareMemoryText(first, second) ||
+            first.id.localeCompare(second.id)
+          );
+        }
+        return (
+          compareMemoryText(first, second) || first.id.localeCompare(second.id)
+        );
+      });
+  }, [memoryItems, memoryKindFilter, memorySearchQuery, memorySort]);
+  const hasMemoryFilters =
+    memorySearchQuery.trim().length > 0 || memoryKindFilter !== "all";
   const debugTraceMessages = useMemo(
     () =>
       [...chatMessages].filter((item) => item.role === "assistant").reverse(),
@@ -1912,8 +2010,8 @@ export function TrainerDashboard() {
                 <summary>
                   Learned memory{" "}
                   <span className="pill" aria-live="polite">
-                    {memoryHealth?.status ?? "loading"} ·{" "}
-                    {visibleMemories.length} shown
+                    {memoryHealth?.status ?? "loading"} · {memoryItems.length}{" "}
+                    loaded · {filteredMemories.length} shown
                   </span>
                 </summary>
                 <p>
@@ -1928,7 +2026,7 @@ export function TrainerDashboard() {
                 <p className="helper-text" role="status" aria-live="polite">
                   {memoryMessage}
                 </p>
-                <div className="button-row">
+                <div className="button-row memory-actions">
                   <button
                     type="button"
                     onClick={() =>
@@ -1950,103 +2048,183 @@ export function TrainerDashboard() {
                     type="button"
                     className="danger-button"
                     onClick={() => actOnMemory("clear")}
-                    disabled={isMemoryLoading || !visibleMemories.length}
+                    disabled={isMemoryLoading || !memoryItems.length}
                   >
                     Clear all memory
                   </button>
                 </div>
                 <div
-                  className="memory-list"
-                  aria-label="Inspectable semantic memories"
+                  className="memory-browser"
+                  aria-label="Search and sort semantic memories"
                 >
-                  <h3>Inspectable semantic memories</h3>
-                  {visibleMemories.length ? (
-                    visibleMemories.map((item) => (
-                      <div className="memory-item" key={item.id}>
-                        {editingMemoryId === item.id ? (
-                          <label>
-                            Edit memory
-                            <textarea
-                              aria-label="Edit memory"
-                              value={editingMemoryText}
-                              onChange={(event) =>
-                                setEditingMemoryText(event.target.value)
-                              }
-                              disabled={isMemoryLoading}
-                            />
-                          </label>
-                        ) : (
-                          <p>{item.text}</p>
-                        )}
-                        <small>
-                          {item.kind} ·{" "}
-                          {item.conversationId
-                            ? `conversation ${item.conversationId}`
-                            : "cross-conversation"}
-                          {item.updatedAt
-                            ? ` · updated ${dateLabel(item.updatedAt)}`
-                            : ""}
-                        </small>
-                        <div className="button-row">
-                          {editingMemoryId === item.id ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  actOnMemory(
-                                    "update",
-                                    item.id,
-                                    editingMemoryText,
-                                  )
-                                }
-                                disabled={isMemoryLoading}
-                              >
-                                Save edit
-                              </button>
+                  <div className="memory-browser-header">
+                    <div>
+                      <h3>Inspectable semantic memories</h3>
+                      <p className="helper-text compact-helper">
+                        Browsing applies only to the {memoryItems.length} loaded
+                        local management records.
+                      </p>
+                    </div>
+                    <span className="pill" aria-live="polite">
+                      {filteredMemories.length} of {memoryItems.length} shown
+                    </span>
+                  </div>
+                  <div className="memory-controls">
+                    <label>
+                      Search memory text
+                      <input
+                        type="search"
+                        value={memorySearchQuery}
+                        placeholder="Search text, kind, conversation…"
+                        onChange={(event) =>
+                          setMemorySearchQuery(event.target.value)
+                        }
+                        disabled={isMemoryLoading || !memoryItems.length}
+                      />
+                    </label>
+                    <label>
+                      Kind
+                      <select
+                        value={memoryKindFilter}
+                        onChange={(event) =>
+                          setMemoryKindFilter(
+                            event.target.value as MemoryKindFilter,
+                          )
+                        }
+                        disabled={isMemoryLoading || !memoryItems.length}
+                      >
+                        {memoryKindOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Sort
+                      <select
+                        value={memorySort}
+                        onChange={(event) =>
+                          setMemorySort(event.target.value as MemorySort)
+                        }
+                        disabled={isMemoryLoading || !memoryItems.length}
+                      >
+                        {memorySortOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        setMemorySearchQuery("");
+                        setMemoryKindFilter("all");
+                      }}
+                      disabled={isMemoryLoading || !hasMemoryFilters}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                  <div
+                    className="memory-list"
+                    aria-label="Inspectable semantic memories"
+                    aria-busy={isMemoryLoading}
+                  >
+                    {filteredMemories.length ? (
+                      filteredMemories.map((item) => (
+                        <div className="memory-row" key={item.id}>
+                          <div className="memory-row-main">
+                            {editingMemoryId === item.id ? (
+                              <label>
+                                Edit memory
+                                <textarea
+                                  aria-label="Edit memory"
+                                  value={editingMemoryText}
+                                  onChange={(event) =>
+                                    setEditingMemoryText(event.target.value)
+                                  }
+                                  disabled={isMemoryLoading}
+                                />
+                              </label>
+                            ) : (
+                              <p className="memory-text">{item.text}</p>
+                            )}
+                            <small className="memory-meta">
+                              <span>{memoryKindLabels[item.kind]}</span>
+                              <span>{memoryScopeLabel(item)}</span>
+                              <span>{memoryUpdatedLabel(item)}</span>
+                            </small>
+                          </div>
+                          <div className="button-row memory-row-actions">
+                            {editingMemoryId === item.id ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    actOnMemory(
+                                      "update",
+                                      item.id,
+                                      editingMemoryText,
+                                    )
+                                  }
+                                  disabled={isMemoryLoading}
+                                >
+                                  Save edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  onClick={() => {
+                                    setEditingMemoryId(null);
+                                    setEditingMemoryText("");
+                                  }}
+                                  disabled={isMemoryLoading}
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
                               <button
                                 type="button"
                                 className="secondary-button"
                                 onClick={() => {
-                                  setEditingMemoryId(null);
-                                  setEditingMemoryText("");
+                                  setEditingMemoryId(item.id);
+                                  setEditingMemoryText(item.text);
                                 }}
                                 disabled={isMemoryLoading}
                               >
-                                Cancel
+                                Edit
                               </button>
-                            </>
-                          ) : (
+                            )}
                             <button
                               type="button"
-                              className="secondary-button"
-                              onClick={() => {
-                                setEditingMemoryId(item.id);
-                                setEditingMemoryText(item.text);
-                              }}
+                              className="danger-button"
+                              onClick={() => actOnMemory("delete", item.id)}
                               disabled={isMemoryLoading}
                             >
-                              Edit
+                              Delete
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            className="danger-button"
-                            onClick={() => actOnMemory("delete", item.id)}
-                            disabled={isMemoryLoading}
-                          >
-                            Delete
-                          </button>
+                          </div>
                         </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p>
-                      No inspectable semantic memories. If memory is enabled and
-                      ready, explicit preferences, goals, corrections, or useful
-                      temporary plans can create concise memories after complete
-                      chats; ordinary transient turns may create none.
-                    </p>
-                  )}
+                      ))
+                    ) : memoryItems.length ? (
+                      <p className="memory-empty-state">
+                        No memories match the current search or kind filter.
+                        Clear filters to return to the loaded list.
+                      </p>
+                    ) : (
+                      <p className="memory-empty-state">
+                        No inspectable semantic memories. If memory is enabled
+                        and ready, explicit preferences, goals, corrections, or
+                        useful temporary plans can create concise memories after
+                        complete chats; ordinary transient turns may create
+                        none.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </details>
 
