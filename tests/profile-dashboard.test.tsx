@@ -538,6 +538,65 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(actionsBlock).toContain("padding: 0 8px;");
   });
 
+  it("keeps the desktop app topbar visible outside the transcript scroll contract", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) {
+        return jsonResponse({
+          ...emptyChat,
+          messages: [
+            {
+              id: "assistant-long-chat",
+              role: "assistant",
+              content: "Long desktop transcript answer",
+              createdAt: "2026-07-25T12:00:00Z",
+            },
+          ],
+          contextWindow: 1,
+        });
+      }
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    stubViewport(false);
+
+    const { container } = render(React.createElement(TrainerDashboard));
+
+    expect(
+      await screen.findByText("Long desktop transcript answer"),
+    ).toBeTruthy();
+    const topbars = Array.from(container.querySelectorAll(".app-topbar"));
+    expect(topbars).toHaveLength(1);
+    const topbar = topbars[0];
+    expect(
+      topbar.nextElementSibling?.classList.contains("chat-workspace"),
+    ).toBe(true);
+
+    const transcript = screen.getByRole("log", { name: "Chat transcript" });
+    setTranscriptMetrics(transcript, {
+      scrollHeight: 1600,
+      clientHeight: 360,
+      scrollTop: 840,
+    });
+    fireEvent.scroll(transcript);
+
+    for (const name of [
+      "Toggle conversation history",
+      "Sync now — import latest Garmin data",
+      "Data & settings",
+    ]) {
+      expect(topbar.contains(screen.getByRole("button", { name }))).toBe(true);
+    }
+    expect(topbar.textContent).toContain("AI Trainer");
+    expect(topbar.textContent).toContain("Trainer chat");
+
+    const css = readFileSync("src/app/style.css", "utf8");
+    expect(css).toMatch(/@media \(min-width: 961px\)[\s\S]*\.app-topbar/);
+    expect(css).toMatch(/\.app-topbar \{[\s\S]*position: sticky;/);
+    expect(css).toMatch(/\.dashboard-shell \{[\s\S]*overflow: hidden;/);
+  });
+
   it("renders the minimal chat shell and reachable grouped settings disclosure", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);

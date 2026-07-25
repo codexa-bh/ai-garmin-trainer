@@ -92,6 +92,20 @@ body::before {
   backdrop-filter: blur(18px);
 }
 
+@media (min-width: 961px) {
+  .dashboard-shell {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .app-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+  }
+}
+
 .brand-lockup,
 .trainer-heading-row,
 .card-title-row,
