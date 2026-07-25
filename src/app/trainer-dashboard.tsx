@@ -363,6 +363,84 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
+type MarkdownTableBlock = {
+  headers: string[];
+  rows: string[][];
+};
+
+function splitMarkdownTableRow(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return null;
+  const withoutOuterPipes = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  const cells = withoutOuterPipes.split("|").map((cell) => cell.trim());
+  return cells.length >= 2 ? cells : null;
+}
+
+function isMarkdownTableSeparator(line: string, columnCount: number): boolean {
+  const cells = splitMarkdownTableRow(line);
+  return (
+    cells?.length === columnCount &&
+    cells.every((cell) => /^:?-{3,}:?$/.test(cell))
+  );
+}
+
+function parseMarkdownTableBlock(
+  lines: string[],
+  startIndex: number,
+): { table: MarkdownTableBlock; nextIndex: number } | null {
+  const headers = splitMarkdownTableRow(lines[startIndex]);
+  if (!headers || headers.some((header) => !header)) return null;
+  if (!isMarkdownTableSeparator(lines[startIndex + 1] ?? "", headers.length)) {
+    return null;
+  }
+
+  const rows: string[][] = [];
+  let nextIndex = startIndex + 2;
+  while (nextIndex < lines.length) {
+    const line = lines[nextIndex];
+    if (!line.trim()) break;
+    const cells = splitMarkdownTableRow(line);
+    if (!cells || cells.length !== headers.length) break;
+    rows.push(cells);
+    nextIndex += 1;
+  }
+
+  if (!rows.length) return null;
+  return { table: { headers, rows }, nextIndex };
+}
+
+function renderMarkdownTable(table: MarkdownTableBlock, keyPrefix: string) {
+  return (
+    <div className="assistant-table-wrapper" key={keyPrefix}>
+      <table className="assistant-table">
+        <thead>
+          <tr>
+            {table.headers.map((header, index) => (
+              <th key={index} scope="col">
+                {renderInlineMarkdown(header, `${keyPrefix}-h-${index}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {row.map((cell, cellIndex) => (
+                <td key={cellIndex}>
+                  {renderInlineMarkdown(
+                    cell,
+                    `${keyPrefix}-r-${rowIndex}-${cellIndex}`,
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function AssistantContent({ content }: { content: string }) {
   const blocks: ReactNode[] = [];
   const lines = content.split(/\r?\n/);
@@ -398,7 +476,8 @@ function AssistantContent({ content }: { content: string }) {
     list = [];
   }
 
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     if (codeLines) {
       if (line.trim().startsWith("```")) {
         blocks.push(
@@ -421,6 +500,16 @@ function AssistantContent({ content }: { content: string }) {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      continue;
+    }
+    const tableBlock = parseMarkdownTableBlock(lines, lineIndex);
+    if (tableBlock) {
+      flushParagraph();
+      flushList();
+      blocks.push(
+        renderMarkdownTable(tableBlock.table, `table-${blocks.length}`),
+      );
+      lineIndex = tableBlock.nextIndex - 1;
       continue;
     }
     const heading = line.match(/^(#{1,3})\s+(.+)$/);

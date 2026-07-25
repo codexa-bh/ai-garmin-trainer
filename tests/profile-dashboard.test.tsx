@@ -511,6 +511,53 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(screen.getByText(/raw <b>html<\/b> stays text/)).toBeTruthy();
   });
 
+  it("renders assistant Markdown tables without weakening inline safety", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-table",
+              role: "assistant",
+              content:
+                "## Weekly summary\n| Metric | Average | Range (Min–Max) |\n| --- | ---: | :---: |\n| **Duration** | `42 min` | [bad](javascript:alert(1)) |\n| Distance | [safe route](https://example.test/run) | <img src=x onerror=alert(1)> |\n\nAfter the table, keep *easy effort*.\nPipes but no separator: Metric | Average | Range",
+              createdAt: "2026-07-21T12:00:00.000Z",
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    const table = await screen.findByRole("table");
+    expect(table).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Metric" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Average" })).toBeTruthy();
+    expect(
+      screen.getByRole("columnheader", { name: "Range (Min–Max)" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Duration").tagName).toBe("STRONG");
+    expect(screen.getByText("42 min").tagName).toBe("CODE");
+    expect(screen.getByRole("link", { name: "safe route" })).toHaveProperty(
+      "href",
+      "https://example.test/run",
+    );
+    expect(screen.getByText("bad").closest("a")).toBeNull();
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByText("easy effort").tagName).toBe("EM");
+    expect(
+      screen.getByText(/Pipes but no separator: Metric \| Average \| Range/),
+    ).toBeTruthy();
+  });
+
   it("preserves dirty edits when a manual Profile reload returns late", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
