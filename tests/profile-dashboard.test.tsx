@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from "node:fs";
 import React from "react";
 import {
   cleanup,
@@ -422,6 +423,119 @@ describe("TrainerDashboard Profile hydration", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/recent local turns/i)).toBeNull();
+  });
+
+  it("submits a non-empty composer message with Enter without inserting a newline", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory") return jsonResponse({ memories: [] });
+      if (url === "/api/chat" && init?.method === "POST") {
+        return jsonResponse({
+          ...emptyChat,
+          messages: [
+            {
+              id: "assistant-enter",
+              role: "assistant",
+              content: "Enter submitted this composer message.",
+              createdAt: "2026-07-25T12:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    const message = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.change(message, {
+      target: { value: "  What should I do tomorrow?  " },
+    });
+
+    expect(fireEvent.keyDown(message, { key: "Enter", code: "Enter" })).toBe(
+      false,
+    );
+
+    expect(
+      await screen.findByText("Enter submitted this composer message."),
+    ).toBeTruthy();
+    const postCalls = fetchMock.mock.calls.filter(
+      ([url, init]) => String(url) === "/api/chat" && init?.method === "POST",
+    );
+    expect(postCalls).toHaveLength(1);
+    expect(JSON.parse(String(postCalls[0]?.[1]?.body))).toMatchObject({
+      conversationId: "default",
+      message: "What should I do tomorrow?",
+      stream: true,
+    });
+    expect(message.value).toBe("");
+  });
+
+  it("preserves Shift+Enter as multiline input and keeps blank Enter guarded", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory") return jsonResponse({ memories: [] });
+      if (url === "/api/chat" && init?.method === "POST") {
+        return jsonResponse({
+          ...emptyChat,
+          messages: [
+            {
+              id: "assistant-unexpected",
+              role: "assistant",
+              content: "Unexpected submit",
+              createdAt: "2026-07-25T12:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    const message = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    message.focus();
+    fireEvent.change(message, { target: { value: "Line one" } });
+
+    expect(
+      fireEvent.keyDown(message, {
+        key: "Enter",
+        code: "Enter",
+        shiftKey: true,
+      }),
+    ).toBe(true);
+    expect(document.activeElement).toBe(message);
+
+    fireEvent.change(message, { target: { value: "   " } });
+    expect(fireEvent.keyDown(message, { key: "Enter", code: "Enter" })).toBe(
+      false,
+    );
+
+    const postCalls = fetchMock.mock.calls.filter(
+      ([url, init]) => String(url) === "/api/chat" && init?.method === "POST",
+    );
+    expect(postCalls).toHaveLength(0);
+    expect(screen.queryByText("Unexpected submit")).toBeNull();
+  });
+
+  it("keeps composer actions in normal flow with scoped textarea padding", () => {
+    const css = readFileSync("src/app/style.css", "utf8");
+    const composerTextareaBlock =
+      css.match(/\.message-composer textarea\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const actionsBlock =
+      css.match(/\.composer-actions\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+
+    expect(composerTextareaBlock).toContain("padding: 16px;");
+    expect(actionsBlock).toContain("position: static;");
+    expect(actionsBlock).toContain("flex-wrap: wrap;");
+    expect(actionsBlock).toContain("margin-top: 10px;");
+    expect(actionsBlock).toContain("padding: 0 8px;");
   });
 
   it("renders the minimal chat shell and reachable grouped settings disclosure", async () => {

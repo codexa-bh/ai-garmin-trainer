@@ -556,6 +556,10 @@ textarea {
   resize: vertical;
 }
 
+.message-composer textarea {
+  padding: 16px;
+}
+
 input {
   padding: 12px 14px;
 }
@@ -566,9 +570,11 @@ input::placeholder {
 }
 
 .composer-actions {
-  position: absolute;
-  right: 10px;
-  bottom: 32px;
+  position: static;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 0 8px;
 }
 
 .composer-actions button {
@@ -849,9 +855,9 @@ label {
   }
 
   .composer-actions {
-    position: static;
     justify-content: flex-end;
     margin-top: 8px;
+    padding: 0;
   }
 
   .settings-sheet {
