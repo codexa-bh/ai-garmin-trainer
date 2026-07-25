@@ -625,6 +625,53 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(screen.getByText(/raw <b>html<\/b> stays text/)).toBeTruthy();
   });
 
+  it("renders assistant Markdown tables without weakening inline safety", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-table",
+              role: "assistant",
+              content:
+                "## Weekly summary\n| Metric | Average | Range (Min–Max) |\n| --- | ---: | :---: |\n| **Duration** | `42 min` | [bad](javascript:alert(1)) |\n| Distance | [safe route](https://example.test/run) | <img src=x onerror=alert(1)> |\n\nAfter the table, keep *easy effort*.\nPipes but no separator: Metric | Average | Range",
+              createdAt: "2026-07-21T12:00:00.000Z",
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    const table = await screen.findByRole("table");
+    expect(table).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Metric" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Average" })).toBeTruthy();
+    expect(
+      screen.getByRole("columnheader", { name: "Range (Min–Max)" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Duration").tagName).toBe("STRONG");
+    expect(screen.getByText("42 min").tagName).toBe("CODE");
+    expect(screen.getByRole("link", { name: "safe route" })).toHaveProperty(
+      "href",
+      "https://example.test/run",
+    );
+    expect(screen.getByText("bad").closest("a")).toBeNull();
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByText("easy effort").tagName).toBe("EM");
+    expect(
+      screen.getByText(/Pipes but no separator: Metric \| Average \| Range/),
+    ).toBeTruthy();
+  });
+
   it("preserves dirty edits when a manual Profile reload returns late", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -928,68 +975,100 @@ describe("TrainerDashboard primary Sync now", () => {
 });
 
 describe("TrainerDashboard memory and new chat", () => {
-  it("renders semantic memory inspect/edit/delete controls", async () => {
+  it("renders compact searchable semantic memory browsing and preserves edit/delete controls", async () => {
     let patchedBody: unknown;
+    const memories = [
+      {
+        id: "memory-old",
+        kind: "conversation",
+        text: "Plans winter snowboard trips around resort comparison notes",
+        conversationId: "chat-1",
+        updatedAt: "2026-07-15T12:00:00Z",
+      },
+      {
+        id: "memory-pref",
+        kind: "saved_preference",
+        text: "Prefers morning hikes",
+        conversationId: "chat-2",
+        updatedAt: "2026-07-18T12:00:00Z",
+      },
+      {
+        id: "memory-correction",
+        kind: "correction",
+        text: "Corrected threshold pace estimate",
+        updatedAt: "2026-07-17T12:00:00Z",
+      },
+      {
+        id: "memory-temporary",
+        kind: "temporary",
+        text: "Temporary plan for taper week",
+        updatedAt: "2026-07-16T12:00:00Z",
+      },
+    ];
+    const memoryPayload = {
+      health: {
+        enabled: true,
+        ready: true,
+        status: "ready",
+        detail: "Embedded SQLite semantic memory is configured.",
+        provider: "app-sqlite-vector",
+        vectorProvider: "sqlite",
+        userDisabled: false,
+      },
+      enabled: true,
+      ready: true,
+      memories,
+    };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory" && init?.method === "PATCH") {
         patchedBody = JSON.parse(String(init.body));
-        return jsonResponse({
-          health: {
-            enabled: true,
-            ready: true,
-            status: "ready",
-            detail: "Embedded SQLite semantic memory is configured.",
-            provider: "app-sqlite-vector",
-            vectorProvider: "sqlite",
-            userDisabled: false,
-          },
-          enabled: true,
-          ready: true,
-          memories: [],
-        });
+        return jsonResponse(memoryPayload);
       }
-      if (url === "/api/memory")
-        return jsonResponse({
-          health: {
-            enabled: true,
-            ready: true,
-            status: "ready",
-            detail: "Embedded SQLite semantic memory is configured.",
-            provider: "app-sqlite-vector",
-            vectorProvider: "sqlite",
-            userDisabled: false,
-          },
-          enabled: true,
-          ready: true,
-          memories: [
-            {
-              id: "memory-one",
-              kind: "saved_preference",
-              text: "Prefers morning hikes",
-              conversationId: "chat-1",
-              updatedAt: "2026-07-17T12:00:00Z",
-            },
-            {
-              id: "memory-two",
-              kind: "saved_preference",
-              text: "Likes easy recovery rides",
-              updatedAt: "2026-07-17T12:00:00Z",
-            },
-          ],
-        });
+      if (url === "/api/memory") return jsonResponse(memoryPayload);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(React.createElement(TrainerDashboard));
+    const { container } = render(React.createElement(TrainerDashboard));
     openSettings();
 
     expect(await screen.findByText("Learned memory")).toBeTruthy();
+    expect(screen.getAllByText("4 of 4 shown").length).toBeGreaterThan(0);
     expect(screen.getByText("Prefers morning hikes")).toBeTruthy();
-    expect(screen.getByText("Likes easy recovery rides")).toBeTruthy();
+    expect(screen.getByText("Temporary plan for taper week")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(4);
+    expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(4);
+
+    fireEvent.change(screen.getByLabelText("Search memory text"), {
+      target: { value: "snowboard" },
+    });
+    expect(screen.getAllByText("1 of 4 shown").length).toBeGreaterThan(0);
+    expect(screen.getByText(/winter snowboard trips/)).toBeTruthy();
+    expect(screen.queryByText("Prefers morning hikes")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Search memory text"), {
+      target: { value: "no match" },
+    });
+    expect(screen.getByText(/No memories match/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    fireEvent.change(screen.getByLabelText("Kind"), {
+      target: { value: "correction" },
+    });
+    expect(screen.getByText("Corrected threshold pace estimate")).toBeTruthy();
+    expect(screen.queryByText("Temporary plan for taper week")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    fireEvent.change(screen.getByLabelText("Sort"), {
+      target: { value: "oldest" },
+    });
+    const sortedTexts = [...container.querySelectorAll(".memory-text")].map(
+      (item) => item.textContent,
+    );
+    expect(sortedTexts[0]).toContain("winter snowboard trips");
 
     fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
     const editBox = screen.getByLabelText("Edit memory") as HTMLTextAreaElement;
@@ -997,7 +1076,7 @@ describe("TrainerDashboard memory and new chat", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save edit" }));
     await waitFor(() =>
       expect(patchedBody).toMatchObject({
-        id: "memory-one",
+        id: "memory-old",
         action: "update",
         text: "Prefers sunrise hikes",
       }),
