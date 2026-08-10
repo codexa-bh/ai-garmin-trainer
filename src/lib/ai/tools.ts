@@ -247,6 +247,21 @@ function boundedText(value: string, max = 500): string {
 function summarizeSyncStatus(limit = 10) {
   const counts = dataCounts();
   const coverage = activityDetailCoverage();
+  const healthCoverage = counts.healthCoverage ?? {
+    totalRows: counts.healthDays,
+    completeDays: 0,
+    partialDays: 0,
+    missingDays: 0,
+    metrics: {
+      sleepDays: 0,
+      restingHeartRateDays: 0,
+      hrvDays: 0,
+      stressDays: 0,
+      stepsDays: 0,
+      calorieDays: 0,
+      bodyBatteryDays: 0,
+    },
+  };
   const athlete = getGarminAthleteBaseline();
   const availability = listActivityDetailAvailability(limit).map((item) => ({
     garminId: item.garminId,
@@ -258,7 +273,12 @@ function summarizeSyncStatus(limit = 10) {
     hasHeartRate: item.hasHeartRate,
     hasElevation: item.hasElevation,
   }));
-  return { counts, coverage, athlete, availability };
+  return {
+    counts: { ...counts, healthCoverage },
+    coverage,
+    athlete,
+    availability,
+  };
 }
 
 export function validateTrainerToolCall(
@@ -308,7 +328,7 @@ export async function executeTrainerTool(input: {
           index: input.index,
           tool: input.toolName,
           status: "succeeded",
-          summary: `Local Garmin status: ${result.counts.activities} activities, ${result.counts.healthDays} health days, detail coverage ${result.coverage.terminal}/${result.coverage.total} terminal, athlete baseline ${result.athlete.availability}.`,
+          summary: `Local Garmin status: ${result.counts.activities} stored activities, ${result.counts.healthCoverage.totalRows} health calendar rows (${result.counts.healthCoverage.completeDays} complete, ${result.counts.healthCoverage.partialDays} partial, ${result.counts.healthCoverage.missingDays} missing), detail coverage ${result.coverage.available} available, ${result.coverage.partial} partial, ${result.coverage.unsupported} unsupported, ${result.coverage.pending} pending, athlete baseline ${result.athlete.availability}.`,
           privacy: "Read from local normalized SQLite only.",
           result,
         };

@@ -30,6 +30,28 @@ import {
 } from "../garmin/raw-payload";
 import { dailyHealthAvailability } from "../garmin/normalize";
 
+export type HealthCoverage = {
+  totalRows: number;
+  completeDays: number;
+  partialDays: number;
+  missingDays: number;
+  metrics: {
+    sleepDays: number;
+    restingHeartRateDays: number;
+    hrvDays: number;
+    stressDays: number;
+    stepsDays: number;
+    calorieDays: number;
+    bodyBatteryDays: number;
+  };
+};
+
+export type SyncRunOptions = {
+  coverageStart?: string | null;
+  coverageEnd?: string | null;
+  lastError?: string | null;
+};
+
 let database: Database.Database | undefined;
 let lastChatMessageTimestamp = 0;
 
@@ -144,6 +166,21 @@ export function upsertActivities(activities: NormalizedActivity[]): number {
   return activities.length;
 }
 
+function dailyHealthMetricFields(
+  day: Omit<NormalizedDailyHealth, "availability">,
+): Omit<NormalizedDailyHealth, "date" | "availability"> {
+  return {
+    sleepMinutes: day.sleepMinutes,
+    restingHeartRate: day.restingHeartRate,
+    hrvStatus: day.hrvStatus,
+    hrvMs: day.hrvMs,
+    stressAvg: day.stressAvg,
+    steps: day.steps,
+    calories: day.calories,
+    bodyBatteryAvg: day.bodyBatteryAvg,
+  };
+}
+
 function mergeDailyHealth(
   previous: NormalizedDailyHealth,
   incoming: NormalizedDailyHealth,
@@ -162,7 +199,7 @@ function mergeDailyHealth(
   };
   return {
     ...merged,
-    availability: dailyHealthAvailability(merged),
+    availability: dailyHealthAvailability(dailyHealthMetricFields(merged)),
   };
 }
 
@@ -194,7 +231,10 @@ export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
         NormalizedDailyHealth | undefined;
       const merged = previous
         ? mergeDailyHealth(previous, day)
-        : { ...day, availability: dailyHealthAvailability(day) };
+        : {
+            ...day,
+            availability: dailyHealthAvailability(dailyHealthMetricFields(day)),
+          };
       insert.run(merged);
     }
   });
@@ -218,18 +258,28 @@ export function getCheckpoint(key: string): string | null {
   return row?.value ?? null;
 }
 
-export function recordSyncRun(status: string, lastError?: string): string {
+export function recordSyncRun(
+  status: string,
+  optionsOrLastError?: SyncRunOptions | string,
+): string {
+  const options: SyncRunOptions =
+    typeof optionsOrLastError === "string"
+      ? { lastError: optionsOrLastError }
+      : (optionsOrLastError ?? {});
   const id = crypto.randomUUID();
   getDatabase()
     .prepare(
-      "insert into sync_run (id, status, started_at, finished_at, last_error) values (?, ?, ?, ?, ?)",
+      `insert into sync_run (id, status, started_at, finished_at, coverage_start, coverage_end, last_error)
+       values (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
       status,
       Date.now(),
       status === "running" ? null : Date.now(),
-      lastError ?? null,
+      options.coverageStart ?? null,
+      options.coverageEnd ?? null,
+      options.lastError ?? null,
     );
   return id;
 }
@@ -946,18 +996,63 @@ export function verifyActivityReference(
   };
 }
 
+export function healthCoverage(): HealthCoverage {
+  const row = getDatabase()
+    .prepare(
+      `select count(*) as totalRows,
+              coalesce(sum(case when availability = 'complete' then 1 else 0 end), 0) as completeDays,
+              coalesce(sum(case when availability = 'partial' then 1 else 0 end), 0) as partialDays,
+              coalesce(sum(case when availability = 'missing' then 1 else 0 end), 0) as missingDays,
+              coalesce(sum(case when sleep_minutes is not null then 1 else 0 end), 0) as sleepDays,
+              coalesce(sum(case when resting_heart_rate is not null then 1 else 0 end), 0) as restingHeartRateDays,
+              coalesce(sum(case when hrv_ms is not null then 1 else 0 end), 0) as hrvDays,
+              coalesce(sum(case when stress_avg is not null then 1 else 0 end), 0) as stressDays,
+              coalesce(sum(case when steps is not null then 1 else 0 end), 0) as stepsDays,
+              coalesce(sum(case when calories is not null then 1 else 0 end), 0) as calorieDays,
+              coalesce(sum(case when body_battery_avg is not null then 1 else 0 end), 0) as bodyBatteryDays
+       from daily_health`,
+    )
+    .get() as {
+    totalRows: number;
+    completeDays: number;
+    partialDays: number;
+    missingDays: number;
+    sleepDays: number;
+    restingHeartRateDays: number;
+    hrvDays: number;
+    stressDays: number;
+    stepsDays: number;
+    calorieDays: number;
+    bodyBatteryDays: number;
+  };
+  return {
+    totalRows: row.totalRows,
+    completeDays: row.completeDays,
+    partialDays: row.partialDays,
+    missingDays: row.missingDays,
+    metrics: {
+      sleepDays: row.sleepDays,
+      restingHeartRateDays: row.restingHeartRateDays,
+      hrvDays: row.hrvDays,
+      stressDays: row.stressDays,
+      stepsDays: row.stepsDays,
+      calorieDays: row.calorieDays,
+      bodyBatteryDays: row.bodyBatteryDays,
+    },
+  };
+}
+
 export function dataCounts(): {
   activities: number;
   healthDays: number;
+  healthCoverage: HealthCoverage;
   detailedActivities: number;
   detailCoverage: ActivityDetailCoverage;
 } {
   const activityRow = getDatabase()
     .prepare("select count(*) as count from activity")
     .get() as { count: number };
-  const healthRow = getDatabase()
-    .prepare("select count(*) as count from daily_health")
-    .get() as { count: number };
+  const coverage = healthCoverage();
   const detailRow = getDatabase()
     .prepare(
       "select count(*) as count from activity_detail_availability where status in ('available', 'partial')",
@@ -965,7 +1060,8 @@ export function dataCounts(): {
     .get() as { count: number };
   return {
     activities: activityRow.count,
-    healthDays: healthRow.count,
+    healthDays: coverage.totalRows,
+    healthCoverage: coverage,
     detailedActivities: detailRow.count,
     detailCoverage: activityDetailCoverage(),
   };
@@ -974,6 +1070,7 @@ export function dataCounts(): {
 export function importSummary(): {
   activities: number;
   healthDays: number;
+  healthCoverage: HealthCoverage;
   detailedActivities: number;
   detailCoverage: ActivityDetailCoverage;
   athleteBaseline: GarminAthleteBaselineDto;

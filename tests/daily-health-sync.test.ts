@@ -6,6 +6,7 @@ import type { NormalizedDailyHealth } from "../src/lib/garmin/types";
 
 const dbDir = join(tmpdir(), "ai-garmin-daily-health-sync-tests");
 const mcpState = {
+  failStart: false,
   activities: [] as Array<Record<string, unknown>>,
   calls: [] as Array<{ operation: string; args: Record<string, unknown> }>,
   statsByDate: new Map<string, Record<string, unknown>>(),
@@ -15,6 +16,7 @@ const mcpState = {
 vi.mock("../src/lib/garmin/mcp-client", () => ({
   GarminMcpClient: class {
     async start() {
+      if (mcpState.failStart) throw new Error("connector start failed");
       return undefined;
     }
     close() {
@@ -85,6 +87,7 @@ beforeEach(() => {
   mkdirSync(dbDir, { recursive: true });
   process.env.DATABASE_PATH = join(dbDir, `${crypto.randomUUID()}.sqlite`);
   process.env.GARMIN_HISTORY_START_DATE = "2026-07-01";
+  mcpState.failStart = false;
   mcpState.activities = [];
   mcpState.calls = [];
   mcpState.statsByDate = new Map();
@@ -123,7 +126,7 @@ describe("Garmin daily health recent refresh", () => {
 
   it("refreshes the recent window without moving a checkpoint that is already past today", async () => {
     const { runGarminSync } = await import("../src/lib/garmin/importer");
-    const { getCheckpoint, saveCheckpoint } =
+    const { getCheckpoint, getDatabase, saveCheckpoint } =
       await import("../src/lib/db/repository");
     saveCheckpoint("health_next_date", "2026-07-24");
 
@@ -131,6 +134,17 @@ describe("Garmin daily health recent refresh", () => {
 
     expect(result.status).toBe("completed");
     expect(result.healthDaysImported).toBe(7);
+    expect(
+      getDatabase()
+        .prepare(
+          "select status, coverage_start as coverageStart, coverage_end as coverageEnd from sync_run order by started_at desc limit 1",
+        )
+        .get(),
+    ).toMatchObject({
+      status: "completed",
+      coverageStart: "2026-07-01",
+      coverageEnd: "2026-07-23",
+    });
     expect(fetchedHealthDates("get_stats")).toEqual([
       "2026-07-17",
       "2026-07-18",
@@ -144,6 +158,30 @@ describe("Garmin daily health recent refresh", () => {
       fetchedHealthDates("get_stats"),
     );
     expect(getCheckpoint("health_next_date")).toBe("2026-07-24");
+  });
+
+  it("records requested coverage before connector startup failures", async () => {
+    mcpState.failStart = true;
+    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { getDatabase } = await import("../src/lib/db/repository");
+
+    const result = await runGarminSync();
+
+    expect(result.status).toBe("failed");
+    expect(result.coverageStart).toBe("2026-07-01");
+    expect(result.coverageEnd).toBe("2026-07-23");
+    expect(
+      getDatabase()
+        .prepare(
+          "select status, coverage_start as coverageStart, coverage_end as coverageEnd, last_error as lastError from sync_run order by started_at desc limit 1",
+        )
+        .get(),
+    ).toMatchObject({
+      status: "failed",
+      coverageStart: "2026-07-01",
+      coverageEnd: "2026-07-23",
+      lastError: "connector start failed",
+    });
   });
 
   it("deduplicates historical backfill overlap with the recent refresh window", async () => {

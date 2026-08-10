@@ -908,8 +908,103 @@ describe("TrainerDashboard athlete baseline summary", () => {
     expect(screen.queryByText("Running VO2 max")).toBeNull();
     expect(screen.getByText("250 W (2026-07-19)")).toBeTruthy();
     expect(
-      screen.getByText("Unavailable from current Garmin source"),
+      screen.getAllByText("Unavailable from current Garmin source").length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("labels health coverage, detail states, and derived HR zones truthfully", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/summary")
+        return jsonResponse({
+          activities: 258,
+          healthDays: 953,
+          healthCoverage: {
+            totalRows: 953,
+            completeDays: 751,
+            partialDays: 1,
+            missingDays: 201,
+            metrics: {
+              sleepDays: 740,
+              restingHeartRateDays: 751,
+              hrvDays: 163,
+              stressDays: 751,
+              stepsDays: 751,
+              calorieDays: 751,
+              bodyBatteryDays: 751,
+            },
+          },
+          detailedActivities: 256,
+          detailCoverage: {
+            total: 258,
+            pending: 0,
+            available: 256,
+            partial: 0,
+            unsupported: 2,
+            retryableFailures: 0,
+            preservedFailures: 0,
+            inProgress: 0,
+            terminal: 258,
+          },
+          athleteBaseline: {
+            availability: "complete",
+            source: "garmin_mcp",
+            fetchedAt: "2026-08-10T08:00:00.000Z",
+            lastAttemptAt: "2026-08-10T08:00:00.000Z",
+            preservedPrevious: false,
+            values: {
+              configuredMaxHeartRateBpm: 190,
+              heartRateZones: {
+                status: "derived_from_garmin_max_hr",
+                source: "garmin_fit_zones_target",
+                formula: "50/60/70/80/90% of max HR",
+                boundaries: [
+                  { zone: 1, lowerBpm: 95, upperBpm: 113 },
+                  { zone: 2, lowerBpm: 114, upperBpm: 132 },
+                ],
+              },
+              cyclingFtpWatts: null,
+              cyclingFtpMeasuredOn: null,
+              cyclingFtpSourceStale: null,
+              availableTrainingDays: [],
+              preferredLongTrainingDays: [],
+            },
+            unsupported: {
+              configuredMaxHeartRate: false,
+              completeHeartRateZoneBoundaries: true,
+              reason: "derived_from_garmin_max_hr",
+            },
+          },
+        });
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+
+    expect(
+      await screen.findByText(
+        /configured max HR 190 bpm from Garmin FIT zones target/,
+      ),
     ).toBeTruthy();
+    expect(
+      screen.getByText(/HR zones derived from Garmin max HR/),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Refresh import summary"));
+    fireEvent.click(screen.getByText(/Current operation/));
+
+    await waitFor(() => {
+      const statusText = screen.getByText(/Import summary:/).textContent ?? "";
+      expect(statusText).toContain("258 stored activities");
+      expect(statusText).toContain(
+        "953 health calendar rows (751 complete, 1 partial, 201 missing",
+      );
+      expect(statusText).toContain("256 available, 0 partial, 2 unsupported");
+    });
   });
 });
 
@@ -988,8 +1083,10 @@ describe("TrainerDashboard primary Sync now", () => {
       const statusText =
         screen.getByText(/health: Imported daily health 1\/1/).textContent ??
         "";
-      expect(statusText).toContain("activities 247, health days 933");
-      expect(statusText).not.toContain("details 0/0");
+      expect(statusText).toContain(
+        "processed activity records 247, refreshed health dates 933",
+      );
+      expect(statusText).not.toContain("activity details 0/0");
     });
   });
 

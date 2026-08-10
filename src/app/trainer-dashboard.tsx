@@ -179,10 +179,40 @@ type AthleteBaselinePayload = {
       "not_exposed_by_pinned_connector" | "derived_from_garmin_max_hr" | null;
   };
 };
+type HealthCoveragePayload = {
+  totalRows: number;
+  completeDays: number;
+  partialDays: number;
+  missingDays: number;
+  metrics: {
+    sleepDays: number;
+    restingHeartRateDays: number;
+    hrvDays: number;
+    stressDays: number;
+    stepsDays: number;
+    calorieDays: number;
+    bodyBatteryDays: number;
+  };
+};
+
+type DetailCoveragePayload = {
+  total: number;
+  pending: number;
+  available: number;
+  partial: number;
+  unsupported: number;
+  retryableFailures: number;
+  preservedFailures: number;
+  inProgress: number;
+  terminal: number;
+};
+
 type ImportSummaryPayload = {
   activities: number;
   healthDays: number;
+  healthCoverage?: HealthCoveragePayload;
   detailedActivities: number;
+  detailCoverage?: DetailCoveragePayload;
   athleteBaseline: AthleteBaselinePayload;
 };
 type ProfileFields = {
@@ -200,8 +230,14 @@ type SyncProgressEvent = {
   detail?: string;
   activitiesImported?: number;
   healthDaysImported?: number;
+  activitiesProcessed?: number;
+  healthDaysRefreshed?: number;
   detailsProcessed?: number;
   detailTotal?: number | null;
+  storedActivities?: number;
+  storedHealthRows?: number;
+  healthCoverage?: HealthCoveragePayload;
+  detailCoverage?: DetailCoveragePayload;
   athleteAvailability?: AthleteBaselineAvailability;
 };
 
@@ -259,13 +295,49 @@ function formatDetailProgress(event: SyncProgressEvent): string | null {
 }
 
 function formatSyncProgressLine(event: SyncProgressEvent): string {
+  const activityCount =
+    event.activitiesProcessed ?? event.activitiesImported ?? 0;
+  const healthCount =
+    event.healthDaysRefreshed ?? event.healthDaysImported ?? 0;
   const progressParts = [
-    `activities ${event.activitiesImported ?? 0}`,
-    `health days ${event.healthDaysImported ?? 0}`,
+    `processed activity records ${activityCount}`,
+    `refreshed health dates ${healthCount}`,
   ];
   const detailProgress = formatDetailProgress(event);
   if (detailProgress) progressParts.push(detailProgress);
   return `${event.stage ?? "progress"}: ${event.message ?? "working"} (${progressParts.join(", ")})`;
+}
+
+function formatHealthCoverageSummary(
+  coverage: HealthCoveragePayload | undefined,
+  legacyHealthDays: number,
+): string {
+  if (!coverage) return `${legacyHealthDays} health calendar rows`;
+  return `${coverage.totalRows} health calendar rows (${coverage.completeDays} complete, ${coverage.partialDays} partial, ${coverage.missingDays} missing; populated metrics: sleep ${coverage.metrics.sleepDays}, HRV ${coverage.metrics.hrvDays})`;
+}
+
+function formatDetailCoverageSummary(
+  coverage: DetailCoveragePayload | undefined,
+  legacyDetailedActivities: number,
+): string {
+  if (!coverage)
+    return `${legacyDetailedActivities} available/partial detailed activities`;
+  return `${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable activity details`;
+}
+
+function formatAthleteBaselineSummary(
+  baseline: AthleteBaselinePayload,
+): string {
+  const maxHr = baseline.values.configuredMaxHeartRateBpm
+    ? `configured max HR ${baseline.values.configuredMaxHeartRateBpm} bpm from Garmin FIT zones target`
+    : "configured max HR unavailable from the pinned connector";
+  const zones =
+    baseline.values.heartRateZones.status === "derived_from_garmin_max_hr"
+      ? "HR zones derived from Garmin max HR; official boundaries unavailable"
+      : baseline.values.heartRateZones.status === "garmin_configured"
+        ? "Garmin-configured HR-zone boundaries available"
+        : "HR-zone boundaries unavailable";
+  return `Athlete baseline ${baseline.availability}; ${maxHr}; ${zones}; last attempt ${dateLabel(baseline.lastAttemptAt)}.`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -1146,7 +1218,7 @@ export function TrainerDashboard() {
           if (event.type === "result") {
             finalKind = event.status === "completed" ? "ok" : "error";
             appendLine(
-              `Result: ${event.status}. Activities: ${event.activitiesImported ?? 0}; health days: ${event.healthDaysImported ?? 0}; details processed: ${event.detailsProcessed ?? 0}. ${event.detail ?? ""}`,
+              `Result: ${event.status}. Processed activity records: ${event.activitiesProcessed ?? event.activitiesImported ?? 0}; refreshed health dates: ${event.healthDaysRefreshed ?? event.healthDaysImported ?? 0}; details processed: ${event.detailsProcessed ?? 0}; stored totals: ${event.storedActivities ?? "unknown"} activities, ${event.storedHealthRows ?? "unknown"} health rows. ${event.detail ?? ""}`,
             );
           } else {
             appendLine(formatSyncProgressLine(event));
@@ -1178,13 +1250,11 @@ export function TrainerDashboard() {
       );
       const nextBaseline = payload.athleteBaseline ?? emptyAthleteBaseline;
       setAthleteBaseline(nextBaseline);
-      setAthleteBaselineMessage(
-        `Athlete baseline ${nextBaseline.availability}; last attempt ${dateLabel(nextBaseline.lastAttemptAt)}.`,
-      );
+      setAthleteBaselineMessage(formatAthleteBaselineSummary(nextBaseline));
       if (showStatus)
         setStatus({
           kind: "ok",
-          message: `Import summary: ${payload.activities} activities, ${payload.healthDays} health days, ${payload.detailedActivities} detailed activities, athlete baseline ${nextBaseline.availability}.`,
+          message: `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}.`,
         });
     } catch (error) {
       setAthleteBaselineMessage(
@@ -2299,17 +2369,16 @@ export function TrainerDashboard() {
                     <div>
                       <dt>Configured max HR</dt>
                       <dd>
-                        {valueLabel(
-                          athleteBaseline.values.configuredMaxHeartRateBpm,
-                          " bpm",
-                        )}
+                        {athleteBaseline.values.configuredMaxHeartRateBpm
+                          ? `${athleteBaseline.values.configuredMaxHeartRateBpm} bpm (Garmin FIT zones target)`
+                          : "Unavailable from current Garmin source"}
                       </dd>
                     </div>
                     <div>
                       <dt>HR-zone boundaries</dt>
                       <dd>
                         {athleteBaseline.values.heartRateZones.boundaries.length
-                          ? `${athleteBaseline.values.heartRateZones.status === "derived_from_garmin_max_hr" ? "Derived estimate" : "Garmin configured"}: ${athleteBaseline.values.heartRateZones.boundaries.map((zone) => `Z${zone.zone} ${zone.lowerBpm}-${zone.upperBpm ?? "max"}`).join(", ")}`
+                          ? `${athleteBaseline.values.heartRateZones.status === "derived_from_garmin_max_hr" ? "Derived from Garmin max HR; official boundaries unavailable" : "Garmin configured"}: ${athleteBaseline.values.heartRateZones.boundaries.map((zone) => `Z${zone.zone} ${zone.lowerBpm}-${zone.upperBpm ?? "max"}`).join(", ")}`
                           : "Unavailable from current Garmin source"}
                       </dd>
                     </div>

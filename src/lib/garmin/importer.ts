@@ -41,9 +41,14 @@ export type GarminSyncResult = {
   status: "completed" | "failed";
   activitiesImported: number;
   healthDaysImported: number;
+  activitiesProcessed: number;
+  healthDaysRefreshed: number;
   detailsProcessed: number;
+  storedActivities: number;
+  storedHealthRows: number;
   coverageStart: string;
   coverageEnd: string;
+  healthCoverage: ReturnType<typeof dataCounts>["healthCoverage"];
   detailCoverage: ReturnType<typeof activityDetailCoverage>;
   athleteBaseline: GarminAthleteBaselineDto;
   detail: string;
@@ -225,7 +230,10 @@ export async function runGarminSync(
   const env = requireRuntimeEnv();
   const endDate = isoDate(new Date());
   const startDate = env.GARMIN_HISTORY_START_DATE as string;
-  const syncRunId = recordSyncRun("running");
+  const syncRunId = recordSyncRun("running", {
+    coverageStart: startDate,
+    coverageEnd: endDate,
+  });
   const client = new GarminMcpClient();
   let activitiesImported = 0;
   let healthDaysImported = 0;
@@ -383,12 +391,17 @@ export async function runGarminSync(
       status: "completed" as const,
       activitiesImported,
       healthDaysImported,
+      activitiesProcessed: activitiesImported,
+      healthDaysRefreshed: healthDaysImported,
       detailsProcessed,
+      storedActivities: totals.activities,
+      storedHealthRows: totals.healthCoverage.totalRows,
       coverageStart: startDate,
       coverageEnd: endDate,
+      healthCoverage: totals.healthCoverage,
       detailCoverage: totals.detailCoverage,
       athleteBaseline,
-      detail: `Garmin sync completed through the pinned stdio MCP connector. Database now has ${totals.activities} activities, ${totals.healthDays} health days, detail coverage ${totals.detailCoverage.terminal}/${totals.detailCoverage.total} terminal (${totals.detailCoverage.retryableFailures} retryable failures, ${totals.detailCoverage.pending} pending), and athlete baseline status ${athleteBaseline.availability}. Redacted raw connector payloads were retained locally for generated analysis; configured max HR and complete HR-zone boundaries were not estimated.`,
+      detail: `Garmin sync completed through the pinned stdio MCP connector. Processed ${activitiesImported} activity records and refreshed ${healthDaysImported} health dates for ${startDate} through ${endDate}. Database now has ${totals.activities} stored activities and ${totals.healthCoverage.totalRows} health calendar rows: ${totals.healthCoverage.completeDays} complete, ${totals.healthCoverage.partialDays} partial, ${totals.healthCoverage.missingDays} explicitly missing. Activity detail coverage is ${totals.detailCoverage.available} available, ${totals.detailCoverage.partial} partial, ${totals.detailCoverage.unsupported} unsupported, ${totals.detailCoverage.pending} pending, and ${totals.detailCoverage.retryableFailures} retryable failures out of ${totals.detailCoverage.total} activities. Athlete baseline status ${athleteBaseline.availability}; configured max HR ${athleteBaseline.values.configuredMaxHeartRateBpm ? "available from Garmin FIT zones target" : "unavailable"}; HR zones ${athleteBaseline.values.heartRateZones.status}. Redacted raw connector payloads were retained locally for generated analysis; official Garmin HR-zone boundaries remain unavailable unless the normalized baseline says garmin_configured.`,
     };
     onProgress({
       stage: "completed",
@@ -404,6 +417,7 @@ export async function runGarminSync(
     const message =
       error instanceof Error ? error.message : "Garmin sync failed";
     finishSyncRun(syncRunId, "failed", message.slice(0, 1000));
+    const totals = dataCounts();
     onProgress({
       stage: "failed",
       message: message.slice(0, 1000),
@@ -414,10 +428,15 @@ export async function runGarminSync(
       status: "failed",
       activitiesImported,
       healthDaysImported,
+      activitiesProcessed: activitiesImported,
+      healthDaysRefreshed: healthDaysImported,
       detailsProcessed,
+      storedActivities: totals.activities,
+      storedHealthRows: totals.healthCoverage.totalRows,
       coverageStart: startDate,
       coverageEnd: endDate,
-      detailCoverage: activityDetailCoverage(),
+      healthCoverage: totals.healthCoverage,
+      detailCoverage: totals.detailCoverage,
       athleteBaseline,
       detail: message.slice(0, 1000),
     };
