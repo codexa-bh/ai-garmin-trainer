@@ -13,7 +13,7 @@ npm run deps:evidence -- --output ./tmp/dependency-evidence.json
 npm run build
 ```
 
-`npm run doctor` and dependency evidence output are allowlisted support artifacts. Review before sharing; they must not contain credentials, token contents, provider keys, prompts, precise GPS streams, or raw connector payloads.
+`npm run doctor` and dependency evidence output are allowlisted support artifacts. They report whether Garmin MCP args explicitly include the reviewed `mcp==1.23.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, prompts, precise GPS streams, or raw connector payloads.
 
 Live smoke with local secrets:
 

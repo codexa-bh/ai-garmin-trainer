@@ -3,7 +3,12 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { z } from "zod";
-import { GARMIN_MCP_COMMIT } from "../garmin/client";
+import {
+  GARMIN_MCP_COMMIT,
+  GARMIN_MCP_SDK_REQUIREMENT,
+  garminMcpArgs,
+  garminMcpSdkConstraintStatus,
+} from "../garmin/client";
 import {
   currentSchemaVersion,
   LATEST_SCHEMA_VERSION,
@@ -386,6 +391,31 @@ export function runDoctor(
       : "Use the pinned Taxuspt/garmin_mcp commit from .env.example.",
   );
 
+  const rawSdkConstraint = garminMcpSdkConstraintStatus(env.GARMIN_MCP_ARGS);
+  const effectiveMcpArgs = garminMcpArgs(env.GARMIN_MCP_ARGS);
+  const effectiveSdkConstraint = garminMcpSdkConstraintStatus(effectiveMcpArgs);
+  const sdkConstraintOk = effectiveSdkConstraint === "exact";
+  check(
+    checks,
+    !sdkConstraintOk ? "fail" : rawSdkConstraint === "exact" ? "pass" : "warn",
+    "garmin.mcp_sdk",
+    sdkConstraintOk
+      ? rawSdkConstraint === "exact"
+        ? "garmin.mcp_sdk_pinned"
+        : "garmin.mcp_sdk_injected"
+      : "garmin.mcp_sdk_incompatible",
+    sdkConstraintOk
+      ? rawSdkConstraint === "exact"
+        ? `Garmin MCP SDK requirement ${GARMIN_MCP_SDK_REQUIREMENT} is configured explicitly.`
+        : `GARMIN_MCP_ARGS omits an explicit MCP SDK requirement; runtime will add ${GARMIN_MCP_SDK_REQUIREMENT} for the reviewed connector.`
+      : `GARMIN_MCP_ARGS does not produce the required ${GARMIN_MCP_SDK_REQUIREMENT} constraint; value content is not printed.`,
+    sdkConstraintOk
+      ? rawSdkConstraint === "exact"
+        ? undefined
+        : `Update .env.local to match .env.example so the MCP SDK requirement is explicit: ${GARMIN_MCP_SDK_REQUIREMENT}.`
+      : `Use the .env.example Garmin MCP args with ${GARMIN_MCP_SDK_REQUIREMENT}; MCP 2.x is incompatible with the pinned connector import path.`,
+  );
+
   const loopback = loopbackHost(env.NEXT_PUBLIC_APP_URL);
   check(
     checks,
@@ -426,6 +456,10 @@ export function runDoctor(
     database: dbFacts,
     garmin: {
       connectorCommit: GARMIN_MCP_COMMIT,
+      mcpSdkRequirement: GARMIN_MCP_SDK_REQUIREMENT,
+      configuredMcpSdkConstraint: rawSdkConstraint,
+      effectiveMcpSdkConstraint: effectiveSdkConstraint,
+      effectiveMcpArgCount: effectiveMcpArgs.length,
       configuredTokenDirPresent: token.configuredTokenDirPresent,
       defaultTokenFilePresent: token.defaultTokenFilePresent,
       stdioOnly: true,

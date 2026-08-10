@@ -2,9 +2,29 @@ import { spawn } from "node:child_process";
 import { access, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { getOptionalEnv } from "../env";
+import {
+  GARMIN_MCP_COMMIT,
+  GARMIN_MCP_DEFAULT_ARGS_STRING,
+  GARMIN_MCP_EXECUTABLE,
+  GARMIN_MCP_PACKAGE_URL,
+  GARMIN_MCP_SDK_REQUIREMENT,
+  GARMIN_MCP_SDK_VERSION,
+  garminMcpArgs,
+  garminMcpSdkConstraintStatus,
+} from "./mcp-config";
 import type { GarminReadOperation } from "./types";
 
-export const GARMIN_MCP_COMMIT = "2974244bfda1595b00836b3f942f579ec2d6f7d6";
+export {
+  GARMIN_MCP_COMMIT,
+  GARMIN_MCP_DEFAULT_ARGS_STRING,
+  GARMIN_MCP_EXECUTABLE,
+  GARMIN_MCP_PACKAGE_URL,
+  GARMIN_MCP_SDK_REQUIREMENT,
+  GARMIN_MCP_SDK_VERSION,
+  garminMcpArgs,
+  garminMcpArgs as mcpArgs,
+  garminMcpSdkConstraintStatus,
+};
 export const READ_OPERATION_ALLOWLIST = new Set<GarminReadOperation>([
   "list_activities",
   "get_sleep",
@@ -93,22 +113,9 @@ export async function verifyConnectorToken(): Promise<{
   };
 }
 
-function mcpArgs(rawArgs: string): string[] {
-  const args = rawArgs.split(" ").filter(Boolean);
-  const legacyPackage = args.find((arg) => arg.startsWith("garmin-mcp@git+"));
-  if (legacyPackage) {
-    return [
-      "--from",
-      legacyPackage.replace("garmin-mcp@git+", "git+"),
-      "garmin-mcp",
-    ];
-  }
-  return args;
-}
-
 export function spawnGarminMcp() {
   const env = getOptionalEnv();
-  const args = mcpArgs(env.GARMIN_MCP_ARGS);
+  const args = garminMcpArgs(env.GARMIN_MCP_ARGS);
   const child = spawn(env.GARMIN_MCP_COMMAND, args, {
     stdio: ["pipe", "pipe", "pipe"],
     env: {

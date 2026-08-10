@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { GARMIN_MCP_COMMIT } from "../src/lib/garmin/client";
+import {
+  GARMIN_MCP_COMMIT,
+  GARMIN_MCP_SDK_REQUIREMENT,
+} from "../src/lib/garmin/client";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
   engines?: { node?: string };
@@ -61,6 +64,9 @@ const evidence = {
   garminMcp: {
     connector: "Taxuspt/garmin_mcp",
     pinnedCommit: GARMIN_MCP_COMMIT,
+    mcpSdkRequirement: GARMIN_MCP_SDK_REQUIREMENT,
+    resolutionBoundary:
+      "uvx invocation includes an exact MCP SDK 1.x requirement because the pinned connector imports mcp.server.fastmcp and MCP 2.x removes that module path",
     transport: "local stdio only",
     authState: "presence only; token contents excluded",
   },

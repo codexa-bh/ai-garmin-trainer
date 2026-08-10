@@ -7,12 +7,12 @@ This repository is ready only for the next controlled clean-machine validation m
 - Primary path: local MCP-only advanced-user source beta.
 - Platforms prepared here: macOS Apple Silicon first; Ubuntu LTS after reproducibility evidence.
 - Unsupported: LAN/public exposure, hosted use, desktop packaging, manual FIT/import fallback, alternate Garmin connectors, public distribution, deployment, release, telemetry, commercial multi-user operation, and treating local no-auth as a hosted safety boundary.
-- Garmin connector: `Taxuspt/garmin_mcp` pinned to `2974244bfda1595b00836b3f942f579ec2d6f7d6`, launched over local stdio only, with app-side read-operation allowlisting. A local read-only FIT baseline helper may use the same out-of-band Garmin token store to extract only approved `zones_target` max-HR facts from recent activity FIT files. Garmin auth remains out of band through `garmin-mcp-auth`; the app checks auth-state file presence only and never reads token contents.
+- Garmin connector: `Taxuspt/garmin_mcp` pinned to `2974244bfda1595b00836b3f942f579ec2d6f7d6` with `mcp==1.23.1`, launched over local stdio only, with app-side read-operation allowlisting. A local read-only FIT baseline helper may use the same out-of-band Garmin token store to extract only approved `zones_target` max-HR facts from recent activity FIT files. Garmin auth remains out of band through `garmin-mcp-auth`; the app checks auth-state file presence only and never reads token contents.
 
 ## Setup flow for clean-machine validation
 
 1. Install Node 22+, npm, Python 3.12-capable `uv`/`uvx`. The app uses `uvx` for the pinned Garmin MCP subprocess and `uv run --with garminconnect --with fitparse` for the local read-only FIT baseline helper.
-2. Copy `.env.example` to `.env.local`; fill `DATABASE_PATH`, pinned Garmin MCP settings, and one BYO model provider key. No Google OAuth, app sign-in secret, or email allowlist is required for private loopback use.
+2. Copy `.env.example` to `.env.local`; fill `DATABASE_PATH`, pinned Garmin MCP settings, and one BYO model provider key. Keep the Garmin MCP args' exact `--with mcp==1.23.1` requirement; MCP SDK 2.x removes the `mcp.server.fastmcp` import path used by the reviewed connector. No Google OAuth, app sign-in secret, or email allowlist is required for private loopback use.
 3. Run `npm run doctor -- --json` and fix any `fail` checks. Doctor output is allowlisted: versions, config presence booleans, schema/integrity state, connector pin/auth-state presence, provider key presence, and loopback posture. It does not print credentials, token contents, provider keys, prompts, precise GPS streams, or raw connector payloads.
 4. Run `npm install`.
 5. Run `npm run db:migrate`. Existing SQLite files are copied to `data/backups/trainer-schema-backup-*.sqlite` before upgrade/user-data validation; migration verifies `pragma integrity_check` after applying the versioned schema.
@@ -52,4 +52,4 @@ Deleted, disabled, expired, or unavailable semantic memories are not retrieved i
 
 ## Dependency evidence
 
-Run `npm run deps:evidence -- --output <path>` to generate a bounded local evidence JSON containing Node dependency counts, lockfile hash, Garmin MCP pin/transport/auth boundary, Python/uvx dependency boundary, and optional npm audit output when `--audit` is supplied. This evidence surfaces blockers; it is not a legal/security/license conclusion and does not authorize external beta invitations or redistribution.
+Run `npm run deps:evidence -- --output <path>` to generate a bounded local evidence JSON containing Node dependency counts, lockfile hash, Garmin MCP pin, exact `mcp==1.23.1` compatibility requirement, transport/auth boundary, Python/uvx dependency boundary, and optional npm audit output when `--audit` is supplied. This evidence surfaces blockers; it is not a legal/security/license conclusion and does not authorize external beta invitations or redistribution.

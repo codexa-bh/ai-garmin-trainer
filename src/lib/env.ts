@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GARMIN_MCP_DEFAULT_ARGS_STRING } from "./garmin/mcp-config";
 
 const PLACEHOLDER_SECRET_PATTERNS = [
   /^\.\.\.$/,
@@ -15,11 +16,7 @@ const optionalEnvSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
   GARMIN_MCP_COMMAND: z.string().default("uvx"),
-  GARMIN_MCP_ARGS: z
-    .string()
-    .default(
-      "garmin-mcp@git+https://github.com/Taxuspt/garmin_mcp.git@2974244bfda1595b00836b3f942f579ec2d6f7d6",
-    ),
+  GARMIN_MCP_ARGS: z.string().default(GARMIN_MCP_DEFAULT_ARGS_STRING),
   GARMIN_MCP_TOKEN_DIR: z.string().default("./.garmin-token"),
   AI_PROVIDER: z.enum(["auto", "openai", "deepseek"]).default("auto"),
   AI_MODEL: z.string().default("gpt-4o-mini"),

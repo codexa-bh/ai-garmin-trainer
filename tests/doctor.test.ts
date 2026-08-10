@@ -7,6 +7,10 @@ import {
   redactDiagnosticValue,
   redactSensitiveText,
 } from "../src/lib/diagnostics/redaction";
+import {
+  GARMIN_MCP_PACKAGE_URL,
+  GARMIN_MCP_SDK_REQUIREMENT,
+} from "../src/lib/garmin/client";
 
 const baseEnv = {
   NEXT_PUBLIC_APP_URL: "http://localhost:3000",
@@ -16,8 +20,7 @@ const baseEnv = {
   ),
   GARMIN_HISTORY_START_DATE: "2024-01-01",
   GARMIN_MCP_COMMAND: "uvx",
-  GARMIN_MCP_ARGS:
-    "--from git+https://github.com/Taxuspt/garmin_mcp.git@2974244bfda1595b00836b3f942f579ec2d6f7d6 garmin-mcp",
+  GARMIN_MCP_ARGS: `--from ${GARMIN_MCP_PACKAGE_URL} --with ${GARMIN_MCP_SDK_REQUIREMENT} garmin-mcp`,
   GARMIN_MCP_TOKEN_DIR: mkdtempSync(join(tmpdir(), "doctor-token-")),
   AI_PROVIDER: "openai",
   AI_MODEL: "gpt-4o-mini",
@@ -33,6 +36,62 @@ describe("source-beta doctor and redaction", () => {
       "network.loopback_only",
     );
     expect(text).not.toContain("sk-testdoctorredacted");
+  });
+
+  it("reports the explicit Garmin MCP SDK compatibility requirement", () => {
+    writeFileSync(join(baseEnv.GARMIN_MCP_TOKEN_DIR, "state.json"), "{}\n");
+    const report = runDoctor(baseEnv);
+    const garminFacts = report.facts.garmin as {
+      mcpSdkRequirement: string;
+      configuredMcpSdkConstraint: string;
+      effectiveMcpSdkConstraint: string;
+    };
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "garmin.mcp_sdk",
+        status: "pass",
+        className: "garmin.mcp_sdk_pinned",
+      }),
+    );
+    expect(garminFacts).toMatchObject({
+      mcpSdkRequirement: GARMIN_MCP_SDK_REQUIREMENT,
+      configuredMcpSdkConstraint: "exact",
+      effectiveMcpSdkConstraint: "exact",
+    });
+  });
+
+  it("warns when a stale local override relies on runtime MCP SDK injection", () => {
+    writeFileSync(join(baseEnv.GARMIN_MCP_TOKEN_DIR, "state.json"), "{}\n");
+    const report = runDoctor({
+      ...baseEnv,
+      GARMIN_MCP_ARGS: `--from ${GARMIN_MCP_PACKAGE_URL} garmin-mcp`,
+    });
+
+    expect(report.ok).toBe(true);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "garmin.mcp_sdk",
+        status: "warn",
+        className: "garmin.mcp_sdk_injected",
+      }),
+    );
+  });
+
+  it("fails when an incompatible MCP SDK requirement is configured", () => {
+    const report = runDoctor({
+      ...baseEnv,
+      GARMIN_MCP_ARGS: `--from ${GARMIN_MCP_PACKAGE_URL} --with mcp==2.0.0 garmin-mcp`,
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "garmin.mcp_sdk",
+        status: "fail",
+        className: "garmin.mcp_sdk_incompatible",
+      }),
+    );
   });
 
   it("fails closed for unsupported LAN/public exposure", () => {
