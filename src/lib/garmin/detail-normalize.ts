@@ -27,6 +27,24 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+const ALTITUDE_RECORD_KEYS = [
+  "altitude_m",
+  "altitude",
+  "enhanced_altitude",
+  "altitude_meters",
+  "altitudeMeters",
+] as const;
+
+function altitudeMetersFromRecord(
+  payload: Record<string, unknown>,
+): number | null {
+  for (const key of ALTITUDE_RECORD_KEYS) {
+    const value = numberOrNull(payload[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
 function normalizeLap(
   payload: Record<string, unknown>,
   index: number,
@@ -78,7 +96,7 @@ function normalizePoint(
     elapsedSec: index,
     heartRate: numberOrNull(payload.heart_rate_bpm),
     speedMps: numberOrNull(payload.speed_mps),
-    altitudeMeters: numberOrNull(payload.altitude_m),
+    altitudeMeters: altitudeMetersFromRecord(payload),
     gradePct: numberOrNull(payload.grade_pct),
     lat: numberOrNull(payload.lat_deg),
     lon: numberOrNull(payload.lon_deg),

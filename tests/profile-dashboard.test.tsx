@@ -1153,6 +1153,87 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("10.00 km")).toBeTruthy();
     expect(screen.getByText("3.2")).toBeTruthy();
   });
+
+  it("renders truthful missing-elevation copy when the selected activity has no altitude stream", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url.startsWith("/api/activities/111111/dashboard")) {
+        return jsonResponse({
+          activity: {
+            garminId: "111111",
+            name: "Morning Trail Run",
+            label: "Morning Trail Run",
+            sport: "running",
+            date: "2026-08-01",
+            startedAt: "2026-08-01T07:00:00.000Z",
+            durationSec: 3600,
+            distanceMeters: 10000,
+            elevationGainMeters: 260,
+            elevationLossMeters: 250,
+            calories: 640,
+            avgHeartRate: 145,
+            maxHeartRate: 174,
+            steps: 9200,
+            trainingEffect: 3.2,
+          },
+          detail: {
+            status: "available",
+            hasHeartRate: true,
+            hasElevation: false,
+            hasLaps: true,
+            recordCount: 2,
+            lapCount: 1,
+            unavailableReason: null,
+          },
+          charts: {
+            downsampled: false,
+            sourcePointCount: 2,
+            pointCount: 2,
+            maxPoints: 240,
+            points: [
+              { elapsedSec: 0, heartRate: 130, altitudeMeters: null },
+              { elapsedSec: 60, heartRate: 136, altitudeMeters: null },
+            ],
+          },
+          laps: [],
+        });
+      }
+      if (url.startsWith("/api/activities?")) {
+        return jsonResponse({
+          activities: [
+            {
+              garminId: "111111",
+              name: "Morning Trail Run",
+              label: "Morning Trail Run",
+              sport: "running",
+              date: "2026-08-01",
+              startedAt: "2026-08-01T07:00:00.000Z",
+              durationSec: 3600,
+              distanceMeters: 10000,
+              elevationGainMeters: 260,
+              avgHeartRate: 145,
+              detailStatus: "available",
+            },
+          ],
+          totalApprox: 1,
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(await screen.findByText("Morning Trail Run"));
+
+    expect(await screen.findByText("Heart rate over time")).toBeTruthy();
+    expect(
+      screen.getByText("No per-point altitude stream data available."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Elevation profile")).toBeNull();
+  });
 });
 
 describe("TrainerDashboard primary Sync now", () => {

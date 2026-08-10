@@ -83,7 +83,7 @@ describe("activity dashboard repository and routes", () => {
           timestamp: `2026-08-01T07:${index.toString().padStart(2, "0")}:00Z`,
           elapsed_time_s: index * 60,
           heart_rate_bpm: 130 + index,
-          altitude_m: 1000 + index * 3,
+          altitude: 1000 + index * 3,
           lat_deg: 46.1 + index / 1000,
           lon_deg: 13.8 + index / 1000,
         })),
@@ -106,6 +106,8 @@ describe("activity dashboard repository and routes", () => {
     expect(serialized).not.toContain("lon");
     expect(serialized).not.toContain("payloadJson");
     expect(serialized).not.toContain("token");
+    expect(serialized).not.toContain("DATABASE_PATH");
+    expect(serialized).not.toContain("select ");
   });
 
   it("serves bounded list and selected dashboard API responses", async () => {
@@ -148,5 +150,61 @@ describe("activity dashboard repository and routes", () => {
     });
     expect(JSON.stringify(detailPayload)).not.toContain("lat");
     expect(JSON.stringify(detailPayload)).not.toContain("lon");
+  });
+
+  it("keeps selected dashboard elevation unchartable when only summary and lap totals exist", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        session: { total_ascent_m: 260, total_descent_m: 250 },
+        laps: [
+          {
+            lap_number: 1,
+            total_elapsed_time_s: 1800,
+            total_distance_m: 5000,
+            total_ascent_m: 120,
+            total_descent_m: 115,
+          },
+        ],
+        records: [
+          {
+            elapsed_time_s: 0,
+            heart_rate_bpm: 130,
+            grade_pct: 6,
+            lat_deg: 46.1,
+            lon_deg: 13.8,
+            has_elevation: true,
+          },
+        ],
+      }),
+    );
+    const detailRoute =
+      await import("../src/app/api/activities/[garminId]/dashboard/route");
+
+    const dashboard = repo.getActivityDashboardDetail("111111", 5);
+    expect(dashboard?.detail.hasElevation).toBe(false);
+    expect(dashboard?.charts.points[0]).toMatchObject({
+      elapsedSec: 0,
+      heartRate: 130,
+      altitudeMeters: null,
+    });
+    expect(dashboard?.laps[0]).toMatchObject({
+      elevationGainMeters: 120,
+      elevationLossMeters: 115,
+    });
+
+    const detailResponse = await detailRoute.GET(
+      new Request("http://local.test/api/activities/111111/dashboard"),
+      { params: { garminId: "111111" } },
+    );
+    const detailPayload = await detailResponse.json();
+    const serialized = JSON.stringify(detailPayload);
+    expect(detailPayload.detail.hasElevation).toBe(false);
+    expect(serialized).not.toContain("lat");
+    expect(serialized).not.toContain("lon");
+    expect(serialized).not.toContain("payloadJson");
+    expect(serialized).not.toContain("token");
+    expect(serialized).not.toContain("DATABASE_PATH");
+    expect(serialized).not.toContain("select ");
   });
 });

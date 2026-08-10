@@ -161,6 +161,16 @@ describe("Garmin boundary", () => {
           lat_deg: 46.1,
           lon_deg: 13.8,
         },
+        {
+          timestamp: "2026-07-01T07:00:01Z",
+          heart_rate_bpm: 131,
+          altitude: 1001,
+        },
+        {
+          timestamp: "2026-07-01T07:00:02Z",
+          heart_rate_bpm: 132,
+          enhanced_altitude: 1002,
+        },
       ],
       climbs: [{ elevation_gain_m: 80 }],
     });
@@ -169,8 +179,40 @@ describe("Garmin boundary", () => {
     expect(detail.hasGps).toBe(true);
     expect(detail.hasElevation).toBe(true);
     expect(detail.hasHeartRate).toBe(true);
-    expect(detail.recordCount).toBe(1);
+    expect(detail.recordCount).toBe(3);
+    expect(detail.stream.map((point) => point.altitudeMeters)).toEqual([
+      1000, 1001, 1002,
+    ]);
     expect(JSON.stringify(detail)).not.toContain("garmin_tokens");
+  });
+
+  it("does not synthesize stream altitude from summary, lap, GPS, grade, or availability fields", () => {
+    const detail = normalizeActivityDetail("43", {
+      session: { total_ascent_m: 220, total_descent_m: 210 },
+      laps: [
+        {
+          lap_number: 1,
+          total_elapsed_time_s: 600,
+          total_ascent_m: 80,
+          total_descent_m: 70,
+        },
+      ],
+      records: [
+        {
+          timestamp: "2026-07-01T07:00:00Z",
+          heart_rate_bpm: 130,
+          grade_pct: 6,
+          lat_deg: 46.1,
+          lon_deg: 13.8,
+          has_elevation: true,
+        },
+      ],
+      climbs: [{ elevation_gain_m: 80 }],
+    });
+
+    expect(detail.hasElevation).toBe(true);
+    expect(detail.stream).toHaveLength(1);
+    expect(detail.stream[0].altitudeMeters).toBeNull();
   });
 
   it("paginates, checkpoints, and resumes idempotent sync", async () => {

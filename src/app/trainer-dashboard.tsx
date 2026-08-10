@@ -2272,7 +2272,7 @@ export function TrainerDashboard() {
                     />
                   ) : (
                     <div className="activity-chart empty-state">
-                      No elevation stream data available.
+                      No per-point altitude stream data available.
                     </div>
                   )}
                 </div>
