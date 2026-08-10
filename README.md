@@ -10,7 +10,7 @@ Local-only, single-user private trainer MVP for importing Garmin Connect history
 4. Authenticate Garmin out of band with the pinned connector: `garmin-mcp-auth` (or the equivalent command provided by `Taxuspt/garmin_mcp` at commit `2974244bfda1595b00836b3f942f579ec2d6f7d6`). Keep the `.env.example` `GARMIN_MCP_ARGS` shape, including `--with mcp==1.23.1`; MCP SDK 2.x is incompatible with this reviewed connector commit. The app never asks for the Garmin password. Current connector auth writes OAuth state to its default `~/.garminconnect/garmin_tokens.json`; the app verifies that file exists without reading token contents.
 5. Optional semantic memory: configure embedded SQLite semantic memory using `docs/memory.md`. The no-paid local path is `MEMORY_EMBEDDING_PROVIDER=ollama` with `nomic-embed-text` pulled into loopback Ollama; OpenAI-compatible embeddings use the existing `OPENAI_API_KEY` contract, not a separate memory-only API key. Leave `MEMORY_ENABLED=false` to run without semantic memory.
 6. Optional local developer diagnostics: leave `LLM_DEBUG_TRACES=false` for normal use. Set it to `true` only in a private loopback development session to persist bounded per-assistant-message LLM/tool orchestration traces and inspect them from Settings; traces may include private normalized Garmin/chat/tool context.
-7. Run `npm install`, `npm run db:migrate`, `npm run build`, then `npm run start:local` for the production-style loopback runtime. Use `npm run dev` only for maintainer development.
+7. Run `npm run bootstrap:local` for the production-style loopback bootstrap/start path. It performs locked dependency preparation when needed, checks whether the SQLite schema actually needs migration before invoking `npm run db:migrate`, ensures configured loopback Ollama memory is ready without installing system software, builds, runs doctor, and starts or reuses the verified loopback app. Manual recovery remains `npm ci`, `npm run db:status -- --json`, `npm run db:migrate` when needed, `npm run build`, then `npm run start:local`. Use `npm run dev` only for maintainer development.
 
 ## Design reference
 
@@ -18,7 +18,7 @@ See `docs/design-choices-and-boundaries.md` for the main design choices, app com
 
 ## Validation
 
-Run `npm run validate` for formatting, linting, type checking, tests, and production build. Additional source-beta evidence commands are `npm run doctor -- --json`, `npm run eval:reliability`, and `npm run deps:evidence -- --output <path>`.
+Run `npm run validate` for formatting, linting, type checking, tests, and production build. Additional source-beta evidence commands are `npm run doctor -- --json`, `npm run db:status -- --json`, `npm run bootstrap:local -- --prepare-only`, `npm run eval:reliability`, and `npm run deps:evidence -- --output <path>`.
 
 ## Safety and privacy
 

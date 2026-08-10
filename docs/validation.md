@@ -4,6 +4,8 @@ Automated validation:
 
 ```bash
 npm run doctor -- --json
+npm run db:status -- --json
+npm run bootstrap:local -- --prepare-only
 npm run format
 npm run lint
 npm run typecheck
@@ -13,7 +15,7 @@ npm run deps:evidence -- --output ./tmp/dependency-evidence.json
 npm run build
 ```
 
-`npm run doctor` and dependency evidence output are allowlisted support artifacts. They report whether Garmin MCP args explicitly include the reviewed `mcp==1.23.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, prompts, precise GPS streams, or raw connector payloads.
+`npm run doctor`, `npm run db:status -- --json`, bootstrap stage output, and dependency evidence output are allowlisted support artifacts. They report versions, schema readiness, current/migration decisions, loopback readiness, and whether Garmin MCP args explicitly include the reviewed `mcp==1.23.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, prompts, precise GPS streams, raw connector payloads, vectors, or `.env.local` values.
 
 Live smoke with local secrets:
 
@@ -40,4 +42,4 @@ Privacy checks:
 - Raw connector JSON/detail payloads may be retained only as redacted local SQLite records for generated analysis; they are not logged or written as app-owned FIT/files, and obvious credential/token/auth/cookie/secret fields are redacted before storage/exposure.
 - LLM tools return bounded local SQLite summaries/slices or generated dataset-script manifests/results and include privacy notes; they do not expose credentials, token paths, raw FIT bytes, full raw payload dumps, generated filesystem/network/process/environment/SQL access, or unrestricted history. The generated-analysis sandbox validates executable Python AST nodes rather than scanning harmless comments/string literals for denied-looking words, and only permits a curated safe standard-library import subset.
 - Semantic memory is retrieved only after completed persisted turns, remains inspectable/editable/deletable/clearable/disableable, and deleted/disabled/expired records are inactive.
-- Local production smoke uses `npm run build` plus `npm run start:local`; loopback access is supported, LAN/public exposure is not.
+- Local production smoke uses `npm run bootstrap:local` for the first/repeat path. Manual fallback remains `npm ci`, `npm run db:status -- --json`, `npm run db:migrate` only when needed, `npm run build`, and `npm run start:local`; loopback access is supported, LAN/public exposure is not.
