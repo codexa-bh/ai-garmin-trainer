@@ -38,7 +38,7 @@ Application code owns safety and correctness boundaries:
 - tool-call count budgets;
 - provider failure handling;
 - privacy redaction and forbidden data classes;
-- non-medical boundary reminders.
+- canonical coaching, source-precedence, and calculation instructions;
 
 The model owns contextual judgment inside those boundaries:
 
@@ -92,7 +92,7 @@ Responsibilities:
 
 - assemble recent local facts, profile, confirmed memories, recent chat, and safety framing;
 - keep profile, memories, Garmin facts, and transcript concepts separated;
-- reinforce non-medical and privacy boundaries.
+- assemble dynamic user/Garmin context under the canonical coaching and privacy contract.
 
 Non-responsibilities:
 
@@ -169,7 +169,7 @@ Non-responsibilities:
 
 - no app-authored coaching rubric;
 - no fixed sport-specific demand score;
-- no medical/training-load authority;
+- no app-authored medical response policy or training-load authority;
 - no access outside the same-turn SQL result set.
 
 ### `src/lib/ai/tools.ts`

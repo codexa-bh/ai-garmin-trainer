@@ -787,6 +787,8 @@ describe("chat route LLM tool orchestration", () => {
     expect(memoryProposals).toHaveLength(0);
     const firstCall = generateText.mock.calls[0][0] as { system: string };
     expect(firstCall.system).toContain("Retrieved semantic memories");
+    expect(firstCall.system).toContain("Evidence-based coaching principles");
+    expect(firstCall.system).toContain("Hiking specialization");
     expect(firstCall.system).toContain(
       "No relevant semantic memories retrieved",
     );
@@ -934,6 +936,11 @@ describe("chat route LLM tool orchestration", () => {
       "assistant",
     ]);
     expect(messages[1]?.content).toBe("model response");
+    const streamingCall = generateText.mock.calls[0][0] as { system: string };
+    expect(streamingCall.system).toContain(
+      "Evidence-based coaching principles",
+    );
+    expect(streamingCall.system).toContain("Hiking specialization");
     expect(JSON.stringify(events)).not.toContain("Tool step");
   });
 });

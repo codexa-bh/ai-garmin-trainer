@@ -690,7 +690,7 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeTruthy();
     expect(screen.getByLabelText("Garmin activity ID")).toBeTruthy();
     expect(screen.getByText(/Current operation/)).toBeTruthy();
-    expect(screen.getByText(/Not medical advice/)).toBeTruthy();
+    expect(screen.getByText(/Private AI coaching/)).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Clear chat/profile" }),
     ).toBeTruthy();

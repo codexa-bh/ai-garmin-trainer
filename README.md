@@ -1,6 +1,6 @@
 # AI Garmin Connect Trainer
 
-Local-only, single-user private trainer MVP for importing Garmin Connect history and chatting with a grounded non-medical fitness coach.
+Local-only, single-user private trainer MVP for importing Garmin Connect history and chatting with a grounded, evidence-based fitness coach.
 
 ## Quick start
 
@@ -14,7 +14,7 @@ Local-only, single-user private trainer MVP for importing Garmin Connect history
 
 ## Design reference
 
-See `docs/design-choices-and-boundaries.md` for the main design choices, app component responsibilities, and separation of concerns between AI reasoning, guarded SQL, bounded math, local storage, Garmin import, and UI/API routes.
+See `docs/design-choices-and-boundaries.md` for the main design choices, app component responsibilities, and separation of concerns between AI reasoning, guarded SQL, bounded math, local storage, Garmin import, and UI/API routes. See `docs/coaching-instructions-and-sources.md` for the coaching evidence, limitations, product-policy distinction, and instruction maintenance contract.
 
 ## Validation
 
@@ -22,9 +22,9 @@ Run `npm run validate` for formatting, linting, type checking, tests, and produc
 
 ## Safety and privacy
 
-- This is not medical software. It gives fitness coaching only and never diagnosis or treatment guidance.
+- The configured AI provider handles medical-domain responses without an additional app-authored response restriction; diagnosis and treatment content is still excluded from durable personalization memory.
 - Local app access has no sign-in gate and is supported only on private loopback/localhost; do not expose it on LAN, public hosts, tunnels, or deployments.
 - Garmin access is local-only through stdio to a pinned unofficial connector; HTTP transport and connector write operations are not used.
-- The trainer sees app-normalized summaries and, for generated analysis, bounded redacted local raw-payload snippets selected for the current request; it never sees Garmin credentials, token/auth/cookie fields, connector config, environment values, filesystem paths, or unrestricted raw dumps.
+- The trainer sees app-normalized summaries and bounded current-turn SQL/math or detail-tool evidence; it never sees Garmin credentials, token/auth/cookie fields, connector config, environment values, filesystem paths, unrestricted raw payloads, or unrestricted stream dumps.
 - Profile, active chat transcript, Garmin facts, and embedded semantic memory are separate concepts. The active chat transcript carries same-chat continuity up to a safe context budget, and New chat resets that short-term context. Memory uses guarded model-assisted extraction by default with deterministic fallback and server-side validation; it stores concise user-derived cross-session facts/preferences/corrections/temporary plans only after completed persisted turns, can be inspected/edited/deleted/cleared/disabled, may intentionally create no entry for low-value turns, and is lower authority than current corrections, active transcript, Profile, and Garmin/tool evidence.
 - Clear chat/profile, clear semantic memory, and Garmin deletion are separate controls; disconnect Garmin and delete normalized Garmin records/checkpoints only for a clean reconnectable Garmin state. See `docs/source-beta-readiness.md` and `docs/memory.md` for backup, restore, export, reset, uninstall, dependency-evidence, and support artifact boundaries.

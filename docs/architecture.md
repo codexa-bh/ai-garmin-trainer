@@ -5,10 +5,10 @@
 - `src/lib/db`: Drizzle schema, explicit SQLite schema versioning, migration integrity checks, profile, confirmed-memory, chat, Garmin data, and deletion repositories.
 - `src/lib/diagnostics`: allowlisted source-beta doctor/preflight reporting and redaction canaries.
 - `src/lib/garmin`: pinned stdio-only Garmin MCP boundary, normalization, checkpoints, and sync orchestration.
-- `src/lib/ai`: provider registry, grounded context selection, non-medical prompts, Profile/recent-chat/Garmin/confirmed-memory separation, deterministic reliability fixtures, streaming chat, and profile extraction.
+- `src/lib/ai`: provider registry, canonical evidence-based coaching instructions, grounded context selection, Profile/recent-chat/Garmin/confirmed-memory separation, guarded SQL/math orchestration, deterministic reliability fixtures, streaming chat, and profile extraction.
 - `src/app`: local no-auth loopback UI, sync controls, chat, profile, and deletion routes.
 
-The app stores normalized Garmin facts plus a local-only `garmin_raw_payload` archive of redacted Garmin connector/activity-detail payloads where available. Credential, token, auth, cookie, command, environment, and path-like fields are redacted before storage and before analysis-bundle exposure. Source-beta startup uses `npm run start:local`, which binds the production Next.js server to loopback by default; LAN/public exposure is unsupported.
+The app stores normalized Garmin facts plus a local-only `garmin_raw_payload` archive of redacted Garmin connector/activity-detail payloads where available. `trainer-instructions.ts` owns the bounded base, planner, and synthesis instruction sections; `coaching-instructions-and-sources.md` records their evidence and limitations. Credential, token, auth, cookie, command, environment, and path-like fields are redacted before storage and before analysis-bundle exposure. Source-beta startup uses `npm run start:local`, which binds the production Next.js server to loopback by default; LAN/public exposure is unsupported.
 
 ## Trainer chat tool orchestration
 

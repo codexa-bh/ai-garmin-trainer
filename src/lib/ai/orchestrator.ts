@@ -19,6 +19,10 @@ import {
   type LlmDebugTrace,
 } from "@/lib/ai/debug-trace";
 import type { ChatGrounding } from "@/lib/db/repository";
+import {
+  buildFinalSynthesisInstructions,
+  buildPlannerInstructions,
+} from "@/lib/ai/trainer-instructions";
 
 const MAX_PLANNER_CALLS = 5;
 const MAX_TOOL_CALLS = 4;
@@ -84,8 +88,7 @@ function plannerSystem(
   const prior = priorSteps.length
     ? synthesisEvidenceForSteps(priorSteps)
     : "No prior tool step in this user turn.";
-  return `${baseSystem}\n\nTrainer tool-selection policy:\n- Choose at most one listed tool when the current user request needs a Garmin/local-data action; otherwise answer directly without a tool.\n- The server validates and executes tools. Do not invent Garmin IDs, activity names/dates, rankings, metrics, sync/detail status, or connector results.\n- Prior assistant prose is not authoritative Garmin evidence. Names/dates should be verified before ambiguous user references drive analysis.\n- For ad hoc Garmin analytics, ranking, counting, summarizing, or computation, use guarded SQL/math by default: describeGarminDatabase if the schema is needed, then runReadOnlySql, then optional runMathAnalysis over the returned same-turn result handle. For broad ranking/count/window prompts, do not use verifyActivityReference; after describeGarminDatabase, choose runReadOnlySql with exact columns/examples from the schema evidence rather than asking for schema again.\n- The SQL tool accepts one SELECT/WITH query over allowlisted normalized analytical tables only. Do not request writes, PRAGMAs, ATTACH/DETACH, comments, stacked statements, auth/session/account/verification tables, raw payload dumps, filesystem paths, secrets, connector handles, environment/process/network data, or raw FIT/full stream dumps.\n- Use SQL for filtering/windowing/grouping/safe joins and use math for bounded model-selected scores, formulas, normalization/ranking, simple aggregation, summaries, and top-N output over prior SQL rows. Formula variables must be SQL result columns; if data is missing/null, state the limitation.
-- For generic “most demanding activities” or follow-ups asking whether snowboarding/skiing qualified under generic criteria, choose transparent criteria from the available SQL columns (for example duration, distance, elevation, calories, heart-rate, or training-effect evidence), use runMathAnalysis score/normalize when computation is needed, and explain the chosen criteria and limitations. Use one candidate-row SQL query, then one math call; do not spend the SQL budget on repeated searches before scoring. Math formulas can contain only column names, numbers, parentheses, and + - * / operators; null/missing numeric values are treated as zero, so do not use SQL functions such as coalesce() in formulas. A valid composite syntax example is duration_sec + distance_meters + elevation_gain_meters + calories + avg_heart_rate + max_heart_rate + training_effect, but choose and disclose criteria appropriate to the request and evidence. Do not rely on a hidden fixed demand rubric or official Garmin training-load claim.\n- Tool budget for one user turn: at most one schema call, two SQL calls, one math call, and four total tool executions. Side-effect tools remain deduped and should not be combined with broad analytics unless the user explicitly asks and the sequence is safe.\n- Generated-script analysis is not an available tool; use guarded SQL/math for ad hoc analytics.\n- If a prior server step exists and no safe next tool is needed, answer in ordinary user-facing prose from that bounded evidence. Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, raw SQL text unless explicitly requested, raw FIT data, GPS streams, generated Python source, or unrestricted history in user-facing prose.\n\nCurrent turn server-authored prior tool evidence (fresh-call boundary; no provider response/tool-result messages are replayed):\n${prior}`;
+  return buildPlannerInstructions(baseSystem, prior);
 }
 
 function failedStep(
@@ -135,7 +138,10 @@ function finalAnswerSystem(
   baseSystem: string,
   steps: TrainerToolStep[],
 ): string {
-  return `${baseSystem}\n\nTrainer final-answer synthesis policy:\n- Write the user-facing trainer answer from the server-authored tool evidence below.\n- Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector payloads, credentials, filesystem paths, SQL, raw FIT data, GPS streams, generated Python source, or unrestricted history.\n- Cite dates, activities, rankings, metrics, and limitations in ordinary prose only when they appear in the server-authored evidence.\n- If a SQL/math summary says returned N/M rows with truncation, treat the returned rows as the bounded top/output rows and explain only that additional source rows were not included beyond the cap; do not claim the returned ranking failed or that fewer rows are trustworthy when the evidence lists them.\n- If the evidence is insufficient for part of the request, say what is missing instead of inventing Garmin facts.\n- Keep the answer concise, coaching-oriented, and non-medical.\n\nServer-authored tool evidence for this current user turn:\n${synthesisEvidenceForSteps(steps)}`;
+  return buildFinalSynthesisInstructions(
+    baseSystem,
+    synthesisEvidenceForSteps(steps),
+  );
 }
 
 function isAcceptableToolSynthesisText(text: string): boolean {

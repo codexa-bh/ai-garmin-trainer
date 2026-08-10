@@ -2692,8 +2692,9 @@ export function TrainerDashboard() {
               <details className="settings-card danger-card" open>
                 <summary>Safety, privacy, and deletion</summary>
                 <p>
-                  <strong>Not medical advice.</strong> Fitness guidance only;
-                  seek qualified care for medical concerns.
+                  <strong>Private AI coaching.</strong> Responses may use the
+                  selected conversation context and normalized local Garmin
+                  evidence under the privacy and tool boundaries below.
                 </p>
                 <p>
                   Provider disclosure: selected conversation context may be sent

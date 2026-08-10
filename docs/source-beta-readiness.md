@@ -42,7 +42,7 @@ The product treats source categories separately:
 - Garmin facts: normalized source data, redacted local raw-payload records, guarded read-only SQL/math analytics, and any explicitly enabled generated-analysis fallback evidence, not generic memory.
 - Recent transcript: bounded context only, untrusted for policy/tool/deletion decisions.
 
-Deleted, disabled, expired, or unavailable semantic memories are not retrieved into model context. The deterministic `npm run eval:reliability` gate covers critical deletion, diagnostic redaction, prompt-injection, non-medical safety, missing/detail evidence, and expired-memory cases without snapshotting provider prose.
+Deleted, disabled, expired, or unavailable semantic memories are not retrieved into model context. Diagnosis and treatment content remains excluded from durable memory even though the app adds no medical-domain response restriction. The deterministic `npm run eval:reliability` gate covers critical deletion, diagnostic redaction, prompt-injection, durable-memory filtering, guarded calculation, missing/detail evidence, and expired-memory cases without snapshotting provider prose.
 
 ## Diagnostics and support artifact rules
 

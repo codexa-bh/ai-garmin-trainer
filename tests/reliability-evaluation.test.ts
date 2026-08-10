@@ -6,10 +6,16 @@ import {
 } from "../src/lib/ai/reliability-fixtures";
 
 describe("provider-neutral reliability fixture gate", () => {
-  it("covers critical privacy, prompt-injection, deletion, and safety gates", () => {
+  it("covers critical privacy, prompt-injection, memory, and calculation gates", () => {
     const ids = RELIABILITY_FIXTURES.map((item) => item.id);
     expect(ids).toEqual(
-      expect.arrayContaining(["PRIV-01", "PRIV-02", "TOOL-03", "SAFE-01"]),
+      expect.arrayContaining([
+        "PRIV-01",
+        "PRIV-02",
+        "TOOL-03",
+        "MEM-MED-01",
+        "CALC-01",
+      ]),
     );
     expect(
       RELIABILITY_FIXTURES.filter((item) => item.severity === "critical")

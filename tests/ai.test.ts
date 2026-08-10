@@ -162,8 +162,12 @@ describe("trainer AI", () => {
     expect(history[1]).toContain("2025-10-18 | Snežnik");
   });
 
-  it("keeps a non-medical safety boundary", () => {
-    expect(TRAINER_SYSTEM_PROMPT).toMatch(/non-medical/);
-    expect(TRAINER_SYSTEM_PROMPT).toMatch(/Do not diagnose/);
+  it("uses the evidence-based coaching contract without an app-authored medical response restriction", () => {
+    expect(TRAINER_SYSTEM_PROMPT).toMatch(/evidence-based fitness coach/);
+    expect(TRAINER_SYSTEM_PROMPT).toMatch(/Hiking specialization/);
+    expect(TRAINER_SYSTEM_PROMPT).toMatch(/configured model may respond/);
+    expect(TRAINER_SYSTEM_PROMPT).not.toMatch(
+      /non-medical training guidance|Do not diagnose|seek qualified care/i,
+    );
   });
 });
