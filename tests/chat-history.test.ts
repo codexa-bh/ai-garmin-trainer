@@ -165,6 +165,42 @@ describe("local chat history repository", () => {
     );
   });
 
+  it("renames a conversation and preserves a manual generic title from first-message retitle", async () => {
+    const repository = await import("../src/lib/db/repository");
+
+    repository.createConversation({ id: "rename-chat", title: "New chat" });
+    const renamed = repository.renameConversation(
+      "rename-chat",
+      "   New    chat   ",
+    );
+    repository.appendChatMessage({
+      conversationId: "rename-chat",
+      role: "user",
+      content: "This first user message should not replace a manual title",
+    });
+
+    expect(renamed?.title).toBe("New chat");
+    expect(repository.getConversation("rename-chat")?.title).toBe("New chat");
+    expect(
+      repository
+        .listRecentChatMessages("rename-chat")
+        .map((item) => item.content),
+    ).toEqual(["This first user message should not replace a manual title"]);
+  });
+
+  it("rejects empty renames and returns null when the target conversation is absent", async () => {
+    const repository = await import("../src/lib/db/repository");
+
+    repository.createConversation({ id: "rename-present", title: "New chat" });
+
+    expect(() =>
+      repository.renameConversation("rename-present", "   "),
+    ).toThrow("Conversation title cannot be empty");
+    expect(
+      repository.renameConversation("missing-chat", "Plan title"),
+    ).toBeNull();
+  });
+
   it("paginates display transcript history independently from recent grounding", async () => {
     const repository = await import("../src/lib/db/repository");
 
@@ -197,6 +233,96 @@ describe("local chat history repository", () => {
       "message 4",
     ]);
     expect(repository.listRecentChatMessages("paged-chat", 2)).toHaveLength(2);
+  });
+
+  it("renames one conversation through the route while preserving messages and other local data", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const route =
+      await import("../src/app/api/conversations/[conversationId]/route");
+
+    repository.saveTrainerProfile({
+      goals: ["Preserve this profile"],
+      sports: ["hiking"],
+      preferences: { coachingStyle: "direct" },
+      constraints: ["no racing"],
+    });
+    repository.upsertActivities([
+      {
+        garminId: "garmin-preserved-rename-1",
+        name: "Preserved local activity",
+        sport: "hiking",
+        startedAt: new Date("2026-07-16T06:00:00Z"),
+        durationSec: 3600,
+        distanceMeters: 8000,
+        calories: 500,
+        avgHeartRate: 140,
+        maxHeartRate: 170,
+        steps: 9000,
+        elevationGainMeters: 700,
+        elevationLossMeters: 700,
+        trainingEffect: 3.1,
+      },
+    ]);
+    repository.appendChatMessage({
+      conversationId: "rename-route-chat",
+      role: "user",
+      content: "Keep this transcript during rename",
+    });
+
+    const response = await route.PATCH(
+      new Request("http://local.test/api/conversations/rename-route-chat", {
+        method: "PATCH",
+        body: JSON.stringify({ title: "  Recovery    plan title  " }),
+      }),
+      { params: { conversationId: "rename-route-chat" } },
+    );
+    const payload = (await response.json()) as {
+      conversation: { id: string; title: string };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.conversation).toMatchObject({
+      id: "rename-route-chat",
+      title: "Recovery plan title",
+    });
+    expect(
+      repository
+        .listRecentChatMessages("rename-route-chat")
+        .map((message) => message.content),
+    ).toEqual(["Keep this transcript during rename"]);
+    expect(repository.getTrainerProfile().goals).toEqual([
+      "Preserve this profile",
+    ]);
+    expect(repository.dataCounts().activities).toBe(1);
+  });
+
+  it("returns validation and not-found responses for route rename", async () => {
+    const route =
+      await import("../src/app/api/conversations/[conversationId]/route");
+
+    const emptyResponse = await route.PATCH(
+      new Request("http://local.test/api/conversations/missing-chat", {
+        method: "PATCH",
+        body: JSON.stringify({ title: "   " }),
+      }),
+      { params: { conversationId: "missing-chat" } },
+    );
+    const missingResponse = await route.PATCH(
+      new Request("http://local.test/api/conversations/missing-chat", {
+        method: "PATCH",
+        body: JSON.stringify({ title: "Plan title" }),
+      }),
+      { params: { conversationId: "missing-chat" } },
+    );
+
+    expect(emptyResponse.status).toBe(400);
+    expect(await emptyResponse.json()).toEqual({
+      error: "Conversation title cannot be empty",
+    });
+    expect(missingResponse.status).toBe(404);
+    expect(await missingResponse.json()).toEqual({
+      error: "Conversation not found",
+    });
   });
 
   it("deletes one conversation through the route while preserving other local data", async () => {

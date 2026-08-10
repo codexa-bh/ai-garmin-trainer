@@ -1627,11 +1627,18 @@ export function safeConversationId(value: string | null | undefined): string {
   return candidate;
 }
 
-export function initialConversationTitle(value: string): string {
+export function normalizeConversationTitle(value: string): string {
   const compact = value.replace(/\s+/g, " ").trim();
-  if (!compact) return "New chat";
-  const clipped = compact.length > 48 ? `${compact.slice(0, 47)}…` : compact;
-  return clipped || "New chat";
+  if (!compact) throw new Error("Conversation title cannot be empty");
+  return compact.length > 48 ? `${compact.slice(0, 47)}…` : compact;
+}
+
+export function initialConversationTitle(value: string): string {
+  try {
+    return normalizeConversationTitle(value);
+  } catch {
+    return "New chat";
+  }
 }
 
 function conversationCursor(
@@ -1678,8 +1685,8 @@ export function ensureConversation(
   const now = Date.now();
   getDatabase()
     .prepare(
-      `insert into conversation (id, title, created_at, updated_at)
-       values (?, ?, ?, ?)
+      `insert into conversation (id, title, manual_title, created_at, updated_at)
+       values (?, ?, 0, ?, ?)
        on conflict(id) do nothing`,
     )
     .run(conversationId, initialConversationTitle(title), now, now);
@@ -1710,6 +1717,21 @@ export function listConversations(limit = 40): ConversationSummary[] {
   return rows.map(mapStoredConversation);
 }
 
+export function renameConversation(
+  id: string,
+  title: string,
+): StoredConversation | null {
+  const conversationId = safeConversationId(id);
+  const normalizedTitle = normalizeConversationTitle(title);
+  const now = Date.now();
+  const changes = getDatabase()
+    .prepare(
+      "update conversation set title = ?, manual_title = 1, updated_at = ? where id = ?",
+    )
+    .run(normalizedTitle, now, conversationId).changes;
+  return changes > 0 ? getConversation(conversationId) : null;
+}
+
 export function deleteConversation(id = DEFAULT_CONVERSATION_ID): boolean {
   const conversationId = safeConversationId(id);
   const db = getDatabase();
@@ -1736,14 +1758,16 @@ function retitleInitialConversationIfNeeded(
   if (role !== "user") return;
   const row = getDatabase()
     .prepare(
-      `select c.title as title, count(m.id) as messageCount
+      `select c.title as title, c.manual_title as manualTitle, count(m.id) as messageCount
        from conversation c left join message m on m.conversation_id = c.id
        where c.id = ?
        group by c.id`,
     )
-    .get(conversationId) as { title: string; messageCount: number } | undefined;
+    .get(conversationId) as
+    { title: string; manualTitle: number; messageCount: number } | undefined;
   if (
     !row ||
+    row.manualTitle === 1 ||
     row.messageCount !== 1 ||
     !GENERIC_CONVERSATION_TITLES.has(row.title)
   )

@@ -650,6 +650,34 @@ input::placeholder {
   z-index: 30;
 }
 
+.rename-dialog-layer {
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.rename-dialog {
+  position: relative;
+  z-index: 46;
+  display: grid;
+  width: min(460px, 100%);
+  gap: 14px;
+  padding: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 22px;
+  background: rgba(11, 16, 24, 0.98);
+  box-shadow: var(--shadow);
+}
+
+.rename-dialog h2 {
+  margin: 4px 0 0;
+}
+
+.rename-dialog-actions {
+  justify-content: flex-end;
+}
+
 .settings-backdrop,
 .drawer-backdrop {
   border: 0;

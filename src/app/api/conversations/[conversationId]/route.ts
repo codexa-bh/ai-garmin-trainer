@@ -6,6 +6,7 @@ import {
   getConversation,
   listChatMessagePage,
   listConversations,
+  renameConversation,
   safeConversationId,
 } from "@/lib/db/repository";
 
@@ -88,6 +89,40 @@ export async function GET(request: Request, context: RouteContext) {
       },
       { status: 500 },
     );
+  }
+}
+
+export async function PATCH(request: Request, context: RouteContext) {
+  try {
+    const { conversationId: rawConversationId } = await paramsFrom(context);
+    const conversationId = safeConversationId(rawConversationId);
+    const body = (await request.json().catch(() => null)) as {
+      title?: unknown;
+    } | null;
+    if (typeof body?.title !== "string") {
+      return NextResponse.json(
+        { error: "Conversation title must be a string" },
+        { status: 400 },
+      );
+    }
+    const conversation = renameConversation(conversationId, body.title);
+    if (!conversation) {
+      return NextResponse.json(
+        { error: "Conversation not found" },
+        { status: 404 },
+      );
+    }
+    return NextResponse.json({
+      conversation: conversationSummary(conversation),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "conversation rename failed";
+    const status =
+      message.includes("Conversation id") || message.includes("title")
+        ? 400
+        : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
 

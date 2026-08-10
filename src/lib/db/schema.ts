@@ -239,6 +239,9 @@ export const syncCheckpoint = sqliteTable("sync_checkpoint", {
 export const conversation = sqliteTable("conversation", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
+  manualTitle: integer("manual_title", { mode: "boolean" })
+    .notNull()
+    .default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

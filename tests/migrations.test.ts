@@ -38,6 +38,13 @@ describe("versioned SQLite migration foundation", () => {
         )
         .get(),
     ).toBeTruthy();
+    expect(
+      (
+        db.prepare("pragma table_info(conversation)").all() as Array<{
+          name: string;
+        }>
+      ).map((column) => column.name),
+    ).toContain("manual_title");
     db.close();
   });
 
@@ -67,6 +74,7 @@ describe("versioned SQLite migration foundation", () => {
         preferred_long_training_days_json text not null default '[]'
       );
       create table garmin_athlete_baseline_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0);
+      create table conversation (id text primary key, title text not null, created_at integer not null, updated_at integer not null);
       insert into garmin_athlete_baseline (id, fetched_at, source, availability, running_lactate_threshold_heart_rate_bpm, cycling_lactate_threshold_heart_rate_bpm, rowing_lactate_threshold_heart_rate_bpm, configured_max_heart_rate_bpm, heart_rate_zones_status, heart_rate_zones_formula, heart_rate_zones_json, cycling_ftp_watts, cycling_ftp_measured_on, cycling_ftp_source_stale, vo2_max_running, vo2_max_cycling, available_training_days_json, preferred_long_training_days_json)
         values ('default', 1784707200000, 'garmin_mcp', 'partial', 168, 170, 166, 190, 'derived_from_garmin_max_hr', '50/60/70/80/90% of Garmin FIT zones_target max_heart_rate', '[{"zone":1,"label":"Zone 1","lowerBpm":95,"upperBpm":113}]', 250, '2026-07-19', 0, 52.1, 48.5, '["monday","wednesday"]', '["sunday"]');
       insert into garmin_athlete_baseline_attempt (id, attempted_at, completed_at, status, error_message, preserved_previous) values ('default', 1784707200000, 1784707200000, 'partial', null, 0);

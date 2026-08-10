@@ -68,6 +68,10 @@ type ConversationDeletePayload = {
   conversations: ConversationSummary[];
 };
 
+type ConversationRenamePayload = {
+  conversation: ConversationSummary;
+};
+
 type ChatStreamEvent =
   | { type: "start"; conversationId: string; userMessage: ChatMessage }
   | { type: "status"; message: string }
@@ -690,6 +694,11 @@ export function TrainerDashboard() {
     top: number;
     left: number;
   } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ConversationSummary | null>(
+    null,
+  );
+  const [renameTitle, setRenameTitle] = useState("");
+  const [isRenamingConversation, setIsRenamingConversation] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [memoryHealth, setMemoryHealth] = useState<MemoryHealth | null>(null);
@@ -740,6 +749,8 @@ export function TrainerDashboard() {
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const conversationMenuRef = useRef<HTMLDivElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const renameReturnFocusRef = useRef<HTMLElement | null>(null);
   const isSyncingRef = useRef(false);
 
   const activeConversation = useMemo(
@@ -835,6 +846,10 @@ export function TrainerDashboard() {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+      if (renameTarget) {
+        cancelConversationRename();
+        return;
+      }
       if (openConversationMenuId) {
         closeConversationMenu();
         return;
@@ -851,10 +866,18 @@ export function TrainerDashboard() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isConversationDrawerOpen, openConversationMenuId, settingsOpen]);
+  }, [
+    isConversationDrawerOpen,
+    openConversationMenuId,
+    renameTarget,
+    settingsOpen,
+  ]);
   useEffect(() => {
     if (settingsOpen) settingsCloseRef.current?.focus();
   }, [settingsOpen]);
+  useEffect(() => {
+    if (renameTarget) renameInputRef.current?.focus();
+  }, [renameTarget]);
 
   useEffect(() => {
     if (!openConversationMenuId) return;
@@ -903,7 +926,7 @@ export function TrainerDashboard() {
 
     const rect = trigger.getBoundingClientRect();
     const menuWidth = 184;
-    const menuHeight = itemId === conversationId ? 104 : 58;
+    const menuHeight = itemId === conversationId ? 150 : 104;
     const viewportWidth = window.innerWidth || 1024;
     const viewportHeight = window.innerHeight || 768;
     const left = Math.min(
@@ -1318,6 +1341,101 @@ export function TrainerDashboard() {
         body: JSON.stringify({ garminId, force: true }),
       }),
     );
+  }
+
+  function closeConversationRenameDialog(restoreFocus = true) {
+    setRenameTarget(null);
+    setRenameTitle("");
+    setIsRenamingConversation(false);
+    if (restoreFocus) renameReturnFocusRef.current?.focus();
+    renameReturnFocusRef.current = null;
+  }
+
+  function cancelConversationRename() {
+    closeConversationRenameDialog();
+  }
+
+  function startConversationRename(
+    target: ConversationSummary,
+    trigger?: HTMLElement,
+  ) {
+    closeConversationMenu();
+    if (isChatLoading) {
+      setStatus({
+        kind: "error",
+        message:
+          "Cancel or finish the current streamed answer before renaming.",
+      });
+      return;
+    }
+    renameReturnFocusRef.current =
+      trigger ??
+      [
+        ...document.querySelectorAll<HTMLElement>(".conversation-menu-trigger"),
+      ].find((item) => item.dataset.conversationMenuId === target.id) ??
+      null;
+    setRenameTarget(target);
+    setRenameTitle(target.title);
+  }
+
+  async function saveConversationRename() {
+    if (!renameTarget || isRenamingConversation) return;
+    if (isChatLoading) {
+      setStatus({
+        kind: "error",
+        message:
+          "Cancel or finish the current streamed answer before renaming.",
+      });
+      return;
+    }
+    const nextTitle = renameTitle.trim();
+    if (!nextTitle) {
+      setStatus({
+        kind: "error",
+        message: "Conversation rename failed: enter a non-empty title.",
+      });
+      renameInputRef.current?.focus();
+      return;
+    }
+    if (nextTitle === renameTarget.title) {
+      closeConversationRenameDialog();
+      setStatus({
+        kind: "ok",
+        message: "Conversation rename cancelled; title is unchanged.",
+      });
+      return;
+    }
+    setIsRenamingConversation(true);
+    setStatus({ kind: "busy", message: "Conversation: renaming…" });
+    try {
+      const payload = await readJsonResponse<ConversationRenamePayload>(
+        await fetch(
+          `/api/conversations/${encodeURIComponent(renameTarget.id)}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ title: nextTitle }),
+          },
+        ),
+      );
+      const renamed = payload.conversation;
+      setConversations((items) =>
+        items.map((item) => (item.id === renamed.id ? renamed : item)),
+      );
+      closeConversationRenameDialog();
+      setStatus({
+        kind: "ok",
+        message:
+          "Conversation renamed locally. Messages, Garmin data, Profile, and saved memories stay unchanged.",
+      });
+    } catch (error) {
+      setIsRenamingConversation(false);
+      setStatus({
+        kind: "error",
+        message: `Conversation rename failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      });
+      renameInputRef.current?.focus();
+    }
   }
 
   async function deleteConversationById(targetId: string, title: string) {
@@ -1857,6 +1975,16 @@ export function TrainerDashboard() {
             <button
               type="button"
               role="menuitem"
+              onClick={() => {
+                startConversationRename(openConversationMenuItem);
+              }}
+              disabled={isChatLoading}
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              role="menuitem"
               className="danger-menu-item"
               onClick={() => {
                 closeConversationMenu();
@@ -1869,6 +1997,67 @@ export function TrainerDashboard() {
             >
               Delete
             </button>
+          </div>
+        ) : null}
+        {renameTarget ? (
+          <div className="modal-layer rename-dialog-layer">
+            <button
+              type="button"
+              className="settings-backdrop"
+              aria-label="Cancel rename"
+              onClick={cancelConversationRename}
+            />
+            <form
+              className="rename-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="rename-dialog-title"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveConversationRename();
+              }}
+            >
+              <div>
+                <p className="section-kicker">Saved chat</p>
+                <h2 id="rename-dialog-title">Rename conversation</h2>
+              </div>
+              <label htmlFor="conversation-rename-title">
+                Conversation title
+              </label>
+              <input
+                id="conversation-rename-title"
+                ref={renameInputRef}
+                value={renameTitle}
+                onChange={(event) => setRenameTitle(event.target.value)}
+                disabled={isRenamingConversation || isChatLoading}
+                maxLength={160}
+              />
+              <p className="helper-text">
+                Saves a local title only; messages, Garmin data, Profile, and
+                saved memories stay unchanged.
+              </p>
+              <div className="button-row rename-dialog-actions">
+                <button
+                  type="button"
+                  className="chrome-button"
+                  onClick={cancelConversationRename}
+                  disabled={isRenamingConversation}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="primary-action"
+                  disabled={
+                    isRenamingConversation ||
+                    isChatLoading ||
+                    renameTitle.trim().length === 0
+                  }
+                >
+                  {isRenamingConversation ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </form>
           </div>
         ) : null}
 

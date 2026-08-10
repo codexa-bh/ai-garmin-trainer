@@ -1288,6 +1288,241 @@ describe("TrainerDashboard memory and new chat", () => {
     );
   });
 
+  it("renames the active saved conversation from the row menu", async () => {
+    const updatedAt = "2026-07-17T12:00:00.000Z";
+    let conversations = [
+      {
+        id: "default",
+        title: "Active plan",
+        createdAt: updatedAt,
+        updatedAt,
+      },
+      {
+        id: "previous-chat",
+        title: "Previous climb chat",
+        createdAt: updatedAt,
+        updatedAt,
+      },
+    ];
+    let patchBody: unknown = null;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      if (url === "/api/conversations") return jsonResponse({ conversations });
+      if (url === "/api/conversations/default" && init?.method === "PATCH") {
+        patchBody = JSON.parse(String(init.body));
+        conversations = conversations.map((item) =>
+          item.id === "default"
+            ? { ...item, title: "Long run planning", updatedAt }
+            : item,
+        );
+        return jsonResponse({ conversation: conversations[0] });
+      }
+      if (url.startsWith("/api/conversations/default")) {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-active",
+              role: "assistant",
+              content: "Active visible transcript",
+              createdAt: updatedAt,
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(await screen.findByText("Active visible transcript")).toBeTruthy();
+    await openConversationMenu("Active plan");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    const titleInput = screen.getByLabelText(
+      "Conversation title",
+    ) as HTMLInputElement;
+    expect(titleInput.value).toBe("Active plan");
+    fireEvent.change(titleInput, { target: { value: "Long run planning" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(patchBody).toEqual({ title: "Long run planning" }),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("Long run planning").length).toBeGreaterThan(
+        0,
+      ),
+    );
+    expect(screen.getByText("Active visible transcript")).toBeTruthy();
+  });
+
+  it("cancels or saves a non-active rename without selecting the conversation", async () => {
+    const updatedAt = "2026-07-17T12:00:00.000Z";
+    let conversations = [
+      {
+        id: "default",
+        title: "Active plan",
+        createdAt: updatedAt,
+        updatedAt,
+      },
+      {
+        id: "previous-chat",
+        title: "Previous climb chat",
+        createdAt: updatedAt,
+        updatedAt,
+      },
+    ];
+    const patchBodies: unknown[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      if (url === "/api/conversations") return jsonResponse({ conversations });
+      if (
+        url === "/api/conversations/previous-chat" &&
+        init?.method === "PATCH"
+      ) {
+        patchBodies.push(JSON.parse(String(init.body)));
+        conversations = conversations.map((item) =>
+          item.id === "previous-chat"
+            ? { ...item, title: "Climb notes", updatedAt }
+            : item,
+        );
+        return jsonResponse({ conversation: conversations[1] });
+      }
+      if (url.startsWith("/api/conversations/default")) {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-active",
+              role: "assistant",
+              content: "Active visible transcript",
+              createdAt: updatedAt,
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url.startsWith("/api/conversations/previous-chat")) {
+        return jsonResponse({
+          conversationId: "previous-chat",
+          messages: [
+            {
+              id: "assistant-previous",
+              role: "assistant",
+              content: "Previous transcript should not open",
+              createdAt: updatedAt,
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(await screen.findByText("Active visible transcript")).toBeTruthy();
+    await openConversationMenu("Previous climb chat");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(patchBodies).toEqual([]);
+
+    await openConversationMenu("Previous climb chat");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    fireEvent.change(screen.getByLabelText("Conversation title"), {
+      target: { value: "Climb notes" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(patchBodies).toEqual([{ title: "Climb notes" }]),
+    );
+    expect(screen.getAllByText("Active plan").length).toBeGreaterThan(0);
+    expect(screen.getByText("Active visible transcript")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getAllByText("Climb notes").length).toBeGreaterThan(0),
+    );
+    expect(
+      screen.queryByText("Previous transcript should not open"),
+    ).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/conversations/previous-chat?"),
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("keeps rename disabled while a streamed answer is in flight", async () => {
+    const updatedAt = "2026-07-17T12:00:00.000Z";
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      if (url === "/api/conversations")
+        return jsonResponse({
+          conversations: [
+            {
+              id: "default",
+              title: "Active plan",
+              createdAt: updatedAt,
+              updatedAt,
+            },
+          ],
+        });
+      if (url.startsWith("/api/conversations/default")) {
+        return jsonResponse({
+          conversationId: "default",
+          messages: [],
+          contextWindow: 0,
+          historyLimit: 12,
+        });
+      }
+      if (url === "/api/chat" && init?.method === "POST") {
+        return new Promise<Response>(() => undefined);
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    await screen.findByRole("button", {
+      name: 'Conversation options for "Active plan"',
+    });
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "Plan tomorrow" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Streaming…" })).toBeTruthy(),
+    );
+    await openConversationMenu("Active plan");
+    expect(
+      (screen.getByRole("menuitem", { name: "Rename" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("menuitem", { name: "Delete" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
   it("deletes a previous saved conversation without selecting it", async () => {
     const updatedAt = "2026-07-17T12:00:00.000Z";
     let conversations = [
