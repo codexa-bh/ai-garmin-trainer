@@ -1849,7 +1849,7 @@ export function TrainerDashboard() {
                   <strong>Trainer</strong>
                   <span>pending</span>
                 </div>
-                <p>Trainer is thinking with bounded local history…</p>
+                <p>Trainer is thinking…</p>
               </div>
             ) : null}
             <div ref={transcriptBottomRef} aria-hidden="true" />

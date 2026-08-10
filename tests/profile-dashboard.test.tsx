@@ -328,6 +328,55 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeNull();
   });
 
+  it("renders concise pending trainer copy before the response starts", async () => {
+    let resolveChat!: (response: Response) => void;
+    const pendingChat = new Promise<Response>((resolve) => {
+      resolveChat = resolve;
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory") return jsonResponse({ memories: [] });
+      if (url.startsWith("/api/chat") && init?.method === "POST") {
+        return pendingChat;
+      }
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "What should I do tomorrow?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("Trainer is thinking…")).toBeTruthy();
+    expect(
+      screen.queryByText("Trainer is thinking with bounded local history…"),
+    ).toBeNull();
+
+    resolveChat(
+      new Response(
+        JSON.stringify({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Keep tomorrow easy.",
+              createdAt: "2026-07-21T12:00:00.000Z",
+            },
+          ],
+          contextWindow: 5,
+          historyLimit: 40,
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
+  });
+
   it("uses active chat context wording for non-streamed completion status", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
