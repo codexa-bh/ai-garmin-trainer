@@ -52,6 +52,45 @@ export type SyncRunOptions = {
   lastError?: string | null;
 };
 
+export type ActivityDashboardListItem = NormalizedActivity & {
+  detailStatus: ActivityDetailStatus | null;
+};
+
+export type ActivityDashboardListPage = {
+  activities: ActivityDashboardListItem[];
+  nextOffset: number | null;
+  totalApprox: number;
+  limit: number;
+  offset: number;
+};
+
+export type ActivityDashboardChartPoint = {
+  elapsedSec: number;
+  heartRate: number | null;
+  altitudeMeters: number | null;
+};
+
+export type ActivityDashboardDetail = {
+  activity: NormalizedActivity;
+  detail: {
+    status: ActivityDetailStatus;
+    hasHeartRate: boolean;
+    hasElevation: boolean;
+    hasLaps: boolean;
+    recordCount: number;
+    lapCount: number;
+    unavailableReason: string | null;
+  };
+  charts: {
+    downsampled: boolean;
+    sourcePointCount: number;
+    pointCount: number;
+    maxPoints: number;
+    points: ActivityDashboardChartPoint[];
+  };
+  laps: ActivityLapDetail[];
+};
+
 let database: Database.Database | undefined;
 let lastChatMessageTimestamp = 0;
 
@@ -296,31 +335,98 @@ export function finishSyncRun(
     .run(status, Date.now(), lastError ?? null, id);
 }
 
+type ActivityRow = {
+  garminId: string;
+  name: string | null;
+  sport: string;
+  startedAt: number;
+  durationSec: number | null;
+  distanceMeters: number | null;
+  calories: number | null;
+  avgHeartRate: number | null;
+  maxHeartRate: number | null;
+  steps: number | null;
+  elevationGainMeters: number | null;
+  elevationLossMeters: number | null;
+  trainingEffect: number | null;
+};
+
+const activitySelectColumns = `garmin_id as garminId, name, sport, started_at as startedAt, duration_sec as durationSec,
+              distance_meters as distanceMeters, calories, avg_heart_rate as avgHeartRate,
+              max_heart_rate as maxHeartRate, steps, elevation_gain_meters as elevationGainMeters,
+              elevation_loss_meters as elevationLossMeters, training_effect as trainingEffect`;
+
+function normalizeActivityRow<T extends ActivityRow>(
+  row: T,
+): Omit<T, "startedAt"> & {
+  startedAt: Date;
+} {
+  return { ...row, startedAt: new Date(row.startedAt) };
+}
+
+function boundedInteger(
+  value: number,
+  fallback: number,
+  min: number,
+  max: number,
+) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
 export function listRecentActivities(limit = 12): NormalizedActivity[] {
   const rows = getDatabase()
     .prepare(
-      `select garmin_id as garminId, name, sport, started_at as startedAt, duration_sec as durationSec,
-              distance_meters as distanceMeters, calories, avg_heart_rate as avgHeartRate,
-              max_heart_rate as maxHeartRate, steps, elevation_gain_meters as elevationGainMeters,
-              elevation_loss_meters as elevationLossMeters, training_effect as trainingEffect
+      `select ${activitySelectColumns}
        from activity order by started_at desc limit ?`,
     )
-    .all(limit) as Array<{
-    garminId: string;
-    name: string | null;
-    sport: string;
-    startedAt: number;
-    durationSec: number | null;
-    distanceMeters: number | null;
-    calories: number | null;
-    avgHeartRate: number | null;
-    maxHeartRate: number | null;
-    steps: number | null;
-    elevationGainMeters: number | null;
-    elevationLossMeters: number | null;
-    trainingEffect: number | null;
-  }>;
-  return rows.map((row) => ({ ...row, startedAt: new Date(row.startedAt) }));
+    .all(limit) as ActivityRow[];
+  return rows.map((row) => normalizeActivityRow(row));
+}
+
+export function listActivitiesForDashboard(
+  options: {
+    query?: string | null;
+    limit?: number;
+    offset?: number;
+  } = {},
+): ActivityDashboardListPage {
+  const safeLimit = boundedInteger(options.limit ?? 25, 25, 1, 50);
+  const safeOffset = boundedInteger(options.offset ?? 0, 0, 0, 100000);
+  const query = (options.query ?? "").trim().toLocaleLowerCase();
+  const db = getDatabase();
+  const likeQuery = `%${query}%`;
+  const where = query
+    ? `where lower(coalesce(a.name, '')) like ?
+        or lower(a.sport) like ?
+        or lower(a.garmin_id) like ?
+        or date(a.started_at / 1000, 'unixepoch') like ?`
+    : "";
+  const params = query ? [likeQuery, likeQuery, likeQuery, likeQuery] : [];
+  const total = db
+    .prepare(`select count(*) as count from activity a ${where}`)
+    .get(...params) as { count: number };
+  const rows = db
+    .prepare(
+      `select a.${activitySelectColumns.replaceAll(", ", ", a.")}, d.status as detailStatus
+       from activity a
+       left join activity_detail_availability d on d.garmin_id = a.garmin_id
+       ${where}
+       order by a.started_at desc
+       limit ? offset ?`,
+    )
+    .all(...params, safeLimit, safeOffset) as Array<
+    ActivityRow & { detailStatus: ActivityDetailStatus | null }
+  >;
+  const nextOffset =
+    safeOffset + rows.length < total.count ? safeOffset + rows.length : null;
+  return {
+    activities: rows.map((row) => normalizeActivityRow(row)),
+    nextOffset,
+    totalApprox: total.count,
+    limit: safeLimit,
+    offset: safeOffset,
+  };
 }
 
 export function listRecentDailyHealth(limit = 14): NormalizedDailyHealth[] {
@@ -857,6 +963,89 @@ export function getActivityDetailForAnalytics(garminId: string): {
     derived: parseJsonObject(availabilityRow?.derivedJson ?? null),
     laps,
     stream,
+  };
+}
+
+export function getActivityDashboardDetail(
+  garminId: string,
+  maxPoints = 240,
+): ActivityDashboardDetail | null {
+  const db = getDatabase();
+  const activity = getActivityByGarminId(garminId);
+  if (!activity) return null;
+  const availability = db
+    .prepare(
+      `select status, has_laps as hasLaps, has_elevation as hasElevation,
+              has_heart_rate as hasHeartRate, record_count as recordCount,
+              lap_count as lapCount, unavailable_reason as unavailableReason
+       from activity_detail_availability where garmin_id = ?`,
+    )
+    .get(garminId) as
+    | {
+        status: ActivityDetailStatus;
+        hasLaps: number;
+        hasElevation: number;
+        hasHeartRate: number;
+        recordCount: number;
+        lapCount: number;
+        unavailableReason: string | null;
+      }
+    | undefined;
+  const safeMaxPoints = boundedInteger(maxPoints, 240, 2, 500);
+  const sourcePointCount = (
+    db
+      .prepare(
+        `select count(*) as count from activity_stream_point
+         where garmin_id = ? and (heart_rate is not null or altitude_meters is not null)`,
+      )
+      .get(garminId) as { count: number }
+  ).count;
+  const stride = Math.max(1, Math.ceil(sourcePointCount / safeMaxPoints));
+  const points = db
+    .prepare(
+      `select elapsed_sec as elapsedSec, heart_rate as heartRate, altitude_meters as altitudeMeters
+       from (
+         select elapsed_sec, heart_rate, altitude_meters,
+                row_number() over (order by elapsed_sec) as rowNumber
+         from activity_stream_point
+         where garmin_id = ? and (heart_rate is not null or altitude_meters is not null)
+       )
+       where ((rowNumber - 1) % ?) = 0
+       order by elapsedSec
+       limit ?`,
+    )
+    .all(garminId, stride, safeMaxPoints) as ActivityDashboardChartPoint[];
+  const laps = db
+    .prepare(
+      `select lap_number as lapNumber, start_time as startTime, duration_sec as durationSec,
+              distance_meters as distanceMeters, avg_speed_mps as avgSpeedMps,
+              avg_heart_rate as avgHeartRate, max_heart_rate as maxHeartRate,
+              elevation_gain_meters as elevationGainMeters, elevation_loss_meters as elevationLossMeters,
+              avg_power_watts as avgPowerWatts, normalized_power_watts as normalizedPowerWatts
+       from activity_lap where garmin_id = ? order by lap_number limit 100`,
+    )
+    .all(garminId) as ActivityLapDetail[];
+  const hasHeartRate = points.some((point) => point.heartRate !== null);
+  const hasElevation = points.some((point) => point.altitudeMeters !== null);
+  return {
+    activity,
+    detail: {
+      status: availability?.status ?? "not_requested",
+      hasHeartRate,
+      hasElevation,
+      hasLaps: laps.length > 0,
+      recordCount: availability?.recordCount ?? 0,
+      lapCount: availability?.lapCount ?? laps.length,
+      unavailableReason: availability?.unavailableReason ?? null,
+    },
+    charts: {
+      downsampled: sourcePointCount > points.length,
+      sourcePointCount,
+      pointCount: points.length,
+      maxPoints: safeMaxPoints,
+      points,
+    },
+    laps,
   };
 }
 
