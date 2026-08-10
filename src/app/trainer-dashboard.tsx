@@ -739,6 +739,7 @@ export function TrainerDashboard() {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const conversationMenuRef = useRef<HTMLDivElement>(null);
   const isSyncingRef = useRef(false);
 
   const activeConversation = useMemo(
@@ -863,6 +864,29 @@ export function TrainerDashboard() {
     window.addEventListener("resize", closeOnViewportChange);
     return () => {
       window.removeEventListener("resize", closeOnViewportChange);
+    };
+  }, [openConversationMenuId]);
+
+  useEffect(() => {
+    if (!openConversationMenuId) return;
+    function closeOnOutsidePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (conversationMenuRef.current?.contains(target)) return;
+      if (target instanceof Element) {
+        const trigger = target.closest(".conversation-menu-trigger");
+        if (
+          trigger instanceof HTMLElement &&
+          trigger.dataset.conversationMenuId === openConversationMenuId
+        ) {
+          return;
+        }
+      }
+      closeConversationMenu();
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
     };
   }, [openConversationMenuId]);
 
@@ -1774,6 +1798,7 @@ export function TrainerDashboard() {
                     <button
                       type="button"
                       className="conversation-menu-trigger"
+                      data-conversation-menu-id={item.id}
                       aria-label={`Conversation options for "${item.title}"`}
                       aria-haspopup="menu"
                       aria-expanded={openConversationMenuId === item.id}
@@ -1809,6 +1834,7 @@ export function TrainerDashboard() {
           <div
             id="conversation-row-menu"
             className="conversation-menu conversation-menu-floating"
+            ref={conversationMenuRef}
             role="menu"
             style={{
               top: conversationMenuPosition.top,

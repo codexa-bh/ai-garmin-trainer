@@ -1389,6 +1389,71 @@ describe("TrainerDashboard memory and new chat", () => {
     );
   });
 
+  it("closes an open conversation menu on outside pointer interaction", async () => {
+    const updatedAt = "2026-07-17T12:00:00.000Z";
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/memory")
+        return jsonResponse({ memories: [], pending: [], confirmed: [] });
+      if (url === "/api/conversations")
+        return jsonResponse({
+          conversations: [
+            {
+              id: "default",
+              title: "Active plan",
+              createdAt: updatedAt,
+              updatedAt,
+            },
+            {
+              id: "previous-chat",
+              title: "Previous climb chat",
+              createdAt: updatedAt,
+              updatedAt,
+            },
+          ],
+        });
+      if (url.startsWith("/api/conversations/default"))
+        return jsonResponse({
+          conversationId: "default",
+          messages: [
+            {
+              id: "assistant-active",
+              role: "assistant",
+              content: "Active visible transcript",
+              createdAt: updatedAt,
+            },
+          ],
+          contextWindow: 1,
+          historyLimit: 12,
+        });
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(await screen.findByText("Active visible transcript")).toBeTruthy();
+    const trigger = await screen.findByRole("button", {
+      name: 'Conversation options for "Previous climb chat"',
+    });
+
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.pointerDown(
+      screen.getByRole("heading", { name: "Chat with your private coach" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole("menu")).toBeNull();
+    });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("keeps a previous saved conversation when delete confirmation is cancelled", async () => {
     const updatedAt = "2026-07-17T12:00:00.000Z";
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
