@@ -245,6 +245,67 @@ type SyncProgressEvent = {
   athleteAvailability?: AthleteBaselineAvailability;
 };
 
+type ActivityListItem = {
+  garminId: string;
+  name: string | null;
+  label: string;
+  sport: string;
+  date: string;
+  startedAt: string;
+  durationSec: number | null;
+  distanceMeters: number | null;
+  elevationGainMeters: number | null;
+  avgHeartRate: number | null;
+  detailStatus: string | null;
+};
+
+type ActivityListPayload = {
+  activities: ActivityListItem[];
+  nextOffset?: number | null;
+  totalApprox?: number;
+};
+
+type ActivityDashboardPayload = {
+  activity: ActivityListItem & {
+    calories: number | null;
+    maxHeartRate: number | null;
+    steps: number | null;
+    elevationLossMeters: number | null;
+    trainingEffect: number | null;
+  };
+  detail: {
+    status: string | null;
+    hasHeartRate: boolean;
+    hasElevation: boolean;
+    hasLaps: boolean;
+    recordCount: number;
+    lapCount: number;
+    unavailableReason?: string | null;
+  };
+  charts: {
+    downsampled: boolean;
+    sourcePointCount: number;
+    pointCount: number;
+    maxPoints: number;
+    points: Array<{
+      elapsedSec: number;
+      heartRate: number | null;
+      altitudeMeters: number | null;
+    }>;
+  };
+  laps: Array<{
+    lapNumber: number;
+    durationSec: number | null;
+    distanceMeters: number | null;
+    avgHeartRate: number | null;
+    maxHeartRate: number | null;
+    elevationGainMeters: number | null;
+    elevationLossMeters: number | null;
+    avgPowerWatts: number | null;
+    normalizedPowerWatts: number | null;
+  }>;
+};
+
 const emptyProfileFields: ProfileFields = {
   goals: "",
   sports: "",
@@ -422,6 +483,114 @@ function memoryUpdatedLabel(item: MemoryItem): string {
 
 function valueLabel(value: number | null, suffix = ""): string {
   return value === null ? "Not available" : `${value}${suffix}`;
+}
+
+function numberLabel(value: number | null, fractionDigits = 0): string {
+  return value === null
+    ? "Unavailable"
+    : value.toLocaleString(undefined, {
+        maximumFractionDigits: fractionDigits,
+        minimumFractionDigits: fractionDigits,
+      });
+}
+
+function durationLabel(seconds: number | null): string {
+  if (seconds === null) return "Unavailable";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+  return `${minutes}m`;
+}
+
+function distanceLabel(meters: number | null): string {
+  if (meters === null) return "Unavailable";
+  return `${(meters / 1000).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })} km`;
+}
+
+function metersLabel(meters: number | null): string {
+  if (meters === null) return "Unavailable";
+  return `${Math.round(meters).toLocaleString()} m`;
+}
+
+function paceLabel(durationSec: number | null, distanceMeters: number | null) {
+  if (durationSec === null || distanceMeters === null || distanceMeters <= 0)
+    return "Unavailable";
+  const secondsPerKm = durationSec / (distanceMeters / 1000);
+  const minutes = Math.floor(secondsPerKm / 60);
+  const seconds = Math.round(secondsPerKm % 60);
+  return `${minutes}:${seconds.toString().padStart(2, "0")}/km`;
+}
+
+function chartPolyline(
+  points: Array<{ elapsedSec: number; value: number }>,
+  width: number,
+  height: number,
+) {
+  if (points.length < 2) return "";
+  const minX = Math.min(...points.map((point) => point.elapsedSec));
+  const maxX = Math.max(...points.map((point) => point.elapsedSec));
+  const minY = Math.min(...points.map((point) => point.value));
+  const maxY = Math.max(...points.map((point) => point.value));
+  const xRange = Math.max(1, maxX - minX);
+  const yRange = Math.max(1, maxY - minY);
+  return points
+    .map((point) => {
+      const x = ((point.elapsedSec - minX) / xRange) * width;
+      const y = height - ((point.value - minY) / yRange) * height;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function MiniLineChart({
+  title,
+  unit,
+  points,
+  valueKey,
+}: {
+  title: string;
+  unit: string;
+  points: ActivityDashboardPayload["charts"]["points"];
+  valueKey: "heartRate" | "altitudeMeters";
+}) {
+  const series = points
+    .filter((point) => point[valueKey] !== null)
+    .map((point) => ({
+      elapsedSec: point.elapsedSec,
+      value: point[valueKey]!,
+    }));
+  if (series.length < 2) {
+    return (
+      <div className="activity-chart empty-state">
+        <strong>{title}</strong>
+        <span>Not enough chartable data.</span>
+      </div>
+    );
+  }
+  const values = series.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const polyline = chartPolyline(series, 320, 120);
+  return (
+    <figure className="activity-chart" aria-label={`${title} chart`}>
+      <figcaption>
+        <strong>{title}</strong>
+        <span>
+          {Math.round(min)}–{Math.round(max)} {unit}
+        </span>
+      </figcaption>
+      <svg
+        viewBox="0 0 320 120"
+        role="img"
+        aria-label={`${title} over elapsed time`}
+      >
+        <polyline points={polyline} />
+      </svg>
+    </figure>
+  );
 }
 
 function dayListLabel(days: string[]): string {
@@ -732,6 +901,23 @@ export function TrainerDashboard() {
     "Garmin athlete baselines will load from the local import summary.",
   );
   const [detailGarminId, setDetailGarminId] = useState("");
+  const [activityDashboardOpen, setActivityDashboardOpen] = useState(false);
+  const [activitySearchQuery, setActivitySearchQuery] = useState("");
+  const [activities, setActivities] = useState<ActivityListItem[]>([]);
+  const [activityListState, setActivityListState] = useState<
+    "idle" | "loading" | "loaded" | "error"
+  >("idle");
+  const [activityListMessage, setActivityListMessage] = useState(
+    "Open Activity charts to search synced activities.",
+  );
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(
+    null,
+  );
+  const [activityDashboard, setActivityDashboard] =
+    useState<ActivityDashboardPayload | null>(null);
+  const [activityDashboardState, setActivityDashboardState] = useState<
+    "idle" | "loading" | "loaded" | "error"
+  >("idle");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [llmDebugTracesEnabled, setLlmDebugTracesEnabled] = useState(false);
@@ -745,6 +931,7 @@ export function TrainerDashboard() {
   const forceNextScrollRef = useRef(false);
   const chatAbortRef = useRef<AbortController | null>(null);
   const conversationButtonRef = useRef<HTMLButtonElement>(null);
+  const activityDashboardButtonRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
@@ -859,6 +1046,11 @@ export function TrainerDashboard() {
         settingsButtonRef.current?.focus();
         return;
       }
+      if (activityDashboardOpen) {
+        setActivityDashboardOpen(false);
+        activityDashboardButtonRef.current?.focus();
+        return;
+      }
       if (isConversationDrawerOpen) {
         setIsConversationDrawerOpen(false);
         conversationButtonRef.current?.focus();
@@ -870,11 +1062,16 @@ export function TrainerDashboard() {
     isConversationDrawerOpen,
     openConversationMenuId,
     renameTarget,
+    activityDashboardOpen,
     settingsOpen,
   ]);
   useEffect(() => {
     if (settingsOpen) settingsCloseRef.current?.focus();
   }, [settingsOpen]);
+  useEffect(() => {
+    if (!activityDashboardOpen) return;
+    void loadActivities(activitySearchQuery);
+  }, [activityDashboardOpen, activitySearchQuery]);
   useEffect(() => {
     if (renameTarget) renameInputRef.current?.focus();
   }, [renameTarget]);
@@ -1317,6 +1514,60 @@ export function TrainerDashboard() {
 
   async function refreshSummary() {
     await loadImportSummary("manual");
+  }
+
+  async function loadActivities(query: string) {
+    setActivityListState("loading");
+    try {
+      const params = new URLSearchParams({ limit: "25" });
+      const trimmed = query.trim();
+      if (trimmed) params.set("q", trimmed);
+      const payload = await readJsonResponse<ActivityListPayload>(
+        await fetch(`/api/activities?${params.toString()}`),
+      );
+      setActivities(payload.activities);
+      setActivityListState("loaded");
+      if (!payload.activities.length) {
+        setActivityListMessage(
+          trimmed
+            ? "No synced activities match that search."
+            : "No synced Garmin activities are imported yet.",
+        );
+        return;
+      }
+      const suffix = payload.nextOffset
+        ? ` Showing first ${payload.activities.length}. Refine search for more.`
+        : "";
+      setActivityListMessage(
+        `${payload.activities.length} of ${payload.totalApprox ?? payload.activities.length} synced activities available.${suffix}`,
+      );
+    } catch (error) {
+      setActivityListState("error");
+      setActivityListMessage(
+        `Activity search failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
+  }
+
+  async function selectActivityDashboard(garminId: string) {
+    setSelectedActivityId(garminId);
+    setActivityDashboardState("loading");
+    try {
+      const payload = await readJsonResponse<ActivityDashboardPayload>(
+        await fetch(
+          `/api/activities/${encodeURIComponent(garminId)}/dashboard`,
+        ),
+      );
+      setActivityDashboard(payload);
+      setActivityDashboardState("loaded");
+    } catch (error) {
+      setActivityDashboard(null);
+      setActivityDashboardState("error");
+      setStatus({
+        kind: "error",
+        message: `Activity dashboard failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      });
+    }
   }
 
   async function refreshDetailCoverage() {
@@ -1853,6 +2104,16 @@ export function TrainerDashboard() {
         <button
           type="button"
           className="chrome-button"
+          onClick={() => setActivityDashboardOpen((open) => !open)}
+          ref={activityDashboardButtonRef}
+          aria-label="Activity charts"
+          aria-expanded={activityDashboardOpen}
+        >
+          Activity charts
+        </button>
+        <button
+          type="button"
+          className="chrome-button"
           onClick={() => setSettingsOpen(true)}
           ref={settingsButtonRef}
           aria-label="Data & settings"
@@ -1860,6 +2121,230 @@ export function TrainerDashboard() {
           Settings
         </button>
       </header>
+
+      {activityDashboardOpen ? (
+        <section
+          className="activity-dashboard-panel"
+          aria-label="Selected activity dashboard"
+        >
+          <div className="activity-dashboard-selector">
+            <div>
+              <p className="section-kicker">Activity dashboard</p>
+              <h2>Search synced activities</h2>
+              <p>
+                Factual stats, HR/elevation charts, and laps from normalized
+                local Garmin detail data only.
+              </p>
+            </div>
+            <label className="activity-search-field">
+              <span>Search activity name, sport, date, or Garmin ID</span>
+              <input
+                type="search"
+                value={activitySearchQuery}
+                onChange={(event) => setActivitySearchQuery(event.target.value)}
+                placeholder="Search all synced activities"
+              />
+            </label>
+            <p className="activity-dashboard-status">{activityListMessage}</p>
+            <div
+              className="activity-list"
+              role="list"
+              aria-label="Synced activities"
+            >
+              {activityListState === "loading" ? (
+                <p className="empty-chat">Loading synced activities…</p>
+              ) : activities.length ? (
+                activities.map((activity) => (
+                  <button
+                    type="button"
+                    role="listitem"
+                    className={`activity-list-item ${selectedActivityId === activity.garminId ? "selected" : ""}`}
+                    key={activity.garminId}
+                    onClick={() =>
+                      void selectActivityDashboard(activity.garminId)
+                    }
+                  >
+                    <span>
+                      <strong>{activity.label}</strong>
+                      <small>
+                        {activity.date} · {activity.sport} · Garmin ID{" "}
+                        {activity.garminId}
+                      </small>
+                    </span>
+                    <span>
+                      {distanceLabel(activity.distanceMeters)} ·{" "}
+                      {durationLabel(activity.durationSec)}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <p className="empty-chat">{activityListMessage}</p>
+              )}
+            </div>
+          </div>
+          <div className="selected-activity-detail">
+            {activityDashboardState === "loading" ? (
+              <p className="empty-chat">Loading selected activity details…</p>
+            ) : activityDashboard ? (
+              <>
+                <div className="selected-activity-heading">
+                  <div>
+                    <p className="section-kicker">Selected activity</p>
+                    <h2>{activityDashboard.activity.label}</h2>
+                    <p>
+                      {activityDashboard.activity.date} ·{" "}
+                      {activityDashboard.activity.sport} · Garmin ID{" "}
+                      {activityDashboard.activity.garminId}
+                    </p>
+                  </div>
+                  <span className="detail-status-pill">
+                    Detail: {activityDashboard.detail.status ?? "not requested"}
+                  </span>
+                </div>
+                <div
+                  className="activity-stat-grid"
+                  aria-label="Selected activity summary stats"
+                >
+                  <span>
+                    <strong>Duration</strong>
+                    {durationLabel(activityDashboard.activity.durationSec)}
+                  </span>
+                  <span>
+                    <strong>Distance</strong>
+                    {distanceLabel(activityDashboard.activity.distanceMeters)}
+                  </span>
+                  <span>
+                    <strong>Elevation gain</strong>
+                    {metersLabel(
+                      activityDashboard.activity.elevationGainMeters,
+                    )}
+                  </span>
+                  <span>
+                    <strong>Elevation loss</strong>
+                    {metersLabel(
+                      activityDashboard.activity.elevationLossMeters,
+                    )}
+                  </span>
+                  <span>
+                    <strong>Calories</strong>
+                    {numberLabel(activityDashboard.activity.calories)}
+                  </span>
+                  <span>
+                    <strong>Avg HR</strong>
+                    {numberLabel(activityDashboard.activity.avgHeartRate)} bpm
+                  </span>
+                  <span>
+                    <strong>Max HR</strong>
+                    {numberLabel(activityDashboard.activity.maxHeartRate)} bpm
+                  </span>
+                  <span>
+                    <strong>Steps</strong>
+                    {numberLabel(activityDashboard.activity.steps)}
+                  </span>
+                  <span>
+                    <strong>Training effect</strong>
+                    {numberLabel(activityDashboard.activity.trainingEffect, 1)}
+                  </span>
+                  <span>
+                    <strong>Detail records</strong>
+                    {activityDashboard.detail.recordCount.toLocaleString()}
+                  </span>
+                </div>
+                <div className="activity-chart-grid">
+                  {activityDashboard.detail.hasHeartRate ? (
+                    <MiniLineChart
+                      title="Heart rate over time"
+                      unit="bpm"
+                      points={activityDashboard.charts.points}
+                      valueKey="heartRate"
+                    />
+                  ) : (
+                    <div className="activity-chart empty-state">
+                      No heart-rate stream data available.
+                    </div>
+                  )}
+                  {activityDashboard.detail.hasElevation ? (
+                    <MiniLineChart
+                      title="Elevation profile"
+                      unit="m"
+                      points={activityDashboard.charts.points}
+                      valueKey="altitudeMeters"
+                    />
+                  ) : (
+                    <div className="activity-chart empty-state">
+                      No elevation stream data available.
+                    </div>
+                  )}
+                </div>
+                {activityDashboard.charts.downsampled ? (
+                  <p className="activity-dashboard-status">
+                    Charts downsampled to {activityDashboard.charts.pointCount}{" "}
+                    of {activityDashboard.charts.sourcePointCount} stream
+                    points.
+                  </p>
+                ) : null}
+                {activityDashboard.laps.length ? (
+                  <div className="lap-table-wrap">
+                    <table className="lap-table">
+                      <caption>Lap details</caption>
+                      <thead>
+                        <tr>
+                          <th>Lap</th>
+                          <th>Duration</th>
+                          <th>Distance</th>
+                          <th>Pace</th>
+                          <th>Avg/Max HR</th>
+                          <th>Elev +/−</th>
+                          <th>Power</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activityDashboard.laps.map((lap) => (
+                          <tr key={lap.lapNumber}>
+                            <td>{lap.lapNumber}</td>
+                            <td>{durationLabel(lap.durationSec)}</td>
+                            <td>{distanceLabel(lap.distanceMeters)}</td>
+                            <td>
+                              {paceLabel(lap.durationSec, lap.distanceMeters)}
+                            </td>
+                            <td>
+                              {numberLabel(lap.avgHeartRate)}/
+                              {numberLabel(lap.maxHeartRate)} bpm
+                            </td>
+                            <td>
+                              {metersLabel(lap.elevationGainMeters)} /{" "}
+                              {metersLabel(lap.elevationLossMeters)}
+                            </td>
+                            <td>{numberLabel(lap.avgPowerWatts)} W</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="activity-dashboard-status">
+                    No lap rows are available for this activity.
+                  </p>
+                )}
+                {activityDashboard.detail.unavailableReason ? (
+                  <p className="activity-dashboard-status">
+                    Detail limitation:{" "}
+                    {activityDashboard.detail.unavailableReason}
+                  </p>
+                ) : null}
+              </>
+            ) : activityDashboardState === "error" ? (
+              <p className="empty-chat">
+                Selected activity could not be loaded. Try another activity.
+              </p>
+            ) : (
+              <p className="empty-chat">
+                Select a synced activity to inspect charts and stats.
+              </p>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <div className="chat-workspace">
         <aside

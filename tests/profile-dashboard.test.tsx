@@ -1008,6 +1008,153 @@ describe("TrainerDashboard athlete baseline summary", () => {
   });
 });
 
+describe("TrainerDashboard activity charts", () => {
+  it("opens a top-bar searchable activity selector and renders no-match state", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url.startsWith("/api/activities?")) {
+        if (url.includes("q=zzz")) {
+          return jsonResponse({ activities: [], totalApprox: 0 });
+        }
+        return jsonResponse({
+          activities: [
+            {
+              garminId: "111111",
+              name: "Morning Trail Run",
+              label: "Morning Trail Run",
+              sport: "running",
+              date: "2026-08-01",
+              startedAt: "2026-08-01T07:00:00.000Z",
+              durationSec: 3600,
+              distanceMeters: 10000,
+              elevationGainMeters: 260,
+              avgHeartRate: 145,
+              detailStatus: "available",
+            },
+          ],
+          totalApprox: 1,
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+
+    expect(await screen.findByText("Morning Trail Run")).toBeTruthy();
+    expect(screen.getByText(/Garmin ID 111111/)).toBeTruthy();
+
+    fireEvent.change(
+      screen.getByLabelText("Search activity name, sport, date, or Garmin ID"),
+      { target: { value: "zzz" } },
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("No synced activities match that search.").length,
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  it("renders selected factual stats, charts, and lap rows from dashboard payload", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url.startsWith("/api/activities/111111/dashboard")) {
+        return jsonResponse({
+          activity: {
+            garminId: "111111",
+            name: "Morning Trail Run",
+            label: "Morning Trail Run",
+            sport: "running",
+            date: "2026-08-01",
+            startedAt: "2026-08-01T07:00:00.000Z",
+            durationSec: 3600,
+            distanceMeters: 10000,
+            elevationGainMeters: 260,
+            elevationLossMeters: 250,
+            calories: 640,
+            avgHeartRate: 145,
+            maxHeartRate: 174,
+            steps: 9200,
+            trainingEffect: 3.2,
+          },
+          detail: {
+            status: "available",
+            hasHeartRate: true,
+            hasElevation: true,
+            hasLaps: true,
+            recordCount: 2,
+            lapCount: 1,
+            unavailableReason: null,
+          },
+          charts: {
+            downsampled: false,
+            sourcePointCount: 2,
+            pointCount: 2,
+            maxPoints: 240,
+            points: [
+              { elapsedSec: 0, heartRate: 130, altitudeMeters: 1000 },
+              { elapsedSec: 60, heartRate: 136, altitudeMeters: 1012 },
+            ],
+          },
+          laps: [
+            {
+              lapNumber: 1,
+              durationSec: 1800,
+              distanceMeters: 5000,
+              avgHeartRate: 143,
+              maxHeartRate: 168,
+              elevationGainMeters: 120,
+              elevationLossMeters: 115,
+              avgPowerWatts: null,
+              normalizedPowerWatts: null,
+            },
+          ],
+        });
+      }
+      if (url.startsWith("/api/activities?")) {
+        return jsonResponse({
+          activities: [
+            {
+              garminId: "111111",
+              name: "Morning Trail Run",
+              label: "Morning Trail Run",
+              sport: "running",
+              date: "2026-08-01",
+              startedAt: "2026-08-01T07:00:00.000Z",
+              durationSec: 3600,
+              distanceMeters: 10000,
+              elevationGainMeters: 260,
+              avgHeartRate: 145,
+              detailStatus: "available",
+            },
+          ],
+          totalApprox: 1,
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(await screen.findByText("Morning Trail Run"));
+
+    expect(await screen.findByText("Detail: available")).toBeTruthy();
+    expect(screen.getByText("Heart rate over time")).toBeTruthy();
+    expect(screen.getByText("Elevation profile")).toBeTruthy();
+    expect(screen.getByText("Lap details")).toBeTruthy();
+    expect(screen.getByText("10.00 km")).toBeTruthy();
+    expect(screen.getByText("3.2")).toBeTruthy();
+  });
+});
+
 describe("TrainerDashboard primary Sync now", () => {
   it("keeps Sync now in the top bar before Settings opens", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
