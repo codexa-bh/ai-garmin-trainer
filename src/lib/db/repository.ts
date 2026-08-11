@@ -9,6 +9,7 @@ import type {
   GarminAthleteBaselineAvailability,
   GarminAthleteBaselineDto,
   GarminAthleteBaselineSnapshot,
+  HeartRateZoneBoundaryDto,
   NormalizedActivity,
   NormalizedDailyHealth,
 } from "../garmin/types";
@@ -70,6 +71,32 @@ export type ActivityDashboardChartPoint = {
   altitudeMeters: number | null;
 };
 
+export type ActivityDashboardHeartRateZoneBucket = {
+  zone: 1 | 2 | 3 | 4 | 5;
+  label: string | null;
+  lowerBpm: number;
+  upperBpm: number | null;
+  seconds: number;
+  percent: number;
+};
+
+export type ActivityDashboardHeartRateZoneTime = {
+  status:
+    | "available"
+    | "missing_zones"
+    | "missing_heart_rate"
+    | "insufficient_stream";
+  zoneSource: "garmin_mcp" | "derived" | null;
+  zoneStatus:
+    "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
+  formula: string | null;
+  classifiedSeconds: number;
+  unclassifiedSeconds: number;
+  noHeartRateSeconds: number;
+  buckets: ActivityDashboardHeartRateZoneBucket[];
+  message: string;
+};
+
 export type ActivityDashboardDetail = {
   activity: NormalizedActivity;
   detail: {
@@ -88,6 +115,7 @@ export type ActivityDashboardDetail = {
     maxPoints: number;
     points: ActivityDashboardChartPoint[];
   };
+  heartRateZones: ActivityDashboardHeartRateZoneTime;
   laps: ActivityLapDetail[];
 };
 
@@ -456,7 +484,9 @@ function parseJsonObject(value: string | null): Record<string, unknown> | null {
   }
 }
 
-function parseHeartRateZoneBoundaries(value: string | null) {
+function parseHeartRateZoneBoundaries(
+  value: string | null,
+): HeartRateZoneBoundaryDto[] {
   if (!value) return [];
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -487,6 +517,143 @@ function parseHeartRateZoneBoundaries(value: string | null) {
   } catch {
     return [];
   }
+}
+
+function emptyHeartRateZoneTime(
+  input: Pick<
+    ActivityDashboardHeartRateZoneTime,
+    "status" | "zoneSource" | "zoneStatus" | "formula" | "buckets" | "message"
+  >,
+): ActivityDashboardHeartRateZoneTime {
+  return {
+    ...input,
+    classifiedSeconds: 0,
+    unclassifiedSeconds: 0,
+    noHeartRateSeconds: 0,
+  };
+}
+
+function findHeartRateZone(
+  heartRate: number,
+  boundaries: HeartRateZoneBoundaryDto[],
+): HeartRateZoneBoundaryDto | null {
+  return (
+    boundaries.find(
+      (zone) =>
+        heartRate >= zone.lowerBpm &&
+        (zone.upperBpm === null || heartRate <= zone.upperBpm),
+    ) ?? null
+  );
+}
+
+function getActivityHeartRateZoneTime(
+  garminId: string,
+): ActivityDashboardHeartRateZoneTime {
+  const baseline = getGarminAthleteBaseline().values.heartRateZones;
+  const boundaries = baseline.boundaries;
+  if (baseline.status === "unavailable" || boundaries.length !== 5) {
+    return emptyHeartRateZoneTime({
+      status: "missing_zones",
+      zoneSource: baseline.source,
+      zoneStatus: baseline.status,
+      formula: baseline.formula,
+      buckets: [],
+      message:
+        "Time in HR zones is unavailable because complete HR-zone boundaries are not available.",
+    });
+  }
+
+  const stream = getDatabase()
+    .prepare(
+      `select elapsed_sec as elapsedSec, heart_rate as heartRate
+       from activity_stream_point where garmin_id = ? order by elapsed_sec`,
+    )
+    .all(garminId) as Array<{ elapsedSec: number; heartRate: number | null }>;
+  if (!stream.some((point) => point.heartRate !== null)) {
+    return emptyHeartRateZoneTime({
+      status: "missing_heart_rate",
+      zoneSource: baseline.source,
+      zoneStatus: baseline.status,
+      formula: baseline.formula,
+      buckets: boundaries.map((zone) => ({ ...zone, seconds: 0, percent: 0 })),
+      message:
+        "Time in HR zones is unavailable because this activity has no heart-rate stream samples.",
+    });
+  }
+  if (stream.length < 2) {
+    return emptyHeartRateZoneTime({
+      status: "insufficient_stream",
+      zoneSource: baseline.source,
+      zoneStatus: baseline.status,
+      formula: baseline.formula,
+      buckets: boundaries.map((zone) => ({ ...zone, seconds: 0, percent: 0 })),
+      message:
+        "Time in HR zones needs at least two elapsed stream samples to compute durations.",
+    });
+  }
+
+  const secondsByZone = new Map<number, number>();
+  let classifiedSeconds = 0;
+  let unclassifiedSeconds = 0;
+  let noHeartRateSeconds = 0;
+  for (let index = 0; index < stream.length - 1; index += 1) {
+    const current = stream[index];
+    const next = stream[index + 1];
+    const seconds = Math.max(0, next.elapsedSec - current.elapsedSec);
+    if (!seconds) continue;
+    if (current.heartRate === null) {
+      noHeartRateSeconds += seconds;
+      continue;
+    }
+    const zone = findHeartRateZone(current.heartRate, boundaries);
+    if (!zone) {
+      unclassifiedSeconds += seconds;
+      continue;
+    }
+    classifiedSeconds += seconds;
+    secondsByZone.set(zone.zone, (secondsByZone.get(zone.zone) ?? 0) + seconds);
+  }
+
+  if (
+    classifiedSeconds === 0 &&
+    noHeartRateSeconds === 0 &&
+    unclassifiedSeconds === 0
+  ) {
+    return emptyHeartRateZoneTime({
+      status: "insufficient_stream",
+      zoneSource: baseline.source,
+      zoneStatus: baseline.status,
+      formula: baseline.formula,
+      buckets: boundaries.map((zone) => ({ ...zone, seconds: 0, percent: 0 })),
+      message:
+        "Time in HR zones needs increasing elapsed stream samples to compute durations.",
+    });
+  }
+
+  const buckets = boundaries.map((zone) => {
+    const seconds = secondsByZone.get(zone.zone) ?? 0;
+    return {
+      ...zone,
+      seconds,
+      percent: classifiedSeconds
+        ? Math.round((seconds / classifiedSeconds) * 1000) / 10
+        : 0,
+    };
+  });
+  return {
+    status: "available",
+    zoneSource: baseline.source,
+    zoneStatus: baseline.status,
+    formula: baseline.formula,
+    classifiedSeconds,
+    unclassifiedSeconds,
+    noHeartRateSeconds,
+    buckets,
+    message:
+      baseline.status === "garmin_configured"
+        ? "Using Garmin-configured HR-zone boundaries."
+        : "Using HR-zone estimates derived from Garmin max HR; Garmin-configured boundaries were unavailable.",
+  };
 }
 
 function parseJsonArray(value: string | null): string[] {
@@ -1045,6 +1212,7 @@ export function getActivityDashboardDetail(
       maxPoints: safeMaxPoints,
       points,
     },
+    heartRateZones: getActivityHeartRateZoneTime(garminId),
     laps,
   };
 }

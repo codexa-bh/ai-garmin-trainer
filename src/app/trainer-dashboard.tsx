@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type UIEvent,
   useEffect,
@@ -305,6 +306,29 @@ type ActivityDashboardPayload = {
       altitudeMeters: number | null;
     }>;
   };
+  heartRateZones: {
+    status:
+      | "available"
+      | "missing_zones"
+      | "missing_heart_rate"
+      | "insufficient_stream";
+    zoneSource: "garmin_mcp" | "derived" | null;
+    zoneStatus:
+      "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
+    formula: string | null;
+    classifiedSeconds: number;
+    unclassifiedSeconds: number;
+    noHeartRateSeconds: number;
+    message: string;
+    buckets: Array<{
+      zone: 1 | 2 | 3 | 4 | 5;
+      label: string | null;
+      lowerBpm: number;
+      upperBpm: number | null;
+      seconds: number;
+      percent: number;
+    }>;
+  };
   laps: Array<{
     lapNumber: number;
     durationSec: number | null;
@@ -514,6 +538,16 @@ function durationLabel(seconds: number | null): string {
   return `${minutes}m`;
 }
 
+function durationDetailLabel(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+  if (minutes > 0)
+    return `${minutes}m ${remainingSeconds.toString().padStart(2, "0")}s`;
+  return `${remainingSeconds}s`;
+}
+
 function distanceLabel(meters: number | null): string {
   if (meters === null) return "Unavailable";
   return `${(meters / 1000).toLocaleString(undefined, {
@@ -536,25 +570,48 @@ function paceLabel(durationSec: number | null, distanceMeters: number | null) {
   return `${minutes}:${seconds.toString().padStart(2, "0")}/km`;
 }
 
-function chartPolyline(
+type ChartSeriesPoint = {
+  elapsedSec: number;
+  value: number;
+  x: number;
+  y: number;
+};
+
+function chartSeriesCoordinates(
   points: Array<{ elapsedSec: number; value: number }>,
   width: number,
   height: number,
-) {
-  if (points.length < 2) return "";
+): ChartSeriesPoint[] {
   const minX = Math.min(...points.map((point) => point.elapsedSec));
   const maxX = Math.max(...points.map((point) => point.elapsedSec));
   const minY = Math.min(...points.map((point) => point.value));
   const maxY = Math.max(...points.map((point) => point.value));
   const xRange = Math.max(1, maxX - minX);
   const yRange = Math.max(1, maxY - minY);
+  return points.map((point) => ({
+    ...point,
+    x: ((point.elapsedSec - minX) / xRange) * width,
+    y: height - ((point.value - minY) / yRange) * height,
+  }));
+}
+
+function chartPolyline(points: ChartSeriesPoint[]) {
   return points
-    .map((point) => {
-      const x = ((point.elapsedSec - minX) / xRange) * width;
-      const y = height - ((point.value - minY) / yRange) * height;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
+    .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
     .join(" ");
+}
+
+function closestChartPoint(points: ChartSeriesPoint[], x: number) {
+  return points.reduce((closest, point) =>
+    Math.abs(point.x - x) < Math.abs(closest.x - x) ? point : closest,
+  );
+}
+
+function chartValueLabel(
+  point: Pick<ChartSeriesPoint, "elapsedSec" | "value">,
+  unit: string,
+) {
+  return `${durationLabel(point.elapsedSec)} elapsed · ${Math.round(point.value).toLocaleString()} ${unit}`;
 }
 
 function MiniLineChart({
@@ -568,6 +625,9 @@ function MiniLineChart({
   points: ActivityDashboardPayload["charts"]["points"];
   valueKey: "heartRate" | "altitudeMeters";
 }) {
+  const width = 320;
+  const height = 120;
+  const [activePoint, setActivePoint] = useState<ChartSeriesPoint | null>(null);
   const series = points
     .filter((point) => point[valueKey] !== null)
     .map((point) => ({
@@ -585,7 +645,20 @@ function MiniLineChart({
   const values = series.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const polyline = chartPolyline(series, 320, 120);
+  const chartPoints = chartSeriesCoordinates(series, width, height);
+  const selectedPoint = activePoint ?? chartPoints[0];
+  const polyline = chartPolyline(chartPoints);
+  const summaryId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-summary`;
+
+  function handlePointer(event: ReactPointerEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const renderedWidth = rect.width || width;
+    const relativeX = ((event.clientX - rect.left) / renderedWidth) * width;
+    setActivePoint(
+      closestChartPoint(chartPoints, Math.max(0, Math.min(width, relativeX))),
+    );
+  }
+
   return (
     <figure className="activity-chart" aria-label={`${title} chart`}>
       <figcaption>
@@ -595,13 +668,101 @@ function MiniLineChart({
         </span>
       </figcaption>
       <svg
-        viewBox="0 0 320 120"
+        viewBox={`0 0 ${width} ${height}`}
         role="img"
+        tabIndex={0}
         aria-label={`${title} over elapsed time`}
+        aria-describedby={summaryId}
+        onPointerEnter={handlePointer}
+        onPointerMove={handlePointer}
+        onPointerLeave={() => setActivePoint(null)}
+        onFocus={() => setActivePoint(chartPoints[0])}
+        onBlur={() => setActivePoint(null)}
       >
         <polyline points={polyline} />
+        {activePoint ? (
+          <g className="activity-chart-cursor">
+            <line x1={activePoint.x} x2={activePoint.x} y1={0} y2={height} />
+            <circle cx={activePoint.x} cy={activePoint.y} r={4} />
+          </g>
+        ) : null}
       </svg>
+      <p className="activity-chart-readout" aria-live="polite">
+        {chartValueLabel(selectedPoint, unit)}
+      </p>
+      <p id={summaryId} className="activity-chart-a11y">
+        Accessible chart summary: start {chartValueLabel(chartPoints[0], unit)};
+        end {chartValueLabel(chartPoints[chartPoints.length - 1], unit)}. Focus
+        the chart or move a pointer over it to inspect the nearest elapsed-time
+        value.
+      </p>
     </figure>
+  );
+}
+
+function HeartRateZoneTimeChart({
+  summary,
+}: {
+  summary: ActivityDashboardPayload["heartRateZones"];
+}) {
+  const provenance =
+    summary.zoneStatus === "garmin_configured"
+      ? "Garmin-configured HR-zone boundaries"
+      : summary.zoneStatus === "derived_from_garmin_max_hr"
+        ? "Estimated zones derived from Garmin max HR"
+        : "HR-zone boundaries unavailable";
+  const denominator = Math.max(1, summary.classifiedSeconds);
+  return (
+    <section className="hr-zone-card" aria-label="Time in HR zones">
+      <div className="hr-zone-card-header">
+        <div>
+          <p className="section-kicker">Selected activity</p>
+          <h2>Time in HR zones</h2>
+        </div>
+        <span>{provenance}</span>
+      </div>
+      <p className="activity-dashboard-status">{summary.message}</p>
+      {summary.status === "available" ? (
+        <>
+          <div className="hr-zone-bars">
+            {summary.buckets.map((bucket) => {
+              const widthPercent = (bucket.seconds / denominator) * 100;
+              return (
+                <div className="hr-zone-row" key={bucket.zone}>
+                  <div>
+                    <strong>{bucket.label ?? `Zone ${bucket.zone}`}</strong>
+                    <span>
+                      {bucket.lowerBpm}–{bucket.upperBpm ?? "max"} bpm
+                    </span>
+                  </div>
+                  <div className="hr-zone-bar" aria-hidden="true">
+                    <span style={{ width: `${widthPercent}%` }} />
+                  </div>
+                  <p>
+                    {durationDetailLabel(bucket.seconds)} · {bucket.percent}%
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          <p className="activity-dashboard-status">
+            Classified HR time: {durationDetailLabel(summary.classifiedSeconds)}
+            .
+            {summary.unclassifiedSeconds > 0
+              ? ` Unclassified HR time: ${durationDetailLabel(summary.unclassifiedSeconds)}.`
+              : ""}
+            {summary.noHeartRateSeconds > 0
+              ? ` No-HR stream time: ${durationDetailLabel(summary.noHeartRateSeconds)}.`
+              : ""}
+          </p>
+        </>
+      ) : (
+        <div className="activity-chart empty-state">
+          <strong>Time in HR zones unavailable</strong>
+          <span>{summary.message}</span>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -2403,6 +2564,9 @@ export function TrainerDashboard() {
                     points.
                   </p>
                 ) : null}
+                <HeartRateZoneTimeChart
+                  summary={activityDashboard.heartRateZones}
+                />
                 {activityDashboard.laps.length ? (
                   <div className="lap-table-wrap">
                     <table className="lap-table">

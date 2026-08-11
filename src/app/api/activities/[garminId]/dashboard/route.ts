@@ -59,6 +59,7 @@ export async function GET(request: Request, context: RouteContext) {
       },
       detail: dashboard.detail,
       charts: dashboard.charts,
+      heartRateZones: dashboard.heartRateZones,
       laps: dashboard.laps.map((lap) => ({
         lapNumber: lap.lapNumber,
         durationSec: lap.durationSec,

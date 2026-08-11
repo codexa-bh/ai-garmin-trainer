@@ -322,6 +322,104 @@ body::before {
   stroke-width: 3;
 }
 
+.activity-chart svg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.activity-chart-cursor line {
+  stroke: rgba(255, 255, 255, 0.58);
+  stroke-dasharray: 4 4;
+  stroke-width: 1.5;
+}
+
+.activity-chart-cursor circle {
+  fill: var(--accent);
+  stroke: #071017;
+  stroke-width: 2;
+}
+
+.activity-chart-readout {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.activity-chart-a11y {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hr-zone-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.hr-zone-card-header {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.hr-zone-card-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.hr-zone-card-header > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-align: right;
+}
+
+.hr-zone-bars {
+  display: grid;
+  gap: 10px;
+}
+
+.hr-zone-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.8fr) minmax(120px, 2fr) minmax(
+      88px,
+      auto
+    );
+  gap: 10px;
+  align-items: center;
+}
+
+.hr-zone-row strong,
+.hr-zone-row span {
+  display: block;
+}
+
+.hr-zone-row span,
+.hr-zone-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hr-zone-bar {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hr-zone-bar span {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), #ffd166);
+}
+
 .activity-chart.empty-state {
   display: grid;
   min-height: 120px;

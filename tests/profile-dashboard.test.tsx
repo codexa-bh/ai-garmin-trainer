@@ -1208,6 +1208,34 @@ describe("TrainerDashboard activity charts", () => {
               { elapsedSec: 60, heartRate: 136, altitudeMeters: 1012 },
             ],
           },
+          heartRateZones: {
+            status: "available",
+            zoneSource: "garmin_mcp",
+            zoneStatus: "garmin_configured",
+            formula: null,
+            classifiedSeconds: 60,
+            unclassifiedSeconds: 0,
+            noHeartRateSeconds: 0,
+            message: "Using Garmin-configured HR-zone boundaries.",
+            buckets: [
+              {
+                zone: 1,
+                label: "Zone 1",
+                lowerBpm: 90,
+                upperBpm: 119,
+                seconds: 0,
+                percent: 0,
+              },
+              {
+                zone: 2,
+                label: "Zone 2",
+                lowerBpm: 120,
+                upperBpm: 139,
+                seconds: 60,
+                percent: 100,
+              },
+            ],
+          },
           laps: [
             {
               lapNumber: 1,
@@ -1254,6 +1282,26 @@ describe("TrainerDashboard activity charts", () => {
     expect(await screen.findByText("Detail: available")).toBeTruthy();
     expect(screen.getByText("Heart rate over time")).toBeTruthy();
     expect(screen.getByText("Elevation profile")).toBeTruthy();
+    fireEvent.pointerMove(
+      screen.getByRole("img", {
+        name: "Heart rate over time over elapsed time",
+      }),
+      { clientX: 320 },
+    );
+    expect(screen.getByText("1m elapsed · 136 bpm")).toBeTruthy();
+    fireEvent.pointerMove(
+      screen.getByRole("img", { name: "Elevation profile over elapsed time" }),
+      { clientX: 320 },
+    );
+    expect(screen.getByText("1m elapsed · 1,012 m")).toBeTruthy();
+    expect(
+      screen.getByText(/Accessible chart summary: start 0m elapsed · 130 bpm/),
+    ).toBeTruthy();
+    expect(screen.getByText("Time in HR zones")).toBeTruthy();
+    expect(
+      screen.getByText("Garmin-configured HR-zone boundaries"),
+    ).toBeTruthy();
+    expect(screen.getByText("1m 00s · 100%")).toBeTruthy();
     expect(screen.getByText("Lap details")).toBeTruthy();
     expect(screen.getByText("10.00 km")).toBeTruthy();
     expect(screen.getByText("3.2")).toBeTruthy();
@@ -1302,6 +1350,18 @@ describe("TrainerDashboard activity charts", () => {
               { elapsedSec: 60, heartRate: 136, altitudeMeters: null },
             ],
           },
+          heartRateZones: {
+            status: "missing_zones",
+            zoneSource: null,
+            zoneStatus: "unavailable",
+            formula: null,
+            classifiedSeconds: 0,
+            unclassifiedSeconds: 0,
+            noHeartRateSeconds: 0,
+            message:
+              "Time in HR zones is unavailable because complete HR-zone boundaries are not available.",
+            buckets: [],
+          },
           laps: [],
         });
       }
@@ -1338,6 +1398,7 @@ describe("TrainerDashboard activity charts", () => {
       screen.getByText("No per-point altitude stream data available."),
     ).toBeTruthy();
     expect(screen.queryByText("Elevation profile")).toBeNull();
+    expect(screen.getByText("Time in HR zones unavailable")).toBeTruthy();
   });
 });
 

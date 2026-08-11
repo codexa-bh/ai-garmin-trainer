@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
+import type {
+  GarminAthleteBaselineSnapshot,
+  HeartRateZoneSetDto,
+} from "../src/lib/garmin/types";
 
 const dbDir = join(tmpdir(), "ai-garmin-activity-dashboard-tests");
 
@@ -12,6 +16,36 @@ beforeEach(() => {
   process.env.DATABASE_PATH = join(dbDir, `${crypto.randomUUID()}.sqlite`);
   vi.resetModules();
 });
+
+function baselineSnapshot(
+  heartRateZones: HeartRateZoneSetDto = {
+    status: "garmin_configured" as const,
+    source: "garmin_mcp" as const,
+    formula: null,
+    boundaries: [
+      { zone: 1 as const, label: "Zone 1", lowerBpm: 90, upperBpm: 119 },
+      { zone: 2 as const, label: "Zone 2", lowerBpm: 120, upperBpm: 139 },
+      { zone: 3 as const, label: "Zone 3", lowerBpm: 140, upperBpm: 159 },
+      { zone: 4 as const, label: "Zone 4", lowerBpm: 160, upperBpm: 179 },
+      { zone: 5 as const, label: "Zone 5", lowerBpm: 180, upperBpm: null },
+    ],
+  },
+) {
+  return {
+    availability: "complete" as const,
+    source: "garmin_mcp" as const,
+    fetchedAt: new Date("2026-08-01T00:00:00Z"),
+    values: {
+      configuredMaxHeartRateBpm: 190,
+      heartRateZones,
+      cyclingFtpWatts: null,
+      cyclingFtpMeasuredOn: null,
+      cyclingFtpSourceStale: null,
+      availableTrainingDays: [],
+      preferredLongTrainingDays: [],
+    },
+  } satisfies GarminAthleteBaselineSnapshot;
+}
 
 async function seedActivities() {
   const repo = await import("../src/lib/db/repository");
@@ -125,6 +159,13 @@ describe("activity dashboard repository and routes", () => {
       }),
     );
 
+    repo.writeGarminAthleteBaselineRefresh({
+      snapshot: baselineSnapshot(),
+      status: "complete",
+      attemptedAt: new Date("2026-08-01T00:00:00Z"),
+      completedAt: new Date("2026-08-01T00:00:01Z"),
+    });
+
     const dashboard = repo.getActivityDashboardDetail("111111", 5);
 
     expect(dashboard?.charts.downsampled).toBe(true);
@@ -136,6 +177,15 @@ describe("activity dashboard repository and routes", () => {
       hasLaps: true,
     });
     expect(dashboard?.laps).toHaveLength(1);
+    expect(dashboard?.heartRateZones).toMatchObject({
+      status: "available",
+      zoneStatus: "garmin_configured",
+      classifiedSeconds: 11,
+      buckets: expect.arrayContaining([
+        expect.objectContaining({ zone: 2, seconds: 10 }),
+        expect.objectContaining({ zone: 3, seconds: 1 }),
+      ]),
+    });
     const serialized = JSON.stringify(dashboard);
     expect(serialized).not.toContain("lat");
     expect(serialized).not.toContain("lon");
@@ -155,6 +205,23 @@ describe("activity dashboard repository and routes", () => {
         ],
       }),
     );
+    repo.writeGarminAthleteBaselineRefresh({
+      snapshot: baselineSnapshot({
+        status: "derived_from_garmin_max_hr" as const,
+        source: "derived" as const,
+        formula: "test formula",
+        boundaries: [
+          { zone: 1 as const, label: "Zone 1", lowerBpm: 90, upperBpm: 119 },
+          { zone: 2 as const, label: "Zone 2", lowerBpm: 120, upperBpm: 139 },
+          { zone: 3 as const, label: "Zone 3", lowerBpm: 140, upperBpm: 159 },
+          { zone: 4 as const, label: "Zone 4", lowerBpm: 160, upperBpm: 179 },
+          { zone: 5 as const, label: "Zone 5", lowerBpm: 180, upperBpm: null },
+        ],
+      }),
+      status: "complete",
+      attemptedAt: new Date("2026-08-01T00:00:00Z"),
+      completedAt: new Date("2026-08-01T00:00:01Z"),
+    });
     const listRoute = await import("../src/app/api/activities/route");
     const detailRoute =
       await import("../src/app/api/activities/[garminId]/dashboard/route");
@@ -182,6 +249,12 @@ describe("activity dashboard repository and routes", () => {
       elapsedSec: 0,
       heartRate: 130,
       altitudeMeters: 1000,
+    });
+    expect(detailPayload.heartRateZones).toMatchObject({
+      status: "available",
+      zoneStatus: "derived_from_garmin_max_hr",
+      zoneSource: "derived",
+      classifiedSeconds: 1,
     });
     expect(JSON.stringify(detailPayload)).not.toContain("lat");
     expect(JSON.stringify(detailPayload)).not.toContain("lon");
@@ -241,5 +314,46 @@ describe("activity dashboard repository and routes", () => {
     expect(serialized).not.toContain("token");
     expect(serialized).not.toContain("DATABASE_PATH");
     expect(serialized).not.toContain("select ");
+  });
+
+  it("reports truthful HR-zone unavailable states without fabricating buckets", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, heart_rate_bpm: 130 },
+          { elapsed_time_s: 60, heart_rate_bpm: 136 },
+        ],
+      }),
+    );
+
+    expect(
+      repo.getActivityDashboardDetail("111111")?.heartRateZones,
+    ).toMatchObject({
+      status: "missing_zones",
+      buckets: [],
+    });
+
+    repo.writeGarminAthleteBaselineRefresh({
+      snapshot: baselineSnapshot(),
+      status: "complete",
+      attemptedAt: new Date("2026-08-01T00:00:00Z"),
+      completedAt: new Date("2026-08-01T00:00:01Z"),
+    });
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("222222", {
+        records: [
+          { elapsed_time_s: 0, altitude_m: 1000 },
+          { elapsed_time_s: 60, altitude_m: 1006 },
+        ],
+      }),
+    );
+
+    expect(
+      repo.getActivityDashboardDetail("222222")?.heartRateZones,
+    ).toMatchObject({
+      status: "missing_heart_rate",
+      zoneStatus: "garmin_configured",
+    });
   });
 });
