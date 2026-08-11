@@ -1135,7 +1135,6 @@ export function getActivityDetailForAnalytics(garminId: string): {
 
 export function getActivityDashboardDetail(
   garminId: string,
-  maxPoints = 240,
 ): ActivityDashboardDetail | null {
   const db = getDatabase();
   const activity = getActivityByGarminId(garminId);
@@ -1158,30 +1157,15 @@ export function getActivityDashboardDetail(
         unavailableReason: string | null;
       }
     | undefined;
-  const safeMaxPoints = boundedInteger(maxPoints, 240, 2, 500);
-  const sourcePointCount = (
-    db
-      .prepare(
-        `select count(*) as count from activity_stream_point
-         where garmin_id = ? and (heart_rate is not null or altitude_meters is not null)`,
-      )
-      .get(garminId) as { count: number }
-  ).count;
-  const stride = Math.max(1, Math.ceil(sourcePointCount / safeMaxPoints));
   const points = db
     .prepare(
       `select elapsed_sec as elapsedSec, heart_rate as heartRate, altitude_meters as altitudeMeters
-       from (
-         select elapsed_sec, heart_rate, altitude_meters,
-                row_number() over (order by elapsed_sec) as rowNumber
-         from activity_stream_point
-         where garmin_id = ? and (heart_rate is not null or altitude_meters is not null)
-       )
-       where ((rowNumber - 1) % ?) = 0
-       order by elapsedSec
-       limit ?`,
+       from activity_stream_point
+       where garmin_id = ? and (heart_rate is not null or altitude_meters is not null)
+       order by elapsed_sec`,
     )
-    .all(garminId, stride, safeMaxPoints) as ActivityDashboardChartPoint[];
+    .all(garminId) as ActivityDashboardChartPoint[];
+  const sourcePointCount = points.length;
   const laps = db
     .prepare(
       `select lap_number as lapNumber, start_time as startTime, duration_sec as durationSec,
@@ -1206,10 +1190,10 @@ export function getActivityDashboardDetail(
       unavailableReason: availability?.unavailableReason ?? null,
     },
     charts: {
-      downsampled: sourcePointCount > points.length,
+      downsampled: false,
       sourcePointCount,
       pointCount: points.length,
-      maxPoints: safeMaxPoints,
+      maxPoints: sourcePointCount,
       points,
     },
     heartRateZones: getActivityHeartRateZoneTime(garminId),

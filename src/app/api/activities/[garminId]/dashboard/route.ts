@@ -18,7 +18,7 @@ function activityLabel(activity: {
   return activity.name?.trim() || `${activity.sport} on ${date}`;
 }
 
-export async function GET(request: Request, context: RouteContext) {
+export async function GET(_request: Request, context: RouteContext) {
   try {
     const { garminId: rawGarminId } = await paramsFrom(context);
     const garminId = String(rawGarminId ?? "").trim();
@@ -28,11 +28,7 @@ export async function GET(request: Request, context: RouteContext) {
         { status: 400 },
       );
     }
-    const url = new URL(request.url);
-    const dashboard = getActivityDashboardDetail(
-      garminId,
-      Number(url.searchParams.get("maxPoints") ?? 240),
-    );
+    const dashboard = getActivityDashboardDetail(garminId);
     if (!dashboard) {
       return NextResponse.json(
         { error: `No imported activity with Garmin ID ${garminId}` },

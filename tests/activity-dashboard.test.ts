@@ -166,10 +166,13 @@ describe("activity dashboard repository and routes", () => {
       completedAt: new Date("2026-08-01T00:00:01Z"),
     });
 
-    const dashboard = repo.getActivityDashboardDetail("111111", 5);
+    const dashboard = repo.getActivityDashboardDetail("111111");
 
-    expect(dashboard?.charts.downsampled).toBe(true);
-    expect(dashboard?.charts.points.length).toBeLessThanOrEqual(5);
+    expect(dashboard?.charts.downsampled).toBe(false);
+    expect(dashboard?.charts.sourcePointCount).toBe(12);
+    expect(dashboard?.charts.pointCount).toBe(12);
+    expect(dashboard?.charts.maxPoints).toBe(12);
+    expect(dashboard?.charts.points).toHaveLength(12);
     expect(dashboard?.detail).toMatchObject({
       status: "available",
       hasHeartRate: true,
@@ -237,7 +240,9 @@ describe("activity dashboard repository and routes", () => {
     });
 
     const detailResponse = await detailRoute.GET(
-      new Request("http://local.test/api/activities/111111/dashboard"),
+      new Request(
+        "http://local.test/api/activities/111111/dashboard?maxPoints=1",
+      ),
       { params: { garminId: "111111" } },
     );
     const detailPayload = await detailResponse.json();
@@ -289,7 +294,7 @@ describe("activity dashboard repository and routes", () => {
     const detailRoute =
       await import("../src/app/api/activities/[garminId]/dashboard/route");
 
-    const dashboard = repo.getActivityDashboardDetail("111111", 5);
+    const dashboard = repo.getActivityDashboardDetail("111111");
     expect(dashboard?.detail.hasElevation).toBe(false);
     expect(dashboard?.charts.points[0]).toMatchObject({
       elapsedSec: 0,

@@ -1234,6 +1234,30 @@ describe("TrainerDashboard activity charts", () => {
                 seconds: 60,
                 percent: 100,
               },
+              {
+                zone: 3,
+                label: "Zone 3",
+                lowerBpm: 140,
+                upperBpm: 159,
+                seconds: 0,
+                percent: 0,
+              },
+              {
+                zone: 4,
+                label: "Zone 4",
+                lowerBpm: 160,
+                upperBpm: 179,
+                seconds: 0,
+                percent: 0,
+              },
+              {
+                zone: 5,
+                label: "Zone 5",
+                lowerBpm: 180,
+                upperBpm: null,
+                seconds: 0,
+                percent: 0,
+              },
             ],
           },
           laps: [
@@ -1294,14 +1318,27 @@ describe("TrainerDashboard activity charts", () => {
       { clientX: 320 },
     );
     expect(screen.getByText("1m elapsed · 1,012 m")).toBeTruthy();
-    expect(
-      screen.getByText(/Accessible chart summary: start 0m elapsed · 130 bpm/),
-    ).toBeTruthy();
+    expect(screen.queryByText(/Accessible chart summary:/)).toBeNull();
+    expect(screen.queryByText("Selected activity")).toBeNull();
+    expect(screen.queryByText(/Charts downsampled to/)).toBeNull();
     expect(screen.getByText("Time in HR zones")).toBeTruthy();
     expect(
       screen.getByText("Garmin-configured HR-zone boundaries"),
     ).toBeTruthy();
     expect(screen.getByText("1m 00s · 100%")).toBeTruthy();
+    expect(
+      screen.getAllByText(/Zone [1-5]/).map((item) => item.textContent),
+    ).toEqual(["Zone 5", "Zone 4", "Zone 3", "Zone 2", "Zone 1"]);
+    const zoneFiveBar = screen
+      .getByText("Zone 5")
+      .closest(".hr-zone-row")
+      ?.querySelector(".hr-zone-bar");
+    const zoneOneBar = screen
+      .getByText("Zone 1")
+      .closest(".hr-zone-row")
+      ?.querySelector(".hr-zone-bar");
+    expect(zoneFiveBar?.className).toContain("hr-zone-bar-zone-5");
+    expect(zoneOneBar?.className).toContain("hr-zone-bar-zone-1");
     expect(screen.getByText("Lap details")).toBeTruthy();
     expect(screen.getByText("10.00 km")).toBeTruthy();
     expect(screen.getByText("3.2")).toBeTruthy();

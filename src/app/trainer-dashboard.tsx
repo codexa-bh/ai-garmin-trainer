@@ -648,8 +648,6 @@ function MiniLineChart({
   const chartPoints = chartSeriesCoordinates(series, width, height);
   const selectedPoint = activePoint ?? chartPoints[0];
   const polyline = chartPolyline(chartPoints);
-  const summaryId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-summary`;
-
   function handlePointer(event: ReactPointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     const renderedWidth = rect.width || width;
@@ -672,7 +670,6 @@ function MiniLineChart({
         role="img"
         tabIndex={0}
         aria-label={`${title} over elapsed time`}
-        aria-describedby={summaryId}
         onPointerEnter={handlePointer}
         onPointerMove={handlePointer}
         onPointerLeave={() => setActivePoint(null)}
@@ -690,12 +687,6 @@ function MiniLineChart({
       <p className="activity-chart-readout" aria-live="polite">
         {chartValueLabel(selectedPoint, unit)}
       </p>
-      <p id={summaryId} className="activity-chart-a11y">
-        Accessible chart summary: start {chartValueLabel(chartPoints[0], unit)};
-        end {chartValueLabel(chartPoints[chartPoints.length - 1], unit)}. Focus
-        the chart or move a pointer over it to inspect the nearest elapsed-time
-        value.
-      </p>
     </figure>
   );
 }
@@ -712,11 +703,13 @@ function HeartRateZoneTimeChart({
         ? "Estimated zones derived from Garmin max HR"
         : "HR-zone boundaries unavailable";
   const denominator = Math.max(1, summary.classifiedSeconds);
+  const orderedBuckets = [...summary.buckets].sort(
+    (left, right) => right.zone - left.zone,
+  );
   return (
     <section className="hr-zone-card" aria-label="Time in HR zones">
       <div className="hr-zone-card-header">
         <div>
-          <p className="section-kicker">Selected activity</p>
           <h2>Time in HR zones</h2>
         </div>
         <span>{provenance}</span>
@@ -725,7 +718,7 @@ function HeartRateZoneTimeChart({
       {summary.status === "available" ? (
         <>
           <div className="hr-zone-bars">
-            {summary.buckets.map((bucket) => {
+            {orderedBuckets.map((bucket) => {
               const widthPercent = (bucket.seconds / denominator) * 100;
               return (
                 <div className="hr-zone-row" key={bucket.zone}>
@@ -735,7 +728,10 @@ function HeartRateZoneTimeChart({
                       {bucket.lowerBpm}–{bucket.upperBpm ?? "max"} bpm
                     </span>
                   </div>
-                  <div className="hr-zone-bar" aria-hidden="true">
+                  <div
+                    className={`hr-zone-bar hr-zone-bar-zone-${bucket.zone}`}
+                    aria-hidden="true"
+                  >
                     <span style={{ width: `${widthPercent}%` }} />
                   </div>
                   <p>
@@ -2470,7 +2466,6 @@ export function TrainerDashboard() {
               <>
                 <div className="selected-activity-heading">
                   <div>
-                    <p className="section-kicker">Selected activity</p>
                     <h2>{activityDashboard.activity.label}</h2>
                     <p>
                       {activityDashboard.activity.date} ·{" "}
@@ -2557,13 +2552,6 @@ export function TrainerDashboard() {
                     </div>
                   )}
                 </div>
-                {activityDashboard.charts.downsampled ? (
-                  <p className="activity-dashboard-status">
-                    Charts downsampled to {activityDashboard.charts.pointCount}{" "}
-                    of {activityDashboard.charts.sourcePointCount} stream
-                    points.
-                  </p>
-                ) : null}
                 <HeartRateZoneTimeChart
                   summary={activityDashboard.heartRateZones}
                 />

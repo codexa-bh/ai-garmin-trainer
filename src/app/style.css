@@ -346,12 +346,6 @@ body::before {
   font-weight: 750;
 }
 
-.activity-chart-a11y {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .hr-zone-card {
   display: flex;
   flex-direction: column;
@@ -417,7 +411,27 @@ body::before {
 .hr-zone-bar span {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent), #ffd166);
+  background: var(--hr-zone-color, var(--accent));
+}
+
+.hr-zone-bar-zone-1 {
+  --hr-zone-color: #3b82f6;
+}
+
+.hr-zone-bar-zone-2 {
+  --hr-zone-color: #22c55e;
+}
+
+.hr-zone-bar-zone-3 {
+  --hr-zone-color: #facc15;
+}
+
+.hr-zone-bar-zone-4 {
+  --hr-zone-color: #f97316;
+}
+
+.hr-zone-bar-zone-5 {
+  --hr-zone-color: #ef4444;
 }
 
 .activity-chart.empty-state {
