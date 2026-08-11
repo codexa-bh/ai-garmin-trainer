@@ -170,6 +170,17 @@ export const activityStreamPoint = sqliteTable("activity_stream_point", {
   temperatureC: real("temperature_c"),
 });
 
+export const activityHrZoneTime = sqliteTable("activity_hr_zone_time", {
+  garminId: text("garmin_id").notNull(),
+  zone: integer("zone").notNull(),
+  fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),
+  source: text("source").notNull(),
+  status: text("status").notNull(),
+  seconds: integer("seconds").notNull(),
+  sourceLowerBpm: integer("source_lower_bpm"),
+  sourceTotalSeconds: integer("source_total_seconds").notNull(),
+});
+
 export const garminAthleteBaseline = sqliteTable("garmin_athlete_baseline", {
   id: text("id").primaryKey().default("default"),
   fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),

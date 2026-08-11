@@ -311,7 +311,9 @@ type ActivityDashboardPayload = {
       | "available"
       | "missing_zones"
       | "missing_heart_rate"
-      | "insufficient_stream";
+      | "insufficient_stream"
+      | "missing_activity_zone_times";
+    timeSource: "garmin_activity" | "local_stream" | null;
     zoneSource: "garmin_mcp" | "derived" | null;
     zoneStatus:
       "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
@@ -319,6 +321,8 @@ type ActivityDashboardPayload = {
     classifiedSeconds: number;
     unclassifiedSeconds: number;
     noHeartRateSeconds: number;
+    activityDurationSec: number | null;
+    sourceTotalSeconds: number | null;
     message: string;
     buckets: Array<{
       zone: 1 | 2 | 3 | 4 | 5;
@@ -696,12 +700,23 @@ function HeartRateZoneTimeChart({
 }: {
   summary: ActivityDashboardPayload["heartRateZones"];
 }) {
-  const provenance =
+  const boundaryProvenance =
     summary.zoneStatus === "garmin_configured"
       ? "Garmin-configured HR-zone boundaries"
       : summary.zoneStatus === "derived_from_garmin_max_hr"
         ? "Estimated zones derived from Garmin max HR"
         : "HR-zone boundaries unavailable";
+  const timeProvenance =
+    summary.timeSource === "garmin_activity"
+      ? "Garmin activity HR-zone totals"
+      : summary.timeSource === "local_stream"
+        ? "Local stream-derived fallback"
+        : "HR-zone time unavailable";
+  const totalMismatch =
+    summary.status === "available" &&
+    summary.activityDurationSec !== null &&
+    summary.sourceTotalSeconds !== null &&
+    Math.abs(summary.activityDurationSec - summary.sourceTotalSeconds) >= 60;
   const denominator = Math.max(1, summary.classifiedSeconds);
   const orderedBuckets = [...summary.buckets].sort(
     (left, right) => right.zone - left.zone,
@@ -712,7 +727,7 @@ function HeartRateZoneTimeChart({
         <div>
           <h2>Time in HR zones</h2>
         </div>
-        <span>{provenance}</span>
+        <span>{timeProvenance}</span>
       </div>
       <p className="activity-dashboard-status">{summary.message}</p>
       {summary.status === "available" ? (
@@ -742,12 +757,23 @@ function HeartRateZoneTimeChart({
             })}
           </div>
           <p className="activity-dashboard-status">
-            Classified HR time: {durationDetailLabel(summary.classifiedSeconds)}
-            .
-            {summary.unclassifiedSeconds > 0
+            Source total:{" "}
+            {durationDetailLabel(
+              summary.sourceTotalSeconds ?? summary.classifiedSeconds,
+            )}
+            {summary.activityDurationSec !== null
+              ? ` · activity duration ${durationDetailLabel(summary.activityDurationSec)}`
+              : ""}
+            . {boundaryProvenance}.
+            {totalMismatch
+              ? " Garmin's HR-zone source total differs from the activity duration, so unclassified/no-HR or moving-time differences may not be included."
+              : ""}
+            {summary.timeSource === "local_stream" &&
+            summary.unclassifiedSeconds > 0
               ? ` Unclassified HR time: ${durationDetailLabel(summary.unclassifiedSeconds)}.`
               : ""}
-            {summary.noHeartRateSeconds > 0
+            {summary.timeSource === "local_stream" &&
+            summary.noHeartRateSeconds > 0
               ? ` No-HR stream time: ${durationDetailLabel(summary.noHeartRateSeconds)}.`
               : ""}
           </p>

@@ -183,10 +183,12 @@ describe("activity dashboard repository and routes", () => {
     expect(dashboard?.heartRateZones).toMatchObject({
       status: "available",
       zoneStatus: "garmin_configured",
-      classifiedSeconds: 11,
+      timeSource: "local_stream",
+      classifiedSeconds: 660,
+      sourceTotalSeconds: 660,
       buckets: expect.arrayContaining([
-        expect.objectContaining({ zone: 2, seconds: 10 }),
-        expect.objectContaining({ zone: 3, seconds: 1 }),
+        expect.objectContaining({ zone: 2, seconds: 600 }),
+        expect.objectContaining({ zone: 3, seconds: 60 }),
       ]),
     });
     const serialized = JSON.stringify(dashboard);
@@ -259,10 +261,56 @@ describe("activity dashboard repository and routes", () => {
       status: "available",
       zoneStatus: "derived_from_garmin_max_hr",
       zoneSource: "derived",
-      classifiedSeconds: 1,
+      timeSource: "local_stream",
+      classifiedSeconds: 60,
     });
     expect(JSON.stringify(detailPayload)).not.toContain("lat");
     expect(JSON.stringify(detailPayload)).not.toContain("lon");
+  });
+
+  it("prefers Garmin activity HR-zone totals over local stream-derived fallback", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, heart_rate_bpm: 130 },
+          { elapsed_time_s: 60, heart_rate_bpm: 136 },
+        ],
+      }),
+    );
+    repo.writeGarminAthleteBaselineRefresh({
+      snapshot: baselineSnapshot(),
+      status: "complete",
+      attemptedAt: new Date("2026-08-01T00:00:00Z"),
+      completedAt: new Date("2026-08-01T00:00:01Z"),
+    });
+    repo.upsertActivityHrZoneTime({
+      garminId: "111111",
+      fetchedAt: new Date("2026-08-01T00:00:02Z"),
+      source: "garmin_mcp",
+      status: "available",
+      sourceTotalSeconds: 3600,
+      buckets: [
+        { zone: 1, seconds: 300, sourceLowerBpm: 90 },
+        { zone: 2, seconds: 900, sourceLowerBpm: 120 },
+        { zone: 3, seconds: 1200, sourceLowerBpm: 140 },
+        { zone: 4, seconds: 800, sourceLowerBpm: 160 },
+        { zone: 5, seconds: 400, sourceLowerBpm: 180 },
+      ],
+    });
+
+    expect(
+      repo.getActivityDashboardDetail("111111")?.heartRateZones,
+    ).toMatchObject({
+      status: "available",
+      timeSource: "garmin_activity",
+      classifiedSeconds: 3600,
+      sourceTotalSeconds: 3600,
+      activityDurationSec: 3600,
+      buckets: expect.arrayContaining([
+        expect.objectContaining({ zone: 5, seconds: 400, percent: 11.1 }),
+      ]),
+    });
   });
 
   it("keeps selected dashboard elevation unchartable when only summary and lap totals exist", async () => {

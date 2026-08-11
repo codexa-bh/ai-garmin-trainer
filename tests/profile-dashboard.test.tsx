@@ -1210,13 +1210,16 @@ describe("TrainerDashboard activity charts", () => {
           },
           heartRateZones: {
             status: "available",
+            timeSource: "garmin_activity",
             zoneSource: "garmin_mcp",
             zoneStatus: "garmin_configured",
             formula: null,
             classifiedSeconds: 60,
             unclassifiedSeconds: 0,
             noHeartRateSeconds: 0,
-            message: "Using Garmin-configured HR-zone boundaries.",
+            activityDurationSec: 3600,
+            sourceTotalSeconds: 60,
+            message: "Using Garmin activity HR-zone time totals.",
             buckets: [
               {
                 zone: 1,
@@ -1322,8 +1325,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.queryByText("Selected activity")).toBeNull();
     expect(screen.queryByText(/Charts downsampled to/)).toBeNull();
     expect(screen.getByText("Time in HR zones")).toBeTruthy();
+    expect(screen.getByText("Garmin activity HR-zone totals")).toBeTruthy();
     expect(
-      screen.getByText("Garmin-configured HR-zone boundaries"),
+      screen.getByText(/Garmin-configured HR-zone boundaries/),
     ).toBeTruthy();
     expect(screen.getByText("1m 00s · 100%")).toBeTruthy();
     expect(
@@ -1389,14 +1393,17 @@ describe("TrainerDashboard activity charts", () => {
           },
           heartRateZones: {
             status: "missing_zones",
+            timeSource: null,
             zoneSource: null,
             zoneStatus: "unavailable",
             formula: null,
             classifiedSeconds: 0,
             unclassifiedSeconds: 0,
             noHeartRateSeconds: 0,
+            activityDurationSec: 3600,
+            sourceTotalSeconds: null,
             message:
-              "Time in HR zones is unavailable because complete HR-zone boundaries are not available.",
+              "Time in HR zones is unavailable because Garmin activity HR-zone totals and complete HR-zone boundaries are not available.",
             buckets: [],
           },
           laps: [],

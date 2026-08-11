@@ -15,6 +15,7 @@ import {
   upsertActivities,
   upsertGarminRawPayload,
   upsertActivityDetail,
+  upsertActivityHrZoneTime,
   upsertDailyHealth,
   writeGarminAthleteBaselineRefresh,
 } from "../db/repository";
@@ -29,6 +30,7 @@ import {
   hasUsableGarminAthleteBaseline,
   normalizeGarminAthleteBaseline,
 } from "./athlete-normalize";
+import { normalizeActivityHrZoneTime } from "./activity-hr-zone-time";
 import {
   normalizeActivityDetail,
   normalizeUnsupportedActivityDetail,
@@ -489,6 +491,27 @@ function classifyDetailError(error: unknown): {
   };
 }
 
+async function fetchAndStoreActivityHrZoneTime(
+  client: GarminMcpClient,
+  garminId: string,
+): Promise<boolean> {
+  try {
+    const text = await client.callTool("get_activity_hr_in_timezones", {
+      activity_id: garminId,
+    });
+    const parsed = parseToolJson(text);
+    const normalized = normalizeActivityHrZoneTime(garminId, parsed);
+    if (!normalized) return false;
+    upsertActivityHrZoneTime(normalized);
+    return true;
+  } catch {
+    // Garmin activity HR-zone totals are an additive dashboard source. Preserve
+    // existing FIT detail behavior and any previous usable HR-zone rows when the
+    // connector endpoint is unavailable or returns an unrecognized shape.
+    return false;
+  }
+}
+
 async function fetchAndStoreActivityDetail(
   client: GarminMcpClient,
   garminId: string,
@@ -520,6 +543,10 @@ async function fetchAndStoreActivityDetail(
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const detail = normalizeActivityDetail(garminId, parsed);
       upsertActivityDetail(detail);
+      const storedHrZoneTime = await fetchAndStoreActivityHrZoneTime(
+        client,
+        garminId,
+      );
       const detailStatus =
         detail.status === "not_requested" ? "unsupported" : detail.status;
       recordActivityDetailAttempt({
@@ -538,7 +565,7 @@ async function fetchAndStoreActivityDetail(
         lapCount: detail.lapCount,
         preservedPrevious: false,
         retryable: false,
-        detail: `Detailed Garmin activity ${garminId} normalized locally from FIT parser. Records: ${detail.recordCount}; laps: ${detail.lapCount}. Redacted raw connector payload was retained locally for generated analysis.`,
+        detail: `Detailed Garmin activity ${garminId} normalized locally from FIT parser. Records: ${detail.recordCount}; laps: ${detail.lapCount}; Garmin activity HR-zone totals ${storedHrZoneTime ? "stored" : "unavailable or preserved"}. Redacted raw connector payload was retained locally for generated analysis.`,
       };
     }
     const unsupported = normalizeUnsupportedActivityDetail(

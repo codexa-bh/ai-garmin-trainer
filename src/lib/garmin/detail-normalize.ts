@@ -87,13 +87,26 @@ function normalizeLap(
   };
 }
 
+function elapsedSecFromRecord(
+  payload: Record<string, unknown>,
+  index: number,
+): number {
+  const elapsed = numberOrNull(
+    payload.elapsed_time_s ??
+      payload.elapsedTime ??
+      payload.elapsed_time ??
+      payload.duration_s,
+  );
+  return elapsed !== null && elapsed >= 0 ? Math.round(elapsed) : index;
+}
+
 function normalizePoint(
   payload: Record<string, unknown>,
   index: number,
 ): ActivityStreamPoint {
   return {
     timestamp: stringOrNull(payload.timestamp),
-    elapsedSec: index,
+    elapsedSec: elapsedSecFromRecord(payload, index),
     heartRate: numberOrNull(payload.heart_rate_bpm),
     speedMps: numberOrNull(payload.speed_mps),
     altitudeMeters: altitudeMetersFromRecord(payload),

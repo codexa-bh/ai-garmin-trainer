@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assertReadOperation } from "../src/lib/garmin/client";
 import { normalizeGarminAthleteBaseline } from "../src/lib/garmin/athlete-normalize";
+import { normalizeActivityHrZoneTime } from "../src/lib/garmin/activity-hr-zone-time";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
 import {
   activityDetailNeedsAltitudeSupplement,
@@ -184,10 +185,56 @@ describe("Garmin boundary", () => {
     expect(detail.hasElevation).toBe(true);
     expect(detail.hasHeartRate).toBe(true);
     expect(detail.recordCount).toBe(3);
+    expect(detail.stream.map((point) => point.elapsedSec)).toEqual([0, 1, 2]);
     expect(detail.stream.map((point) => point.altitudeMeters)).toEqual([
       1000, 1001, 1002,
     ]);
     expect(JSON.stringify(detail)).not.toContain("garmin_tokens");
+  });
+
+  it("uses real FIT elapsed seconds before array-index fallback", () => {
+    const detail = normalizeActivityDetail("46", {
+      records: [
+        { elapsed_time_s: 0, heart_rate_bpm: 130 },
+        { elapsed_time_s: 60, heart_rate_bpm: 136 },
+        { heart_rate_bpm: 140 },
+        { elapsed_time_s: -5, heart_rate_bpm: 145 },
+      ],
+    });
+
+    expect(detail.stream.map((point) => point.elapsedSec)).toEqual([
+      0, 60, 2, 3,
+    ]);
+  });
+
+  it("normalizes Garmin activity HR-zone time payload shape fail-closed", () => {
+    expect(
+      normalizeActivityHrZoneTime("42", [
+        { zoneNumber: 1, secsInZone: 120, zoneLowBoundary: 95 },
+        { zoneNumber: 2, secsInZone: 240, zoneLowBoundary: 114 },
+        { zoneNumber: 3, secsInZone: 360, zoneLowBoundary: 133 },
+        { zoneNumber: 4, secsInZone: 480, zoneLowBoundary: 152 },
+        { zoneNumber: 5, secsInZone: 60, zoneLowBoundary: 171 },
+      ]),
+    ).toMatchObject({
+      source: "garmin_mcp",
+      status: "available",
+      sourceTotalSeconds: 1260,
+      buckets: expect.arrayContaining([
+        { zone: 5, seconds: 60, sourceLowerBpm: 171 },
+      ]),
+    });
+    expect(
+      normalizeActivityHrZoneTime("42", [
+        { zoneNumber: 1, secsInZone: 120, zoneLowBoundary: 95 },
+        { zoneNumber: 1, secsInZone: 240, zoneLowBoundary: 114 },
+      ]),
+    ).toBeNull();
+    expect(
+      normalizeActivityHrZoneTime("42", [
+        { zoneNumber: 1, secsInZone: -1, zoneLowBoundary: 95 },
+      ]),
+    ).toBeNull();
   });
 
   it("merges true FIT enhanced altitude records by timestamp before normalization", () => {
