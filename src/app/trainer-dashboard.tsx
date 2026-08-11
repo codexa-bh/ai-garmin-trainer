@@ -1,6 +1,13 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type UIEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
 type ChatRole = "user" | "assistant";
@@ -263,7 +270,12 @@ type ActivityListPayload = {
   activities: ActivityListItem[];
   nextOffset?: number | null;
   totalApprox?: number;
+  limit?: number;
+  offset?: number;
 };
+
+const ACTIVITY_LIST_PAGE_SIZE = 100;
+const ACTIVITY_LIST_SCROLL_THRESHOLD_PX = 96;
 
 type ActivityDashboardPayload = {
   activity: ActivityListItem & {
@@ -907,8 +919,16 @@ export function TrainerDashboard() {
   const [activityListState, setActivityListState] = useState<
     "idle" | "loading" | "loaded" | "error"
   >("idle");
+  const [activityListNextOffset, setActivityListNextOffset] = useState<
+    number | null
+  >(null);
+  const [activityListTotalApprox, setActivityListTotalApprox] = useState<
+    number | undefined
+  >(undefined);
+  const [isActivityListLoadingMore, setIsActivityListLoadingMore] =
+    useState(false);
   const [activityListMessage, setActivityListMessage] = useState(
-    "Open Activity charts to search synced activities.",
+    "Open Activity charts to load synced activities.",
   );
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(
     null,
@@ -932,6 +952,12 @@ export function TrainerDashboard() {
   const chatAbortRef = useRef<AbortController | null>(null);
   const conversationButtonRef = useRef<HTMLButtonElement>(null);
   const activityDashboardButtonRef = useRef<HTMLButtonElement>(null);
+  const activityDashboardCloseRef = useRef<HTMLButtonElement>(null);
+  const activityDashboardReturnFocusRef = useRef(false);
+  const activityListRequestRef = useRef(0);
+  const activityListQueryRef = useRef("");
+  const activityListLoadedCountRef = useRef(0);
+  const activityListLoadingMoreRef = useRef(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
@@ -1047,8 +1073,7 @@ export function TrainerDashboard() {
         return;
       }
       if (activityDashboardOpen) {
-        setActivityDashboardOpen(false);
-        activityDashboardButtonRef.current?.focus();
+        closeActivityDashboard();
         return;
       }
       if (isConversationDrawerOpen) {
@@ -1068,6 +1093,16 @@ export function TrainerDashboard() {
   useEffect(() => {
     if (settingsOpen) settingsCloseRef.current?.focus();
   }, [settingsOpen]);
+  useEffect(() => {
+    if (activityDashboardOpen) {
+      activityDashboardCloseRef.current?.focus();
+      return;
+    }
+    if (activityDashboardReturnFocusRef.current) {
+      activityDashboardReturnFocusRef.current = false;
+      activityDashboardButtonRef.current?.focus();
+    }
+  }, [activityDashboardOpen]);
   useEffect(() => {
     if (!activityDashboardOpen) return;
     void loadActivities(activitySearchQuery);
@@ -1516,18 +1551,57 @@ export function TrainerDashboard() {
     await loadImportSummary("manual");
   }
 
-  async function loadActivities(query: string) {
-    setActivityListState("loading");
+  function closeActivityDashboard() {
+    activityDashboardReturnFocusRef.current = true;
+    setActivityDashboardOpen(false);
+  }
+
+  async function loadActivities(query: string, offset = 0, append = false) {
+    const trimmed = query.trim();
+    if (append) {
+      if (activityListLoadingMoreRef.current || activityListNextOffset === null)
+        return;
+      activityListLoadingMoreRef.current = true;
+      setIsActivityListLoadingMore(true);
+    } else {
+      activityListRequestRef.current += 1;
+      activityListQueryRef.current = trimmed;
+      activityListLoadedCountRef.current = 0;
+      setActivities([]);
+      setActivityListNextOffset(null);
+      setActivityListTotalApprox(undefined);
+      setActivityListState("loading");
+      setActivityListMessage("Loading synced activities…");
+    }
+
+    const requestGeneration = activityListRequestRef.current;
     try {
-      const params = new URLSearchParams({ limit: "25" });
-      const trimmed = query.trim();
+      const params = new URLSearchParams({
+        limit: String(ACTIVITY_LIST_PAGE_SIZE),
+        offset: String(offset),
+      });
       if (trimmed) params.set("q", trimmed);
       const payload = await readJsonResponse<ActivityListPayload>(
         await fetch(`/api/activities?${params.toString()}`),
       );
-      setActivities(payload.activities);
+      if (
+        requestGeneration !== activityListRequestRef.current ||
+        trimmed !== activityListQueryRef.current
+      ) {
+        return;
+      }
+
+      const loadedCount = append
+        ? activityListLoadedCountRef.current + payload.activities.length
+        : payload.activities.length;
+      activityListLoadedCountRef.current = loadedCount;
+      setActivities((current) =>
+        append ? [...current, ...payload.activities] : payload.activities,
+      );
+      setActivityListNextOffset(payload.nextOffset ?? null);
+      setActivityListTotalApprox(payload.totalApprox);
       setActivityListState("loaded");
-      if (!payload.activities.length) {
+      if (!loadedCount) {
         setActivityListMessage(
           trimmed
             ? "No synced activities match that search."
@@ -1535,18 +1609,38 @@ export function TrainerDashboard() {
         );
         return;
       }
-      const suffix = payload.nextOffset
-        ? ` Showing first ${payload.activities.length}. Refine search for more.`
-        : "";
       setActivityListMessage(
-        `${payload.activities.length} of ${payload.totalApprox ?? payload.activities.length} synced activities available.${suffix}`,
+        `${loadedCount} of ${payload.totalApprox ?? loadedCount} synced activities loaded.`,
       );
     } catch (error) {
+      if (
+        requestGeneration !== activityListRequestRef.current ||
+        trimmed !== activityListQueryRef.current
+      ) {
+        return;
+      }
       setActivityListState("error");
       setActivityListMessage(
-        `Activity search failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        append
+          ? `More activities could not be loaded: ${error instanceof Error ? error.message : "unknown error"}`
+          : `Activity search failed: ${error instanceof Error ? error.message : "unknown error"}`,
       );
+    } finally {
+      if (append) {
+        activityListLoadingMoreRef.current = false;
+        setIsActivityListLoadingMore(false);
+      }
     }
+  }
+
+  function handleActivityListScroll(event: UIEvent<HTMLDivElement>) {
+    const target = event.currentTarget;
+    const remaining =
+      target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining > ACTIVITY_LIST_SCROLL_THRESHOLD_PX) return;
+    if (activityListState === "loading" || isActivityListLoadingMore) return;
+    if (activityListNextOffset === null) return;
+    void loadActivities(activitySearchQuery, activityListNextOffset, true);
   }
 
   async function selectActivityDashboard(garminId: string) {
@@ -2060,81 +2154,94 @@ export function TrainerDashboard() {
 
   return (
     <section
-      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"}`}
+      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""}`}
       aria-label="AI trainer dashboard"
     >
-      <header className="app-topbar">
-        <button
-          type="button"
-          className="chrome-button sidebar-toggle"
-          onClick={() => {
-            if (window.matchMedia("(max-width: 960px)").matches) {
-              setIsConversationDrawerOpen(true);
-            } else {
-              setDesktopSidebarExpanded((expanded) => !expanded);
-            }
-          }}
-          ref={conversationButtonRef}
-          aria-label="Toggle conversation history"
-          aria-expanded={desktopSidebarExpanded || isConversationDrawerOpen}
-        >
-          Conversations
-        </button>
-        <div className="brand-lockup" aria-label="AI Garmin Connect Trainer">
-          <span className="brand-mark" aria-hidden="true">
-            ⌁
-          </span>
-          <span>AI Trainer</span>
-        </div>
-        <h1
-          className="active-conversation-title"
-          title={activeConversation?.title ?? "Trainer chat"}
-        >
-          {activeConversation?.title ?? "Trainer chat"}
-        </h1>
-        <button
-          type="button"
-          className="chrome-button sync-now-button"
-          onClick={syncNow}
-          disabled={isSyncing}
-          aria-label="Sync now — import latest Garmin data"
-        >
-          {isSyncing ? "Syncing…" : "Sync now"}
-        </button>
-        <button
-          type="button"
-          className="chrome-button"
-          onClick={() => setActivityDashboardOpen((open) => !open)}
-          ref={activityDashboardButtonRef}
-          aria-label="Activity charts"
-          aria-expanded={activityDashboardOpen}
-        >
-          Activity charts
-        </button>
-        <button
-          type="button"
-          className="chrome-button"
-          onClick={() => setSettingsOpen(true)}
-          ref={settingsButtonRef}
-          aria-label="Data & settings"
-        >
-          Settings
-        </button>
-      </header>
+      {!activityDashboardOpen ? (
+        <header className="app-topbar">
+          <button
+            type="button"
+            className="chrome-button sidebar-toggle"
+            onClick={() => {
+              if (window.matchMedia("(max-width: 960px)").matches) {
+                setIsConversationDrawerOpen(true);
+              } else {
+                setDesktopSidebarExpanded((expanded) => !expanded);
+              }
+            }}
+            ref={conversationButtonRef}
+            aria-label="Toggle conversation history"
+            aria-expanded={desktopSidebarExpanded || isConversationDrawerOpen}
+          >
+            Conversations
+          </button>
+          <div className="brand-lockup" aria-label="AI Garmin Connect Trainer">
+            <span className="brand-mark" aria-hidden="true">
+              ⌁
+            </span>
+            <span>AI Trainer</span>
+          </div>
+          <h1
+            className="active-conversation-title"
+            title={activeConversation?.title ?? "Trainer chat"}
+          >
+            {activeConversation?.title ?? "Trainer chat"}
+          </h1>
+          <button
+            type="button"
+            className="chrome-button sync-now-button"
+            onClick={syncNow}
+            disabled={isSyncing}
+            aria-label="Sync now — import latest Garmin data"
+          >
+            {isSyncing ? "Syncing…" : "Sync now"}
+          </button>
+          <button
+            type="button"
+            className="chrome-button"
+            onClick={() => setActivityDashboardOpen(true)}
+            ref={activityDashboardButtonRef}
+            aria-label="Activity charts"
+            aria-expanded={activityDashboardOpen}
+          >
+            Activity charts
+          </button>
+          <button
+            type="button"
+            className="chrome-button"
+            onClick={() => setSettingsOpen(true)}
+            ref={settingsButtonRef}
+            aria-label="Data & settings"
+          >
+            Settings
+          </button>
+        </header>
+      ) : null}
 
       {activityDashboardOpen ? (
         <section
           className="activity-dashboard-panel"
           aria-label="Selected activity dashboard"
         >
+          <div className="activity-dashboard-header">
+            <div>
+              <p className="section-kicker">Activity charts</p>
+              <h1>Activity dashboard</h1>
+            </div>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={closeActivityDashboard}
+              ref={activityDashboardCloseRef}
+              aria-label="Back to chat"
+            >
+              Back to chat
+            </button>
+          </div>
           <div className="activity-dashboard-selector">
             <div>
-              <p className="section-kicker">Activity dashboard</p>
+              <p className="section-kicker">Activity selector</p>
               <h2>Search synced activities</h2>
-              <p>
-                Factual stats, HR/elevation charts, and laps from normalized
-                local Garmin detail data only.
-              </p>
             </div>
             <label className="activity-search-field">
               <span>Search activity name, sport, date, or Garmin ID</span>
@@ -2150,33 +2257,46 @@ export function TrainerDashboard() {
               className="activity-list"
               role="list"
               aria-label="Synced activities"
+              onScroll={handleActivityListScroll}
             >
               {activityListState === "loading" ? (
                 <p className="empty-chat">Loading synced activities…</p>
               ) : activities.length ? (
-                activities.map((activity) => (
-                  <button
-                    type="button"
-                    role="listitem"
-                    className={`activity-list-item ${selectedActivityId === activity.garminId ? "selected" : ""}`}
-                    key={activity.garminId}
-                    onClick={() =>
-                      void selectActivityDashboard(activity.garminId)
-                    }
-                  >
-                    <span>
-                      <strong>{activity.label}</strong>
-                      <small>
-                        {activity.date} · {activity.sport} · Garmin ID{" "}
-                        {activity.garminId}
-                      </small>
-                    </span>
-                    <span>
-                      {distanceLabel(activity.distanceMeters)} ·{" "}
-                      {durationLabel(activity.durationSec)}
-                    </span>
-                  </button>
-                ))
+                <>
+                  {activities.map((activity) => (
+                    <button
+                      type="button"
+                      role="listitem"
+                      className={`activity-list-item ${selectedActivityId === activity.garminId ? "selected" : ""}`}
+                      key={activity.garminId}
+                      onClick={() =>
+                        void selectActivityDashboard(activity.garminId)
+                      }
+                    >
+                      <span>
+                        <strong>{activity.label}</strong>
+                        <small>
+                          {activity.date} · {activity.sport} · Garmin ID{" "}
+                          {activity.garminId}
+                        </small>
+                      </span>
+                      <span>
+                        {distanceLabel(activity.distanceMeters)} ·{" "}
+                        {durationLabel(activity.durationSec)}
+                      </span>
+                    </button>
+                  ))}
+                  {isActivityListLoadingMore ? (
+                    <p className="activity-dashboard-status">
+                      Loading more activities…
+                    </p>
+                  ) : null}
+                  {!isActivityListLoadingMore &&
+                  activityListNextOffset === null &&
+                  activityListTotalApprox !== undefined ? (
+                    <p className="activity-dashboard-status">End of results</p>
+                  ) : null}
+                </>
               ) : (
                 <p className="empty-chat">{activityListMessage}</p>
               )}
@@ -2346,336 +2466,338 @@ export function TrainerDashboard() {
         </section>
       ) : null}
 
-      <div className="chat-workspace">
-        <aside
-          className={`conversation-sidebar ${isConversationDrawerOpen ? "open" : ""}`}
-          aria-label="Conversation history"
-        >
-          <div className="sidebar-header">
-            <div>
-              <p className="section-kicker">History</p>
-              <strong>Conversations</strong>
+      {!activityDashboardOpen ? (
+        <div className="chat-workspace">
+          <aside
+            className={`conversation-sidebar ${isConversationDrawerOpen ? "open" : ""}`}
+            aria-label="Conversation history"
+          >
+            <div className="sidebar-header">
+              <div>
+                <p className="section-kicker">History</p>
+                <strong>Conversations</strong>
+              </div>
+              <button
+                type="button"
+                className="chrome-button drawer-close"
+                onClick={closeConversationDrawer}
+              >
+                Close
+              </button>
             </div>
             <button
               type="button"
-              className="chrome-button drawer-close"
-              onClick={closeConversationDrawer}
+              className="primary-action"
+              onClick={startNewChat}
             >
-              Close
+              New chat
             </button>
-          </div>
-          <button
-            type="button"
-            className="primary-action"
-            onClick={startNewChat}
-          >
-            New chat
-          </button>
-          <div
-            className="conversation-list"
-            role="list"
-            aria-label="Saved conversations"
-          >
-            {conversationRows.length ? (
-              conversationRows.map((item) => (
-                <div
-                  role="listitem"
-                  className={`conversation-item ${item.id === conversationId ? "active" : ""}`}
-                  key={item.id}
-                >
-                  <button
-                    type="button"
-                    className="conversation-select"
-                    onClick={() => {
-                      closeConversationMenu();
-                      void selectConversation(item.id);
-                    }}
-                    aria-current={
-                      item.id === conversationId ? "true" : undefined
-                    }
+            <div
+              className="conversation-list"
+              role="list"
+              aria-label="Saved conversations"
+            >
+              {conversationRows.length ? (
+                conversationRows.map((item) => (
+                  <div
+                    role="listitem"
+                    className={`conversation-item ${item.id === conversationId ? "active" : ""}`}
+                    key={item.id}
                   >
-                    <span>{item.title}</span>
-                    <small>{dateLabel(item.updatedAt)}</small>
-                  </button>
-                  <div className="conversation-menu-wrap">
                     <button
                       type="button"
-                      className="conversation-menu-trigger"
-                      data-conversation-menu-id={item.id}
-                      aria-label={`Conversation options for "${item.title}"`}
-                      aria-haspopup="menu"
-                      aria-expanded={openConversationMenuId === item.id}
-                      aria-controls={
-                        openConversationMenuId === item.id
-                          ? "conversation-row-menu"
-                          : undefined
-                      }
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleConversationMenu(item.id, event.currentTarget);
+                      className="conversation-select"
+                      onClick={() => {
+                        closeConversationMenu();
+                        void selectConversation(item.id);
                       }}
+                      aria-current={
+                        item.id === conversationId ? "true" : undefined
+                      }
                     >
-                      ⋯
+                      <span>{item.title}</span>
+                      <small>{dateLabel(item.updatedAt)}</small>
                     </button>
+                    <div className="conversation-menu-wrap">
+                      <button
+                        type="button"
+                        className="conversation-menu-trigger"
+                        data-conversation-menu-id={item.id}
+                        aria-label={`Conversation options for "${item.title}"`}
+                        aria-haspopup="menu"
+                        aria-expanded={openConversationMenuId === item.id}
+                        aria-controls={
+                          openConversationMenuId === item.id
+                            ? "conversation-row-menu"
+                            : undefined
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleConversationMenu(item.id, event.currentTarget);
+                        }}
+                      >
+                        ⋯
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))
-            ) : (
-              <p className="empty-chat">No saved conversations yet.</p>
-            )}
-          </div>
-        </aside>
-        {isConversationDrawerOpen ? (
-          <button
-            type="button"
-            className="drawer-backdrop"
-            aria-label="Close conversation drawer"
-            onClick={closeConversationDrawer}
-          />
-        ) : null}
-        {openConversationMenuItem && conversationMenuPosition ? (
-          <div
-            id="conversation-row-menu"
-            className="conversation-menu conversation-menu-floating"
-            ref={conversationMenuRef}
-            role="menu"
-            style={{
-              top: conversationMenuPosition.top,
-              left: conversationMenuPosition.left,
-            }}
-          >
-            {openConversationMenuItem.id === conversationId ? (
+                ))
+              ) : (
+                <p className="empty-chat">No saved conversations yet.</p>
+              )}
+            </div>
+          </aside>
+          {isConversationDrawerOpen ? (
+            <button
+              type="button"
+              className="drawer-backdrop"
+              aria-label="Close conversation drawer"
+              onClick={closeConversationDrawer}
+            />
+          ) : null}
+          {openConversationMenuItem && conversationMenuPosition ? (
+            <div
+              id="conversation-row-menu"
+              className="conversation-menu conversation-menu-floating"
+              ref={conversationMenuRef}
+              role="menu"
+              style={{
+                top: conversationMenuPosition.top,
+                left: conversationMenuPosition.left,
+              }}
+            >
+              {openConversationMenuItem.id === conversationId ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeConversationMenu();
+                    void loadChatHistory();
+                  }}
+                  disabled={isChatLoading}
+                >
+                  Reload history
+                </button>
+              ) : null}
               <button
                 type="button"
                 role="menuitem"
                 onClick={() => {
+                  startConversationRename(openConversationMenuItem);
+                }}
+                disabled={isChatLoading}
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="danger-menu-item"
+                onClick={() => {
                   closeConversationMenu();
-                  void loadChatHistory();
+                  void deleteConversationById(
+                    openConversationMenuItem.id,
+                    openConversationMenuItem.title,
+                  );
                 }}
                 disabled={isChatLoading}
               >
-                Reload history
+                Delete
               </button>
-            ) : null}
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                startConversationRename(openConversationMenuItem);
-              }}
-              disabled={isChatLoading}
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="danger-menu-item"
-              onClick={() => {
-                closeConversationMenu();
-                void deleteConversationById(
-                  openConversationMenuItem.id,
-                  openConversationMenuItem.title,
-                );
-              }}
-              disabled={isChatLoading}
-            >
-              Delete
-            </button>
-          </div>
-        ) : null}
-        {renameTarget ? (
-          <div className="modal-layer rename-dialog-layer">
-            <button
-              type="button"
-              className="settings-backdrop"
-              aria-label="Cancel rename"
-              onClick={cancelConversationRename}
-            />
-            <form
-              className="rename-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="rename-dialog-title"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void saveConversationRename();
-              }}
-            >
-              <div>
-                <p className="section-kicker">Saved chat</p>
-                <h2 id="rename-dialog-title">Rename conversation</h2>
-              </div>
-              <label htmlFor="conversation-rename-title">
-                Conversation title
-              </label>
-              <input
-                id="conversation-rename-title"
-                ref={renameInputRef}
-                value={renameTitle}
-                onChange={(event) => setRenameTitle(event.target.value)}
-                disabled={isRenamingConversation || isChatLoading}
-                maxLength={160}
-              />
-              <p className="helper-text">
-                Saves a local title only; messages, Garmin data, Profile, and
-                saved memories stay unchanged.
-              </p>
-              <div className="button-row rename-dialog-actions">
-                <button
-                  type="button"
-                  className="chrome-button"
-                  onClick={cancelConversationRename}
-                  disabled={isRenamingConversation}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="primary-action"
-                  disabled={
-                    isRenamingConversation ||
-                    isChatLoading ||
-                    renameTitle.trim().length === 0
-                  }
-                >
-                  {isRenamingConversation ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : null}
-
-        <section className="trainer-card" aria-labelledby="trainer-heading">
-          <div className="trainer-heading-row">
-            <div>
-              <p className="section-kicker">Daily trainer</p>
-              <h2 id="trainer-heading">Chat with your private coach</h2>
             </div>
-            <p
-              className="context-chip"
-              title={`Active chat context is selected from this session within a safe budget: ${contextWindow} of ${historyLimit} selected session context lines. New chat resets this active context.${latestToolEvidence ? " Latest answer used local Garmin/tool evidence." : " Latest answer has no local Garmin/tool evidence marker."}`}
-              aria-label={`Active chat context${latestToolEvidence ? " with local Garmin evidence" : ""}`}
-            >
-              Active chat context
-              {latestToolEvidence ? " · local evidence" : ""}
-            </p>
-          </div>
-
-          <div
-            className="transcript"
-            ref={transcriptRef}
-            role="log"
-            aria-label="Chat transcript"
-            aria-live="polite"
-            onScroll={handleTranscriptScroll}
-          >
-            {historyCursor ? (
+          ) : null}
+          {renameTarget ? (
+            <div className="modal-layer rename-dialog-layer">
               <button
                 type="button"
-                className="secondary-button load-older"
-                onClick={loadOlderMessages}
-                disabled={isHistoryLoading}
+                className="settings-backdrop"
+                aria-label="Cancel rename"
+                onClick={cancelConversationRename}
+              />
+              <form
+                className="rename-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="rename-dialog-title"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveConversationRename();
+                }}
               >
-                {isHistoryLoading ? "Loading older…" : "Load older messages"}
-              </button>
-            ) : null}
-            {chatMessages.length === 0 && !isChatLoading ? (
-              <div className="empty-chat empty-chat-hero">
-                <p>
-                  Start with the latest training question. Profile, memory,
-                  Garmin data, diagnostics, and privacy controls are in
-                  Settings.
+                <div>
+                  <p className="section-kicker">Saved chat</p>
+                  <h2 id="rename-dialog-title">Rename conversation</h2>
+                </div>
+                <label htmlFor="conversation-rename-title">
+                  Conversation title
+                </label>
+                <input
+                  id="conversation-rename-title"
+                  ref={renameInputRef}
+                  value={renameTitle}
+                  onChange={(event) => setRenameTitle(event.target.value)}
+                  disabled={isRenamingConversation || isChatLoading}
+                  maxLength={160}
+                />
+                <p className="helper-text">
+                  Saves a local title only; messages, Garmin data, Profile, and
+                  saved memories stay unchanged.
                 </p>
-              </div>
-            ) : null}
-            {chatMessages.map((item) => (
-              <div key={item.id} className={`chat-message ${item.role}`}>
-                <div className="chat-meta">
-                  <strong>{item.role === "user" ? "You" : "Trainer"}</strong>
-                  <time dateTime={item.createdAt}>
-                    {new Date(item.createdAt).toLocaleString()}
-                  </time>
-                </div>
-                {item.role === "assistant" ? (
-                  <AssistantContent content={item.content} />
-                ) : (
-                  <p>{item.content}</p>
-                )}
-                {hasVisibleGrounding(item.grounding) ? (
-                  <div
-                    className="tool-evidence"
-                    aria-label="Hidden grounding metadata available"
+                <div className="button-row rename-dialog-actions">
+                  <button
+                    type="button"
+                    className="chrome-button"
+                    onClick={cancelConversationRename}
+                    disabled={isRenamingConversation}
                   >
-                    <span>Used local Garmin data.</span>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-            {isChatLoading &&
-            !chatMessages.some((item) => item.id.startsWith("streaming-")) ? (
-              <div className="chat-message assistant pending">
-                <div className="chat-meta">
-                  <strong>Trainer</strong>
-                  <span>pending</span>
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary-action"
+                    disabled={
+                      isRenamingConversation ||
+                      isChatLoading ||
+                      renameTitle.trim().length === 0
+                    }
+                  >
+                    {isRenamingConversation ? "Saving…" : "Save"}
+                  </button>
                 </div>
-                <p>Trainer is thinking…</p>
-              </div>
-            ) : null}
-            <div ref={transcriptBottomRef} aria-hidden="true" />
-          </div>
-
-          <div className="composer-dock" aria-label="Message composer">
-            <label className="message-composer">
-              <span className="visually-hidden">Message</span>
-              <textarea
-                aria-label="Message"
-                ref={messageInputRef}
-                placeholder="Ask about my latest hike, then try: what should I do tomorrow based on that?"
-                value={message}
-                disabled={isChatLoading}
-                onChange={(event) => setMessage(event.currentTarget.value)}
-                onInput={(event) => setMessage(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void sendChat();
-                  }
-                }}
-              />
-            </label>
-            <div className="composer-actions">
-              {lastFailedMessage && !isChatLoading ? (
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => submitChat(lastFailedMessage)}
-                >
-                  Retry
-                </button>
-              ) : null}
-              {isChatLoading ? (
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={cancelChat}
-                >
-                  Cancel
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={sendChat}
-                disabled={isChatLoading || !message.trim()}
-              >
-                {isChatLoading ? "Streaming…" : "Send"}
-              </button>
+              </form>
             </div>
-          </div>
-        </section>
-      </div>
+          ) : null}
 
-      {settingsOpen ? (
+          <section className="trainer-card" aria-labelledby="trainer-heading">
+            <div className="trainer-heading-row">
+              <div>
+                <p className="section-kicker">Daily trainer</p>
+                <h2 id="trainer-heading">Chat with your private coach</h2>
+              </div>
+              <p
+                className="context-chip"
+                title={`Active chat context is selected from this session within a safe budget: ${contextWindow} of ${historyLimit} selected session context lines. New chat resets this active context.${latestToolEvidence ? " Latest answer used local Garmin/tool evidence." : " Latest answer has no local Garmin/tool evidence marker."}`}
+                aria-label={`Active chat context${latestToolEvidence ? " with local Garmin evidence" : ""}`}
+              >
+                Active chat context
+                {latestToolEvidence ? " · local evidence" : ""}
+              </p>
+            </div>
+
+            <div
+              className="transcript"
+              ref={transcriptRef}
+              role="log"
+              aria-label="Chat transcript"
+              aria-live="polite"
+              onScroll={handleTranscriptScroll}
+            >
+              {historyCursor ? (
+                <button
+                  type="button"
+                  className="secondary-button load-older"
+                  onClick={loadOlderMessages}
+                  disabled={isHistoryLoading}
+                >
+                  {isHistoryLoading ? "Loading older…" : "Load older messages"}
+                </button>
+              ) : null}
+              {chatMessages.length === 0 && !isChatLoading ? (
+                <div className="empty-chat empty-chat-hero">
+                  <p>
+                    Start with the latest training question. Profile, memory,
+                    Garmin data, diagnostics, and privacy controls are in
+                    Settings.
+                  </p>
+                </div>
+              ) : null}
+              {chatMessages.map((item) => (
+                <div key={item.id} className={`chat-message ${item.role}`}>
+                  <div className="chat-meta">
+                    <strong>{item.role === "user" ? "You" : "Trainer"}</strong>
+                    <time dateTime={item.createdAt}>
+                      {new Date(item.createdAt).toLocaleString()}
+                    </time>
+                  </div>
+                  {item.role === "assistant" ? (
+                    <AssistantContent content={item.content} />
+                  ) : (
+                    <p>{item.content}</p>
+                  )}
+                  {hasVisibleGrounding(item.grounding) ? (
+                    <div
+                      className="tool-evidence"
+                      aria-label="Hidden grounding metadata available"
+                    >
+                      <span>Used local Garmin data.</span>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+              {isChatLoading &&
+              !chatMessages.some((item) => item.id.startsWith("streaming-")) ? (
+                <div className="chat-message assistant pending">
+                  <div className="chat-meta">
+                    <strong>Trainer</strong>
+                    <span>pending</span>
+                  </div>
+                  <p>Trainer is thinking…</p>
+                </div>
+              ) : null}
+              <div ref={transcriptBottomRef} aria-hidden="true" />
+            </div>
+
+            <div className="composer-dock" aria-label="Message composer">
+              <label className="message-composer">
+                <span className="visually-hidden">Message</span>
+                <textarea
+                  aria-label="Message"
+                  ref={messageInputRef}
+                  placeholder="Ask about my latest hike, then try: what should I do tomorrow based on that?"
+                  value={message}
+                  disabled={isChatLoading}
+                  onChange={(event) => setMessage(event.currentTarget.value)}
+                  onInput={(event) => setMessage(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void sendChat();
+                    }
+                  }}
+                />
+              </label>
+              <div className="composer-actions">
+                {lastFailedMessage && !isChatLoading ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => submitChat(lastFailedMessage)}
+                  >
+                    Retry
+                  </button>
+                ) : null}
+                {isChatLoading ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={cancelChat}
+                  >
+                    Cancel
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={sendChat}
+                  disabled={isChatLoading || !message.trim()}
+                >
+                  {isChatLoading ? "Streaming…" : "Send"}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {!activityDashboardOpen && settingsOpen ? (
         <div className="modal-layer" role="presentation">
           <button
             type="button"

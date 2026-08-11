@@ -57,6 +57,23 @@ function profile(
   };
 }
 
+function activityListItem(index: number) {
+  const id = (111111 + index).toString();
+  return {
+    garminId: id,
+    name: `Activity ${index}`,
+    label: `Activity ${index}`,
+    sport: index % 2 ? "cycling" : "running",
+    date: "2026-08-01",
+    startedAt: "2026-08-01T07:00:00.000Z",
+    durationSec: 3600,
+    distanceMeters: 10000 + index,
+    elevationGainMeters: 260,
+    avgHeartRate: 145,
+    detailStatus: "available",
+  };
+}
+
 function openSettings() {
   fireEvent.click(screen.getByRole("button", { name: "Data & settings" }));
 }
@@ -1009,32 +1026,29 @@ describe("TrainerDashboard athlete baseline summary", () => {
 });
 
 describe("TrainerDashboard activity charts", () => {
-  it("opens a top-bar searchable activity selector and renders no-match state", async () => {
+  it("opens full-screen activity mode, requests 100 rows, resets search, and closes back to chat", async () => {
+    const activityUrls: string[] = [];
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities?")) {
+        activityUrls.push(url);
         if (url.includes("q=zzz")) {
-          return jsonResponse({ activities: [], totalApprox: 0 });
+          return jsonResponse({
+            activities: [],
+            nextOffset: null,
+            totalApprox: 0,
+            limit: 100,
+            offset: 0,
+          });
         }
         return jsonResponse({
-          activities: [
-            {
-              garminId: "111111",
-              name: "Morning Trail Run",
-              label: "Morning Trail Run",
-              sport: "running",
-              date: "2026-08-01",
-              startedAt: "2026-08-01T07:00:00.000Z",
-              durationSec: 3600,
-              distanceMeters: 10000,
-              elevationGainMeters: 260,
-              avgHeartRate: 145,
-              detailStatus: "available",
-            },
-          ],
+          activities: [activityListItem(0)],
+          nextOffset: null,
           totalApprox: 1,
+          limit: 100,
+          offset: 0,
         });
       }
       return jsonResponse({ ok: true });
@@ -1043,10 +1057,22 @@ describe("TrainerDashboard activity charts", () => {
 
     render(React.createElement(TrainerDashboard));
 
+    expect(
+      screen.getByRole("button", { name: "Activity charts" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
 
-    expect(await screen.findByText("Morning Trail Run")).toBeTruthy();
-    expect(screen.getByText(/Garmin ID 111111/)).toBeTruthy();
+    expect(await screen.findByText("Activity 0")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Conversation history")).toBeNull();
+    expect(screen.queryByText(/Refine search for more/)).toBeNull();
+    expect(activityUrls[0]).toContain("limit=100");
+    expect(activityUrls[0]).toContain("offset=0");
 
     fireEvent.change(
       screen.getByLabelText("Search activity name, sport, date, or Garmin ID"),
@@ -1058,6 +1084,84 @@ describe("TrainerDashboard activity charts", () => {
         screen.getAllByText("No synced activities match that search.").length,
       ).toBeGreaterThan(0);
     });
+    expect(activityUrls.some((url) => url.includes("q=zzz"))).toBe(true);
+    expect(activityUrls[activityUrls.length - 1]).toContain("offset=0");
+    expect(screen.queryByText(/Showing first/)).toBeNull();
+    expect(screen.queryByText(/Refine search for more/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+
+    expect(
+      screen.getByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Conversation history")).toBeTruthy();
+  });
+
+  it("loads the next 100 activities on bottom scroll and restarts pagination for search", async () => {
+    const activityUrls: string[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url.startsWith("/api/activities?")) {
+        activityUrls.push(url);
+        const parsed = new URL(url, "http://local.test");
+        const offset = Number(parsed.searchParams.get("offset") ?? 0);
+        const query = parsed.searchParams.get("q") ?? "";
+        if (query === "ride") {
+          return jsonResponse({
+            activities: [activityListItem(200)],
+            nextOffset: null,
+            totalApprox: 1,
+            limit: 100,
+            offset: 0,
+          });
+        }
+        return jsonResponse({
+          activities: Array.from(
+            { length: offset === 0 ? 100 : 2 },
+            (_, index) => activityListItem(offset + index),
+          ),
+          nextOffset: offset === 0 ? 100 : null,
+          totalApprox: 102,
+          limit: 100,
+          offset,
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+
+    expect(await screen.findByText("Activity 0")).toBeTruthy();
+    const list = screen.getByRole("list", { name: "Synced activities" });
+    Object.defineProperties(list, {
+      scrollHeight: { value: 1200, configurable: true },
+      clientHeight: { value: 400, configurable: true },
+      scrollTop: { value: 760, configurable: true, writable: true },
+    });
+    fireEvent.scroll(list);
+
+    expect(await screen.findByText("Activity 100")).toBeTruthy();
+    expect(screen.getByText("Activity 101")).toBeTruthy();
+    expect(activityUrls.some((url) => url.includes("offset=100"))).toBe(true);
+
+    fireEvent.change(
+      screen.getByLabelText("Search activity name, sport, date, or Garmin ID"),
+      { target: { value: "ride" } },
+    );
+
+    expect(await screen.findByText("Activity 200")).toBeTruthy();
+    expect(screen.queryByText("Activity 100")).toBeNull();
+    expect(
+      activityUrls.some(
+        (url) => url.includes("q=ride") && url.includes("offset=0"),
+      ),
+    ).toBe(true);
   });
 
   it("renders selected factual stats, charts, and lap rows from dashboard payload", async () => {

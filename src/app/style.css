@@ -80,6 +80,10 @@ body::before {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
+.dashboard-shell.activity-dashboard-active {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .app-topbar {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
@@ -143,26 +147,48 @@ body::before {
 
 .activity-dashboard-panel {
   display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 400px) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
-  max-height: min(72vh, 760px);
-  min-height: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
   padding: 18px clamp(14px, 2vw, 28px);
-  overflow: auto;
-  border-bottom: 1px solid var(--line);
-  background: rgba(7, 11, 18, 0.96);
+  overflow: hidden;
+  background: rgba(7, 11, 18, 0.98);
+}
+
+.activity-dashboard-header {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding-bottom: 2px;
+}
+
+.activity-dashboard-header h1 {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 48px);
+  line-height: 1;
 }
 
 .activity-dashboard-selector,
 .selected-activity-detail {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   gap: 14px;
+  overflow: hidden;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.035);
+}
+
+.selected-activity-detail {
+  overflow: auto;
 }
 
 .activity-dashboard-selector h2,
@@ -195,7 +221,7 @@ body::before {
 
 .activity-list {
   display: grid;
-  max-height: 360px;
+  min-height: 0;
   gap: 8px;
   overflow: auto;
 }

@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const page = listActivitiesForDashboard({
       query: url.searchParams.get("q"),
-      limit: Number(url.searchParams.get("limit") ?? 25),
+      limit: Number(url.searchParams.get("limit") ?? 100),
       offset: Number(url.searchParams.get("offset") ?? 0),
     });
     return NextResponse.json({

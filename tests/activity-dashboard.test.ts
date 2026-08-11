@@ -51,18 +51,53 @@ async function seedActivities() {
 }
 
 describe("activity dashboard repository and routes", () => {
-  it("searches all synced activities with bounded results", async () => {
+  it("searches all synced activities with dashboard-bounded results", async () => {
     const repo = await seedActivities();
 
     const page = repo.listActivitiesForDashboard({ query: "ride", limit: 200 });
 
-    expect(page.limit).toBe(50);
+    expect(page.limit).toBe(100);
     expect(page.totalApprox).toBe(1);
     expect(page.activities).toHaveLength(1);
     expect(page.activities[0]).toMatchObject({
       garminId: "222222",
       sport: "cycling",
     });
+  });
+
+  it("returns 100-item dashboard pages with nextOffset until the final page", async () => {
+    const repo = await import("../src/lib/db/repository");
+    repo.upsertActivities(
+      Array.from({ length: 125 }, (_, index) => ({
+        garminId: `page-${index.toString().padStart(3, "0")}`,
+        name: `Paged Activity ${index}`,
+        sport: "running",
+        startedAt: new Date(Date.UTC(2026, 7, 1, 7, 0, index)),
+        durationSec: 1800 + index,
+        distanceMeters: 5000 + index,
+        calories: null,
+        avgHeartRate: null,
+        maxHeartRate: null,
+        steps: null,
+        elevationGainMeters: null,
+        elevationLossMeters: null,
+        trainingEffect: null,
+      })),
+    );
+
+    const firstPage = repo.listActivitiesForDashboard({ limit: 100 });
+    const secondPage = repo.listActivitiesForDashboard({
+      limit: 100,
+      offset: 100,
+    });
+
+    expect(firstPage.limit).toBe(100);
+    expect(firstPage.offset).toBe(0);
+    expect(firstPage.totalApprox).toBe(125);
+    expect(firstPage.activities).toHaveLength(100);
+    expect(firstPage.nextOffset).toBe(100);
+    expect(secondPage.activities).toHaveLength(25);
+    expect(secondPage.nextOffset).toBeNull();
   });
 
   it("returns selected dashboard payload without raw coordinates or payload fields", async () => {

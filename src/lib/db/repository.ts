@@ -391,7 +391,7 @@ export function listActivitiesForDashboard(
     offset?: number;
   } = {},
 ): ActivityDashboardListPage {
-  const safeLimit = boundedInteger(options.limit ?? 25, 25, 1, 50);
+  const safeLimit = boundedInteger(options.limit ?? 100, 100, 1, 100);
   const safeOffset = boundedInteger(options.offset ?? 0, 0, 0, 100000);
   const query = (options.query ?? "").trim().toLocaleLowerCase();
   const db = getDatabase();
