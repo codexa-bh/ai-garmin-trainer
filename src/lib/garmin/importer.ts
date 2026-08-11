@@ -21,6 +21,11 @@ import {
 import { GarminMcpClient } from "./mcp-client";
 import { fetchFitBaselineWithLocalWrapper } from "./fit-baseline";
 import {
+  activityDetailNeedsAltitudeSupplement,
+  fetchFitAltitudeWithLocalWrapper,
+  mergeFitAltitudeRecords,
+} from "./fit-altitude";
+import {
   hasUsableGarminAthleteBaseline,
   normalizeGarminAthleteBaseline,
 } from "./athlete-normalize";
@@ -501,7 +506,11 @@ async function fetchAndStoreActivityDetail(
       activity_id: garminId,
       include_records: true,
     });
-    const parsed = parseToolJson(text);
+    let parsed = parseToolJson(text);
+    if (activityDetailNeedsAltitudeSupplement(parsed)) {
+      const altitudePayload = await fetchFitAltitudeWithLocalWrapper(garminId);
+      parsed = mergeFitAltitudeRecords(parsed, altitudePayload);
+    }
     upsertGarminRawPayload({
       sourceTool: "get_activity_fit_data",
       subjectType: "activity_detail",

@@ -3,6 +3,10 @@ import { assertReadOperation } from "../src/lib/garmin/client";
 import { normalizeGarminAthleteBaseline } from "../src/lib/garmin/athlete-normalize";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
 import {
+  activityDetailNeedsAltitudeSupplement,
+  mergeFitAltitudeRecords,
+} from "../src/lib/garmin/fit-altitude";
+import {
   normalizeActivity,
   normalizeDailyHealth,
 } from "../src/lib/garmin/normalize";
@@ -184,6 +188,45 @@ describe("Garmin boundary", () => {
       1000, 1001, 1002,
     ]);
     expect(JSON.stringify(detail)).not.toContain("garmin_tokens");
+  });
+
+  it("merges true FIT enhanced altitude records by timestamp before normalization", () => {
+    const connectorPayload = {
+      records: [
+        { timestamp: "2026-07-01T07:00:00Z", heart_rate_bpm: 130 },
+        { timestamp: "2026-07-01T07:00:01Z", heart_rate_bpm: 131 },
+      ],
+    };
+
+    expect(activityDetailNeedsAltitudeSupplement(connectorPayload)).toBe(true);
+    const merged = mergeFitAltitudeRecords(connectorPayload, {
+      source: "garmin-fit-altitude-stream",
+      records: [
+        { timestamp: "2026-07-01T07:00:00Z", enhanced_altitude: 1000.5 },
+        { timestamp: "2026-07-01T07:00:01Z", enhanced_altitude: 1001.25 },
+      ],
+    });
+
+    const detail = normalizeActivityDetail("44", merged);
+    expect(detail.hasElevation).toBe(true);
+    expect(detail.stream.map((point) => point.altitudeMeters)).toEqual([
+      1000.5, 1001.25,
+    ]);
+  });
+
+  it("does not merge FIT altitude when timestamps do not match connector records", () => {
+    const connectorPayload = {
+      records: [{ timestamp: "2026-07-01T07:00:00Z", heart_rate_bpm: 130 }],
+    };
+
+    const merged = mergeFitAltitudeRecords(connectorPayload, {
+      records: [
+        { timestamp: "2026-07-01T07:00:01Z", enhanced_altitude: 1001.25 },
+      ],
+    });
+
+    const detail = normalizeActivityDetail("45", merged);
+    expect(detail.stream[0].altitudeMeters).toBeNull();
   });
 
   it("does not synthesize stream altitude from summary, lap, GPS, grade, or availability fields", () => {
