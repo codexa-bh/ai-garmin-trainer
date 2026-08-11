@@ -1230,18 +1230,23 @@ describe("TrainerDashboard activity charts", () => {
             hasHeartRate: true,
             hasElevation: true,
             hasLaps: true,
-            recordCount: 2,
+            recordCount: 3,
             lapCount: 1,
             unavailableReason: null,
           },
           charts: {
             downsampled: false,
-            sourcePointCount: 2,
-            pointCount: 2,
-            maxPoints: 240,
+            sourcePointCount: 3,
+            pointCount: 3,
+            maxPoints: 3,
+            domainStartSec: 0,
+            domainEndSec: 3600,
+            timeScaleStatus: "elapsed",
+            timeScaleMessage: null,
             points: [
               { elapsedSec: 0, heartRate: 130, altitudeMeters: 1000 },
-              { elapsedSec: 60, heartRate: 136, altitudeMeters: 1012 },
+              { elapsedSec: 1800, heartRate: 150, altitudeMeters: 1050 },
+              { elapsedSec: 3600, heartRate: 136, altitudeMeters: 1012 },
             ],
           },
           heartRateZones: {
@@ -1345,18 +1350,40 @@ describe("TrainerDashboard activity charts", () => {
     expect(await screen.findByText("Detail: available")).toBeTruthy();
     expect(screen.getByText("Heart rate over time")).toBeTruthy();
     expect(screen.getByText("Elevation profile")).toBeTruthy();
-    fireEvent.pointerMove(
-      screen.getByRole("img", {
-        name: "Heart rate over time over elapsed time",
+    const hrChart = screen.getByRole("img", {
+      name: "Heart rate over time over elapsed time",
+    });
+    Object.defineProperty(hrChart, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        left: 100,
+        width: 640,
+        top: 0,
+        height: 130,
+        right: 740,
+        bottom: 130,
       }),
-      { clientX: 320 },
-    );
-    expect(screen.getByText("1m elapsed · 136 bpm")).toBeTruthy();
-    fireEvent.pointerMove(
-      screen.getByRole("img", { name: "Elevation profile over elapsed time" }),
-      { clientX: 320 },
-    );
-    expect(screen.getByText("1m elapsed · 1,012 m")).toBeTruthy();
+    });
+    fireEvent.pointerMove(hrChart, { clientX: 420 });
+    expect(screen.getByText("30m elapsed · 150 bpm")).toBeTruthy();
+    fireEvent.keyDown(hrChart, { key: "ArrowRight" });
+    expect(screen.getByText("1h 00m elapsed · 136 bpm")).toBeTruthy();
+    const elevationChart = screen.getByRole("img", {
+      name: "Elevation profile over elapsed time",
+    });
+    Object.defineProperty(elevationChart, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        left: 100,
+        width: 640,
+        top: 0,
+        height: 130,
+        right: 740,
+        bottom: 130,
+      }),
+    });
+    fireEvent.pointerMove(elevationChart, { clientX: 420 });
+    expect(screen.getByText("30m elapsed · 1,050 m")).toBeTruthy();
     expect(screen.queryByText(/Accessible chart summary:/)).toBeNull();
     expect(screen.queryByText("Selected activity")).toBeNull();
     expect(screen.queryByText(/Charts downsampled to/)).toBeNull();
@@ -1424,7 +1451,12 @@ describe("TrainerDashboard activity charts", () => {
             downsampled: false,
             sourcePointCount: 2,
             pointCount: 2,
-            maxPoints: 240,
+            maxPoints: 2,
+            domainStartSec: 0,
+            domainEndSec: 60,
+            timeScaleStatus: "sample_index_limited",
+            timeScaleMessage:
+              "Chart timing is limited to the available sample-index stream because no safe elapsed or timestamp evidence is available.",
             points: [
               { elapsedSec: 0, heartRate: 130, altitudeMeters: null },
               { elapsedSec: 60, heartRate: 136, altitudeMeters: null },
@@ -1477,6 +1509,11 @@ describe("TrainerDashboard activity charts", () => {
     fireEvent.click(await screen.findByText("Morning Trail Run"));
 
     expect(await screen.findByText("Heart rate over time")).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Chart timing is limited to the available sample-index stream/,
+      ),
+    ).toBeTruthy();
     expect(
       screen.getByText("No per-point altitude stream data available."),
     ).toBeTruthy();

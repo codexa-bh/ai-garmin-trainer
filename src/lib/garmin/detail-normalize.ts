@@ -87,26 +87,59 @@ function normalizeLap(
   };
 }
 
-function elapsedSecFromRecord(
+function timestampMillisFromRecord(
   payload: Record<string, unknown>,
-  index: number,
-): number {
+): number | null {
+  const timestamp = stringOrNull(payload.timestamp);
+  if (timestamp === null) return null;
+  const millis = Date.parse(timestamp);
+  return Number.isFinite(millis) ? millis : null;
+}
+
+function explicitElapsedSecFromRecord(
+  payload: Record<string, unknown>,
+): number | null {
   const elapsed = numberOrNull(
     payload.elapsed_time_s ??
       payload.elapsedTime ??
       payload.elapsed_time ??
       payload.duration_s,
   );
-  return elapsed !== null && elapsed >= 0 ? Math.round(elapsed) : index;
+  return elapsed !== null && elapsed >= 0 ? Math.round(elapsed) : null;
+}
+
+function elapsedSecFromRecord(
+  payload: Record<string, unknown>,
+  index: number,
+  firstStreamTimestampMillis: number | null,
+): number {
+  const explicitElapsed = explicitElapsedSecFromRecord(payload);
+  if (explicitElapsed !== null) return explicitElapsed;
+
+  const timestampMillis = timestampMillisFromRecord(payload);
+  if (
+    firstStreamTimestampMillis !== null &&
+    timestampMillis !== null &&
+    timestampMillis >= firstStreamTimestampMillis
+  ) {
+    return Math.round((timestampMillis - firstStreamTimestampMillis) / 1000);
+  }
+
+  return index;
 }
 
 function normalizePoint(
   payload: Record<string, unknown>,
   index: number,
+  firstStreamTimestampMillis: number | null,
 ): ActivityStreamPoint {
   return {
     timestamp: stringOrNull(payload.timestamp),
-    elapsedSec: elapsedSecFromRecord(payload, index),
+    elapsedSec: elapsedSecFromRecord(
+      payload,
+      index,
+      firstStreamTimestampMillis,
+    ),
     heartRate: numberOrNull(payload.heart_rate_bpm),
     speedMps: numberOrNull(payload.speed_mps),
     altitudeMeters: altitudeMetersFromRecord(payload),
@@ -126,7 +159,14 @@ export function normalizeActivityDetail(
   const root = record(payload);
   const session = record(root.session);
   const laps = array(root.laps).map(normalizeLap);
-  const stream = array(root.records).map(normalizePoint);
+  const records = array(root.records);
+  const firstStreamTimestampMillis =
+    records
+      .map(timestampMillisFromRecord)
+      .find((timestampMillis) => timestampMillis !== null) ?? null;
+  const stream = records.map((payload, index) =>
+    normalizePoint(payload, index, firstStreamTimestampMillis),
+  );
   const derived: Record<string, unknown> = {};
   for (const key of [
     "climbs",

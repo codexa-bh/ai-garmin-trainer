@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type UIEvent,
@@ -300,6 +301,10 @@ type ActivityDashboardPayload = {
     sourcePointCount: number;
     pointCount: number;
     maxPoints: number;
+    domainStartSec: number;
+    domainEndSec: number | null;
+    timeScaleStatus: "elapsed" | "timestamp_derived" | "sample_index_limited";
+    timeScaleMessage: string | null;
     points: Array<{
       elapsedSec: number;
       heartRate: number | null;
@@ -581,21 +586,63 @@ type ChartSeriesPoint = {
   y: number;
 };
 
+type ChartPlotModel = {
+  width: number;
+  height: number;
+  plotLeft: number;
+  plotRight: number;
+  plotTop: number;
+  plotBottom: number;
+  domainStartSec: number;
+  domainEndSec: number;
+};
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function chartPlotModel({
+  width,
+  height,
+  domainStartSec,
+  domainEndSec,
+}: {
+  width: number;
+  height: number;
+  domainStartSec: number;
+  domainEndSec: number;
+}): ChartPlotModel {
+  return {
+    width,
+    height,
+    plotLeft: 14,
+    plotRight: width - 8,
+    plotTop: 8,
+    plotBottom: height - 16,
+    domainStartSec,
+    domainEndSec: Math.max(domainStartSec + 1, domainEndSec),
+  };
+}
+
 function chartSeriesCoordinates(
   points: Array<{ elapsedSec: number; value: number }>,
-  width: number,
-  height: number,
+  model: ChartPlotModel,
 ): ChartSeriesPoint[] {
-  const minX = Math.min(...points.map((point) => point.elapsedSec));
-  const maxX = Math.max(...points.map((point) => point.elapsedSec));
   const minY = Math.min(...points.map((point) => point.value));
   const maxY = Math.max(...points.map((point) => point.value));
-  const xRange = Math.max(1, maxX - minX);
+  const xRange = Math.max(1, model.domainEndSec - model.domainStartSec);
   const yRange = Math.max(1, maxY - minY);
+  const plotWidth = Math.max(1, model.plotRight - model.plotLeft);
+  const plotHeight = Math.max(1, model.plotBottom - model.plotTop);
   return points.map((point) => ({
     ...point,
-    x: ((point.elapsedSec - minX) / xRange) * width,
-    y: height - ((point.value - minY) / yRange) * height,
+    x:
+      model.plotLeft +
+      ((clamp(point.elapsedSec, model.domainStartSec, model.domainEndSec) -
+        model.domainStartSec) /
+        xRange) *
+        plotWidth,
+    y: model.plotBottom - ((point.value - minY) / yRange) * plotHeight,
   }));
 }
 
@@ -623,15 +670,19 @@ function MiniLineChart({
   unit,
   points,
   valueKey,
+  domainStartSec,
+  domainEndSec,
 }: {
   title: string;
   unit: string;
   points: ActivityDashboardPayload["charts"]["points"];
   valueKey: "heartRate" | "altitudeMeters";
+  domainStartSec: number;
+  domainEndSec: number | null;
 }) {
   const width = 320;
   const height = 120;
-  const [activePoint, setActivePoint] = useState<ChartSeriesPoint | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const series = points
     .filter((point) => point[valueKey] !== null)
     .map((point) => ({
@@ -649,15 +700,37 @@ function MiniLineChart({
   const values = series.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const chartPoints = chartSeriesCoordinates(series, width, height);
-  const selectedPoint = activePoint ?? chartPoints[0];
+  const maxElapsed = Math.max(...series.map((point) => point.elapsedSec));
+  const model = chartPlotModel({
+    width,
+    height,
+    domainStartSec,
+    domainEndSec: Math.max(domainEndSec ?? maxElapsed, maxElapsed),
+  });
+  const chartPoints = chartSeriesCoordinates(series, model);
+  const selectedPoint = chartPoints[activeIndex ?? 0];
   const polyline = chartPolyline(chartPoints);
+  function setNearestPoint(x: number) {
+    const boundedX = clamp(x, model.plotLeft, model.plotRight);
+    const nearestPoint = closestChartPoint(chartPoints, boundedX);
+    setActiveIndex(chartPoints.indexOf(nearestPoint));
+  }
   function handlePointer(event: ReactPointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     const renderedWidth = rect.width || width;
     const relativeX = ((event.clientX - rect.left) / renderedWidth) * width;
-    setActivePoint(
-      closestChartPoint(chartPoints, Math.max(0, Math.min(width, relativeX))),
+    setNearestPoint(relativeX);
+  }
+  function handleKeyDown(event: ReactKeyboardEvent<SVGSVGElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const currentIndex = activeIndex ?? 0;
+    setActiveIndex(
+      clamp(
+        currentIndex + (event.key === "ArrowRight" ? 1 : -1),
+        0,
+        chartPoints.length - 1,
+      ),
     );
   }
 
@@ -676,15 +749,21 @@ function MiniLineChart({
         aria-label={`${title} over elapsed time`}
         onPointerEnter={handlePointer}
         onPointerMove={handlePointer}
-        onPointerLeave={() => setActivePoint(null)}
-        onFocus={() => setActivePoint(chartPoints[0])}
-        onBlur={() => setActivePoint(null)}
+        onPointerLeave={() => setActiveIndex(null)}
+        onFocus={() => setActiveIndex(0)}
+        onBlur={() => setActiveIndex(null)}
+        onKeyDown={handleKeyDown}
       >
         <polyline points={polyline} />
-        {activePoint ? (
+        {activeIndex !== null ? (
           <g className="activity-chart-cursor">
-            <line x1={activePoint.x} x2={activePoint.x} y1={0} y2={height} />
-            <circle cx={activePoint.x} cy={activePoint.y} r={4} />
+            <line
+              x1={selectedPoint.x}
+              x2={selectedPoint.x}
+              y1={model.plotTop}
+              y2={model.plotBottom}
+            />
+            <circle cx={selectedPoint.x} cy={selectedPoint.y} r={4} />
           </g>
         ) : null}
       </svg>
@@ -2559,6 +2638,8 @@ export function TrainerDashboard() {
                       unit="bpm"
                       points={activityDashboard.charts.points}
                       valueKey="heartRate"
+                      domainStartSec={activityDashboard.charts.domainStartSec}
+                      domainEndSec={activityDashboard.charts.domainEndSec}
                     />
                   ) : (
                     <div className="activity-chart empty-state">
@@ -2571,6 +2652,8 @@ export function TrainerDashboard() {
                       unit="m"
                       points={activityDashboard.charts.points}
                       valueKey="altitudeMeters"
+                      domainStartSec={activityDashboard.charts.domainStartSec}
+                      domainEndSec={activityDashboard.charts.domainEndSec}
                     />
                   ) : (
                     <div className="activity-chart empty-state">
@@ -2578,6 +2661,11 @@ export function TrainerDashboard() {
                     </div>
                   )}
                 </div>
+                {activityDashboard.charts.timeScaleMessage ? (
+                  <p className="activity-dashboard-status">
+                    {activityDashboard.charts.timeScaleMessage}
+                  </p>
+                ) : null}
                 <HeartRateZoneTimeChart
                   summary={activityDashboard.heartRateZones}
                 />

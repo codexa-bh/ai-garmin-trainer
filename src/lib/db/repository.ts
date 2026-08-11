@@ -72,6 +72,9 @@ export type ActivityDashboardChartPoint = {
   altitudeMeters: number | null;
 };
 
+export type ActivityDashboardChartTimeScaleStatus =
+  "elapsed" | "timestamp_derived" | "sample_index_limited";
+
 export type ActivityDashboardHeartRateZoneBucket = {
   zone: 1 | 2 | 3 | 4 | 5;
   label: string | null;
@@ -118,6 +121,10 @@ export type ActivityDashboardDetail = {
     sourcePointCount: number;
     pointCount: number;
     maxPoints: number;
+    domainStartSec: number;
+    domainEndSec: number | null;
+    timeScaleStatus: ActivityDashboardChartTimeScaleStatus;
+    timeScaleMessage: string | null;
     points: ActivityDashboardChartPoint[];
   };
   heartRateZones: ActivityDashboardHeartRateZoneTime;
@@ -1251,6 +1258,116 @@ export function getActivityDetailForAnalytics(garminId: string): {
   };
 }
 
+type ActivityDashboardChartRow = ActivityDashboardChartPoint & {
+  timestamp: string | null;
+};
+
+type ActivityDashboardChartTiming = {
+  domainStartSec: number;
+  domainEndSec: number | null;
+  timeScaleStatus: ActivityDashboardChartTimeScaleStatus;
+  timeScaleMessage: string | null;
+  points: ActivityDashboardChartPoint[];
+};
+
+function timestampMillis(value: string | null): number | null {
+  if (value === null) return null;
+  const millis = Date.parse(value);
+  return Number.isFinite(millis) ? millis : null;
+}
+
+function deriveChartElapsedFromTimestamps(
+  rows: ActivityDashboardChartRow[],
+): ActivityDashboardChartPoint[] | null {
+  if (rows.length < 2) return null;
+  const firstTimestamp = timestampMillis(rows[0]?.timestamp ?? null);
+  if (firstTimestamp === null) return null;
+
+  const elapsedSeconds: number[] = [];
+  let previousElapsed = -1;
+  for (const row of rows) {
+    const currentTimestamp = timestampMillis(row.timestamp);
+    if (currentTimestamp === null) return null;
+    const elapsedSec = Math.round((currentTimestamp - firstTimestamp) / 1000);
+    if (elapsedSec < 0 || elapsedSec < previousElapsed) return null;
+    elapsedSeconds.push(elapsedSec);
+    previousElapsed = elapsedSec;
+  }
+
+  return rows.map((row, index) => ({
+    elapsedSec: elapsedSeconds[index],
+    heartRate: row.heartRate,
+    altitudeMeters: row.altitudeMeters,
+  }));
+}
+
+function maxElapsedSec(points: ActivityDashboardChartPoint[]): number {
+  return points.reduce(
+    (maximum, point) => Math.max(maximum, point.elapsedSec),
+    0,
+  );
+}
+
+function isLikelySampleIndexTimeline(
+  rows: ActivityDashboardChartRow[],
+  activityDurationSec: number | null,
+): boolean {
+  if (
+    rows.length < 2 ||
+    activityDurationSec === null ||
+    activityDurationSec <= 0
+  )
+    return false;
+  const maximumElapsed = maxElapsedSec(rows);
+  if (maximumElapsed <= 0 || maximumElapsed >= activityDurationSec * 0.5)
+    return false;
+  return rows.length >= maximumElapsed * 0.8;
+}
+
+function chartTimingForRows(
+  rows: ActivityDashboardChartRow[],
+  activityDurationSec: number | null,
+): ActivityDashboardChartTiming {
+  const rawPoints = rows.map(({ timestamp: _timestamp, ...point }) => point);
+  const rawMaximumElapsed = maxElapsedSec(rawPoints);
+  const timestampPoints = deriveChartElapsedFromTimestamps(rows);
+  if (timestampPoints) {
+    const timestampMaximumElapsed = maxElapsedSec(timestampPoints);
+    if (timestampMaximumElapsed > rawMaximumElapsed + 60) {
+      return {
+        domainStartSec: 0,
+        domainEndSec:
+          activityDurationSec !== null &&
+          activityDurationSec >= timestampMaximumElapsed
+            ? Math.round(activityDurationSec)
+            : timestampMaximumElapsed,
+        timeScaleStatus: "timestamp_derived",
+        timeScaleMessage:
+          "Chart timing is derived from record timestamps because stored elapsed samples were index-like.",
+        points: timestampPoints,
+      };
+    }
+  }
+
+  const sampleIndexLimited = isLikelySampleIndexTimeline(
+    rows,
+    activityDurationSec,
+  );
+  return {
+    domainStartSec: 0,
+    domainEndSec: sampleIndexLimited
+      ? rawMaximumElapsed
+      : activityDurationSec !== null && activityDurationSec >= rawMaximumElapsed
+        ? Math.round(activityDurationSec)
+        : rawMaximumElapsed,
+    timeScaleStatus: sampleIndexLimited ? "sample_index_limited" : "elapsed",
+    timeScaleMessage: sampleIndexLimited
+      ? "Chart timing is limited to the available sample-index stream because no safe elapsed or timestamp evidence is available."
+      : null,
+    points: rawPoints,
+  };
+}
+
 export function getActivityDashboardDetail(
   garminId: string,
 ): ActivityDashboardDetail | null {
@@ -1275,14 +1392,16 @@ export function getActivityDashboardDetail(
         unavailableReason: string | null;
       }
     | undefined;
-  const points = db
+  const chartRows = db
     .prepare(
-      `select elapsed_sec as elapsedSec, heart_rate as heartRate, altitude_meters as altitudeMeters
+      `select elapsed_sec as elapsedSec, timestamp, heart_rate as heartRate, altitude_meters as altitudeMeters
        from activity_stream_point
        where garmin_id = ? and (heart_rate is not null or altitude_meters is not null)
        order by elapsed_sec`,
     )
-    .all(garminId) as ActivityDashboardChartPoint[];
+    .all(garminId) as ActivityDashboardChartRow[];
+  const chartTiming = chartTimingForRows(chartRows, activity.durationSec);
+  const points = chartTiming.points;
   const sourcePointCount = points.length;
   const laps = db
     .prepare(
@@ -1312,6 +1431,10 @@ export function getActivityDashboardDetail(
       sourcePointCount,
       pointCount: points.length,
       maxPoints: sourcePointCount,
+      domainStartSec: chartTiming.domainStartSec,
+      domainEndSec: chartTiming.domainEndSec,
+      timeScaleStatus: chartTiming.timeScaleStatus,
+      timeScaleMessage: chartTiming.timeScaleMessage,
       points,
     },
     heartRateZones: getActivityHeartRateZoneTime(

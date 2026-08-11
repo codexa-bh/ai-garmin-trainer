@@ -192,18 +192,40 @@ describe("Garmin boundary", () => {
     expect(JSON.stringify(detail)).not.toContain("garmin_tokens");
   });
 
-  it("uses real FIT elapsed seconds before array-index fallback", () => {
+  it("uses real FIT elapsed seconds before timestamp and array-index fallback", () => {
     const detail = normalizeActivityDetail("46", {
       records: [
-        { elapsed_time_s: 0, heart_rate_bpm: 130 },
-        { elapsed_time_s: 60, heart_rate_bpm: 136 },
-        { heart_rate_bpm: 140 },
+        {
+          elapsed_time_s: 0,
+          timestamp: "2026-08-01T07:00:00Z",
+          heart_rate_bpm: 130,
+        },
+        {
+          elapsed_time_s: 60,
+          timestamp: "2026-08-01T07:05:00Z",
+          heart_rate_bpm: 136,
+        },
+        { timestamp: "2026-08-01T07:10:00Z", heart_rate_bpm: 140 },
         { elapsed_time_s: -5, heart_rate_bpm: 145 },
       ],
     });
 
     expect(detail.stream.map((point) => point.elapsedSec)).toEqual([
-      0, 60, 2, 3,
+      0, 60, 600, 3,
+    ]);
+  });
+
+  it("derives stream elapsed seconds from timestamps when explicit elapsed is absent", () => {
+    const detail = normalizeActivityDetail("47", {
+      records: [
+        { timestamp: "2026-08-01T07:00:00Z", heart_rate_bpm: 130 },
+        { timestamp: "2026-08-01T07:15:00Z", heart_rate_bpm: 136 },
+        { timestamp: "2026-08-01T07:30:00Z", heart_rate_bpm: 140 },
+      ],
+    });
+
+    expect(detail.stream.map((point) => point.elapsedSec)).toEqual([
+      0, 900, 1800,
     ]);
   });
 

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
+import type { NormalizedActivityDetail } from "../src/lib/garmin/detail-types";
 import type {
   GarminAthleteBaselineSnapshot,
   HeartRateZoneSetDto,
@@ -173,6 +174,12 @@ describe("activity dashboard repository and routes", () => {
     expect(dashboard?.charts.pointCount).toBe(12);
     expect(dashboard?.charts.maxPoints).toBe(12);
     expect(dashboard?.charts.points).toHaveLength(12);
+    expect(dashboard?.charts).toMatchObject({
+      domainStartSec: 0,
+      domainEndSec: 3600,
+      timeScaleStatus: "elapsed",
+      timeScaleMessage: null,
+    });
     expect(dashboard?.detail).toMatchObject({
       status: "available",
       hasHeartRate: true,
@@ -198,6 +205,83 @@ describe("activity dashboard repository and routes", () => {
     expect(serialized).not.toContain("token");
     expect(serialized).not.toContain("DATABASE_PATH");
     expect(serialized).not.toContain("select ");
+  });
+
+  it("repairs selected chart elapsed timing from persisted timestamps", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail({
+      garminId: "111111",
+      fetchedAt: new Date("2026-08-01T07:00:00Z"),
+      source: "garmin-fit",
+      status: "available",
+      hasSession: false,
+      hasLaps: false,
+      hasStreams: true,
+      hasGps: false,
+      hasElevation: true,
+      hasHeartRate: true,
+      hasGrade: false,
+      hasPower: false,
+      hasRecovery: false,
+      recordCount: 4,
+      lapCount: 0,
+      unavailableReason: null,
+      session: null,
+      derived: null,
+      laps: [],
+      stream: Array.from({ length: 4 }, (_, index) => ({
+        timestamp: new Date(
+          Date.UTC(2026, 7, 1, 7, index * 15, 0),
+        ).toISOString(),
+        elapsedSec: index,
+        heartRate: 130 + index,
+        speedMps: null,
+        altitudeMeters: 1000 + index,
+        gradePct: null,
+        lat: null,
+        lon: null,
+        cadence: null,
+        powerWatts: null,
+        temperatureC: null,
+      })),
+    } satisfies NormalizedActivityDetail);
+
+    const dashboard = repo.getActivityDashboardDetail("111111");
+
+    expect(dashboard?.charts.points.map((point) => point.elapsedSec)).toEqual([
+      0, 900, 1800, 2700,
+    ]);
+    expect(dashboard?.charts).toMatchObject({
+      domainStartSec: 0,
+      domainEndSec: 3600,
+      timeScaleStatus: "timestamp_derived",
+    });
+    expect(dashboard?.charts.timeScaleMessage).toMatch(/record timestamps/);
+    expect(JSON.stringify(dashboard)).not.toContain("2026-08-01T07:15");
+  });
+
+  it("labels sample-index-only chart timing instead of stretching it to activity duration", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: Array.from({ length: 4 }, (_, index) => ({
+          heart_rate_bpm: 130 + index,
+          altitude_m: 1000 + index,
+        })),
+      }),
+    );
+
+    const dashboard = repo.getActivityDashboardDetail("111111");
+
+    expect(dashboard?.charts.points.map((point) => point.elapsedSec)).toEqual([
+      0, 1, 2, 3,
+    ]);
+    expect(dashboard?.charts).toMatchObject({
+      domainStartSec: 0,
+      domainEndSec: 3,
+      timeScaleStatus: "sample_index_limited",
+    });
+    expect(dashboard?.charts.timeScaleMessage).toMatch(/sample-index/);
   });
 
   it("serves bounded list and selected dashboard API responses", async () => {
