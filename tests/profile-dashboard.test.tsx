@@ -590,7 +590,7 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(screen.queryByText("Unexpected submit")).toBeNull();
   });
 
-  it("keeps composer actions in normal flow with scoped textarea padding", () => {
+  it("keeps composer actions in normal flow with scoped textarea typography and padding", () => {
     const css = readFileSync("src/app/style.css", "utf8");
     const composerTextareaBlock =
       css.match(/\.message-composer textarea\s*\{([\s\S]*?)\}/)?.[1] ?? "";
@@ -598,6 +598,7 @@ describe("TrainerDashboard Profile hydration", () => {
       css.match(/\.composer-actions\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
     expect(composerTextareaBlock).toContain("padding: 16px;");
+    expect(composerTextareaBlock).toContain("font-weight: 400;");
     expect(actionsBlock).toContain("position: static;");
     expect(actionsBlock).toContain("flex-wrap: wrap;");
     expect(actionsBlock).toContain("margin-top: 10px;");

@@ -831,6 +831,7 @@ textarea {
 
 .message-composer textarea {
   padding: 16px;
+  font-weight: 400;
 }
 
 input,
