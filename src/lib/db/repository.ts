@@ -75,6 +75,34 @@ export type ActivityDashboardChartPoint = {
 export type ActivityDashboardChartTimeScaleStatus =
   "elapsed" | "timestamp_derived" | "sample_index_limited";
 
+export type ActivityDashboardRoutePoint = {
+  elapsedSec: number;
+  lat: number;
+  lon: number;
+  altitudeMeters: number | null;
+  gradePct: number | null;
+};
+
+export type ActivityDashboardRouteBounds = {
+  minLat: number;
+  maxLat: number;
+  minLon: number;
+  maxLon: number;
+  minAltitudeMeters: number | null;
+  maxAltitudeMeters: number | null;
+};
+
+export type ActivityDashboardRoute = {
+  status: "available" | "missing_gps" | "insufficient_points";
+  sourcePointCount: number;
+  pointCount: number;
+  maxPoints: number;
+  simplified: boolean;
+  bounds: ActivityDashboardRouteBounds | null;
+  points: ActivityDashboardRoutePoint[];
+  message: string;
+};
+
 export type ActivityDashboardHeartRateZoneBucket = {
   zone: 1 | 2 | 3 | 4 | 5;
   label: string | null;
@@ -127,6 +155,7 @@ export type ActivityDashboardDetail = {
     timeScaleMessage: string | null;
     points: ActivityDashboardChartPoint[];
   };
+  route: ActivityDashboardRoute;
   heartRateZones: ActivityDashboardHeartRateZoneTime;
   laps: ActivityLapDetail[];
 };
@@ -1368,6 +1397,93 @@ function chartTimingForRows(
   };
 }
 
+const ACTIVITY_DASHBOARD_ROUTE_MAX_POINTS = 400;
+
+type ActivityDashboardRouteRow = ActivityDashboardRoutePoint;
+
+function finiteRouteCoordinate(value: number | null): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function activityDashboardRouteBounds(
+  points: ActivityDashboardRoutePoint[],
+): ActivityDashboardRouteBounds {
+  const altitudes = points
+    .map((point) => point.altitudeMeters)
+    .filter(finiteRouteCoordinate);
+  return {
+    minLat: Math.min(...points.map((point) => point.lat)),
+    maxLat: Math.max(...points.map((point) => point.lat)),
+    minLon: Math.min(...points.map((point) => point.lon)),
+    maxLon: Math.max(...points.map((point) => point.lon)),
+    minAltitudeMeters: altitudes.length ? Math.min(...altitudes) : null,
+    maxAltitudeMeters: altitudes.length ? Math.max(...altitudes) : null,
+  };
+}
+
+function simplifyActivityDashboardRoute(
+  points: ActivityDashboardRoutePoint[],
+  maxPoints: number,
+): ActivityDashboardRoutePoint[] {
+  if (points.length <= maxPoints) return points;
+  if (maxPoints < 2) return points.slice(0, maxPoints);
+  const lastIndex = points.length - 1;
+  return Array.from({ length: maxPoints }, (_, index) => {
+    const sourceIndex = Math.round((index / (maxPoints - 1)) * lastIndex);
+    return points[sourceIndex];
+  });
+}
+
+function buildActivityDashboardRoute(
+  rows: ActivityDashboardRouteRow[],
+): ActivityDashboardRoute {
+  const points = rows.filter(
+    (point) =>
+      finiteRouteCoordinate(point.lat) && finiteRouteCoordinate(point.lon),
+  );
+  const maxPoints = ACTIVITY_DASHBOARD_ROUTE_MAX_POINTS;
+  if (points.length === 0) {
+    return {
+      status: "missing_gps",
+      sourcePointCount: 0,
+      pointCount: 0,
+      maxPoints,
+      simplified: false,
+      bounds: null,
+      points: [],
+      message:
+        "Route unavailable because this activity has no normalized GPS stream points.",
+    };
+  }
+  if (points.length < 2) {
+    return {
+      status: "insufficient_points",
+      sourcePointCount: points.length,
+      pointCount: points.length,
+      maxPoints,
+      simplified: false,
+      bounds: activityDashboardRouteBounds(points),
+      points,
+      message:
+        "Route unavailable because at least two normalized GPS points are needed to draw a route.",
+    };
+  }
+  const simplifiedPoints = simplifyActivityDashboardRoute(points, maxPoints);
+  return {
+    status: "available",
+    sourcePointCount: points.length,
+    pointCount: simplifiedPoints.length,
+    maxPoints,
+    simplified: simplifiedPoints.length < points.length,
+    bounds: activityDashboardRouteBounds(points),
+    points: simplifiedPoints,
+    message:
+      simplifiedPoints.length < points.length
+        ? `Showing ${simplifiedPoints.length.toLocaleString()} representative route points from ${points.length.toLocaleString()} normalized GPS stream points.`
+        : `Showing ${points.length.toLocaleString()} normalized GPS stream points.`,
+  };
+}
+
 export function getActivityDashboardDetail(
   garminId: string,
 ): ActivityDashboardDetail | null {
@@ -1403,6 +1519,16 @@ export function getActivityDashboardDetail(
   const chartTiming = chartTimingForRows(chartRows, activity.durationSec);
   const points = chartTiming.points;
   const sourcePointCount = points.length;
+  const routeRows = db
+    .prepare(
+      `select elapsed_sec as elapsedSec, lat, lon,
+              altitude_meters as altitudeMeters, grade_pct as gradePct
+       from activity_stream_point
+       where garmin_id = ? and lat is not null and lon is not null
+       order by elapsed_sec`,
+    )
+    .all(garminId) as ActivityDashboardRouteRow[];
+  const route = buildActivityDashboardRoute(routeRows);
   const laps = db
     .prepare(
       `select lap_number as lapNumber, start_time as startTime, duration_sec as durationSec,
@@ -1437,6 +1563,7 @@ export function getActivityDashboardDetail(
       timeScaleMessage: chartTiming.timeScaleMessage,
       points,
     },
+    route,
     heartRateZones: getActivityHeartRateZoneTime(
       garminId,
       activity.durationSec,

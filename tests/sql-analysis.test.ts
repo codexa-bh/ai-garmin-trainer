@@ -76,6 +76,11 @@ describe("read-only Garmin SQL analysis", () => {
     );
     expect(JSON.stringify(description)).toContain("duration_sec");
     expect(JSON.stringify(description)).toContain("source_updated_at");
+    expect(JSON.stringify(description)).toContain("lat");
+    expect(JSON.stringify(description)).toContain("lon");
+    expect(JSON.stringify(description)).toContain(
+      "bounded normalized GPS route coordinates",
+    );
     expect(description.examples.join(" ")).toContain(
       "unixepoch('now', '-365 days') * 1000",
     );

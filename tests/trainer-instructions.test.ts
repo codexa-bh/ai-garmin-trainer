@@ -18,6 +18,10 @@ describe("canonical trainer instruction package", () => {
     expect(TRAINER_SYSTEM_PROMPT).toContain("active Profile");
     expect(TRAINER_SYSTEM_PROMPT).toContain("prior assistant prose is never");
     expect(TRAINER_SYSTEM_PROMPT).toContain("normalized daily health");
+    expect(TRAINER_SYSTEM_PROMPT).toContain(
+      "Bounded normalized route coordinates may be used for route/GPS questions",
+    );
+    expect(TRAINER_SYSTEM_PROMPT).toContain("unrestricted GPS streams");
     expect(TRAINER_SYSTEM_PROMPT).not.toMatch(
       /give grounded, non-medical|do not diagnose|seek qualified care/i,
     );
@@ -46,6 +50,7 @@ describe("canonical trainer instruction package", () => {
     expect(planner).toContain("same-turn SQL result");
     expect(planner).toContain("display conversions");
     expect(planner).toContain("one schema call, two SQL calls, one math call");
+    expect(planner).toContain("bounded normalized lat/lon route slices");
     expect(synthesis).toContain("disclose the selected criteria or formula");
     expect(synthesis).toContain("Never infer terrain");
     expect(synthesis).toContain("bounded evidence");

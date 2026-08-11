@@ -311,6 +311,29 @@ type ActivityDashboardPayload = {
       altitudeMeters: number | null;
     }>;
   };
+  route: {
+    status: "available" | "missing_gps" | "insufficient_points";
+    sourcePointCount: number;
+    pointCount: number;
+    maxPoints: number;
+    simplified: boolean;
+    bounds: {
+      minLat: number;
+      maxLat: number;
+      minLon: number;
+      maxLon: number;
+      minAltitudeMeters: number | null;
+      maxAltitudeMeters: number | null;
+    } | null;
+    points: Array<{
+      elapsedSec: number;
+      lat: number;
+      lon: number;
+      altitudeMeters: number | null;
+      gradePct: number | null;
+    }>;
+    message: string;
+  };
   heartRateZones: {
     status:
       | "available"
@@ -771,6 +794,152 @@ function MiniLineChart({
         {chartValueLabel(selectedPoint, unit)}
       </p>
     </figure>
+  );
+}
+
+type RouteMapPoint = ActivityDashboardPayload["route"]["points"][number];
+
+type RouteMapSvgPoint = RouteMapPoint & {
+  x: number;
+  y: number;
+};
+
+function routeMapCoordinates(
+  route: ActivityDashboardPayload["route"],
+  width: number,
+  height: number,
+): RouteMapSvgPoint[] {
+  if (!route.bounds) return [];
+  const padding = 18;
+  const lonSpan = route.bounds.maxLon - route.bounds.minLon || 0.000001;
+  const latSpan = route.bounds.maxLat - route.bounds.minLat || 0.000001;
+  const usableWidth = width - padding * 2;
+  const usableHeight = height - padding * 2;
+  return route.points.map((point) => ({
+    ...point,
+    x: padding + ((point.lon - route.bounds!.minLon) / lonSpan) * usableWidth,
+    y:
+      padding +
+      (1 - (point.lat - route.bounds!.minLat) / latSpan) * usableHeight,
+  }));
+}
+
+function routeSegmentClass(point: RouteMapSvgPoint) {
+  if (point.gradePct === null) return "route-map-segment";
+  if (point.gradePct >= 3) return "route-map-segment climbing";
+  if (point.gradePct <= -3) return "route-map-segment descending";
+  return "route-map-segment rolling";
+}
+
+function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
+  const width = 420;
+  const height = 240;
+  const svgPoints = routeMapCoordinates(route, width, height);
+  const first = svgPoints[0];
+  const last = svgPoints[svgPoints.length - 1];
+  const altitudeRange = route.bounds
+    ? route.bounds.minAltitudeMeters !== null &&
+      route.bounds.maxAltitudeMeters !== null
+      ? `${metersLabel(route.bounds.minAltitudeMeters)}–${metersLabel(route.bounds.maxAltitudeMeters)}`
+      : "Altitude unavailable"
+    : "Altitude unavailable";
+
+  return (
+    <section className="route-map-card" aria-label="Local GPS route map">
+      <div className="route-map-card-header">
+        <div>
+          <h2>Route map</h2>
+          <p>Local normalized GPS stream · no external maps or tiles</p>
+        </div>
+        <span>{route.pointCount.toLocaleString()} plotted points</span>
+      </div>
+      {route.status === "available" && svgPoints.length >= 2 ? (
+        <>
+          <svg
+            className="route-map-svg"
+            viewBox={`0 0 ${width} ${height}`}
+            role="img"
+            aria-label="Local GPS route visualization with start and finish markers"
+          >
+            <defs>
+              <linearGradient id="route-map-bg" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stopColor="rgba(73, 214, 200, 0.16)" />
+                <stop offset="100%" stopColor="rgba(90, 180, 255, 0.08)" />
+              </linearGradient>
+              <filter
+                id="route-map-shadow"
+                x="-20%"
+                y="-20%"
+                width="140%"
+                height="140%"
+              >
+                <feDropShadow
+                  dx="0"
+                  dy="8"
+                  stdDeviation="6"
+                  floodColor="rgba(0, 0, 0, 0.46)"
+                />
+              </filter>
+            </defs>
+            <rect
+              className="route-map-ground"
+              x="0"
+              y="0"
+              width={width}
+              height={height}
+              rx="20"
+            />
+            {svgPoints.slice(1).map((point, index) => {
+              const previous = svgPoints[index];
+              return (
+                <line
+                  className={routeSegmentClass(point)}
+                  key={`${point.elapsedSec}-${index}`}
+                  x1={previous.x}
+                  x2={point.x}
+                  y1={previous.y}
+                  y2={point.y}
+                />
+              );
+            })}
+            {first ? (
+              <g className="route-map-marker start">
+                <circle cx={first.x} cy={first.y} r="5" />
+                <text x={first.x + 8} y={first.y - 8}>
+                  Start
+                </text>
+              </g>
+            ) : null}
+            {last ? (
+              <g className="route-map-marker finish">
+                <circle cx={last.x} cy={last.y} r="6" />
+                <text x={last.x + 8} y={last.y + 16}>
+                  Finish
+                </text>
+              </g>
+            ) : null}
+          </svg>
+          <div className="route-map-meta">
+            <span>Direction: start → finish</span>
+            <span>Altitude range: {altitudeRange}</span>
+            <span>
+              {route.simplified ? "Simplified for display" : "Full route shown"}
+            </span>
+          </div>
+          <p className="activity-dashboard-status">{route.message}</p>
+        </>
+      ) : (
+        <div className="activity-chart empty-state">
+          <strong>Route map unavailable</strong>
+          <span>{route.message}</span>
+        </div>
+      )}
+      <p className="visually-hidden">
+        Route status {route.status}; source points {route.sourcePointCount};
+        plotted points {route.pointCount}; maximum plotted points{" "}
+        {route.maxPoints}.
+      </p>
+    </section>
   );
 }
 
@@ -2666,6 +2835,7 @@ export function TrainerDashboard() {
                     {activityDashboard.charts.timeScaleMessage}
                   </p>
                 ) : null}
+                <RouteMap route={activityDashboard.route} />
                 <HeartRateZoneTimeChart
                   summary={activityDashboard.heartRateZones}
                 />

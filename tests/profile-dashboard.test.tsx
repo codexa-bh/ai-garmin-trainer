@@ -1249,6 +1249,38 @@ describe("TrainerDashboard activity charts", () => {
               { elapsedSec: 3600, heartRate: 136, altitudeMeters: 1012 },
             ],
           },
+          route: {
+            status: "available",
+            sourcePointCount: 2,
+            pointCount: 2,
+            maxPoints: 400,
+            simplified: false,
+            bounds: {
+              minLat: 46.1,
+              maxLat: 46.101,
+              minLon: 13.8,
+              maxLon: 13.801,
+              minAltitudeMeters: 1000,
+              maxAltitudeMeters: 1012,
+            },
+            points: [
+              {
+                elapsedSec: 0,
+                lat: 46.1,
+                lon: 13.8,
+                altitudeMeters: 1000,
+                gradePct: 4,
+              },
+              {
+                elapsedSec: 60,
+                lat: 46.101,
+                lon: 13.801,
+                altitudeMeters: 1012,
+                gradePct: -4,
+              },
+            ],
+            message: "Showing 2 normalized GPS stream points.",
+          },
           heartRateZones: {
             status: "available",
             timeSource: "garmin_activity",
@@ -1387,6 +1419,19 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.queryByText(/Accessible chart summary:/)).toBeNull();
     expect(screen.queryByText("Selected activity")).toBeNull();
     expect(screen.queryByText(/Charts downsampled to/)).toBeNull();
+    expect(screen.getByText("Route map")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Local normalized GPS stream · no external maps or tiles",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("img", {
+        name: "Local GPS route visualization with start and finish markers",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText("Direction: start → finish")).toBeTruthy();
+    expect(screen.getByText("Full route shown")).toBeTruthy();
     expect(screen.getByText("Time in HR zones")).toBeTruthy();
     expect(screen.getByText("Garmin activity HR-zone totals")).toBeTruthy();
     expect(
@@ -1462,6 +1507,17 @@ describe("TrainerDashboard activity charts", () => {
               { elapsedSec: 60, heartRate: 136, altitudeMeters: null },
             ],
           },
+          route: {
+            status: "missing_gps",
+            sourcePointCount: 0,
+            pointCount: 0,
+            maxPoints: 400,
+            simplified: false,
+            bounds: null,
+            points: [],
+            message:
+              "Route unavailable because this activity has no normalized GPS stream points.",
+          },
           heartRateZones: {
             status: "missing_zones",
             timeSource: null,
@@ -1518,6 +1574,12 @@ describe("TrainerDashboard activity charts", () => {
       screen.getByText("No per-point altitude stream data available."),
     ).toBeTruthy();
     expect(screen.queryByText("Elevation profile")).toBeNull();
+    expect(screen.getByText("Route map unavailable")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Route unavailable because this activity has no normalized GPS stream points.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Time in HR zones unavailable")).toBeTruthy();
   });
 });

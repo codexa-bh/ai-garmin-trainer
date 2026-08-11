@@ -60,13 +60,13 @@ export const SQL_LIMITS = {
 };
 
 const PRIVACY =
-  "Read-only local SQLite analytics over allowlisted normalized Garmin tables only; auth/session/account/verification, secrets, connector credentials, and filesystem paths are excluded.";
+  "Read-only local SQLite analytics over allowlisted normalized Garmin tables only, including bounded normalized GPS route coordinates when route/GPS evidence is requested; auth/session/account/verification, secrets, connector credentials, raw payloads, and filesystem paths are excluded.";
 
 const FORBIDDEN_DATA_CLASSES = [
   "auth/session/account/verification rows",
   "secrets, tokens, passwords, cookies, provider credentials, and connector handles",
   "filesystem paths, database paths, environment variables, process/network access",
-  "raw unrestricted FIT streams or raw Garmin connector payload dumps",
+  "raw unrestricted FIT streams, unrestricted GPS stream dumps, or raw Garmin connector payload dumps",
 ];
 
 const ANALYTICAL_SCHEMA: Record<
@@ -203,7 +203,7 @@ const ANALYTICAL_SCHEMA: Record<
   activity_stream_point: {
     name: "activity_stream_point",
     description:
-      "Normalized bounded stream points for imported details. Avoid broad dumps; aggregate or limit heavily.",
+      "Normalized bounded stream points for imported details, including route coordinates for GPS questions. Avoid broad dumps; aggregate or limit heavily.",
     columns: [
       { name: "garmin_id", type: "text" },
       { name: "elapsed_sec", type: "integer", unit: "seconds" },
@@ -212,6 +212,20 @@ const ANALYTICAL_SCHEMA: Record<
       { name: "speed_mps", type: "real", unit: "m/s", nullable: true },
       { name: "altitude_meters", type: "real", unit: "meters", nullable: true },
       { name: "grade_pct", type: "real", unit: "%", nullable: true },
+      {
+        name: "lat",
+        type: "real",
+        unit: "degrees",
+        nullable: true,
+        note: "normalized GPS latitude; use only bounded/limited route slices for route or GPS questions",
+      },
+      {
+        name: "lon",
+        type: "real",
+        unit: "degrees",
+        nullable: true,
+        note: "normalized GPS longitude; use only bounded/limited route slices for route or GPS questions",
+      },
       { name: "cadence", type: "real", nullable: true },
       { name: "power_watts", type: "real", unit: "watts", nullable: true },
     ],

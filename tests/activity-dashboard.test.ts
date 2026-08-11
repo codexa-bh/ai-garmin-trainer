@@ -135,7 +135,7 @@ describe("activity dashboard repository and routes", () => {
     expect(secondPage.nextOffset).toBeNull();
   });
 
-  it("returns selected dashboard payload without raw coordinates or payload fields", async () => {
+  it("returns selected dashboard payload with bounded route coordinates and without raw payload fields", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
@@ -180,6 +180,27 @@ describe("activity dashboard repository and routes", () => {
       timeScaleStatus: "elapsed",
       timeScaleMessage: null,
     });
+    expect(dashboard?.route).toMatchObject({
+      status: "available",
+      sourcePointCount: 12,
+      pointCount: 12,
+      maxPoints: 400,
+      simplified: false,
+      bounds: {
+        minLat: 46.1,
+        maxLat: expect.closeTo(46.111, 6),
+        minLon: 13.8,
+        maxLon: 13.811,
+        minAltitudeMeters: 1000,
+        maxAltitudeMeters: 1033,
+      },
+    });
+    expect(dashboard?.route.points[0]).toMatchObject({
+      elapsedSec: 0,
+      lat: 46.1,
+      lon: 13.8,
+      altitudeMeters: 1000,
+    });
     expect(dashboard?.detail).toMatchObject({
       status: "available",
       hasHeartRate: true,
@@ -199,8 +220,8 @@ describe("activity dashboard repository and routes", () => {
       ]),
     });
     const serialized = JSON.stringify(dashboard);
-    expect(serialized).not.toContain("lat");
-    expect(serialized).not.toContain("lon");
+    expect(serialized).toContain("lat");
+    expect(serialized).toContain("lon");
     expect(serialized).not.toContain("payloadJson");
     expect(serialized).not.toContain("token");
     expect(serialized).not.toContain("DATABASE_PATH");
@@ -284,6 +305,52 @@ describe("activity dashboard repository and routes", () => {
     expect(dashboard?.charts.timeScaleMessage).toMatch(/sample-index/);
   });
 
+  it("simplifies large selected-dashboard routes and reports missing GPS truthfully", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: Array.from({ length: 450 }, (_, index) => ({
+          elapsed_time_s: index * 10,
+          lat_deg: 46 + index / 10000,
+          lon_deg: 13 + index / 10000,
+          altitude_m: 900 + index,
+          grade_pct: index % 3 === 0 ? 5 : -2,
+        })),
+      }),
+    );
+
+    const dashboard = repo.getActivityDashboardDetail("111111");
+
+    expect(dashboard?.route).toMatchObject({
+      status: "available",
+      sourcePointCount: 450,
+      pointCount: 400,
+      maxPoints: 400,
+      simplified: true,
+      bounds: {
+        minLat: 46,
+        maxLat: expect.closeTo(46.0449, 6),
+        minLon: 13,
+        maxLon: expect.closeTo(13.0449, 6),
+        minAltitudeMeters: 900,
+        maxAltitudeMeters: 1349,
+      },
+    });
+    expect(dashboard?.route.points[0]).toMatchObject({ lat: 46, lon: 13 });
+    expect(dashboard?.route.points.at(-1)).toMatchObject({
+      lat: 46.0449,
+      lon: 13.0449,
+    });
+
+    expect(repo.getActivityDashboardDetail("222222")?.route).toMatchObject({
+      status: "missing_gps",
+      sourcePointCount: 0,
+      pointCount: 0,
+      bounds: null,
+      points: [],
+    });
+  });
+
   it("serves bounded list and selected dashboard API responses", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
@@ -341,6 +408,13 @@ describe("activity dashboard repository and routes", () => {
       heartRate: 130,
       altitudeMeters: 1000,
     });
+    expect(detailPayload.route).toMatchObject({
+      status: "missing_gps",
+      sourcePointCount: 0,
+      pointCount: 0,
+      maxPoints: 400,
+      points: [],
+    });
     expect(detailPayload.heartRateZones).toMatchObject({
       status: "available",
       zoneStatus: "derived_from_garmin_max_hr",
@@ -348,8 +422,8 @@ describe("activity dashboard repository and routes", () => {
       timeSource: "local_stream",
       classifiedSeconds: 60,
     });
-    expect(JSON.stringify(detailPayload)).not.toContain("lat");
-    expect(JSON.stringify(detailPayload)).not.toContain("lon");
+    expect(JSON.stringify(detailPayload)).not.toContain("payloadJson");
+    expect(JSON.stringify(detailPayload)).not.toContain("token");
   });
 
   it("prefers Garmin activity HR-zone totals over local stream-derived fallback", async () => {
@@ -445,8 +519,15 @@ describe("activity dashboard repository and routes", () => {
     const detailPayload = await detailResponse.json();
     const serialized = JSON.stringify(detailPayload);
     expect(detailPayload.detail.hasElevation).toBe(false);
-    expect(serialized).not.toContain("lat");
-    expect(serialized).not.toContain("lon");
+    expect(detailPayload.route).toMatchObject({
+      status: "insufficient_points",
+      sourcePointCount: 1,
+      pointCount: 1,
+    });
+    expect(detailPayload.route.points[0]).toMatchObject({
+      lat: 46.1,
+      lon: 13.8,
+    });
     expect(serialized).not.toContain("payloadJson");
     expect(serialized).not.toContain("token");
     expect(serialized).not.toContain("DATABASE_PATH");

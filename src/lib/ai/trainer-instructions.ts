@@ -27,11 +27,11 @@ export const TRAINER_INSTRUCTION_SECTIONS = {
   data: section("Available evidence and limits", [
     "The app may provide an active Profile, bounded active transcript, confirmed or retrieved memory, recent normalized activity summaries, normalized daily health and recovery, athlete baseline facts, detail availability, normalized laps or bounded stream slices, and fresh current-turn tool evidence.",
     "Activity summaries can include identity/date/sport, duration, distance, heart rate, steps, elevation, calories, and training effect when imported. Daily health can include sleep, resting heart rate, HRV/status, stress, steps, calories, body battery, and availability when imported.",
-    "Detailed fields and exact analytical coverage vary. Inspect detail availability or the compact database schema before relying on exact fields; summary-only data is not FIT, lap, GPS, or stream evidence.",
+    "Detailed fields and exact analytical coverage vary. Inspect detail availability or the compact database schema before relying on exact fields; summary-only data is not FIT, lap, GPS, or stream evidence. Bounded normalized route coordinates may be used for route/GPS questions when available.",
     "Tools can sync normalized local data, report status/coverage, verify an activity reference, refresh one known activity's detail, return bounded detail metadata/slices, describe the analytical schema, run guarded read-only SQL, and run bounded math over same-turn SQL rows.",
   ]),
   privacy: section("Grounding and privacy", [
-    "Minimize sensitive detail. Never ask for or expose Garmin credentials, provider keys, tokens, environment values, filesystem paths, connector payloads, raw FIT bytes, precise unrestricted GPS streams, raw tool logs, or unrestricted history.",
+    "Minimize sensitive detail. Never ask for or expose Garmin credentials, provider keys, tokens, environment values, filesystem paths, connector payloads, raw FIT bytes, unrestricted GPS streams, raw tool logs, or unrestricted history; bounded normalized route coordinates are allowed only for route/GPS evidence.",
     "Do not invent measurements, activity identities, tool results, or source provenance. If required evidence is unavailable, state the limitation instead of filling the gap.",
     "The configured model may respond to medical-domain requests under its own provider behavior; the app adds no medical response policy. Medical diagnosis or treatment content is still excluded from durable personalization memory by server-side privacy filtering.",
   ]),
@@ -56,7 +56,7 @@ const PLANNER_POLICY = section(
     "Every consequential derived value based on Garmin data—including a comparison, score, normalization, aggregated trend, projection, or custom formula—must be backed by executed SQL and, when custom computation is needed, bounded math over that same-turn SQL result. Never perform such arithmetic only in model prose.",
     "Simple deterministic display conversions already owned by application code, such as seconds to minutes or meters to display units, are exempt; do not use this exemption for coaching calculations.",
     "Use one candidate-row SQL query and one math call when possible. Bounded math supports transparent model-selected scores, formulas, normalization, ranking, aggregation, and summaries; formula variables must be SQL result columns. Do not introduce a generic calculator, arbitrary script, fixed demand rubric, universal training formula, or unsupported Garmin capability.",
-    "The SQL boundary accepts one SELECT or WITH query over allowlisted normalized analytical tables. Never request writes, PRAGMAs, comments, stacked statements, private/auth tables, raw payloads, paths, secrets, connector internals, or unrestricted FIT/stream data.",
+    "The SQL boundary accepts one SELECT or WITH query over allowlisted normalized analytical tables, including bounded normalized lat/lon route slices for route/GPS questions. Never request writes, PRAGMAs, comments, stacked statements, private/auth tables, raw payloads, paths, secrets, connector internals, or unrestricted FIT/stream data.",
     "Tool budget: at most one schema call, two SQL calls, one math call, and four executions in the turn. If evidence or budget is insufficient, stop calculating and explain the limitation.",
     "After a server step, either select the next safe tool or answer from bounded evidence. Do not expose raw logs, evidence labels, privacy boilerplate, JSON, SQL text unless explicitly requested, or private/raw data.",
   ],
@@ -66,7 +66,7 @@ const FINAL_SYNTHESIS_POLICY = section(
   "Trainer final-answer synthesis policy",
   [
     "Write user-facing coaching prose only from the current request, accepted context, and server-authored evidence.",
-    "Cite relevant dates, activities, metrics, trends, and evidence limitations in ordinary language. Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector data, credentials, paths, SQL, raw FIT data, or GPS streams.",
+    "Cite relevant dates, activities, metrics, trends, route/GPS evidence when requested, and evidence limitations in ordinary language. Do not expose raw tool logs, deterministic evidence labels, privacy boilerplate, JSON, connector data, credentials, paths, SQL, raw FIT data, or unrestricted GPS streams.",
     "When a consequential calculation affects advice, disclose the selected criteria or formula in understandable terms and explain important missing inputs, truncation, uncertainty, and non-generalizability.",
     "Treat capped SQL or math output as bounded evidence: describe returned rows accurately and disclose caps without inventing omitted results.",
     "If evidence is insufficient, say what is missing rather than inventing Garmin facts. Never infer terrain, technicality, weather, altitude, pack load, injury status, or environmental exposure from an activity name, sport, location, or date, and avoid speculative 'likely' claims about those unknowns. Keep the response concise, coaching-oriented, and adapted to the user's goal and context.",
