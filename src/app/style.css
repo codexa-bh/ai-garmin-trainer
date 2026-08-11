@@ -150,8 +150,9 @@ body::before {
   grid-template-columns: minmax(280px, 400px) minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   padding: 18px clamp(14px, 2vw, 28px);
   overflow: hidden;
   background: rgba(7, 11, 18, 0.98);
@@ -178,9 +179,11 @@ body::before {
   display: flex;
   min-width: 0;
   min-height: 0;
+  max-width: 100%;
   flex-direction: column;
   gap: 14px;
   overflow: hidden;
+  overscroll-behavior: contain;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -188,7 +191,9 @@ body::before {
 }
 
 .selected-activity-detail {
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
 }
 
 .activity-dashboard-selector h2,
@@ -278,6 +283,14 @@ body::before {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
+}
+
+.selected-activity-heading,
+.activity-stat-grid,
+.activity-chart-grid,
+.hr-zone-card,
+.lap-table-wrap {
+  flex: 0 0 auto;
 }
 
 .activity-stat-grid span,
@@ -443,7 +456,8 @@ body::before {
 }
 
 .lap-table-wrap {
-  overflow: auto;
+  max-width: 100%;
+  overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
 }
@@ -1294,9 +1308,13 @@ label {
   }
 
   .chat-workspace,
-  .sidebar-collapsed .chat-workspace,
+  .sidebar-collapsed .chat-workspace {
+    grid-template-columns: 1fr;
+  }
+
   .activity-dashboard-panel {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(170px, 32vh) minmax(0, 1fr);
   }
 
   .conversation-sidebar,
@@ -1334,6 +1352,16 @@ label {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
     gap: 8px;
     padding: 8px;
+  }
+
+  .activity-dashboard-panel {
+    grid-template-rows: auto minmax(140px, 30vh) minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .activity-dashboard-header {
+    align-items: flex-start;
   }
 
   .chrome-button,

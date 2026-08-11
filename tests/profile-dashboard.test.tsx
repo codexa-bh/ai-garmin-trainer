@@ -1027,6 +1027,42 @@ describe("TrainerDashboard athlete baseline summary", () => {
 });
 
 describe("TrainerDashboard activity charts", () => {
+  it("keeps the full-screen activity dashboard scroll contract reachable at narrow breakpoints", () => {
+    const css = readFileSync("src/app/style.css", "utf8");
+    const panelBlock =
+      css.match(/\.activity-dashboard-panel\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const detailScrollBlock =
+      css.match(
+        /\.selected-activity-detail\s*\{\s*overflow-x: hidden;([\s\S]*?)\}/,
+      )?.[0] ?? "";
+    const lapWrapBlock =
+      css.match(/\.lap-table-wrap\s*\{\s*max-width: 100%;([\s\S]*?)\}/)?.[0] ??
+      "";
+    const tabletMediaBlock =
+      css.match(
+        /@media \(max-width: 960px\) \{([\s\S]*?)@media \(max-width: 640px\)/,
+      )?.[1] ?? "";
+    const mobileMediaBlock =
+      css.match(/@media \(max-width: 640px\) \{([\s\S]*)$/)?.[1] ?? "";
+
+    expect(panelBlock).toContain("height: 100dvh;");
+    expect(panelBlock).toContain("min-height: 0;");
+    expect(panelBlock).toContain("overflow: hidden;");
+    expect(detailScrollBlock).toContain("overflow-y: auto;");
+    expect(detailScrollBlock).toContain("overflow-x: hidden;");
+    expect(lapWrapBlock).toContain("max-width: 100%;");
+    expect(lapWrapBlock).toContain("overflow-x: auto;");
+    expect(css).toMatch(
+      /\.selected-activity-heading,[\s\S]*\.lap-table-wrap \{[\s\S]*flex: 0 0 auto;/,
+    );
+    expect(tabletMediaBlock).toMatch(
+      /\.activity-dashboard-panel\s*\{[\s\S]*grid-template-columns: 1fr;[\s\S]*grid-template-rows: auto minmax\(170px, 32vh\) minmax\(0, 1fr\);/,
+    );
+    expect(mobileMediaBlock).toMatch(
+      /\.activity-dashboard-panel\s*\{[\s\S]*grid-template-rows: auto minmax\(140px, 30vh\) minmax\(0, 1fr\);/,
+    );
+  });
+
   it("opens full-screen activity mode, requests 100 rows, resets search, and closes back to chat", async () => {
     const activityUrls: string[] = [];
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -1343,7 +1379,10 @@ describe("TrainerDashboard activity charts", () => {
       ?.querySelector(".hr-zone-bar");
     expect(zoneFiveBar?.className).toContain("hr-zone-bar-zone-5");
     expect(zoneOneBar?.className).toContain("hr-zone-bar-zone-1");
-    expect(screen.getByText("Lap details")).toBeTruthy();
+    const lapCaption = screen.getByText("Lap details");
+    expect(lapCaption).toBeTruthy();
+    expect(lapCaption.closest(".selected-activity-detail")).toBeTruthy();
+    expect(lapCaption.closest(".lap-table-wrap")).toBeTruthy();
     expect(screen.getByText("10.00 km")).toBeTruthy();
     expect(screen.getByText("3.2")).toBeTruthy();
   });
