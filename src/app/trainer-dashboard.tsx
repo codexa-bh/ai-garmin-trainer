@@ -710,8 +710,8 @@ function chartPlotModel({
   return {
     width,
     height,
-    plotLeft: 14,
-    plotRight: width - 8,
+    plotLeft: 8,
+    plotRight: width - 6,
     plotTop: 8,
     plotBottom: height - 16,
     domainStartSec,

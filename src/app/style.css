@@ -278,11 +278,16 @@ body::before {
   font-weight: 800;
 }
 
-.activity-stat-grid,
-.activity-chart-grid {
+.activity-stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
+}
+
+.activity-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 6px;
 }
 
 .selected-activity-heading,
@@ -295,9 +300,16 @@ body::before {
   flex: 0 0 auto;
 }
 
-.activity-stat-grid span,
-.activity-chart {
+.activity-stat-grid span {
   padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.activity-chart {
+  margin: 0;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.035);
@@ -318,8 +330,8 @@ body::before {
 .activity-chart figcaption {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 8px;
   color: var(--muted);
 }
 

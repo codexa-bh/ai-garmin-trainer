@@ -1027,6 +1027,23 @@ describe("TrainerDashboard athlete baseline summary", () => {
 });
 
 describe("TrainerDashboard activity charts", () => {
+  it("keeps Activity dashboard chart cards compact while preserving responsive scroll contracts", () => {
+    const css = readFileSync("src/app/style.css", "utf8");
+    const chartGridBlock =
+      css.match(/\.activity-chart-grid\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const chartCardBlock =
+      css.match(/\.activity-chart\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const chartCaptionBlock =
+      css.match(/\.activity-chart figcaption\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+
+    expect(chartGridBlock).toContain("minmax(140px, 1fr)");
+    expect(chartGridBlock).toContain("gap: 6px;");
+    expect(chartCardBlock).toContain("margin: 0;");
+    expect(chartCardBlock).toContain("padding: 8px;");
+    expect(chartCaptionBlock).toContain("gap: 8px;");
+    expect(chartCaptionBlock).toContain("margin-bottom: 8px;");
+  });
+
   it("keeps the full-screen activity dashboard scroll contract reachable at narrow breakpoints", () => {
     const css = readFileSync("src/app/style.css", "utf8");
     const panelBlock =
