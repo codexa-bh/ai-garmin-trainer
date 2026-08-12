@@ -478,6 +478,20 @@ vi.mock("@/lib/db/repository", () => ({
       (message) => message.conversationId !== conversationId,
     );
   }),
+  getGarminBodyMetrics: () => ({
+    availability: "partial",
+    source: "garmin_mcp",
+    fetchedAt: "2026-08-12T08:00:00.000Z",
+    lastAttemptAt: "2026-08-12T08:00:00.000Z",
+    preservedPrevious: false,
+    values: { weightKg: 70.2, heightCm: 181 },
+    history: {
+      availability: "unavailable",
+      rangeStart: null,
+      rangeEnd: null,
+      count: 0,
+    },
+  }),
   getGarminAthleteBaseline: () => ({
     availability: "partial",
     source: "garmin_mcp",

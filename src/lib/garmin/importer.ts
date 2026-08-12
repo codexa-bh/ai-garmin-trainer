@@ -6,10 +6,12 @@ import {
   getActivityDetailForAnalytics,
   getCheckpoint,
   getGarminAthleteBaseline,
+  getGarminBodyMetrics,
   listActivityIdsNeedingDetail,
   listRecentActivities,
   recordActivityDetailAttempt,
   recordGarminAthleteBaselineFailure,
+  recordGarminBodyMetricsFailure,
   recordSyncRun,
   saveCheckpoint,
   upsertActivities,
@@ -18,6 +20,7 @@ import {
   upsertActivityHrZoneTime,
   upsertDailyHealth,
   writeGarminAthleteBaselineRefresh,
+  writeGarminBodyMetricsRefresh,
 } from "../db/repository";
 import { GarminMcpClient } from "./mcp-client";
 import { fetchFitBaselineWithLocalWrapper } from "./fit-baseline";
@@ -30,13 +33,17 @@ import {
   hasUsableGarminAthleteBaseline,
   normalizeGarminAthleteBaseline,
 } from "./athlete-normalize";
+import {
+  hasUsableGarminBodyMetrics,
+  normalizeGarminBodyMetrics,
+} from "./body-metrics-normalize";
 import { normalizeActivityHrZoneTime } from "./activity-hr-zone-time";
 import {
   normalizeActivityDetail,
   normalizeUnsupportedActivityDetail,
 } from "./detail-normalize";
 import { normalizeActivity, normalizeDailyHealth } from "./normalize";
-import type { GarminAthleteBaselineDto } from "./types";
+import type { GarminAthleteBaselineDto, GarminBodyMetricsDto } from "./types";
 
 type ActivityPage = {
   activities?: Array<Record<string, unknown>>;
@@ -58,6 +65,7 @@ export type GarminSyncResult = {
   healthCoverage: ReturnType<typeof dataCounts>["healthCoverage"];
   detailCoverage: ReturnType<typeof activityDetailCoverage>;
   athleteBaseline: GarminAthleteBaselineDto;
+  bodyMetrics: GarminBodyMetricsDto;
   detail: string;
 };
 
@@ -65,6 +73,7 @@ export type GarminSyncProgress = {
   stage:
     | "starting"
     | "athlete"
+    | "body_metrics"
     | "activities"
     | "health"
     | "detail"
@@ -80,6 +89,7 @@ export type GarminSyncProgress = {
   totalHealthDays?: number;
   completedHealthDays?: number;
   athleteAvailability?: GarminAthleteBaselineDto["availability"];
+  bodyMetricsAvailability?: GarminBodyMetricsDto["availability"];
 };
 
 type ProgressReporter = (progress: GarminSyncProgress) => void;
@@ -148,9 +158,7 @@ export function dailyHealthImportPlan(input: {
 
 function compactError(error: unknown): string {
   return (
-    error instanceof Error
-      ? error.message
-      : "Garmin athlete baseline fetch failed"
+    error instanceof Error ? error.message : "Garmin connector fetch failed"
   ).slice(0, 500);
 }
 
@@ -201,6 +209,61 @@ async function fetchAndStoreAthleteBaseline(
   return getGarminAthleteBaseline();
 }
 
+async function fetchAndStoreBodyMetrics(
+  client: GarminMcpClient,
+  startDate: string,
+  endDate: string,
+): Promise<GarminBodyMetricsDto> {
+  const attemptedAt = new Date();
+  const previous = getGarminBodyMetrics();
+  let profilePayload: unknown;
+  let historyPayload: unknown;
+  let historyFailed = false;
+  const errors: string[] = [];
+  try {
+    profilePayload = parseToolJson(
+      await client.callTool("get_user_profile", {}),
+    );
+  } catch (error) {
+    errors.push(`profile: ${compactError(error)}`);
+  }
+  try {
+    historyPayload = parseToolJson(
+      await client.callTool("get_body_composition", {
+        start_date: startDate,
+        end_date: endDate,
+      }),
+    );
+  } catch (error) {
+    historyFailed = true;
+    errors.push(`body composition history: ${compactError(error)}`);
+  }
+  if (!profilePayload && !historyPayload) {
+    const preservedPrevious = Boolean(previous.fetchedAt);
+    recordGarminBodyMetricsFailure({
+      attemptedAt,
+      errorMessage: errors.join("; ") || "Garmin body metrics fetch failed",
+      preservedPrevious,
+    });
+    return getGarminBodyMetrics();
+  }
+  const snapshot = normalizeGarminBodyMetrics({
+    profilePayload,
+    historyPayload,
+    historyFailed,
+    fetchedAt: new Date(),
+  });
+  const hasUsableSnapshot = hasUsableGarminBodyMetrics(snapshot);
+  writeGarminBodyMetricsRefresh({
+    snapshot: hasUsableSnapshot ? snapshot : null,
+    status: snapshot.availability,
+    attemptedAt,
+    errorMessage: errors.length ? errors.join("; ") : null,
+    preservedPrevious: false,
+  });
+  return getGarminBodyMetrics();
+}
+
 async function fetchFitAthleteBaselinePayload(
   client: GarminMcpClient,
 ): Promise<unknown> {
@@ -246,6 +309,7 @@ export async function runGarminSync(
   let healthDaysImported = 0;
   let detailsProcessed = 0;
   let athleteBaseline = getGarminAthleteBaseline();
+  let bodyMetrics = getGarminBodyMetrics();
 
   try {
     onProgress({
@@ -271,6 +335,23 @@ export async function runGarminSync(
       healthDaysImported,
       athleteAvailability: athleteBaseline.availability,
     });
+    onProgress({
+      stage: "body_metrics",
+      message:
+        "Refreshing Garmin body metrics from approved read-only profile/body-composition tools…",
+      activitiesImported,
+      healthDaysImported,
+      bodyMetricsAvailability: bodyMetrics.availability,
+    });
+    bodyMetrics = await fetchAndStoreBodyMetrics(client, startDate, endDate);
+    onProgress({
+      stage: "body_metrics",
+      message: `Garmin body metrics refresh ${bodyMetrics.availability}; current weight ${bodyMetrics.values.weightKg !== null ? "available" : "unavailable"}; height ${bodyMetrics.values.heightCm !== null ? "available" : "unavailable"}; weight history ${bodyMetrics.history.availability}.`,
+      activitiesImported,
+      healthDaysImported,
+      bodyMetricsAvailability: bodyMetrics.availability,
+    });
+
     let page = Number(getCheckpoint("activity_page") ?? 0);
     while (true) {
       onProgress({
@@ -408,7 +489,8 @@ export async function runGarminSync(
       healthCoverage: totals.healthCoverage,
       detailCoverage: totals.detailCoverage,
       athleteBaseline,
-      detail: `Garmin sync completed through the pinned stdio MCP connector. Processed ${activitiesImported} activity records and refreshed ${healthDaysImported} health dates for ${startDate} through ${endDate}. Database now has ${totals.activities} stored activities and ${totals.healthCoverage.totalRows} health calendar rows: ${totals.healthCoverage.completeDays} complete, ${totals.healthCoverage.partialDays} partial, ${totals.healthCoverage.missingDays} explicitly missing. Activity detail coverage is ${totals.detailCoverage.available} available, ${totals.detailCoverage.partial} partial, ${totals.detailCoverage.unsupported} unsupported, ${totals.detailCoverage.pending} pending, and ${totals.detailCoverage.retryableFailures} retryable failures out of ${totals.detailCoverage.total} activities. Athlete baseline status ${athleteBaseline.availability}; configured max HR ${athleteBaseline.values.configuredMaxHeartRateBpm ? "available from Garmin FIT zones target" : "unavailable"}; HR zones ${athleteBaseline.values.heartRateZones.status}. Redacted raw connector payloads were retained locally for generated analysis; official Garmin HR-zone boundaries remain unavailable unless the normalized baseline says garmin_configured.`,
+      bodyMetrics,
+      detail: `Garmin sync completed through the pinned stdio MCP connector. Processed ${activitiesImported} activity records and refreshed ${healthDaysImported} health dates for ${startDate} through ${endDate}. Database now has ${totals.activities} stored activities and ${totals.healthCoverage.totalRows} health calendar rows: ${totals.healthCoverage.completeDays} complete, ${totals.healthCoverage.partialDays} partial, ${totals.healthCoverage.missingDays} explicitly missing. Activity detail coverage is ${totals.detailCoverage.available} available, ${totals.detailCoverage.partial} partial, ${totals.detailCoverage.unsupported} unsupported, ${totals.detailCoverage.pending} pending, and ${totals.detailCoverage.retryableFailures} retryable failures out of ${totals.detailCoverage.total} activities. Athlete baseline status ${athleteBaseline.availability}; configured max HR ${athleteBaseline.values.configuredMaxHeartRateBpm ? "available from Garmin FIT zones target" : "unavailable"}; HR zones ${athleteBaseline.values.heartRateZones.status}. Body metrics status ${bodyMetrics.availability}; current weight ${bodyMetrics.values.weightKg !== null ? "available" : "unavailable"}; height ${bodyMetrics.values.heightCm !== null ? "available" : "unavailable"}; weight history ${bodyMetrics.history.availability}. Redacted raw connector payloads were retained locally for generated analysis; official Garmin HR-zone boundaries remain unavailable unless the normalized baseline says garmin_configured.`,
     };
     onProgress({
       stage: "completed",
@@ -418,6 +500,7 @@ export async function runGarminSync(
       detailsProcessed,
       detailTotal: detailIds.length,
       athleteAvailability: athleteBaseline.availability,
+      bodyMetricsAvailability: bodyMetrics.availability,
     });
     return result;
   } catch (error) {
@@ -445,6 +528,7 @@ export async function runGarminSync(
       healthCoverage: totals.healthCoverage,
       detailCoverage: totals.detailCoverage,
       athleteBaseline,
+      bodyMetrics,
       detail: message.slice(0, 1000),
     };
   } finally {

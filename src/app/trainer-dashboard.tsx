@@ -192,6 +192,23 @@ type AthleteBaselinePayload = {
       "not_exposed_by_pinned_connector" | "derived_from_garmin_max_hr" | null;
   };
 };
+type BodyMetricsAvailability =
+  "complete" | "partial" | "unavailable" | "failed";
+type BodyMetricsPayload = {
+  availability: BodyMetricsAvailability;
+  source: "garmin_mcp" | null;
+  fetchedAt: string | null;
+  lastAttemptAt: string | null;
+  preservedPrevious: boolean;
+  values: { weightKg: number | null; heightCm: number | null };
+  history: {
+    availability: "available" | "unavailable" | "failed";
+    rangeStart: string | null;
+    rangeEnd: string | null;
+    count: number;
+  };
+};
+
 type HealthCoveragePayload = {
   totalRows: number;
   completeDays: number;
@@ -227,6 +244,7 @@ type ImportSummaryPayload = {
   detailedActivities: number;
   detailCoverage?: DetailCoveragePayload;
   athleteBaseline: AthleteBaselinePayload;
+  bodyMetrics: BodyMetricsPayload;
 };
 type ProfileFields = {
   goals: string;
@@ -252,6 +270,7 @@ type SyncProgressEvent = {
   healthCoverage?: HealthCoveragePayload;
   detailCoverage?: DetailCoveragePayload;
   athleteAvailability?: AthleteBaselineAvailability;
+  bodyMetricsAvailability?: BodyMetricsAvailability;
 };
 
 type ActivityListItem = {
@@ -419,6 +438,21 @@ const emptyAthleteBaseline: AthleteBaselinePayload = {
   },
 };
 
+const emptyBodyMetrics: BodyMetricsPayload = {
+  availability: "unavailable",
+  source: null,
+  fetchedAt: null,
+  lastAttemptAt: null,
+  preservedPrevious: false,
+  values: { weightKg: null, heightCm: null },
+  history: {
+    availability: "unavailable",
+    rangeStart: null,
+    rangeEnd: null,
+    count: 0,
+  },
+};
+
 async function readResponse(response: Response): Promise<string> {
   const text = await response.text();
   if (!text) return response.ok ? "OK" : `HTTP ${response.status}`;
@@ -483,6 +517,22 @@ function formatAthleteBaselineSummary(
         ? "Garmin-configured HR-zone boundaries available"
         : "HR-zone boundaries unavailable";
   return `Athlete baseline ${baseline.availability}; ${maxHr}; ${zones}; last attempt ${dateLabel(baseline.lastAttemptAt)}.`;
+}
+
+function formatBodyMetricsSummary(metrics: BodyMetricsPayload): string {
+  const weight =
+    metrics.values.weightKg !== null
+      ? `current weight imported (${metrics.values.weightKg} kg)`
+      : "current weight unavailable";
+  const height =
+    metrics.values.heightCm !== null
+      ? `height imported (${metrics.values.heightCm} cm)`
+      : "height unavailable";
+  const history =
+    metrics.history.availability === "available"
+      ? `weight history ${metrics.history.count} rows (${metrics.history.rangeStart ?? "unknown"} to ${metrics.history.rangeEnd ?? "unknown"})`
+      : `weight history ${metrics.history.availability}`;
+  return `Body metrics ${metrics.availability}; ${weight}; ${height}; ${history}; last attempt ${dateLabel(metrics.lastAttemptAt)}.`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -1527,6 +1577,12 @@ export function TrainerDashboard() {
   const [athleteBaselineMessage, setAthleteBaselineMessage] = useState(
     "Garmin athlete baselines will load from the local import summary.",
   );
+  const [bodyMetrics, setBodyMetrics] = useState<BodyMetricsPayload | null>(
+    null,
+  );
+  const [bodyMetricsMessage, setBodyMetricsMessage] = useState(
+    "Garmin body metrics will load from the local import summary.",
+  );
   const [detailGarminId, setDetailGarminId] = useState("");
   const [activityDashboardOpen, setActivityDashboardOpen] = useState(false);
   const [activitySearchQuery, setActivitySearchQuery] = useState("");
@@ -2143,16 +2199,22 @@ export function TrainerDashboard() {
         await fetch("/api/summary"),
       );
       const nextBaseline = payload.athleteBaseline ?? emptyAthleteBaseline;
+      const nextBodyMetrics = payload.bodyMetrics ?? emptyBodyMetrics;
       setAthleteBaseline(nextBaseline);
+      setBodyMetrics(nextBodyMetrics);
       setAthleteBaselineMessage(formatAthleteBaselineSummary(nextBaseline));
+      setBodyMetricsMessage(formatBodyMetricsSummary(nextBodyMetrics));
       if (showStatus)
         setStatus({
           kind: "ok",
-          message: `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}.`,
+          message: `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}, body metrics ${nextBodyMetrics.availability}.`,
         });
     } catch (error) {
       setAthleteBaselineMessage(
         `Athlete baseline summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      setBodyMetricsMessage(
+        `Body metrics summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
       );
       if (showStatus || trigger === "manual")
         setStatus({
@@ -3851,6 +3913,44 @@ export function TrainerDashboard() {
                   </dl>
                 ) : (
                   <p>Not available until the local summary loads.</p>
+                )}
+                <p className="helper-text" role="status" aria-live="polite">
+                  {bodyMetricsMessage}
+                </p>
+                {bodyMetrics ? (
+                  <dl
+                    className="compact-facts"
+                    aria-label="Garmin body metrics"
+                  >
+                    <div>
+                      <dt>Body-metrics status</dt>
+                      <dd>{bodyMetrics.availability}</dd>
+                    </div>
+                    <div>
+                      <dt>Body metrics refreshed</dt>
+                      <dd>{dateLabel(bodyMetrics.fetchedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Current weight</dt>
+                      <dd>{valueLabel(bodyMetrics.values.weightKg, " kg")}</dd>
+                    </div>
+                    <div>
+                      <dt>Height</dt>
+                      <dd>{valueLabel(bodyMetrics.values.heightCm, " cm")}</dd>
+                    </div>
+                    <div>
+                      <dt>Weight history</dt>
+                      <dd>
+                        {bodyMetrics.history.availability === "available"
+                          ? `${bodyMetrics.history.count} rows (${bodyMetrics.history.rangeStart ?? "unknown"} to ${bodyMetrics.history.rangeEnd ?? "unknown"})`
+                          : bodyMetrics.history.availability}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p>
+                    Body metrics not available until the local summary loads.
+                  </p>
                 )}
                 <div className="detail-tools">
                   <label>

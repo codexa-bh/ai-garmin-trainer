@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assertReadOperation } from "../src/lib/garmin/client";
 import { normalizeGarminAthleteBaseline } from "../src/lib/garmin/athlete-normalize";
+import { normalizeGarminBodyMetrics } from "../src/lib/garmin/body-metrics-normalize";
 import { normalizeActivityHrZoneTime } from "../src/lib/garmin/activity-hr-zone-time";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
 import {
@@ -43,6 +44,7 @@ describe("Garmin boundary", () => {
     expect(() => assertReadOperation("get_activity_fit_data")).not.toThrow();
     expect(() => assertReadOperation("get_user_profile")).not.toThrow();
     expect(() => assertReadOperation("get_cycling_ftp")).not.toThrow();
+    expect(() => assertReadOperation("get_body_composition")).not.toThrow();
     expect(() => assertReadOperation("download_activity_file")).toThrow(
       /Blocked/,
     );
@@ -102,6 +104,47 @@ describe("Garmin boundary", () => {
     expect(JSON.stringify(normalized)).not.toContain("birthDate");
     expect(JSON.stringify(normalized)).not.toContain("gender");
     expect(JSON.stringify(normalized)).not.toContain("weight");
+  });
+
+  it("normalizes accepted Garmin body metrics while excluding forbidden profile fields", () => {
+    const normalized = normalizeGarminBodyMetrics({
+      profilePayload: {
+        userData: {
+          weight: 70.25,
+          height: 181,
+          birthDate: "1980-01-01",
+          gender: "private",
+          weatherLocation: "private",
+          email: "private@example.invalid",
+        },
+      },
+      historyPayload: {
+        dateWeightList: [
+          { date: "2026-08-10", weight: 70.4, bodyFat: 20 },
+          { calendarDate: "2026-08-11", weight: "70.2" },
+          { date: "2026-08-12", weight: 0 },
+        ],
+        totalAverage: { weight: 70.3, bodyFat: 20, bmi: 22 },
+      },
+      fetchedAt: new Date("2026-08-12T08:00:00Z"),
+    });
+
+    expect(normalized).toMatchObject({
+      availability: "complete",
+      values: { weightKg: 70.25, heightCm: 181 },
+      history: {
+        availability: "available",
+        rangeStart: "2026-08-10",
+        rangeEnd: "2026-08-11",
+        count: 2,
+      },
+    });
+    expect(normalized.historyRows).toHaveLength(2);
+    expect(JSON.stringify(normalized)).not.toContain("birthDate");
+    expect(JSON.stringify(normalized)).not.toContain("gender");
+    expect(JSON.stringify(normalized)).not.toContain("weatherLocation");
+    expect(JSON.stringify(normalized)).not.toContain("bodyFat");
+    expect(JSON.stringify(normalized)).not.toContain("bmi");
   });
 
   it("treats all-null athlete baseline payloads as unavailable without estimating max HR", () => {

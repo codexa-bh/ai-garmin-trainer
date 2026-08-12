@@ -101,6 +101,47 @@ export type GarminAthleteBaselineDto = {
   };
 };
 
+export type GarminBodyMetricsAvailability =
+  "complete" | "partial" | "unavailable" | "failed";
+
+export type GarminBodyMetricValues = {
+  weightKg: number | null;
+  heightCm: number | null;
+};
+
+export type GarminBodyWeightHistoryRow = {
+  date: string;
+  weightKg: number;
+  source: "garmin_mcp";
+  fetchedAt: Date;
+};
+
+export type GarminBodyWeightHistorySummary = {
+  availability: "available" | "unavailable" | "failed";
+  rangeStart: string | null;
+  rangeEnd: string | null;
+  count: number;
+};
+
+export type GarminBodyMetricsSnapshot = {
+  availability: Exclude<GarminBodyMetricsAvailability, "failed">;
+  source: "garmin_mcp";
+  fetchedAt: Date;
+  values: GarminBodyMetricValues;
+  history: GarminBodyWeightHistorySummary;
+  historyRows: GarminBodyWeightHistoryRow[];
+};
+
+export type GarminBodyMetricsDto = {
+  availability: GarminBodyMetricsAvailability;
+  source: "garmin_mcp" | null;
+  fetchedAt: string | null;
+  lastAttemptAt: string | null;
+  preservedPrevious: boolean;
+  values: GarminBodyMetricValues;
+  history: GarminBodyWeightHistorySummary;
+};
+
 export type GarminReadOperation =
   | "list_activities"
   | "get_sleep"
@@ -123,4 +164,5 @@ export type GarminReadOperation =
   | "get_sleep_summary"
   | "get_morning_training_readiness"
   | "get_user_profile"
+  | "get_body_composition"
   | "get_cycling_ftp";

@@ -39,6 +39,20 @@ describe("versioned SQLite migration foundation", () => {
         .get(),
     ).toBeTruthy();
     expect(
+      db
+        .prepare(
+          "select name from sqlite_master where type = 'table' and name = 'garmin_body_metrics'",
+        )
+        .get(),
+    ).toBeTruthy();
+    expect(
+      db
+        .prepare(
+          "select name from sqlite_master where type = 'table' and name = 'garmin_body_weight_history'",
+        )
+        .get(),
+    ).toBeTruthy();
+    expect(
       (
         db.prepare("pragma table_info(conversation)").all() as Array<{
           name: string;

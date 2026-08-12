@@ -218,6 +218,43 @@ export const garminAthleteBaselineAttempt = sqliteTable(
   },
 );
 
+export const garminBodyMetrics = sqliteTable("garmin_body_metrics", {
+  id: text("id").primaryKey().default("default"),
+  fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),
+  source: text("source").notNull(),
+  availability: text("availability").notNull(),
+  weightKg: real("weight_kg"),
+  heightCm: real("height_cm"),
+  historyAvailability: text("history_availability").notNull(),
+  historyRangeStart: text("history_range_start"),
+  historyRangeEnd: text("history_range_end"),
+  historyCount: integer("history_count").notNull().default(0),
+});
+
+export const garminBodyMetricAttempt = sqliteTable(
+  "garmin_body_metric_attempt",
+  {
+    id: text("id").primaryKey().default("default"),
+    attemptedAt: integer("attempted_at", { mode: "timestamp" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    status: text("status").notNull(),
+    errorMessage: text("error_message"),
+    preservedPrevious: integer("preserved_previous", { mode: "boolean" })
+      .notNull()
+      .default(false),
+  },
+);
+
+export const garminBodyWeightHistory = sqliteTable(
+  "garmin_body_weight_history",
+  {
+    date: text("date").primaryKey(),
+    weightKg: real("weight_kg").notNull(),
+    source: text("source").notNull(),
+    fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),
+  },
+);
+
 export const garminRawPayload = sqliteTable("garmin_raw_payload", {
   id: text("id").primaryKey(),
   sourceTool: text("source_tool").notNull(),
