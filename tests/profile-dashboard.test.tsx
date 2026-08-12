@@ -1274,7 +1274,7 @@ describe("TrainerDashboard activity charts", () => {
               sourcePointCount: 3,
               pointCount: 3,
               message:
-                "Speed uses normalized stream speed samples converted to km/h.",
+                "Speed uses smoothed normalized stream speed samples converted to km/h.",
             },
             points: [
               {
@@ -1432,7 +1432,7 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("Elevation profile")).toBeTruthy();
     expect(screen.getByText("Speed")).toBeTruthy();
     expect(
-      screen.getByText("From normalized stream speed samples."),
+      screen.getByText("Smoothed from normalized stream speed samples."),
     ).toBeTruthy();
     expect(
       screen.queryByRole("img", { name: "Pace over elapsed time" }),

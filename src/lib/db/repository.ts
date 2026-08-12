@@ -1573,13 +1573,39 @@ function finiteNumber(value: number | null): value is number {
   return value !== null && Number.isFinite(value);
 }
 
+const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WEIGHTS = [1, 2, 1] as const;
+const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_CENTER_INDEX = Math.floor(
+  ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WEIGHTS.length / 2,
+);
+
+function smoothedActivityDashboardSpeedKmh(
+  points: ActivityDashboardChartSourcePoint[],
+  index: number,
+): number | null {
+  const centerSpeedMps = points[index]?.speedMps ?? null;
+  if (!finiteNumber(centerSpeedMps) || centerSpeedMps < 0) return null;
+  if (centerSpeedMps === 0) return 0;
+
+  let weightedSpeedMps = 0;
+  let weightTotal = 0;
+  ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WEIGHTS.forEach((weight, weightIndex) => {
+    const sampleIndex =
+      index + weightIndex - ACTIVITY_DASHBOARD_SPEED_SMOOTHING_CENTER_INDEX;
+    const speedMps = points[sampleIndex]?.speedMps ?? null;
+    if (!finiteNumber(speedMps) || speedMps < 0) return;
+    weightedSpeedMps += speedMps * weight;
+    weightTotal += weight;
+  });
+
+  return weightTotal > 0 ? (weightedSpeedMps / weightTotal) * 3.6 : null;
+}
+
 function activityDashboardSpeedSeries(
   points: ActivityDashboardChartSourcePoint[],
 ): ActivityDashboardSpeedSeries {
-  const values = points.map((point) => {
-    if (!finiteNumber(point.speedMps) || point.speedMps < 0) return null;
-    return point.speedMps * 3.6;
-  });
+  const values = points.map((_, index) =>
+    smoothedActivityDashboardSpeedKmh(points, index),
+  );
   const pointCount = values.filter(finiteNumber).length;
   if (pointCount === 0) {
     return {
@@ -1610,7 +1636,8 @@ function activityDashboardSpeedSeries(
       status: "available",
       sourcePointCount: pointCount,
       pointCount,
-      message: "Speed uses normalized stream speed samples converted to km/h.",
+      message:
+        "Speed uses smoothed normalized stream speed samples converted to km/h.",
     },
     values,
   };
