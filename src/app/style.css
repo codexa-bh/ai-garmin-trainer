@@ -371,12 +371,21 @@ body::before {
   background: rgba(255, 255, 255, 0.035);
 }
 
+.route-map-card.compact {
+  gap: 8px;
+  padding: 10px 12px;
+}
+
 .route-map-card-header,
 .route-map-meta,
 .hr-zone-card-header {
   display: flex;
   gap: 12px;
   justify-content: space-between;
+}
+
+.route-map-card-header {
+  align-items: flex-start;
 }
 
 .route-map-card-header h2,
@@ -386,12 +395,20 @@ body::before {
 }
 
 .route-map-card-header p {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.route-map-card-header > span,
+.route-map-controls {
+  display: flex;
+  min-width: 128px;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.route-map-controls > span,
 .hr-zone-card-header > span {
   color: var(--muted);
   font-size: 12px;
@@ -399,10 +416,20 @@ body::before {
   text-align: right;
 }
 
+.route-map-toggle {
+  padding: 6px 9px;
+  border: 1px solid rgba(73, 214, 200, 0.38);
+  border-radius: 999px;
+  background: rgba(73, 214, 200, 0.08);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .route-map-svg {
   width: 100%;
-  min-height: 220px;
-  overflow: visible;
+  height: 156px;
+  overflow: hidden;
 }
 
 .route-map-ground {
@@ -410,11 +437,19 @@ body::before {
   stroke: rgba(148, 163, 184, 0.18);
 }
 
+.route-map-ground.external-map {
+  fill: rgba(255, 255, 255, 0.04);
+}
+
+.route-map-tiles image {
+  opacity: 0.76;
+}
+
 .route-map-segment {
   filter: url(#route-map-shadow);
   stroke: var(--accent);
   stroke-linecap: round;
-  stroke-width: 5;
+  stroke-width: 4;
 }
 
 .route-map-segment.climbing {
@@ -444,18 +479,33 @@ body::before {
 
 .route-map-marker text {
   fill: var(--text);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   paint-order: stroke;
   stroke: rgba(5, 7, 11, 0.88);
-  stroke-width: 4;
+  stroke-width: 3;
 }
 
 .route-map-meta {
   flex-wrap: wrap;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 750;
+}
+
+.route-map-attribution {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.route-map-empty-state {
+  display: grid;
+  min-height: 76px;
+  place-items: center;
+  color: var(--muted);
+  text-align: center;
 }
 
 .hr-zone-bars {

@@ -804,24 +804,143 @@ type RouteMapSvgPoint = RouteMapPoint & {
   y: number;
 };
 
+type RouteMapTile = {
+  key: string;
+  href: string;
+  x: number;
+  y: number;
+};
+
+type ExternalRouteMapView = {
+  points: RouteMapSvgPoint[];
+  tiles: RouteMapTile[];
+};
+
+const ROUTE_MAP_WIDTH = 420;
+const ROUTE_MAP_HEIGHT = 156;
+const ROUTE_MAP_PADDING = 14;
+const ROUTE_MAP_TILE_SIZE = 256;
+const ROUTE_MAP_MIN_ZOOM = 2;
+const ROUTE_MAP_MAX_ZOOM = 17;
+const CARTO_TILE_BASE_URL = "https://basemaps.cartocdn.com/light_all";
+
 function routeMapCoordinates(
   route: ActivityDashboardPayload["route"],
   width: number,
   height: number,
 ): RouteMapSvgPoint[] {
   if (!route.bounds) return [];
-  const padding = 18;
   const lonSpan = route.bounds.maxLon - route.bounds.minLon || 0.000001;
   const latSpan = route.bounds.maxLat - route.bounds.minLat || 0.000001;
-  const usableWidth = width - padding * 2;
-  const usableHeight = height - padding * 2;
+  const usableWidth = width - ROUTE_MAP_PADDING * 2;
+  const usableHeight = height - ROUTE_MAP_PADDING * 2;
   return route.points.map((point) => ({
     ...point,
-    x: padding + ((point.lon - route.bounds!.minLon) / lonSpan) * usableWidth,
+    x:
+      ROUTE_MAP_PADDING +
+      ((point.lon - route.bounds!.minLon) / lonSpan) * usableWidth,
     y:
-      padding +
+      ROUTE_MAP_PADDING +
       (1 - (point.lat - route.bounds!.minLat) / latSpan) * usableHeight,
   }));
+}
+
+function clampLatitude(lat: number) {
+  return Math.max(-85.05112878, Math.min(85.05112878, lat));
+}
+
+function lonLatToWorldPixel(lon: number, lat: number, zoom: number) {
+  const scale = ROUTE_MAP_TILE_SIZE * 2 ** zoom;
+  const sinLat = Math.sin((clampLatitude(lat) * Math.PI) / 180);
+  return {
+    x: ((lon + 180) / 360) * scale,
+    y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale,
+  };
+}
+
+function routeMapPixelBounds(
+  route: ActivityDashboardPayload["route"],
+  zoom: number,
+) {
+  if (!route.bounds) return null;
+  const corners = [
+    lonLatToWorldPixel(route.bounds.minLon, route.bounds.minLat, zoom),
+    lonLatToWorldPixel(route.bounds.minLon, route.bounds.maxLat, zoom),
+    lonLatToWorldPixel(route.bounds.maxLon, route.bounds.minLat, zoom),
+    lonLatToWorldPixel(route.bounds.maxLon, route.bounds.maxLat, zoom),
+  ];
+  return {
+    minX: Math.min(...corners.map((corner) => corner.x)),
+    maxX: Math.max(...corners.map((corner) => corner.x)),
+    minY: Math.min(...corners.map((corner) => corner.y)),
+    maxY: Math.max(...corners.map((corner) => corner.y)),
+  };
+}
+
+function routeMapZoom(route: ActivityDashboardPayload["route"], width: number) {
+  const usableWidth = width - ROUTE_MAP_PADDING * 3;
+  const usableHeight = ROUTE_MAP_HEIGHT - ROUTE_MAP_PADDING * 3;
+  let selectedZoom = ROUTE_MAP_MIN_ZOOM;
+  for (let zoom = ROUTE_MAP_MIN_ZOOM; zoom <= ROUTE_MAP_MAX_ZOOM; zoom += 1) {
+    const bounds = routeMapPixelBounds(route, zoom);
+    if (!bounds) return selectedZoom;
+    if (
+      bounds.maxX - bounds.minX <= usableWidth &&
+      bounds.maxY - bounds.minY <= usableHeight
+    ) {
+      selectedZoom = zoom;
+    } else {
+      break;
+    }
+  }
+  return selectedZoom;
+}
+
+function externalRouteMapView(
+  route: ActivityDashboardPayload["route"],
+  width: number,
+  height: number,
+): ExternalRouteMapView | null {
+  if (!route.bounds) return null;
+  const zoom = routeMapZoom(route, width);
+  const bounds = routeMapPixelBounds(route, zoom);
+  if (!bounds) return null;
+
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+  const originX = centerX - width / 2;
+  const originY = centerY - height / 2;
+  const tileStartX = Math.floor(originX / ROUTE_MAP_TILE_SIZE);
+  const tileEndX = Math.floor((originX + width) / ROUTE_MAP_TILE_SIZE);
+  const tileStartY = Math.floor(originY / ROUTE_MAP_TILE_SIZE);
+  const tileEndY = Math.floor((originY + height) / ROUTE_MAP_TILE_SIZE);
+  const tileWrap = 2 ** zoom;
+
+  const tiles: RouteMapTile[] = [];
+  for (let tileX = tileStartX; tileX <= tileEndX; tileX += 1) {
+    const wrappedTileX = ((tileX % tileWrap) + tileWrap) % tileWrap;
+    for (let tileY = tileStartY; tileY <= tileEndY; tileY += 1) {
+      if (tileY < 0 || tileY >= tileWrap) continue;
+      tiles.push({
+        key: `${zoom}-${wrappedTileX}-${tileY}`,
+        href: `${CARTO_TILE_BASE_URL}/${zoom}/${wrappedTileX}/${tileY}.png`,
+        x: tileX * ROUTE_MAP_TILE_SIZE - originX,
+        y: tileY * ROUTE_MAP_TILE_SIZE - originY,
+      });
+    }
+  }
+
+  return {
+    tiles,
+    points: route.points.map((point) => {
+      const worldPoint = lonLatToWorldPixel(point.lon, point.lat, zoom);
+      return {
+        ...point,
+        x: worldPoint.x - originX,
+        y: worldPoint.y - originY,
+      };
+    }),
+  };
 }
 
 function routeSegmentClass(point: RouteMapSvgPoint) {
@@ -832,9 +951,21 @@ function routeSegmentClass(point: RouteMapSvgPoint) {
 }
 
 function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
-  const width = 420;
-  const height = 240;
-  const svgPoints = routeMapCoordinates(route, width, height);
+  const [mapBackgroundEnabled, setMapBackgroundEnabled] = useState(false);
+  const [mapBackgroundFailed, setMapBackgroundFailed] = useState(false);
+  const externalMapView = useMemo(
+    () => externalRouteMapView(route, ROUTE_MAP_WIDTH, ROUTE_MAP_HEIGHT),
+    [route],
+  );
+  const canLoadExternalMap = route.status === "available" && !!externalMapView;
+  const externalMapActive =
+    canLoadExternalMap && mapBackgroundEnabled && !mapBackgroundFailed;
+  const localSvgPoints = routeMapCoordinates(
+    route,
+    ROUTE_MAP_WIDTH,
+    ROUTE_MAP_HEIGHT,
+  );
+  const svgPoints = externalMapActive ? externalMapView.points : localSvgPoints;
   const first = svgPoints[0];
   const last = svgPoints[svgPoints.length - 1];
   const altitudeRange = route.bounds
@@ -845,21 +976,43 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
     : "Altitude unavailable";
 
   return (
-    <section className="route-map-card" aria-label="Local GPS route map">
+    <section
+      className="route-map-card compact"
+      aria-label="Local GPS route map"
+    >
       <div className="route-map-card-header">
         <div>
           <h2>Route map</h2>
-          <p>Local normalized GPS stream · no external maps or tiles</p>
+          <p>Compact local route · optional CARTO/OpenStreetMap tiles</p>
         </div>
-        <span>{route.pointCount.toLocaleString()} plotted points</span>
+        <div className="route-map-controls">
+          <span>{route.pointCount.toLocaleString()} plotted points</span>
+          {canLoadExternalMap ? (
+            <button
+              type="button"
+              className="route-map-toggle"
+              aria-pressed={mapBackgroundEnabled && !mapBackgroundFailed}
+              onClick={() => {
+                setMapBackgroundFailed(false);
+                setMapBackgroundEnabled((enabled) => !enabled);
+              }}
+            >
+              {mapBackgroundEnabled && !mapBackgroundFailed
+                ? "Hide map background"
+                : "Load CARTO map background"}
+            </button>
+          ) : null}
+        </div>
       </div>
       {route.status === "available" && svgPoints.length >= 2 ? (
         <>
           <svg
-            className="route-map-svg"
-            viewBox={`0 0 ${width} ${height}`}
+            className={
+              externalMapActive ? "route-map-svg external-map" : "route-map-svg"
+            }
+            viewBox={`0 0 ${ROUTE_MAP_WIDTH} ${ROUTE_MAP_HEIGHT}`}
             role="img"
-            aria-label="Local GPS route visualization with start and finish markers"
+            aria-label="Compact GPS route visualization with start and finish markers"
           >
             <defs>
               <linearGradient id="route-map-bg" x1="0" x2="1" y1="0" y2="1">
@@ -875,20 +1028,42 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
               >
                 <feDropShadow
                   dx="0"
-                  dy="8"
-                  stdDeviation="6"
-                  floodColor="rgba(0, 0, 0, 0.46)"
+                  dy="5"
+                  stdDeviation="4"
+                  floodColor="rgba(0, 0, 0, 0.42)"
                 />
               </filter>
             </defs>
             <rect
-              className="route-map-ground"
+              className={
+                externalMapActive
+                  ? "route-map-ground external-map"
+                  : "route-map-ground"
+              }
               x="0"
               y="0"
-              width={width}
-              height={height}
-              rx="20"
+              width={ROUTE_MAP_WIDTH}
+              height={ROUTE_MAP_HEIGHT}
+              rx="16"
             />
+            {externalMapActive ? (
+              <g className="route-map-tiles" aria-hidden="true">
+                {externalMapView.tiles.map((tile) => (
+                  <image
+                    key={tile.key}
+                    href={tile.href}
+                    x={tile.x}
+                    y={tile.y}
+                    width={ROUTE_MAP_TILE_SIZE}
+                    height={ROUTE_MAP_TILE_SIZE}
+                    preserveAspectRatio="xMidYMid slice"
+                    onError={() => setMapBackgroundFailed(true)}
+                  >
+                    <title>CARTO map tile unavailable</title>
+                  </image>
+                ))}
+              </g>
+            ) : null}
             {svgPoints.slice(1).map((point, index) => {
               const previous = svgPoints[index];
               return (
@@ -904,16 +1079,16 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
             })}
             {first ? (
               <g className="route-map-marker start">
-                <circle cx={first.x} cy={first.y} r="5" />
-                <text x={first.x + 8} y={first.y - 8}>
+                <circle cx={first.x} cy={first.y} r="4.5" />
+                <text x={first.x + 7} y={first.y - 7}>
                   Start
                 </text>
               </g>
             ) : null}
             {last ? (
               <g className="route-map-marker finish">
-                <circle cx={last.x} cy={last.y} r="6" />
-                <text x={last.x + 8} y={last.y + 16}>
+                <circle cx={last.x} cy={last.y} r="5.5" />
+                <text x={last.x + 7} y={last.y + 15}>
                   Finish
                 </text>
               </g>
@@ -927,9 +1102,16 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
             </span>
           </div>
           <p className="activity-dashboard-status">{route.message}</p>
+          <p className="route-map-attribution">
+            {externalMapActive
+              ? "Map background © CARTO, © OpenStreetMap contributors. External tiles may reveal the displayed route area and client IP to CARTO."
+              : mapBackgroundFailed
+                ? "CARTO map tiles failed to load; showing the compact offline route instead."
+                : "Offline compact route shown. CARTO map background is optional and loads external tiles only after you request it."}
+          </p>
         </>
       ) : (
-        <div className="activity-chart empty-state">
+        <div className="route-map-empty-state">
           <strong>Route map unavailable</strong>
           <span>{route.message}</span>
         </div>

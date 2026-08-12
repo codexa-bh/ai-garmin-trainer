@@ -1422,16 +1422,26 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("Route map")).toBeTruthy();
     expect(
       screen.getByText(
-        "Local normalized GPS stream · no external maps or tiles",
+        "Compact local route · optional CARTO/OpenStreetMap tiles",
       ),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("img", {
-        name: "Local GPS route visualization with start and finish markers",
-      }),
-    ).toBeTruthy();
+    const routeMap = screen.getByRole("img", {
+      name: "Compact GPS route visualization with start and finish markers",
+    });
+    expect(routeMap).toBeTruthy();
+    expect(routeMap.getAttribute("viewBox")).toBe("0 0 420 156");
     expect(screen.getByText("Direction: start → finish")).toBeTruthy();
     expect(screen.getByText("Full route shown")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Offline compact route shown. CARTO map background is optional and loads external tiles only after you request it.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /CARTO/ }));
+    expect(
+      screen.getByText(/© CARTO, © OpenStreetMap contributors/),
+    ).toBeTruthy();
+    expect(screen.getByText(/client IP to CARTO/)).toBeTruthy();
     expect(screen.getByText("Time in HR zones")).toBeTruthy();
     expect(screen.getByText("Garmin activity HR-zone totals")).toBeTruthy();
     expect(
