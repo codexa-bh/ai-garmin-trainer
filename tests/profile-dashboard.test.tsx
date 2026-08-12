@@ -1493,11 +1493,11 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("Route map")).toBeTruthy();
     expect(
       screen.queryByText(
-        "Compact local route · optional CARTO/OpenStreetMap tiles",
+        "Compact local route · optional OpenTopoMap/OpenStreetMap tiles",
       ),
     ).toBeNull();
     const routeMap = screen.getByRole("img", {
-      name: "GPS route map with CARTO background and start and finish markers",
+      name: "GPS route map with OpenTopoMap background and start and finish markers",
     });
     expect(routeMap).toBeTruthy();
     expect(routeMap.getAttribute("viewBox")).toBe("0 0 420 220");
@@ -1526,22 +1526,28 @@ describe("TrainerDashboard activity charts", () => {
     expect((zoomOut as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(resetZoom);
     expect(routeMap.getAttribute("data-zoom-offset")).toBe("0");
-    expect(screen.queryByRole("button", { name: /CARTO/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /OpenTopoMap/ })).toBeNull();
     expect(screen.queryByText("Direction: start → finish")).toBeNull();
     expect(screen.queryByText("Full route shown")).toBeNull();
     expect(screen.queryByText(/representative route points/)).toBeNull();
     expect(
-      screen.getByText(/© CARTO, © OpenStreetMap contributors/),
+      screen.getByText(/Map data © OpenStreetMap contributors/),
     ).toBeTruthy();
-    expect(screen.getByText(/client IP to CARTO/)).toBeTruthy();
-    const cartoTile = document.querySelector(".route-map-tiles image");
-    expect(cartoTile?.getAttribute("href")).toContain(
-      "https://basemaps.cartocdn.com/light_all/",
+    expect(
+      screen.getByText(/map style © OpenTopoMap \(CC-BY-SA\)/),
+    ).toBeTruthy();
+    expect(screen.getByText(/client IP to OpenTopoMap/)).toBeTruthy();
+    const openTopoMapTile = document.querySelector(".route-map-tiles image");
+    expect(openTopoMapTile?.getAttribute("href")).toMatch(
+      /^https:\/\/[abc]\.tile\.opentopomap\.org\/\d+\/\d+\/\d+\.png$/,
     );
-    fireEvent.error(cartoTile as Element);
+    expect(openTopoMapTile?.getAttribute("href")).not.toContain(
+      "basemaps.cartocdn.com",
+    );
+    fireEvent.error(openTopoMapTile as Element);
     await waitFor(() => {
       expect(
-        screen.getByText("CARTO tiles failed; offline route shown."),
+        screen.getByText("OpenTopoMap tiles failed; offline route shown."),
       ).toBeTruthy();
     });
     expect(screen.getByText("Time in HR zones")).toBeTruthy();
@@ -1720,11 +1726,11 @@ describe("TrainerDashboard activity charts", () => {
       screen.queryByRole("img", { name: "Pace over elapsed time" }),
     ).toBeNull();
     expect(screen.getByText("Route map unavailable")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /CARTO/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /OpenTopoMap/ })).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Zoom in route map" }),
     ).toBeNull();
-    expect(screen.queryByText(/© CARTO/)).toBeNull();
+    expect(screen.queryByText(/OpenTopoMap/)).toBeNull();
     expect(
       screen.getByText(
         "Route unavailable because this activity has no normalized GPS stream points.",
