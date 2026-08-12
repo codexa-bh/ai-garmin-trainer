@@ -360,6 +360,12 @@ body::before {
   font-weight: 750;
 }
 
+.activity-chart-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .route-map-card,
 .hr-zone-card {
   display: flex;

@@ -1243,10 +1243,33 @@ describe("TrainerDashboard activity charts", () => {
             domainEndSec: 3600,
             timeScaleStatus: "elapsed",
             timeScaleMessage: null,
+            pace: {
+              status: "available",
+              smoothingWindowSec: 30,
+              sourcePointCount: 3,
+              pointCount: 3,
+              message:
+                "Pace uses cumulative stream distance over elapsed time with a centered 30-second weighted smoothing window.",
+            },
             points: [
-              { elapsedSec: 0, heartRate: 130, altitudeMeters: 1000 },
-              { elapsedSec: 1800, heartRate: 150, altitudeMeters: 1050 },
-              { elapsedSec: 3600, heartRate: 136, altitudeMeters: 1012 },
+              {
+                elapsedSec: 0,
+                heartRate: 130,
+                altitudeMeters: 1000,
+                paceSecondsPerKm: 600,
+              },
+              {
+                elapsedSec: 1800,
+                heartRate: 150,
+                altitudeMeters: 1050,
+                paceSecondsPerKm: 510,
+              },
+              {
+                elapsedSec: 3600,
+                heartRate: 136,
+                altitudeMeters: 1012,
+                paceSecondsPerKm: 529,
+              },
             ],
           },
           route: {
@@ -1382,6 +1405,26 @@ describe("TrainerDashboard activity charts", () => {
     expect(await screen.findByText("Detail: available")).toBeTruthy();
     expect(screen.getByText("Heart rate over time")).toBeTruthy();
     expect(screen.getByText("Elevation profile")).toBeTruthy();
+    expect(screen.getAllByText("Pace").length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getByText("30s smoothed from cumulative stream distance."),
+    ).toBeTruthy();
+    const paceChart = screen.getByRole("img", {
+      name: "Pace over elapsed time",
+    });
+    Object.defineProperty(paceChart, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        left: 100,
+        width: 640,
+        top: 0,
+        height: 130,
+        right: 740,
+        bottom: 130,
+      }),
+    });
+    fireEvent.pointerMove(paceChart, { clientX: 420 });
+    expect(screen.getByText("30m elapsed · 8:30/km")).toBeTruthy();
     const hrChart = screen.getByRole("img", {
       name: "Heart rate over time over elapsed time",
     });

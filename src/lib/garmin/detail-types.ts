@@ -36,6 +36,7 @@ export type ActivityLapDetail = {
 export type ActivityStreamPoint = {
   timestamp: string | null;
   elapsedSec: number;
+  distanceMeters: number | null;
   heartRate: number | null;
   speedMps: number | null;
   altitudeMeters: number | null;

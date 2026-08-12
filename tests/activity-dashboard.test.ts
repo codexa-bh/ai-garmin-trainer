@@ -152,6 +152,7 @@ describe("activity dashboard repository and routes", () => {
         records: Array.from({ length: 12 }, (_, index) => ({
           timestamp: `2026-08-01T07:${index.toString().padStart(2, "0")}:00Z`,
           elapsed_time_s: index * 60,
+          distance: index * 100,
           heart_rate_bpm: 130 + index,
           altitude: 1000 + index * 3,
           lat_deg: 46.1 + index / 1000,
@@ -179,7 +180,14 @@ describe("activity dashboard repository and routes", () => {
       domainEndSec: 3600,
       timeScaleStatus: "elapsed",
       timeScaleMessage: null,
+      pace: {
+        status: "available",
+        smoothingWindowSec: 30,
+        sourcePointCount: 12,
+        pointCount: 12,
+      },
     });
+    expect(dashboard?.charts.points[1].paceSecondsPerKm).toBeCloseTo(600, 6);
     expect(dashboard?.route).toMatchObject({
       status: "available",
       sourcePointCount: 12,
@@ -259,6 +267,7 @@ describe("activity dashboard repository and routes", () => {
           Date.UTC(2026, 7, 1, 7, index * 15, 0),
         ).toISOString(),
         elapsedSec: index,
+        distanceMeters: null,
         heartRate: 130 + index,
         speedMps: null,
         altitudeMeters: 1000 + index,
@@ -355,6 +364,81 @@ describe("activity dashboard repository and routes", () => {
     });
   });
 
+  it("builds a centered 30-second smoothed pace chart from cumulative stream distance only", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, distance: 0, heart_rate_bpm: 130 },
+          { elapsed_time_s: 10, distance: 100, heart_rate_bpm: 132 },
+          { elapsed_time_s: 20, distance: 100, heart_rate_bpm: 134 },
+          { elapsed_time_s: 30, distance: 300, heart_rate_bpm: 136 },
+          { elapsed_time_s: 40, distance: 400, heart_rate_bpm: 138 },
+        ],
+      }),
+    );
+
+    const dashboard = repo.getActivityDashboardDetail("111111");
+
+    expect(dashboard?.charts.pace).toMatchObject({
+      status: "available",
+      smoothingWindowSec: 30,
+      sourcePointCount: 5,
+      pointCount: 5,
+    });
+    expect(JSON.stringify(dashboard?.charts.points)).not.toContain(
+      "distanceMeters",
+    );
+    expect(dashboard?.charts.points[2].paceSecondsPerKm).toBeGreaterThan(0);
+    expect(dashboard?.charts.points[2].paceSecondsPerKm).toBeLessThan(200);
+  });
+
+  it("does not build selected-dashboard pace from speed when cumulative distance is missing", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, speed_mps: 2.5, heart_rate_bpm: 130 },
+          { elapsed_time_s: 10, speed_mps: 3.5, heart_rate_bpm: 132 },
+          { elapsed_time_s: 20, speed_mps: 2.8, heart_rate_bpm: 134 },
+        ],
+      }),
+    );
+
+    const dashboard = repo.getActivityDashboardDetail("111111");
+
+    expect(dashboard?.charts.pace).toMatchObject({
+      status: "missing_distance",
+      sourcePointCount: 0,
+      pointCount: 0,
+    });
+    expect(
+      dashboard?.charts.points.every(
+        (point) => point.paceSecondsPerKm === null,
+      ),
+    ).toBe(true);
+  });
+
+  it("reports invalid pace when cumulative distance is non-monotonic", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, distance: 100, heart_rate_bpm: 130 },
+          { elapsed_time_s: 10, distance: 90, heart_rate_bpm: 132 },
+          { elapsed_time_s: 20, distance: 80, heart_rate_bpm: 134 },
+        ],
+      }),
+    );
+
+    expect(
+      repo.getActivityDashboardDetail("111111")?.charts.pace,
+    ).toMatchObject({
+      status: "invalid_distance",
+      pointCount: 0,
+    });
+  });
+
   it("serves bounded list and selected dashboard API responses", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
@@ -411,6 +495,7 @@ describe("activity dashboard repository and routes", () => {
       elapsedSec: 0,
       heartRate: 130,
       altitudeMeters: 1000,
+      paceSecondsPerKm: null,
     });
     expect(detailPayload.route).toMatchObject({
       status: "missing_gps",

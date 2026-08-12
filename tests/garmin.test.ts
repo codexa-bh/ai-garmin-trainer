@@ -160,6 +160,7 @@ describe("Garmin boundary", () => {
         {
           timestamp: "2026-07-01T07:00:00Z",
           heart_rate_bpm: 130,
+          distance: 12.5,
           speed_mps: 2.5,
           altitude_m: 1000,
           grade_pct: 6,
@@ -168,11 +169,13 @@ describe("Garmin boundary", () => {
         },
         {
           timestamp: "2026-07-01T07:00:01Z",
+          distance_meters: 13.5,
           heart_rate_bpm: 131,
           altitude: 1001,
         },
         {
           timestamp: "2026-07-01T07:00:02Z",
+          distance_meters: -1,
           heart_rate_bpm: 132,
           enhanced_altitude: 1002,
         },
@@ -186,6 +189,11 @@ describe("Garmin boundary", () => {
     expect(detail.hasHeartRate).toBe(true);
     expect(detail.recordCount).toBe(3);
     expect(detail.stream.map((point) => point.elapsedSec)).toEqual([0, 1, 2]);
+    expect(detail.stream.map((point) => point.distanceMeters)).toEqual([
+      12.5,
+      13.5,
+      null,
+    ]);
     expect(detail.stream.map((point) => point.altitudeMeters)).toEqual([
       1000, 1001, 1002,
     ]);

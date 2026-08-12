@@ -70,6 +70,21 @@ export type ActivityDashboardChartPoint = {
   elapsedSec: number;
   heartRate: number | null;
   altitudeMeters: number | null;
+  paceSecondsPerKm: number | null;
+};
+
+export type ActivityDashboardPaceStatus =
+  | "available"
+  | "missing_distance"
+  | "insufficient_distance"
+  | "invalid_distance";
+
+export type ActivityDashboardPaceChart = {
+  status: ActivityDashboardPaceStatus;
+  smoothingWindowSec: number;
+  sourcePointCount: number;
+  pointCount: number;
+  message: string;
 };
 
 export type ActivityDashboardChartTimeScaleStatus =
@@ -153,6 +168,7 @@ export type ActivityDashboardDetail = {
     domainEndSec: number | null;
     timeScaleStatus: ActivityDashboardChartTimeScaleStatus;
     timeScaleMessage: string | null;
+    pace: ActivityDashboardPaceChart;
     points: ActivityDashboardChartPoint[];
   };
   route: ActivityDashboardRoute;
@@ -987,8 +1003,8 @@ export function upsertActivityDetail(detail: NormalizedActivityDetail): void {
     values (@garminId, @lapNumber, @startTime, @durationSec, @distanceMeters, @avgSpeedMps, @avgHeartRate, @maxHeartRate, @elevationGainMeters, @elevationLossMeters, @avgPowerWatts, @normalizedPowerWatts)
   `);
   const insertPoint = db.prepare(`
-    insert into activity_stream_point (garmin_id, elapsed_sec, timestamp, heart_rate, speed_mps, altitude_meters, grade_pct, lat, lon, cadence, power_watts, temperature_c)
-    values (@garminId, @elapsedSec, @timestamp, @heartRate, @speedMps, @altitudeMeters, @gradePct, @lat, @lon, @cadence, @powerWatts, @temperatureC)
+    insert into activity_stream_point (garmin_id, elapsed_sec, timestamp, distance_meters, heart_rate, speed_mps, altitude_meters, grade_pct, lat, lon, cadence, power_watts, temperature_c)
+    values (@garminId, @elapsedSec, @timestamp, @distanceMeters, @heartRate, @speedMps, @altitudeMeters, @gradePct, @lat, @lon, @cadence, @powerWatts, @temperatureC)
   `);
   db.transaction(() => {
     db.prepare("delete from activity_lap where garmin_id = ?").run(
@@ -1255,9 +1271,10 @@ export function getActivityDetailForAnalytics(garminId: string): {
     .all(garminId) as ActivityLapDetail[];
   const stream = db
     .prepare(
-      `select timestamp, elapsed_sec as elapsedSec, heart_rate as heartRate, speed_mps as speedMps,
-              altitude_meters as altitudeMeters, grade_pct as gradePct, lat, lon, cadence,
-              power_watts as powerWatts, temperature_c as temperatureC
+      `select timestamp, elapsed_sec as elapsedSec, distance_meters as distanceMeters,
+              heart_rate as heartRate, speed_mps as speedMps, altitude_meters as altitudeMeters,
+              grade_pct as gradePct, lat, lon, cadence, power_watts as powerWatts,
+              temperature_c as temperatureC
        from activity_stream_point where garmin_id = ? order by elapsed_sec`,
     )
     .all(garminId) as ActivityStreamPoint[];
@@ -1287,7 +1304,14 @@ export function getActivityDetailForAnalytics(garminId: string): {
   };
 }
 
-type ActivityDashboardChartRow = ActivityDashboardChartPoint & {
+type ActivityDashboardChartSourcePoint = {
+  elapsedSec: number;
+  heartRate: number | null;
+  altitudeMeters: number | null;
+  distanceMeters: number | null;
+};
+
+type ActivityDashboardChartRow = ActivityDashboardChartSourcePoint & {
   timestamp: string | null;
 };
 
@@ -1296,7 +1320,7 @@ type ActivityDashboardChartTiming = {
   domainEndSec: number | null;
   timeScaleStatus: ActivityDashboardChartTimeScaleStatus;
   timeScaleMessage: string | null;
-  points: ActivityDashboardChartPoint[];
+  points: ActivityDashboardChartSourcePoint[];
 };
 
 function timestampMillis(value: string | null): number | null {
@@ -1307,7 +1331,7 @@ function timestampMillis(value: string | null): number | null {
 
 function deriveChartElapsedFromTimestamps(
   rows: ActivityDashboardChartRow[],
-): ActivityDashboardChartPoint[] | null {
+): ActivityDashboardChartSourcePoint[] | null {
   if (rows.length < 2) return null;
   const firstTimestamp = timestampMillis(rows[0]?.timestamp ?? null);
   if (firstTimestamp === null) return null;
@@ -1327,10 +1351,11 @@ function deriveChartElapsedFromTimestamps(
     elapsedSec: elapsedSeconds[index],
     heartRate: row.heartRate,
     altitudeMeters: row.altitudeMeters,
+    distanceMeters: row.distanceMeters,
   }));
 }
 
-function maxElapsedSec(points: ActivityDashboardChartPoint[]): number {
+function maxElapsedSec(points: Array<{ elapsedSec: number }>): number {
   return points.reduce(
     (maximum, point) => Math.max(maximum, point.elapsedSec),
     0,
@@ -1394,6 +1419,152 @@ function chartTimingForRows(
       ? "Chart timing is limited to the available sample-index stream because no safe elapsed or timestamp evidence is available."
       : null,
     points: rawPoints,
+  };
+}
+
+const ACTIVITY_DASHBOARD_PACE_SMOOTHING_WINDOW_SEC = 30;
+
+type ActivityDashboardPaceSeries = {
+  metadata: ActivityDashboardPaceChart;
+  values: Array<number | null>;
+};
+
+function finiteNumber(value: number | null): value is number {
+  return value !== null && Number.isFinite(value);
+}
+
+function emptyActivityDashboardPaceSeries(
+  status: ActivityDashboardPaceStatus,
+  sourcePointCount: number,
+  message: string,
+  valuesLength: number,
+): ActivityDashboardPaceSeries {
+  return {
+    metadata: {
+      status,
+      smoothingWindowSec: ACTIVITY_DASHBOARD_PACE_SMOOTHING_WINDOW_SEC,
+      sourcePointCount,
+      pointCount: 0,
+      message,
+    },
+    values: Array.from({ length: valuesLength }, () => null),
+  };
+}
+
+function activityDashboardPaceSeries(
+  points: ActivityDashboardChartSourcePoint[],
+): ActivityDashboardPaceSeries {
+  const distanceSamples = points.filter(
+    (point) =>
+      Number.isFinite(point.elapsedSec) &&
+      finiteNumber(point.distanceMeters) &&
+      point.distanceMeters >= 0,
+  );
+  if (distanceSamples.length === 0) {
+    return emptyActivityDashboardPaceSeries(
+      "missing_distance",
+      0,
+      "Pace unavailable because this activity has no normalized cumulative stream-distance samples.",
+      points.length,
+    );
+  }
+  if (distanceSamples.length < 2) {
+    return emptyActivityDashboardPaceSeries(
+      "insufficient_distance",
+      distanceSamples.length,
+      "Pace unavailable because at least two cumulative stream-distance samples are needed.",
+      points.length,
+    );
+  }
+
+  const segments: Array<{ start: number; end: number; speedMps: number }> = [];
+  let invalidDistanceEvidence = false;
+  for (let index = 1; index < distanceSamples.length; index += 1) {
+    const previous = distanceSamples[index - 1];
+    const current = distanceSamples[index];
+    const elapsedDelta = current.elapsedSec - previous.elapsedSec;
+    const distanceDelta = current.distanceMeters! - previous.distanceMeters!;
+    if (elapsedDelta <= 0) {
+      invalidDistanceEvidence = true;
+      continue;
+    }
+    if (distanceDelta < 0) {
+      invalidDistanceEvidence = true;
+      continue;
+    }
+    if (distanceDelta === 0) continue;
+    segments.push({
+      start: previous.elapsedSec,
+      end: current.elapsedSec,
+      speedMps: distanceDelta / elapsedDelta,
+    });
+  }
+
+  if (segments.length === 0) {
+    return emptyActivityDashboardPaceSeries(
+      invalidDistanceEvidence ? "invalid_distance" : "insufficient_distance",
+      distanceSamples.length,
+      invalidDistanceEvidence
+        ? "Pace unavailable because cumulative stream-distance evidence is non-monotonic or otherwise invalid."
+        : "Pace unavailable because cumulative stream distance does not increase across usable stream samples.",
+      points.length,
+    );
+  }
+
+  const halfWindowSec = ACTIVITY_DASHBOARD_PACE_SMOOTHING_WINDOW_SEC / 2;
+  const values = points.map((point) => {
+    if (!Number.isFinite(point.elapsedSec)) return null;
+    const windowStart = point.elapsedSec - halfWindowSec;
+    const windowEnd = point.elapsedSec + halfWindowSec;
+    let weightedSpeed = 0;
+    let totalWeight = 0;
+    for (const segment of segments) {
+      const overlapStart = Math.max(windowStart, segment.start);
+      const overlapEnd = Math.min(windowEnd, segment.end);
+      const overlapDuration = overlapEnd - overlapStart;
+      if (overlapDuration <= 0) continue;
+      const overlapMidpoint = (overlapStart + overlapEnd) / 2;
+      const centerWeight =
+        1 -
+        Math.min(
+          Math.abs(overlapMidpoint - point.elapsedSec) / halfWindowSec,
+          1,
+        );
+      const weight = Math.max(0.000001, centerWeight) * overlapDuration;
+      weightedSpeed += segment.speedMps * weight;
+      totalWeight += weight;
+    }
+    if (totalWeight <= 0) return null;
+    const speedMps = weightedSpeed / totalWeight;
+    return speedMps > 0 && Number.isFinite(speedMps) ? 1000 / speedMps : null;
+  });
+  const pointCount = values.filter(finiteNumber).length;
+  if (pointCount < 2) {
+    return {
+      metadata: {
+        status: invalidDistanceEvidence
+          ? "invalid_distance"
+          : "insufficient_distance",
+        smoothingWindowSec: ACTIVITY_DASHBOARD_PACE_SMOOTHING_WINDOW_SEC,
+        sourcePointCount: distanceSamples.length,
+        pointCount,
+        message: invalidDistanceEvidence
+          ? "Pace unavailable because cumulative stream-distance evidence is non-monotonic or otherwise invalid."
+          : "Pace unavailable because the centered 30-second smoothing window found fewer than two positive-distance pace points.",
+      },
+      values,
+    };
+  }
+  return {
+    metadata: {
+      status: "available",
+      smoothingWindowSec: ACTIVITY_DASHBOARD_PACE_SMOOTHING_WINDOW_SEC,
+      sourcePointCount: distanceSamples.length,
+      pointCount,
+      message:
+        "Pace uses cumulative stream distance over elapsed time with a centered 30-second weighted smoothing window.",
+    },
+    values,
   };
 }
 
@@ -1510,14 +1681,21 @@ export function getActivityDashboardDetail(
     | undefined;
   const chartRows = db
     .prepare(
-      `select elapsed_sec as elapsedSec, timestamp, heart_rate as heartRate, altitude_meters as altitudeMeters
+      `select elapsed_sec as elapsedSec, timestamp, distance_meters as distanceMeters,
+              heart_rate as heartRate, altitude_meters as altitudeMeters
        from activity_stream_point
-       where garmin_id = ? and (heart_rate is not null or altitude_meters is not null)
+       where garmin_id = ? and (heart_rate is not null or altitude_meters is not null or distance_meters is not null)
        order by elapsed_sec`,
     )
     .all(garminId) as ActivityDashboardChartRow[];
   const chartTiming = chartTimingForRows(chartRows, activity.durationSec);
-  const points = chartTiming.points;
+  const paceSeries = activityDashboardPaceSeries(chartTiming.points);
+  const points = chartTiming.points.map(
+    ({ distanceMeters: _distanceMeters, ...point }, index) => ({
+      ...point,
+      paceSecondsPerKm: paceSeries.values[index] ?? null,
+    }),
+  );
   const sourcePointCount = points.length;
   const routeRows = db
     .prepare(
@@ -1561,6 +1739,7 @@ export function getActivityDashboardDetail(
       domainEndSec: chartTiming.domainEndSec,
       timeScaleStatus: chartTiming.timeScaleStatus,
       timeScaleMessage: chartTiming.timeScaleMessage,
+      pace: paceSeries.metadata,
       points,
     },
     route,

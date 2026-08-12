@@ -159,6 +159,7 @@ export const activityStreamPoint = sqliteTable("activity_stream_point", {
   garminId: text("garmin_id").notNull(),
   elapsedSec: integer("elapsed_sec").notNull(),
   timestamp: text("timestamp"),
+  distanceMeters: real("distance_meters"),
   heartRate: integer("heart_rate"),
   speedMps: real("speed_mps"),
   altitudeMeters: real("altitude_meters"),

@@ -35,11 +35,33 @@ const ALTITUDE_RECORD_KEYS = [
   "altitudeMeters",
 ] as const;
 
+const DISTANCE_RECORD_KEYS = [
+  "distance",
+  "distance_m",
+  "distance_meters",
+  "distanceMeters",
+] as const;
+
+function finiteNonNegativeNumberOrNull(value: unknown): number | null {
+  const numericValue = numberOrNull(value);
+  return numericValue !== null && numericValue >= 0 ? numericValue : null;
+}
+
 function altitudeMetersFromRecord(
   payload: Record<string, unknown>,
 ): number | null {
   for (const key of ALTITUDE_RECORD_KEYS) {
     const value = numberOrNull(payload[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function distanceMetersFromRecord(
+  payload: Record<string, unknown>,
+): number | null {
+  for (const key of DISTANCE_RECORD_KEYS) {
+    const value = finiteNonNegativeNumberOrNull(payload[key]);
     if (value !== null) return value;
   }
   return null;
@@ -140,6 +162,7 @@ function normalizePoint(
       index,
       firstStreamTimestampMillis,
     ),
+    distanceMeters: distanceMetersFromRecord(payload),
     heartRate: numberOrNull(payload.heart_rate_bpm),
     speedMps: numberOrNull(payload.speed_mps),
     altitudeMeters: altitudeMetersFromRecord(payload),

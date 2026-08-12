@@ -305,10 +305,22 @@ type ActivityDashboardPayload = {
     domainEndSec: number | null;
     timeScaleStatus: "elapsed" | "timestamp_derived" | "sample_index_limited";
     timeScaleMessage: string | null;
+    pace?: {
+      status:
+        | "available"
+        | "missing_distance"
+        | "insufficient_distance"
+        | "invalid_distance";
+      smoothingWindowSec: number;
+      sourcePointCount: number;
+      pointCount: number;
+      message: string;
+    };
     points: Array<{
       elapsedSec: number;
       heartRate: number | null;
       altitudeMeters: number | null;
+      paceSecondsPerKm?: number | null;
     }>;
   };
   route: {
@@ -593,13 +605,23 @@ function metersLabel(meters: number | null): string {
   return `${Math.round(meters).toLocaleString()} m`;
 }
 
+function paceSecondsLabel(secondsPerKm: number | null) {
+  if (
+    secondsPerKm === null ||
+    !Number.isFinite(secondsPerKm) ||
+    secondsPerKm <= 0
+  )
+    return "Unavailable";
+  const roundedSeconds = Math.max(1, Math.round(secondsPerKm));
+  const minutes = Math.floor(roundedSeconds / 60);
+  const seconds = roundedSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}/km`;
+}
+
 function paceLabel(durationSec: number | null, distanceMeters: number | null) {
   if (durationSec === null || distanceMeters === null || distanceMeters <= 0)
     return "Unavailable";
-  const secondsPerKm = durationSec / (distanceMeters / 1000);
-  const minutes = Math.floor(secondsPerKm / 60);
-  const seconds = Math.round(secondsPerKm % 60);
-  return `${minutes}:${seconds.toString().padStart(2, "0")}/km`;
+  return paceSecondsLabel(durationSec / (distanceMeters / 1000));
 }
 
 type ChartSeriesPoint = {
@@ -681,11 +703,15 @@ function closestChartPoint(points: ChartSeriesPoint[], x: number) {
   );
 }
 
+function chartNumberLabel(value: number, unit: string) {
+  return `${Math.round(value).toLocaleString()} ${unit}`;
+}
+
 function chartValueLabel(
   point: Pick<ChartSeriesPoint, "elapsedSec" | "value">,
-  unit: string,
+  formatValue: (value: number) => string,
 ) {
-  return `${durationLabel(point.elapsedSec)} elapsed · ${Math.round(point.value).toLocaleString()} ${unit}`;
+  return `${durationLabel(point.elapsedSec)} elapsed · ${formatValue(point.value)}`;
 }
 
 function MiniLineChart({
@@ -695,19 +721,26 @@ function MiniLineChart({
   valueKey,
   domainStartSec,
   domainEndSec,
+  formatValue = (value) => chartNumberLabel(value, unit),
+  note,
 }: {
   title: string;
   unit: string;
   points: ActivityDashboardPayload["charts"]["points"];
-  valueKey: "heartRate" | "altitudeMeters";
+  valueKey: "heartRate" | "altitudeMeters" | "paceSecondsPerKm";
   domainStartSec: number;
   domainEndSec: number | null;
+  formatValue?: (value: number) => string;
+  note?: string;
 }) {
   const width = 320;
   const height = 120;
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const series = points
-    .filter((point) => point[valueKey] !== null)
+    .filter(
+      (point) =>
+        typeof point[valueKey] === "number" && Number.isFinite(point[valueKey]),
+    )
     .map((point) => ({
       elapsedSec: point.elapsedSec,
       value: point[valueKey]!,
@@ -762,7 +795,7 @@ function MiniLineChart({
       <figcaption>
         <strong>{title}</strong>
         <span>
-          {Math.round(min)}–{Math.round(max)} {unit}
+          {formatValue(min)}–{formatValue(max)}
         </span>
       </figcaption>
       <svg
@@ -791,8 +824,9 @@ function MiniLineChart({
         ) : null}
       </svg>
       <p className="activity-chart-readout" aria-live="polite">
-        {chartValueLabel(selectedPoint, unit)}
+        {chartValueLabel(selectedPoint, formatValue)}
       </p>
+      {note ? <p className="activity-chart-note">{note}</p> : null}
     </figure>
   );
 }
@@ -3009,6 +3043,30 @@ export function TrainerDashboard() {
                   ) : (
                     <div className="activity-chart empty-state">
                       No per-point altitude stream data available.
+                    </div>
+                  )}
+                  {activityDashboard.charts.pace?.status === "available" ? (
+                    <MiniLineChart
+                      title="Pace"
+                      unit="/km"
+                      points={activityDashboard.charts.points}
+                      valueKey="paceSecondsPerKm"
+                      domainStartSec={activityDashboard.charts.domainStartSec}
+                      domainEndSec={activityDashboard.charts.domainEndSec}
+                      formatValue={paceSecondsLabel}
+                      note="30s smoothed from cumulative stream distance."
+                    />
+                  ) : (
+                    <div className="activity-chart empty-state">
+                      <strong>Pace</strong>
+                      <span>
+                        {activityDashboard.charts.pace?.message ??
+                          "Pace unavailable because cumulative stream-distance evidence is not available."}
+                      </span>
+                      <span>
+                        Requires cumulative stream distance; no speed or GPS
+                        fallback is used.
+                      </span>
                     </div>
                   )}
                 </div>
