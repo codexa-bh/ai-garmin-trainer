@@ -444,6 +444,20 @@ body::before {
   overflow: hidden;
 }
 
+.route-map-svg.is-pannable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.route-map-svg.is-dragging {
+  cursor: grabbing;
+}
+
+.route-map-svg * {
+  user-select: none;
+}
+
 .route-map-ground {
   fill: url(#route-map-bg);
   stroke: rgba(148, 163, 184, 0.18);
@@ -455,6 +469,9 @@ body::before {
 
 .route-map-tiles image {
   opacity: 0.66;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .route-map-route-halo,

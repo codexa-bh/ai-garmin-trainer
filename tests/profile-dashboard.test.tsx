@@ -1502,30 +1502,68 @@ describe("TrainerDashboard activity charts", () => {
     expect(routeMap).toBeTruthy();
     expect(routeMap.getAttribute("viewBox")).toBe("0 0 420 220");
     expect(routeMap.getAttribute("data-zoom-offset")).toBe("0");
+    expect(routeMap.getAttribute("data-pan-x")).toBe("0");
+    expect(routeMap.getAttribute("data-pan-y")).toBe("0");
+    expect(routeMap.getAttribute("data-dragging")).toBe("false");
+    expect(routeMap.getAttribute("class")).toContain("is-pannable");
     const routeHalos = document.querySelectorAll(".route-map-segment-halo");
     const routeSegments = document.querySelectorAll(".route-map-segment");
     expect(routeHalos.length).toBe(routeSegments.length);
     expect(routeHalos.length).toBeGreaterThan(0);
+    const initialSegmentX1 = routeSegments[0]?.getAttribute("x1");
+    const initialOpenTopoMapTile = document.querySelector(
+      ".route-map-tiles image",
+    );
+    const initialTileX = initialOpenTopoMapTile?.getAttribute("x");
     const zoomOut = screen.getByRole("button", {
       name: "Zoom out route map",
     });
-    const resetZoom = screen.getByRole("button", {
-      name: "Reset route map zoom",
+    const resetView = screen.getByRole("button", {
+      name: "Reset route map view",
     });
     const zoomIn = screen.getByRole("button", { name: "Zoom in route map" });
     expect(zoomOut).toBeTruthy();
-    expect(resetZoom).toBeTruthy();
-    expect((resetZoom as HTMLButtonElement).disabled).toBe(true);
+    expect(resetView).toBeTruthy();
+    expect((resetView as HTMLButtonElement).disabled).toBe(true);
     expect(zoomIn).toBeTruthy();
+    fireEvent.pointerDown(routeMap, {
+      pointerId: 7,
+      button: 0,
+      clientX: 200,
+      clientY: 100,
+    });
+    expect(routeMap.getAttribute("data-dragging")).toBe("true");
+    expect(routeMap.getAttribute("class")).toContain("is-dragging");
+    fireEvent.pointerMove(routeMap, {
+      pointerId: 7,
+      buttons: 1,
+      clientX: 232,
+      clientY: 84,
+    });
+    expect(routeMap.getAttribute("data-pan-x")).toBe("32");
+    expect(routeMap.getAttribute("data-pan-y")).toBe("-16");
+    expect((resetView as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      document.querySelector(".route-map-segment")?.getAttribute("x1"),
+    ).not.toBe(initialSegmentX1);
+    expect(
+      document.querySelector(".route-map-tiles image")?.getAttribute("x"),
+    ).not.toBe(initialTileX);
+    fireEvent.pointerUp(routeMap, { pointerId: 7, clientX: 232, clientY: 84 });
+    expect(routeMap.getAttribute("data-dragging")).toBe("false");
     fireEvent.click(zoomIn);
     expect(routeMap.getAttribute("data-zoom-offset")).toBe("1");
-    expect((resetZoom as HTMLButtonElement).disabled).toBe(false);
+    expect(routeMap.getAttribute("data-pan-x")).toBe("32");
+    expect((resetView as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(zoomOut);
     fireEvent.click(zoomOut);
     expect(routeMap.getAttribute("data-zoom-offset")).toBe("-1");
     expect((zoomOut as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(resetZoom);
+    fireEvent.click(resetView);
     expect(routeMap.getAttribute("data-zoom-offset")).toBe("0");
+    expect(routeMap.getAttribute("data-pan-x")).toBe("0");
+    expect(routeMap.getAttribute("data-pan-y")).toBe("0");
+    expect((resetView as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("button", { name: /OpenTopoMap/ })).toBeNull();
     expect(screen.queryByText("Direction: start → finish")).toBeNull();
     expect(screen.queryByText("Full route shown")).toBeNull();
@@ -1748,6 +1786,10 @@ describe("TrainerDashboard activity charts", () => {
     expect(
       screen.queryByRole("button", { name: "Zoom in route map" }),
     ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Reset route map view" }),
+    ).toBeNull();
+    expect(document.querySelector(".route-map-svg")).toBeNull();
     expect(screen.queryByText(/OpenTopoMap/)).toBeNull();
     expect(
       screen.getByText(

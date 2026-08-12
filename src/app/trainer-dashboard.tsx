@@ -901,6 +901,17 @@ type ExternalRouteMapView = {
   tiles: RouteMapTile[];
 };
 
+type RouteMapPanOffset = {
+  x: number;
+  y: number;
+};
+
+type RouteMapDragState = {
+  pointerId: number;
+  lastClientX: number;
+  lastClientY: number;
+};
+
 const ROUTE_MAP_WIDTH = 420;
 const ROUTE_MAP_HEIGHT = 220;
 const ROUTE_MAP_PADDING = 14;
@@ -909,13 +920,19 @@ const ROUTE_MAP_MIN_ZOOM = 2;
 const ROUTE_MAP_MAX_ZOOM = 17;
 const ROUTE_MAP_MIN_ZOOM_OFFSET = -1;
 const ROUTE_MAP_MAX_ZOOM_OFFSET = 2;
+const ROUTE_MAP_ZERO_PAN: RouteMapPanOffset = { x: 0, y: 0 };
 const OPEN_TOPO_MAP_TILE_HOSTS = ["a", "b", "c"] as const;
+
+function routeMapPanIsCentered(panOffset: RouteMapPanOffset) {
+  return Math.round(panOffset.x) === 0 && Math.round(panOffset.y) === 0;
+}
 
 function routeMapCoordinates(
   route: ActivityDashboardPayload["route"],
   width: number,
   height: number,
   zoomOffset: number,
+  panOffset: RouteMapPanOffset,
 ): RouteMapSvgPoint[] {
   if (!route.bounds) return [];
   const lonSpan = route.bounds.maxLon - route.bounds.minLon || 0.000001;
@@ -934,8 +951,8 @@ function routeMapCoordinates(
       (1 - (point.lat - route.bounds!.minLat) / latSpan) * usableHeight;
     return {
       ...point,
-      x: centerX + (fittedX - centerX) * scale,
-      y: centerY + (fittedY - centerY) * scale,
+      x: centerX + (fittedX - centerX) * scale + panOffset.x,
+      y: centerY + (fittedY - centerY) * scale + panOffset.y,
     };
   });
 }
@@ -1000,6 +1017,7 @@ function externalRouteMapView(
   width: number,
   height: number,
   zoomOffset: number,
+  panOffset: RouteMapPanOffset,
 ): ExternalRouteMapView | null {
   if (!route.bounds) return null;
   const zoom = Math.max(
@@ -1014,8 +1032,8 @@ function externalRouteMapView(
 
   const centerX = (bounds.minX + bounds.maxX) / 2;
   const centerY = (bounds.minY + bounds.maxY) / 2;
-  const originX = centerX - width / 2;
-  const originY = centerY - height / 2;
+  const originX = centerX - width / 2 - panOffset.x;
+  const originY = centerY - height / 2 - panOffset.y;
   const tileStartX = Math.floor(originX / ROUTE_MAP_TILE_SIZE);
   const tileEndX = Math.floor((originX + width) / ROUTE_MAP_TILE_SIZE);
   const tileStartY = Math.floor(originY / ROUTE_MAP_TILE_SIZE);
@@ -1063,6 +1081,11 @@ function routeSegmentClass(point: RouteMapSvgPoint) {
 function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
   const [mapBackgroundFailed, setMapBackgroundFailed] = useState(false);
   const [zoomOffset, setZoomOffset] = useState(0);
+  const [panOffset, setPanOffset] =
+    useState<RouteMapPanOffset>(ROUTE_MAP_ZERO_PAN);
+  const [isDragging, setIsDragging] = useState(false);
+  const routeMapSvgRef = useRef<SVGSVGElement | null>(null);
+  const dragStateRef = useRef<RouteMapDragState | null>(null);
   const externalMapView = useMemo(
     () =>
       externalRouteMapView(
@@ -1070,8 +1093,9 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
         ROUTE_MAP_WIDTH,
         ROUTE_MAP_HEIGHT,
         zoomOffset,
+        panOffset,
       ),
-    [route, zoomOffset],
+    [route, zoomOffset, panOffset],
   );
   const canLoadExternalMap = route.status === "available" && !!externalMapView;
   const externalMapActive = canLoadExternalMap && !mapBackgroundFailed;
@@ -1080,15 +1104,89 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
     ROUTE_MAP_WIDTH,
     ROUTE_MAP_HEIGHT,
     zoomOffset,
+    panOffset,
   );
   const svgPoints = externalMapActive ? externalMapView.points : localSvgPoints;
   const first = svgPoints[0];
   const last = svgPoints[svgPoints.length - 1];
+  const canPanRoute = route.status === "available" && svgPoints.length >= 2;
+  const panIsCentered = routeMapPanIsCentered(panOffset);
 
   useEffect(() => {
+    dragStateRef.current = null;
+    setIsDragging(false);
     setMapBackgroundFailed(false);
     setZoomOffset(0);
+    setPanOffset(ROUTE_MAP_ZERO_PAN);
   }, [route]);
+
+  useEffect(() => {
+    return () => {
+      const dragState = dragStateRef.current;
+      const routeMapSvg = routeMapSvgRef.current;
+      if (dragState && routeMapSvg?.hasPointerCapture?.(dragState.pointerId)) {
+        routeMapSvg.releasePointerCapture(dragState.pointerId);
+      }
+      dragStateRef.current = null;
+    };
+  }, []);
+
+  const resetRouteMapView = () => {
+    dragStateRef.current = null;
+    setIsDragging(false);
+    setZoomOffset(0);
+    setPanOffset(ROUTE_MAP_ZERO_PAN);
+  };
+
+  const endRouteMapDrag = (pointerId?: number) => {
+    const dragState = dragStateRef.current;
+    if (
+      !dragState ||
+      (pointerId !== undefined && dragState.pointerId !== pointerId)
+    ) {
+      return;
+    }
+    const routeMapSvg = routeMapSvgRef.current;
+    if (routeMapSvg?.hasPointerCapture?.(dragState.pointerId)) {
+      routeMapSvg.releasePointerCapture(dragState.pointerId);
+    }
+    dragStateRef.current = null;
+    setIsDragging(false);
+  };
+
+  const handleRouteMapPointerDown = (
+    event: ReactPointerEvent<SVGSVGElement>,
+  ) => {
+    if (!canPanRoute || event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      lastClientX: event.clientX,
+      lastClientY: event.clientY,
+    };
+    setIsDragging(true);
+  };
+
+  const handleRouteMapPointerMove = (
+    event: ReactPointerEvent<SVGSVGElement>,
+  ) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const deltaX = event.clientX - dragState.lastClientX;
+    const deltaY = event.clientY - dragState.lastClientY;
+    if (deltaX === 0 && deltaY === 0) return;
+    dragStateRef.current = {
+      ...dragState,
+      lastClientX: event.clientX,
+      lastClientY: event.clientY,
+    };
+    setPanOffset((current) => ({
+      x: current.x + deltaX,
+      y: current.y + deltaY,
+    }));
+  };
 
   return (
     <section className="route-map-card" aria-label="Local GPS route map">
@@ -1113,9 +1211,9 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
             </button>
             <button
               type="button"
-              onClick={() => setZoomOffset(0)}
-              disabled={zoomOffset === 0}
-              aria-label="Reset route map zoom"
+              onClick={resetRouteMapView}
+              disabled={zoomOffset === 0 && panIsCentered}
+              aria-label="Reset route map view"
             >
               Fit
             </button>
@@ -1137,11 +1235,25 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
       {route.status === "available" && svgPoints.length >= 2 ? (
         <>
           <svg
-            className={
-              externalMapActive ? "route-map-svg external-map" : "route-map-svg"
-            }
+            ref={routeMapSvgRef}
+            className={[
+              "route-map-svg",
+              externalMapActive ? "external-map" : "",
+              canPanRoute ? "is-pannable" : "",
+              isDragging ? "is-dragging" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             viewBox={`0 0 ${ROUTE_MAP_WIDTH} ${ROUTE_MAP_HEIGHT}`}
             data-zoom-offset={zoomOffset}
+            data-pan-x={Math.round(panOffset.x)}
+            data-pan-y={Math.round(panOffset.y)}
+            data-dragging={isDragging ? "true" : "false"}
+            onPointerDown={handleRouteMapPointerDown}
+            onPointerMove={handleRouteMapPointerMove}
+            onPointerUp={(event) => endRouteMapDrag(event.pointerId)}
+            onPointerCancel={(event) => endRouteMapDrag(event.pointerId)}
+            onLostPointerCapture={(event) => endRouteMapDrag(event.pointerId)}
             role="img"
             aria-label="GPS route map with OpenTopoMap background and start and finish markers"
           >
