@@ -1393,8 +1393,8 @@ describe("TrainerDashboard activity charts", () => {
               maxHeartRate: null,
               elevationGainMeters: 120,
               elevationLossMeters: 115,
-              avgPowerWatts: null,
-              normalizedPowerWatts: null,
+              avgPowerWatts: 218,
+              normalizedPowerWatts: 222,
             },
           ],
         });
@@ -1573,6 +1573,24 @@ describe("TrainerDashboard activity charts", () => {
     expect(lapCaption).toBeTruthy();
     expect(lapCaption.closest(".selected-activity-detail")).toBeTruthy();
     expect(lapCaption.closest(".lap-table-wrap")).toBeTruthy();
+    const lapTable = lapCaption.closest("table");
+    expect(lapTable).toBeTruthy();
+    expect(
+      Array.from(lapTable?.querySelectorAll("thead th") ?? []).map(
+        (header) => header.textContent,
+      ),
+    ).toEqual(["Lap", "Duration", "Distance", "Pace", "Avg HR", "Elev +/−"]);
+    expect(
+      Array.from(lapTable?.querySelectorAll("tbody td") ?? []).map((cell) =>
+        cell.textContent?.replace(/\s+/g, " ").trim(),
+      ),
+    ).toEqual(["1", "30m", "5.00 km", "6:00/km", "143 bpm", "120 m / 115 m"]);
+    expect(
+      Array.from(lapTable?.querySelectorAll("th, td") ?? []).map((cell) =>
+        cell.textContent?.replace(/\s+/g, " ").trim(),
+      ),
+    ).not.toContain("Power");
+    expect(screen.queryByText("218 W")).toBeNull();
     expect(screen.getByText("10.00 km")).toBeTruthy();
     expect(screen.getByText("174 bpm")).toBeTruthy();
     expect(screen.getByText("143 bpm")).toBeTruthy();

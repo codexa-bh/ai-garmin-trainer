@@ -3208,7 +3208,6 @@ export function TrainerDashboard() {
                           <th>Pace</th>
                           <th>Avg HR</th>
                           <th>Elev +/−</th>
-                          <th>Power</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3225,7 +3224,6 @@ export function TrainerDashboard() {
                               {metersLabel(lap.elevationGainMeters)} /{" "}
                               {metersLabel(lap.elevationLossMeters)}
                             </td>
-                            <td>{numberLabel(lap.avgPowerWatts)} W</td>
                           </tr>
                         ))}
                       </tbody>
