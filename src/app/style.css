@@ -371,13 +371,7 @@ body::before {
   background: rgba(255, 255, 255, 0.035);
 }
 
-.route-map-card.compact {
-  gap: 8px;
-  padding: 10px 12px;
-}
-
 .route-map-card-header,
-.route-map-meta,
 .hr-zone-card-header {
   display: flex;
   gap: 12px;
@@ -385,7 +379,7 @@ body::before {
 }
 
 .route-map-card-header {
-  align-items: flex-start;
+  align-items: center;
 }
 
 .route-map-card-header h2,
@@ -394,21 +388,6 @@ body::before {
   font-size: 18px;
 }
 
-.route-map-card-header p {
-  margin: 3px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.route-map-controls {
-  display: flex;
-  min-width: 128px;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-end;
-}
-
-.route-map-controls > span,
 .hr-zone-card-header > span {
   color: var(--muted);
   font-size: 12px;
@@ -416,19 +395,9 @@ body::before {
   text-align: right;
 }
 
-.route-map-toggle {
-  padding: 6px 9px;
-  border: 1px solid rgba(73, 214, 200, 0.38);
-  border-radius: 999px;
-  background: rgba(73, 214, 200, 0.08);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 800;
-}
-
 .route-map-svg {
   width: 100%;
-  height: 156px;
+  height: 220px;
   overflow: hidden;
 }
 
@@ -484,13 +453,6 @@ body::before {
   paint-order: stroke;
   stroke: rgba(5, 7, 11, 0.88);
   stroke-width: 3;
-}
-
-.route-map-meta {
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 750;
 }
 
 .route-map-attribution {
