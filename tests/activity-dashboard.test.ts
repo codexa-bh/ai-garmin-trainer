@@ -188,7 +188,7 @@ describe("activity dashboard repository and routes", () => {
       },
     });
     expect(dashboard?.charts.points[0].speedKmh).toBe(0);
-    expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(5.76, 6);
+    expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(7.56, 6);
     expect(dashboard?.route).toMatchObject({
       status: "available",
       sourcePointCount: 12,
@@ -392,18 +392,49 @@ describe("activity dashboard repository and routes", () => {
       "distanceMeters",
     );
     expect(dashboard?.charts.points[0].speedKmh).toBe(0);
-    expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(7.2, 6);
-    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(10.2, 6);
+    expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(7.457142857, 6);
+    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(10.309090909, 6);
   });
 
-  it("smooths saw-toothed positive speed without cumulative-distance fallback", async () => {
+  it("smooths saw-toothed positive speed more strongly than the old 3-point sample window", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
         records: [
-          { elapsed_time_s: 0, speed_mps: 2.5, heart_rate_bpm: 130 },
-          { elapsed_time_s: 10, speed_mps: 3.5, heart_rate_bpm: 132 },
-          { elapsed_time_s: 20, speed_mps: 2.8, heart_rate_bpm: 134 },
+          { elapsed_time_s: 0, speed_mps: 3, heart_rate_bpm: 130 },
+          { elapsed_time_s: 5, speed_mps: 3, heart_rate_bpm: 131 },
+          { elapsed_time_s: 10, speed_mps: 12, heart_rate_bpm: 132 },
+          { elapsed_time_s: 15, speed_mps: 3, heart_rate_bpm: 133 },
+          { elapsed_time_s: 20, speed_mps: 3, heart_rate_bpm: 134 },
+          { elapsed_time_s: 25, speed_mps: 3, heart_rate_bpm: 135 },
+          { elapsed_time_s: 30, speed_mps: 3, heart_rate_bpm: 136 },
+        ],
+      }),
+    );
+
+    const dashboard = repo.getActivityDashboardDetail("111111");
+
+    expect(dashboard?.charts.speed).toMatchObject({
+      status: "available",
+      sourcePointCount: 7,
+      pointCount: 7,
+    });
+    const oldThreePointSpikeKmh = ((3 + 12 * 2 + 3) / 4) * 3.6;
+    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(20.964705882, 6);
+    expect(dashboard?.charts.points[2].speedKmh).toBeLessThan(
+      oldThreePointSpikeKmh,
+    );
+  });
+
+  it("uses the named 30-second elapsed-time smoothing window without cumulative-distance fallback", async () => {
+    const repo = await seedActivities();
+    expect(repo.ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC).toBe(30);
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, speed_mps: 2, heart_rate_bpm: 130 },
+          { elapsed_time_s: 15, speed_mps: 6, heart_rate_bpm: 132 },
+          { elapsed_time_s: 16, speed_mps: 12, heart_rate_bpm: 134 },
         ],
       }),
     );
@@ -415,9 +446,11 @@ describe("activity dashboard repository and routes", () => {
       sourcePointCount: 3,
       pointCount: 3,
     });
-    expect(dashboard?.charts.points[0].speedKmh).toBeCloseTo(10.2, 6);
-    expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(11.07, 6);
-    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(10.92, 6);
+    expect(dashboard?.charts.speed.message).toBe(
+      "Speed uses 30-second smoothed normalized stream speed samples converted to km/h.",
+    );
+    expect(dashboard?.charts.points[0].speedKmh).toBeCloseTo(8.047058824, 6);
+    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(32.748387097, 6);
   });
 
   it("does not build selected-dashboard speed from GPS, summary, or lap distance when stream speed is missing", async () => {

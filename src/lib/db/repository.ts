@@ -1573,26 +1573,43 @@ function finiteNumber(value: number | null): value is number {
   return value !== null && Number.isFinite(value);
 }
 
-const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WEIGHTS = [1, 2, 1] as const;
-const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_CENTER_INDEX = Math.floor(
-  ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WEIGHTS.length / 2,
-);
+export const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC = 30;
+const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_HALF_WINDOW_SEC =
+  ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC / 2;
+const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_EDGE_WEIGHT = 1;
+
+function activityDashboardSpeedSmoothingWeight(deltaSec: number): number {
+  if (deltaSec > ACTIVITY_DASHBOARD_SPEED_SMOOTHING_HALF_WINDOW_SEC) return 0;
+  return (
+    ACTIVITY_DASHBOARD_SPEED_SMOOTHING_HALF_WINDOW_SEC -
+    deltaSec +
+    ACTIVITY_DASHBOARD_SPEED_SMOOTHING_EDGE_WEIGHT
+  );
+}
 
 function smoothedActivityDashboardSpeedKmh(
   points: ActivityDashboardChartSourcePoint[],
   index: number,
 ): number | null {
-  const centerSpeedMps = points[index]?.speedMps ?? null;
-  if (!finiteNumber(centerSpeedMps) || centerSpeedMps < 0) return null;
+  const centerPoint = points[index];
+  const centerSpeedMps = centerPoint?.speedMps ?? null;
+  if (
+    !centerPoint ||
+    !finiteNumber(centerPoint.elapsedSec) ||
+    !finiteNumber(centerSpeedMps) ||
+    centerSpeedMps < 0
+  )
+    return null;
   if (centerSpeedMps === 0) return 0;
 
   let weightedSpeedMps = 0;
   let weightTotal = 0;
-  ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WEIGHTS.forEach((weight, weightIndex) => {
-    const sampleIndex =
-      index + weightIndex - ACTIVITY_DASHBOARD_SPEED_SMOOTHING_CENTER_INDEX;
-    const speedMps = points[sampleIndex]?.speedMps ?? null;
+  points.forEach((point) => {
+    const speedMps = point.speedMps;
     if (!finiteNumber(speedMps) || speedMps < 0) return;
+    const deltaSec = Math.abs(point.elapsedSec - centerPoint.elapsedSec);
+    const weight = activityDashboardSpeedSmoothingWeight(deltaSec);
+    if (weight <= 0) return;
     weightedSpeedMps += speedMps * weight;
     weightTotal += weight;
   });
@@ -1637,7 +1654,7 @@ function activityDashboardSpeedSeries(
       sourcePointCount: pointCount,
       pointCount,
       message:
-        "Speed uses smoothed normalized stream speed samples converted to km/h.",
+        "Speed uses 30-second smoothed normalized stream speed samples converted to km/h.",
     },
     values,
   };
