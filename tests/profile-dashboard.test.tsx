@@ -1223,7 +1223,7 @@ describe("TrainerDashboard activity charts", () => {
             avgHeartRate: 145,
             maxHeartRate: 174,
             steps: 9200,
-            trainingEffect: 3.2,
+            trainingEffect: null,
           },
           detail: {
             status: "available",
@@ -1365,7 +1365,7 @@ describe("TrainerDashboard activity charts", () => {
               durationSec: 1800,
               distanceMeters: 5000,
               avgHeartRate: 143,
-              maxHeartRate: 168,
+              maxHeartRate: null,
               elevationGainMeters: 120,
               elevationLossMeters: 115,
               avgPowerWatts: null,
@@ -1515,7 +1515,11 @@ describe("TrainerDashboard activity charts", () => {
     expect(lapCaption.closest(".selected-activity-detail")).toBeTruthy();
     expect(lapCaption.closest(".lap-table-wrap")).toBeTruthy();
     expect(screen.getByText("10.00 km")).toBeTruthy();
-    expect(screen.getByText("3.2")).toBeTruthy();
+    expect(screen.getByText("174 bpm")).toBeTruthy();
+    expect(screen.getByText("143 bpm")).toBeTruthy();
+    expect(screen.queryByText("Training effect")).toBeNull();
+    expect(screen.queryByText("Avg/Max HR")).toBeNull();
+    expect(screen.queryByText(/143\s*\/\s*Unavailable/)).toBeNull();
   });
 
   it("renders truthful missing-elevation copy when the selected activity has no altitude stream", async () => {

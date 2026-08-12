@@ -2976,10 +2976,6 @@ export function TrainerDashboard() {
                     {numberLabel(activityDashboard.activity.steps)}
                   </span>
                   <span>
-                    <strong>Training effect</strong>
-                    {numberLabel(activityDashboard.activity.trainingEffect, 1)}
-                  </span>
-                  <span>
                     <strong>Detail records</strong>
                     {activityDashboard.detail.recordCount.toLocaleString()}
                   </span>
@@ -3057,7 +3053,7 @@ export function TrainerDashboard() {
                           <th>Duration</th>
                           <th>Distance</th>
                           <th>Pace</th>
-                          <th>Avg/Max HR</th>
+                          <th>Avg HR</th>
                           <th>Elev +/−</th>
                           <th>Power</th>
                         </tr>
@@ -3071,10 +3067,7 @@ export function TrainerDashboard() {
                             <td>
                               {paceLabel(lap.durationSec, lap.distanceMeters)}
                             </td>
-                            <td>
-                              {numberLabel(lap.avgHeartRate)}/
-                              {numberLabel(lap.maxHeartRate)} bpm
-                            </td>
+                            <td>{numberLabel(lap.avgHeartRate)} bpm</td>
                             <td>
                               {metersLabel(lap.elevationGainMeters)} /{" "}
                               {metersLabel(lap.elevationLossMeters)}
