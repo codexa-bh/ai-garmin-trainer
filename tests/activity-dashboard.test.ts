@@ -419,6 +419,41 @@ describe("activity dashboard repository and routes", () => {
     ).toBe(true);
   });
 
+  it("does not build selected-dashboard pace from GPS, summary, or lap distance when stream distance is missing", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        session: { total_distance_m: 1000 },
+        laps: [{ lap_number: 1, total_elapsed_time_s: 600, distance: 1000 }],
+        records: [
+          {
+            elapsed_time_s: 0,
+            lat_deg: 46,
+            lon_deg: 13,
+            heart_rate_bpm: 130,
+          },
+          {
+            elapsed_time_s: 10,
+            lat_deg: 46.001,
+            lon_deg: 13.001,
+            heart_rate_bpm: 132,
+          },
+        ],
+      }),
+    );
+
+    const dashboard = repo.getActivityDashboardDetail("111111");
+
+    expect(dashboard?.charts.pace).toMatchObject({
+      status: "missing_distance",
+      sourcePointCount: 0,
+      pointCount: 0,
+    });
+    expect(
+      dashboard?.charts.points.map((point) => point.paceSecondsPerKm),
+    ).toEqual([null, null]);
+  });
+
   it("reports invalid pace when cumulative distance is non-monotonic", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(

@@ -30,6 +30,11 @@ import {
   mergeFitAltitudeRecords,
 } from "./fit-altitude";
 import {
+  activityDetailNeedsDistanceSupplement,
+  fetchFitDistanceWithLocalWrapper,
+  mergeFitDistanceRecords,
+} from "./fit-distance";
+import {
   hasUsableGarminAthleteBaseline,
   normalizeGarminAthleteBaseline,
 } from "./athlete-normalize";
@@ -617,6 +622,10 @@ async function fetchAndStoreActivityDetail(
     if (activityDetailNeedsAltitudeSupplement(parsed)) {
       const altitudePayload = await fetchFitAltitudeWithLocalWrapper(garminId);
       parsed = mergeFitAltitudeRecords(parsed, altitudePayload);
+    }
+    if (activityDetailNeedsDistanceSupplement(parsed)) {
+      const distancePayload = await fetchFitDistanceWithLocalWrapper(garminId);
+      parsed = mergeFitDistanceRecords(parsed, distancePayload);
     }
     upsertGarminRawPayload({
       sourceTool: "get_activity_fit_data",

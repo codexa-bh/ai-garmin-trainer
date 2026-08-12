@@ -9,6 +9,10 @@ import {
   mergeFitAltitudeRecords,
 } from "../src/lib/garmin/fit-altitude";
 import {
+  activityDetailNeedsDistanceSupplement,
+  mergeFitDistanceRecords,
+} from "../src/lib/garmin/fit-distance";
+import {
   normalizeActivity,
   normalizeDailyHealth,
 } from "../src/lib/garmin/normalize";
@@ -347,6 +351,90 @@ describe("Garmin boundary", () => {
 
     const detail = normalizeActivityDetail("45", merged);
     expect(detail.stream[0].altitudeMeters).toBeNull();
+  });
+
+  it("merges true FIT cumulative distance records by unique timestamp before normalization", () => {
+    const connectorPayload = {
+      records: [
+        {
+          timestamp: "2026-07-01T07:00:00Z",
+          heart_rate_bpm: 130,
+          lat_deg: 46.1,
+          lon_deg: 13.8,
+        },
+        {
+          timestamp: "2026-07-01T07:00:01Z",
+          heart_rate_bpm: 131,
+          speed_mps: 2.5,
+        },
+      ],
+    };
+
+    expect(activityDetailNeedsDistanceSupplement(connectorPayload)).toBe(true);
+    const merged = mergeFitDistanceRecords(connectorPayload, {
+      source: "garmin-fit-distance-stream",
+      records: [
+        { timestamp: "2026-07-01T07:00:00Z", distance_meters: 0 },
+        { timestamp: "2026-07-01T07:00:01Z", distance_meters: 2.5 },
+      ],
+    });
+
+    const detail = normalizeActivityDetail("48", merged);
+    expect(detail.stream.map((point) => point.distanceMeters)).toEqual([
+      0, 2.5,
+    ]);
+  });
+
+  it("does not merge FIT distance when timestamp identity is ambiguous or absent", () => {
+    const connectorPayload = {
+      records: [
+        { timestamp: "2026-07-01T07:00:00Z", heart_rate_bpm: 130 },
+        { timestamp: "2026-07-01T07:00:00Z", heart_rate_bpm: 131 },
+        { timestamp: "2026-07-01T07:00:02Z", heart_rate_bpm: 132 },
+      ],
+    };
+
+    const merged = mergeFitDistanceRecords(connectorPayload, {
+      records: [
+        { timestamp: "2026-07-01T07:00:00Z", distance_meters: 0 },
+        { timestamp: "2026-07-01T07:00:02Z", distance_meters: -1 },
+        { timestamp: "2026-07-01T07:00:03Z", distance_meters: 3 },
+      ],
+    });
+
+    const detail = normalizeActivityDetail("49", merged);
+    expect(detail.stream.map((point) => point.distanceMeters)).toEqual([
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("does not synthesize stream distance from summary, lap, GPS, speed, grade, or availability fields", () => {
+    const detail = normalizeActivityDetail("50", {
+      session: { total_distance_m: 1000, avg_speed_mps: 2.5 },
+      laps: [
+        {
+          lap_number: 1,
+          total_elapsed_time_s: 600,
+          total_distance_m: 1000,
+        },
+      ],
+      records: [
+        {
+          timestamp: "2026-07-01T07:00:00Z",
+          heart_rate_bpm: 130,
+          speed_mps: 2.5,
+          grade_pct: 6,
+          lat_deg: 46.1,
+          lon_deg: 13.8,
+          has_distance: true,
+        },
+      ],
+    });
+
+    expect(detail.stream).toHaveLength(1);
+    expect(detail.stream[0].distanceMeters).toBeNull();
   });
 
   it("does not synthesize stream altitude from summary, lap, GPS, grade, or availability fields", () => {
