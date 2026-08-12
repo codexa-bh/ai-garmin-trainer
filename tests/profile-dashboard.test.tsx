@@ -1464,27 +1464,33 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.queryByText(/Charts downsampled to/)).toBeNull();
     expect(screen.getByText("Route map")).toBeTruthy();
     expect(
-      screen.getByText(
+      screen.queryByText(
         "Compact local route · optional CARTO/OpenStreetMap tiles",
       ),
-    ).toBeTruthy();
+    ).toBeNull();
     const routeMap = screen.getByRole("img", {
-      name: "Compact GPS route visualization with start and finish markers",
+      name: "GPS route map with CARTO background and start and finish markers",
     });
     expect(routeMap).toBeTruthy();
-    expect(routeMap.getAttribute("viewBox")).toBe("0 0 420 156");
-    expect(screen.getByText("Direction: start → finish")).toBeTruthy();
-    expect(screen.getByText("Full route shown")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Offline compact route shown. CARTO map background is optional and loads external tiles only after you request it.",
-      ),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /CARTO/ }));
+    expect(routeMap.getAttribute("viewBox")).toBe("0 0 420 220");
+    expect(screen.queryByRole("button", { name: /CARTO/ })).toBeNull();
+    expect(screen.queryByText("Direction: start → finish")).toBeNull();
+    expect(screen.queryByText("Full route shown")).toBeNull();
+    expect(screen.queryByText(/representative route points/)).toBeNull();
     expect(
       screen.getByText(/© CARTO, © OpenStreetMap contributors/),
     ).toBeTruthy();
     expect(screen.getByText(/client IP to CARTO/)).toBeTruthy();
+    const cartoTile = document.querySelector(".route-map-tiles image");
+    expect(cartoTile?.getAttribute("href")).toContain(
+      "https://basemaps.cartocdn.com/light_all/",
+    );
+    fireEvent.error(cartoTile as Element);
+    await waitFor(() => {
+      expect(
+        screen.getByText("CARTO tiles failed; offline route shown."),
+      ).toBeTruthy();
+    });
     expect(screen.getByText("Time in HR zones")).toBeTruthy();
     expect(screen.getByText("Garmin activity HR-zone totals")).toBeTruthy();
     expect(
@@ -1628,6 +1634,8 @@ describe("TrainerDashboard activity charts", () => {
     ).toBeTruthy();
     expect(screen.queryByText("Elevation profile")).toBeNull();
     expect(screen.getByText("Route map unavailable")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /CARTO/ })).toBeNull();
+    expect(screen.queryByText(/© CARTO/)).toBeNull();
     expect(
       screen.getByText(
         "Route unavailable because this activity has no normalized GPS stream points.",

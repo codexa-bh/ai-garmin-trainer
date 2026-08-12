@@ -851,7 +851,7 @@ type ExternalRouteMapView = {
 };
 
 const ROUTE_MAP_WIDTH = 420;
-const ROUTE_MAP_HEIGHT = 156;
+const ROUTE_MAP_HEIGHT = 220;
 const ROUTE_MAP_PADDING = 14;
 const ROUTE_MAP_TILE_SIZE = 256;
 const ROUTE_MAP_MIN_ZOOM = 2;
@@ -911,9 +911,13 @@ function routeMapPixelBounds(
   };
 }
 
-function routeMapZoom(route: ActivityDashboardPayload["route"], width: number) {
+function routeMapZoom(
+  route: ActivityDashboardPayload["route"],
+  width: number,
+  height: number,
+) {
   const usableWidth = width - ROUTE_MAP_PADDING * 3;
-  const usableHeight = ROUTE_MAP_HEIGHT - ROUTE_MAP_PADDING * 3;
+  const usableHeight = height - ROUTE_MAP_PADDING * 3;
   let selectedZoom = ROUTE_MAP_MIN_ZOOM;
   for (let zoom = ROUTE_MAP_MIN_ZOOM; zoom <= ROUTE_MAP_MAX_ZOOM; zoom += 1) {
     const bounds = routeMapPixelBounds(route, zoom);
@@ -936,7 +940,7 @@ function externalRouteMapView(
   height: number,
 ): ExternalRouteMapView | null {
   if (!route.bounds) return null;
-  const zoom = routeMapZoom(route, width);
+  const zoom = routeMapZoom(route, width, height);
   const bounds = routeMapPixelBounds(route, zoom);
   if (!bounds) return null;
 
@@ -985,15 +989,13 @@ function routeSegmentClass(point: RouteMapSvgPoint) {
 }
 
 function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
-  const [mapBackgroundEnabled, setMapBackgroundEnabled] = useState(false);
   const [mapBackgroundFailed, setMapBackgroundFailed] = useState(false);
   const externalMapView = useMemo(
     () => externalRouteMapView(route, ROUTE_MAP_WIDTH, ROUTE_MAP_HEIGHT),
     [route],
   );
   const canLoadExternalMap = route.status === "available" && !!externalMapView;
-  const externalMapActive =
-    canLoadExternalMap && mapBackgroundEnabled && !mapBackgroundFailed;
+  const externalMapActive = canLoadExternalMap && !mapBackgroundFailed;
   const localSvgPoints = routeMapCoordinates(
     route,
     ROUTE_MAP_WIDTH,
@@ -1002,41 +1004,15 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
   const svgPoints = externalMapActive ? externalMapView.points : localSvgPoints;
   const first = svgPoints[0];
   const last = svgPoints[svgPoints.length - 1];
-  const altitudeRange = route.bounds
-    ? route.bounds.minAltitudeMeters !== null &&
-      route.bounds.maxAltitudeMeters !== null
-      ? `${metersLabel(route.bounds.minAltitudeMeters)}–${metersLabel(route.bounds.maxAltitudeMeters)}`
-      : "Altitude unavailable"
-    : "Altitude unavailable";
+
+  useEffect(() => {
+    setMapBackgroundFailed(false);
+  }, [route]);
 
   return (
-    <section
-      className="route-map-card compact"
-      aria-label="Local GPS route map"
-    >
+    <section className="route-map-card" aria-label="Local GPS route map">
       <div className="route-map-card-header">
-        <div>
-          <h2>Route map</h2>
-          <p>Compact local route · optional CARTO/OpenStreetMap tiles</p>
-        </div>
-        <div className="route-map-controls">
-          <span>{route.pointCount.toLocaleString()} plotted points</span>
-          {canLoadExternalMap ? (
-            <button
-              type="button"
-              className="route-map-toggle"
-              aria-pressed={mapBackgroundEnabled && !mapBackgroundFailed}
-              onClick={() => {
-                setMapBackgroundFailed(false);
-                setMapBackgroundEnabled((enabled) => !enabled);
-              }}
-            >
-              {mapBackgroundEnabled && !mapBackgroundFailed
-                ? "Hide map background"
-                : "Load CARTO map background"}
-            </button>
-          ) : null}
-        </div>
+        <h2>Route map</h2>
       </div>
       {route.status === "available" && svgPoints.length >= 2 ? (
         <>
@@ -1046,7 +1022,7 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
             }
             viewBox={`0 0 ${ROUTE_MAP_WIDTH} ${ROUTE_MAP_HEIGHT}`}
             role="img"
-            aria-label="Compact GPS route visualization with start and finish markers"
+            aria-label="GPS route map with CARTO background and start and finish markers"
           >
             <defs>
               <linearGradient id="route-map-bg" x1="0" x2="1" y1="0" y2="1">
@@ -1128,20 +1104,12 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
               </g>
             ) : null}
           </svg>
-          <div className="route-map-meta">
-            <span>Direction: start → finish</span>
-            <span>Altitude range: {altitudeRange}</span>
-            <span>
-              {route.simplified ? "Simplified for display" : "Full route shown"}
-            </span>
-          </div>
-          <p className="activity-dashboard-status">{route.message}</p>
           <p className="route-map-attribution">
             {externalMapActive
-              ? "Map background © CARTO, © OpenStreetMap contributors. External tiles may reveal the displayed route area and client IP to CARTO."
+              ? "Map © CARTO, © OpenStreetMap contributors. Tiles may reveal route area and client IP to CARTO."
               : mapBackgroundFailed
-                ? "CARTO map tiles failed to load; showing the compact offline route instead."
-                : "Offline compact route shown. CARTO map background is optional and loads external tiles only after you request it."}
+                ? "CARTO tiles failed; offline route shown."
+                : "Offline route shown."}
           </p>
         </>
       ) : (
