@@ -909,7 +909,7 @@ const ROUTE_MAP_MIN_ZOOM = 2;
 const ROUTE_MAP_MAX_ZOOM = 17;
 const ROUTE_MAP_MIN_ZOOM_OFFSET = -1;
 const ROUTE_MAP_MAX_ZOOM_OFFSET = 2;
-const CARTO_TILE_BASE_URL = "https://basemaps.cartocdn.com/light_all";
+const OPEN_TOPO_MAP_TILE_HOSTS = ["a", "b", "c"] as const;
 
 function routeMapCoordinates(
   route: ActivityDashboardPayload["route"],
@@ -1027,9 +1027,13 @@ function externalRouteMapView(
     const wrappedTileX = ((tileX % tileWrap) + tileWrap) % tileWrap;
     for (let tileY = tileStartY; tileY <= tileEndY; tileY += 1) {
       if (tileY < 0 || tileY >= tileWrap) continue;
+      const host =
+        OPEN_TOPO_MAP_TILE_HOSTS[
+          (zoom + wrappedTileX + tileY) % OPEN_TOPO_MAP_TILE_HOSTS.length
+        ];
       tiles.push({
         key: `${zoom}-${wrappedTileX}-${tileY}`,
-        href: `${CARTO_TILE_BASE_URL}/${zoom}/${wrappedTileX}/${tileY}.png`,
+        href: `https://${host}.tile.opentopomap.org/${zoom}/${wrappedTileX}/${tileY}.png`,
         x: tileX * ROUTE_MAP_TILE_SIZE - originX,
         y: tileY * ROUTE_MAP_TILE_SIZE - originY,
       });
@@ -1139,7 +1143,7 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
             viewBox={`0 0 ${ROUTE_MAP_WIDTH} ${ROUTE_MAP_HEIGHT}`}
             data-zoom-offset={zoomOffset}
             role="img"
-            aria-label="GPS route map with CARTO background and start and finish markers"
+            aria-label="GPS route map with OpenTopoMap background and start and finish markers"
           >
             <defs>
               <linearGradient id="route-map-bg" x1="0" x2="1" y1="0" y2="1">
@@ -1186,7 +1190,7 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
                     preserveAspectRatio="xMidYMid slice"
                     onError={() => setMapBackgroundFailed(true)}
                   >
-                    <title>CARTO map tile unavailable</title>
+                    <title>OpenTopoMap map tile unavailable</title>
                   </image>
                 ))}
               </g>
@@ -1240,9 +1244,9 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
           </svg>
           <p className="route-map-attribution">
             {externalMapActive
-              ? "Map © CARTO, © OpenStreetMap contributors. Tiles may reveal route area and client IP to CARTO."
+              ? "Map data © OpenStreetMap contributors; map style © OpenTopoMap (CC-BY-SA). Tiles may reveal route area and client IP to OpenTopoMap."
               : mapBackgroundFailed
-                ? "CARTO tiles failed; offline route shown."
+                ? "OpenTopoMap tiles failed; offline route shown."
                 : "Offline route shown."}
           </p>
         </>

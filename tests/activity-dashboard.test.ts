@@ -236,8 +236,11 @@ describe("activity dashboard repository and routes", () => {
     expect(serialized).not.toContain("DATABASE_PATH");
     expect(serialized).not.toContain("select ");
     expect(serialized).not.toContain("CARTO");
+    expect(serialized).not.toContain("OpenTopoMap");
     expect(serialized).not.toContain("OpenStreetMap");
     expect(serialized).not.toContain("basemaps.cartocdn.com");
+    expect(serialized).not.toContain("tile.opentopomap.org");
+    expect(serialized).not.toContain("opentopomap.org");
     expect(serialized).not.toContain("tile.openstreetmap.org");
   });
 
