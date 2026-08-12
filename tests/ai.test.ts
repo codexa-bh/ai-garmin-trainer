@@ -100,6 +100,34 @@ describe("trainer AI", () => {
     expect(context).toContain("Do not estimate configured max HR");
   });
 
+  it("adds Garmin body metrics to context without merging them into Profile", () => {
+    const context = buildTrainerContext({
+      activities: [],
+      health: [],
+      profile: { goals: [], sports: [], preferences: {}, constraints: [] },
+      bodyMetrics: {
+        availability: "complete",
+        source: "garmin_mcp",
+        fetchedAt: "2026-08-12T08:00:00.000Z",
+        lastAttemptAt: "2026-08-12T08:00:00.000Z",
+        preservedPrevious: false,
+        values: { weightKg: 70.2, heightCm: 181 },
+        history: {
+          availability: "available",
+          rangeStart: "2026-08-10",
+          rangeEnd: "2026-08-11",
+          count: 2,
+        },
+      },
+      recentMessages: [],
+    });
+
+    expect(context).toContain("Garmin body metrics");
+    expect(context).toContain("current weight 70.2 kg");
+    expect(context).toContain("do not ask for imported weight");
+    expect(context).toContain("separate from editable Profile");
+  });
+
   it("preserves source facts when applying profile corrections", () => {
     expect(
       applyProfilePatch(

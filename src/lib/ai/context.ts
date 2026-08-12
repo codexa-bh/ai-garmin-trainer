@@ -1,6 +1,7 @@
 import { displayActivityLabel } from "../analytics/activity-label";
 import type {
   GarminAthleteBaselineDto,
+  GarminBodyMetricsDto,
   NormalizedActivity,
   NormalizedDailyHealth,
 } from "../garmin/types";
@@ -87,6 +88,32 @@ export type TrainerMemory = {
   reconfirmAfter: Date | null;
 };
 
+function formatBodyMetrics(
+  bodyMetrics: GarminBodyMetricsDto | null | undefined,
+): string {
+  if (!bodyMetrics || bodyMetrics.availability === "unavailable") {
+    return "No Garmin body metrics have been imported yet. Do not estimate weight or height; ask only if needed and unavailable.";
+  }
+  const facts = [
+    bodyMetrics.values.weightKg !== null
+      ? `current weight ${bodyMetrics.values.weightKg} kg`
+      : null,
+    bodyMetrics.values.heightCm !== null
+      ? `height ${bodyMetrics.values.heightCm} cm`
+      : null,
+    bodyMetrics.history.availability === "available"
+      ? `weight history ${bodyMetrics.history.count} rows from ${bodyMetrics.history.rangeStart ?? "unknown"} to ${bodyMetrics.history.rangeEnd ?? "unknown"}`
+      : `weight history ${bodyMetrics.history.availability}`,
+  ].filter(Boolean);
+  const freshness = bodyMetrics.fetchedAt
+    ? `fetched ${bodyMetrics.fetchedAt.slice(0, 10)}`
+    : "freshness unavailable";
+  const preserved = bodyMetrics.preservedPrevious
+    ? " Latest refresh failed; previous normalized Garmin body metrics were preserved."
+    : "";
+  return `Garmin body metrics (${bodyMetrics.availability}, ${freshness}): ${facts.join("; ") || "no supported body metrics available"}.${preserved} These are separate from editable Profile and learned memory; do not ask for imported weight when current weight is available.`;
+}
+
 function formatAthleteBaseline(
   athleteBaseline: GarminAthleteBaselineDto | null | undefined,
 ): string {
@@ -128,6 +155,7 @@ export function buildTrainerContext(input: {
   health: NormalizedDailyHealth[];
   profile: TrainerProfile;
   athleteBaseline?: GarminAthleteBaselineDto | null;
+  bodyMetrics?: GarminBodyMetricsDto | null;
   learnedMemories?: TrainerMemory[];
   retrievedMemories?: RetrievedMemory[];
   recentMessages: string[];
@@ -185,6 +213,7 @@ export function buildTrainerContext(input: {
     `Retrieved semantic memories (concise user-derived cross-session context; lower authority than current user correction, active chat transcript, Profile, and Garmin/tool evidence):\n${retrievedMemories.join("\n") || "No relevant semantic memories retrieved"}`,
     `Legacy confirmed memories pending semantic migration:\n${legacyMemories.join("\n") || "None"}`,
     formatAthleteBaseline(input.athleteBaseline),
+    formatBodyMetrics(input.bodyMetrics),
     `Recent activities:\n${recentActivities.join("\n") || "No activities imported"}`,
     `Recovery:\n${health.join("\n") || "No recovery data imported"}`,
     `Recent conversation:\n${input.recentMessages.join("\n")}`,

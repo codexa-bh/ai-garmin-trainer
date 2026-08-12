@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 9;
+export const LATEST_SCHEMA_VERSION = 10;
 export const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -12,6 +12,12 @@ const CONVERSATION_TABLE_SQL = `create table if not exists conversation (id text
 
 const LEGACY_ACTIVITY_STREAM_POINT_TABLE_SQL = `create table if not exists activity_stream_point (garmin_id text not null, elapsed_sec integer not null, timestamp text, heart_rate integer, speed_mps real, altitude_meters real, grade_pct real, lat real, lon real, cadence real, power_watts real, temperature_c real, primary key (garmin_id, elapsed_sec))`;
 const ACTIVITY_STREAM_POINT_TABLE_SQL = `create table if not exists activity_stream_point (garmin_id text not null, elapsed_sec integer not null, timestamp text, distance_meters real, heart_rate integer, speed_mps real, altitude_meters real, grade_pct real, lat real, lon real, cadence real, power_watts real, temperature_c real, primary key (garmin_id, elapsed_sec))`;
+
+const BODY_METRICS_SCHEMA_SQL = [
+  `create table if not exists garmin_body_metrics (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, weight_kg real, height_cm real, history_availability text not null, history_range_start text, history_range_end text, history_count integer not null default 0)`,
+  `create table if not exists garmin_body_metric_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0)`,
+  `create table if not exists garmin_body_weight_history (date text primary key, weight_kg real not null, source text not null, fetched_at integer not null)`,
+];
 
 const BASE_SCHEMA_SQL = [
   `create table if not exists user (id text primary key, name text, email text not null unique, email_verified integer default 0, image text, created_at integer not null, updated_at integer not null)`,
@@ -27,6 +33,7 @@ const BASE_SCHEMA_SQL = [
   `create table if not exists activity_hr_zone_time (garmin_id text not null, zone integer not null, fetched_at integer not null, source text not null, status text not null, seconds integer not null, source_lower_bpm integer, source_total_seconds integer not null, primary key (garmin_id, zone))`,
   LEGACY_ATHLETE_BASELINE_TABLE_SQL,
   `create table if not exists garmin_athlete_baseline_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0)`,
+  ...BODY_METRICS_SCHEMA_SQL,
   `create table if not exists garmin_raw_payload (id text primary key, source_tool text not null, subject_type text not null, subject_id text not null, fetched_at integer not null, content_type text not null, payload_json text, payload_text text, sha256 text not null, redaction_version integer not null, redacted_field_count integer not null default 0)`,
   `create index if not exists garmin_raw_payload_subject_idx on garmin_raw_payload(subject_type, subject_id)`,
   `create table if not exists sync_run (id text primary key, status text not null, started_at integer not null, finished_at integer, coverage_start text, coverage_end text, last_error text)`,
@@ -131,6 +138,11 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       `alter table activity_stream_point add column distance_meters real`,
     ],
   },
+  {
+    version: 10,
+    name: "garmin_body_metrics",
+    statements: BODY_METRICS_SCHEMA_SQL,
+  },
 ];
 
 export function createSchemaSql(): string[] {
@@ -163,6 +175,9 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "sync_run",
     "garmin_athlete_baseline",
     "garmin_athlete_baseline_attempt",
+    "garmin_body_metrics",
+    "garmin_body_metric_attempt",
+    "garmin_body_weight_history",
     "garmin_raw_payload",
     "activity_hr_zone_time",
   ];

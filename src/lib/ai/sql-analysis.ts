@@ -231,6 +231,32 @@ const ANALYTICAL_SCHEMA: Record<
     ],
     joins: ["activity_stream_point.garmin_id = activity.garmin_id"],
   },
+  garmin_body_metrics: {
+    name: "garmin_body_metrics",
+    description:
+      "Single normalized Garmin body-metrics snapshot with explicit units and freshness; excludes raw profile/account/demographic fields.",
+    columns: [
+      { name: "availability", type: "text" },
+      { name: "fetched_at", type: "integer", unit: "Unix epoch ms" },
+      { name: "weight_kg", type: "real", unit: "kg", nullable: true },
+      { name: "height_cm", type: "real", unit: "cm", nullable: true },
+      { name: "history_availability", type: "text" },
+      { name: "history_range_start", type: "text", nullable: true },
+      { name: "history_range_end", type: "text", nullable: true },
+      { name: "history_count", type: "integer" },
+    ],
+    joins: [],
+  },
+  garmin_body_weight_history: {
+    name: "garmin_body_weight_history",
+    description:
+      "Normalized Garmin body-weight history rows imported only from direct read-only body-composition data; one row per date, no raw profile payload.",
+    columns: [
+      { name: "date", type: "text", note: "YYYY-MM-DD" },
+      { name: "weight_kg", type: "real", unit: "kg" },
+      { name: "fetched_at", type: "integer", unit: "Unix epoch ms" },
+    ],
+  },
   garmin_athlete_baseline: {
     name: "garmin_athlete_baseline",
     description:
@@ -275,6 +301,7 @@ const FORBIDDEN_IDENTIFIERS = new Set([
   "garmin_raw_payload",
   "activity_detail_attempt",
   "garmin_athlete_baseline_attempt",
+  "garmin_body_metric_attempt",
   "sqlite_master",
   "sqlite_schema",
   "pragma_table_info",

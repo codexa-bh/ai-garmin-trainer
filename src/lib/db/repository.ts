@@ -5,10 +5,14 @@ import type { LlmDebugTrace } from "@/lib/ai/debug-trace";
 import { getOptionalEnv } from "../env";
 import { migrateDatabase } from "./migrations";
 import { EMPTY_GARMIN_ATHLETE_VALUES } from "../garmin/athlete-normalize";
+import { EMPTY_GARMIN_BODY_METRIC_VALUES } from "../garmin/body-metrics-normalize";
 import type {
   GarminAthleteBaselineAvailability,
   GarminAthleteBaselineDto,
   GarminAthleteBaselineSnapshot,
+  GarminBodyMetricsAvailability,
+  GarminBodyMetricsDto,
+  GarminBodyMetricsSnapshot,
   HeartRateZoneBoundaryDto,
   NormalizedActivity,
   NormalizedDailyHealth,
@@ -971,6 +975,148 @@ export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
             ? "not_exposed_by_pinned_connector"
             : null,
     },
+  };
+}
+
+export function writeGarminBodyMetricsRefresh(input: {
+  snapshot: GarminBodyMetricsSnapshot | null;
+  status: Exclude<GarminBodyMetricsAvailability, "failed">;
+  attemptedAt: Date;
+  completedAt?: Date;
+  preservedPrevious?: boolean;
+  errorMessage?: string | null;
+}): void {
+  const db = getDatabase();
+  db.transaction(() => {
+    db.prepare("delete from garmin_body_metrics").run();
+    db.prepare("delete from garmin_body_weight_history").run();
+    if (input.snapshot && input.snapshot.availability !== "unavailable") {
+      db.prepare(
+        `insert into garmin_body_metrics (id, fetched_at, source, availability, weight_kg, height_cm, history_availability, history_range_start, history_range_end, history_count)
+         values ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.snapshot.fetchedAt.getTime(),
+        input.snapshot.source,
+        input.snapshot.availability,
+        input.snapshot.values.weightKg,
+        input.snapshot.values.heightCm,
+        input.snapshot.history.availability,
+        input.snapshot.history.rangeStart,
+        input.snapshot.history.rangeEnd,
+        input.snapshot.history.count,
+      );
+      const insertHistory = db.prepare(
+        `insert into garmin_body_weight_history (date, weight_kg, source, fetched_at)
+         values (?, ?, ?, ?)`,
+      );
+      for (const row of input.snapshot.historyRows) {
+        insertHistory.run(
+          row.date,
+          row.weightKg,
+          row.source,
+          row.fetchedAt.getTime(),
+        );
+      }
+    }
+    db.prepare(
+      `insert into garmin_body_metric_attempt (id, attempted_at, completed_at, status, error_message, preserved_previous)
+       values ('default', ?, ?, ?, ?, ?)
+       on conflict(id) do update set
+         attempted_at=excluded.attempted_at,
+         completed_at=excluded.completed_at,
+         status=excluded.status,
+         error_message=excluded.error_message,
+         preserved_previous=excluded.preserved_previous`,
+    ).run(
+      input.attemptedAt.getTime(),
+      (input.completedAt ?? new Date()).getTime(),
+      input.status,
+      input.errorMessage?.slice(0, 500) ?? null,
+      bool(Boolean(input.preservedPrevious)),
+    );
+  })();
+}
+
+export function recordGarminBodyMetricsFailure(input: {
+  attemptedAt: Date;
+  completedAt?: Date;
+  errorMessage: string;
+  preservedPrevious?: boolean;
+}): void {
+  getDatabase()
+    .prepare(
+      `insert into garmin_body_metric_attempt (id, attempted_at, completed_at, status, error_message, preserved_previous)
+       values ('default', ?, ?, 'failed', ?, ?)
+       on conflict(id) do update set
+         attempted_at=excluded.attempted_at,
+         completed_at=excluded.completed_at,
+         status=excluded.status,
+         error_message=excluded.error_message,
+         preserved_previous=excluded.preserved_previous`,
+    )
+    .run(
+      input.attemptedAt.getTime(),
+      (input.completedAt ?? new Date()).getTime(),
+      input.errorMessage.slice(0, 500),
+      bool(Boolean(input.preservedPrevious)),
+    );
+}
+
+export function getGarminBodyMetrics(): GarminBodyMetricsDto {
+  const db = getDatabase();
+  const metrics = db
+    .prepare(
+      `select fetched_at as fetchedAt, source, availability, weight_kg as weightKg, height_cm as heightCm, history_availability as historyAvailability, history_range_start as historyRangeStart, history_range_end as historyRangeEnd, history_count as historyCount from garmin_body_metrics where id = 'default'`,
+    )
+    .get() as
+    | {
+        fetchedAt: number;
+        source: "garmin_mcp";
+        availability: Exclude<GarminBodyMetricsAvailability, "failed">;
+        weightKg: number | null;
+        heightCm: number | null;
+        historyAvailability: "available" | "unavailable" | "failed";
+        historyRangeStart: string | null;
+        historyRangeEnd: string | null;
+        historyCount: number;
+      }
+    | undefined;
+  const attempt = db
+    .prepare(
+      `select attempted_at as attemptedAt, status, preserved_previous as preservedPrevious from garmin_body_metric_attempt where id = 'default'`,
+    )
+    .get() as
+    | {
+        attemptedAt: number;
+        status: GarminBodyMetricsAvailability;
+        preservedPrevious: number;
+      }
+    | undefined;
+  return {
+    availability:
+      attempt?.status === "failed"
+        ? "failed"
+        : (metrics?.availability ?? attempt?.status ?? "unavailable"),
+    source: metrics?.source ?? null,
+    fetchedAt: metrics ? new Date(metrics.fetchedAt).toISOString() : null,
+    lastAttemptAt: attempt ? new Date(attempt.attemptedAt).toISOString() : null,
+    preservedPrevious: Boolean(attempt?.preservedPrevious),
+    values: metrics
+      ? { weightKg: metrics.weightKg, heightCm: metrics.heightCm }
+      : { ...EMPTY_GARMIN_BODY_METRIC_VALUES },
+    history: metrics
+      ? {
+          availability: metrics.historyAvailability,
+          rangeStart: metrics.historyRangeStart,
+          rangeEnd: metrics.historyRangeEnd,
+          count: metrics.historyCount,
+        }
+      : {
+          availability: "unavailable",
+          rangeStart: null,
+          rangeEnd: null,
+          count: 0,
+        },
   };
 }
 
@@ -1965,6 +2111,7 @@ export function importSummary(): {
   detailedActivities: number;
   detailCoverage: ActivityDetailCoverage;
   athleteBaseline: GarminAthleteBaselineDto;
+  bodyMetrics: GarminBodyMetricsDto;
   latestActivityDate: string | null;
   healthStartDate: string | null;
   healthEndDate: string | null;
@@ -1979,6 +2126,7 @@ export function importSummary(): {
   return {
     ...counts,
     athleteBaseline: getGarminAthleteBaseline(),
+    bodyMetrics: getGarminBodyMetrics(),
     latestActivityDate: latestActivity.value
       ? new Date(latestActivity.value).toISOString().slice(0, 10)
       : null,
@@ -2795,6 +2943,9 @@ export function clearGarminData(): string[] {
     db.prepare("delete from activity_detail_availability").run();
     db.prepare("delete from garmin_athlete_baseline").run();
     db.prepare("delete from garmin_athlete_baseline_attempt").run();
+    db.prepare("delete from garmin_body_metrics").run();
+    db.prepare("delete from garmin_body_metric_attempt").run();
+    db.prepare("delete from garmin_body_weight_history").run();
     db.prepare("delete from activity").run();
     db.prepare("delete from daily_health").run();
     db.prepare("delete from sync_checkpoint").run();
@@ -2807,6 +2958,9 @@ export function clearGarminData(): string[] {
     "activity_detail_availability",
     "garmin_athlete_baseline",
     "garmin_athlete_baseline_attempt",
+    "garmin_body_metrics",
+    "garmin_body_metric_attempt",
+    "garmin_body_weight_history",
     "activity",
     "daily_health",
     "sync_checkpoint",

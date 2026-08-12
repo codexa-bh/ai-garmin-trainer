@@ -6,6 +6,7 @@ import {
   getActivityByGarminId,
   getActivityDetailForAnalytics,
   getGarminAthleteBaseline,
+  getGarminBodyMetrics,
   listActivityDetailAvailability,
   verifyActivityReference,
   type ActivityReferenceInput,
@@ -162,7 +163,7 @@ export const trainerToolDefinitions = {
   }),
   getSyncStatus: tool({
     description:
-      "Report local import/sync/detail coverage and athlete-baseline availability. Use for status, what is synced/imported, and detail coverage questions.",
+      "Report local import/sync/detail coverage, athlete-baseline availability, and Garmin body-metrics availability. Use for status, what is synced/imported, and detail/body-metric coverage questions.",
     inputSchema: trainerToolInputSchemas.getSyncStatus,
   }),
   verifyActivityReference: tool({
@@ -263,6 +264,7 @@ function summarizeSyncStatus(limit = 10) {
     },
   };
   const athlete = getGarminAthleteBaseline();
+  const bodyMetrics = getGarminBodyMetrics();
   const availability = listActivityDetailAvailability(limit).map((item) => ({
     garminId: item.garminId,
     status: item.status,
@@ -277,6 +279,7 @@ function summarizeSyncStatus(limit = 10) {
     counts: { ...counts, healthCoverage },
     coverage,
     athlete,
+    bodyMetrics,
     availability,
   };
 }

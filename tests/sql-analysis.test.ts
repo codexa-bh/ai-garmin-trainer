@@ -74,6 +74,12 @@ describe("read-only Garmin SQL analysis", () => {
     expect(description.tables.map((table) => table.name)).toContain(
       "daily_health",
     );
+    expect(description.tables.map((table) => table.name)).toContain(
+      "garmin_body_metrics",
+    );
+    expect(description.tables.map((table) => table.name)).toContain(
+      "garmin_body_weight_history",
+    );
     expect(JSON.stringify(description)).toContain("duration_sec");
     expect(JSON.stringify(description)).toContain("source_updated_at");
     expect(JSON.stringify(description)).toContain("lat");
@@ -88,6 +94,8 @@ describe("read-only Garmin SQL analysis", () => {
     expect(description.examples.join(" ")).not.toContain(
       "sportNormalizedDemand",
     );
+    expect(JSON.stringify(description)).toContain("weight_kg");
+    expect(JSON.stringify(description)).not.toContain("bodyFat");
     expect(JSON.stringify(description)).not.toContain("access_token");
     expect(JSON.stringify(description)).not.toContain("session token");
     expect(description.forbiddenDataClasses.join(" ")).toContain(

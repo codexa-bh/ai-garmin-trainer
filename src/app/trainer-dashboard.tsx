@@ -192,6 +192,23 @@ type AthleteBaselinePayload = {
       "not_exposed_by_pinned_connector" | "derived_from_garmin_max_hr" | null;
   };
 };
+type BodyMetricsAvailability =
+  "complete" | "partial" | "unavailable" | "failed";
+type BodyMetricsPayload = {
+  availability: BodyMetricsAvailability;
+  source: "garmin_mcp" | null;
+  fetchedAt: string | null;
+  lastAttemptAt: string | null;
+  preservedPrevious: boolean;
+  values: { weightKg: number | null; heightCm: number | null };
+  history: {
+    availability: "available" | "unavailable" | "failed";
+    rangeStart: string | null;
+    rangeEnd: string | null;
+    count: number;
+  };
+};
+
 type HealthCoveragePayload = {
   totalRows: number;
   completeDays: number;
@@ -227,6 +244,7 @@ type ImportSummaryPayload = {
   detailedActivities: number;
   detailCoverage?: DetailCoveragePayload;
   athleteBaseline: AthleteBaselinePayload;
+  bodyMetrics: BodyMetricsPayload;
 };
 type ProfileFields = {
   goals: string;
@@ -252,6 +270,7 @@ type SyncProgressEvent = {
   healthCoverage?: HealthCoveragePayload;
   detailCoverage?: DetailCoveragePayload;
   athleteAvailability?: AthleteBaselineAvailability;
+  bodyMetricsAvailability?: BodyMetricsAvailability;
 };
 
 type ActivityListItem = {
@@ -419,6 +438,21 @@ const emptyAthleteBaseline: AthleteBaselinePayload = {
   },
 };
 
+const emptyBodyMetrics: BodyMetricsPayload = {
+  availability: "unavailable",
+  source: null,
+  fetchedAt: null,
+  lastAttemptAt: null,
+  preservedPrevious: false,
+  values: { weightKg: null, heightCm: null },
+  history: {
+    availability: "unavailable",
+    rangeStart: null,
+    rangeEnd: null,
+    count: 0,
+  },
+};
+
 async function readResponse(response: Response): Promise<string> {
   const text = await response.text();
   if (!text) return response.ok ? "OK" : `HTTP ${response.status}`;
@@ -483,6 +517,22 @@ function formatAthleteBaselineSummary(
         ? "Garmin-configured HR-zone boundaries available"
         : "HR-zone boundaries unavailable";
   return `Athlete baseline ${baseline.availability}; ${maxHr}; ${zones}; last attempt ${dateLabel(baseline.lastAttemptAt)}.`;
+}
+
+function formatBodyMetricsSummary(metrics: BodyMetricsPayload): string {
+  const weight =
+    metrics.values.weightKg !== null
+      ? `current weight imported (${metrics.values.weightKg} kg)`
+      : "current weight unavailable";
+  const height =
+    metrics.values.heightCm !== null
+      ? `height imported (${metrics.values.heightCm} cm)`
+      : "height unavailable";
+  const history =
+    metrics.history.availability === "available"
+      ? `weight history ${metrics.history.count} rows (${metrics.history.rangeStart ?? "unknown"} to ${metrics.history.rangeEnd ?? "unknown"})`
+      : `weight history ${metrics.history.availability}`;
+  return `Body metrics ${metrics.availability}; ${weight}; ${height}; ${history}; last attempt ${dateLabel(metrics.lastAttemptAt)}.`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -856,27 +906,37 @@ const ROUTE_MAP_PADDING = 14;
 const ROUTE_MAP_TILE_SIZE = 256;
 const ROUTE_MAP_MIN_ZOOM = 2;
 const ROUTE_MAP_MAX_ZOOM = 17;
+const ROUTE_MAP_MIN_ZOOM_OFFSET = -1;
+const ROUTE_MAP_MAX_ZOOM_OFFSET = 2;
 const CARTO_TILE_BASE_URL = "https://basemaps.cartocdn.com/light_all";
 
 function routeMapCoordinates(
   route: ActivityDashboardPayload["route"],
   width: number,
   height: number,
+  zoomOffset: number,
 ): RouteMapSvgPoint[] {
   if (!route.bounds) return [];
   const lonSpan = route.bounds.maxLon - route.bounds.minLon || 0.000001;
   const latSpan = route.bounds.maxLat - route.bounds.minLat || 0.000001;
   const usableWidth = width - ROUTE_MAP_PADDING * 2;
   const usableHeight = height - ROUTE_MAP_PADDING * 2;
-  return route.points.map((point) => ({
-    ...point,
-    x:
+  const scale = 2 ** zoomOffset;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  return route.points.map((point) => {
+    const fittedX =
       ROUTE_MAP_PADDING +
-      ((point.lon - route.bounds!.minLon) / lonSpan) * usableWidth,
-    y:
+      ((point.lon - route.bounds!.minLon) / lonSpan) * usableWidth;
+    const fittedY =
       ROUTE_MAP_PADDING +
-      (1 - (point.lat - route.bounds!.minLat) / latSpan) * usableHeight,
-  }));
+      (1 - (point.lat - route.bounds!.minLat) / latSpan) * usableHeight;
+    return {
+      ...point,
+      x: centerX + (fittedX - centerX) * scale,
+      y: centerY + (fittedY - centerY) * scale,
+    };
+  });
 }
 
 function clampLatitude(lat: number) {
@@ -938,9 +998,16 @@ function externalRouteMapView(
   route: ActivityDashboardPayload["route"],
   width: number,
   height: number,
+  zoomOffset: number,
 ): ExternalRouteMapView | null {
   if (!route.bounds) return null;
-  const zoom = routeMapZoom(route, width, height);
+  const zoom = Math.max(
+    ROUTE_MAP_MIN_ZOOM,
+    Math.min(
+      ROUTE_MAP_MAX_ZOOM,
+      routeMapZoom(route, width, height) + zoomOffset,
+    ),
+  );
   const bounds = routeMapPixelBounds(route, zoom);
   if (!bounds) return null;
 
@@ -990,9 +1057,16 @@ function routeSegmentClass(point: RouteMapSvgPoint) {
 
 function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
   const [mapBackgroundFailed, setMapBackgroundFailed] = useState(false);
+  const [zoomOffset, setZoomOffset] = useState(0);
   const externalMapView = useMemo(
-    () => externalRouteMapView(route, ROUTE_MAP_WIDTH, ROUTE_MAP_HEIGHT),
-    [route],
+    () =>
+      externalRouteMapView(
+        route,
+        ROUTE_MAP_WIDTH,
+        ROUTE_MAP_HEIGHT,
+        zoomOffset,
+      ),
+    [route, zoomOffset],
   );
   const canLoadExternalMap = route.status === "available" && !!externalMapView;
   const externalMapActive = canLoadExternalMap && !mapBackgroundFailed;
@@ -1000,6 +1074,7 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
     route,
     ROUTE_MAP_WIDTH,
     ROUTE_MAP_HEIGHT,
+    zoomOffset,
   );
   const svgPoints = externalMapActive ? externalMapView.points : localSvgPoints;
   const first = svgPoints[0];
@@ -1007,12 +1082,52 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
 
   useEffect(() => {
     setMapBackgroundFailed(false);
+    setZoomOffset(0);
   }, [route]);
 
   return (
     <section className="route-map-card" aria-label="Local GPS route map">
       <div className="route-map-card-header">
         <h2>Route map</h2>
+        {route.status === "available" && svgPoints.length >= 2 ? (
+          <div
+            className="route-map-controls"
+            aria-label="Route map zoom controls"
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setZoomOffset((current) =>
+                  Math.max(ROUTE_MAP_MIN_ZOOM_OFFSET, current - 1),
+                )
+              }
+              disabled={zoomOffset <= ROUTE_MAP_MIN_ZOOM_OFFSET}
+              aria-label="Zoom out route map"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoomOffset(0)}
+              disabled={zoomOffset === 0}
+              aria-label="Reset route map zoom"
+            >
+              Fit
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setZoomOffset((current) =>
+                  Math.min(ROUTE_MAP_MAX_ZOOM_OFFSET, current + 1),
+                )
+              }
+              disabled={zoomOffset >= ROUTE_MAP_MAX_ZOOM_OFFSET}
+              aria-label="Zoom in route map"
+            >
+              +
+            </button>
+          </div>
+        ) : null}
       </div>
       {route.status === "available" && svgPoints.length >= 2 ? (
         <>
@@ -1021,6 +1136,7 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
               externalMapActive ? "route-map-svg external-map" : "route-map-svg"
             }
             viewBox={`0 0 ${ROUTE_MAP_WIDTH} ${ROUTE_MAP_HEIGHT}`}
+            data-zoom-offset={zoomOffset}
             role="img"
             aria-label="GPS route map with CARTO background and start and finish markers"
           >
@@ -1074,19 +1190,36 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
                 ))}
               </g>
             ) : null}
-            {svgPoints.slice(1).map((point, index) => {
-              const previous = svgPoints[index];
-              return (
-                <line
-                  className={routeSegmentClass(point)}
-                  key={`${point.elapsedSec}-${index}`}
-                  x1={previous.x}
-                  x2={point.x}
-                  y1={previous.y}
-                  y2={point.y}
-                />
-              );
-            })}
+            <g className="route-map-route-halo" aria-hidden="true">
+              {svgPoints.slice(1).map((point, index) => {
+                const previous = svgPoints[index];
+                return (
+                  <line
+                    className="route-map-segment-halo"
+                    key={`halo-${point.elapsedSec}-${index}`}
+                    x1={previous.x}
+                    x2={point.x}
+                    y1={previous.y}
+                    y2={point.y}
+                  />
+                );
+              })}
+            </g>
+            <g className="route-map-route-line">
+              {svgPoints.slice(1).map((point, index) => {
+                const previous = svgPoints[index];
+                return (
+                  <line
+                    className={routeSegmentClass(point)}
+                    key={`${point.elapsedSec}-${index}`}
+                    x1={previous.x}
+                    x2={point.x}
+                    y1={previous.y}
+                    y2={point.y}
+                  />
+                );
+              })}
+            </g>
             {first ? (
               <g className="route-map-marker start">
                 <circle cx={first.x} cy={first.y} r="4.5" />
@@ -1526,6 +1659,12 @@ export function TrainerDashboard() {
     useState<AthleteBaselinePayload | null>(null);
   const [athleteBaselineMessage, setAthleteBaselineMessage] = useState(
     "Garmin athlete baselines will load from the local import summary.",
+  );
+  const [bodyMetrics, setBodyMetrics] = useState<BodyMetricsPayload | null>(
+    null,
+  );
+  const [bodyMetricsMessage, setBodyMetricsMessage] = useState(
+    "Garmin body metrics will load from the local import summary.",
   );
   const [detailGarminId, setDetailGarminId] = useState("");
   const [activityDashboardOpen, setActivityDashboardOpen] = useState(false);
@@ -2143,16 +2282,22 @@ export function TrainerDashboard() {
         await fetch("/api/summary"),
       );
       const nextBaseline = payload.athleteBaseline ?? emptyAthleteBaseline;
+      const nextBodyMetrics = payload.bodyMetrics ?? emptyBodyMetrics;
       setAthleteBaseline(nextBaseline);
+      setBodyMetrics(nextBodyMetrics);
       setAthleteBaselineMessage(formatAthleteBaselineSummary(nextBaseline));
+      setBodyMetricsMessage(formatBodyMetricsSummary(nextBodyMetrics));
       if (showStatus)
         setStatus({
           kind: "ok",
-          message: `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}.`,
+          message: `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}, body metrics ${nextBodyMetrics.availability}.`,
         });
     } catch (error) {
       setAthleteBaselineMessage(
         `Athlete baseline summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      setBodyMetricsMessage(
+        `Body metrics summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
       );
       if (showStatus || trigger === "manual")
         setStatus({
@@ -3039,10 +3184,12 @@ export function TrainerDashboard() {
                     {activityDashboard.charts.timeScaleMessage}
                   </p>
                 ) : null}
-                <RouteMap route={activityDashboard.route} />
-                <HeartRateZoneTimeChart
-                  summary={activityDashboard.heartRateZones}
-                />
+                <div className="route-zone-grid">
+                  <RouteMap route={activityDashboard.route} />
+                  <HeartRateZoneTimeChart
+                    summary={activityDashboard.heartRateZones}
+                  />
+                </div>
                 {activityDashboard.laps.length ? (
                   <div className="lap-table-wrap">
                     <table className="lap-table">
@@ -3844,6 +3991,44 @@ export function TrainerDashboard() {
                   </dl>
                 ) : (
                   <p>Not available until the local summary loads.</p>
+                )}
+                <p className="helper-text" role="status" aria-live="polite">
+                  {bodyMetricsMessage}
+                </p>
+                {bodyMetrics ? (
+                  <dl
+                    className="compact-facts"
+                    aria-label="Garmin body metrics"
+                  >
+                    <div>
+                      <dt>Body-metrics status</dt>
+                      <dd>{bodyMetrics.availability}</dd>
+                    </div>
+                    <div>
+                      <dt>Body metrics refreshed</dt>
+                      <dd>{dateLabel(bodyMetrics.fetchedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Current weight</dt>
+                      <dd>{valueLabel(bodyMetrics.values.weightKg, " kg")}</dd>
+                    </div>
+                    <div>
+                      <dt>Height</dt>
+                      <dd>{valueLabel(bodyMetrics.values.heightCm, " cm")}</dd>
+                    </div>
+                    <div>
+                      <dt>Weight history</dt>
+                      <dd>
+                        {bodyMetrics.history.availability === "available"
+                          ? `${bodyMetrics.history.count} rows (${bodyMetrics.history.rangeStart ?? "unknown"} to ${bodyMetrics.history.rangeEnd ?? "unknown"})`
+                          : bodyMetrics.history.availability}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p>
+                    Body metrics not available until the local summary loads.
+                  </p>
                 )}
                 <div className="detail-tools">
                   <label>

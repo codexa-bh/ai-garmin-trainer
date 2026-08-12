@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const dbDir = join(tmpdir(), "ai-garmin-athlete-sync-tests");
 const mcpState = {
   failAthlete: false,
+  failBodyMetrics: false,
   nullAthlete: false,
   activities: [] as Array<Record<string, unknown>>,
 };
@@ -27,6 +28,8 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
             : {
                 lactateThresholdHeartRate: 168,
                 availableTrainingDays: ["monday", "wednesday"],
+                weight: 70.2,
+                height: 181,
               },
         });
       }
@@ -42,6 +45,13 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
                 sport: "cycling",
               },
         );
+      }
+      if (operation === "get_body_composition") {
+        if (mcpState.failBodyMetrics) throw new Error("body endpoint timeout");
+        return JSON.stringify({
+          dateWeightList: [{ date: "2026-07-21", weight: 70.4 }],
+          totalAverage: { weight: 70.4, bodyFat: 20 },
+        });
       }
       if (operation === "get_activities_by_date")
         return JSON.stringify({
@@ -74,6 +84,7 @@ beforeEach(() => {
   process.env.DATABASE_PATH = join(dbDir, `${crypto.randomUUID()}.sqlite`);
   process.env.GARMIN_HISTORY_START_DATE = "2026-07-21";
   mcpState.failAthlete = false;
+  mcpState.failBodyMetrics = false;
   mcpState.nullAthlete = false;
   mcpState.activities = [];
   vi.resetModules();
@@ -97,7 +108,13 @@ describe("Garmin sync athlete baseline stage", () => {
       cyclingFtpWatts: 250,
       availableTrainingDays: ["monday", "wednesday"],
     });
+    expect(result.bodyMetrics).toMatchObject({
+      availability: "complete",
+      values: { weightKg: 70.2, heightCm: 181 },
+      history: { availability: "available", count: 1 },
+    });
     expect(progress).toContain("athlete");
+    expect(progress).toContain("body_metrics");
   });
 
   it("uses refresh copy when importing missing activity detail", async () => {
@@ -132,6 +149,22 @@ describe("Garmin sync athlete baseline stage", () => {
       availability: "unavailable",
       fetchedAt: null,
       source: null,
+    });
+  });
+
+  it("preserves previous body metrics after failed refresh", async () => {
+    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    await runGarminSync();
+
+    mcpState.failAthlete = true;
+    mcpState.failBodyMetrics = true;
+    const result = await runGarminSync();
+
+    expect(result.status).toBe("completed");
+    expect(result.bodyMetrics).toMatchObject({
+      availability: "failed",
+      preservedPrevious: true,
+      values: { weightKg: 70.2 },
     });
   });
 
