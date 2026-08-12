@@ -856,27 +856,37 @@ const ROUTE_MAP_PADDING = 14;
 const ROUTE_MAP_TILE_SIZE = 256;
 const ROUTE_MAP_MIN_ZOOM = 2;
 const ROUTE_MAP_MAX_ZOOM = 17;
+const ROUTE_MAP_MIN_ZOOM_OFFSET = -1;
+const ROUTE_MAP_MAX_ZOOM_OFFSET = 2;
 const CARTO_TILE_BASE_URL = "https://basemaps.cartocdn.com/light_all";
 
 function routeMapCoordinates(
   route: ActivityDashboardPayload["route"],
   width: number,
   height: number,
+  zoomOffset: number,
 ): RouteMapSvgPoint[] {
   if (!route.bounds) return [];
   const lonSpan = route.bounds.maxLon - route.bounds.minLon || 0.000001;
   const latSpan = route.bounds.maxLat - route.bounds.minLat || 0.000001;
   const usableWidth = width - ROUTE_MAP_PADDING * 2;
   const usableHeight = height - ROUTE_MAP_PADDING * 2;
-  return route.points.map((point) => ({
-    ...point,
-    x:
+  const scale = 2 ** zoomOffset;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  return route.points.map((point) => {
+    const fittedX =
       ROUTE_MAP_PADDING +
-      ((point.lon - route.bounds!.minLon) / lonSpan) * usableWidth,
-    y:
+      ((point.lon - route.bounds!.minLon) / lonSpan) * usableWidth;
+    const fittedY =
       ROUTE_MAP_PADDING +
-      (1 - (point.lat - route.bounds!.minLat) / latSpan) * usableHeight,
-  }));
+      (1 - (point.lat - route.bounds!.minLat) / latSpan) * usableHeight;
+    return {
+      ...point,
+      x: centerX + (fittedX - centerX) * scale,
+      y: centerY + (fittedY - centerY) * scale,
+    };
+  });
 }
 
 function clampLatitude(lat: number) {
@@ -938,9 +948,16 @@ function externalRouteMapView(
   route: ActivityDashboardPayload["route"],
   width: number,
   height: number,
+  zoomOffset: number,
 ): ExternalRouteMapView | null {
   if (!route.bounds) return null;
-  const zoom = routeMapZoom(route, width, height);
+  const zoom = Math.max(
+    ROUTE_MAP_MIN_ZOOM,
+    Math.min(
+      ROUTE_MAP_MAX_ZOOM,
+      routeMapZoom(route, width, height) + zoomOffset,
+    ),
+  );
   const bounds = routeMapPixelBounds(route, zoom);
   if (!bounds) return null;
 
@@ -990,9 +1007,16 @@ function routeSegmentClass(point: RouteMapSvgPoint) {
 
 function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
   const [mapBackgroundFailed, setMapBackgroundFailed] = useState(false);
+  const [zoomOffset, setZoomOffset] = useState(0);
   const externalMapView = useMemo(
-    () => externalRouteMapView(route, ROUTE_MAP_WIDTH, ROUTE_MAP_HEIGHT),
-    [route],
+    () =>
+      externalRouteMapView(
+        route,
+        ROUTE_MAP_WIDTH,
+        ROUTE_MAP_HEIGHT,
+        zoomOffset,
+      ),
+    [route, zoomOffset],
   );
   const canLoadExternalMap = route.status === "available" && !!externalMapView;
   const externalMapActive = canLoadExternalMap && !mapBackgroundFailed;
@@ -1000,6 +1024,7 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
     route,
     ROUTE_MAP_WIDTH,
     ROUTE_MAP_HEIGHT,
+    zoomOffset,
   );
   const svgPoints = externalMapActive ? externalMapView.points : localSvgPoints;
   const first = svgPoints[0];
@@ -1007,12 +1032,52 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
 
   useEffect(() => {
     setMapBackgroundFailed(false);
+    setZoomOffset(0);
   }, [route]);
 
   return (
     <section className="route-map-card" aria-label="Local GPS route map">
       <div className="route-map-card-header">
         <h2>Route map</h2>
+        {route.status === "available" && svgPoints.length >= 2 ? (
+          <div
+            className="route-map-controls"
+            aria-label="Route map zoom controls"
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setZoomOffset((current) =>
+                  Math.max(ROUTE_MAP_MIN_ZOOM_OFFSET, current - 1),
+                )
+              }
+              disabled={zoomOffset <= ROUTE_MAP_MIN_ZOOM_OFFSET}
+              aria-label="Zoom out route map"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoomOffset(0)}
+              disabled={zoomOffset === 0}
+              aria-label="Reset route map zoom"
+            >
+              Fit
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setZoomOffset((current) =>
+                  Math.min(ROUTE_MAP_MAX_ZOOM_OFFSET, current + 1),
+                )
+              }
+              disabled={zoomOffset >= ROUTE_MAP_MAX_ZOOM_OFFSET}
+              aria-label="Zoom in route map"
+            >
+              +
+            </button>
+          </div>
+        ) : null}
       </div>
       {route.status === "available" && svgPoints.length >= 2 ? (
         <>
@@ -1021,6 +1086,7 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
               externalMapActive ? "route-map-svg external-map" : "route-map-svg"
             }
             viewBox={`0 0 ${ROUTE_MAP_WIDTH} ${ROUTE_MAP_HEIGHT}`}
+            data-zoom-offset={zoomOffset}
             role="img"
             aria-label="GPS route map with CARTO background and start and finish markers"
           >
@@ -1074,19 +1140,36 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
                 ))}
               </g>
             ) : null}
-            {svgPoints.slice(1).map((point, index) => {
-              const previous = svgPoints[index];
-              return (
-                <line
-                  className={routeSegmentClass(point)}
-                  key={`${point.elapsedSec}-${index}`}
-                  x1={previous.x}
-                  x2={point.x}
-                  y1={previous.y}
-                  y2={point.y}
-                />
-              );
-            })}
+            <g className="route-map-route-halo" aria-hidden="true">
+              {svgPoints.slice(1).map((point, index) => {
+                const previous = svgPoints[index];
+                return (
+                  <line
+                    className="route-map-segment-halo"
+                    key={`halo-${point.elapsedSec}-${index}`}
+                    x1={previous.x}
+                    x2={point.x}
+                    y1={previous.y}
+                    y2={point.y}
+                  />
+                );
+              })}
+            </g>
+            <g className="route-map-route-line">
+              {svgPoints.slice(1).map((point, index) => {
+                const previous = svgPoints[index];
+                return (
+                  <line
+                    className={routeSegmentClass(point)}
+                    key={`${point.elapsedSec}-${index}`}
+                    x1={previous.x}
+                    x2={point.x}
+                    y1={previous.y}
+                    y2={point.y}
+                  />
+                );
+              })}
+            </g>
             {first ? (
               <g className="route-map-marker start">
                 <circle cx={first.x} cy={first.y} r="4.5" />
@@ -3043,10 +3126,12 @@ export function TrainerDashboard() {
                     {activityDashboard.charts.timeScaleMessage}
                   </p>
                 ) : null}
-                <RouteMap route={activityDashboard.route} />
-                <HeartRateZoneTimeChart
-                  summary={activityDashboard.heartRateZones}
-                />
+                <div className="route-zone-grid">
+                  <RouteMap route={activityDashboard.route} />
+                  <HeartRateZoneTimeChart
+                    summary={activityDashboard.heartRateZones}
+                  />
+                </div>
                 {activityDashboard.laps.length ? (
                   <div className="lap-table-wrap">
                     <table className="lap-table">
