@@ -152,6 +152,49 @@ function isAcceptableToolSynthesisText(text: string): boolean {
   return true;
 }
 
+const NON_TERMINAL_LOCAL_DATA_LIMITATION =
+  "I couldn't complete that local Garmin check because the model returned a plan instead of selecting a safe local-data tool. Please retry or narrow the activity/date you want me to check.";
+
+function isLikelyLocalDataRequest(userRequest: string): boolean {
+  const normalized = userRequest.toLowerCase();
+  const hasPersonalAnchor =
+    /\b(my|mine|me|i)\b/.test(normalized) ||
+    /\b(yesterday|today|last|recent|near (to )?my home)\b/.test(normalized);
+  const hasLocalDataSubject =
+    /\b(garmin|activity|activities|hike|hikes|run|runs|ride|rides|walk|walks|route|routes|sync|detail|details|variation|variations)\b/.test(
+      normalized,
+    );
+  return hasPersonalAnchor && hasLocalDataSubject;
+}
+
+function isNonTerminalLocalDataPlan(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  const hasFutureMarker =
+    /\b(i['’]?ll|i will|i would|i need to|i'm going to|i am going to|let me)\b/.test(
+      normalized,
+    ) || /\b(first|next|then|after that)\b/.test(normalized);
+  const hasLocalDataAction =
+    /\b(pull up|look up|fetch|retrieve|check|inspect|review|verify|find|compare|analy[sz]e|query)\b/.test(
+      normalized,
+    );
+  const hasLocalDataSubject =
+    /\b(garmin|activity|activities|hike|hikes|run|runs|ride|rides|route|routes|local data|metadata|detail|details|database|sql|nearby|variation|variations|yesterday|recent)\b/.test(
+      normalized,
+    );
+  return hasFutureMarker && hasLocalDataAction && hasLocalDataSubject;
+}
+
+function isNonTerminalLocalDataDirectAnswer(input: {
+  userRequest: string;
+  text: string;
+}): boolean {
+  return (
+    isLikelyLocalDataRequest(input.userRequest) &&
+    isNonTerminalLocalDataPlan(input.text)
+  );
+}
+
 function canToolRunWithinBudget(
   toolName: TrainerToolName,
   analysisToolCounts: Map<TrainerToolName, number>,
@@ -463,7 +506,23 @@ export async function orchestrateTrainerChat(
           providerCalls,
         });
       }
-      const text = result.text?.trim();
+      const text = result.text?.trim() ?? "";
+      if (
+        isNonTerminalLocalDataDirectAnswer({
+          userRequest: input.userRequest,
+          text,
+        })
+      ) {
+        return finish(
+          {
+            text: NON_TERMINAL_LOCAL_DATA_LIMITATION,
+            grounding: null,
+            toolSteps: [],
+            providerCalls,
+          },
+          "deterministic_fallback",
+        );
+      }
       return finish({
         text:
           text || "I could not produce a useful answer from the local context.",

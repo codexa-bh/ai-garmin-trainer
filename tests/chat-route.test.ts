@@ -333,6 +333,11 @@ const generateText = vi.fn(
         ],
       };
     }
+    if (prompt.includes("yesterdays hike")) {
+      return {
+        text: "I'll pull up the hike detail metadata first. Next, I'll find comparable nearby variations and analyze the effort.",
+      };
+    }
     if (prompt.includes("latest activity")) {
       return {
         toolCalls: [
@@ -767,6 +772,38 @@ describe("chat route LLM tool orchestration", () => {
     const ambiguous = await postChat("find activity named Duplicate");
     expect(ambiguous.assistant.content).toContain("dup-1");
     expect(ambiguous.assistant.content).toContain("dup-2");
+  });
+
+  it("does not persist unfinished no-tool planning prose for reported local hike checks", async () => {
+    const payload = await postChat(
+      "ok check my yesterdays hike. I did one of the variations near to my home.",
+    );
+
+    expect(payload.assistant.content).toContain(
+      "couldn't complete that local Garmin check",
+    );
+    expect(payload.assistant.content).not.toContain("I'll pull up");
+    expect(payload.assistant.content).not.toContain("Next");
+    expect(payload.toolEvidence).toBeNull();
+    expect(payload.toolSteps).toEqual([]);
+    expect(messages.at(-1)?.content).toBe(payload.assistant.content);
+  });
+
+  it("streams deterministic final prose instead of unfinished no-tool planning prose", async () => {
+    const events = await postChatStream(
+      "ok check my yesterdays hike. I did one of the variations near to my home.",
+      "planner-preamble-stream-test",
+    );
+
+    const streamedText = events
+      .filter((event) => event.type === "delta")
+      .map((event) => event.textDelta)
+      .join("");
+
+    expect(streamedText).toContain("couldn't complete that local Garmin check");
+    expect(streamedText).not.toContain("I'll pull up");
+    expect(streamedText).not.toContain("Next");
+    expect(messages.at(-1)?.content).toBe(streamedText);
   });
 
   it("supports latest analysis only when the planner writes a bounded SQL query", async () => {
