@@ -154,6 +154,7 @@ describe("activity dashboard repository and routes", () => {
           elapsed_time_s: index * 60,
           distance: index * 100,
           heart_rate_bpm: 130 + index,
+          speed_mps: index === 0 ? 0 : 2 + index / 10,
           altitude: 1000 + index * 3,
           lat_deg: 46.1 + index / 1000,
           lon_deg: 13.8 + index / 1000,
@@ -180,14 +181,14 @@ describe("activity dashboard repository and routes", () => {
       domainEndSec: 3600,
       timeScaleStatus: "elapsed",
       timeScaleMessage: null,
-      pace: {
+      speed: {
         status: "available",
-        smoothingWindowSec: 30,
         sourcePointCount: 12,
         pointCount: 12,
       },
     });
-    expect(dashboard?.charts.points[1].paceSecondsPerKm).toBeCloseTo(600, 6);
+    expect(dashboard?.charts.points[0].speedKmh).toBe(0);
+    expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(7.56, 6);
     expect(dashboard?.route).toMatchObject({
       status: "available",
       sourcePointCount: 12,
@@ -364,36 +365,35 @@ describe("activity dashboard repository and routes", () => {
     });
   });
 
-  it("builds a centered 30-second smoothed pace chart from cumulative stream distance only", async () => {
+  it("builds a speed chart from normalized stream speed and preserves zero-speed samples", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
         records: [
-          { elapsed_time_s: 0, distance: 0, heart_rate_bpm: 130 },
-          { elapsed_time_s: 10, distance: 100, heart_rate_bpm: 132 },
-          { elapsed_time_s: 20, distance: 100, heart_rate_bpm: 134 },
-          { elapsed_time_s: 30, distance: 300, heart_rate_bpm: 136 },
-          { elapsed_time_s: 40, distance: 400, heart_rate_bpm: 138 },
+          { elapsed_time_s: 0, speed_mps: 0, heart_rate_bpm: 130 },
+          { elapsed_time_s: 10, speed_mps: 2.5, heart_rate_bpm: 132 },
+          { elapsed_time_s: 20, speed_mps: 3, heart_rate_bpm: 134 },
         ],
       }),
     );
 
     const dashboard = repo.getActivityDashboardDetail("111111");
 
-    expect(dashboard?.charts.pace).toMatchObject({
+    expect(dashboard?.charts.speed).toMatchObject({
       status: "available",
-      smoothingWindowSec: 30,
-      sourcePointCount: 5,
-      pointCount: 5,
+      sourcePointCount: 3,
+      pointCount: 3,
     });
+    expect(JSON.stringify(dashboard?.charts.points)).not.toContain("speedMps");
     expect(JSON.stringify(dashboard?.charts.points)).not.toContain(
       "distanceMeters",
     );
-    expect(dashboard?.charts.points[2].paceSecondsPerKm).toBeGreaterThan(0);
-    expect(dashboard?.charts.points[2].paceSecondsPerKm).toBeLessThan(200);
+    expect(dashboard?.charts.points.map((point) => point.speedKmh)).toEqual([
+      0, 9, 10.8,
+    ]);
   });
 
-  it("does not build selected-dashboard pace from speed when cumulative distance is missing", async () => {
+  it("does not require cumulative distance to build selected-dashboard speed", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
@@ -407,19 +407,17 @@ describe("activity dashboard repository and routes", () => {
 
     const dashboard = repo.getActivityDashboardDetail("111111");
 
-    expect(dashboard?.charts.pace).toMatchObject({
-      status: "missing_distance",
-      sourcePointCount: 0,
-      pointCount: 0,
+    expect(dashboard?.charts.speed).toMatchObject({
+      status: "available",
+      sourcePointCount: 3,
+      pointCount: 3,
     });
-    expect(
-      dashboard?.charts.points.every(
-        (point) => point.paceSecondsPerKm === null,
-      ),
-    ).toBe(true);
+    expect(dashboard?.charts.points.map((point) => point.speedKmh)).toEqual([
+      9, 12.6, 10.08,
+    ]);
   });
 
-  it("does not build selected-dashboard pace from GPS, summary, or lap distance when stream distance is missing", async () => {
+  it("does not build selected-dashboard speed from GPS, summary, or lap distance when stream speed is missing", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
@@ -444,33 +442,35 @@ describe("activity dashboard repository and routes", () => {
 
     const dashboard = repo.getActivityDashboardDetail("111111");
 
-    expect(dashboard?.charts.pace).toMatchObject({
-      status: "missing_distance",
+    expect(dashboard?.charts.speed).toMatchObject({
+      status: "missing_speed",
       sourcePointCount: 0,
       pointCount: 0,
     });
-    expect(
-      dashboard?.charts.points.map((point) => point.paceSecondsPerKm),
-    ).toEqual([null, null]);
+    expect(dashboard?.charts.points.map((point) => point.speedKmh)).toEqual([
+      null,
+      null,
+    ]);
   });
 
-  it("reports invalid pace when cumulative distance is non-monotonic", async () => {
+  it("reports insufficient speed when fewer than two finite non-negative stream speeds exist", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
         records: [
-          { elapsed_time_s: 0, distance: 100, heart_rate_bpm: 130 },
-          { elapsed_time_s: 10, distance: 90, heart_rate_bpm: 132 },
-          { elapsed_time_s: 20, distance: 80, heart_rate_bpm: 134 },
+          { elapsed_time_s: 0, speed_mps: -1, heart_rate_bpm: 130 },
+          { elapsed_time_s: 10, speed_mps: null, heart_rate_bpm: 132 },
+          { elapsed_time_s: 20, speed_mps: 2, heart_rate_bpm: 134 },
         ],
       }),
     );
 
     expect(
-      repo.getActivityDashboardDetail("111111")?.charts.pace,
+      repo.getActivityDashboardDetail("111111")?.charts.speed,
     ).toMatchObject({
-      status: "invalid_distance",
-      pointCount: 0,
+      status: "insufficient_speed",
+      sourcePointCount: 1,
+      pointCount: 1,
     });
   });
 
@@ -530,7 +530,7 @@ describe("activity dashboard repository and routes", () => {
       elapsedSec: 0,
       heartRate: 130,
       altitudeMeters: 1000,
-      paceSecondsPerKm: null,
+      speedKmh: null,
     });
     expect(detailPayload.route).toMatchObject({
       status: "missing_gps",

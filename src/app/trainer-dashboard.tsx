@@ -324,13 +324,8 @@ type ActivityDashboardPayload = {
     domainEndSec: number | null;
     timeScaleStatus: "elapsed" | "timestamp_derived" | "sample_index_limited";
     timeScaleMessage: string | null;
-    pace?: {
-      status:
-        | "available"
-        | "missing_distance"
-        | "insufficient_distance"
-        | "invalid_distance";
-      smoothingWindowSec: number;
+    speed?: {
+      status: "available" | "missing_speed" | "insufficient_speed";
       sourcePointCount: number;
       pointCount: number;
       message: string;
@@ -339,7 +334,7 @@ type ActivityDashboardPayload = {
       elapsedSec: number;
       heartRate: number | null;
       altitudeMeters: number | null;
-      paceSecondsPerKm?: number | null;
+      speedKmh?: number | null;
     }>;
   };
   route: {
@@ -674,6 +669,12 @@ function paceLabel(durationSec: number | null, distanceMeters: number | null) {
   return paceSecondsLabel(durationSec / (distanceMeters / 1000));
 }
 
+function speedKmhLabel(speedKmh: number) {
+  return `${speedKmh.toLocaleString(undefined, {
+    maximumFractionDigits: 1,
+  })} km/h`;
+}
+
 type ChartSeriesPoint = {
   elapsedSec: number;
   value: number;
@@ -777,7 +778,7 @@ function MiniLineChart({
   title: string;
   unit: string;
   points: ActivityDashboardPayload["charts"]["points"];
-  valueKey: "heartRate" | "altitudeMeters" | "paceSecondsPerKm";
+  valueKey: "heartRate" | "altitudeMeters" | "speedKmh";
   domainStartSec: number;
   domainEndSec: number | null;
   formatValue?: (value: number) => string;
@@ -3154,27 +3155,28 @@ export function TrainerDashboard() {
                       No per-point altitude stream data available.
                     </div>
                   )}
-                  {activityDashboard.charts.pace?.status === "available" ? (
+                  {activityDashboard.charts.speed?.status === "available" ? (
                     <MiniLineChart
-                      title="Pace"
-                      unit="/km"
+                      title="Speed"
+                      unit="km/h"
                       points={activityDashboard.charts.points}
-                      valueKey="paceSecondsPerKm"
+                      valueKey="speedKmh"
                       domainStartSec={activityDashboard.charts.domainStartSec}
                       domainEndSec={activityDashboard.charts.domainEndSec}
-                      formatValue={paceSecondsLabel}
-                      note="30s smoothed from cumulative stream distance."
+                      formatValue={speedKmhLabel}
+                      note="From normalized stream speed samples."
                     />
                   ) : (
                     <div className="activity-chart empty-state">
-                      <strong>Pace</strong>
+                      <strong>Speed</strong>
                       <span>
-                        {activityDashboard.charts.pace?.message ??
-                          "Pace unavailable because cumulative stream-distance evidence is not available."}
+                        {activityDashboard.charts.speed?.message ??
+                          "Speed unavailable because normalized stream speed samples are not available."}
                       </span>
                       <span>
-                        Requires cumulative stream distance; no speed or GPS
-                        fallback is used.
+                        Requires at least two finite non-negative stream speed
+                        samples; no GPS, summary, lap, or distance fallback is
+                        used.
                       </span>
                     </div>
                   )}

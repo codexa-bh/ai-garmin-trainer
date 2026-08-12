@@ -1252,32 +1252,31 @@ describe("TrainerDashboard activity charts", () => {
             domainEndSec: 3600,
             timeScaleStatus: "elapsed",
             timeScaleMessage: null,
-            pace: {
+            speed: {
               status: "available",
-              smoothingWindowSec: 30,
               sourcePointCount: 3,
               pointCount: 3,
               message:
-                "Pace uses cumulative stream distance over elapsed time with a centered 30-second weighted smoothing window.",
+                "Speed uses normalized stream speed samples converted to km/h.",
             },
             points: [
               {
                 elapsedSec: 0,
                 heartRate: 130,
                 altitudeMeters: 1000,
-                paceSecondsPerKm: 600,
+                speedKmh: 9,
               },
               {
                 elapsedSec: 1800,
                 heartRate: 150,
                 altitudeMeters: 1050,
-                paceSecondsPerKm: 510,
+                speedKmh: 0,
               },
               {
                 elapsedSec: 3600,
                 heartRate: 136,
                 altitudeMeters: 1012,
-                paceSecondsPerKm: 529,
+                speedKmh: 12.6,
               },
             ],
           },
@@ -1414,14 +1413,17 @@ describe("TrainerDashboard activity charts", () => {
     expect(await screen.findByText("Detail: available")).toBeTruthy();
     expect(screen.getByText("Heart rate over time")).toBeTruthy();
     expect(screen.getByText("Elevation profile")).toBeTruthy();
-    expect(screen.getAllByText("Pace").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Speed")).toBeTruthy();
     expect(
-      screen.getByText("30s smoothed from cumulative stream distance."),
+      screen.getByText("From normalized stream speed samples."),
     ).toBeTruthy();
-    const paceChart = screen.getByRole("img", {
-      name: "Pace over elapsed time",
+    expect(
+      screen.queryByRole("img", { name: "Pace over elapsed time" }),
+    ).toBeNull();
+    const speedChart = screen.getByRole("img", {
+      name: "Speed over elapsed time",
     });
-    Object.defineProperty(paceChart, "getBoundingClientRect", {
+    Object.defineProperty(speedChart, "getBoundingClientRect", {
       configurable: true,
       value: () => ({
         left: 100,
@@ -1432,8 +1434,8 @@ describe("TrainerDashboard activity charts", () => {
         bottom: 130,
       }),
     });
-    fireEvent.pointerMove(paceChart, { clientX: 420 });
-    expect(screen.getByText("30m elapsed · 8:30/km")).toBeTruthy();
+    fireEvent.pointerMove(speedChart, { clientX: 420 });
+    expect(screen.getByText("30m elapsed · 0 km/h")).toBeTruthy();
     const hrChart = screen.getByRole("img", {
       name: "Heart rate over time over elapsed time",
     });
@@ -1599,9 +1601,26 @@ describe("TrainerDashboard activity charts", () => {
             timeScaleStatus: "sample_index_limited",
             timeScaleMessage:
               "Chart timing is limited to the available sample-index stream because no safe elapsed or timestamp evidence is available.",
+            speed: {
+              status: "missing_speed",
+              sourcePointCount: 0,
+              pointCount: 0,
+              message:
+                "Speed unavailable because this activity has no normalized stream speed samples.",
+            },
             points: [
-              { elapsedSec: 0, heartRate: 130, altitudeMeters: null },
-              { elapsedSec: 60, heartRate: 136, altitudeMeters: null },
+              {
+                elapsedSec: 0,
+                heartRate: 130,
+                altitudeMeters: null,
+                speedKmh: null,
+              },
+              {
+                elapsedSec: 60,
+                heartRate: 136,
+                altitudeMeters: null,
+                speedKmh: null,
+              },
             ],
           },
           route: {
@@ -1671,6 +1690,18 @@ describe("TrainerDashboard activity charts", () => {
       screen.getByText("No per-point altitude stream data available."),
     ).toBeTruthy();
     expect(screen.queryByText("Elevation profile")).toBeNull();
+    expect(screen.getByText("Speed")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Speed unavailable because this activity has no normalized stream speed samples.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/no GPS, summary, lap, or distance fallback is used/),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("img", { name: "Pace over elapsed time" }),
+    ).toBeNull();
     expect(screen.getByText("Route map unavailable")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /CARTO/ })).toBeNull();
     expect(
