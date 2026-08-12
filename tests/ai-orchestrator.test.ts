@@ -187,6 +187,46 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(JSON.stringify(enabled.debugTrace)).not.toContain("Tool step");
   });
 
+  it("does not accept no-tool planning preambles as final local-data answers", async () => {
+    generateText.mockResolvedValueOnce({
+      text: "I'll pull up your yesterday hike details first. Next, I'll compare it with nearby variations and then analyze how demanding it was.",
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest:
+        "ok check my yesterdays hike. I did one of the variations near to my home.",
+    });
+
+    expect(result.text).not.toContain("I'll pull up");
+    expect(result.text).not.toContain("Next");
+    expect(result.text).toContain("couldn't complete that local Garmin check");
+    expect(result.toolSteps).toEqual([]);
+    expect(result.grounding).toBeNull();
+    expect(describeGarminDatabase).not.toHaveBeenCalled();
+    expect(runReadOnlySql).not.toHaveBeenCalled();
+    expect(runMathAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("accepts complete direct no-tool coaching when local Garmin evidence is not required", async () => {
+    generateText.mockResolvedValueOnce({
+      text: "Keep tomorrow easy: 30 to 45 minutes conversational, then add mobility if soreness stays low.",
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "How should I train tomorrow if my legs feel a little flat?",
+    });
+
+    expect(result.text).toBe(
+      "Keep tomorrow easy: 30 to 45 minutes conversational, then add mobility if soreness stays low.",
+    );
+    expect(result.toolSteps).toEqual([]);
+    expect(result.grounding).toBeNull();
+  });
+
   it("selects one safe analytical tool from multiple provider tool calls", async () => {
     generateText
       .mockResolvedValueOnce({
