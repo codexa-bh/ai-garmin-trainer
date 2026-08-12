@@ -1038,6 +1038,8 @@ describe("TrainerDashboard activity charts", () => {
     const lapWrapBlock =
       css.match(/\.lap-table-wrap\s*\{\s*max-width: 100%;([\s\S]*?)\}/)?.[0] ??
       "";
+    const routeZoneGridBlock =
+      css.match(/\.route-zone-grid\s*\{([\s\S]*?)\}/)?.[1] ?? "";
     const tabletMediaBlock =
       css.match(
         /@media \(max-width: 960px\) \{([\s\S]*?)@media \(max-width: 640px\)/,
@@ -1052,11 +1054,18 @@ describe("TrainerDashboard activity charts", () => {
     expect(detailScrollBlock).toContain("overflow-x: hidden;");
     expect(lapWrapBlock).toContain("max-width: 100%;");
     expect(lapWrapBlock).toContain("overflow-x: auto;");
+    expect(routeZoneGridBlock).toContain(
+      "grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);",
+    );
+    expect(routeZoneGridBlock).toContain("align-items: stretch;");
     expect(css).toMatch(
-      /\.selected-activity-heading,[\s\S]*\.lap-table-wrap \{[\s\S]*flex: 0 0 auto;/,
+      /\.selected-activity-heading,[\s\S]*\.route-zone-grid,[\s\S]*\.lap-table-wrap \{[\s\S]*flex: 0 0 auto;/,
     );
     expect(tabletMediaBlock).toMatch(
       /\.activity-dashboard-panel\s*\{[\s\S]*grid-template-columns: 1fr;[\s\S]*grid-template-rows: auto minmax\(170px, 32vh\) minmax\(0, 1fr\);/,
+    );
+    expect(tabletMediaBlock).toMatch(
+      /\.route-zone-grid\s*\{[\s\S]*grid-template-columns: 1fr;/,
     );
     expect(mobileMediaBlock).toMatch(
       /\.activity-dashboard-panel\s*\{[\s\S]*grid-template-rows: auto minmax\(140px, 30vh\) minmax\(0, 1fr\);/,
@@ -1280,9 +1289,9 @@ describe("TrainerDashboard activity charts", () => {
             simplified: false,
             bounds: {
               minLat: 46.1,
-              maxLat: 46.101,
+              maxLat: 46.3,
               minLon: 13.8,
-              maxLon: 13.801,
+              maxLon: 14.1,
               minAltitudeMeters: 1000,
               maxAltitudeMeters: 1012,
             },
@@ -1296,8 +1305,8 @@ describe("TrainerDashboard activity charts", () => {
               },
               {
                 elapsedSec: 60,
-                lat: 46.101,
-                lon: 13.801,
+                lat: 46.3,
+                lon: 14.1,
                 altitudeMeters: 1012,
                 gradePct: -4,
               },
@@ -1473,6 +1482,31 @@ describe("TrainerDashboard activity charts", () => {
     });
     expect(routeMap).toBeTruthy();
     expect(routeMap.getAttribute("viewBox")).toBe("0 0 420 220");
+    expect(routeMap.getAttribute("data-zoom-offset")).toBe("0");
+    const routeHalos = document.querySelectorAll(".route-map-segment-halo");
+    const routeSegments = document.querySelectorAll(".route-map-segment");
+    expect(routeHalos.length).toBe(routeSegments.length);
+    expect(routeHalos.length).toBeGreaterThan(0);
+    const zoomOut = screen.getByRole("button", {
+      name: "Zoom out route map",
+    });
+    const resetZoom = screen.getByRole("button", {
+      name: "Reset route map zoom",
+    });
+    const zoomIn = screen.getByRole("button", { name: "Zoom in route map" });
+    expect(zoomOut).toBeTruthy();
+    expect(resetZoom).toBeTruthy();
+    expect((resetZoom as HTMLButtonElement).disabled).toBe(true);
+    expect(zoomIn).toBeTruthy();
+    fireEvent.click(zoomIn);
+    expect(routeMap.getAttribute("data-zoom-offset")).toBe("1");
+    expect((resetZoom as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(zoomOut);
+    fireEvent.click(zoomOut);
+    expect(routeMap.getAttribute("data-zoom-offset")).toBe("-1");
+    expect((zoomOut as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(resetZoom);
+    expect(routeMap.getAttribute("data-zoom-offset")).toBe("0");
     expect(screen.queryByRole("button", { name: /CARTO/ })).toBeNull();
     expect(screen.queryByText("Direction: start → finish")).toBeNull();
     expect(screen.queryByText("Full route shown")).toBeNull();
@@ -1635,6 +1669,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.queryByText("Elevation profile")).toBeNull();
     expect(screen.getByText("Route map unavailable")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /CARTO/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Zoom in route map" }),
+    ).toBeNull();
     expect(screen.queryByText(/© CARTO/)).toBeNull();
     expect(
       screen.getByText(
