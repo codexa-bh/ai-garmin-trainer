@@ -18,7 +18,7 @@ See `docs/design-choices-and-boundaries.md` for the main design choices, app com
 
 ## Validation
 
-Run `npm run validate` for formatting, linting, type checking, tests, and production build. Additional source-beta evidence commands are `npm run doctor -- --json`, `npm run db:status -- --json`, `npm run bootstrap:local -- --prepare-only`, `npm run eval:reliability`, and `npm run deps:evidence -- --output <path>`.
+Run `npm run validate` for formatting, linting, type checking, tests, and production build. Additional source-beta evidence commands are `npm run doctor -- --json`, `npm run db:status -- --json`, `npm run bootstrap:local -- --prepare-only`, `npm run eval:reliability`, and `npm run deps:evidence -- --output <path>`. For task planning and handoff rules around same-task data back-sync and task-created smoke/test/mock data cleanup, read `docs/developer-process.md`.
 
 ## Safety and privacy
 

@@ -17,6 +17,10 @@ npm run build
 
 `npm run doctor`, `npm run db:status -- --json`, bootstrap stage output, and dependency evidence output are allowlisted support artifacts. They report versions, schema readiness, current/migration decisions, loopback readiness, and whether Garmin MCP args explicitly include the reviewed `mcp==1.23.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, prompts, precise GPS streams, raw connector payloads, vectors, or `.env.local` values.
 
+## Task process guardrails
+
+Before handoff, tasks that make local SQLite data stale or incomplete must complete the needed same-task migration/backfill/back-sync/re-sync work against the intended DB target, or record an explicit blocker. Tasks that create smoke/test/mock app data must clean up those task-created artifacts after evidence capture, or record a deferral with provenance and approval/stop-condition rationale. See [developer-process.md](developer-process.md) for the concise planning and evidence contract.
+
 Live smoke with local secrets:
 
 1. Start the app on loopback and verify the trainer loads chat/Profile without `/api/dev-login`, Google OAuth, cookies, or an email allowlist.
