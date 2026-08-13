@@ -745,16 +745,26 @@ function chartPlotModel({
   };
 }
 
+function chartYCoordinate(
+  value: number,
+  minY: number,
+  maxY: number,
+  model: ChartPlotModel,
+) {
+  const yRange = Math.max(1, maxY - minY);
+  const plotHeight = Math.max(1, model.plotBottom - model.plotTop);
+  const boundedValue = clamp(value, minY, maxY);
+  return model.plotBottom - ((boundedValue - minY) / yRange) * plotHeight;
+}
+
 function chartSeriesCoordinates(
   points: Array<{ elapsedSec: number; value: number }>,
   model: ChartPlotModel,
+  minY: number,
+  maxY: number,
 ): ChartSeriesPoint[] {
-  const minY = Math.min(...points.map((point) => point.value));
-  const maxY = Math.max(...points.map((point) => point.value));
   const xRange = Math.max(1, model.domainEndSec - model.domainStartSec);
-  const yRange = Math.max(1, maxY - minY);
   const plotWidth = Math.max(1, model.plotRight - model.plotLeft);
-  const plotHeight = Math.max(1, model.plotBottom - model.plotTop);
   return points.map((point) => ({
     ...point,
     x:
@@ -763,7 +773,7 @@ function chartSeriesCoordinates(
         model.domainStartSec) /
         xRange) *
         plotWidth,
-    y: model.plotBottom - ((point.value - minY) / yRange) * plotHeight,
+    y: chartYCoordinate(point.value, minY, maxY, model),
   }));
 }
 
@@ -790,6 +800,24 @@ function chartValueLabel(
   return `${durationLabel(point.elapsedSec)} elapsed · ${formatValue(point.value)}`;
 }
 
+function finiteChartAverage(values: Array<number | null | undefined>) {
+  const finiteValues = values.filter(
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value),
+  );
+  if (finiteValues.length < 2) return null;
+  return (
+    finiteValues.reduce((total, value) => total + value, 0) /
+    finiteValues.length
+  );
+}
+
+function finiteHeartRateAverage(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
+}
+
 function MiniLineChart({
   title,
   unit,
@@ -798,6 +826,8 @@ function MiniLineChart({
   domainStartSec,
   domainEndSec,
   formatValue = (value) => chartNumberLabel(value, unit),
+  averageValue,
+  averageLabel = (value) => `Avg ${formatValue(value)}`,
   note,
 }: {
   title: string;
@@ -807,6 +837,8 @@ function MiniLineChart({
   domainStartSec: number;
   domainEndSec: number | null;
   formatValue?: (value: number) => string;
+  averageValue?: number | null;
+  averageLabel?: (value: number) => string;
   note?: string;
 }) {
   const width = 320;
@@ -839,7 +871,14 @@ function MiniLineChart({
     domainStartSec,
     domainEndSec: Math.max(domainEndSec ?? maxElapsed, maxElapsed),
   });
-  const chartPoints = chartSeriesCoordinates(series, model);
+  const averageLine =
+    typeof averageValue === "number" && Number.isFinite(averageValue)
+      ? {
+          y: chartYCoordinate(averageValue, min, max, model),
+          label: averageLabel(averageValue),
+        }
+      : null;
+  const chartPoints = chartSeriesCoordinates(series, model, min, max);
   const selectedPoint = chartPoints[activeIndex ?? 0];
   const polyline = chartPolyline(chartPoints);
   function setNearestPoint(x: number) {
@@ -886,6 +925,29 @@ function MiniLineChart({
         onBlur={() => setActiveIndex(null)}
         onKeyDown={handleKeyDown}
       >
+        {averageLine ? (
+          <g className="activity-chart-average" aria-hidden="true">
+            <line
+              className="activity-chart-average-line"
+              x1={model.plotLeft}
+              x2={model.plotRight}
+              y1={averageLine.y}
+              y2={averageLine.y}
+            />
+            <text
+              className="activity-chart-average-label"
+              x={model.plotRight - 4}
+              y={clamp(
+                averageLine.y - 5,
+                model.plotTop + 10,
+                model.plotBottom - 4,
+              )}
+              textAnchor="end"
+            >
+              {averageLine.label}
+            </text>
+          </g>
+        ) : null}
         <polyline points={polyline} />
         {activeIndex !== null ? (
           <g className="activity-chart-cursor">
@@ -3426,12 +3488,15 @@ export function TrainerDashboard() {
                 <div className="activity-chart-grid">
                   {activityDashboard.detail.hasHeartRate ? (
                     <MiniLineChart
-                      title="Heart rate over time"
+                      title="Heart rate"
                       unit="bpm"
                       points={activityDashboard.charts.points}
                       valueKey="heartRate"
                       domainStartSec={activityDashboard.charts.domainStartSec}
                       domainEndSec={activityDashboard.charts.domainEndSec}
+                      averageValue={finiteHeartRateAverage(
+                        activityDashboard.activity.avgHeartRate,
+                      )}
                     />
                   ) : (
                     <div className="activity-chart empty-state">
@@ -3461,6 +3526,11 @@ export function TrainerDashboard() {
                       domainStartSec={activityDashboard.charts.domainStartSec}
                       domainEndSec={activityDashboard.charts.domainEndSec}
                       formatValue={speedKmhLabel}
+                      averageValue={finiteChartAverage(
+                        activityDashboard.charts.points.map(
+                          (point) => point.speedKmh,
+                        ),
+                      )}
                       note="60-second smoothed from normalized stream speed samples."
                     />
                   ) : (

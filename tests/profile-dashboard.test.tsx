@@ -1486,9 +1486,15 @@ describe("TrainerDashboard activity charts", () => {
     fireEvent.click(await screen.findByText("Morning Trail Run"));
 
     expect(await screen.findByText("Detail: available")).toBeTruthy();
-    expect(screen.getByText("Heart rate over time")).toBeTruthy();
+    expect(screen.getByText("Heart rate")).toBeTruthy();
     expect(screen.getByText("Elevation profile")).toBeTruthy();
     expect(screen.getByText("Speed")).toBeTruthy();
+    expect(screen.queryByText("Heart rate over time")).toBeNull();
+    expect(screen.getByText("Avg 145 bpm")).toBeTruthy();
+    expect(screen.getByText("Avg 7.2 km/h")).toBeTruthy();
+    expect(
+      document.querySelectorAll(".activity-chart-average-line"),
+    ).toHaveLength(2);
     expect(
       screen.getByText(
         "60-second smoothed from normalized stream speed samples.",
@@ -1514,7 +1520,7 @@ describe("TrainerDashboard activity charts", () => {
     fireEvent.pointerMove(speedChart, { clientX: 420 });
     expect(screen.getByText("30m elapsed · 0 km/h")).toBeTruthy();
     const hrChart = screen.getByRole("img", {
-      name: "Heart rate over time over elapsed time",
+      name: "Heart rate over elapsed time",
     });
     Object.defineProperty(hrChart, "getBoundingClientRect", {
       configurable: true,
@@ -1755,7 +1761,7 @@ describe("TrainerDashboard activity charts", () => {
             elevationGainMeters: 260,
             elevationLossMeters: 250,
             calories: 640,
-            avgHeartRate: 145,
+            avgHeartRate: null,
             maxHeartRate: 174,
             steps: 9200,
             trainingEffect: 3.2,
@@ -1858,7 +1864,7 @@ describe("TrainerDashboard activity charts", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
     fireEvent.click(await screen.findByText("Morning Trail Run"));
 
-    expect(await screen.findByText("Heart rate over time")).toBeTruthy();
+    expect(await screen.findByText("Heart rate")).toBeTruthy();
     expect(
       screen.getByText(
         /Chart timing is limited to the available sample-index stream/,
@@ -1869,6 +1875,9 @@ describe("TrainerDashboard activity charts", () => {
     ).toBeTruthy();
     expect(screen.queryByText("Elevation profile")).toBeNull();
     expect(screen.getByText("Speed")).toBeTruthy();
+    expect(screen.queryByText(/^Avg \d+ bpm$/)).toBeNull();
+    expect(screen.queryByText(/^Avg .*km\/h$/)).toBeNull();
+    expect(document.querySelector(".activity-chart-average-line")).toBeNull();
     expect(
       screen.getByText(
         "Speed unavailable because this activity has no normalized stream speed samples.",
