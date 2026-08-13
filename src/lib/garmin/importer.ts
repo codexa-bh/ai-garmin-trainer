@@ -35,6 +35,11 @@ import {
   mergeFitDistanceRecords,
 } from "./fit-distance";
 import {
+  activityDetailNeedsSpeedSupplement,
+  fetchFitSpeedWithLocalWrapper,
+  mergeFitSpeedRecords,
+} from "./fit-speed";
+import {
   hasUsableGarminAthleteBaseline,
   normalizeGarminAthleteBaseline,
 } from "./athlete-normalize";
@@ -626,6 +631,10 @@ async function fetchAndStoreActivityDetail(
     if (activityDetailNeedsDistanceSupplement(parsed)) {
       const distancePayload = await fetchFitDistanceWithLocalWrapper(garminId);
       parsed = mergeFitDistanceRecords(parsed, distancePayload);
+    }
+    if (activityDetailNeedsSpeedSupplement(parsed)) {
+      const speedPayload = await fetchFitSpeedWithLocalWrapper(garminId);
+      parsed = mergeFitSpeedRecords(parsed, speedPayload);
     }
     upsertGarminRawPayload({
       sourceTool: "get_activity_fit_data",

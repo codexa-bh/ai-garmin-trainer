@@ -13,6 +13,10 @@ import {
   mergeFitDistanceRecords,
 } from "../src/lib/garmin/fit-distance";
 import {
+  activityDetailNeedsSpeedSupplement,
+  mergeFitSpeedRecords,
+} from "../src/lib/garmin/fit-speed";
+import {
   normalizeActivity,
   normalizeDailyHealth,
 } from "../src/lib/garmin/normalize";
@@ -247,6 +251,28 @@ describe("Garmin boundary", () => {
     expect(JSON.stringify(detail)).not.toContain("garmin_tokens");
   });
 
+  it("normalizes true stream speed fields without accepting fallback speed sources", () => {
+    const detail = normalizeActivityDetail("51", {
+      session: { avg_speed_mps: 9.9 },
+      laps: [{ lap_number: 1, avg_speed_mps: 8.8, averageSpeed: 7.7 }],
+      records: [
+        { elapsed_time_s: 0, speed_mps: 0 },
+        { elapsed_time_s: 1, enhanced_speed: 2.5 },
+        { elapsed_time_s: 2, speed: 3.25 },
+        { elapsed_time_s: 3, speed_mps: -1, enhanced_speed: Number.NaN },
+        { elapsed_time_s: 4, averageSpeed: 4.5, avg_speed_mps: 4.5 },
+      ],
+    });
+
+    expect(detail.stream.map((point) => point.speedMps)).toEqual([
+      0,
+      2.5,
+      3.25,
+      null,
+      null,
+    ]);
+  });
+
   it("uses real FIT elapsed seconds before timestamp and array-index fallback", () => {
     const detail = normalizeActivityDetail("46", {
       records: [
@@ -404,6 +430,64 @@ describe("Garmin boundary", () => {
 
     const detail = normalizeActivityDetail("49", merged);
     expect(detail.stream.map((point) => point.distanceMeters)).toEqual([
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("merges true FIT speed records by unique timestamp without overwriting connector speed", () => {
+    const connectorPayload = {
+      records: [
+        { timestamp: "2026-07-01T07:00:00Z", heart_rate_bpm: 130 },
+        {
+          timestamp: "2026-07-01T07:00:01Z",
+          heart_rate_bpm: 131,
+          speed_mps: 2.5,
+        },
+        {
+          timestamp: "2026-07-01T07:00:02Z",
+          heart_rate_bpm: 132,
+          enhanced_speed: 3,
+        },
+      ],
+    };
+
+    expect(activityDetailNeedsSpeedSupplement(connectorPayload)).toBe(true);
+    const merged = mergeFitSpeedRecords(connectorPayload, {
+      source: "garmin-fit-speed-stream",
+      records: [
+        { timestamp: "2026-07-01T07:00:00Z", speed_mps: 0 },
+        { timestamp: "2026-07-01T07:00:01Z", speed_mps: 9 },
+        { timestamp: "2026-07-01T07:00:02Z", speed_mps: 10 },
+      ],
+    });
+
+    const detail = normalizeActivityDetail("52", merged);
+    expect(detail.stream.map((point) => point.speedMps)).toEqual([0, 2.5, 3]);
+  });
+
+  it("does not merge FIT speed when timestamp identity is ambiguous or speed is invalid", () => {
+    const connectorPayload = {
+      records: [
+        { timestamp: "2026-07-01T07:00:00Z", heart_rate_bpm: 130 },
+        { timestamp: "2026-07-01T07:00:00Z", heart_rate_bpm: 131 },
+        { timestamp: "2026-07-01T07:00:02Z", heart_rate_bpm: 132 },
+        { heart_rate_bpm: 133 },
+      ],
+    };
+
+    const merged = mergeFitSpeedRecords(connectorPayload, {
+      records: [
+        { timestamp: "2026-07-01T07:00:00Z", speed_mps: 0 },
+        { timestamp: "2026-07-01T07:00:02Z", speed_mps: -1 },
+        { timestamp: "2026-07-01T07:00:03Z", speed_mps: 3 },
+      ],
+    });
+
+    const detail = normalizeActivityDetail("53", merged);
+    expect(detail.stream.map((point) => point.speedMps)).toEqual([
+      null,
       null,
       null,
       null,
