@@ -1670,10 +1670,10 @@ describe("TrainerDashboard activity charts", () => {
       document.querySelectorAll(".activity-chart-average-line"),
     ).toHaveLength(2);
     expect(
-      screen.getByText(
+      screen.queryByText(
         "60-second moving average from normalized cumulative distance and elapsed time.",
       ),
-    ).toBeTruthy();
+    ).toBeNull();
     expect(
       screen.queryByRole("img", { name: "Pace over elapsed time" }),
     ).toBeNull();
