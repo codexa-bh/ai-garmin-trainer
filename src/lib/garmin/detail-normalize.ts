@@ -43,9 +43,6 @@ const DISTANCE_RECORD_KEYS = [
 ] as const;
 
 const SPEED_RECORD_KEYS = ["speed_mps", "enhanced_speed", "speed"] as const;
-const IMPOSSIBLE_ZERO_SPEED_MAX_MPS = 0.05;
-const IMPOSSIBLE_ZERO_SPEED_DISTANCE_FLOOR_METERS = 0.5;
-const IMPOSSIBLE_ZERO_SPEED_IMPLIED_MOVEMENT_MPS = 0.25;
 
 function finiteNonNegativeNumberOrNull(value: unknown): number | null {
   const numericValue = numberOrNull(value);
@@ -188,71 +185,6 @@ function normalizePoint(
   };
 }
 
-function hasNearZeroSpeed(point: ActivityStreamPoint | undefined): boolean {
-  return (
-    point?.speedMps !== null &&
-    point?.speedMps !== undefined &&
-    point.speedMps >= 0 &&
-    point.speedMps <= IMPOSSIBLE_ZERO_SPEED_MAX_MPS
-  );
-}
-
-function hasReliableMovementInterval(
-  start: ActivityStreamPoint | undefined,
-  end: ActivityStreamPoint | undefined,
-): boolean {
-  if (
-    !start ||
-    !end ||
-    start.distanceMeters === null ||
-    end.distanceMeters === null
-  ) {
-    return false;
-  }
-
-  const elapsedDelta = end.elapsedSec - start.elapsedSec;
-  const distanceDelta = end.distanceMeters - start.distanceMeters;
-  return (
-    elapsedDelta > 0 &&
-    distanceDelta >= IMPOSSIBLE_ZERO_SPEED_DISTANCE_FLOOR_METERS &&
-    distanceDelta / elapsedDelta >= IMPOSSIBLE_ZERO_SPEED_IMPLIED_MOVEMENT_MPS
-  );
-}
-
-function shouldRejectImpossibleZeroSpeedSample(
-  stream: ActivityStreamPoint[],
-  index: number,
-): boolean {
-  const point = stream[index];
-  if (!hasNearZeroSpeed(point)) return false;
-
-  const previous = stream[index - 1];
-  const next = stream[index + 1];
-  const movedFromPrevious = hasReliableMovementInterval(previous, point);
-  const movedToNext = hasReliableMovementInterval(point, next);
-
-  return (
-    (hasNearZeroSpeed(previous) && movedFromPrevious) ||
-    (hasNearZeroSpeed(next) && movedToNext) ||
-    (movedFromPrevious && movedToNext)
-  );
-}
-
-function rejectImpossibleZeroSpeedSamples(
-  stream: ActivityStreamPoint[],
-): ActivityStreamPoint[] {
-  const rejectedIndexes = new Set<number>();
-  stream.forEach((_, index) => {
-    if (shouldRejectImpossibleZeroSpeedSample(stream, index)) {
-      rejectedIndexes.add(index);
-    }
-  });
-  if (rejectedIndexes.size === 0) return stream;
-  return stream.map((point, index) =>
-    rejectedIndexes.has(index) ? { ...point, speedMps: null } : point,
-  );
-}
-
 export function normalizeActivityDetail(
   garminId: string,
   payload: unknown,
@@ -265,10 +197,8 @@ export function normalizeActivityDetail(
     records
       .map(timestampMillisFromRecord)
       .find((timestampMillis) => timestampMillis !== null) ?? null;
-  const stream = rejectImpossibleZeroSpeedSamples(
-    records.map((payload, index) =>
-      normalizePoint(payload, index, firstStreamTimestampMillis),
-    ),
+  const stream = records.map((payload, index) =>
+    normalizePoint(payload, index, firstStreamTimestampMillis),
   );
   const derived: Record<string, unknown> = {};
   for (const key of [

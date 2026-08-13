@@ -3527,19 +3527,19 @@ export function TrainerDashboard() {
                           (point) => point.speedKmh,
                         ),
                       )}
-                      note="60-second smoothed from normalized stream speed samples."
+                      note="60-second moving average from normalized cumulative distance and elapsed time."
                     />
                   ) : (
                     <div className="activity-chart empty-state">
                       <strong>Speed</strong>
                       <span>
                         {activityDashboard.charts.speed?.message ??
-                          "Speed unavailable because normalized stream speed samples are not available."}
+                          "Speed unavailable because normalized cumulative-distance stream samples are not available."}
                       </span>
                       <span>
-                        Requires at least two finite non-negative stream speed
-                        samples; no GPS, summary, lap, or distance fallback is
-                        used.
+                        Requires reliable cumulative-distance and elapsed-time
+                        windows; no measured speed, GPS, summary, lap, or pace
+                        fallback is used.
                       </span>
                     </div>
                   )}
