@@ -1939,7 +1939,7 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("Time in HR zones unavailable")).toBeTruthy();
   });
 
-  it("opens with the activity selector expanded by default and a truthful Collapse control", async () => {
+  it("opens with the activity selector expanded by default and a truthful collapse control", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -1960,7 +1960,9 @@ describe("TrainerDashboard activity charts", () => {
     render(React.createElement(TrainerDashboard));
     fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
 
-    const collapseButton = screen.getByRole("button", { name: "Collapse" });
+    const collapseButton = screen.getByRole("button", {
+      name: "Collapse activity selector",
+    });
     expect(collapseButton.getAttribute("aria-expanded")).toBe("true");
     expect(collapseButton.getAttribute("aria-controls")).toBe(
       "activity-selector-body",
@@ -1969,6 +1971,7 @@ describe("TrainerDashboard activity charts", () => {
     expect(
       screen.getByRole("heading", { name: "Search synced activities" }),
     ).toBeTruthy();
+    expect(screen.queryByText("Activities")).toBeNull();
     expect(
       screen.getByLabelText("Search activity name, sport, date, or Garmin ID"),
     ).toBeTruthy();
@@ -1982,7 +1985,7 @@ describe("TrainerDashboard activity charts", () => {
     ).toBe(false);
   });
 
-  it("collapses the selector to a compact rail that hides the search/list body and keeps the Expand control", async () => {
+  it("collapses the selector to a slim rail that hides the title/search/list and keeps the expand control", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -2004,17 +2007,26 @@ describe("TrainerDashboard activity charts", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
     expect(await screen.findByText("Activity 0")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Collapse activity selector" }),
+    );
 
-    const expandButton = screen.getByRole("button", { name: "Expand" });
+    const expandButton = screen.getByRole("button", {
+      name: "Expand activity selector",
+    });
     expect(expandButton.getAttribute("aria-expanded")).toBe("false");
     expect(expandButton.getAttribute("aria-controls")).toBe(
       "activity-selector-body",
     );
-    expect(screen.getByText("Activity selector")).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "Search synced activities" }),
-    ).toBeTruthy();
+      screen.queryByRole("heading", { name: "Search synced activities" }),
+    ).toBeNull();
+    expect(
+      document
+        .querySelector(".activity-selector-heading")
+        ?.getAttribute("hidden"),
+    ).not.toBeNull();
+    expect(screen.getByText("Activities")).toBeTruthy();
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(
       screen.queryByRole("list", { name: "Synced activities" }),
@@ -2141,13 +2153,19 @@ describe("TrainerDashboard activity charts", () => {
     );
     expect(screen.getByDisplayValue("trail")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
-    expect(screen.getByRole("button", { name: "Expand" })).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Collapse activity selector" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Expand activity selector" }),
+    ).toBeTruthy();
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(screen.getByText("Detail: available")).toBeTruthy();
     expect(screen.getByText("Duration")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Expand activity selector" }),
+    );
     expect(screen.getByDisplayValue("trail")).toBeTruthy();
     expect(
       screen.getByRole("list", { name: "Synced activities" }),
@@ -2155,7 +2173,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("Morning Trail Run")).toBeTruthy();
     expect(screen.getByText("Detail: available")).toBeTruthy();
     expect(screen.getByText("Duration")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Collapse" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Collapse activity selector" }),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
   });
 
@@ -2166,10 +2186,13 @@ describe("TrainerDashboard activity charts", () => {
         /\.activity-dashboard-panel\.activity-selector-collapsed\s*\{([\s\S]*?)\}/,
       )?.[1] ?? "";
     expect(desktopCollapsed).toContain(
-      "grid-template-columns: minmax(0, 240px) minmax(0, 1fr);",
+      "grid-template-columns: 48px minmax(0, 1fr);",
     );
     expect(css).toMatch(
       /\.activity-selector-collapsed \.activity-selector-body\s*\{\s*display: none;\s*}/,
+    );
+    expect(css).toMatch(
+      /\.activity-selector-collapsed \.activity-selector-heading\s*\{\s*display: none;\s*}/,
     );
     const tabletMediaBlock =
       css.match(

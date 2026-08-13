@@ -3417,7 +3417,10 @@ export function TrainerDashboard() {
           </div>
           <div className="activity-dashboard-selector">
             <div className="activity-selector-header">
-              <div>
+              <div
+                className="activity-selector-heading"
+                hidden={activitySelectorCollapsed}
+              >
                 <p className="section-kicker">Activity selector</p>
                 <h2>Search synced activities</h2>
               </div>
@@ -3429,10 +3432,32 @@ export function TrainerDashboard() {
                 }
                 aria-expanded={!activitySelectorCollapsed}
                 aria-controls="activity-selector-body"
+                aria-label={
+                  activitySelectorCollapsed
+                    ? "Expand activity selector"
+                    : "Collapse activity selector"
+                }
+                title={
+                  activitySelectorCollapsed
+                    ? "Expand activity selector"
+                    : "Collapse activity selector"
+                }
               >
-                {activitySelectorCollapsed ? "Expand" : "Collapse"}
+                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path
+                    d="M10.5 3 5.5 8l5 5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </button>
             </div>
+            {activitySelectorCollapsed ? (
+              <span className="activity-selector-rail-label">Activities</span>
+            ) : null}
             <div
               className="activity-selector-body"
               id="activity-selector-body"
