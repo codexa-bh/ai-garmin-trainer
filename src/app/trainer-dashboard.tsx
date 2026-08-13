@@ -4,6 +4,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
   type UIEvent,
   useEffect,
   useLayoutEffect,
@@ -1851,6 +1852,7 @@ export function TrainerDashboard() {
   const [renameTitle, setRenameTitle] = useState("");
   const [isRenamingConversation, setIsRenamingConversation] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [memoryHealth, setMemoryHealth] = useState<MemoryHealth | null>(null);
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
@@ -1960,6 +1962,8 @@ export function TrainerDashboard() {
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const conversationMenuRef = useRef<HTMLDivElement>(null);
+  const mainMenuRef = useRef<HTMLDivElement>(null);
+  const mainMenuToggleRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const renameReturnFocusRef = useRef<HTMLElement | null>(null);
   const isSyncingRef = useRef(false);
@@ -2068,9 +2072,14 @@ export function TrainerDashboard() {
         closeConversationMenu();
         return;
       }
+      if (isMainMenuOpen) {
+        setIsMainMenuOpen(false);
+        mainMenuToggleRef.current?.focus();
+        return;
+      }
       if (settingsOpen) {
         setSettingsOpen(false);
-        settingsButtonRef.current?.focus();
+        focusMainNavigationControl(settingsButtonRef);
         return;
       }
       if (trainingPlanOpen) {
@@ -2083,7 +2092,7 @@ export function TrainerDashboard() {
       }
       if (isConversationDrawerOpen) {
         setIsConversationDrawerOpen(false);
-        conversationButtonRef.current?.focus();
+        focusMainNavigationControl(conversationButtonRef);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -2095,6 +2104,7 @@ export function TrainerDashboard() {
     activityDashboardOpen,
     trainingPlanOpen,
     settingsOpen,
+    isMainMenuOpen,
   ]);
   useEffect(() => {
     if (settingsOpen) settingsCloseRef.current?.focus();
@@ -2106,7 +2116,7 @@ export function TrainerDashboard() {
     }
     if (activityDashboardReturnFocusRef.current) {
       activityDashboardReturnFocusRef.current = false;
-      activityDashboardButtonRef.current?.focus();
+      focusMainNavigationControl(activityDashboardButtonRef);
     }
   }, [activityDashboardOpen]);
   useEffect(() => {
@@ -2117,7 +2127,7 @@ export function TrainerDashboard() {
     }
     if (trainingPlanReturnFocusRef.current) {
       trainingPlanReturnFocusRef.current = false;
-      trainingPlanButtonRef.current?.focus();
+      focusMainNavigationControl(trainingPlanButtonRef);
     }
   }, [trainingPlanOpen]);
   useEffect(() => {
@@ -2127,6 +2137,20 @@ export function TrainerDashboard() {
   useEffect(() => {
     if (renameTarget) renameInputRef.current?.focus();
   }, [renameTarget]);
+
+  useEffect(() => {
+    if (!isMainMenuOpen) return;
+    function closeOnOutsidePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (mainMenuRef.current?.contains(target)) return;
+      setIsMainMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+    };
+  }, [isMainMenuOpen]);
 
   useEffect(() => {
     if (!openConversationMenuId) return;
@@ -2167,6 +2191,51 @@ export function TrainerDashboard() {
     setConversationMenuPosition(null);
   }
 
+  function focusMainNavigationControl(
+    ref: RefObject<HTMLButtonElement | null>,
+  ) {
+    const isNarrowViewport =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(max-width: 720px)").matches;
+    if (isNarrowViewport) {
+      mainMenuToggleRef.current?.focus();
+      return;
+    }
+    ref.current?.focus();
+  }
+
+  function toggleConversationHistory() {
+    setIsMainMenuOpen(false);
+    const isMobileViewport =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(max-width: 960px)").matches;
+    if (isMobileViewport) {
+      setIsConversationDrawerOpen(true);
+    } else {
+      setDesktopSidebarExpanded((expanded) => !expanded);
+    }
+  }
+
+  function syncNowFromNavigation() {
+    setIsMainMenuOpen(false);
+    void syncNow();
+  }
+
+  function openActivityDashboardFromNavigation() {
+    setIsMainMenuOpen(false);
+    openActivityDashboard();
+  }
+
+  function openTrainingPlanFromNavigation() {
+    setIsMainMenuOpen(false);
+    openTrainingPlan();
+  }
+
+  function openSettingsFromNavigation() {
+    setIsMainMenuOpen(false);
+    setSettingsOpen(true);
+  }
+
   function toggleConversationMenu(itemId: string, trigger: HTMLButtonElement) {
     if (openConversationMenuId === itemId) {
       closeConversationMenu();
@@ -2194,13 +2263,13 @@ export function TrainerDashboard() {
 
   function closeSettingsSheet() {
     setSettingsOpen(false);
-    settingsButtonRef.current?.focus();
+    focusMainNavigationControl(settingsButtonRef);
   }
 
   function closeConversationDrawer() {
     closeConversationMenu();
     setIsConversationDrawerOpen(false);
-    conversationButtonRef.current?.focus();
+    focusMainNavigationControl(conversationButtonRef);
   }
 
   function transcriptIsNearBottom(): boolean {
@@ -3358,63 +3427,132 @@ export function TrainerDashboard() {
     >
       {!activityDashboardOpen && !trainingPlanOpen ? (
         <header className="app-topbar">
-          <button
-            type="button"
-            className="chrome-button sidebar-toggle"
-            onClick={() => {
-              if (window.matchMedia("(max-width: 960px)").matches) {
-                setIsConversationDrawerOpen(true);
-              } else {
-                setDesktopSidebarExpanded((expanded) => !expanded);
-              }
-            }}
-            ref={conversationButtonRef}
-            aria-label="Toggle conversation history"
-            aria-expanded={desktopSidebarExpanded || isConversationDrawerOpen}
-          >
-            Conversations
-          </button>
-          <h1 className="app-title" title="Garmin AI Trainer">
-            Garmin AI Trainer
-          </h1>
-          <button
-            type="button"
-            className="chrome-button sync-now-button"
-            onClick={syncNow}
-            disabled={isSyncing}
-            aria-label="Sync now — import latest Garmin data"
-          >
-            {isSyncing ? "Syncing…" : "Sync now"}
-          </button>
-          <button
-            type="button"
-            className="chrome-button"
-            onClick={openActivityDashboard}
-            ref={activityDashboardButtonRef}
-            aria-label="Activity charts"
-            aria-expanded={activityDashboardOpen}
-          >
-            Activity charts
-          </button>
-          <button
-            type="button"
-            className="chrome-button"
-            onClick={openTrainingPlan}
-            ref={trainingPlanButtonRef}
-            aria-label="Training Plan"
-            aria-expanded={trainingPlanOpen}
-          >
-            Training Plan
-          </button>
-          <button
-            type="button"
-            className="chrome-button"
-            onClick={() => setSettingsOpen(true)}
-            ref={settingsButtonRef}
-            aria-label="Data & settings"
-          >
-            Settings
-          </button>
+          <div className="app-brand">
+            <h1 className="app-title" title="Garmin AI Trainer">
+              Garmin AI Trainer
+            </h1>
+          </div>
+          <nav className="app-nav" aria-label="Main navigation">
+            <button
+              type="button"
+              className="chrome-button sidebar-toggle"
+              onClick={toggleConversationHistory}
+              ref={conversationButtonRef}
+              aria-label="Toggle conversation history"
+              aria-expanded={desktopSidebarExpanded || isConversationDrawerOpen}
+            >
+              Conversations
+            </button>
+            <button
+              type="button"
+              className="chrome-button sync-now-button"
+              onClick={syncNowFromNavigation}
+              disabled={isSyncing}
+              aria-label="Sync now — import latest Garmin data"
+            >
+              {isSyncing ? "Syncing…" : "Sync now"}
+            </button>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={openActivityDashboardFromNavigation}
+              ref={activityDashboardButtonRef}
+              aria-label="Activity charts"
+              aria-expanded={activityDashboardOpen}
+            >
+              Activity charts
+            </button>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={openTrainingPlanFromNavigation}
+              ref={trainingPlanButtonRef}
+              aria-label="Training Plan"
+              aria-expanded={trainingPlanOpen}
+            >
+              Training Plan
+            </button>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={openSettingsFromNavigation}
+              ref={settingsButtonRef}
+              aria-label="Data & settings"
+            >
+              Settings
+            </button>
+          </nav>
+          <div className="app-mobile-menu" ref={mainMenuRef}>
+            <button
+              type="button"
+              className="chrome-button app-menu-toggle"
+              onClick={() => setIsMainMenuOpen((open) => !open)}
+              ref={mainMenuToggleRef}
+              aria-haspopup="menu"
+              aria-expanded={isMainMenuOpen}
+              aria-controls="app-main-menu"
+            >
+              Menu
+            </button>
+            {isMainMenuOpen ? (
+              <div
+                id="app-main-menu"
+                className="app-menu-panel"
+                role="menu"
+                aria-label="Main menu"
+              >
+                <button
+                  type="button"
+                  className="app-menu-item"
+                  role="menuitem"
+                  onClick={toggleConversationHistory}
+                  aria-label="Toggle conversation history"
+                  aria-expanded={
+                    desktopSidebarExpanded || isConversationDrawerOpen
+                  }
+                >
+                  Conversations
+                </button>
+                <button
+                  type="button"
+                  className="app-menu-item"
+                  role="menuitem"
+                  onClick={syncNowFromNavigation}
+                  disabled={isSyncing}
+                  aria-label="Sync now — import latest Garmin data"
+                >
+                  {isSyncing ? "Syncing…" : "Sync now"}
+                </button>
+                <button
+                  type="button"
+                  className="app-menu-item"
+                  role="menuitem"
+                  onClick={openActivityDashboardFromNavigation}
+                  aria-label="Activity charts"
+                >
+                  Activity charts
+                </button>
+                <button
+                  type="button"
+                  className="app-menu-item"
+                  role="menuitem"
+                  onClick={openTrainingPlanFromNavigation}
+                  aria-label="Training Plan"
+                >
+                  Training Plan
+                </button>
+                <button
+                  type="button"
+                  className="app-menu-item"
+                  role="menuitem"
+                  onClick={openSettingsFromNavigation}
+                  aria-label="Data & settings"
+                >
+                  Settings
+                </button>
+              </div>
+            ) : null}
+          </div>
         </header>
       ) : null}
 

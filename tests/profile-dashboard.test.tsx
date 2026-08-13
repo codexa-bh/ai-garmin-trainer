@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { metadata } from "../src/app/layout";
@@ -649,7 +650,7 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeTruthy();
     const topbars = Array.from(container.querySelectorAll(".app-topbar"));
     expect(topbars).toHaveLength(1);
-    const topbar = topbars[0];
+    const topbar = topbars[0] as HTMLElement;
     expect(
       topbar.nextElementSibling?.classList.contains("chat-workspace"),
     ).toBe(true);
@@ -662,6 +663,9 @@ describe("TrainerDashboard Profile hydration", () => {
     });
     fireEvent.scroll(transcript);
 
+    const mainNavigation = within(topbar).getByRole("navigation", {
+      name: "Main navigation",
+    });
     const expectedTopbarButtons = [
       "Toggle conversation history",
       "Sync now — import latest Garmin data",
@@ -670,10 +674,14 @@ describe("TrainerDashboard Profile hydration", () => {
       "Data & settings",
     ];
     for (const name of expectedTopbarButtons) {
-      expect(topbar.contains(screen.getByRole("button", { name }))).toBe(true);
+      expect(
+        mainNavigation.contains(
+          within(mainNavigation).getByRole("button", { name }),
+        ),
+      ).toBe(true);
     }
     expect(
-      Array.from(topbar.querySelectorAll("button")).map((button) =>
+      Array.from(mainNavigation.querySelectorAll("button")).map((button) =>
         button.textContent?.trim(),
       ),
     ).toEqual([
@@ -683,6 +691,11 @@ describe("TrainerDashboard Profile hydration", () => {
       "Training Plan",
       "Settings",
     ]);
+    expect(
+      within(topbar)
+        .getByRole("button", { name: "Menu" })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
     const title = topbar.querySelector(".app-title");
     expect(title?.textContent?.trim()).toBe("Garmin AI Trainer");
     expect(title?.getAttribute("title")).toBe("Garmin AI Trainer");
@@ -693,14 +706,118 @@ describe("TrainerDashboard Profile hydration", () => {
     const css = readFileSync("src/app/style.css", "utf8");
     expect(css).toMatch(/@media \(min-width: 961px\)[\s\S]*\.app-topbar/);
     expect(css).toMatch(
-      /\.app-topbar \{\s*display: grid;\s*grid-template-columns: auto minmax\(0, 1fr\) auto auto auto auto;/,
+      /\.app-topbar \{\s*display: flex;[\s\S]*justify-content: space-between;/,
     );
+    expect(css).toMatch(/\.app-nav \{[\s\S]*display: flex;/);
     expect(css).toMatch(/\.app-title \{[\s\S]*text-overflow: ellipsis;/);
     expect(css).toMatch(
-      /@media \(max-width: 960px\) \{\s*\.app-topbar \{\s*grid-template-columns: auto minmax\(0, 1fr\) auto auto auto auto;/,
+      /@media \(max-width: 640px\) \{[\s\S]*\.app-nav \{\s*display: none;/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 640px\) \{[\s\S]*\.app-mobile-menu \{\s*display: block;/,
     );
     expect(css).toMatch(/\.app-topbar \{[\s\S]*position: sticky;/);
     expect(css).toMatch(/\.dashboard-shell \{[\s\S]*overflow: hidden;/);
+  });
+
+  it("exposes primary actions through a dismissible mobile main menu", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    stubViewport(true);
+
+    render(React.createElement(TrainerDashboard));
+
+    const menuToggle = screen.getByRole("button", { name: "Menu" });
+    expect(menuToggle.getAttribute("aria-haspopup")).toBe("menu");
+    expect(menuToggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(menuToggle);
+
+    expect(menuToggle.getAttribute("aria-expanded")).toBe("true");
+    const menu = screen.getByRole("menu", { name: "Main menu" });
+    const menuItems = [
+      "Toggle conversation history",
+      "Sync now — import latest Garmin data",
+      "Activity charts",
+      "Training Plan",
+      "Data & settings",
+    ];
+    for (const name of menuItems) {
+      expect(menu.contains(within(menu).getByRole("menuitem", { name }))).toBe(
+        true,
+      );
+    }
+    expect(
+      Array.from(menu.querySelectorAll("button")).map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual([
+      "Conversations",
+      "Sync now",
+      "Activity charts",
+      "Training Plan",
+      "Settings",
+    ]);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(menuToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+
+    fireEvent.click(menuToggle);
+    expect(screen.getByRole("menu", { name: "Main menu" })).toBeTruthy();
+
+    fireEvent.pointerDown(document.body);
+
+    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+  });
+
+  it("activates mobile menu items and dismisses the menu", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url.startsWith("/api/activities?")) {
+        return jsonResponse({
+          activities: [activityListItem(0)],
+          nextOffset: null,
+          totalApprox: 1,
+          limit: 100,
+          offset: 0,
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    stubViewport(true);
+
+    render(React.createElement(TrainerDashboard));
+
+    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Data & settings" }));
+
+    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+    expect(
+      screen.getByRole("dialog", { name: "Data & settings" }),
+    ).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(
+      screen.queryByRole("dialog", { name: "Data & settings" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Activity charts" }));
+
+    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+    expect(await screen.findByText("Activity 0")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
   });
 
   it("renders the minimal chat shell and reachable grouped settings disclosure", async () => {
