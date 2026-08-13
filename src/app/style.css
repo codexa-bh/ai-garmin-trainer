@@ -496,6 +496,100 @@ body::before {
   gap: 10px;
 }
 
+.activity-effort-widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.activity-effort-widget {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(73, 214, 200, 0.09),
+      rgba(255, 255, 255, 0.025)
+    ),
+    rgba(255, 255, 255, 0.03);
+}
+
+.activity-effort-widget-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.activity-effort-widget-heading h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.activity-effort-widget-heading span,
+.activity-effort-list dt,
+.activity-effort-total span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.activity-effort-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(73, 214, 200, 0.08);
+}
+
+.activity-effort-total strong {
+  color: var(--accent);
+  font-size: 24px;
+}
+
+.activity-effort-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.activity-effort-list-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.activity-effort-list div {
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.activity-effort-list dt {
+  margin-bottom: 4px;
+}
+
+.activity-effort-list dd {
+  margin: 0;
+  font-weight: 800;
+}
+
+.effort-weight-cue {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(73, 214, 200, 0.16);
+  color: var(--accent);
+  font-size: 11px;
+}
+
 .activity-chart-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -504,6 +598,7 @@ body::before {
 
 .selected-activity-heading,
 .activity-stat-grid,
+.activity-effort-widget-grid,
 .activity-chart-grid,
 .route-zone-grid,
 .route-map-card,

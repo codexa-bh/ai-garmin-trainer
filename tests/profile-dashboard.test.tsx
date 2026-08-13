@@ -1407,7 +1407,13 @@ describe("TrainerDashboard activity charts", () => {
             avgHeartRate: 145,
             maxHeartRate: 174,
             steps: 9200,
-            trainingEffect: null,
+            trainingEffect: 3.2,
+            anaerobicTrainingEffect: 0,
+            trainingEffectLabel: "AEROBIC_BASE",
+            trainingLoad: 98,
+            moderateIntensityMinutes: 3,
+            vigorousIntensityMinutes: 37,
+            totalIntensityMinutes: 10,
           },
           detail: {
             status: "available",
@@ -1625,13 +1631,32 @@ describe("TrainerDashboard activity charts", () => {
     expect(summaryStats.textContent).toContain("Avg HR");
     expect(summaryStats.textContent).toContain("Max HR");
     expect(summaryStats.textContent).toContain("Steps");
-    expect(summaryStats.textContent).toContain("Moderate intensity");
-    expect(summaryStats.textContent).toContain("Vigorous intensity");
-    expect(summaryStats.textContent).toContain("Total intensity");
-    expect(summaryStats.textContent).toContain("Training effect");
-    expect(summaryStats.textContent).toContain("Anaerobic TE");
-    expect(summaryStats.textContent).toContain("Training load");
-    expect(summaryStats.textContent).toContain("Benefit");
+    expect(summaryStats.textContent).not.toContain("Moderate intensity");
+    expect(summaryStats.textContent).not.toContain("Vigorous intensity");
+    expect(summaryStats.textContent).not.toContain("Total intensity");
+    expect(summaryStats.textContent).not.toContain("Training effect");
+    expect(summaryStats.textContent).not.toContain("Anaerobic TE");
+    expect(summaryStats.textContent).not.toContain("Training load");
+    expect(summaryStats.textContent).not.toContain("Benefit");
+    const effortWidgets = screen.getByLabelText(
+      "Selected activity effort widgets",
+    );
+    expect(effortWidgets.textContent).toContain("Intensity Minutes");
+    expect(effortWidgets.textContent).toContain("Moderate");
+    expect(effortWidgets.textContent).toContain("3 min");
+    expect(effortWidgets.textContent).toContain("Vigorous x2");
+    expect(effortWidgets.textContent).toContain("37 min");
+    expect(effortWidgets.textContent).toContain("77 min");
+    expect(effortWidgets.textContent).not.toContain("10 min");
+    expect(effortWidgets.textContent).toContain("Training Effect");
+    expect(effortWidgets.textContent).toContain("Aerobic");
+    expect(effortWidgets.textContent).toContain("3.2");
+    expect(effortWidgets.textContent).toContain("Anaerobic");
+    expect(effortWidgets.textContent).toContain("0.0");
+    expect(effortWidgets.textContent).toContain("Primary Benefit");
+    expect(effortWidgets.textContent).toContain("AEROBIC_BASE");
+    expect(effortWidgets.textContent).toContain("Exercise Load");
+    expect(effortWidgets.textContent).toContain("98");
     expect(summaryStats.textContent).not.toContain("Detail records");
     expect(screen.queryByText("Detail records")).toBeNull();
     expect(screen.getByText("Heart rate")).toBeTruthy();
@@ -1901,7 +1926,7 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("10.00 km")).toBeTruthy();
     expect(screen.getByText("174 bpm")).toBeTruthy();
     expect(screen.getByText("143 bpm")).toBeTruthy();
-    expect(screen.getByText("Training effect")).toBeTruthy();
+    expect(screen.getByText("Training Effect")).toBeTruthy();
     expect(
       screen.getByText(
         /Intensity minutes and training-effect fields are normalized/,
@@ -1934,6 +1959,12 @@ describe("TrainerDashboard activity charts", () => {
             maxHeartRate: 174,
             steps: 9200,
             trainingEffect: 3.2,
+            anaerobicTrainingEffect: null,
+            trainingEffectLabel: null,
+            trainingLoad: null,
+            moderateIntensityMinutes: 3,
+            vigorousIntensityMinutes: 0,
+            totalIntensityMinutes: 99,
           },
           detail: {
             status: "available",
@@ -2080,6 +2111,17 @@ describe("TrainerDashboard activity charts", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText("Time in HR zones unavailable")).toBeTruthy();
+    const effortWidgets = screen.getByLabelText(
+      "Selected activity effort widgets",
+    );
+    expect(effortWidgets.textContent).toContain("Intensity Minutes");
+    expect(effortWidgets.textContent).toContain("Vigorous x2");
+    expect(effortWidgets.textContent).toContain("0 min");
+    expect(effortWidgets.textContent).toContain("3 min");
+    expect(effortWidgets.textContent).not.toContain("99 min");
+    expect(effortWidgets.textContent).toContain("Training Effect");
+    expect(effortWidgets.textContent).toContain("3.2");
+    expect(effortWidgets.textContent).toContain("Unavailable");
   });
 
   it("opens with the activity selector expanded by default and a truthful collapse control", async () => {
