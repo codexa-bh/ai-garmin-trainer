@@ -3457,7 +3457,7 @@ export function TrainerDashboard() {
                       domainStartSec={activityDashboard.charts.domainStartSec}
                       domainEndSec={activityDashboard.charts.domainEndSec}
                       formatValue={speedKmhLabel}
-                      note="30-second smoothed from normalized stream speed samples."
+                      note="60-second smoothed from normalized stream speed samples."
                     />
                   ) : (
                     <div className="activity-chart empty-state">

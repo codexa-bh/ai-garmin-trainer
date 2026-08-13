@@ -392,8 +392,8 @@ describe("activity dashboard repository and routes", () => {
       "distanceMeters",
     );
     expect(dashboard?.charts.points[0].speedKmh).toBe(0);
-    expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(7.457142857, 6);
-    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(10.309090909, 6);
+    expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(6.928767123, 6);
+    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(8.314285714, 6);
   });
 
   it("smooths saw-toothed positive speed more strongly than the old 3-point sample window", async () => {
@@ -420,15 +420,15 @@ describe("activity dashboard repository and routes", () => {
       pointCount: 7,
     });
     const oldThreePointSpikeKmh = ((3 + 12 * 2 + 3) / 4) * 3.6;
-    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(20.964705882, 6);
+    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(17.407894737, 6);
     expect(dashboard?.charts.points[2].speedKmh).toBeLessThan(
       oldThreePointSpikeKmh,
     );
   });
 
-  it("uses the named 30-second elapsed-time smoothing window without cumulative-distance fallback", async () => {
+  it("uses the named 60-second elapsed-time smoothing window without cumulative-distance fallback", async () => {
     const repo = await seedActivities();
-    expect(repo.ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC).toBe(30);
+    expect(repo.ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC).toBe(60);
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
         records: [
@@ -447,10 +447,10 @@ describe("activity dashboard repository and routes", () => {
       pointCount: 3,
     });
     expect(dashboard?.charts.speed.message).toBe(
-      "Speed uses 30-second smoothed normalized stream speed samples converted to km/h.",
+      "Speed uses 60-second smoothed normalized stream speed samples converted to km/h.",
     );
-    expect(dashboard?.charts.points[0].speedKmh).toBeCloseTo(8.047058824, 6);
-    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(32.748387097, 6);
+    expect(dashboard?.charts.points[0].speedKmh).toBeCloseTo(19.625806452, 6);
+    expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(27.568421053, 6);
   });
 
   it("does not build selected-dashboard speed from GPS, summary, or lap distance when stream speed is missing", async () => {
