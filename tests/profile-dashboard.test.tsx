@@ -1307,7 +1307,7 @@ describe("TrainerDashboard activity charts", () => {
               sourcePointCount: 3,
               pointCount: 3,
               message:
-                "Speed uses 60-second smoothed normalized stream speed samples converted to km/h.",
+                "Speed uses a 60-second moving average derived from normalized cumulative distance and elapsed time.",
             },
             points: [
               {
@@ -1510,7 +1510,7 @@ describe("TrainerDashboard activity charts", () => {
     ).toHaveLength(2);
     expect(
       screen.getByText(
-        "60-second smoothed from normalized stream speed samples.",
+        "60-second moving average from normalized cumulative distance and elapsed time.",
       ),
     ).toBeTruthy();
     expect(
@@ -1803,7 +1803,7 @@ describe("TrainerDashboard activity charts", () => {
               sourcePointCount: 0,
               pointCount: 0,
               message:
-                "Speed unavailable because this activity has no normalized stream speed samples.",
+                "Speed unavailable because this activity has no normalized cumulative-distance stream samples.",
             },
             points: [
               {
@@ -1893,11 +1893,13 @@ describe("TrainerDashboard activity charts", () => {
     expect(document.querySelector(".activity-chart-average-line")).toBeNull();
     expect(
       screen.getByText(
-        "Speed unavailable because this activity has no normalized stream speed samples.",
+        "Speed unavailable because this activity has no normalized cumulative-distance stream samples.",
       ),
     ).toBeTruthy();
     expect(
-      screen.getByText(/no GPS, summary, lap, or distance fallback is used/),
+      screen.getByText(
+        /no measured speed, GPS, summary, lap, or pace fallback is used/,
+      ),
     ).toBeTruthy();
     expect(
       screen.queryByRole("img", { name: "Pace over elapsed time" }),

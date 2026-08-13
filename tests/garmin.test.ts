@@ -273,7 +273,7 @@ describe("Garmin boundary", () => {
     ]);
   });
 
-  it("rejects impossible zero and near-zero stream speeds during proven movement", () => {
+  it("preserves zero and near-zero measured stream speeds during movement", () => {
     const detail = normalizeActivityDetail("54", {
       records: [
         { elapsed_time_s: 0, distance: 0, speed_mps: 1.5 },
@@ -287,10 +287,7 @@ describe("Garmin boundary", () => {
       0, 6, 12, 18,
     ]);
     expect(detail.stream.map((point) => point.speedMps)).toEqual([
-      1.5,
-      null,
-      null,
-      1.5,
+      1.5, 0, 0.03, 1.5,
     ]);
   });
 

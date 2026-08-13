@@ -1533,9 +1533,9 @@ export function getActivityDetailForAnalytics(garminId: string): {
 
 type ActivityDashboardChartSourcePoint = {
   elapsedSec: number;
+  distanceMeters: number | null;
   heartRate: number | null;
   altitudeMeters: number | null;
-  speedMps: number | null;
 };
 
 type ActivityDashboardChartRow = ActivityDashboardChartSourcePoint & {
@@ -1576,9 +1576,9 @@ function deriveChartElapsedFromTimestamps(
 
   return rows.map((row, index) => ({
     elapsedSec: elapsedSeconds[index],
+    distanceMeters: row.distanceMeters,
     heartRate: row.heartRate,
     altitudeMeters: row.altitudeMeters,
-    speedMps: row.speedMps,
   }));
 }
 
@@ -1658,65 +1658,78 @@ function finiteNumber(value: number | null): value is number {
   return value !== null && Number.isFinite(value);
 }
 
-export const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC = 60;
-const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_HALF_WINDOW_SEC =
-  ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC / 2;
-const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_EDGE_WEIGHT = 1;
+export const ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC = 60;
 
-function activityDashboardSpeedSmoothingWeight(deltaSec: number): number {
-  if (deltaSec > ACTIVITY_DASHBOARD_SPEED_SMOOTHING_HALF_WINDOW_SEC) return 0;
-  return (
-    ACTIVITY_DASHBOARD_SPEED_SMOOTHING_HALF_WINDOW_SEC -
-    deltaSec +
-    ACTIVITY_DASHBOARD_SPEED_SMOOTHING_EDGE_WEIGHT
-  );
-}
-
-function smoothedActivityDashboardSpeedKmh(
+function distanceWindowAverageActivityDashboardSpeedKmh(
   points: ActivityDashboardChartSourcePoint[],
   index: number,
 ): number | null {
-  const centerPoint = points[index];
-  const centerSpeedMps = centerPoint?.speedMps ?? null;
+  const endPoint = points[index];
+  const endDistanceMeters = endPoint?.distanceMeters ?? null;
   if (
-    !centerPoint ||
-    !finiteNumber(centerPoint.elapsedSec) ||
-    !finiteNumber(centerSpeedMps) ||
-    centerSpeedMps < 0
+    !endPoint ||
+    !finiteNumber(endPoint.elapsedSec) ||
+    !finiteNumber(endDistanceMeters)
   )
     return null;
-  if (centerSpeedMps === 0) return 0;
 
-  let weightedSpeedMps = 0;
-  let weightTotal = 0;
-  points.forEach((point) => {
-    const speedMps = point.speedMps;
-    if (!finiteNumber(speedMps) || speedMps < 0) return;
-    const deltaSec = Math.abs(point.elapsedSec - centerPoint.elapsedSec);
-    const weight = activityDashboardSpeedSmoothingWeight(deltaSec);
-    if (weight <= 0) return;
-    weightedSpeedMps += speedMps * weight;
-    weightTotal += weight;
-  });
+  let startIndex = index;
+  while (
+    startIndex > 0 &&
+    endPoint.elapsedSec - points[startIndex - 1].elapsedSec <=
+      ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC
+  ) {
+    startIndex -= 1;
+  }
+  if (startIndex === index) return null;
 
-  return weightTotal > 0 ? (weightedSpeedMps / weightTotal) * 3.6 : null;
+  let previousElapsedSec: number | null = null;
+  let previousDistanceMeters: number | null = null;
+  for (let pointIndex = startIndex; pointIndex <= index; pointIndex += 1) {
+    const point = points[pointIndex];
+    const distanceMeters = point.distanceMeters;
+    if (!finiteNumber(point.elapsedSec) || !finiteNumber(distanceMeters)) {
+      return null;
+    }
+    if (
+      previousElapsedSec !== null &&
+      (point.elapsedSec <= previousElapsedSec ||
+        distanceMeters < (previousDistanceMeters ?? distanceMeters))
+    ) {
+      return null;
+    }
+    previousElapsedSec = point.elapsedSec;
+    previousDistanceMeters = distanceMeters;
+  }
+
+  const startPoint = points[startIndex];
+  const startDistanceMeters = startPoint.distanceMeters;
+  if (!finiteNumber(startDistanceMeters)) return null;
+  const elapsedDeltaSec = endPoint.elapsedSec - startPoint.elapsedSec;
+  const distanceDeltaMeters = endDistanceMeters - startDistanceMeters;
+  if (elapsedDeltaSec <= 0 || distanceDeltaMeters < 0) return null;
+
+  return (distanceDeltaMeters / elapsedDeltaSec) * 3.6;
 }
 
 function activityDashboardSpeedSeries(
   points: ActivityDashboardChartSourcePoint[],
 ): ActivityDashboardSpeedSeries {
+  const sourcePointCount = points.filter((point) =>
+    finiteNumber(point.distanceMeters),
+  ).length;
   const values = points.map((_, index) =>
-    smoothedActivityDashboardSpeedKmh(points, index),
+    distanceWindowAverageActivityDashboardSpeedKmh(points, index),
   );
   const pointCount = values.filter(finiteNumber).length;
-  if (pointCount === 0) {
+  if (sourcePointCount === 0) {
     return {
       metadata: {
         status: "missing_speed",
         sourcePointCount: 0,
         pointCount: 0,
         message:
-          "Speed unavailable because this activity has no normalized stream speed samples.",
+          "Speed unavailable because this activity has no normalized cumulative-distance stream samples.",
       },
       values,
     };
@@ -1725,10 +1738,10 @@ function activityDashboardSpeedSeries(
     return {
       metadata: {
         status: "insufficient_speed",
-        sourcePointCount: pointCount,
+        sourcePointCount,
         pointCount,
         message:
-          "Speed unavailable because at least two finite non-negative stream speed samples are needed.",
+          "Speed unavailable because at least two reliable elapsed-time distance windows are needed.",
       },
       values,
     };
@@ -1736,10 +1749,10 @@ function activityDashboardSpeedSeries(
   return {
     metadata: {
       status: "available",
-      sourcePointCount: pointCount,
+      sourcePointCount,
       pointCount,
       message:
-        "Speed uses 60-second smoothed normalized stream speed samples converted to km/h.",
+        "Speed uses a 60-second moving average derived from normalized cumulative distance and elapsed time.",
     },
     values,
   };
@@ -1858,17 +1871,17 @@ export function getActivityDashboardDetail(
     | undefined;
   const chartRows = db
     .prepare(
-      `select elapsed_sec as elapsedSec, timestamp, speed_mps as speedMps,
+      `select elapsed_sec as elapsedSec, timestamp, distance_meters as distanceMeters,
               heart_rate as heartRate, altitude_meters as altitudeMeters
        from activity_stream_point
-       where garmin_id = ? and (heart_rate is not null or altitude_meters is not null or speed_mps is not null)
+       where garmin_id = ? and (heart_rate is not null or altitude_meters is not null or distance_meters is not null)
        order by elapsed_sec`,
     )
     .all(garminId) as ActivityDashboardChartRow[];
   const chartTiming = chartTimingForRows(chartRows, activity.durationSec);
   const speedSeries = activityDashboardSpeedSeries(chartTiming.points);
   const points = chartTiming.points.map(
-    ({ speedMps: _speedMps, ...point }, index) => ({
+    ({ distanceMeters: _distanceMeters, ...point }, index) => ({
       ...point,
       speedKmh: speedSeries.values[index] ?? null,
     }),
