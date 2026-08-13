@@ -85,15 +85,66 @@ body::before {
 }
 
 .app-topbar {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
-  gap: 14px;
+  display: flex;
+  gap: 16px;
   align-items: center;
+  justify-content: space-between;
   min-height: 64px;
   padding: 10px clamp(14px, 2vw, 28px);
   border-bottom: 1px solid var(--line);
   background: rgba(5, 7, 11, 0.82);
   backdrop-filter: blur(18px);
+}
+
+.app-brand {
+  min-width: 0;
+}
+
+.app-nav {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.app-mobile-menu {
+  position: relative;
+  display: none;
+  flex: 0 0 auto;
+}
+
+.app-menu-toggle {
+  white-space: nowrap;
+}
+
+.app-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  width: min(78vw, 260px);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: rgba(8, 13, 22, 0.98);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+}
+
+.app-menu-item {
+  width: 100%;
+  border-radius: 12px;
+  padding: 11px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.app-menu-item:hover {
+  border-color: rgba(73, 214, 200, 0.5);
+  background: rgba(73, 214, 200, 0.1);
 }
 
 @media (min-width: 961px) {
@@ -1675,7 +1726,11 @@ label {
 
 @media (max-width: 960px) {
   .app-topbar {
-    grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+    gap: 12px;
+  }
+
+  .app-nav {
+    gap: 8px;
   }
 
   .chat-workspace,
@@ -1742,9 +1797,16 @@ label {
 
 @media (max-width: 640px) {
   .app-topbar {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    gap: 8px;
+    gap: 10px;
     padding: 8px;
+  }
+
+  .app-nav {
+    display: none;
+  }
+
+  .app-mobile-menu {
+    display: block;
   }
 
   .activity-dashboard-panel {
