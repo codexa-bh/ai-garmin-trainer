@@ -3232,17 +3232,8 @@ export function TrainerDashboard() {
           >
             Conversations
           </button>
-          <div className="brand-lockup" aria-label="AI Garmin Connect Trainer">
-            <span className="brand-mark" aria-hidden="true">
-              ⌁
-            </span>
-            <span>AI Trainer</span>
-          </div>
-          <h1
-            className="active-conversation-title"
-            title={activeConversation?.title ?? "Trainer chat"}
-          >
-            {activeConversation?.title ?? "Trainer chat"}
+          <h1 className="app-title" title="Garmin AI Trainer">
+            Garmin AI Trainer
           </h1>
           <button
             type="button"
