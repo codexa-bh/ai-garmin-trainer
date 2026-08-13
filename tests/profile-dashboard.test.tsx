@@ -648,18 +648,38 @@ describe("TrainerDashboard Profile hydration", () => {
     });
     fireEvent.scroll(transcript);
 
-    for (const name of [
+    const expectedTopbarButtons = [
       "Toggle conversation history",
       "Sync now — import latest Garmin data",
+      "Activity charts",
+      "Training Plan",
       "Data & settings",
-    ]) {
+    ];
+    for (const name of expectedTopbarButtons) {
       expect(topbar.contains(screen.getByRole("button", { name }))).toBe(true);
     }
+    expect(
+      Array.from(topbar.querySelectorAll("button")).map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual([
+      "Conversations",
+      "Sync now",
+      "Activity charts",
+      "Training Plan",
+      "Settings",
+    ]);
     expect(topbar.textContent).toContain("AI Trainer");
     expect(topbar.textContent).toContain("Trainer chat");
 
     const css = readFileSync("src/app/style.css", "utf8");
     expect(css).toMatch(/@media \(min-width: 961px\)[\s\S]*\.app-topbar/);
+    expect(css).toMatch(
+      /\.app-topbar \{\s*display: grid;\s*grid-template-columns: auto auto minmax\(0, 1fr\) auto auto auto auto;/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 960px\) \{\s*\.app-topbar \{\s*grid-template-columns: auto minmax\(0, 1fr\) auto auto auto auto;/,
+    );
     expect(css).toMatch(/\.app-topbar \{[\s\S]*position: sticky;/);
     expect(css).toMatch(/\.dashboard-shell \{[\s\S]*overflow: hidden;/);
   });

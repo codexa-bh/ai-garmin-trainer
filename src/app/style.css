@@ -86,7 +86,7 @@ body::before {
 
 .app-topbar {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto;
   gap: 14px;
   align-items: center;
   min-height: 64px;
@@ -1559,7 +1559,7 @@ label {
 
 @media (max-width: 960px) {
   .app-topbar {
-    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
   }
 
   .brand-lockup {
