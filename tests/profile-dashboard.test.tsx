@@ -1447,14 +1447,14 @@ describe("TrainerDashboard activity charts", () => {
                 heartRate: 150,
                 altitudeMeters: 1050,
                 speedKmh: 0,
-                gradePct: 4,
+                gradePct: 3,
               },
               {
                 elapsedSec: 3600,
                 heartRate: 136,
                 altitudeMeters: 1012,
                 speedKmh: 12.6,
-                gradePct: -3.5,
+                gradePct: -3,
               },
             ],
           },
@@ -1711,11 +1711,11 @@ describe("TrainerDashboard activity charts", () => {
     ).toBeTruthy();
     fireEvent.pointerMove(elevationChart, { clientX: 420 });
     expect(
-      screen.getByText("30m elapsed · 1,050 m · Grade +4.0%"),
+      screen.getByText("30m elapsed · 1,050 m · Grade +3.0%"),
     ).toBeTruthy();
     fireEvent.keyDown(elevationChart, { key: "ArrowRight" });
     expect(
-      screen.getByText("1h 00m elapsed · 1,012 m · Grade -3.5%"),
+      screen.getByText("1h 00m elapsed · 1,012 m · Grade -3.0%"),
     ).toBeTruthy();
     expect(screen.queryByText(/Accessible chart summary:/)).toBeNull();
     expect(screen.queryByText("Selected activity")).toBeNull();
