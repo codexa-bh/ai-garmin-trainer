@@ -796,8 +796,10 @@ function chartNumberLabel(value: number, unit: string) {
 function chartValueLabel(
   point: Pick<ChartSeriesPoint, "elapsedSec" | "value">,
   formatValue: (value: number) => string,
+  suffix?: string | null,
 ) {
-  return `${durationLabel(point.elapsedSec)} elapsed · ${formatValue(point.value)}`;
+  const selectedValue = `${durationLabel(point.elapsedSec)} elapsed · ${formatValue(point.value)}`;
+  return suffix ? `${selectedValue} · ${suffix}` : selectedValue;
 }
 
 function finiteChartAverage(values: Array<number | null | undefined>) {
@@ -934,18 +936,6 @@ function MiniLineChart({
               y1={averageLine.y}
               y2={averageLine.y}
             />
-            <text
-              className="activity-chart-average-label"
-              x={model.plotRight - 4}
-              y={clamp(
-                averageLine.y - 5,
-                model.plotTop + 10,
-                model.plotBottom - 4,
-              )}
-              textAnchor="end"
-            >
-              {averageLine.label}
-            </text>
           </g>
         ) : null}
         <polyline points={polyline} />
@@ -962,7 +952,7 @@ function MiniLineChart({
         ) : null}
       </svg>
       <p className="activity-chart-readout" aria-live="polite">
-        {chartValueLabel(selectedPoint, formatValue)}
+        {chartValueLabel(selectedPoint, formatValue, averageLine?.label)}
       </p>
       {note ? <p className="activity-chart-note">{note}</p> : null}
     </figure>

@@ -442,16 +442,6 @@ body::before {
   stroke-width: 1.8;
 }
 
-.activity-chart-average-label {
-  fill: #f8d566;
-  font-size: 10.5px;
-  font-weight: 850;
-  paint-order: stroke;
-  stroke: rgba(5, 7, 11, 0.9);
-  stroke-linejoin: round;
-  stroke-width: 3;
-}
-
 .activity-chart svg:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 4px;

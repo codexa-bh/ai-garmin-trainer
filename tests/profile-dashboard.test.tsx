@@ -1503,8 +1503,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("Elevation profile")).toBeTruthy();
     expect(screen.getByText("Speed")).toBeTruthy();
     expect(screen.queryByText("Heart rate over time")).toBeNull();
-    expect(screen.getByText("Avg 145 bpm")).toBeTruthy();
-    expect(screen.getByText("Avg 7.2 km/h")).toBeTruthy();
+    expect(document.querySelector(".activity-chart-average-label")).toBeNull();
+    expect(screen.getByText("0m elapsed · 130 bpm · Avg 145 bpm")).toBeTruthy();
+    expect(screen.getByText("0m elapsed · 9 km/h · Avg 7.2 km/h")).toBeTruthy();
     expect(
       document.querySelectorAll(".activity-chart-average-line"),
     ).toHaveLength(2);
@@ -1531,7 +1532,9 @@ describe("TrainerDashboard activity charts", () => {
       }),
     });
     fireEvent.pointerMove(speedChart, { clientX: 420 });
-    expect(screen.getByText("30m elapsed · 0 km/h")).toBeTruthy();
+    expect(
+      screen.getByText("30m elapsed · 0 km/h · Avg 7.2 km/h"),
+    ).toBeTruthy();
     const hrChart = screen.getByRole("img", {
       name: "Heart rate over elapsed time",
     });
@@ -1547,9 +1550,13 @@ describe("TrainerDashboard activity charts", () => {
       }),
     });
     fireEvent.pointerMove(hrChart, { clientX: 420 });
-    expect(screen.getByText("30m elapsed · 150 bpm")).toBeTruthy();
+    expect(
+      screen.getByText("30m elapsed · 150 bpm · Avg 145 bpm"),
+    ).toBeTruthy();
     fireEvent.keyDown(hrChart, { key: "ArrowRight" });
-    expect(screen.getByText("1h 00m elapsed · 136 bpm")).toBeTruthy();
+    expect(
+      screen.getByText("1h 00m elapsed · 136 bpm · Avg 145 bpm"),
+    ).toBeTruthy();
     const elevationChart = screen.getByRole("img", {
       name: "Elevation profile over elapsed time",
     });
@@ -1890,7 +1897,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("Speed")).toBeTruthy();
     expect(screen.queryByText(/^Avg \d+ bpm$/)).toBeNull();
     expect(screen.queryByText(/^Avg .*km\/h$/)).toBeNull();
+    expect(screen.queryByText(/elapsed · .* · Avg/)).toBeNull();
     expect(document.querySelector(".activity-chart-average-line")).toBeNull();
+    expect(document.querySelector(".activity-chart-average-label")).toBeNull();
     expect(
       screen.getByText(
         "Speed unavailable because this activity has no normalized cumulative-distance stream samples.",
