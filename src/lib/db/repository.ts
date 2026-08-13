@@ -75,6 +75,7 @@ export type ActivityDashboardChartPoint = {
   heartRate: number | null;
   altitudeMeters: number | null;
   speedKmh: number | null;
+  gradePct: number | null;
 };
 
 export type ActivityDashboardSpeedStatus =
@@ -1536,6 +1537,7 @@ type ActivityDashboardChartSourcePoint = {
   distanceMeters: number | null;
   heartRate: number | null;
   altitudeMeters: number | null;
+  gradePct: number | null;
 };
 
 type ActivityDashboardChartRow = ActivityDashboardChartSourcePoint & {
@@ -1579,6 +1581,7 @@ function deriveChartElapsedFromTimestamps(
     distanceMeters: row.distanceMeters,
     heartRate: row.heartRate,
     altitudeMeters: row.altitudeMeters,
+    gradePct: row.gradePct,
   }));
 }
 
@@ -1656,6 +1659,50 @@ type ActivityDashboardSpeedSeries = {
 
 function finiteNumber(value: number | null): value is number {
   return value !== null && Number.isFinite(value);
+}
+
+function computedAdjacentChartGradePct(
+  points: ActivityDashboardChartSourcePoint[],
+  index: number,
+): number | null {
+  const currentPoint = points[index];
+  if (!currentPoint || !finiteNumber(currentPoint.altitudeMeters)) return null;
+
+  const gradeFromSection = (
+    start: ActivityDashboardChartSourcePoint | undefined,
+    end: ActivityDashboardChartSourcePoint | undefined,
+  ): number | null => {
+    if (
+      !start ||
+      !end ||
+      !finiteNumber(start.distanceMeters) ||
+      !finiteNumber(end.distanceMeters) ||
+      !finiteNumber(start.altitudeMeters) ||
+      !finiteNumber(end.altitudeMeters)
+    ) {
+      return null;
+    }
+    const distanceDeltaMeters = end.distanceMeters - start.distanceMeters;
+    if (distanceDeltaMeters <= 0) return null;
+    return (
+      ((end.altitudeMeters - start.altitudeMeters) / distanceDeltaMeters) * 100
+    );
+  };
+
+  if (index > 0) {
+    const previousGrade = gradeFromSection(points[index - 1], currentPoint);
+    if (previousGrade !== null) return previousGrade;
+  }
+  return gradeFromSection(currentPoint, points[index + 1]);
+}
+
+function chartPointGradePct(
+  points: ActivityDashboardChartSourcePoint[],
+  index: number,
+): number | null {
+  const storedGradePct = points[index]?.gradePct ?? null;
+  if (finiteNumber(storedGradePct)) return storedGradePct;
+  return computedAdjacentChartGradePct(points, index);
 }
 
 export const ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC = 60;
@@ -1872,7 +1919,8 @@ export function getActivityDashboardDetail(
   const chartRows = db
     .prepare(
       `select elapsed_sec as elapsedSec, timestamp, distance_meters as distanceMeters,
-              heart_rate as heartRate, altitude_meters as altitudeMeters
+              heart_rate as heartRate, altitude_meters as altitudeMeters,
+              grade_pct as gradePct
        from activity_stream_point
        where garmin_id = ? and (heart_rate is not null or altitude_meters is not null or distance_meters is not null)
        order by elapsed_sec`,
@@ -1881,9 +1929,13 @@ export function getActivityDashboardDetail(
   const chartTiming = chartTimingForRows(chartRows, activity.durationSec);
   const speedSeries = activityDashboardSpeedSeries(chartTiming.points);
   const points = chartTiming.points.map(
-    ({ distanceMeters: _distanceMeters, ...point }, index) => ({
+    (
+      { distanceMeters: _distanceMeters, gradePct: _gradePct, ...point },
+      index,
+    ) => ({
       ...point,
       speedKmh: speedSeries.values[index] ?? null,
+      gradePct: chartPointGradePct(chartTiming.points, index),
     }),
   );
   const sourcePointCount = points.length;

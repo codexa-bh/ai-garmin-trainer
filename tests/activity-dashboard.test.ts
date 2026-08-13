@@ -156,6 +156,7 @@ describe("activity dashboard repository and routes", () => {
           heart_rate_bpm: 130 + index,
           speed_mps: index === 0 ? 0 : 2 + index / 10,
           altitude: 1000 + index * 3,
+          grade_pct: index === 0 ? 0 : index % 2 === 0 ? -3.5 : 4.25,
           lat_deg: 46.1 + index / 1000,
           lon_deg: 13.8 + index / 1000,
         })),
@@ -189,6 +190,9 @@ describe("activity dashboard repository and routes", () => {
     });
     expect(dashboard?.charts.points[0].speedKmh).toBeNull();
     expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(6, 6);
+    expect(
+      dashboard?.charts.points.slice(0, 3).map((point) => point.gradePct),
+    ).toEqual([0, 4.25, -3.5]);
     expect(dashboard?.route).toMatchObject({
       status: "available",
       sourcePointCount: 12,
@@ -229,8 +233,11 @@ describe("activity dashboard repository and routes", () => {
       ]),
     });
     const serialized = JSON.stringify(dashboard);
+    const serializedChartPoints = JSON.stringify(dashboard?.charts.points);
     expect(serialized).toContain("lat");
     expect(serialized).toContain("lon");
+    expect(serializedChartPoints).not.toContain("lat");
+    expect(serializedChartPoints).not.toContain("lon");
     expect(serialized).not.toContain("payloadJson");
     expect(serialized).not.toContain("token");
     expect(serialized).not.toContain("DATABASE_PATH");
@@ -289,6 +296,12 @@ describe("activity dashboard repository and routes", () => {
     expect(dashboard?.charts.points.map((point) => point.elapsedSec)).toEqual([
       0, 900, 1800, 2700,
     ]);
+    expect(dashboard?.charts.points.map((point) => point.gradePct)).toEqual([
+      null,
+      null,
+      null,
+      null,
+    ]);
     expect(dashboard?.charts).toMatchObject({
       domainStartSec: 0,
       domainEndSec: 3600,
@@ -296,6 +309,29 @@ describe("activity dashboard repository and routes", () => {
     });
     expect(dashboard?.charts.timeScaleMessage).toMatch(/record timestamps/);
     expect(JSON.stringify(dashboard)).not.toContain("2026-08-01T07:15");
+  });
+
+  it("computes selected chart grade only from safe adjacent distance and altitude samples", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, distance: 0, altitude_m: 1000 },
+          { elapsed_time_s: 60, distance: 200, altitude_m: 1010 },
+          { elapsed_time_s: 120, distance: 700, altitude_m: 1000 },
+          { elapsed_time_s: 180, distance: 700, altitude_m: 1020 },
+        ],
+      }),
+    );
+
+    const dashboard = repo.getActivityDashboardDetail("111111");
+
+    expect(dashboard?.charts.points.map((point) => point.gradePct)).toEqual([
+      5,
+      5,
+      -2,
+      null,
+    ]);
   });
 
   it("labels sample-index-only chart timing instead of stretching it to activity duration", async () => {
@@ -792,6 +828,7 @@ describe("activity dashboard repository and routes", () => {
       heartRate: 130,
       altitudeMeters: 1000,
       speedKmh: null,
+      gradePct: null,
     });
     expect(detailPayload.route).toMatchObject({
       status: "missing_gps",

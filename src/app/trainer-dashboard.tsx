@@ -352,6 +352,7 @@ type ActivityDashboardPayload = {
       heartRate: number | null;
       altitudeMeters: number | null;
       speedKmh?: number | null;
+      gradePct: number | null;
     }>;
   };
   route: {
@@ -708,6 +709,7 @@ function averageSpeedLabel(avgSpeedMps: number | null | undefined) {
 type ChartSeriesPoint = {
   elapsedSec: number;
   value: number;
+  readoutDetail: string | null;
   x: number;
   y: number;
 };
@@ -763,7 +765,11 @@ function chartYCoordinate(
 }
 
 function chartSeriesCoordinates(
-  points: Array<{ elapsedSec: number; value: number }>,
+  points: Array<{
+    elapsedSec: number;
+    value: number;
+    readoutDetail: string | null;
+  }>,
   model: ChartPlotModel,
   minY: number,
   maxY: number,
@@ -807,6 +813,15 @@ function chartValueLabel(
   return suffix ? `${selectedValue} · ${suffix}` : selectedValue;
 }
 
+function gradeReadoutLabel(gradePct: number | null | undefined) {
+  if (typeof gradePct !== "number" || !Number.isFinite(gradePct)) {
+    return "Grade unavailable";
+  }
+  const rounded = Math.round(gradePct * 10) / 10;
+  const sign = rounded > 0 ? "+" : "";
+  return `Grade ${sign}${rounded.toFixed(1)}%`;
+}
+
 function finiteChartAverage(values: Array<number | null | undefined>) {
   const finiteValues = values.filter(
     (value): value is number =>
@@ -835,6 +850,7 @@ function MiniLineChart({
   formatValue = (value) => chartNumberLabel(value, unit),
   averageValue,
   averageLabel = (value) => `Avg ${formatValue(value)}`,
+  readoutDetail,
   note,
 }: {
   title: string;
@@ -846,6 +862,9 @@ function MiniLineChart({
   formatValue?: (value: number) => string;
   averageValue?: number | null;
   averageLabel?: (value: number) => string;
+  readoutDetail?: (
+    point: ActivityDashboardPayload["charts"]["points"][number],
+  ) => string | null;
   note?: string;
 }) {
   const width = 320;
@@ -859,6 +878,7 @@ function MiniLineChart({
     .map((point) => ({
       elapsedSec: point.elapsedSec,
       value: point[valueKey]!,
+      readoutDetail: readoutDetail?.(point) ?? null,
     }));
   if (series.length < 2) {
     return (
@@ -887,6 +907,9 @@ function MiniLineChart({
       : null;
   const chartPoints = chartSeriesCoordinates(series, model, min, max);
   const selectedPoint = chartPoints[activeIndex ?? 0];
+  const readoutSuffix = [selectedPoint.readoutDetail, averageLine?.label]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
   const polyline = chartPolyline(chartPoints);
   function setNearestPoint(x: number) {
     const boundedX = clamp(x, model.plotLeft, model.plotRight);
@@ -957,7 +980,7 @@ function MiniLineChart({
         ) : null}
       </svg>
       <p className="activity-chart-readout" aria-live="polite">
-        {chartValueLabel(selectedPoint, formatValue, averageLine?.label)}
+        {chartValueLabel(selectedPoint, formatValue, readoutSuffix || null)}
       </p>
       {note ? <p className="activity-chart-note">{note}</p> : null}
     </figure>
@@ -3612,6 +3635,9 @@ export function TrainerDashboard() {
                       valueKey="altitudeMeters"
                       domainStartSec={activityDashboard.charts.domainStartSec}
                       domainEndSec={activityDashboard.charts.domainEndSec}
+                      readoutDetail={(point) =>
+                        gradeReadoutLabel(point.gradePct)
+                      }
                     />
                   ) : (
                     <div className="activity-chart empty-state">
