@@ -1486,6 +1486,19 @@ describe("TrainerDashboard activity charts", () => {
     fireEvent.click(await screen.findByText("Morning Trail Run"));
 
     expect(await screen.findByText("Detail: available")).toBeTruthy();
+    const summaryStats = screen.getByLabelText(
+      "Selected activity summary stats",
+    );
+    expect(summaryStats.textContent).toContain("Duration");
+    expect(summaryStats.textContent).toContain("Distance");
+    expect(summaryStats.textContent).toContain("Elevation gain");
+    expect(summaryStats.textContent).toContain("Elevation loss");
+    expect(summaryStats.textContent).toContain("Calories");
+    expect(summaryStats.textContent).toContain("Avg HR");
+    expect(summaryStats.textContent).toContain("Max HR");
+    expect(summaryStats.textContent).toContain("Steps");
+    expect(summaryStats.textContent).not.toContain("Detail records");
+    expect(screen.queryByText("Detail records")).toBeNull();
     expect(screen.getByText("Heart rate")).toBeTruthy();
     expect(screen.getByText("Elevation profile")).toBeTruthy();
     expect(screen.getByText("Speed")).toBeTruthy();

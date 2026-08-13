@@ -3480,10 +3480,6 @@ export function TrainerDashboard() {
                     <strong>Steps</strong>
                     {numberLabel(activityDashboard.activity.steps)}
                   </span>
-                  <span>
-                    <strong>Detail records</strong>
-                    {activityDashboard.detail.recordCount.toLocaleString()}
-                  </span>
                 </div>
                 <div className="activity-chart-grid">
                   {activityDashboard.detail.hasHeartRate ? (
