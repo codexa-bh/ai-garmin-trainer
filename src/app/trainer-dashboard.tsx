@@ -3949,7 +3949,6 @@ export function TrainerDashboard() {
                           (point) => point.speedKmh,
                         ),
                       )}
-                      note="60-second moving average from normalized cumulative distance and elapsed time."
                     />
                   ) : (
                     <div className="activity-chart empty-state">
