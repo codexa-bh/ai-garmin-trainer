@@ -6,6 +6,7 @@ import type {
   NormalizedDailyHealth,
 } from "../garmin/types";
 import type { RetrievedMemory } from "../memory/types";
+import type { TrainingPlanStatus } from "../db/repository";
 export { TRAINER_SYSTEM_PROMPT } from "./trainer-instructions";
 
 export type RecentConversationMessage = {
@@ -88,6 +89,18 @@ export type TrainerMemory = {
   reconfirmAfter: Date | null;
 };
 
+function formatTrainingPlan(
+  status: TrainingPlanStatus | null | undefined,
+): string {
+  if (!status?.plan)
+    return `Current Training Plan: none saved. A new chat should suggest creating one; do not persist a plan unless the user explicitly asks to create, save, revise, or update the Training Plan.`;
+  const plan = status.plan;
+  const stale = status.stale
+    ? `stale: revised more than ${status.staleAfterDays} days ago`
+    : `current within ${status.staleAfterDays} days`;
+  return `Current Training Plan (${stale}; revised ${plan.revisedAt.slice(0, 10)}; title ${compactText(plan.title, 80)}):\n${compactText(plan.contentMarkdown, 2200)}`;
+}
+
 function formatBodyMetrics(
   bodyMetrics: GarminBodyMetricsDto | null | undefined,
 ): string {
@@ -158,6 +171,7 @@ export function buildTrainerContext(input: {
   bodyMetrics?: GarminBodyMetricsDto | null;
   learnedMemories?: TrainerMemory[];
   retrievedMemories?: RetrievedMemory[];
+  trainingPlan?: TrainingPlanStatus;
   recentMessages: string[];
 }): string {
   const recentActivities = input.activities.slice(0, 8).map((a) => {
@@ -214,6 +228,7 @@ export function buildTrainerContext(input: {
     `Legacy confirmed memories pending semantic migration:\n${legacyMemories.join("\n") || "None"}`,
     formatAthleteBaseline(input.athleteBaseline),
     formatBodyMetrics(input.bodyMetrics),
+    formatTrainingPlan(input.trainingPlan),
     `Recent activities:\n${recentActivities.join("\n") || "No activities imported"}`,
     `Recovery:\n${health.join("\n") || "No recovery data imported"}`,
     `Recent conversation:\n${input.recentMessages.join("\n")}`,

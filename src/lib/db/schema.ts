@@ -346,6 +346,14 @@ export const semanticMemory = sqliteTable("semantic_memory", {
   expiresAt: integer("expires_at", { mode: "timestamp" }),
 });
 
+export const trainingPlan = sqliteTable("training_plan", {
+  id: text("id").primaryKey().default("default"),
+  title: text("title").notNull(),
+  contentMarkdown: text("content_markdown").notNull(),
+  revisedAt: integer("revised_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 export const appMetadata = sqliteTable("app_metadata", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

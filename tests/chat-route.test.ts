@@ -154,6 +154,26 @@ const runMathAnalysis = vi.fn(
     privacy: "math privacy",
   }),
 );
+let savedTrainingPlan: {
+  title: string;
+  contentMarkdown: string;
+  revisedAt: string;
+} | null = null;
+const replaceTrainingPlan = vi.fn(
+  (input: { title?: string; contentMarkdown: string }) => {
+    savedTrainingPlan = {
+      title: input.title ?? "Training Plan",
+      contentMarkdown: input.contentMarkdown,
+      revisedAt: "2026-08-12T12:00:00.000Z",
+    };
+    return savedTrainingPlan;
+  },
+);
+const trainingPlanStatus = vi.fn(() => ({
+  plan: savedTrainingPlan,
+  stale: !savedTrainingPlan,
+  staleAfterDays: 14,
+}));
 
 const generateText = vi.fn(
   async (options: { prompt: string; system: string; toolChoice?: string }) => {
@@ -189,6 +209,11 @@ const generateText = vi.fn(
     if (options.system.includes("Evidence step 1: runGarminSync")) {
       return {
         text: "Garmin sync complete; the local normalized store was updated.",
+      };
+    }
+    if (options.system.includes("Evidence step 1: saveTrainingPlan")) {
+      return {
+        text: "Saved your Training Plan with an aerobic base week and recovery day.",
       };
     }
     if (
@@ -269,6 +294,25 @@ const generateText = vi.fn(
             input: { garminId: "123456" },
           },
         ],
+      };
+    }
+    if (prompt.includes("Create my Training Plan")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "saveTrainingPlan",
+            input: {
+              title: "Aerobic base plan",
+              contentMarkdown:
+                "# Aerobic base plan\n- Easy hike\n- Recovery day",
+            },
+          },
+        ],
+      };
+    }
+    if (prompt.includes("Discuss a possible plan")) {
+      return {
+        text: "We can discuss a plan draft here, but I will not save it unless you explicitly ask me to update the Training Plan.",
       };
     }
     if (prompt.includes("Compare 111111")) {
@@ -478,6 +522,10 @@ vi.mock("@/lib/db/repository", () => ({
       (message) => message.conversationId !== conversationId,
     );
   }),
+  trainingPlanStatus,
+  replaceTrainingPlan,
+  TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
+  TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
   getGarminBodyMetrics: () => ({
     availability: "partial",
     source: "garmin_mcp",
@@ -644,6 +692,9 @@ describe("chat route LLM tool orchestration", () => {
     runReadOnlySql.mockClear();
     runMathAnalysis.mockClear();
     verifyActivityReference.mockClear();
+    replaceTrainingPlan.mockClear();
+    trainingPlanStatus.mockClear();
+    savedTrainingPlan = null;
   });
 
   it("lets the planner select local sync status and returns ordered grounding", async () => {
@@ -699,6 +750,27 @@ describe("chat route LLM tool orchestration", () => {
     expect(runGarminSync).toHaveBeenCalledOnce();
     expect(payload.toolEvidence?.tool).toBe("runGarminSync");
     expect(payload.assistant.content).toContain("sync complete");
+  });
+
+  it("saves the Training Plan only for explicit update requests", async () => {
+    const payload = await postChat("Create my Training Plan for the next week");
+
+    expect(replaceTrainingPlan).toHaveBeenCalledWith({
+      title: "Aerobic base plan",
+      contentMarkdown: "# Aerobic base plan\n- Easy hike\n- Recovery day",
+    });
+    expect(savedTrainingPlan?.title).toBe("Aerobic base plan");
+    expect(payload.toolEvidence?.tool).toBe("saveTrainingPlan");
+    expect(payload.assistant.content).toContain("Saved your Training Plan");
+  });
+
+  it("does not persist non-explicit Training Plan discussion", async () => {
+    const payload = await postChat("Discuss a possible plan for next week");
+
+    expect(replaceTrainingPlan).not.toHaveBeenCalled();
+    expect(savedTrainingPlan).toBeNull();
+    expect(payload.toolEvidence).toBeNull();
+    expect(payload.assistant.content).toContain("will not save it unless");
   });
 
   it("runs forced targeted refresh with preservation evidence", async () => {

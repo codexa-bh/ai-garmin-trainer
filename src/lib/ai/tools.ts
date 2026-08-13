@@ -8,6 +8,9 @@ import {
   getGarminAthleteBaseline,
   getGarminBodyMetrics,
   listActivityDetailAvailability,
+  replaceTrainingPlan,
+  TRAINING_PLAN_CONTENT_MAX_LENGTH,
+  TRAINING_PLAN_TITLE_MAX_LENGTH,
   verifyActivityReference,
   type ActivityReferenceInput,
   type ActivityVerificationEvidence,
@@ -57,7 +60,8 @@ export type TrainerToolName =
   | "getActivityDetailSlice"
   | "describeGarminDatabase"
   | "runReadOnlySql"
-  | "runMathAnalysis";
+  | "runMathAnalysis"
+  | "saveTrainingPlan";
 
 const emptyInputSchema = z.object({}).strict();
 
@@ -153,6 +157,21 @@ export const trainerToolInputSchemas = {
       outputName: sqlResultNameSchema,
     })
     .strict(),
+  saveTrainingPlan: z
+    .object({
+      title: z
+        .string()
+        .trim()
+        .min(1)
+        .max(TRAINING_PLAN_TITLE_MAX_LENGTH)
+        .optional(),
+      contentMarkdown: z
+        .string()
+        .trim()
+        .min(1)
+        .max(TRAINING_PLAN_CONTENT_MAX_LENGTH),
+    })
+    .strict(),
 } satisfies Record<TrainerToolName, z.ZodTypeAny>;
 
 export const trainerToolDefinitions = {
@@ -200,6 +219,11 @@ export const trainerToolDefinitions = {
     description:
       "Run bounded TypeScript math over a prior same-turn runReadOnlySql result handle. Supports model-selected scoring/custom formulas over numeric columns, normalization/ranking, simple aggregation/grouping, summaries, ordering, and top-N output. Formulas can contain only column names, numbers, parentheses, and + - * / operators; null/missing numeric values are treated as zero. No demand-specific rubrics, scripts, DB/filesystem/network/process/environment/connector access.",
     inputSchema: trainerToolInputSchemas.runMathAnalysis,
+  }),
+  saveTrainingPlan: tool({
+    description:
+      "Replace the single current local Training Plan only when the current user explicitly asks to create, save, revise, or update the Training Plan. Accepts freeform Markdown authored from the conversation and bounded evidence. Do not use for ordinary coaching, discussion, stale suggestions, hidden drafts, Garmin/device/calendar writes, or implicit overwrites.",
+    inputSchema: trainerToolInputSchemas.saveTrainingPlan,
   }),
 } satisfies Record<TrainerToolName, unknown>;
 
@@ -456,6 +480,26 @@ export async function executeTrainerTool(input: {
           failureMessage:
             result.status === "succeeded" ? undefined : result.message,
           result,
+        };
+      }
+      case "saveTrainingPlan": {
+        const args = input.args as { title?: string; contentMarkdown: string };
+        const plan = replaceTrainingPlan({
+          title: args.title,
+          contentMarkdown: args.contentMarkdown,
+        });
+        return {
+          index: input.index,
+          tool: input.toolName,
+          status: "succeeded",
+          summary: `Saved Training Plan "${boundedText(plan.title, 80)}" with ${plan.contentMarkdown.length} Markdown characters; revised ${plan.revisedAt}.`,
+          privacy:
+            "Local singleton Training Plan write only; no Garmin/device/calendar write-back and no raw credentials, paths, or connector data exposed.",
+          result: {
+            title: plan.title,
+            contentLength: plan.contentMarkdown.length,
+            revisedAt: plan.revisedAt,
+          },
         };
       }
       case "getActivityDetailSlice": {

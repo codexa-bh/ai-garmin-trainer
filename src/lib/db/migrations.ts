@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 10;
+export const LATEST_SCHEMA_VERSION = 11;
 export const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -18,6 +18,8 @@ const BODY_METRICS_SCHEMA_SQL = [
   `create table if not exists garmin_body_metric_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0)`,
   `create table if not exists garmin_body_weight_history (date text primary key, weight_kg real not null, source text not null, fetched_at integer not null)`,
 ];
+
+const TRAINING_PLAN_TABLE_SQL = `create table if not exists training_plan (id text primary key default 'default', title text not null, content_markdown text not null, revised_at integer not null, updated_at integer not null)`;
 
 const BASE_SCHEMA_SQL = [
   `create table if not exists user (id text primary key, name text, email text not null unique, email_verified integer default 0, image text, created_at integer not null, updated_at integer not null)`,
@@ -45,6 +47,7 @@ const BASE_SCHEMA_SQL = [
   `create table if not exists semantic_memory (id text primary key, user_id text not null, kind text not null, text text not null, status text not null, embedding_json text not null, embedding_model text not null, source_conversation_id text, source_message_ids_json text not null default '[]', source text not null, created_at integer not null, updated_at integer not null, expires_at integer)`,
   `create index if not exists semantic_memory_user_status_idx on semantic_memory(user_id, status, updated_at)`,
   `create index if not exists semantic_memory_conversation_idx on semantic_memory(source_conversation_id)`,
+  TRAINING_PLAN_TABLE_SQL,
   `create table if not exists app_metadata (key text primary key, value text not null, updated_at integer not null)`,
 ];
 
@@ -143,6 +146,11 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     name: "garmin_body_metrics",
     statements: BODY_METRICS_SCHEMA_SQL,
   },
+  {
+    version: 11,
+    name: "training_plan_singleton",
+    statements: [TRAINING_PLAN_TABLE_SQL],
+  },
 ];
 
 export function createSchemaSql(): string[] {
@@ -180,6 +188,7 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "garmin_body_weight_history",
     "garmin_raw_payload",
     "activity_hr_zone_time",
+    "training_plan",
   ];
   return tables.some((table) => {
     if (!hasTable(db, table)) return false;

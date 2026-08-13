@@ -8,6 +8,9 @@ vi.mock("@/lib/db/repository", () => ({
   getActivityDetailForAnalytics: vi.fn(),
   getGarminAthleteBaseline: vi.fn(),
   listActivityDetailAvailability: vi.fn(),
+  replaceTrainingPlan: vi.fn(),
+  TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
+  TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
   verifyActivityReference: vi.fn(),
 }));
 vi.mock("@/lib/garmin/importer", () => ({
@@ -40,6 +43,7 @@ describe("trainer tool registry schemas", async () => {
         "runGarminSync",
         "runMathAnalysis",
         "runReadOnlySql",
+        "saveTrainingPlan",
         "verifyActivityReference",
       ].sort(),
     );
@@ -83,6 +87,17 @@ describe("trainer tool registry schemas", async () => {
       trainerToolInputSchemas.runMathAnalysis.safeParse({
         inputResult: "top_activities",
         operation: "sportNormalizedDemand",
+      }).success,
+    ).toBe(false);
+    expect(
+      trainerToolInputSchemas.saveTrainingPlan.safeParse({
+        title: "Base plan",
+        contentMarkdown: "# Week 1\n- Easy hike",
+      }).success,
+    ).toBe(true);
+    expect(
+      trainerToolInputSchemas.saveTrainingPlan.safeParse({
+        contentMarkdown: " ",
       }).success,
     ).toBe(false);
   });

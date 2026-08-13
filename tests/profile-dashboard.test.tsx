@@ -2865,3 +2865,94 @@ describe("TrainerDashboard transcript scrolling", () => {
     await waitFor(() => expect(transcript.scrollTop).toBe(1000));
   });
 });
+
+describe("TrainerDashboard Training Plan section", () => {
+  it("shows a new-chat suggestion when no Training Plan exists", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/training-plan")
+        return jsonResponse({ plan: null, stale: true, staleAfterDays: 14 });
+      return jsonResponse({ ok: true, conversations: [], memories: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(await screen.findByText("No Training Plan saved yet.")).toBeTruthy();
+    expect(screen.getByText(/Ask chat to create it/)).toBeTruthy();
+  });
+
+  it("opens Training Plan, renders safe Markdown, and supports manual save/cancel", async () => {
+    let storedPlan = {
+      title: "Summit base",
+      contentMarkdown: "# Week 1\n- Easy hike\n[bad](javascript:alert(1))",
+      revisedAt: "2026-08-01T09:00:00.000Z",
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/training-plan" && (!init || init.method === "GET"))
+        return jsonResponse({
+          plan: storedPlan,
+          stale: true,
+          staleAfterDays: 14,
+        });
+      if (url === "/api/training-plan" && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        storedPlan = {
+          title: body.title,
+          contentMarkdown: body.contentMarkdown,
+          revisedAt: "2026-08-12T12:00:00.000Z",
+        };
+        return jsonResponse({ plan: storedPlan });
+      }
+      return jsonResponse({ ok: true, conversations: [], memories: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Training Plan" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Summit base" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Week 1")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "bad" })).toBeNull();
+    expect(screen.getByText("bad")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByDisplayValue("Summit base"), {
+      target: { value: "Revised base" },
+    });
+    fireEvent.change(screen.getByDisplayValue(/Easy hike/), {
+      target: { value: "## Revised\n- Hill repeats" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByDisplayValue("Revised base")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByDisplayValue("Summit base"), {
+      target: { value: "Revised base" },
+    });
+    fireEvent.change(screen.getByDisplayValue(/Easy hike/), {
+      target: { value: "## Revised\n- Hill repeats" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Revised base" }),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText("Hill repeats")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/training-plan",
+      expect.objectContaining({ method: "PUT" }),
+    );
+  });
+});

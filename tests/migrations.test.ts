@@ -53,6 +53,13 @@ describe("versioned SQLite migration foundation", () => {
         .get(),
     ).toBeTruthy();
     expect(
+      db
+        .prepare(
+          "select name from sqlite_master where type = 'table' and name = 'training_plan'",
+        )
+        .get(),
+    ).toBeTruthy();
+    expect(
       (
         db.prepare("pragma table_info(conversation)").all() as Array<{
           name: string;
@@ -124,6 +131,27 @@ describe("versioned SQLite migration foundation", () => {
     expect(
       db.prepare("select status from garmin_athlete_baseline_attempt").get(),
     ).toEqual({ status: "partial" });
+    db.close();
+  });
+
+  it("adds Training Plan storage without mutating existing local data", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      create table app_metadata (key text primary key, value text not null, updated_at integer not null);
+      insert into app_metadata (key, value, updated_at) values ('schema_version', '10', 1);
+      create table conversation (id text primary key, title text not null, manual_title integer not null default 0, created_at integer not null, updated_at integer not null);
+      insert into conversation (id, title, manual_title, created_at, updated_at) values ('default', 'Existing chat', 0, 1, 1);
+    `);
+
+    const result = migrateDatabase(db);
+
+    expect(result.applied).toContain("11:training_plan_singleton");
+    expect(
+      db.prepare("select title from conversation where id = 'default'").get(),
+    ).toEqual({ title: "Existing chat" });
+    expect(
+      db.prepare("select count(*) as count from training_plan").get(),
+    ).toEqual({ count: 0 });
     db.close();
   });
 

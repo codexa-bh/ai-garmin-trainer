@@ -157,6 +157,18 @@ type TrainerProfilePayload = {
   constraints: string[];
 };
 type ProfileResponse = { ok?: boolean; profile?: TrainerProfilePayload };
+type TrainingPlanPayload = {
+  plan: TrainingPlan | null;
+  stale: boolean;
+  staleAfterDays: number;
+};
+type TrainingPlanResponse = { plan: TrainingPlan };
+type TrainingPlan = {
+  title: string;
+  contentMarkdown: string;
+  revisedAt: string;
+};
+type TrainingPlanState = "idle" | "loading" | "loaded" | "error";
 type AthleteBaselineAvailability =
   "complete" | "partial" | "unavailable" | "failed";
 type AthleteBaselinePayload = {
@@ -1785,6 +1797,21 @@ export function TrainerDashboard() {
   );
   const [detailGarminId, setDetailGarminId] = useState("");
   const [activityDashboardOpen, setActivityDashboardOpen] = useState(false);
+  const [trainingPlanOpen, setTrainingPlanOpen] = useState(false);
+  const [trainingPlan, setTrainingPlan] = useState<TrainingPlan | null>(null);
+  const [trainingPlanStale, setTrainingPlanStale] = useState(true);
+  const [trainingPlanStaleAfterDays, setTrainingPlanStaleAfterDays] =
+    useState(14);
+  const [trainingPlanState, setTrainingPlanState] =
+    useState<TrainingPlanState>("idle");
+  const [trainingPlanMessage, setTrainingPlanMessage] = useState(
+    "Training Plan will load from local SQLite.",
+  );
+  const [trainingPlanEditing, setTrainingPlanEditing] = useState(false);
+  const [trainingPlanTitleDraft, setTrainingPlanTitleDraft] = useState("");
+  const [trainingPlanMarkdownDraft, setTrainingPlanMarkdownDraft] =
+    useState("");
+  const [trainingPlanSaving, setTrainingPlanSaving] = useState(false);
   const [activitySearchQuery, setActivitySearchQuery] = useState("");
   const [activities, setActivities] = useState<ActivityListItem[]>([]);
   const [activityListState, setActivityListState] = useState<
@@ -1825,6 +1852,9 @@ export function TrainerDashboard() {
   const activityDashboardButtonRef = useRef<HTMLButtonElement>(null);
   const activityDashboardCloseRef = useRef<HTMLButtonElement>(null);
   const activityDashboardReturnFocusRef = useRef(false);
+  const trainingPlanButtonRef = useRef<HTMLButtonElement>(null);
+  const trainingPlanCloseRef = useRef<HTMLButtonElement>(null);
+  const trainingPlanReturnFocusRef = useRef(false);
   const activityListRequestRef = useRef(0);
   const activityListQueryRef = useRef("");
   const activityListLoadedCountRef = useRef(0);
@@ -1916,6 +1946,7 @@ export function TrainerDashboard() {
     void loadConversations(false);
     void loadMemories(false);
     void loadProfile("startup");
+    void loadTrainingPlan("startup", false);
     void loadImportSummary("startup", false);
   }, []);
   useEffect(() => {
@@ -1943,6 +1974,10 @@ export function TrainerDashboard() {
         settingsButtonRef.current?.focus();
         return;
       }
+      if (trainingPlanOpen) {
+        closeTrainingPlan();
+        return;
+      }
       if (activityDashboardOpen) {
         closeActivityDashboard();
         return;
@@ -1959,6 +1994,7 @@ export function TrainerDashboard() {
     openConversationMenuId,
     renameTarget,
     activityDashboardOpen,
+    trainingPlanOpen,
     settingsOpen,
   ]);
   useEffect(() => {
@@ -1974,6 +2010,17 @@ export function TrainerDashboard() {
       activityDashboardButtonRef.current?.focus();
     }
   }, [activityDashboardOpen]);
+  useEffect(() => {
+    if (trainingPlanOpen) {
+      trainingPlanCloseRef.current?.focus();
+      void loadTrainingPlan("manual", false);
+      return;
+    }
+    if (trainingPlanReturnFocusRef.current) {
+      trainingPlanReturnFocusRef.current = false;
+      trainingPlanButtonRef.current?.focus();
+    }
+  }, [trainingPlanOpen]);
   useEffect(() => {
     if (!activityDashboardOpen) return;
     void loadActivities(activitySearchQuery);
@@ -2431,6 +2478,121 @@ export function TrainerDashboard() {
   function closeActivityDashboard() {
     activityDashboardReturnFocusRef.current = true;
     setActivityDashboardOpen(false);
+  }
+
+  function closeTrainingPlan() {
+    trainingPlanReturnFocusRef.current = true;
+    setTrainingPlanOpen(false);
+    setTrainingPlanEditing(false);
+  }
+
+  function applyTrainingPlanPayload(payload: TrainingPlanPayload) {
+    setTrainingPlan(payload.plan);
+    setTrainingPlanStale(payload.stale);
+    setTrainingPlanStaleAfterDays(payload.staleAfterDays);
+    setTrainingPlanState("loaded");
+    setTrainingPlanTitleDraft(payload.plan?.title ?? "Training Plan");
+    setTrainingPlanMarkdownDraft(payload.plan?.contentMarkdown ?? "");
+    setTrainingPlanMessage(
+      payload.plan
+        ? payload.stale
+          ? `Training Plan is older than ${payload.staleAfterDays} days. Review or revise when useful.`
+          : "Training Plan loaded from local SQLite."
+        : "No Training Plan saved yet. Ask chat to create one or write it manually.",
+    );
+  }
+
+  async function loadTrainingPlan(
+    trigger: "startup" | "manual" | "chat-save",
+    showStatus = true,
+  ) {
+    setTrainingPlanState("loading");
+    if (showStatus)
+      setStatus({ kind: "busy", message: "Training Plan: loading…" });
+    try {
+      const payload = await readJsonResponse<TrainingPlanPayload>(
+        await fetch("/api/training-plan", { method: "GET" }),
+      );
+      applyTrainingPlanPayload(payload);
+      if (showStatus)
+        setStatus({
+          kind: "ok",
+          message: payload.plan
+            ? `Training Plan: loaded ${payload.plan.title}.`
+            : "Training Plan: no saved plan yet.",
+        });
+    } catch (error) {
+      setTrainingPlanState("error");
+      setTrainingPlanMessage(
+        `Training Plan load failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      if (showStatus || trigger === "manual")
+        setStatus({
+          kind: "error",
+          message: `Training Plan load failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        });
+    }
+  }
+
+  function startTrainingPlanEdit() {
+    setTrainingPlanTitleDraft(trainingPlan?.title ?? "Training Plan");
+    setTrainingPlanMarkdownDraft(trainingPlan?.contentMarkdown ?? "");
+    setTrainingPlanEditing(true);
+  }
+
+  function cancelTrainingPlanEdit() {
+    setTrainingPlanTitleDraft(trainingPlan?.title ?? "Training Plan");
+    setTrainingPlanMarkdownDraft(trainingPlan?.contentMarkdown ?? "");
+    setTrainingPlanEditing(false);
+    setTrainingPlanMessage(
+      "Training Plan edit cancelled; saved content is unchanged.",
+    );
+  }
+
+  async function saveTrainingPlan() {
+    if (trainingPlanSaving) return;
+    const contentMarkdown = trainingPlanMarkdownDraft.trim();
+    if (!contentMarkdown) {
+      setTrainingPlanMessage(
+        "Training Plan save failed: Markdown content is required.",
+      );
+      return;
+    }
+    setTrainingPlanSaving(true);
+    setTrainingPlanMessage("Saving Training Plan to local SQLite…");
+    setStatus({ kind: "busy", message: "Training Plan: saving…" });
+    try {
+      const payload = await readJsonResponse<TrainingPlanResponse>(
+        await fetch("/api/training-plan", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            title: trainingPlanTitleDraft,
+            contentMarkdown,
+          }),
+        }),
+      );
+      setTrainingPlan(payload.plan);
+      setTrainingPlanStale(false);
+      setTrainingPlanTitleDraft(payload.plan.title);
+      setTrainingPlanMarkdownDraft(payload.plan.contentMarkdown);
+      setTrainingPlanEditing(false);
+      setTrainingPlanState("loaded");
+      setTrainingPlanMessage(
+        "Training Plan saved and rendered from local SQLite.",
+      );
+      setStatus({ kind: "ok", message: "Training Plan: saved." });
+    } catch (error) {
+      setTrainingPlanMessage(
+        `Training Plan save failed; edits are still in the form: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      setStatus({
+        kind: "error",
+        message: `Training Plan save failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      });
+    } finally {
+      setTrainingPlanSaving(false);
+    }
   }
 
   async function loadActivities(query: string, offset = 0, append = false) {
@@ -2928,9 +3090,12 @@ export function TrainerDashboard() {
             : event.memoryProposal.status === "skipped"
               ? ` Memory not proposed: ${event.memoryProposal.reason}`
               : "";
+        const savedTrainingPlan =
+          event.assistantMessage.grounding?.tool === "saveTrainingPlan";
         void event.memoryProposal;
         void loadMemories(false);
         void loadConversations(false);
+        if (savedTrainingPlan) void loadTrainingPlan("chat-save", false);
         setStatus({
           kind: "ok",
           message: `Chat: streamed response complete. Active chat context selected ${event.contextWindow} of ${event.historyLimit} session lines.${memorySuffix}`,
@@ -2973,6 +3138,8 @@ export function TrainerDashboard() {
         setContextWindow(payload.contextWindow ?? nextMessages.length);
         setHistoryLimit(payload.historyLimit ?? historyLimit);
         if (payload.memoryProposal) void loadMemories(false);
+        if (payload.toolEvidence?.tool === "saveTrainingPlan")
+          void loadTrainingPlan("chat-save", false);
         setStatus({
           kind: "ok",
           message: `Chat: response complete. Active chat context selected ${payload.contextWindow ?? nextMessages.length} of ${payload.historyLimit ?? historyLimit} session lines.`,
@@ -3031,10 +3198,10 @@ export function TrainerDashboard() {
 
   return (
     <section
-      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""}`}
+      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""}`}
       aria-label="AI trainer dashboard"
     >
-      {!activityDashboardOpen ? (
+      {!activityDashboardOpen && !trainingPlanOpen ? (
         <header className="app-topbar">
           <button
             type="button"
@@ -3082,6 +3249,16 @@ export function TrainerDashboard() {
             aria-expanded={activityDashboardOpen}
           >
             Activity charts
+          </button>
+          <button
+            type="button"
+            className="chrome-button"
+            onClick={() => setTrainingPlanOpen(true)}
+            ref={trainingPlanButtonRef}
+            aria-label="Training Plan"
+            aria-expanded={trainingPlanOpen}
+          >
+            Training Plan
           </button>
           <button
             type="button"
@@ -3366,7 +3543,143 @@ export function TrainerDashboard() {
         </section>
       ) : null}
 
-      {!activityDashboardOpen ? (
+      {trainingPlanOpen ? (
+        <section
+          className="training-plan-panel"
+          aria-label="Training Plan section"
+        >
+          <div className="activity-dashboard-header">
+            <div>
+              <p className="section-kicker">Training Plan</p>
+              <h1>{trainingPlan?.title ?? "Training Plan"}</h1>
+            </div>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={closeTrainingPlan}
+              ref={trainingPlanCloseRef}
+              aria-label="Back to chat"
+            >
+              Back to chat
+            </button>
+          </div>
+          <div className="training-plan-content">
+            <div className="training-plan-toolbar">
+              <div>
+                <p className="activity-dashboard-status">
+                  {trainingPlanMessage}
+                </p>
+                {trainingPlan ? (
+                  <p className="training-plan-meta">
+                    Last revised {dateLabel(trainingPlan.revisedAt)} ·{" "}
+                    {trainingPlanStale
+                      ? `Stale after ${trainingPlanStaleAfterDays} days`
+                      : "Current"}
+                  </p>
+                ) : null}
+              </div>
+              <div className="training-plan-actions">
+                <button
+                  type="button"
+                  className="chrome-button"
+                  onClick={() => void loadTrainingPlan("manual")}
+                  disabled={
+                    trainingPlanState === "loading" || trainingPlanSaving
+                  }
+                >
+                  Reload
+                </button>
+                {!trainingPlanEditing ? (
+                  <button
+                    type="button"
+                    className="primary-action compact"
+                    onClick={startTrainingPlanEdit}
+                    disabled={trainingPlanState === "loading"}
+                  >
+                    {trainingPlan ? "Edit" : "Create"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {trainingPlanState === "loading" ? (
+              <p className="empty-chat">Loading Training Plan…</p>
+            ) : trainingPlanEditing ? (
+              <form
+                className="training-plan-editor"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveTrainingPlan();
+                }}
+              >
+                <label>
+                  <span>Title</span>
+                  <input
+                    type="text"
+                    value={trainingPlanTitleDraft}
+                    onChange={(event) =>
+                      setTrainingPlanTitleDraft(event.currentTarget.value)
+                    }
+                    maxLength={120}
+                  />
+                </label>
+                <label>
+                  <span>Markdown plan</span>
+                  <textarea
+                    value={trainingPlanMarkdownDraft}
+                    onChange={(event) =>
+                      setTrainingPlanMarkdownDraft(event.currentTarget.value)
+                    }
+                    placeholder="Write a freeform Markdown training plan…"
+                  />
+                </label>
+                <div className="training-plan-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={cancelTrainingPlanEdit}
+                    disabled={trainingPlanSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary-action compact"
+                    disabled={
+                      trainingPlanSaving || !trainingPlanMarkdownDraft.trim()
+                    }
+                  >
+                    {trainingPlanSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </form>
+            ) : trainingPlan ? (
+              <article className="training-plan-report">
+                {trainingPlanStale ? (
+                  <p className="training-plan-stale">
+                    This plan is older than {trainingPlanStaleAfterDays} days.
+                    Ask chat to revise it when your goals or recent training
+                    have changed.
+                  </p>
+                ) : null}
+                <AssistantContent content={trainingPlan.contentMarkdown} />
+              </article>
+            ) : trainingPlanState === "error" ? (
+              <p className="empty-chat">
+                Training Plan could not be loaded. Try Reload.
+              </p>
+            ) : (
+              <div className="empty-chat empty-chat-hero">
+                <p>
+                  No Training Plan is saved yet. Create one manually here, or
+                  ask chat: “Create my Training Plan.”
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      {!activityDashboardOpen && !trainingPlanOpen ? (
         <div className="chat-workspace">
           <aside
             className={`conversation-sidebar ${isConversationDrawerOpen ? "open" : ""}`}
@@ -3608,6 +3921,21 @@ export function TrainerDashboard() {
                     Garmin data, diagnostics, and privacy controls are in
                     Settings.
                   </p>
+                  {trainingPlanState === "loaded" &&
+                  (!trainingPlan || trainingPlanStale) ? (
+                    <div className="training-plan-suggestion">
+                      <strong>
+                        {trainingPlan
+                          ? "Your Training Plan may be stale."
+                          : "No Training Plan saved yet."}
+                      </strong>
+                      <span>
+                        Ask chat to {trainingPlan ? "revise" : "create"} it, or
+                        open the Training Plan section to edit Markdown
+                        manually.
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {chatMessages.map((item) => (

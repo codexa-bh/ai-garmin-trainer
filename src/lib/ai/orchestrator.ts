@@ -33,6 +33,7 @@ const MAX_MATH_CALLS = 1;
 const SIDE_EFFECT_TOOLS = new Set<TrainerToolName>([
   "runGarminSync",
   "forceRefreshActivityDetail",
+  "saveTrainingPlan",
 ]);
 
 export type OrchestrateTrainerChatInput = {
@@ -112,7 +113,7 @@ function providerSelectionFailureText(step: TrainerToolStep): string {
   if (step.reason === "multiple_tool_calls")
     return "I tried to continue the local Garmin analysis, but the model selected multiple tools at once. I did not run an unsafe action. Please ask me to retry the ranking with one SQL query, or narrow the criteria you want me to use.";
   if (step.reason === "multiple_tool_calls_with_side_effect")
-    return "The model selected more than one tool, including a tool that can change local sync/detail state. I did not run those actions blindly. Please ask for the single sync, refresh, status, or analysis action you want next.";
+    return "The model selected more than one tool, including a tool that can change local sync/detail or Training Plan state. I did not run those actions blindly. Please ask for the single sync, refresh, status, analysis, or Training Plan update action you want next.";
   if (step.reason === "multiple_tool_calls_no_safe_tool")
     return "The model selected multiple tools, but none was safe and valid to run as the next single action. I did not execute them blindly; please retry with one narrower local Garmin request.";
   return "I could not select a safe local Garmin tool for that response, so I did not execute any tool. Please retry with one narrower request.";
@@ -257,7 +258,7 @@ function selectOneSafeToolCall(input: {
         stepIndex,
         "multiple_tool_calls_with_side_effect",
         "providerToolSelection",
-        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ")}); at least one can change local sync/detail state, so none was executed.`,
+        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ")}); at least one can change local sync/detail or Training Plan state, so none was executed.`,
       ),
     };
   }
