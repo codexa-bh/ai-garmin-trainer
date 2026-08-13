@@ -669,14 +669,19 @@ describe("TrainerDashboard Profile hydration", () => {
       "Training Plan",
       "Settings",
     ]);
-    expect(topbar.textContent).toContain("AI Trainer");
-    expect(topbar.textContent).toContain("Trainer chat");
+    const title = topbar.querySelector(".app-title");
+    expect(title?.textContent?.trim()).toBe("Garmin AI Trainer");
+    expect(title?.getAttribute("title")).toBe("Garmin AI Trainer");
+    expect(topbar.textContent).toContain("Garmin AI Trainer");
+    expect(topbar.textContent).not.toContain("⌁");
+    expect(topbar.textContent).not.toContain("Trainer chat");
 
     const css = readFileSync("src/app/style.css", "utf8");
     expect(css).toMatch(/@media \(min-width: 961px\)[\s\S]*\.app-topbar/);
     expect(css).toMatch(
-      /\.app-topbar \{\s*display: grid;\s*grid-template-columns: auto auto minmax\(0, 1fr\) auto auto auto auto;/,
+      /\.app-topbar \{\s*display: grid;\s*grid-template-columns: auto minmax\(0, 1fr\) auto auto auto auto;/,
     );
+    expect(css).toMatch(/\.app-title \{[\s\S]*text-overflow: ellipsis;/);
     expect(css).toMatch(
       /@media \(max-width: 960px\) \{\s*\.app-topbar \{\s*grid-template-columns: auto minmax\(0, 1fr\) auto auto auto auto;/,
     );
@@ -708,7 +713,9 @@ describe("TrainerDashboard Profile hydration", () => {
 
     expect(conversationToggle.getAttribute("aria-expanded")).toBe("true");
     expect(shell?.classList.contains("sidebar-collapsed")).toBe(false);
-    expect(screen.getByRole("heading", { name: "Trainer chat" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Garmin AI Trainer" }),
+    ).toBeTruthy();
     expect(screen.queryByText("AI Garmin Connect Trainer")).toBeNull();
 
     openSettings();

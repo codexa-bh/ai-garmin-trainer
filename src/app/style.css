@@ -86,7 +86,7 @@ body::before {
 
 .app-topbar {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
   gap: 14px;
   align-items: center;
   min-height: 64px;
@@ -110,7 +110,6 @@ body::before {
   }
 }
 
-.brand-lockup,
 .trainer-heading-row,
 .card-title-row,
 .button-row,
@@ -122,23 +121,6 @@ body::before {
   display: flex;
   gap: 10px;
   align-items: center;
-}
-
-.brand-lockup {
-  min-width: max-content;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-}
-
-.brand-mark {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border: 1px solid rgba(73, 214, 200, 0.44);
-  border-radius: 50%;
-  background: rgba(73, 214, 200, 0.12);
-  color: var(--accent);
 }
 
 .sync-now-button {
@@ -746,13 +728,14 @@ body::before {
   color: var(--muted);
 }
 
-.active-conversation-title {
+.app-title {
   min-width: 0;
   margin: 0;
   overflow: hidden;
   color: var(--text);
   font-size: clamp(15px, 2vw, 18px);
-  font-weight: 760;
+  font-weight: 800;
+  letter-spacing: 0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1562,10 +1545,6 @@ label {
     grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
   }
 
-  .brand-lockup {
-    display: none;
-  }
-
   .chat-workspace,
   .sidebar-collapsed .chat-workspace {
     grid-template-columns: 1fr;
@@ -1607,10 +1586,6 @@ label {
 }
 
 @media (max-width: 640px) {
-  .active-conversation-title {
-    display: none;
-  }
-
   .app-topbar {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
     gap: 8px;
