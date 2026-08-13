@@ -453,24 +453,34 @@ describe("activity dashboard repository and routes", () => {
     expect(dashboard?.charts.points[2].speedKmh).toBeCloseTo(27.568421053, 6);
   });
 
-  it("does not build selected-dashboard speed from GPS, summary, or lap distance when stream speed is missing", async () => {
+  it("does not build selected-dashboard speed from GPS, summary, lap, or average speed when stream speed is missing", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
-        session: { total_distance_m: 1000 },
-        laps: [{ lap_number: 1, total_elapsed_time_s: 600, distance: 1000 }],
+        session: { total_distance_m: 1000, avg_speed_mps: 2.5 },
+        laps: [
+          {
+            lap_number: 1,
+            total_elapsed_time_s: 600,
+            distance: 1000,
+            avg_speed_mps: 2.5,
+            averageSpeed: 2.5,
+          },
+        ],
         records: [
           {
             elapsed_time_s: 0,
             lat_deg: 46,
             lon_deg: 13,
             heart_rate_bpm: 130,
+            averageSpeed: 2.5,
           },
           {
             elapsed_time_s: 10,
             lat_deg: 46.001,
             lon_deg: 13.001,
             heart_rate_bpm: 132,
+            avg_speed_mps: 2.5,
           },
         ],
       }),
