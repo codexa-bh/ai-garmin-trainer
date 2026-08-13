@@ -644,6 +644,117 @@ describe("activity dashboard repository and routes", () => {
     expect(JSON.stringify(detailPayload)).not.toContain("token");
   });
 
+  it("serves lap average speed from source speed or distance-duration fallback", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail({
+      garminId: "111111",
+      fetchedAt: new Date("2026-08-01T07:00:00Z"),
+      source: "garmin-fit",
+      status: "available",
+      hasSession: false,
+      hasLaps: true,
+      hasStreams: false,
+      hasGps: false,
+      hasElevation: false,
+      hasHeartRate: false,
+      hasGrade: false,
+      hasPower: false,
+      hasRecovery: false,
+      recordCount: 0,
+      lapCount: 5,
+      unavailableReason: null,
+      session: null,
+      derived: null,
+      laps: [
+        {
+          lapNumber: 1,
+          startTime: null,
+          durationSec: 1800,
+          distanceMeters: 5000,
+          avgSpeedMps: 3.2,
+          avgHeartRate: null,
+          maxHeartRate: null,
+          elevationGainMeters: null,
+          elevationLossMeters: null,
+          avgPowerWatts: null,
+          normalizedPowerWatts: null,
+        },
+        {
+          lapNumber: 2,
+          startTime: null,
+          durationSec: 2000,
+          distanceMeters: 5000,
+          avgSpeedMps: null,
+          avgHeartRate: null,
+          maxHeartRate: null,
+          elevationGainMeters: null,
+          elevationLossMeters: null,
+          avgPowerWatts: null,
+          normalizedPowerWatts: null,
+        },
+        {
+          lapNumber: 3,
+          startTime: null,
+          durationSec: 600,
+          distanceMeters: 0,
+          avgSpeedMps: null,
+          avgHeartRate: null,
+          maxHeartRate: null,
+          elevationGainMeters: null,
+          elevationLossMeters: null,
+          avgPowerWatts: null,
+          normalizedPowerWatts: null,
+        },
+        {
+          lapNumber: 4,
+          startTime: null,
+          durationSec: 0,
+          distanceMeters: 1000,
+          avgSpeedMps: null,
+          avgHeartRate: null,
+          maxHeartRate: null,
+          elevationGainMeters: null,
+          elevationLossMeters: null,
+          avgPowerWatts: null,
+          normalizedPowerWatts: null,
+        },
+        {
+          lapNumber: 5,
+          startTime: null,
+          durationSec: 600,
+          distanceMeters: -100,
+          avgSpeedMps: null,
+          avgHeartRate: null,
+          maxHeartRate: null,
+          elevationGainMeters: null,
+          elevationLossMeters: null,
+          avgPowerWatts: null,
+          normalizedPowerWatts: null,
+        },
+      ],
+      stream: [],
+    } satisfies NormalizedActivityDetail);
+    const detailRoute =
+      await import("../src/app/api/activities/[garminId]/dashboard/route");
+
+    const detailResponse = await detailRoute.GET(
+      new Request("http://local.test/api/activities/111111/dashboard"),
+      { params: { garminId: "111111" } },
+    );
+    const detailPayload = await detailResponse.json();
+
+    expect(detailPayload.laps).toHaveLength(5);
+    expect(detailPayload.laps[0].avgSpeedMps).toBe(3.2);
+    expect(detailPayload.laps[1].avgSpeedMps).toBe(2.5);
+    expect(detailPayload.laps[2].avgSpeedMps).toBe(0);
+    expect(detailPayload.laps[3].avgSpeedMps).toBeNull();
+    expect(detailPayload.laps[4].avgSpeedMps).toBeNull();
+    expect(JSON.stringify(detailPayload)).not.toContain("payloadJson");
+    expect(JSON.stringify(detailPayload)).not.toContain("token");
+    expect(JSON.stringify(detailPayload)).not.toContain("DATABASE_PATH");
+    expect(JSON.stringify(detailPayload)).not.toContain("select ");
+  });
+
   it("prefers Garmin activity HR-zone totals over local stream-derived fallback", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(

@@ -18,6 +18,27 @@ function activityLabel(activity: {
   return activity.name?.trim() || `${activity.sport} on ${date}`;
 }
 
+function finiteNonNegative(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function lapAverageSpeedMps(lap: {
+  avgSpeedMps: number | null;
+  distanceMeters: number | null;
+  durationSec: number | null;
+}) {
+  if (finiteNonNegative(lap.avgSpeedMps)) return lap.avgSpeedMps;
+  if (!finiteNonNegative(lap.distanceMeters)) return null;
+  if (
+    typeof lap.durationSec !== "number" ||
+    !Number.isFinite(lap.durationSec) ||
+    lap.durationSec <= 0
+  ) {
+    return null;
+  }
+  return lap.distanceMeters / lap.durationSec;
+}
+
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { garminId: rawGarminId } = await paramsFrom(context);
@@ -61,6 +82,7 @@ export async function GET(_request: Request, context: RouteContext) {
         lapNumber: lap.lapNumber,
         durationSec: lap.durationSec,
         distanceMeters: lap.distanceMeters,
+        avgSpeedMps: lapAverageSpeedMps(lap),
         avgHeartRate: lap.avgHeartRate,
         maxHeartRate: lap.maxHeartRate,
         elevationGainMeters: lap.elevationGainMeters,
