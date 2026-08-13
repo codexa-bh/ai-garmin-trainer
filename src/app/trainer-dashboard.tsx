@@ -6,12 +6,17 @@ import {
   type ReactNode,
   type UIEvent,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
+type TranscriptScrollSnapshot = {
+  scrollTop: number;
+  wasNearBottom: boolean;
+};
 type ChatRole = "user" | "assistant";
 type LlmDebugTrace = {
   schemaVersion: 1;
@@ -1912,6 +1917,10 @@ export function TrainerDashboard() {
   const transcriptBottomRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const forceNextScrollRef = useRef(false);
+  const transcriptScrollSnapshotRef = useRef<TranscriptScrollSnapshot | null>(
+    null,
+  );
+  const restoreTranscriptOnSectionReturnRef = useRef(false);
   const chatAbortRef = useRef<AbortController | null>(null);
   const conversationButtonRef = useRef<HTMLButtonElement>(null);
   const activityDashboardButtonRef = useRef<HTMLButtonElement>(null);
@@ -2023,6 +2032,12 @@ export function TrainerDashboard() {
     scrollTranscriptToBottom(forceNextScrollRef.current ? "auto" : "smooth");
     forceNextScrollRef.current = false;
   }, [chatMessages, isChatLoading]);
+  useLayoutEffect(() => {
+    if (activityDashboardOpen || trainingPlanOpen) return;
+    if (!restoreTranscriptOnSectionReturnRef.current) return;
+    restoreTranscriptOnSectionReturnRef.current = false;
+    restoreTranscriptScrollSnapshot();
+  }, [activityDashboardOpen, trainingPlanOpen]);
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -2178,11 +2193,75 @@ export function TrainerDashboard() {
   }
 
   function rememberTranscriptFollowIntent() {
-    shouldAutoScrollRef.current = transcriptIsNearBottom();
+    const wasNearBottom = transcriptIsNearBottom();
+    shouldAutoScrollRef.current = wasNearBottom;
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    transcriptScrollSnapshotRef.current = {
+      scrollTop: transcript.scrollTop,
+      wasNearBottom,
+    };
   }
 
   function handleTranscriptScroll() {
+    rememberTranscriptFollowIntent();
+  }
+
+  function captureTranscriptScrollSnapshot() {
+    rememberTranscriptFollowIntent();
+  }
+
+  function restoreTranscriptScrollSnapshot(retryIfLayoutMissing = true) {
+    const transcript = transcriptRef.current;
+    const snapshot = transcriptScrollSnapshotRef.current;
+    if (!transcript || !snapshot) return;
+    if (snapshot.wasNearBottom) {
+      if (transcript.scrollHeight === 0 && retryIfLayoutMissing) {
+        scheduleTranscriptScrollRestoreRetry();
+        return;
+      }
+      scrollTranscriptToBottom("auto");
+      return;
+    }
+
+    const maxScrollTop = Math.max(
+      0,
+      transcript.scrollHeight - transcript.clientHeight,
+    );
+    if (maxScrollTop === 0 && snapshot.scrollTop > 0 && retryIfLayoutMissing) {
+      scheduleTranscriptScrollRestoreRetry();
+      return;
+    }
+
+    transcript.scrollTop = Math.min(
+      Math.max(snapshot.scrollTop, 0),
+      maxScrollTop,
+    );
     shouldAutoScrollRef.current = transcriptIsNearBottom();
+    transcriptScrollSnapshotRef.current = {
+      scrollTop: transcript.scrollTop,
+      wasNearBottom: shouldAutoScrollRef.current,
+    };
+  }
+
+  function scheduleTranscriptScrollRestoreRetry() {
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() =>
+        restoreTranscriptScrollSnapshot(false),
+      );
+      return;
+    }
+    restoreTranscriptScrollSnapshot(false);
+  }
+
+  function openActivityDashboard() {
+    captureTranscriptScrollSnapshot();
+    setActivityDashboardOpen(true);
+  }
+
+  function openTrainingPlan() {
+    captureTranscriptScrollSnapshot();
+    setTrainingPlanOpen(true);
   }
 
   function cancelChat() {
@@ -2542,11 +2621,13 @@ export function TrainerDashboard() {
 
   function closeActivityDashboard() {
     activityDashboardReturnFocusRef.current = true;
+    restoreTranscriptOnSectionReturnRef.current = true;
     setActivityDashboardOpen(false);
   }
 
   function closeTrainingPlan() {
     trainingPlanReturnFocusRef.current = true;
+    restoreTranscriptOnSectionReturnRef.current = true;
     setTrainingPlanOpen(false);
     setTrainingPlanEditing(false);
   }
@@ -3299,7 +3380,7 @@ export function TrainerDashboard() {
           <button
             type="button"
             className="chrome-button"
-            onClick={() => setActivityDashboardOpen(true)}
+            onClick={openActivityDashboard}
             ref={activityDashboardButtonRef}
             aria-label="Activity charts"
             aria-expanded={activityDashboardOpen}
@@ -3309,7 +3390,7 @@ export function TrainerDashboard() {
           <button
             type="button"
             className="chrome-button"
-            onClick={() => setTrainingPlanOpen(true)}
+            onClick={openTrainingPlan}
             ref={trainingPlanButtonRef}
             aria-label="Training Plan"
             aria-expanded={trainingPlanOpen}

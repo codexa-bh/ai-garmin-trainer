@@ -122,6 +122,19 @@ function setTranscriptMetrics(
   });
 }
 
+function captureAnimationFrames() {
+  const callbacks: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    callbacks.push(callback);
+    return callbacks.length;
+  });
+  return {
+    flush() {
+      for (const callback of callbacks.splice(0)) callback(performance.now());
+    },
+  };
+}
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
@@ -2993,6 +3006,171 @@ describe("TrainerDashboard transcript scrolling", () => {
 
     expect(await screen.findByText("Take an easy aerobic day.")).toBeTruthy();
     await waitFor(() => expect(transcript.scrollTop).toBe(1000));
+  });
+
+  it("restores a scrolled-up transcript after returning from Activity charts", async () => {
+    const animationFrames = captureAnimationFrames();
+    const messages = Array.from({ length: 4 }, (_, index) => ({
+      id: `assistant-${index}`,
+      role: "assistant",
+      content: `Activity return transcript line ${index}`,
+      createdAt: `2026-07-17T12:0${index}:00Z`,
+    }));
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/training-plan")
+        return jsonResponse({ plan: null, stale: true, staleAfterDays: 14 });
+      if (url.startsWith("/api/activities?")) {
+        return jsonResponse({
+          activities: [],
+          nextOffset: null,
+          totalApprox: 0,
+          limit: 100,
+          offset: 0,
+        });
+      }
+      if (url.startsWith("/api/chat")) {
+        return jsonResponse({ ...emptyChat, messages, contextWindow: 4 });
+      }
+      return jsonResponse({ ok: true, conversations: [], memories: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(
+      await screen.findByText("Activity return transcript line 3"),
+    ).toBeTruthy();
+    const transcript = screen.getByRole("log", { name: "Chat transcript" });
+    setTranscriptMetrics(transcript, {
+      scrollHeight: 1200,
+      clientHeight: 200,
+      scrollTop: 320,
+    });
+    fireEvent.scroll(transcript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    expect(
+      await screen.findByRole("button", { name: "Back to chat" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+
+    const restoredTranscript = screen.getByRole("log", {
+      name: "Chat transcript",
+    });
+    setTranscriptMetrics(restoredTranscript, {
+      scrollHeight: 1200,
+      clientHeight: 200,
+      scrollTop: 0,
+    });
+    animationFrames.flush();
+
+    expect(restoredTranscript.scrollTop).toBe(320);
+  });
+
+  it("restores a scrolled-up transcript after returning from Training Plan", async () => {
+    const animationFrames = captureAnimationFrames();
+    const messages = Array.from({ length: 4 }, (_, index) => ({
+      id: `assistant-${index}`,
+      role: "assistant",
+      content: `Training Plan return transcript line ${index}`,
+      createdAt: `2026-07-17T12:1${index}:00Z`,
+    }));
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/training-plan")
+        return jsonResponse({ plan: null, stale: true, staleAfterDays: 14 });
+      if (url.startsWith("/api/chat")) {
+        return jsonResponse({ ...emptyChat, messages, contextWindow: 4 });
+      }
+      return jsonResponse({ ok: true, conversations: [], memories: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(
+      await screen.findByText("Training Plan return transcript line 3"),
+    ).toBeTruthy();
+    const transcript = screen.getByRole("log", { name: "Chat transcript" });
+    setTranscriptMetrics(transcript, {
+      scrollHeight: 1400,
+      clientHeight: 240,
+      scrollTop: 450,
+    });
+    fireEvent.scroll(transcript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Training Plan" }));
+    expect(
+      await screen.findByRole("button", { name: "Back to chat" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+
+    const restoredTranscript = screen.getByRole("log", {
+      name: "Chat transcript",
+    });
+    setTranscriptMetrics(restoredTranscript, {
+      scrollHeight: 1400,
+      clientHeight: 240,
+      scrollTop: 0,
+    });
+    animationFrames.flush();
+
+    expect(restoredTranscript.scrollTop).toBe(450);
+  });
+
+  it("keeps near-bottom users at the latest turn after section return", async () => {
+    const animationFrames = captureAnimationFrames();
+    const messages = Array.from({ length: 4 }, (_, index) => ({
+      id: `assistant-${index}`,
+      role: "assistant",
+      content: `Near-bottom transcript line ${index}`,
+      createdAt: `2026-07-17T12:2${index}:00Z`,
+    }));
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/training-plan")
+        return jsonResponse({ plan: null, stale: true, staleAfterDays: 14 });
+      if (url.startsWith("/api/chat")) {
+        return jsonResponse({ ...emptyChat, messages, contextWindow: 4 });
+      }
+      return jsonResponse({ ok: true, conversations: [], memories: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    expect(
+      await screen.findByText("Near-bottom transcript line 3"),
+    ).toBeTruthy();
+    const transcript = screen.getByRole("log", { name: "Chat transcript" });
+    setTranscriptMetrics(transcript, {
+      scrollHeight: 1200,
+      clientHeight: 200,
+      scrollTop: 930,
+    });
+    fireEvent.scroll(transcript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Training Plan" }));
+    expect(
+      await screen.findByRole("button", { name: "Back to chat" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+
+    const restoredTranscript = screen.getByRole("log", {
+      name: "Chat transcript",
+    });
+    setTranscriptMetrics(restoredTranscript, {
+      scrollHeight: 1600,
+      clientHeight: 240,
+      scrollTop: 0,
+    });
+    animationFrames.flush();
+
+    expect(restoredTranscript.scrollTop).toBe(1600);
   });
 });
 
