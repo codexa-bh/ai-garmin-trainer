@@ -1938,6 +1938,258 @@ describe("TrainerDashboard activity charts", () => {
     ).toBeTruthy();
     expect(screen.getByText("Time in HR zones unavailable")).toBeTruthy();
   });
+
+  it("opens with the activity selector expanded by default and a truthful Collapse control", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url.startsWith("/api/activities?")) {
+        return jsonResponse({
+          activities: [activityListItem(0)],
+          nextOffset: null,
+          totalApprox: 1,
+          limit: 100,
+          offset: 0,
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+
+    const collapseButton = screen.getByRole("button", { name: "Collapse" });
+    expect(collapseButton.getAttribute("aria-expanded")).toBe("true");
+    expect(collapseButton.getAttribute("aria-controls")).toBe(
+      "activity-selector-body",
+    );
+    expect(screen.getByText("Activity selector")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Search synced activities" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText("Search activity name, sport, date, or Garmin ID"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("list", { name: "Synced activities" }),
+    ).toBeTruthy();
+    expect(
+      document
+        .querySelector(".activity-dashboard-panel")
+        ?.classList.contains("activity-selector-collapsed"),
+    ).toBe(false);
+  });
+
+  it("collapses the selector to a compact rail that hides the search/list body and keeps the Expand control", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url.startsWith("/api/activities?")) {
+        return jsonResponse({
+          activities: [activityListItem(0)],
+          nextOffset: null,
+          totalApprox: 1,
+          limit: 100,
+          offset: 0,
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    expect(await screen.findByText("Activity 0")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+
+    const expandButton = screen.getByRole("button", { name: "Expand" });
+    expect(expandButton.getAttribute("aria-expanded")).toBe("false");
+    expect(expandButton.getAttribute("aria-controls")).toBe(
+      "activity-selector-body",
+    );
+    expect(screen.getByText("Activity selector")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Search synced activities" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(
+      screen.queryByRole("list", { name: "Synced activities" }),
+    ).toBeNull();
+    expect(
+      document
+        .querySelector(".activity-dashboard-panel")
+        ?.classList.contains("activity-selector-collapsed"),
+    ).toBe(true);
+    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
+  });
+
+  it("keeps selected activity detail visible when collapsed and restores query/selection on expand", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url.startsWith("/api/activities/111111/dashboard")) {
+        return jsonResponse({
+          activity: {
+            garminId: "111111",
+            name: "Morning Trail Run",
+            label: "Morning Trail Run",
+            sport: "running",
+            date: "2026-08-01",
+            startedAt: "2026-08-01T07:00:00.000Z",
+            durationSec: 3600,
+            distanceMeters: 10000,
+            elevationGainMeters: 260,
+            elevationLossMeters: 250,
+            calories: 640,
+            avgHeartRate: 145,
+            maxHeartRate: 174,
+            steps: 9200,
+            trainingEffect: null,
+          },
+          detail: {
+            status: "available",
+            hasHeartRate: false,
+            hasElevation: false,
+            hasLaps: false,
+            recordCount: 0,
+            lapCount: 0,
+            unavailableReason: null,
+          },
+          charts: {
+            downsampled: false,
+            sourcePointCount: 0,
+            pointCount: 0,
+            maxPoints: 3,
+            domainStartSec: 0,
+            domainEndSec: 3600,
+            timeScaleStatus: "elapsed",
+            timeScaleMessage: null,
+            speed: {
+              status: "unavailable",
+              sourcePointCount: 0,
+              pointCount: 0,
+              message: "no stream",
+            },
+            points: [],
+          },
+          route: {
+            status: "unavailable",
+            sourcePointCount: 0,
+            pointCount: 0,
+            maxPoints: 400,
+            simplified: false,
+            bounds: null,
+            points: [],
+            message: "Route unavailable.",
+          },
+          heartRateZones: {
+            status: "unavailable",
+            timeSource: null,
+            zoneSource: null,
+            zoneStatus: "unavailable",
+            formula: null,
+            classifiedSeconds: 0,
+            unclassifiedSeconds: 0,
+            noHeartRateSeconds: 0,
+            activityDurationSec: 3600,
+            sourceTotalSeconds: 0,
+            message: "Unavailable.",
+            buckets: [],
+          },
+          laps: [],
+        });
+      }
+      if (url.startsWith("/api/activities?")) {
+        return jsonResponse({
+          activities: [
+            {
+              garminId: "111111",
+              name: "Morning Trail Run",
+              label: "Morning Trail Run",
+              sport: "running",
+              date: "2026-08-01",
+              startedAt: "2026-08-01T07:00:00.000Z",
+              durationSec: 3600,
+              distanceMeters: 10000,
+              elevationGainMeters: 260,
+              avgHeartRate: 145,
+              detailStatus: "available",
+            },
+          ],
+          totalApprox: 1,
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(await screen.findByText("Morning Trail Run"));
+
+    expect(await screen.findByText("Detail: available")).toBeTruthy();
+    expect(screen.getByText("Duration")).toBeTruthy();
+
+    fireEvent.change(
+      screen.getByLabelText("Search activity name, sport, date, or Garmin ID"),
+      { target: { value: "trail" } },
+    );
+    expect(screen.getByDisplayValue("trail")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+    expect(screen.getByRole("button", { name: "Expand" })).toBeTruthy();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.getByText("Detail: available")).toBeTruthy();
+    expect(screen.getByText("Duration")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByDisplayValue("trail")).toBeTruthy();
+    expect(
+      screen.getByRole("list", { name: "Synced activities" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Morning Trail Run")).toBeTruthy();
+    expect(screen.getByText("Detail: available")).toBeTruthy();
+    expect(screen.getByText("Duration")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Collapse" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
+  });
+
+  it("keeps the collapsed selector layout contract with detail space gains at desktop and narrow breakpoints", () => {
+    const css = readFileSync("src/app/style.css", "utf8");
+    const desktopCollapsed =
+      css.match(
+        /\.activity-dashboard-panel\.activity-selector-collapsed\s*\{([\s\S]*?)\}/,
+      )?.[1] ?? "";
+    expect(desktopCollapsed).toContain(
+      "grid-template-columns: minmax(0, 240px) minmax(0, 1fr);",
+    );
+    expect(css).toMatch(
+      /\.activity-selector-collapsed \.activity-selector-body\s*\{\s*display: none;\s*}/,
+    );
+    const tabletMediaBlock =
+      css.match(
+        /@media \(max-width: 960px\) \{([\s\S]*?)@media \(max-width: 640px\)/,
+      )?.[1] ?? "";
+    expect(tabletMediaBlock).toMatch(
+      /\.activity-dashboard-panel\.activity-selector-collapsed\s*\{[\s\S]*?grid-template-rows: auto auto minmax\(0, 1fr\);\s*}/,
+    );
+    expect(tabletMediaBlock).toMatch(
+      /\.activity-dashboard-panel\.activity-selector-collapsed\s*\{[\s\S]*?grid-template-columns: 1fr;/,
+    );
+    const mobileMediaBlock =
+      css.match(/@media \(max-width: 640px\) \{([\s\S]*)$/)?.[1] ?? "";
+    expect(mobileMediaBlock).toMatch(
+      /\.activity-dashboard-panel\.activity-selector-collapsed\s*\{[\s\S]*?grid-template-rows: auto auto minmax\(0, 1fr\);\s*}/,
+    );
+    expect(mobileMediaBlock).toMatch(
+      /\.activity-dashboard-panel\.activity-selector-collapsed\s*\{[\s\S]*?grid-template-columns: 1fr;/,
+    );
+  });
 });
 
 describe("TrainerDashboard primary Sync now", () => {

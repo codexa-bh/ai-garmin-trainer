@@ -287,6 +287,33 @@ body::before {
   margin: 0;
 }
 
+.activity-selector-header {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.activity-selector-header h2 {
+  min-width: 0;
+}
+
+.activity-selector-toggle {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+.activity-selector-body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .activity-search-field {
   display: grid;
   gap: 8px;
@@ -346,6 +373,18 @@ body::before {
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.activity-dashboard-panel.activity-selector-collapsed {
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+}
+
+.activity-selector-collapsed .activity-selector-body {
+  display: none;
+}
+
+.activity-selector-collapsed .activity-dashboard-selector {
+  padding: 12px;
 }
 
 .selected-activity-heading {
@@ -1613,6 +1652,11 @@ label {
     grid-template-rows: auto minmax(170px, 32vh) minmax(0, 1fr);
   }
 
+  .activity-dashboard-panel.activity-selector-collapsed {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
   .route-zone-grid {
     grid-template-columns: 1fr;
   }
@@ -1654,6 +1698,11 @@ label {
     grid-template-rows: auto minmax(140px, 30vh) minmax(0, 1fr);
     gap: 12px;
     padding: 12px;
+  }
+
+  .activity-dashboard-panel.activity-selector-collapsed {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto minmax(0, 1fr);
   }
 
   .activity-dashboard-header {

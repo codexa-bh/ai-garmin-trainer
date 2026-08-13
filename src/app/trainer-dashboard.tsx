@@ -1865,6 +1865,8 @@ export function TrainerDashboard() {
   );
   const [detailGarminId, setDetailGarminId] = useState("");
   const [activityDashboardOpen, setActivityDashboardOpen] = useState(false);
+  const [activitySelectorCollapsed, setActivitySelectorCollapsed] =
+    useState(false);
   const [trainingPlanOpen, setTrainingPlanOpen] = useState(false);
   const [trainingPlan, setTrainingPlan] = useState<TrainingPlan | null>(null);
   const [trainingPlanStale, setTrainingPlanStale] = useState(true);
@@ -3395,7 +3397,7 @@ export function TrainerDashboard() {
 
       {activityDashboardOpen ? (
         <section
-          className="activity-dashboard-panel"
+          className={`activity-dashboard-panel ${activitySelectorCollapsed ? "activity-selector-collapsed" : ""}`}
           aria-label="Selected activity dashboard"
         >
           <div className="activity-dashboard-header">
@@ -3414,67 +3416,90 @@ export function TrainerDashboard() {
             </button>
           </div>
           <div className="activity-dashboard-selector">
-            <div>
-              <p className="section-kicker">Activity selector</p>
-              <h2>Search synced activities</h2>
+            <div className="activity-selector-header">
+              <div>
+                <p className="section-kicker">Activity selector</p>
+                <h2>Search synced activities</h2>
+              </div>
+              <button
+                type="button"
+                className="activity-selector-toggle"
+                onClick={() =>
+                  setActivitySelectorCollapsed((collapsed) => !collapsed)
+                }
+                aria-expanded={!activitySelectorCollapsed}
+                aria-controls="activity-selector-body"
+              >
+                {activitySelectorCollapsed ? "Expand" : "Collapse"}
+              </button>
             </div>
-            <label className="activity-search-field">
-              <span>Search activity name, sport, date, or Garmin ID</span>
-              <input
-                type="search"
-                value={activitySearchQuery}
-                onChange={(event) => setActivitySearchQuery(event.target.value)}
-                placeholder="Search all synced activities"
-              />
-            </label>
-            <p className="activity-dashboard-status">{activityListMessage}</p>
             <div
-              className="activity-list"
-              role="list"
-              aria-label="Synced activities"
-              onScroll={handleActivityListScroll}
+              className="activity-selector-body"
+              id="activity-selector-body"
+              hidden={activitySelectorCollapsed}
             >
-              {activityListState === "loading" ? (
-                <p className="empty-chat">Loading synced activities…</p>
-              ) : activities.length ? (
-                <>
-                  {activities.map((activity) => (
-                    <button
-                      type="button"
-                      role="listitem"
-                      className={`activity-list-item ${selectedActivityId === activity.garminId ? "selected" : ""}`}
-                      key={activity.garminId}
-                      onClick={() =>
-                        void selectActivityDashboard(activity.garminId)
-                      }
-                    >
-                      <span>
-                        <strong>{activity.label}</strong>
-                        <small>
-                          {activity.date} · {activity.sport} · Garmin ID{" "}
-                          {activity.garminId}
-                        </small>
-                      </span>
-                      <span>
-                        {distanceLabel(activity.distanceMeters)} ·{" "}
-                        {durationLabel(activity.durationSec)}
-                      </span>
-                    </button>
-                  ))}
-                  {isActivityListLoadingMore ? (
-                    <p className="activity-dashboard-status">
-                      Loading more activities…
-                    </p>
-                  ) : null}
-                  {!isActivityListLoadingMore &&
-                  activityListNextOffset === null &&
-                  activityListTotalApprox !== undefined ? (
-                    <p className="activity-dashboard-status">End of results</p>
-                  ) : null}
-                </>
-              ) : (
-                <p className="empty-chat">{activityListMessage}</p>
-              )}
+              <label className="activity-search-field">
+                <span>Search activity name, sport, date, or Garmin ID</span>
+                <input
+                  type="search"
+                  value={activitySearchQuery}
+                  onChange={(event) =>
+                    setActivitySearchQuery(event.target.value)
+                  }
+                  placeholder="Search all synced activities"
+                />
+              </label>
+              <p className="activity-dashboard-status">{activityListMessage}</p>
+              <div
+                className="activity-list"
+                role="list"
+                aria-label="Synced activities"
+                onScroll={handleActivityListScroll}
+              >
+                {activityListState === "loading" ? (
+                  <p className="empty-chat">Loading synced activities…</p>
+                ) : activities.length ? (
+                  <>
+                    {activities.map((activity) => (
+                      <button
+                        type="button"
+                        role="listitem"
+                        className={`activity-list-item ${selectedActivityId === activity.garminId ? "selected" : ""}`}
+                        key={activity.garminId}
+                        onClick={() =>
+                          void selectActivityDashboard(activity.garminId)
+                        }
+                      >
+                        <span>
+                          <strong>{activity.label}</strong>
+                          <small>
+                            {activity.date} · {activity.sport} · Garmin ID{" "}
+                            {activity.garminId}
+                          </small>
+                        </span>
+                        <span>
+                          {distanceLabel(activity.distanceMeters)} ·{" "}
+                          {durationLabel(activity.durationSec)}
+                        </span>
+                      </button>
+                    ))}
+                    {isActivityListLoadingMore ? (
+                      <p className="activity-dashboard-status">
+                        Loading more activities…
+                      </p>
+                    ) : null}
+                    {!isActivityListLoadingMore &&
+                    activityListNextOffset === null &&
+                    activityListTotalApprox !== undefined ? (
+                      <p className="activity-dashboard-status">
+                        End of results
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="empty-chat">{activityListMessage}</p>
+                )}
+              </div>
             </div>
           </div>
           <div className="selected-activity-detail">
