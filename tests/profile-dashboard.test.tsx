@@ -289,7 +289,7 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeTruthy();
   });
 
-  it("labels active chat context and local evidence without the old local-message chip", async () => {
+  it("omits the header context chip while preserving per-message local evidence", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) {
@@ -339,13 +339,10 @@ describe("TrainerDashboard Profile hydration", () => {
         "Synthesized trainer answer from local evidence.",
       ),
     ).toBeTruthy();
-    const chip = screen.getByText("Active chat context · local evidence");
-    expect(chip.getAttribute("title")).toContain(
-      "6 of 40 selected session context lines",
-    );
-    expect(chip.getAttribute("aria-label")).toBe(
-      "Active chat context with local Garmin evidence",
-    );
+    expect(screen.queryByText(/Active chat context/i)).toBeNull();
+    expect(
+      screen.queryByText("Active chat context · local evidence"),
+    ).toBeNull();
     expect(screen.getByText("Used local Garmin data.")).toBeTruthy();
     expect(screen.queryByText(/local messages/i)).toBeNull();
     expect(screen.queryByText(/recent local turns/i)).toBeNull();
@@ -413,7 +410,7 @@ describe("TrainerDashboard Profile hydration", () => {
     });
   });
 
-  it("uses active chat context wording for non-streamed completion status", async () => {
+  it("uses concise user-facing wording for non-streamed completion status", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/profile") return jsonResponse(profile([]));
@@ -449,15 +446,13 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(
       await screen.findByText("Use an easy aerobic effort tomorrow."),
     ).toBeTruthy();
-    expect(
-      await screen.findByText(
-        "Chat: response complete. Active chat context selected 5 of 40 session lines.",
-      ),
-    ).toBeTruthy();
+    expect(await screen.findByText("Chat: response complete.")).toBeTruthy();
+    expect(screen.queryByText(/Active chat context/i)).toBeNull();
+    expect(screen.queryByText(/session lines/i)).toBeNull();
     expect(screen.queryByText(/recent local turns/i)).toBeNull();
   });
 
-  it("uses active chat context wording for streamed completion status", async () => {
+  it("uses concise user-facing wording for streamed completion status", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/profile") return jsonResponse(profile([]));
@@ -503,10 +498,10 @@ describe("TrainerDashboard Profile hydration", () => {
 
     expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
     expect(
-      await screen.findByText(
-        "Chat: streamed response complete. Active chat context selected 7 of 40 session lines.",
-      ),
+      await screen.findByText("Chat: streamed response complete."),
     ).toBeTruthy();
+    expect(screen.queryByText(/Active chat context/i)).toBeNull();
+    expect(screen.queryByText(/session lines/i)).toBeNull();
     expect(screen.queryByText(/recent local turns/i)).toBeNull();
   });
 

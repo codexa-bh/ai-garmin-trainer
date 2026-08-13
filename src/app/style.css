@@ -1002,7 +1002,6 @@ h2 {
   font-size: clamp(19px, 2.8vw, 28px);
 }
 
-.context-chip,
 .pill,
 .tool-evidence span {
   border: 1px solid var(--line-strong);
@@ -1013,7 +1012,6 @@ h2 {
   font-weight: 800;
 }
 
-.context-chip,
 .pill {
   padding: 6px 10px;
 }

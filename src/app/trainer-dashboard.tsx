@@ -1840,8 +1840,6 @@ export function TrainerDashboard() {
   const [memoryKindFilter, setMemoryKindFilter] =
     useState<MemoryKindFilter>("all");
   const [memorySort, setMemorySort] = useState<MemorySort>("newest");
-  const [contextWindow, setContextWindow] = useState(0);
-  const [historyLimit, setHistoryLimit] = useState(12);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [lastFailedMessage, setLastFailedMessage] = useState("");
   const [profileFields, setProfileFields] =
@@ -1944,10 +1942,6 @@ export function TrainerDashboard() {
   const activeConversation = useMemo(
     () => conversations.find((item) => item.id === conversationId) ?? null,
     [conversationId, conversations],
-  );
-  const latestToolEvidence = useMemo(
-    () => [...chatMessages].reverse().find((item) => item.grounding)?.grounding,
-    [chatMessages],
   );
   const filteredMemories = useMemo(() => {
     const query = memorySearchQuery.trim().toLocaleLowerCase();
@@ -2448,10 +2442,6 @@ export function TrainerDashboard() {
       setChatMessages(nextMessages);
       setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled === true);
       setHistoryCursor(payload.nextCursor ?? null);
-      setContextWindow(
-        payload.contextWindow ?? Math.min(nextMessages.length, 6),
-      );
-      setHistoryLimit(payload.historyLimit ?? 12);
       setLastFailedMessage("");
       if (!showStatus) forceNextScrollRef.current = true;
       if (showStatus)
@@ -2997,7 +2987,6 @@ export function TrainerDashboard() {
         rememberTranscriptFollowIntent();
         setChatMessages([]);
         setHistoryCursor(null);
-        setContextWindow(0);
         setLastFailedMessage("");
         forceNextScrollRef.current = true;
         setConversationId(payload.nextConversationId);
@@ -3043,7 +3032,6 @@ export function TrainerDashboard() {
       setConversationId(nextConversationId);
       setChatMessages([]);
       setHistoryCursor(null);
-      setContextWindow(0);
       setLastFailedMessage("");
       forceNextScrollRef.current = true;
       setStatus({
@@ -3227,8 +3215,6 @@ export function TrainerDashboard() {
           ...items.filter((item) => item.id !== pendingAssistantId),
           event.assistantMessage,
         ]);
-        setContextWindow(event.contextWindow);
-        setHistoryLimit(event.historyLimit);
         setLlmDebugTracesEnabled(event.llmDebugTracesEnabled === true);
         const memorySuffix =
           event.memoryProposal.status === "pending"
@@ -3244,7 +3230,7 @@ export function TrainerDashboard() {
         if (savedTrainingPlan) void loadTrainingPlan("chat-save", false);
         setStatus({
           kind: "ok",
-          message: `Chat: streamed response complete. Active chat context selected ${event.contextWindow} of ${event.historyLimit} session lines.${memorySuffix}`,
+          message: `Chat: streamed response complete.${memorySuffix}`,
         });
         return;
       }
@@ -3281,14 +3267,12 @@ export function TrainerDashboard() {
         const nextMessages = payload.messages ?? [];
         setChatMessages(nextMessages);
         setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled === true);
-        setContextWindow(payload.contextWindow ?? nextMessages.length);
-        setHistoryLimit(payload.historyLimit ?? historyLimit);
         if (payload.memoryProposal) void loadMemories(false);
         if (payload.toolEvidence?.tool === "saveTrainingPlan")
           void loadTrainingPlan("chat-save", false);
         setStatus({
           kind: "ok",
-          message: `Chat: response complete. Active chat context selected ${payload.contextWindow ?? nextMessages.length} of ${payload.historyLimit ?? historyLimit} session lines.`,
+          message: "Chat: response complete.",
         });
         return;
       }
@@ -4029,14 +4013,6 @@ export function TrainerDashboard() {
                 <p className="section-kicker">Daily trainer</p>
                 <h2 id="trainer-heading">Chat with your private coach</h2>
               </div>
-              <p
-                className="context-chip"
-                title={`Active chat context is selected from this session within a safe budget: ${contextWindow} of ${historyLimit} selected session context lines. New chat resets this active context.${latestToolEvidence ? " Latest answer used local Garmin/tool evidence." : " Latest answer has no local Garmin/tool evidence marker."}`}
-                aria-label={`Active chat context${latestToolEvidence ? " with local Garmin evidence" : ""}`}
-              >
-                Active chat context
-                {latestToolEvidence ? " · local evidence" : ""}
-              </p>
             </div>
 
             <div
