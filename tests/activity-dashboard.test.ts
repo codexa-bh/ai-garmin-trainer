@@ -192,7 +192,7 @@ describe("activity dashboard repository and routes", () => {
     expect(dashboard?.charts.points[1].speedKmh).toBeCloseTo(6, 6);
     expect(
       dashboard?.charts.points.slice(0, 3).map((point) => point.gradePct),
-    ).toEqual([0, 4.25, -3.5]);
+    ).toEqual([3, 3, 3]);
     expect(dashboard?.route).toMatchObject({
       status: "available",
       sourcePointCount: 12,
@@ -278,10 +278,10 @@ describe("activity dashboard repository and routes", () => {
           Date.UTC(2026, 7, 1, 7, index * 15, 0),
         ).toISOString(),
         elapsedSec: index,
-        distanceMeters: null,
+        distanceMeters: index * 900,
         heartRate: 130 + index,
         speedMps: null,
-        altitudeMeters: 1000 + index,
+        altitudeMeters: 1000 + index * 9,
         gradePct: null,
         lat: null,
         lon: null,
@@ -297,10 +297,7 @@ describe("activity dashboard repository and routes", () => {
       0, 900, 1800, 2700,
     ]);
     expect(dashboard?.charts.points.map((point) => point.gradePct)).toEqual([
-      null,
-      null,
-      null,
-      null,
+      1, 1, 1, 1,
     ]);
     expect(dashboard?.charts).toMatchObject({
       domainStartSec: 0,
@@ -311,27 +308,94 @@ describe("activity dashboard repository and routes", () => {
     expect(JSON.stringify(dashboard)).not.toContain("2026-08-01T07:15");
   });
 
-  it("computes selected chart grade only from safe adjacent distance and altitude samples", async () => {
+  it("uses the named 180-second distance-altitude window for selected chart grade readouts", async () => {
     const repo = await seedActivities();
+    expect(repo.ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC).toBe(180);
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
-        records: [
-          { elapsed_time_s: 0, distance: 0, altitude_m: 1000 },
-          { elapsed_time_s: 60, distance: 200, altitude_m: 1010 },
-          { elapsed_time_s: 120, distance: 700, altitude_m: 1000 },
-          { elapsed_time_s: 180, distance: 700, altitude_m: 1020 },
-        ],
+        records: Array.from({ length: 7 }, (_, index) => ({
+          elapsed_time_s: index * 60,
+          distance: index * 100,
+          altitude_m: 1000 + index * 3,
+          grade_pct: index % 2 === 0 ? -25 : 40,
+        })),
       }),
     );
 
     const dashboard = repo.getActivityDashboardDetail("111111");
 
     expect(dashboard?.charts.points.map((point) => point.gradePct)).toEqual([
-      5,
-      5,
-      -2,
-      null,
+      3, 3, 3, 3, 3, 3, 3,
     ]);
+  });
+
+  it("reports positive negative and zero smoothed grade while rejecting unsafe evidence", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, distance: 0, altitude_m: 1000 },
+          { elapsed_time_s: 60, distance: 100, altitude_m: 1006 },
+          { elapsed_time_s: 120, distance: 200, altitude_m: 1012 },
+          { elapsed_time_s: 180, distance: 300, altitude_m: 1018 },
+          { elapsed_time_s: 240, distance: 400, altitude_m: 1012 },
+          { elapsed_time_s: 300, distance: 500, altitude_m: 1006 },
+          { elapsed_time_s: 360, distance: 600, altitude_m: 1000 },
+        ],
+      }),
+    );
+
+    expect(
+      repo
+        .getActivityDashboardDetail("111111")
+        ?.charts.points.map((point) => point.gradePct),
+    ).toEqual([6, 6, 3, 0, -3, -6, -6]);
+
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, distance: 0, altitude_m: 1000 },
+          { elapsed_time_s: 60, distance: 100, altitude_m: 1006 },
+          { elapsed_time_s: 120, distance: null, altitude_m: 1012 },
+          { elapsed_time_s: 180, distance: 300, altitude_m: 1018 },
+        ],
+      }),
+    );
+    expect(
+      repo
+        .getActivityDashboardDetail("111111")
+        ?.charts.points.map((point) => point.gradePct),
+    ).toEqual([null, null, null, null]);
+
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, distance: 0, altitude_m: 1000 },
+          { elapsed_time_s: 60, distance: 100, altitude_m: 1006 },
+          { elapsed_time_s: 120, distance: 90, altitude_m: 1012 },
+          { elapsed_time_s: 180, distance: 300, altitude_m: 1018 },
+        ],
+      }),
+    );
+    expect(
+      repo
+        .getActivityDashboardDetail("111111")
+        ?.charts.points.map((point) => point.gradePct),
+    ).toEqual([null, null, null, null]);
+
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: [
+          { elapsed_time_s: 0, distance: 0, altitude_m: 1000 },
+          { elapsed_time_s: 120, distance: 240, altitude_m: 1012 },
+        ],
+      }),
+    );
+    expect(
+      repo
+        .getActivityDashboardDetail("111111")
+        ?.charts.points.map((point) => point.gradePct),
+    ).toEqual([null, null]);
   });
 
   it("labels sample-index-only chart timing instead of stretching it to activity duration", async () => {

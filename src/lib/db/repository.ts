@@ -1661,48 +1661,113 @@ function finiteNumber(value: number | null): value is number {
   return value !== null && Number.isFinite(value);
 }
 
-function computedAdjacentChartGradePct(
+export const ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC = 180;
+
+function smoothedActivityDashboardGradeReadoutPct(
   points: ActivityDashboardChartSourcePoint[],
   index: number,
 ): number | null {
   const currentPoint = points[index];
-  if (!currentPoint || !finiteNumber(currentPoint.altitudeMeters)) return null;
+  if (
+    !currentPoint ||
+    !finiteNumber(currentPoint.elapsedSec) ||
+    !finiteNumber(currentPoint.altitudeMeters) ||
+    points.length < 2
+  ) {
+    return null;
+  }
 
-  const gradeFromSection = (
-    start: ActivityDashboardChartSourcePoint | undefined,
-    end: ActivityDashboardChartSourcePoint | undefined,
-  ): number | null => {
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+  if (
+    !finiteNumber(firstPoint?.elapsedSec ?? null) ||
+    !finiteNumber(lastPoint?.elapsedSec ?? null)
+  ) {
+    return null;
+  }
+
+  const halfWindowSec = ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC / 2;
+  let windowStartSec = currentPoint.elapsedSec - halfWindowSec;
+  let windowEndSec = currentPoint.elapsedSec + halfWindowSec;
+  if (windowStartSec < firstPoint.elapsedSec) {
+    windowEndSec += firstPoint.elapsedSec - windowStartSec;
+    windowStartSec = firstPoint.elapsedSec;
+  }
+  if (windowEndSec > lastPoint.elapsedSec) {
+    windowStartSec -= windowEndSec - lastPoint.elapsedSec;
+    windowEndSec = lastPoint.elapsedSec;
+  }
+  windowStartSec = Math.max(windowStartSec, firstPoint.elapsedSec);
+
+  let startIndex = 0;
+  for (let pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
+    const point = points[pointIndex];
+    if (!finiteNumber(point.elapsedSec)) return null;
+    if (point.elapsedSec <= windowStartSec) startIndex = pointIndex;
+  }
+
+  let endIndex = points.length - 1;
+  for (
+    let pointIndex = startIndex + 1;
+    pointIndex < points.length;
+    pointIndex += 1
+  ) {
+    const point = points[pointIndex];
+    if (!finiteNumber(point.elapsedSec)) return null;
+    if (point.elapsedSec >= windowEndSec) {
+      endIndex = pointIndex;
+      break;
+    }
+  }
+  if (endIndex <= startIndex) return null;
+
+  let previousElapsedSec: number | null = null;
+  let previousDistanceMeters: number | null = null;
+  for (let pointIndex = startIndex; pointIndex <= endIndex; pointIndex += 1) {
+    const point = points[pointIndex];
     if (
-      !start ||
-      !end ||
-      !finiteNumber(start.distanceMeters) ||
-      !finiteNumber(end.distanceMeters) ||
-      !finiteNumber(start.altitudeMeters) ||
-      !finiteNumber(end.altitudeMeters)
+      !finiteNumber(point.elapsedSec) ||
+      !finiteNumber(point.distanceMeters) ||
+      !finiteNumber(point.altitudeMeters)
     ) {
       return null;
     }
-    const distanceDeltaMeters = end.distanceMeters - start.distanceMeters;
-    if (distanceDeltaMeters <= 0) return null;
-    return (
-      ((end.altitudeMeters - start.altitudeMeters) / distanceDeltaMeters) * 100
-    );
-  };
-
-  if (index > 0) {
-    const previousGrade = gradeFromSection(points[index - 1], currentPoint);
-    if (previousGrade !== null) return previousGrade;
+    if (
+      previousElapsedSec !== null &&
+      (point.elapsedSec <= previousElapsedSec ||
+        point.distanceMeters < (previousDistanceMeters ?? point.distanceMeters))
+    ) {
+      return null;
+    }
+    previousElapsedSec = point.elapsedSec;
+    previousDistanceMeters = point.distanceMeters;
   }
-  return gradeFromSection(currentPoint, points[index + 1]);
-}
 
-function chartPointGradePct(
-  points: ActivityDashboardChartSourcePoint[],
-  index: number,
-): number | null {
-  const storedGradePct = points[index]?.gradePct ?? null;
-  if (finiteNumber(storedGradePct)) return storedGradePct;
-  return computedAdjacentChartGradePct(points, index);
+  const startPoint = points[startIndex];
+  const endPoint = points[endIndex];
+  const startDistanceMeters = startPoint.distanceMeters;
+  const endDistanceMeters = endPoint.distanceMeters;
+  const startAltitudeMeters = startPoint.altitudeMeters;
+  const endAltitudeMeters = endPoint.altitudeMeters;
+  if (
+    !finiteNumber(startDistanceMeters) ||
+    !finiteNumber(endDistanceMeters) ||
+    !finiteNumber(startAltitudeMeters) ||
+    !finiteNumber(endAltitudeMeters)
+  ) {
+    return null;
+  }
+  const elapsedDeltaSec = endPoint.elapsedSec - startPoint.elapsedSec;
+  const distanceDeltaMeters = endDistanceMeters - startDistanceMeters;
+  if (
+    elapsedDeltaSec < ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC ||
+    distanceDeltaMeters <= 0
+  ) {
+    return null;
+  }
+  return (
+    ((endAltitudeMeters - startAltitudeMeters) / distanceDeltaMeters) * 100
+  );
 }
 
 export const ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC = 60;
@@ -1935,7 +2000,10 @@ export function getActivityDashboardDetail(
     ) => ({
       ...point,
       speedKmh: speedSeries.values[index] ?? null,
-      gradePct: chartPointGradePct(chartTiming.points, index),
+      gradePct: smoothedActivityDashboardGradeReadoutPct(
+        chartTiming.points,
+        index,
+      ),
     }),
   );
   const sourcePointCount = points.length;
