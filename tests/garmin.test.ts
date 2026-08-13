@@ -273,6 +273,40 @@ describe("Garmin boundary", () => {
     ]);
   });
 
+  it("rejects impossible zero and near-zero stream speeds during proven movement", () => {
+    const detail = normalizeActivityDetail("54", {
+      records: [
+        { elapsed_time_s: 0, distance: 0, speed_mps: 1.5 },
+        { elapsed_time_s: 10, distance: 6, speed_mps: 0 },
+        { elapsed_time_s: 20, distance: 12, enhanced_speed: 0.03 },
+        { elapsed_time_s: 30, distance: 18, speed: 1.5 },
+      ],
+    });
+
+    expect(detail.stream.map((point) => point.distanceMeters)).toEqual([
+      0, 6, 12, 18,
+    ]);
+    expect(detail.stream.map((point) => point.speedMps)).toEqual([
+      1.5,
+      null,
+      null,
+      1.5,
+    ]);
+  });
+
+  it("preserves zero stream speeds for true pauses and ambiguous stop boundaries", () => {
+    const detail = normalizeActivityDetail("55", {
+      records: [
+        { elapsed_time_s: 0, distance: 0, speed_mps: 2 },
+        { elapsed_time_s: 10, distance: 5, speed_mps: 0 },
+        { elapsed_time_s: 20, distance: 5, speed_mps: 0 },
+        { elapsed_time_s: 30, distance: 5, speed_mps: 0 },
+      ],
+    });
+
+    expect(detail.stream.map((point) => point.speedMps)).toEqual([2, 0, 0, 0]);
+  });
+
   it("uses real FIT elapsed seconds before timestamp and array-index fallback", () => {
     const detail = normalizeActivityDetail("46", {
       records: [

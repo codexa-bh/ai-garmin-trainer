@@ -499,6 +499,54 @@ describe("activity dashboard repository and routes", () => {
     ]);
   });
 
+  it("keeps impossible zero-speed stream samples as dashboard gaps without distance fallback", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        session: { avg_speed_mps: 9, total_distance_m: 18 },
+        laps: [{ lap_number: 1, avg_speed_mps: 9, distance: 18 }],
+        records: [
+          { elapsed_time_s: 0, distance: 0, speed_mps: 2, heart_rate_bpm: 130 },
+          {
+            elapsed_time_s: 10,
+            distance: 6,
+            speed_mps: 0,
+            heart_rate_bpm: 131,
+          },
+          {
+            elapsed_time_s: 20,
+            distance: 12,
+            speed_mps: 0.02,
+            heart_rate_bpm: 132,
+          },
+          {
+            elapsed_time_s: 30,
+            distance: 18,
+            speed_mps: 2,
+            heart_rate_bpm: 133,
+          },
+        ],
+      }),
+    );
+
+    const dashboard = repo.getActivityDashboardDetail("111111");
+
+    expect(dashboard?.charts.speed).toMatchObject({
+      status: "available",
+      sourcePointCount: 2,
+      pointCount: 2,
+    });
+    expect(dashboard?.charts.points.map((point) => point.speedKmh)).toEqual([
+      7.2,
+      null,
+      null,
+      7.2,
+    ]);
+    expect(JSON.stringify(dashboard?.charts.points)).not.toContain(
+      "distanceMeters",
+    );
+  });
+
   it("reports insufficient speed when fewer than two finite non-negative stream speeds exist", async () => {
     const repo = await seedActivities();
     repo.upsertActivityDetail(
