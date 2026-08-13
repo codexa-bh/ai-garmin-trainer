@@ -1573,7 +1573,7 @@ function finiteNumber(value: number | null): value is number {
   return value !== null && Number.isFinite(value);
 }
 
-export const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC = 30;
+export const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC = 60;
 const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_HALF_WINDOW_SEC =
   ACTIVITY_DASHBOARD_SPEED_SMOOTHING_WINDOW_SEC / 2;
 const ACTIVITY_DASHBOARD_SPEED_SMOOTHING_EDGE_WEIGHT = 1;
@@ -1654,7 +1654,7 @@ function activityDashboardSpeedSeries(
       sourcePointCount: pointCount,
       pointCount,
       message:
-        "Speed uses 30-second smoothed normalized stream speed samples converted to km/h.",
+        "Speed uses 60-second smoothed normalized stream speed samples converted to km/h.",
     },
     values,
   };

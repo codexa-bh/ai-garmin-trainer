@@ -1274,7 +1274,7 @@ describe("TrainerDashboard activity charts", () => {
               sourcePointCount: 3,
               pointCount: 3,
               message:
-                "Speed uses 30-second smoothed normalized stream speed samples converted to km/h.",
+                "Speed uses 60-second smoothed normalized stream speed samples converted to km/h.",
             },
             points: [
               {
@@ -1433,7 +1433,7 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("Speed")).toBeTruthy();
     expect(
       screen.getByText(
-        "30-second smoothed from normalized stream speed samples.",
+        "60-second smoothed from normalized stream speed samples.",
       ),
     ).toBeTruthy();
     expect(
