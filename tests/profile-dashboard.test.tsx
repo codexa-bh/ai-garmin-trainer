@@ -369,6 +369,9 @@ describe("TrainerDashboard Profile hydration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("Trainer is thinking…")).toBeTruthy();
+    const thinkingIndicator = screen.getByTestId("pending-thinking-indicator");
+    expect(thinkingIndicator.getAttribute("aria-hidden")).toBe("true");
+    expect(thinkingIndicator.querySelectorAll("span")).toHaveLength(3);
     expect(
       screen.queryByText("Trainer is thinking with bounded local history…"),
     ).toBeNull();
@@ -392,6 +395,9 @@ describe("TrainerDashboard Profile hydration", () => {
       ),
     );
     expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByTestId("pending-thinking-indicator")).toBeNull();
+    });
   });
 
   it("uses active chat context wording for non-streamed completion status", async () => {

@@ -3983,7 +3983,18 @@ export function TrainerDashboard() {
                     <strong>Trainer</strong>
                     <span>pending</span>
                   </div>
-                  <p>Trainer is thinking…</p>
+                  <p className="pending-thinking-text">
+                    <span>Trainer is thinking…</span>
+                    <span
+                      className="pending-thinking-dots"
+                      aria-hidden="true"
+                      data-testid="pending-thinking-indicator"
+                    >
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  </p>
                 </div>
               ) : null}
               <div ref={transcriptBottomRef} aria-hidden="true" />
