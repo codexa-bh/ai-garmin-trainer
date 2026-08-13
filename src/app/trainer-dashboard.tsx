@@ -3794,112 +3794,6 @@ export function TrainerDashboard() {
                     {numberLabel(activityDashboard.activity.steps)}
                   </span>
                 </div>
-                <div
-                  className="activity-effort-widget-grid"
-                  aria-label="Selected activity effort widgets"
-                >
-                  <section
-                    className="activity-effort-widget"
-                    aria-labelledby="activity-intensity-minutes-heading"
-                  >
-                    <div className="activity-effort-widget-heading">
-                      <h3 id="activity-intensity-minutes-heading">
-                        Intensity Minutes
-                      </h3>
-                      <span>Garmin-style weighted total</span>
-                    </div>
-                    <div className="activity-effort-total">
-                      <span>Total</span>
-                      <strong>
-                        {finiteNumberUnitLabel(
-                          weightedIntensityMinutes(
-                            activityDashboard.activity.moderateIntensityMinutes,
-                            activityDashboard.activity.vigorousIntensityMinutes,
-                          ),
-                          "min",
-                          0,
-                        )}
-                      </strong>
-                    </div>
-                    <dl className="activity-effort-list">
-                      <div>
-                        <dt>Moderate</dt>
-                        <dd>
-                          {finiteNumberUnitLabel(
-                            activityDashboard.activity.moderateIntensityMinutes,
-                            "min",
-                            0,
-                          )}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>
-                          Vigorous <span className="effort-weight-cue">x2</span>
-                        </dt>
-                        <dd>
-                          {finiteNumberUnitLabel(
-                            activityDashboard.activity.vigorousIntensityMinutes,
-                            "min",
-                            0,
-                          )}
-                        </dd>
-                      </div>
-                    </dl>
-                  </section>
-                  <section
-                    className="activity-effort-widget"
-                    aria-labelledby="activity-training-effect-heading"
-                  >
-                    <div className="activity-effort-widget-heading">
-                      <h3 id="activity-training-effect-heading">
-                        Training Effect
-                      </h3>
-                      <span>Activity effort summary</span>
-                    </div>
-                    <dl className="activity-effort-list activity-effort-list-grid">
-                      <div>
-                        <dt>Aerobic</dt>
-                        <dd>
-                          {finiteNumberLabel(
-                            activityDashboard.activity.trainingEffect,
-                            1,
-                          )}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Anaerobic</dt>
-                        <dd>
-                          {finiteNumberLabel(
-                            activityDashboard.activity.anaerobicTrainingEffect,
-                            1,
-                          )}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Primary Benefit</dt>
-                        <dd>
-                          {activityDashboard.activity.trainingEffectLabel ??
-                            "Unavailable"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Exercise Load</dt>
-                        <dd>
-                          {finiteNumberLabel(
-                            activityDashboard.activity.trainingLoad,
-                            0,
-                          )}
-                        </dd>
-                      </div>
-                    </dl>
-                  </section>
-                </div>
-                <p className="activity-dashboard-status">
-                  Intensity minutes and training-effect fields are normalized
-                  from Garmin activity detail when exposed. Unavailable means
-                  the current local row has not exposed that field; explicit
-                  zero values display as 0.
-                </p>
                 <div className="activity-chart-grid">
                   {activityDashboard.detail.hasHeartRate ? (
                     <MiniLineChart
@@ -3977,6 +3871,111 @@ export function TrainerDashboard() {
                     summary={activityDashboard.heartRateZones}
                   />
                 </div>
+                <div
+                  className="activity-effort-widget-grid"
+                  aria-label="Selected activity effort widgets"
+                >
+                  <section
+                    className="activity-effort-widget"
+                    aria-labelledby="activity-intensity-minutes-heading"
+                  >
+                    <div className="activity-effort-widget-heading">
+                      <h3 id="activity-intensity-minutes-heading">
+                        Intensity Minutes
+                      </h3>
+                      <span>Weighted total</span>
+                    </div>
+                    <div className="activity-effort-total">
+                      <span>Total</span>
+                      <strong>
+                        {finiteNumberUnitLabel(
+                          weightedIntensityMinutes(
+                            activityDashboard.activity.moderateIntensityMinutes,
+                            activityDashboard.activity.vigorousIntensityMinutes,
+                          ),
+                          "min",
+                          0,
+                        )}
+                      </strong>
+                    </div>
+                    <dl className="activity-effort-list">
+                      <div>
+                        <dt>Moderate</dt>
+                        <dd>
+                          {finiteNumberUnitLabel(
+                            activityDashboard.activity.moderateIntensityMinutes,
+                            "min",
+                            0,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>
+                          Vigorous <span className="effort-weight-cue">x2</span>
+                        </dt>
+                        <dd>
+                          {finiteNumberUnitLabel(
+                            activityDashboard.activity.vigorousIntensityMinutes,
+                            "min",
+                            0,
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                  </section>
+                  <section
+                    className="activity-effort-widget"
+                    aria-labelledby="activity-training-effect-heading"
+                  >
+                    <div className="activity-effort-widget-heading">
+                      <h3 id="activity-training-effect-heading">
+                        Training Effect
+                      </h3>
+                      <span>Effort summary</span>
+                    </div>
+                    <dl className="activity-effort-list activity-effort-list-grid">
+                      <div>
+                        <dt>Aerobic</dt>
+                        <dd>
+                          {finiteNumberLabel(
+                            activityDashboard.activity.trainingEffect,
+                            1,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Anaerobic</dt>
+                        <dd>
+                          {finiteNumberLabel(
+                            activityDashboard.activity.anaerobicTrainingEffect,
+                            1,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Primary Benefit</dt>
+                        <dd>
+                          {activityDashboard.activity.trainingEffectLabel ??
+                            "Unavailable"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Exercise Load</dt>
+                        <dd>
+                          {finiteNumberLabel(
+                            activityDashboard.activity.trainingLoad,
+                            0,
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                  </section>
+                </div>
+                <p className="activity-dashboard-status activity-effort-note">
+                  Effort fields come from Garmin activity detail when exposed;
+                  unavailable means the local row has not exposed that field.
+                  Explicit zero values display as 0.
+                </p>
                 {activityDashboard.laps.length ? (
                   <div className="lap-table-wrap">
                     <table className="lap-table">

@@ -1849,6 +1849,14 @@ describe("TrainerDashboard activity charts", () => {
       screen.getByText(/Garmin-configured HR-zone boundaries/),
     ).toBeTruthy();
     expect(screen.getByText("1m 00s · 100%")).toBeTruthy();
+    const routeZoneGrid = document.querySelector(".route-zone-grid");
+    expect(routeZoneGrid).toBeTruthy();
+    expect(
+      Boolean(
+        (routeZoneGrid?.compareDocumentPosition(effortWidgets) ?? 0) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
     expect(
       screen.getAllByText(/Zone [1-5]/).map((item) => item.textContent),
     ).toEqual(["Zone 5", "Zone 4", "Zone 3", "Zone 2", "Zone 1"]);
@@ -1866,6 +1874,13 @@ describe("TrainerDashboard activity charts", () => {
     expect(lapCaption).toBeTruthy();
     expect(lapCaption.closest(".selected-activity-detail")).toBeTruthy();
     expect(lapCaption.closest(".lap-table-wrap")).toBeTruthy();
+    const lapWrap = lapCaption.closest(".lap-table-wrap");
+    expect(
+      Boolean(
+        effortWidgets.compareDocumentPosition(lapWrap as Element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
     const lapTable = lapCaption.closest("table");
     expect(lapTable).toBeTruthy();
     expect(
@@ -1928,9 +1943,7 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("143 bpm")).toBeTruthy();
     expect(screen.getByText("Training Effect")).toBeTruthy();
     expect(
-      screen.getByText(
-        /Intensity minutes and training-effect fields are normalized/,
-      ),
+      screen.getByText(/Effort fields come from Garmin activity detail/),
     ).toBeTruthy();
     expect(screen.queryByText("Avg/Max HR")).toBeNull();
     expect(screen.queryByText(/143\s*\/\s*Unavailable/)).toBeNull();
@@ -2122,6 +2135,23 @@ describe("TrainerDashboard activity charts", () => {
     expect(effortWidgets.textContent).toContain("Training Effect");
     expect(effortWidgets.textContent).toContain("3.2");
     expect(effortWidgets.textContent).toContain("Unavailable");
+    const routeZoneGrid = document.querySelector(".route-zone-grid");
+    expect(routeZoneGrid).toBeTruthy();
+    expect(
+      Boolean(
+        (routeZoneGrid?.compareDocumentPosition(effortWidgets) ?? 0) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+    const noLapsMessage = screen.getByText(
+      "No lap rows are available for this activity.",
+    );
+    expect(
+      Boolean(
+        effortWidgets.compareDocumentPosition(noLapsMessage) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
   });
 
   it("opens with the activity selector expanded by default and a truthful collapse control", async () => {
