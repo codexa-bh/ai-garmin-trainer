@@ -71,6 +71,12 @@ export const activity = sqliteTable("activity", {
   elevationGainMeters: real("elevation_gain_meters"),
   elevationLossMeters: real("elevation_loss_meters"),
   trainingEffect: real("training_effect"),
+  anaerobicTrainingEffect: real("anaerobic_training_effect"),
+  trainingEffectLabel: text("training_effect_label"),
+  trainingLoad: real("training_load"),
+  moderateIntensityMinutes: real("moderate_intensity_minutes"),
+  vigorousIntensityMinutes: real("vigorous_intensity_minutes"),
+  totalIntensityMinutes: real("total_intensity_minutes"),
   sourceUpdatedAt: integer("source_updated_at", { mode: "timestamp" }),
 });
 

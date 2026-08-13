@@ -65,6 +65,12 @@ async function seedActivities() {
       elevationGainMeters: 260,
       elevationLossMeters: 250,
       trainingEffect: 3.2,
+      anaerobicTrainingEffect: 1.4,
+      trainingEffectLabel: "Tempo",
+      trainingLoad: 91,
+      moderateIntensityMinutes: 18,
+      vigorousIntensityMinutes: 6,
+      totalIntensityMinutes: 24,
     },
     {
       garminId: "222222",
@@ -172,6 +178,15 @@ describe("activity dashboard repository and routes", () => {
 
     const dashboard = repo.getActivityDashboardDetail("111111");
 
+    expect(dashboard?.activity).toMatchObject({
+      trainingEffect: 3.2,
+      anaerobicTrainingEffect: 1.4,
+      trainingEffectLabel: "Tempo",
+      trainingLoad: 91,
+      moderateIntensityMinutes: 18,
+      vigorousIntensityMinutes: 6,
+      totalIntensityMinutes: 24,
+    });
     expect(dashboard?.charts.downsampled).toBe(false);
     expect(dashboard?.charts.sourcePointCount).toBe(12);
     expect(dashboard?.charts.pointCount).toBe(12);

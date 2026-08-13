@@ -12,6 +12,19 @@ export type GarminActivityPayload = {
   elevationGain?: number;
   elevationLoss?: number;
   trainingEffect?: number;
+  training_effect?: number;
+  anaerobic_training_effect?: number;
+  anaerobicTrainingEffect?: number;
+  training_effect_label?: string;
+  trainingEffectLabel?: string;
+  training_load?: number;
+  trainingLoad?: number;
+  moderate_intensity_minutes?: number;
+  moderateIntensityMinutes?: number;
+  vigorous_intensity_minutes?: number;
+  vigorousIntensityMinutes?: number;
+  total_intensity_minutes?: number;
+  totalIntensityMinutes?: number;
   summaryDTO?: Record<string, unknown>;
 };
 
@@ -29,6 +42,12 @@ export type NormalizedActivity = {
   elevationGainMeters: number | null;
   elevationLossMeters: number | null;
   trainingEffect: number | null;
+  anaerobicTrainingEffect?: number | null;
+  trainingEffectLabel?: string | null;
+  trainingLoad?: number | null;
+  moderateIntensityMinutes?: number | null;
+  vigorousIntensityMinutes?: number | null;
+  totalIntensityMinutes?: number | null;
 };
 
 export type NormalizedDailyHealth = {

@@ -282,6 +282,7 @@ type SyncProgressEvent = {
   activitiesProcessed?: number;
   healthDaysRefreshed?: number;
   detailsProcessed?: number;
+  effortDetailsProcessed?: number;
   detailTotal?: number | null;
   storedActivities?: number;
   storedHealthRows?: number;
@@ -323,6 +324,13 @@ type ActivityDashboardPayload = {
     steps: number | null;
     elevationLossMeters: number | null;
     trainingEffect: number | null;
+    anaerobicTrainingEffect: number | null;
+    trainingEffectLabel: string | null;
+    trainingLoad: number | null;
+    moderateIntensityMinutes: number | null;
+    vigorousIntensityMinutes: number | null;
+    totalIntensityMinutes: number | null;
+    effortSource?: string | null;
   };
   detail: {
     status: string | null;
@@ -630,8 +638,11 @@ function valueLabel(value: number | null, suffix = ""): string {
   return value === null ? "Not available" : `${value}${suffix}`;
 }
 
-function numberLabel(value: number | null, fractionDigits = 0): string {
-  return value === null
+function numberLabel(
+  value: number | null | undefined,
+  fractionDigits = 0,
+): string {
+  return value == null
     ? "Unavailable"
     : value.toLocaleString(undefined, {
         maximumFractionDigits: fractionDigits,
@@ -3746,7 +3757,57 @@ export function TrainerDashboard() {
                     <strong>Steps</strong>
                     {numberLabel(activityDashboard.activity.steps)}
                   </span>
+                  <span>
+                    <strong>Moderate intensity</strong>
+                    {numberLabel(
+                      activityDashboard.activity.moderateIntensityMinutes,
+                      0,
+                    )}{" "}
+                    min
+                  </span>
+                  <span>
+                    <strong>Vigorous intensity</strong>
+                    {numberLabel(
+                      activityDashboard.activity.vigorousIntensityMinutes,
+                      0,
+                    )}{" "}
+                    min
+                  </span>
+                  <span>
+                    <strong>Total intensity</strong>
+                    {numberLabel(
+                      activityDashboard.activity.totalIntensityMinutes,
+                      0,
+                    )}{" "}
+                    min
+                  </span>
+                  <span>
+                    <strong>Training effect</strong>
+                    {numberLabel(activityDashboard.activity.trainingEffect, 1)}
+                  </span>
+                  <span>
+                    <strong>Anaerobic TE</strong>
+                    {numberLabel(
+                      activityDashboard.activity.anaerobicTrainingEffect,
+                      1,
+                    )}
+                  </span>
+                  <span>
+                    <strong>Training load</strong>
+                    {numberLabel(activityDashboard.activity.trainingLoad, 0)}
+                  </span>
+                  <span>
+                    <strong>Benefit</strong>
+                    {activityDashboard.activity.trainingEffectLabel ??
+                      "Unavailable"}
+                  </span>
                 </div>
+                <p className="activity-dashboard-status">
+                  Intensity minutes and training-effect fields are normalized
+                  from Garmin activity detail when exposed. Unavailable means
+                  the current local row has not exposed that field; explicit
+                  zero values display as 0.
+                </p>
                 <div className="activity-chart-grid">
                   {activityDashboard.detail.hasHeartRate ? (
                     <MiniLineChart

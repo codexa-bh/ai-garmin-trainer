@@ -18,6 +18,78 @@ async function repository() {
 }
 
 describe("detail sync state", () => {
+  it("persists activity effort fields additively and preserves refreshed values across sparse sync rows", async () => {
+    const repo = await repository();
+    repo.upsertActivities([
+      {
+        garminId: "333333",
+        name: "Effort detail",
+        sport: "running",
+        startedAt: new Date("2026-07-03T07:00:00Z"),
+        durationSec: 1800,
+        distanceMeters: 5000,
+        calories: null,
+        avgHeartRate: 145,
+        maxHeartRate: 170,
+        steps: null,
+        elevationGainMeters: null,
+        elevationLossMeters: null,
+        trainingEffect: 3.1,
+        anaerobicTrainingEffect: 1.1,
+        trainingEffectLabel: "Tempo",
+        trainingLoad: 74,
+        moderateIntensityMinutes: 12,
+        vigorousIntensityMinutes: 3,
+        totalIntensityMinutes: 15,
+      },
+    ]);
+
+    expect(repo.getActivityByGarminId("333333")).toMatchObject({
+      trainingEffect: 3.1,
+      anaerobicTrainingEffect: 1.1,
+      trainingEffectLabel: "Tempo",
+      trainingLoad: 74,
+      moderateIntensityMinutes: 12,
+      vigorousIntensityMinutes: 3,
+      totalIntensityMinutes: 15,
+    });
+    expect(repo.activityEffortCoverage()).toMatchObject({
+      total: 1,
+      withAnyEffortField: 1,
+      withIntensityMinutes: 1,
+      needingBackfill: 0,
+    });
+
+    repo.upsertActivities([
+      {
+        garminId: "333333",
+        name: "Sparse summary",
+        sport: "running",
+        startedAt: new Date("2026-07-03T07:00:00Z"),
+        durationSec: 1800,
+        distanceMeters: 5000,
+        calories: null,
+        avgHeartRate: 145,
+        maxHeartRate: 170,
+        steps: null,
+        elevationGainMeters: null,
+        elevationLossMeters: null,
+        trainingEffect: null,
+      },
+    ]);
+
+    expect(repo.getActivityByGarminId("333333")).toMatchObject({
+      name: "Sparse summary",
+      trainingEffect: 3.1,
+      anaerobicTrainingEffect: 1.1,
+      trainingEffectLabel: "Tempo",
+      trainingLoad: 74,
+      moderateIntensityMinutes: 12,
+      vigorousIntensityMinutes: 3,
+      totalIntensityMinutes: 15,
+    });
+  });
+
   it("accounts for pending, terminal, retryable, and preserved detail states", async () => {
     const repo = await repository();
     repo.upsertActivities([

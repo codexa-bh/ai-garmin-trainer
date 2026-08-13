@@ -5,6 +5,7 @@ const runGarminSync = vi.fn(async () => ({
   activitiesImported: 1,
   healthDaysImported: 2,
   detailsProcessed: 0,
+  effortDetailsProcessed: 0,
   coverageStart: "2026-07-15",
   coverageEnd: "2026-07-17",
   detailCoverage: {
@@ -110,7 +111,17 @@ const verifyActivityReference = vi.fn(
 const describeGarminDatabase = vi.fn(() => ({
   tool: "describeGarminDatabase",
   status: "succeeded",
-  tables: [{ name: "activity", rowCount: 301, columns: [] }],
+  tables: [
+    {
+      name: "activity",
+      rowCount: 301,
+      columns: [
+        { name: "training_load" },
+        { name: "moderate_intensity_minutes" },
+        { name: "anaerobic_training_effect" },
+      ],
+    },
+  ],
   forbiddenDataClasses: ["auth/session/account/verification rows"],
   examples: [],
   limits: {},
@@ -119,14 +130,27 @@ const describeGarminDatabase = vi.fn(() => ({
 const runReadOnlySql = vi.fn((input: { resultName?: string }) => ({
   status: "succeeded",
   resultName: input.resultName ?? "sql_rows",
-  columns: [{ name: "garmin_id" }, { name: "name" }],
+  columns: [
+    { name: "garmin_id" },
+    { name: "name" },
+    { name: "training_load" },
+    { name: "total_intensity_minutes" },
+  ],
   rows: [
-    { garmin_id: "latest-999", name: "Newest unrelated", duration_sec: 1800 },
+    {
+      garmin_id: "latest-999",
+      name: "Newest unrelated",
+      duration_sec: 1800,
+      training_load: 65,
+      total_intensity_minutes: 20,
+    },
     {
       garmin_id: "source-1",
       name: "Source climb — Špik",
       duration_sec: 7200,
       elevation_gain_meters: 1300,
+      training_load: 126,
+      total_intensity_minutes: 58,
     },
   ],
   rowCount: 2,
@@ -255,6 +279,11 @@ const generateText = vi.fn(
           ],
         };
       }
+      if (options.prompt.toLowerCase().includes("training load")) {
+        return {
+          text: "Read-only SQL evidence shows Source climb — Špik with training load 126 and 58 total intensity minutes; unavailable effort fields would remain nullable rather than inferred.",
+        };
+      }
       return { text: "provider final" };
     }
     if (options.system.includes("Evidence step 1: verifyActivityReference")) {
@@ -324,6 +353,20 @@ const generateText = vi.fn(
               sql: "select garmin_id, name, duration_sec from activity where garmin_id in ('111111','222222','333333')",
               resultName: "comparison_rows",
               maxRows: 3,
+            },
+          },
+        ],
+      };
+    }
+    if (prompt.toLowerCase().includes("training load")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select garmin_id, name, training_load, total_intensity_minutes, anaerobic_training_effect from activity where training_load is not null order by training_load desc",
+              resultName: "activity_effort_rows",
+              maxRows: 10,
             },
           },
         ],
@@ -813,6 +856,22 @@ describe("chat route LLM tool orchestration", () => {
     expect(payload.assistant.content).toContain("Source climb — Špik");
     expect(payload.assistant.content).not.toContain("Provider invented");
     expect(payload.toolEvidence?.tool).toBe("runMathAnalysis");
+  });
+
+  it("grounds activity effort and training-load answers on normalized SQL fields", async () => {
+    const payload = await postChat(
+      "Which activities have the highest training load and intensity minutes?",
+    );
+
+    expect(runReadOnlySql).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resultName: "activity_effort_rows",
+        maxRows: 10,
+      }),
+    );
+    expect(payload.toolEvidence?.tool).toBe("runReadOnlySql");
+    expect(payload.assistant.content).toContain("training load 126");
+    expect(payload.assistant.content).toContain("58 total intensity minutes");
   });
 
   it("answers snowboarding demand follow-ups with model-selected generic criteria", async () => {

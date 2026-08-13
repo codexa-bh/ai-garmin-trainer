@@ -1625,6 +1625,13 @@ describe("TrainerDashboard activity charts", () => {
     expect(summaryStats.textContent).toContain("Avg HR");
     expect(summaryStats.textContent).toContain("Max HR");
     expect(summaryStats.textContent).toContain("Steps");
+    expect(summaryStats.textContent).toContain("Moderate intensity");
+    expect(summaryStats.textContent).toContain("Vigorous intensity");
+    expect(summaryStats.textContent).toContain("Total intensity");
+    expect(summaryStats.textContent).toContain("Training effect");
+    expect(summaryStats.textContent).toContain("Anaerobic TE");
+    expect(summaryStats.textContent).toContain("Training load");
+    expect(summaryStats.textContent).toContain("Benefit");
     expect(summaryStats.textContent).not.toContain("Detail records");
     expect(screen.queryByText("Detail records")).toBeNull();
     expect(screen.getByText("Heart rate")).toBeTruthy();
@@ -1894,7 +1901,12 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("10.00 km")).toBeTruthy();
     expect(screen.getByText("174 bpm")).toBeTruthy();
     expect(screen.getByText("143 bpm")).toBeTruthy();
-    expect(screen.queryByText("Training effect")).toBeNull();
+    expect(screen.getByText("Training effect")).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Intensity minutes and training-effect fields are normalized/,
+      ),
+    ).toBeTruthy();
     expect(screen.queryByText("Avg/Max HR")).toBeNull();
     expect(screen.queryByText(/143\s*\/\s*Unavailable/)).toBeNull();
   });

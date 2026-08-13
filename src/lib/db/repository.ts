@@ -62,6 +62,15 @@ export type ActivityDashboardListItem = NormalizedActivity & {
   detailStatus: ActivityDetailStatus | null;
 };
 
+export type ActivityEffortCoverage = {
+  total: number;
+  withAnyEffortField: number;
+  withIntensityMinutes: number;
+  withTrainingLoad: number;
+  withAnaerobicTrainingEffect: number;
+  needingBackfill: number;
+};
+
 export type ActivityDashboardListPage = {
   activities: ActivityDashboardListItem[];
   nextOffset: number | null;
@@ -333,8 +342,8 @@ export function replaceTrainingPlan(input: {
 export function upsertActivities(activities: NormalizedActivity[]): number {
   const db = getDatabase();
   const insert = db.prepare(`
-    insert into activity (id, garmin_id, name, sport, started_at, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, steps, elevation_gain_meters, elevation_loss_meters, training_effect, source_updated_at)
-    values (@id, @garminId, @name, @sport, @startedAt, @durationSec, @distanceMeters, @calories, @avgHeartRate, @maxHeartRate, @steps, @elevationGainMeters, @elevationLossMeters, @trainingEffect, @sourceUpdatedAt)
+    insert into activity (id, garmin_id, name, sport, started_at, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, steps, elevation_gain_meters, elevation_loss_meters, training_effect, anaerobic_training_effect, training_effect_label, training_load, moderate_intensity_minutes, vigorous_intensity_minutes, total_intensity_minutes, source_updated_at)
+    values (@id, @garminId, @name, @sport, @startedAt, @durationSec, @distanceMeters, @calories, @avgHeartRate, @maxHeartRate, @steps, @elevationGainMeters, @elevationLossMeters, @trainingEffect, @anaerobicTrainingEffect, @trainingEffectLabel, @trainingLoad, @moderateIntensityMinutes, @vigorousIntensityMinutes, @totalIntensityMinutes, @sourceUpdatedAt)
     on conflict(garmin_id) do update set
       name=excluded.name,
       sport=excluded.sport,
@@ -347,7 +356,13 @@ export function upsertActivities(activities: NormalizedActivity[]): number {
       steps=excluded.steps,
       elevation_gain_meters=excluded.elevation_gain_meters,
       elevation_loss_meters=excluded.elevation_loss_meters,
-      training_effect=excluded.training_effect,
+      training_effect=coalesce(excluded.training_effect, activity.training_effect),
+      anaerobic_training_effect=coalesce(excluded.anaerobic_training_effect, activity.anaerobic_training_effect),
+      training_effect_label=coalesce(excluded.training_effect_label, activity.training_effect_label),
+      training_load=coalesce(excluded.training_load, activity.training_load),
+      moderate_intensity_minutes=coalesce(excluded.moderate_intensity_minutes, activity.moderate_intensity_minutes),
+      vigorous_intensity_minutes=coalesce(excluded.vigorous_intensity_minutes, activity.vigorous_intensity_minutes),
+      total_intensity_minutes=coalesce(excluded.total_intensity_minutes, activity.total_intensity_minutes),
       source_updated_at=excluded.source_updated_at
   `);
   const now = Date.now();
@@ -367,7 +382,13 @@ export function upsertActivities(activities: NormalizedActivity[]): number {
         steps: activity.steps,
         elevationGainMeters: activity.elevationGainMeters,
         elevationLossMeters: activity.elevationLossMeters,
-        trainingEffect: activity.trainingEffect,
+        trainingEffect: activity.trainingEffect ?? null,
+        anaerobicTrainingEffect: activity.anaerobicTrainingEffect ?? null,
+        trainingEffectLabel: activity.trainingEffectLabel ?? null,
+        trainingLoad: activity.trainingLoad ?? null,
+        moderateIntensityMinutes: activity.moderateIntensityMinutes ?? null,
+        vigorousIntensityMinutes: activity.vigorousIntensityMinutes ?? null,
+        totalIntensityMinutes: activity.totalIntensityMinutes ?? null,
         sourceUpdatedAt: now,
       });
     }
@@ -520,12 +541,21 @@ type ActivityRow = {
   elevationGainMeters: number | null;
   elevationLossMeters: number | null;
   trainingEffect: number | null;
+  anaerobicTrainingEffect: number | null;
+  trainingEffectLabel: string | null;
+  trainingLoad: number | null;
+  moderateIntensityMinutes: number | null;
+  vigorousIntensityMinutes: number | null;
+  totalIntensityMinutes: number | null;
 };
 
 const activitySelectColumns = `garmin_id as garminId, name, sport, started_at as startedAt, duration_sec as durationSec,
               distance_meters as distanceMeters, calories, avg_heart_rate as avgHeartRate,
               max_heart_rate as maxHeartRate, steps, elevation_gain_meters as elevationGainMeters,
-              elevation_loss_meters as elevationLossMeters, training_effect as trainingEffect`;
+              elevation_loss_meters as elevationLossMeters, training_effect as trainingEffect,
+              anaerobic_training_effect as anaerobicTrainingEffect, training_effect_label as trainingEffectLabel,
+              training_load as trainingLoad, moderate_intensity_minutes as moderateIntensityMinutes,
+              vigorous_intensity_minutes as vigorousIntensityMinutes, total_intensity_minutes as totalIntensityMinutes`;
 
 function normalizeActivityRow<T extends ActivityRow>(
   row: T,
@@ -553,6 +583,62 @@ export function listRecentActivities(limit = 12): NormalizedActivity[] {
     )
     .all(limit) as ActivityRow[];
   return rows.map((row) => normalizeActivityRow(row));
+}
+
+export function listActivityIdsNeedingEffortBackfill(limit = 50): string[] {
+  const safeLimit = boundedInteger(limit, 50, 1, 1000);
+  const rows = getDatabase()
+    .prepare(
+      `select garmin_id as garminId
+       from activity
+       where training_effect is null
+         and anaerobic_training_effect is null
+         and training_effect_label is null
+         and training_load is null
+         and moderate_intensity_minutes is null
+         and vigorous_intensity_minutes is null
+         and total_intensity_minutes is null
+       order by started_at desc
+       limit ?`,
+    )
+    .all(safeLimit) as Array<{ garminId: string }>;
+  return rows.map((row) => row.garminId);
+}
+
+export function activityEffortCoverage(): ActivityEffortCoverage {
+  const row = getDatabase()
+    .prepare(
+      `select count(*) as total,
+              sum(case when training_effect is not null
+                         or anaerobic_training_effect is not null
+                         or training_effect_label is not null
+                         or training_load is not null
+                         or moderate_intensity_minutes is not null
+                         or vigorous_intensity_minutes is not null
+                         or total_intensity_minutes is not null then 1 else 0 end) as withAnyEffortField,
+              sum(case when moderate_intensity_minutes is not null
+                         or vigorous_intensity_minutes is not null
+                         or total_intensity_minutes is not null then 1 else 0 end) as withIntensityMinutes,
+              sum(case when training_load is not null then 1 else 0 end) as withTrainingLoad,
+              sum(case when anaerobic_training_effect is not null then 1 else 0 end) as withAnaerobicTrainingEffect,
+              sum(case when training_effect is null
+                         and anaerobic_training_effect is null
+                         and training_effect_label is null
+                         and training_load is null
+                         and moderate_intensity_minutes is null
+                         and vigorous_intensity_minutes is null
+                         and total_intensity_minutes is null then 1 else 0 end) as needingBackfill
+       from activity`,
+    )
+    .get() as Record<keyof ActivityEffortCoverage, number | null>;
+  return {
+    total: row.total ?? 0,
+    withAnyEffortField: row.withAnyEffortField ?? 0,
+    withIntensityMinutes: row.withIntensityMinutes ?? 0,
+    withTrainingLoad: row.withTrainingLoad ?? 0,
+    withAnaerobicTrainingEffect: row.withAnaerobicTrainingEffect ?? 0,
+    needingBackfill: row.needingBackfill ?? 0,
+  };
 }
 
 export function listActivitiesForDashboard(
@@ -1419,10 +1505,7 @@ export function getActivityByGarminId(
 ): NormalizedActivity | null {
   const row = getDatabase()
     .prepare(
-      `select garmin_id as garminId, name, sport, started_at as startedAt, duration_sec as durationSec,
-              distance_meters as distanceMeters, calories, avg_heart_rate as avgHeartRate,
-              max_heart_rate as maxHeartRate, steps, elevation_gain_meters as elevationGainMeters,
-              elevation_loss_meters as elevationLossMeters, training_effect as trainingEffect
+      `select ${activitySelectColumns}
        from activity where garmin_id = ?`,
     )
     .get(garminId) as
@@ -1996,10 +2079,7 @@ export function getActivityDashboardDetail(
 export function listActivitiesForComparison(
   limit?: number,
 ): NormalizedActivity[] {
-  const query = `select garmin_id as garminId, name, sport, started_at as startedAt, duration_sec as durationSec,
-              distance_meters as distanceMeters, calories, avg_heart_rate as avgHeartRate,
-              max_heart_rate as maxHeartRate, steps, elevation_gain_meters as elevationGainMeters,
-              elevation_loss_meters as elevationLossMeters, training_effect as trainingEffect
+  const query = `select ${activitySelectColumns}
        from activity order by started_at desc${limit ? " limit ?" : ""}`;
   const statement = getDatabase().prepare(query);
   const rows = (limit ? statement.all(limit) : statement.all()) as Array<{
@@ -2016,6 +2096,12 @@ export function listActivitiesForComparison(
     elevationGainMeters: number | null;
     elevationLossMeters: number | null;
     trainingEffect: number | null;
+    anaerobicTrainingEffect: number | null;
+    trainingEffectLabel: string | null;
+    trainingLoad: number | null;
+    moderateIntensityMinutes: number | null;
+    vigorousIntensityMinutes: number | null;
+    totalIntensityMinutes: number | null;
   }>;
   return rows.map((row) => ({ ...row, startedAt: new Date(row.startedAt) }));
 }
@@ -2181,6 +2267,7 @@ export function dataCounts(): {
   healthCoverage: HealthCoverage;
   detailedActivities: number;
   detailCoverage: ActivityDetailCoverage;
+  activityEffortCoverage: ActivityEffortCoverage;
 } {
   const activityRow = getDatabase()
     .prepare("select count(*) as count from activity")
@@ -2197,6 +2284,7 @@ export function dataCounts(): {
     healthCoverage: coverage,
     detailedActivities: detailRow.count,
     detailCoverage: activityDetailCoverage(),
+    activityEffortCoverage: activityEffortCoverage(),
   };
 }
 
@@ -2206,6 +2294,7 @@ export function importSummary(): {
   healthCoverage: HealthCoverage;
   detailedActivities: number;
   detailCoverage: ActivityDetailCoverage;
+  activityEffortCoverage: ActivityEffortCoverage;
   athleteBaseline: GarminAthleteBaselineDto;
   bodyMetrics: GarminBodyMetricsDto;
   latestActivityDate: string | null;

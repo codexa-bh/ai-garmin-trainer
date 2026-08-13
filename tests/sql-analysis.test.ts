@@ -43,6 +43,12 @@ async function seedActivities() {
       elevationGainMeters: 900,
       elevationLossMeters: 900,
       trainingEffect: 4.1,
+      anaerobicTrainingEffect: 1.8,
+      trainingEffectLabel: "Endurance",
+      trainingLoad: 126,
+      moderateIntensityMinutes: 40,
+      vigorousIntensityMinutes: 18,
+      totalIntensityMinutes: 58,
     },
   ]);
   repository.upsertDailyHealth([
@@ -82,6 +88,9 @@ describe("read-only Garmin SQL analysis", () => {
     );
     expect(JSON.stringify(description)).toContain("duration_sec");
     expect(JSON.stringify(description)).toContain("source_updated_at");
+    expect(JSON.stringify(description)).toContain("moderate_intensity_minutes");
+    expect(JSON.stringify(description)).toContain("anaerobic_training_effect");
+    expect(JSON.stringify(description)).toContain("training_load");
     expect(JSON.stringify(description)).toContain("lat");
     expect(JSON.stringify(description)).toContain("lon");
     expect(JSON.stringify(description)).toContain(
@@ -147,7 +156,12 @@ describe("read-only Garmin SQL analysis", () => {
                max_heart_rate,
                elevation_gain_meters,
                elevation_loss_meters,
-               training_effect
+               training_effect,
+               anaerobic_training_effect,
+               training_load,
+               moderate_intensity_minutes,
+               vigorous_intensity_minutes,
+               total_intensity_minutes
         from activity
         where started_at >= unixepoch('2026-07-22', '-365 days') * 1000
         order by started_at desc
@@ -167,6 +181,15 @@ describe("read-only Garmin SQL analysis", () => {
     );
     expect(result.columns.map((column) => column.name)).toContain(
       "elevation_loss_meters",
+    );
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          garmin_id: "ride-1",
+          training_load: 126,
+          total_intensity_minutes: 58,
+        }),
+      ]),
     );
   });
 

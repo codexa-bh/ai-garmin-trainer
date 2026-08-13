@@ -73,6 +73,16 @@ export async function GET(_request: Request, context: RouteContext) {
         elevationGainMeters: dashboard.activity.elevationGainMeters,
         elevationLossMeters: dashboard.activity.elevationLossMeters,
         trainingEffect: dashboard.activity.trainingEffect,
+        anaerobicTrainingEffect:
+          dashboard.activity.anaerobicTrainingEffect ?? null,
+        trainingEffectLabel: dashboard.activity.trainingEffectLabel ?? null,
+        trainingLoad: dashboard.activity.trainingLoad ?? null,
+        moderateIntensityMinutes:
+          dashboard.activity.moderateIntensityMinutes ?? null,
+        vigorousIntensityMinutes:
+          dashboard.activity.vigorousIntensityMinutes ?? null,
+        totalIntensityMinutes: dashboard.activity.totalIntensityMinutes ?? null,
+        effortSource: "garmin_mcp_normalized",
       },
       detail: dashboard.detail,
       charts: dashboard.charts,

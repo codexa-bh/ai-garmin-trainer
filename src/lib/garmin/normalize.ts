@@ -8,6 +8,17 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function nonNegativeNumberOrNull(value: unknown): number | null {
+  const normalized = numberOrNull(value);
+  return normalized !== null && normalized >= 0 ? normalized : null;
+}
+
+function boundedSourceStringOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized && normalized.length <= 120 ? normalized : null;
+}
+
 function sourceNameOrNull(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.replace(/\s+/g, " ").trim();
@@ -33,11 +44,26 @@ export function normalizeActivity(
   const garminId = payload.activityId ?? payload.id;
   const type =
     sport ?? (typeof payload.type === "string" ? payload.type : null);
-  const startedRaw = payload.startTimeLocal ?? payload.start_time;
+  const startedRaw =
+    payload.startTimeLocal ?? payload.start_time ?? payload.start_time_local;
   const startedAt =
     typeof startedRaw === "string" ? new Date(startedRaw) : null;
   if (!garminId || !type || !startedAt || Number.isNaN(startedAt.getTime()))
     throw new Error("Malformed Garmin activity payload");
+  const moderateIntensityMinutes = nonNegativeNumberOrNull(
+    payload.moderate_intensity_minutes ?? payload.moderateIntensityMinutes,
+  );
+  const vigorousIntensityMinutes = nonNegativeNumberOrNull(
+    payload.vigorous_intensity_minutes ?? payload.vigorousIntensityMinutes,
+  );
+  const explicitTotalIntensityMinutes = nonNegativeNumberOrNull(
+    payload.total_intensity_minutes ?? payload.totalIntensityMinutes,
+  );
+  const totalIntensityMinutes =
+    explicitTotalIntensityMinutes ??
+    (moderateIntensityMinutes !== null || vigorousIntensityMinutes !== null
+      ? (moderateIntensityMinutes ?? 0) + (vigorousIntensityMinutes ?? 0)
+      : null);
   return {
     garminId: String(garminId),
     name:
@@ -56,7 +82,21 @@ export function normalizeActivity(
     elevationLossMeters: numberOrNull(
       payload.elevationLoss ?? payload.elevation_loss_meters,
     ),
-    trainingEffect: numberOrNull(payload.trainingEffect),
+    trainingEffect: nonNegativeNumberOrNull(
+      payload.training_effect ?? payload.trainingEffect,
+    ),
+    anaerobicTrainingEffect: nonNegativeNumberOrNull(
+      payload.anaerobic_training_effect ?? payload.anaerobicTrainingEffect,
+    ),
+    trainingEffectLabel: boundedSourceStringOrNull(
+      payload.training_effect_label ?? payload.trainingEffectLabel,
+    ),
+    trainingLoad: nonNegativeNumberOrNull(
+      payload.training_load ?? payload.trainingLoad,
+    ),
+    moderateIntensityMinutes,
+    vigorousIntensityMinutes,
+    totalIntensityMinutes,
   };
 }
 

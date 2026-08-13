@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 11;
+export const LATEST_SCHEMA_VERSION = 12;
 export const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -21,12 +21,24 @@ const BODY_METRICS_SCHEMA_SQL = [
 
 const TRAINING_PLAN_TABLE_SQL = `create table if not exists training_plan (id text primary key default 'default', title text not null, content_markdown text not null, revised_at integer not null, updated_at integer not null)`;
 
+const LEGACY_ACTIVITY_TABLE_SQL = `create table if not exists activity (id text primary key, garmin_id text not null unique, name text, sport text not null, started_at integer not null, duration_sec integer, distance_meters real, calories integer, avg_heart_rate integer, max_heart_rate integer, steps integer, elevation_gain_meters real, elevation_loss_meters real, training_effect real, source_updated_at integer)`;
+const ACTIVITY_TABLE_SQL = `create table if not exists activity (id text primary key, garmin_id text not null unique, name text, sport text not null, started_at integer not null, duration_sec integer, distance_meters real, calories integer, avg_heart_rate integer, max_heart_rate integer, steps integer, elevation_gain_meters real, elevation_loss_meters real, training_effect real, anaerobic_training_effect real, training_effect_label text, training_load real, moderate_intensity_minutes real, vigorous_intensity_minutes real, total_intensity_minutes real, source_updated_at integer)`;
+
+const ACTIVITY_EFFORT_COLUMNS_SQL = [
+  `alter table activity add column anaerobic_training_effect real`,
+  `alter table activity add column training_effect_label text`,
+  `alter table activity add column training_load real`,
+  `alter table activity add column moderate_intensity_minutes real`,
+  `alter table activity add column vigorous_intensity_minutes real`,
+  `alter table activity add column total_intensity_minutes real`,
+];
+
 const BASE_SCHEMA_SQL = [
   `create table if not exists user (id text primary key, name text, email text not null unique, email_verified integer default 0, image text, created_at integer not null, updated_at integer not null)`,
   `create table if not exists session (id text primary key, expires_at integer not null, token text not null unique, created_at integer not null, updated_at integer not null, ip_address text, user_agent text, user_id text not null)`,
   `create table if not exists account (id text primary key, account_id text not null, provider_id text not null, user_id text not null, access_token text, refresh_token text, id_token text, access_token_expires_at integer, refresh_token_expires_at integer, scope text, password text, created_at integer not null, updated_at integer not null)`,
   `create table if not exists verification (id text primary key, identifier text not null, value text not null, expires_at integer not null, created_at integer, updated_at integer)`,
-  `create table if not exists activity (id text primary key, garmin_id text not null unique, name text, sport text not null, started_at integer not null, duration_sec integer, distance_meters real, calories integer, avg_heart_rate integer, max_heart_rate integer, steps integer, elevation_gain_meters real, elevation_loss_meters real, training_effect real, source_updated_at integer)`,
+  ACTIVITY_TABLE_SQL,
   `create table if not exists daily_health (date text primary key, sleep_minutes integer, resting_heart_rate integer, hrv_status text, hrv_ms real, stress_avg integer, steps integer, calories integer, body_battery_avg integer, availability text not null default 'partial')`,
   `create table if not exists activity_detail_availability (garmin_id text primary key, fetched_at integer, source text not null, status text not null, has_session integer not null default 0, has_laps integer not null default 0, has_streams integer not null default 0, has_gps integer not null default 0, has_elevation integer not null default 0, has_heart_rate integer not null default 0, has_grade integer not null default 0, has_power integer not null default 0, has_recovery integer not null default 0, record_count integer not null default 0, lap_count integer not null default 0, unavailable_reason text, session_json text, derived_json text)`,
   `create table if not exists activity_detail_attempt (garmin_id text primary key, attempted_at integer not null, completed_at integer, force integer not null default 0, status text not null, detail_status text, retryable integer not null default 0, error_class text, error_message text, preserved_previous integer not null default 0)`,
@@ -66,6 +78,7 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
         return LEGACY_CONVERSATION_TABLE_SQL;
       if (statement === ACTIVITY_STREAM_POINT_TABLE_SQL)
         return LEGACY_ACTIVITY_STREAM_POINT_TABLE_SQL;
+      if (statement === ACTIVITY_TABLE_SQL) return LEGACY_ACTIVITY_TABLE_SQL;
       return statement;
     }),
   },
@@ -150,6 +163,11 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     version: 11,
     name: "training_plan_singleton",
     statements: [TRAINING_PLAN_TABLE_SQL],
+  },
+  {
+    version: 12,
+    name: "activity_effort_fields",
+    statements: [LEGACY_ACTIVITY_TABLE_SQL, ...ACTIVITY_EFFORT_COLUMNS_SQL],
   },
 ];
 

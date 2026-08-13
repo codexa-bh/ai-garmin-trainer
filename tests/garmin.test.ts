@@ -178,6 +178,56 @@ describe("Garmin boundary", () => {
     expect(normalizeDailyHealth("2026-07-01", {}).availability).toBe("missing");
   });
 
+  it("normalizes proven Garmin activity effort fields fail-closed", () => {
+    const base = {
+      activityId: 123,
+      activityType: { typeKey: "running" },
+      startTimeLocal: "2026-07-01T07:00:00",
+    };
+
+    expect(
+      normalizeActivity({
+        id: 123,
+        type: "running",
+        start_time_local: "2026-07-01T07:00:00",
+        training_effect: 3.4,
+        anaerobic_training_effect: 1.2,
+        training_effect_label: "  Tempo benefit  ",
+        training_load: 88,
+        moderate_intensity_minutes: 12,
+        vigorous_intensity_minutes: 4,
+      }),
+    ).toMatchObject({
+      trainingEffect: 3.4,
+      anaerobicTrainingEffect: 1.2,
+      trainingEffectLabel: "Tempo benefit",
+      trainingLoad: 88,
+      moderateIntensityMinutes: 12,
+      vigorousIntensityMinutes: 4,
+      totalIntensityMinutes: 16,
+    });
+
+    expect(
+      normalizeActivity({
+        ...base,
+        training_effect: -1,
+        anaerobic_training_effect: Number.NaN,
+        training_effect_label: " ",
+        training_load: Number.POSITIVE_INFINITY,
+        moderate_intensity_minutes: -2,
+        vigorous_intensity_minutes: "4" as unknown as number,
+      }),
+    ).toMatchObject({
+      trainingEffect: null,
+      anaerobicTrainingEffect: null,
+      trainingEffectLabel: null,
+      trainingLoad: null,
+      moderateIntensityMinutes: null,
+      vigorousIntensityMinutes: null,
+      totalIntensityMinutes: null,
+    });
+  });
+
   it("normalizes source activity names safely", () => {
     const base = {
       activityId: 123,
