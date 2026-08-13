@@ -114,6 +114,60 @@ describe("embedded SQLite semantic memory adapter", () => {
     ]);
   });
 
+  it("stores guarded LLM memory when latest user explicitly confirms assistant context", async () => {
+    process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
+    aiMocks.generateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        memories: [
+          {
+            kind: "saved_preference",
+            text: "User prefers recovery hikes after long runs.",
+            confidence: "high",
+          },
+        ],
+        noMemory: false,
+      }),
+      toolCalls: [],
+    });
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+
+    await module.trainerMemoryStore().addCompletedTurn({
+      conversationId: "llm-assistant-context",
+      userMessageId: "u-llm-assistant-context",
+      assistantMessageId: "a-llm-assistant-context",
+      userText: "Yes, remember that.",
+      assistantText:
+        "For future coaching, use recovery hikes after long runs as your default.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+
+    const callOptions = aiMocks.generateText.mock.calls[0]?.[0] as
+      { prompt?: string; toolChoice?: string } | undefined;
+    expect(callOptions?.toolChoice).toBe("none");
+    expect(callOptions?.prompt).toContain(
+      "Latest user message (primary, user-authoritative):",
+    );
+    expect(callOptions?.prompt).toContain(
+      "Immediately previous assistant response excerpt (lower-authority context only",
+    );
+    expect(callOptions?.prompt).toContain(
+      "use recovery hikes after long runs as your default",
+    );
+
+    const rows = repository
+      .getDatabase()
+      .prepare("select kind, text, source from semantic_memory")
+      .all() as Array<{ kind: string; text: string; source: string }>;
+    expect(rows).toEqual([
+      {
+        kind: "saved_preference",
+        text: "User prefers recovery hikes after long runs.",
+        source: "llm-completed-turn-user-fact",
+      },
+    ]);
+  });
+
   it("stores no row for strict LLM no-memory output", async () => {
     process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
     aiMocks.generateText.mockResolvedValueOnce({

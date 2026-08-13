@@ -80,6 +80,183 @@ describe("embedded semantic memory contract", () => {
     ]);
   });
 
+  it("accepts explicitly authorized memory derived from previous assistant context", () => {
+    const turn = {
+      conversationId: "chat-assistant-context",
+      userMessageId: "u-assistant-context",
+      assistantMessageId: "a-assistant-context",
+      userText: "Yes, remember that.",
+      assistantText:
+        "For future coaching, use recovery hikes after long runs as your default.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    };
+
+    const parsed = parseMemoryExtractorOutput(
+      JSON.stringify({
+        memories: [
+          {
+            kind: "saved_preference",
+            text: "User prefers recovery hikes after long runs.",
+            confidence: "high",
+          },
+        ],
+        noMemory: false,
+      }),
+      turn,
+    );
+
+    expect(parsed?.memories).toEqual([
+      expect.objectContaining({
+        kind: "saved_preference",
+        text: "User prefers recovery hikes after long runs.",
+      }),
+    ]);
+  });
+
+  it("accepts explicit assistant-context option selection without storing raw assistant prose", () => {
+    const turn = {
+      conversationId: "chat-assistant-selection",
+      userMessageId: "u-assistant-selection",
+      assistantMessageId: "a-assistant-selection",
+      userText: "Actually, use the second option going forward.",
+      assistantText:
+        "Option 1: short morning runs. Option 2: easy evening swims after strength work.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    };
+
+    const parsed = parseMemoryExtractorOutput(
+      JSON.stringify({
+        memories: [
+          {
+            kind: "saved_preference",
+            text: "User prefers easy evening swims after strength work.",
+            confidence: "high",
+          },
+        ],
+        noMemory: false,
+      }),
+      turn,
+    );
+
+    expect(parsed?.memories).toEqual([
+      expect.objectContaining({
+        text: "User prefers easy evening swims after strength work.",
+      }),
+    ]);
+    expect(parsed?.memories[0]?.text).not.toContain("Option 2");
+  });
+
+  it("rejects assistant-context candidates without explicit authorization or safe entailment", () => {
+    const assistantPreferenceTurn = {
+      conversationId: "chat-assistant-bare-ack",
+      userMessageId: "u-assistant-bare-ack",
+      assistantMessageId: "a-assistant-bare-ack",
+      userText: "Sounds good.",
+      assistantText:
+        "I might treat shorter recovery hikes as your default after long runs.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    };
+    expect(
+      parseMemoryExtractorOutput(
+        JSON.stringify({
+          memories: [
+            {
+              kind: "saved_preference",
+              text: "User prefers shorter recovery hikes after long runs.",
+              confidence: "high",
+            },
+          ],
+          noMemory: false,
+        }),
+        assistantPreferenceTurn,
+      )?.memories,
+    ).toEqual([]);
+
+    const garminTurn = {
+      ...assistantPreferenceTurn,
+      userText: "Yes, remember that.",
+      assistantText:
+        "Your latest run had 8.4 km distance and activity id 123 from SQL rows.",
+    };
+    expect(
+      parseMemoryExtractorOutput(
+        JSON.stringify({
+          memories: [
+            {
+              kind: "saved_preference",
+              text: "User's latest run distance is 8.4 km.",
+              confidence: "high",
+            },
+          ],
+          noMemory: false,
+        }),
+        garminTurn,
+      ),
+    ).toBeNull();
+
+    const proseTurn = {
+      ...assistantPreferenceTurn,
+      userText: "Please remember that.",
+    };
+    expect(
+      parseMemoryExtractorOutput(
+        JSON.stringify({
+          memories: [
+            {
+              kind: "saved_preference",
+              text: "Assistant recommended shorter recovery hikes after long runs.",
+              confidence: "high",
+            },
+          ],
+          noMemory: false,
+        }),
+        proseTurn,
+      ),
+    ).toBeNull();
+
+    const unsafeContextTurn = {
+      ...assistantPreferenceTurn,
+      userText: "Yes, remember that.",
+      assistantText: "The connector payload includes a refresh token field.",
+    };
+    expect(
+      parseMemoryExtractorOutput(
+        JSON.stringify({
+          memories: [
+            {
+              kind: "saved_preference",
+              text: "User uses a refresh token field.",
+              confidence: "high",
+            },
+          ],
+          noMemory: false,
+        }),
+        unsafeContextTurn,
+      ),
+    ).toBeNull();
+
+    const notEntailedTurn = {
+      ...assistantPreferenceTurn,
+      userText: "Yes, remember that.",
+      assistantText: "Use short morning runs as the default.",
+    };
+    expect(
+      parseMemoryExtractorOutput(
+        JSON.stringify({
+          memories: [
+            {
+              kind: "saved_preference",
+              text: "User prefers evening swims after strength work.",
+              confidence: "high",
+            },
+          ],
+          noMemory: false,
+        }),
+        notEntailedTurn,
+      ),
+    ).toBeNull();
+  });
+
   it("rejects malformed, extra-prose, unknown, unsafe, and non-user-derived LLM output", () => {
     const turn = {
       conversationId: "chat-llm",
