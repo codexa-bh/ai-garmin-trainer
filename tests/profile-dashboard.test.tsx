@@ -1389,12 +1389,37 @@ describe("TrainerDashboard activity charts", () => {
               lapNumber: 1,
               durationSec: 1800,
               distanceMeters: 5000,
+              avgSpeedMps: 3,
               avgHeartRate: 143,
               maxHeartRate: null,
               elevationGainMeters: 120,
               elevationLossMeters: 115,
               avgPowerWatts: 218,
               normalizedPowerWatts: 222,
+            },
+            {
+              lapNumber: 2,
+              durationSec: 600,
+              distanceMeters: 0,
+              avgSpeedMps: 0,
+              avgHeartRate: null,
+              maxHeartRate: null,
+              elevationGainMeters: null,
+              elevationLossMeters: null,
+              avgPowerWatts: null,
+              normalizedPowerWatts: null,
+            },
+            {
+              lapNumber: 3,
+              durationSec: 300,
+              distanceMeters: 1000,
+              avgSpeedMps: null,
+              avgHeartRate: 130,
+              maxHeartRate: null,
+              elevationGainMeters: 5,
+              elevationLossMeters: null,
+              avgPowerWatts: 180,
+              normalizedPowerWatts: null,
             },
           ],
         });
@@ -1619,12 +1644,51 @@ describe("TrainerDashboard activity charts", () => {
       Array.from(lapTable?.querySelectorAll("thead th") ?? []).map(
         (header) => header.textContent,
       ),
-    ).toEqual(["Lap", "Duration", "Distance", "Pace", "Avg HR", "Elev +/−"]);
-    expect(
-      Array.from(lapTable?.querySelectorAll("tbody td") ?? []).map((cell) =>
+    ).toEqual([
+      "Lap",
+      "Duration",
+      "Distance",
+      "Pace",
+      "Avg Speed",
+      "Avg HR",
+      "Elev +/−",
+    ]);
+    const lapRows = Array.from(
+      lapTable?.querySelectorAll("tbody tr") ?? [],
+    ).map((row) =>
+      Array.from(row.querySelectorAll("td")).map((cell) =>
         cell.textContent?.replace(/\s+/g, " ").trim(),
       ),
-    ).toEqual(["1", "30m", "5.00 km", "6:00/km", "143 bpm", "120 m / 115 m"]);
+    );
+    expect(lapRows).toEqual([
+      [
+        "1",
+        "30m",
+        "5.00 km",
+        "6:00/km",
+        "10.8 km/h",
+        "143 bpm",
+        "120 m / 115 m",
+      ],
+      [
+        "2",
+        "10m",
+        "0.00 km",
+        "Unavailable",
+        "0 km/h",
+        "Unavailable bpm",
+        "Unavailable / Unavailable",
+      ],
+      [
+        "3",
+        "5m",
+        "1.00 km",
+        "5:00/km",
+        "Unavailable",
+        "130 bpm",
+        "5 m / Unavailable",
+      ],
+    ]);
     expect(
       Array.from(lapTable?.querySelectorAll("th, td") ?? []).map((cell) =>
         cell.textContent?.replace(/\s+/g, " ").trim(),

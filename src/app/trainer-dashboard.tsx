@@ -403,6 +403,7 @@ type ActivityDashboardPayload = {
     lapNumber: number;
     durationSec: number | null;
     distanceMeters: number | null;
+    avgSpeedMps: number | null;
     avgHeartRate: number | null;
     maxHeartRate: number | null;
     elevationGainMeters: number | null;
@@ -685,6 +686,18 @@ function speedKmhLabel(speedKmh: number) {
   return `${speedKmh.toLocaleString(undefined, {
     maximumFractionDigits: 1,
   })} km/h`;
+}
+
+function averageSpeedLabel(avgSpeedMps: number | null | undefined) {
+  if (
+    avgSpeedMps === null ||
+    avgSpeedMps === undefined ||
+    !Number.isFinite(avgSpeedMps) ||
+    avgSpeedMps < 0
+  ) {
+    return "Unavailable";
+  }
+  return speedKmhLabel(avgSpeedMps * 3.6);
 }
 
 type ChartSeriesPoint = {
@@ -3495,6 +3508,7 @@ export function TrainerDashboard() {
                           <th>Duration</th>
                           <th>Distance</th>
                           <th>Pace</th>
+                          <th>Avg Speed</th>
                           <th>Avg HR</th>
                           <th>Elev +/−</th>
                         </tr>
@@ -3508,6 +3522,7 @@ export function TrainerDashboard() {
                             <td>
                               {paceLabel(lap.durationSec, lap.distanceMeters)}
                             </td>
+                            <td>{averageSpeedLabel(lap.avgSpeedMps)}</td>
                             <td>{numberLabel(lap.avgHeartRate)} bpm</td>
                             <td>
                               {metersLabel(lap.elevationGainMeters)} /{" "}
