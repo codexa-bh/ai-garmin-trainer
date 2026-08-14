@@ -1967,9 +1967,6 @@ export function TrainerDashboard() {
   const [syncRun, setSyncRun] = useState<SyncRunState>(emptySyncRun);
   const [importSummary, setImportSummary] =
     useState<ImportSummaryPayload | null>(null);
-  const [importSummaryMessage, setImportSummaryMessage] = useState(
-    "Import summary metrics will load from local SQLite.",
-  );
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [memoryHealth, setMemoryHealth] = useState<MemoryHealth | null>(null);
@@ -2075,6 +2072,7 @@ export function TrainerDashboard() {
   const trainingPlanReturnFocusRef = useRef(false);
   const syncButtonRef = useRef<HTMLButtonElement>(null);
   const syncCloseRef = useRef<HTMLButtonElement>(null);
+  const syncLogRef = useRef<HTMLPreElement>(null);
   const syncReturnFocusRef = useRef(false);
   const activityListRequestRef = useRef(0);
   const activityListQueryRef = useRef("");
@@ -2267,6 +2265,11 @@ export function TrainerDashboard() {
       focusMainNavigationControl(syncButtonRef);
     }
   }, [syncOpen]);
+  useLayoutEffect(() => {
+    const syncLog = syncLogRef.current;
+    if (!syncLog || !syncOpen) return;
+    syncLog.scrollTop = syncLog.scrollHeight;
+  }, [syncOpen, syncRun.lines]);
   useEffect(() => {
     if (!activityDashboardOpen) return;
     void loadActivities(activitySearchQuery);
@@ -2842,9 +2845,6 @@ export function TrainerDashboard() {
         bodyMetrics: nextBodyMetrics,
       };
       setImportSummary(nextSummary);
-      setImportSummaryMessage(
-        `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}, body metrics ${nextBodyMetrics.availability}.`,
-      );
       setAthleteBaseline(nextBaseline);
       setBodyMetrics(nextBodyMetrics);
       setAthleteBaselineMessage(formatAthleteBaselineSummary(nextBaseline));
@@ -2855,18 +2855,16 @@ export function TrainerDashboard() {
           message: `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}, body metrics ${nextBodyMetrics.availability}.`,
         });
     } catch (error) {
-      const message = `Import summary failed: ${error instanceof Error ? error.message : "unknown error"}`;
-      setImportSummaryMessage(message);
+      const errorMessage =
+        error instanceof Error ? error.message : "unknown error";
       setAthleteBaselineMessage(
-        `Athlete baseline summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        `Athlete baseline summary failed: ${errorMessage}`,
       );
-      setBodyMetricsMessage(
-        `Body metrics summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
-      );
+      setBodyMetricsMessage(`Body metrics summary failed: ${errorMessage}`);
       if (showStatus || trigger === "manual")
         setStatus({
           kind: "error",
-          message: `Import summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
+          message: `Import summary failed: ${errorMessage}`,
         });
     }
   }
@@ -3757,10 +3755,6 @@ export function TrainerDashboard() {
             <div>
               <p className="section-kicker">Garmin sync</p>
               <h1 id="sync-view-heading">Sync</h1>
-              <p>
-                Import the latest Garmin data, watch the current run, and review
-                local import coverage without leaving this app session.
-              </p>
             </div>
             <button
               type="button"
@@ -3787,8 +3781,7 @@ export function TrainerDashboard() {
               </div>
               <p>
                 Uses the existing local read-only connector and normalized
-                import pipeline. Logs below are kept only for this mounted
-                browser session and are replaced when the next sync starts.
+                import pipeline.
               </p>
               <div className="button-row">
                 <button
@@ -3811,6 +3804,7 @@ export function TrainerDashboard() {
                 {syncRun.finalMessage}
               </p>
               <pre
+                ref={syncLogRef}
                 className={`sync-log status ${syncPillKind}`}
                 aria-label="Current sync progress log"
                 aria-live="polite"
@@ -3831,9 +3825,6 @@ export function TrainerDashboard() {
                   <h2 id="sync-metrics-heading">Local Garmin coverage</h2>
                 </div>
               </div>
-              <p className="helper-text" role="status" aria-live="polite">
-                {importSummaryMessage}
-              </p>
               {importSummary ? (
                 <dl className="compact-facts sync-metrics-grid">
                   <div>

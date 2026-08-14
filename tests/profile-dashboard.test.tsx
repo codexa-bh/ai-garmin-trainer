@@ -224,6 +224,7 @@ function captureAnimationFrames() {
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -2533,6 +2534,9 @@ describe("TrainerDashboard dedicated Sync view", () => {
       }),
     ).toBeTruthy();
     expect(screen.queryByText("Refresh metrics")).toBeNull();
+    expect(screen.queryByText(/Import the latest Garmin data/)).toBeNull();
+    expect(screen.queryByText(/Logs below are kept only/)).toBeNull();
+    expect(screen.queryByText(/Import summary:/)).toBeNull();
     expect(screen.getByText("Stored activities")).toBeTruthy();
     expect(screen.getByText("247")).toBeTruthy();
     expect(screen.getByText("Health coverage")).toBeTruthy();
@@ -2556,7 +2560,12 @@ describe("TrainerDashboard dedicated Sync view", () => {
     ).toBe(false);
   });
 
-  it("streams from the internal Sync now action and preserves logs across section navigation", async () => {
+  it("streams from the internal Sync now action, auto-scrolls, and preserves logs across section navigation", async () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return (this.textContent ?? "").length;
+      },
+    );
     const stream = controlledSyncStream();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -2605,6 +2614,10 @@ describe("TrainerDashboard dedicated Sync view", () => {
       expect(
         screen.getByText(/health: Imported daily health 1\/1/).textContent,
       ).toContain("processed activity records 247, refreshed health dates 933");
+      const syncLog = screen.getByLabelText(
+        "Current sync progress log",
+      ) as HTMLPreElement;
+      expect(syncLog.scrollTop).toBe(syncLog.scrollHeight);
     });
 
     stream.push({
@@ -2623,6 +2636,12 @@ describe("TrainerDashboard dedicated Sync view", () => {
       expect(syncNowButton.hasAttribute("disabled")).toBe(false),
     );
     expect(screen.getAllByText(/Result: completed/).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      const syncLog = screen.getByLabelText(
+        "Current sync progress log",
+      ) as HTMLPreElement;
+      expect(syncLog.scrollTop).toBe(syncLog.scrollHeight);
+    });
     expect(
       screen.getByText(/Sync complete\. Summary refreshed/).textContent,
     ).toContain("247 stored activities");
@@ -2641,6 +2660,10 @@ describe("TrainerDashboard dedicated Sync view", () => {
     expect(
       screen.getAllByText(/health: Imported daily health 1\/1/).length,
     ).toBeGreaterThan(0);
+    const remountedSyncLog = screen.getByLabelText(
+      "Current sync progress log",
+    ) as HTMLPreElement;
+    expect(remountedSyncLog.scrollTop).toBe(remountedSyncLog.scrollHeight);
   });
 
   it("keeps successful result copy concise and non-duplicative", async () => {
