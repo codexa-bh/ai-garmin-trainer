@@ -2530,6 +2530,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
         name: "Sync now — import latest Garmin data",
       }),
     ).toBeTruthy();
+    expect(screen.queryByText("Refresh metrics")).toBeNull();
     expect(screen.getByText("Stored activities")).toBeTruthy();
     expect(screen.getByText("247")).toBeTruthy();
     expect(screen.getByText("Health coverage")).toBeTruthy();
@@ -2617,6 +2618,13 @@ describe("TrainerDashboard dedicated Sync view", () => {
       expect(syncNowButton.hasAttribute("disabled")).toBe(false),
     );
     expect(screen.getAllByText(/Result: completed/).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(/Sync complete\. Summary refreshed/).textContent,
+    ).toContain("247 stored activities");
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input) === "/api/summary")
+        .length,
+    ).toBeGreaterThan(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
@@ -2628,6 +2636,59 @@ describe("TrainerDashboard dedicated Sync view", () => {
     expect(
       screen.getAllByText(/health: Imported daily health 1\/1/).length,
     ).toBeGreaterThan(0);
+  });
+
+  it("keeps successful result copy concise and non-duplicative", async () => {
+    const longDetail =
+      "Garmin sync completed through the pinned stdio MCP connector with a very long paragraph that should not be repeated in the UI success result.";
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/summary") return jsonResponse(importSummary());
+      if (url === "/api/sync" && init?.method === "POST") {
+        return syncStreamResponse([
+          {
+            type: "result",
+            status: "completed",
+            activitiesProcessed: 12,
+            healthDaysRefreshed: 8,
+            detailsProcessed: 3,
+            storedActivities: 247,
+            storedHealthRows: 933,
+            healthCoverage: importSummary().healthCoverage,
+            detailCoverage: importSummary().detailCoverage,
+            athleteBaseline: importSummary().athleteBaseline,
+            bodyMetrics: importSummary().bodyMetrics,
+            detail: longDetail,
+          },
+        ]);
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }),
+    );
+
+    await waitFor(() => {
+      const log =
+        screen.getByLabelText("Current sync progress log").textContent ?? "";
+      expect(log).toContain("Result: completed");
+      expect(log).toContain(
+        "health coverage 900 complete, 20 partial, 13 missing",
+      );
+      expect(log).not.toContain(longDetail);
+    });
+    expect(
+      screen.getByText(/Sync complete\. Summary refreshed/).textContent,
+    ).not.toContain(longDetail);
   });
 
   it("uses clear activity-detail wording for detail Sync now progress", async () => {

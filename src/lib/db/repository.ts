@@ -489,6 +489,39 @@ export function getCheckpoint(key: string): string | null {
   return row?.value ?? null;
 }
 
+export function listDailyHealthRepairCandidateDates(input: {
+  startDate: string;
+  endDate: string;
+  limit?: number;
+}): string[] {
+  const safeLimit = Math.min(Math.max(Math.trunc(input.limit ?? 500), 1), 1000);
+  const rows = getDatabase()
+    .prepare(
+      `select daily_health.date as date
+       from daily_health
+       where daily_health.availability = 'missing'
+         and daily_health.date between ? and ?
+         and (
+           not exists (
+             select 1 from garmin_raw_payload
+             where subject_type = 'daily_health'
+               and source_tool = 'get_stats'
+               and subject_id = daily_health.date || ':stats'
+           )
+           or not exists (
+             select 1 from garmin_raw_payload
+             where subject_type = 'daily_health'
+               and source_tool = 'get_sleep_summary'
+               and subject_id = daily_health.date || ':sleep'
+           )
+         )
+       order by daily_health.date asc
+       limit ?`,
+    )
+    .all(input.startDate, input.endDate, safeLimit) as Array<{ date: string }>;
+  return rows.map((row) => row.date);
+}
+
 export function recordSyncRun(
   status: string,
   optionsOrLastError?: SyncRunOptions | string,
