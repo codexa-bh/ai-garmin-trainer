@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTrainerContext,
+  formatCurrentDateContext,
   formatRecentChatHistory,
   TRAINER_SYSTEM_PROMPT,
 } from "../src/lib/ai/context";
@@ -55,6 +56,42 @@ describe("trainer AI", () => {
       "2026-06-30 Imported cycling on 2026-06-30 (Garmin ID 2) [fallback label] cycling",
     );
     expect(context).toContain("half marathon");
+  });
+
+  it("adds explicit server current-date grounding without treating Garmin freshness as the clock", () => {
+    const currentDate = new Date(2026, 7, 14, 9, 30, 0);
+    const context = buildTrainerContext({
+      activities: [
+        {
+          garminId: "latest-999",
+          name: "Older imported run",
+          sport: "running",
+          startedAt: new Date("2026-08-10T07:00:00Z"),
+          durationSec: 1800,
+          distanceMeters: 5000,
+          calories: null,
+          avgHeartRate: 145,
+          maxHeartRate: 170,
+          steps: null,
+          elevationGainMeters: null,
+          elevationLossMeters: null,
+          trainingEffect: null,
+        },
+      ],
+      health: [],
+      profile: { goals: [], sports: [], preferences: {}, constraints: [] },
+      currentDate,
+      recentMessages: [],
+    });
+
+    expect(formatCurrentDateContext(currentDate)).toContain(
+      "Server current date basis: 2026-08-14",
+    );
+    expect(context).toContain("Server current date basis: 2026-08-14");
+    expect(context).toContain("Use this server-owned date");
+    expect(context).toContain('derive "yesterday"');
+    expect(context).toContain("Garmin import freshness");
+    expect(context).toContain("2026-08-10 Older imported run");
   });
 
   it("labels Garmin athlete baselines separately and refuses unsupported max HR claims", () => {

@@ -204,12 +204,58 @@ describe("trainer orchestrator fail-closed policy", async () => {
 
     expect(result.text).not.toContain("I'll pull up");
     expect(result.text).not.toContain("Next");
-    expect(result.text).toContain("couldn't complete that local Garmin check");
+    expect(result.text).toContain("couldn't complete that local Garmin");
+    expect(result.text).not.toContain("model returned a plan");
+    expect(result.text).not.toContain("safe local-data tool");
     expect(result.toolSteps).toEqual([]);
     expect(result.grounding).toBeNull();
     expect(describeGarminDatabase).not.toHaveBeenCalled();
     expect(runReadOnlySql).not.toHaveBeenCalled();
     expect(runMathAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("does not accept no-tool planning preambles for sleep and recovery local-data requests", async () => {
+    generateText.mockResolvedValueOnce({
+      text: "I'll check your sleep, HRV, and body battery for today and yesterday first, then I'll summarize what that means for recovery.",
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest:
+        "Can you check my sleep stats and recovery for today and yesterday?",
+    });
+
+    expect(result.text).toContain("local Garmin or recovery check");
+    expect(result.text).not.toContain("I'll check");
+    expect(result.text).not.toContain("planner");
+    expect(result.text).not.toContain("safe local-data tool");
+    expect(result.toolSteps).toEqual([]);
+    expect(result.grounding).toBeNull();
+  });
+
+  it("repairs no-clock direct answers when server current-date context is present", async () => {
+    generateText.mockResolvedValueOnce({
+      text: "I don't have an independent real-time clock, so I can only ground today against the freshest Garmin data timestamps.",
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system:
+        'system\nServer current date basis: 2026-08-14 (server-local date; ISO date-time 2026-08-14T09:30:00.000Z; UTC offset +00:00). Use this server-owned date for relative terms like "today" and derive "yesterday" from it; Garmin import freshness and newest activity/health rows are separate evidence.',
+      userRequest: "Are you aware of today's date?",
+    });
+
+    expect(result.text).toContain(
+      "server-provided current date basis: 2026-08-14",
+    );
+    expect(result.text).toContain(
+      "Garmin activity or daily-health row dates are separate",
+    );
+    expect(result.text).not.toContain("independent real-time clock");
+    expect(result.text).not.toContain("freshest Garmin data timestamps");
+    expect(result.toolSteps).toEqual([]);
+    expect(result.grounding).toBeNull();
   });
 
   it("accepts complete direct no-tool coaching when local Garmin evidence is not required", async () => {

@@ -89,6 +89,27 @@ export type TrainerMemory = {
   reconfirmAfter: Date | null;
 };
 
+function padDatePart(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function formatUtcOffset(date: Date): string {
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  const hours = Math.trunc(absoluteMinutes / 60);
+  const minutes = absoluteMinutes % 60;
+  return `${sign}${padDatePart(hours)}:${padDatePart(minutes)}`;
+}
+
+function formatServerLocalDate(date: Date): string {
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+}
+
+export function formatCurrentDateContext(currentDate: Date): string {
+  return `Server current date basis: ${formatServerLocalDate(currentDate)} (server-local date; ISO date-time ${currentDate.toISOString()}; UTC offset ${formatUtcOffset(currentDate)}). Use this server-owned date for relative terms like "today" and derive "yesterday" from it; Garmin import freshness and newest activity/health rows are separate evidence.`;
+}
+
 function formatTrainingPlan(
   status: TrainingPlanStatus | null | undefined,
 ): string {
@@ -172,6 +193,7 @@ export function buildTrainerContext(input: {
   learnedMemories?: TrainerMemory[];
   retrievedMemories?: RetrievedMemory[];
   trainingPlan?: TrainingPlanStatus;
+  currentDate?: Date;
   recentMessages: string[];
 }): string {
   const recentActivities = input.activities.slice(0, 8).map((a) => {
@@ -221,6 +243,7 @@ export function buildTrainerContext(input: {
       return `${item.category}: ${compactText(item.value, 220)} (${item.provenanceText};${expiry})`;
     });
   return [
+    input.currentDate ? formatCurrentDateContext(input.currentDate) : null,
     `Explicit Profile goals: ${input.profile.goals.join(", ") || "not set"}`,
     `Explicit Profile sports: ${input.profile.sports.join(", ") || "not set"}`,
     `Explicit Profile constraints: ${input.profile.constraints.join(", ") || "not set"}`,
@@ -232,5 +255,7 @@ export function buildTrainerContext(input: {
     `Recent activities:\n${recentActivities.join("\n") || "No activities imported"}`,
     `Recovery:\n${health.join("\n") || "No recovery data imported"}`,
     `Recent conversation:\n${input.recentMessages.join("\n")}`,
-  ].join("\n\n");
+  ]
+    .filter((section): section is string => Boolean(section))
+    .join("\n\n");
 }

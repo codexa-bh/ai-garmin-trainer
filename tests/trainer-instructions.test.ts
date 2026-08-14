@@ -18,6 +18,11 @@ describe("canonical trainer instruction package", () => {
     expect(TRAINER_SYSTEM_PROMPT).toContain("active Profile");
     expect(TRAINER_SYSTEM_PROMPT).toContain("prior assistant prose is never");
     expect(TRAINER_SYSTEM_PROMPT).toContain("normalized daily health");
+    expect(TRAINER_SYSTEM_PROMPT).toContain("server current-date context");
+    expect(TRAINER_SYSTEM_PROMPT).toContain(
+      "Garmin evidence freshness separately",
+    );
+    expect(TRAINER_SYSTEM_PROMPT).toContain("do not claim you lack a clock");
     expect(TRAINER_SYSTEM_PROMPT).toContain(
       "Bounded normalized route coordinates may be used for route/GPS questions",
     );
@@ -43,6 +48,10 @@ describe("canonical trainer instruction package", () => {
     );
 
     expect(planner).toContain("Every consequential derived value");
+    expect(planner).toContain(
+      "ground today/yesterday from server current-date context",
+    );
+    expect(planner).toContain("sleep, recovery, HRV, body battery");
     expect(planner).toContain(
       "do not spend the SQL budget on repeated searches",
     );

@@ -309,6 +309,11 @@ const generateText = vi.fn(
     if (options.system.includes("Evidence step 1:"))
       return { text: "provider final" };
     const prompt = options.prompt;
+    if (prompt.includes("today's date")) {
+      return {
+        text: "I don't have an independent real-time clock, so I can only ground today against the freshest Garmin data timestamps.",
+      };
+    }
     if (prompt.includes("sync status")) {
       return { toolCalls: [{ toolName: "getSyncStatus", input: {} }] };
     }
@@ -423,6 +428,11 @@ const generateText = vi.fn(
     if (prompt.includes("yesterdays hike")) {
       return {
         text: "I'll pull up the hike detail metadata first. Next, I'll find comparable nearby variations and analyze the effort.",
+      };
+    }
+    if (prompt.toLowerCase().includes("sleep stats")) {
+      return {
+        text: "I'll check your sleep, HRV, and body battery for today and yesterday first. Next, I'll summarize your recovery.",
       };
     }
     if (prompt.includes("latest activity")) {
@@ -925,8 +935,10 @@ describe("chat route LLM tool orchestration", () => {
     );
 
     expect(payload.assistant.content).toContain(
-      "couldn't complete that local Garmin check",
+      "couldn't complete that local Garmin",
     );
+    expect(payload.assistant.content).not.toContain("model returned a plan");
+    expect(payload.assistant.content).not.toContain("safe local-data tool");
     expect(payload.assistant.content).not.toContain("I'll pull up");
     expect(payload.assistant.content).not.toContain("Next");
     expect(payload.toolEvidence).toBeNull();
@@ -945,10 +957,57 @@ describe("chat route LLM tool orchestration", () => {
       .map((event) => event.textDelta)
       .join("");
 
-    expect(streamedText).toContain("couldn't complete that local Garmin check");
+    expect(streamedText).toContain("couldn't complete that local Garmin");
+    expect(streamedText).not.toContain("model returned a plan");
+    expect(streamedText).not.toContain("safe local-data tool");
     expect(streamedText).not.toContain("I'll pull up");
     expect(streamedText).not.toContain("Next");
     expect(messages.at(-1)?.content).toBe(streamedText);
+  });
+
+  it("passes request-time server current-date grounding into the planner context", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 14, 9, 30, 0));
+    try {
+      const payload = await postChat(
+        "Are you aware of today's date?",
+        "date-grounding-test",
+      );
+
+      expect(payload.assistant.content).toContain(
+        "server-provided current date basis: 2026-08-14",
+      );
+      expect(payload.assistant.content).not.toContain(
+        "independent real-time clock",
+      );
+      const firstCall = generateText.mock.calls[0][0] as { system: string };
+      expect(firstCall.system).toContain(
+        "Server current date basis: 2026-08-14",
+      );
+      expect(firstCall.system).toContain("Use this server-owned date");
+      expect(firstCall.system).toContain('derive "yesterday"');
+      expect(firstCall.system).toContain("Garmin import freshness");
+      expect(firstCall.system).not.toContain(".env.local");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not persist planner prose for reported sleep/recovery local-data checks", async () => {
+    const payload = await postChat(
+      "Can you check my sleep stats and recovery for today and yesterday?",
+      "sleep-recovery-fallback-test",
+    );
+
+    expect(payload.assistant.content).toContain(
+      "couldn't complete that local Garmin or recovery check",
+    );
+    expect(payload.assistant.content).not.toContain("I'll check");
+    expect(payload.assistant.content).not.toContain("model returned a plan");
+    expect(payload.assistant.content).not.toContain("safe local-data tool");
+    expect(payload.toolEvidence).toBeNull();
+    expect(payload.toolSteps).toEqual([]);
+    expect(messages.at(-1)?.content).toBe(payload.assistant.content);
   });
 
   it("supports latest analysis only when the planner writes a bounded SQL query", async () => {

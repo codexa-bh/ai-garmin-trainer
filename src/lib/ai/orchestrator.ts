@@ -154,7 +154,7 @@ function isAcceptableToolSynthesisText(text: string): boolean {
 }
 
 const NON_TERMINAL_LOCAL_DATA_LIMITATION =
-  "I couldn't complete that local Garmin check because the model returned a plan instead of selecting a safe local-data tool. Please retry or narrow the activity/date you want me to check.";
+  "I couldn't complete that local Garmin or recovery check in this turn. Please retry, or narrow the date, activity, or recovery metric you want me to check.";
 
 function isLikelyLocalDataRequest(userRequest: string): boolean {
   const normalized = userRequest.toLowerCase();
@@ -162,7 +162,7 @@ function isLikelyLocalDataRequest(userRequest: string): boolean {
     /\b(my|mine|me|i)\b/.test(normalized) ||
     /\b(yesterday|today|last|recent|near (to )?my home)\b/.test(normalized);
   const hasLocalDataSubject =
-    /\b(garmin|activity|activities|hike|hikes|run|runs|ride|rides|walk|walks|route|routes|sync|detail|details|variation|variations)\b/.test(
+    /\b(garmin|activity|activities|hike|hikes|run|runs|ride|rides|walk|walks|route|routes|sync|detail|details|variation|variations|sleep|slept|recovery|recovering|recover|hrv|body battery|body-battery|stress|readiness|resting heart rate|rhr|daily health|health stats|steps|calories)\b/.test(
       normalized,
     );
   return hasPersonalAnchor && hasLocalDataSubject;
@@ -180,7 +180,7 @@ function isNonTerminalLocalDataPlan(text: string): boolean {
       normalized,
     );
   const hasLocalDataSubject =
-    /\b(garmin|activity|activities|hike|hikes|run|runs|ride|rides|route|routes|local data|metadata|detail|details|database|sql|nearby|variation|variations|yesterday|recent)\b/.test(
+    /\b(garmin|activity|activities|hike|hikes|run|runs|ride|rides|route|routes|local data|metadata|detail|details|database|sql|nearby|variation|variations|yesterday|today|recent|sleep|slept|recovery|hrv|body battery|body-battery|stress|readiness|resting heart rate|rhr|daily health|health stats|steps|calories)\b/.test(
       normalized,
     );
   return hasFutureMarker && hasLocalDataAction && hasLocalDataSubject;
@@ -194,6 +194,34 @@ function isNonTerminalLocalDataDirectAnswer(input: {
     isLikelyLocalDataRequest(input.userRequest) &&
     isNonTerminalLocalDataPlan(input.text)
   );
+}
+
+function serverCurrentDateBasis(system: string): string | null {
+  return (
+    /Server current date basis:\s*(\d{4}-\d{2}-\d{2})\b/.exec(system)?.[1] ??
+    null
+  );
+}
+
+function isCurrentDateMetaQuestion(userRequest: string): boolean {
+  return /\b(today'?s date|current date|server date|system clock|aware of today|what date)\b/i.test(
+    userRequest,
+  );
+}
+
+function rejectsAvailableDateBasis(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  return (
+    /\b(i do not|i don't|i cannot|i can't|i lack|no independent)\b.{0,90}\b(clock|real-time|current date|today'?s date|system itself)\b/.test(
+      normalized,
+    ) ||
+    /\bground ["']?today["']? only against the freshest garmin/.test(normalized)
+  );
+}
+
+function currentDateBasisAnswer(isoDate: string): string {
+  return `Yes. For this chat turn I have a server-provided current date basis: ${isoDate}. I use that for relative terms such as today and yesterday; Garmin activity or daily-health row dates are separate evidence for imported-data freshness.`;
 }
 
 function canToolRunWithinBudget(
@@ -508,6 +536,22 @@ export async function orchestrateTrainerChat(
         });
       }
       const text = result.text?.trim() ?? "";
+      const currentDateBasis = serverCurrentDateBasis(input.system);
+      if (
+        currentDateBasis &&
+        isCurrentDateMetaQuestion(input.userRequest) &&
+        rejectsAvailableDateBasis(text)
+      ) {
+        return finish(
+          {
+            text: currentDateBasisAnswer(currentDateBasis),
+            grounding: null,
+            toolSteps: [],
+            providerCalls,
+          },
+          "deterministic_fallback",
+        );
+      }
       if (
         isNonTerminalLocalDataDirectAnswer({
           userRequest: input.userRequest,
