@@ -537,7 +537,7 @@ function formatSyncResultLine(event: SyncProgressEvent): string {
   ];
   if (event.healthCoverage) {
     parts.push(
-      `health coverage ${event.healthCoverage.completeDays} complete, ${event.healthCoverage.partialDays} partial, ${event.healthCoverage.missingDays} missing`,
+      `health coverage ${event.healthCoverage.completeDays} complete, ${event.healthCoverage.partialDays} partial, ${event.healthCoverage.missingDays} source-unavailable`,
     );
   }
   if (event.detailCoverage) {
@@ -556,7 +556,7 @@ function formatSyncFinalMessage(event: SyncProgressEvent): string {
     return `Sync failed. ${event.detail ?? "See the current-run log for details."}`;
   }
   const healthCoverage = event.healthCoverage
-    ? ` Health coverage: ${event.healthCoverage.completeDays} complete, ${event.healthCoverage.partialDays} partial, ${event.healthCoverage.missingDays} missing.`
+    ? ` Health coverage: ${event.healthCoverage.completeDays} complete, ${event.healthCoverage.partialDays} partial, ${event.healthCoverage.missingDays} source-unavailable; not estimated.`
     : "";
   const athleteAvailability =
     event.athleteBaseline?.availability ?? event.athleteAvailability;
@@ -576,7 +576,11 @@ function formatHealthCoverageSummary(
   legacyHealthDays: number,
 ): string {
   if (!coverage) return `${legacyHealthDays} health calendar rows`;
-  return `${coverage.totalRows} health calendar rows (${coverage.completeDays} complete, ${coverage.partialDays} partial, ${coverage.missingDays} missing; populated metrics: sleep ${coverage.metrics.sleepDays}, HRV ${coverage.metrics.hrvDays})`;
+  const unavailable =
+    coverage.missingDays > 0
+      ? `${coverage.missingDays} source-unavailable, often pre-watch/pre-device or Garmin returned no daily-health metrics; not estimated`
+      : "0 source-unavailable";
+  return `${coverage.totalRows} health calendar rows (${coverage.completeDays} complete, ${coverage.partialDays} partial, ${unavailable}; populated metrics: sleep ${coverage.metrics.sleepDays}, HRV ${coverage.metrics.hrvDays})`;
 }
 
 function formatDetailCoverageSummary(

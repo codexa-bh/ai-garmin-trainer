@@ -1262,8 +1262,10 @@ describe("TrainerDashboard athlete baseline summary", () => {
       const statusText = screen.getByText(/Import summary:/).textContent ?? "";
       expect(statusText).toContain("258 stored activities");
       expect(statusText).toContain(
-        "953 health calendar rows (751 complete, 1 partial, 201 missing",
+        "953 health calendar rows (751 complete, 1 partial, 201 source-unavailable",
       );
+      expect(statusText).toContain("often pre-watch/pre-device");
+      expect(statusText).toContain("not estimated");
       expect(statusText).toContain("256 available, 0 partial, 2 unsupported");
     });
   });
@@ -2534,9 +2536,12 @@ describe("TrainerDashboard dedicated Sync view", () => {
     expect(screen.getByText("Stored activities")).toBeTruthy();
     expect(screen.getByText("247")).toBeTruthy();
     expect(screen.getByText("Health coverage")).toBeTruthy();
-    expect(
-      screen.getAllByText(/933 health calendar rows/).length,
-    ).toBeGreaterThan(0);
+    const healthCoverageText = screen.getAllByText(
+      /933 health calendar rows/,
+    )[0].textContent;
+    expect(healthCoverageText).toContain("13 source-unavailable");
+    expect(healthCoverageText).toContain("pre-watch/pre-device");
+    expect(healthCoverageText).toContain("not estimated");
     expect(screen.getByText("Detail coverage")).toBeTruthy();
     expect(
       screen.getAllByText(/230 available, 15 partial/).length,
@@ -2682,7 +2687,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
         screen.getByLabelText("Current sync progress log").textContent ?? "";
       expect(log).toContain("Result: completed");
       expect(log).toContain(
-        "health coverage 900 complete, 20 partial, 13 missing",
+        "health coverage 900 complete, 20 partial, 13 source-unavailable",
       );
       expect(log).not.toContain(longDetail);
     });
