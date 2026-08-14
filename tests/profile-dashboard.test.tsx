@@ -796,6 +796,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Sync",
       "Activity charts",
       "Training Plan",
+      "Health dashboard",
       "Settings",
     ]);
     expect(
@@ -852,6 +853,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Sync",
       "Activity charts",
       "Training Plan",
+      "Health dashboard",
       "Data & settings",
     ];
     for (const name of menuItems) {
@@ -868,6 +870,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Sync",
       "Activity charts",
       "Training Plan",
+      "Health dashboard",
       "Settings",
     ]);
 

@@ -81,7 +81,8 @@ body::before {
 }
 
 .dashboard-shell.activity-dashboard-active,
-.dashboard-shell.sync-view-active {
+.dashboard-shell.sync-view-active,
+.dashboard-shell.health-dashboard-active {
   grid-template-rows: minmax(0, 1fr);
 }
 
@@ -193,7 +194,8 @@ body::before {
 }
 
 .training-plan-panel,
-.sync-view-panel {
+.sync-view-panel,
+.health-dashboard-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
@@ -206,17 +208,9 @@ body::before {
   background: rgba(7, 11, 18, 0.98);
 }
 
-.activity-dashboard-header {
-  display: flex;
-  grid-column: 1 / -1;
-  gap: 14px;
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-  padding-bottom: 2px;
-}
-
-.sync-view-header {
+.activity-dashboard-header,
+.sync-view-header,
+.health-dashboard-header {
   display: flex;
   grid-column: 1 / -1;
   gap: 14px;
@@ -227,7 +221,8 @@ body::before {
 }
 
 .activity-dashboard-header h1,
-.sync-view-header h1 {
+.sync-view-header h1,
+.health-dashboard-header h1 {
   margin: 0;
   font-size: clamp(26px, 4vw, 48px);
   line-height: 1;
@@ -302,6 +297,156 @@ body::before {
 
 .sync-metrics-grid dd {
   line-height: 1.45;
+}
+
+.health-dashboard-content {
+  display: flex;
+  grid-column: 1 / -1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+
+.health-dashboard-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.health-day-browser {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.health-day-label {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+}
+
+.health-day-label h2 {
+  margin: 0;
+  font-size: clamp(18px, 2.4vw, 26px);
+  line-height: 1.1;
+}
+
+.health-day-availability {
+  margin: 0;
+  color: var(--faint);
+  font-size: 13px;
+}
+
+.health-widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 10px;
+}
+
+.health-widget {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.health-widget-label {
+  margin: 0;
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.health-widget-value {
+  display: flex;
+  margin: 0;
+  align-items: baseline;
+  gap: 6px;
+  font-size: clamp(22px, 3vw, 30px);
+  font-weight: 700;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.health-widget-unit {
+  color: var(--faint);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.health-widget-unavailable {
+  color: var(--faint);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.health-widget-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.health-widget-trend-note {
+  margin: 2px 0 0;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.health-sparkline {
+  margin-top: 4px;
+  color: rgba(73, 214, 200, 0.9);
+}
+
+.health-dashboard-footnote {
+  margin: 0 0 4px;
+}
+
+.health-empty-state {
+  display: flex;
+  max-width: 620px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.health-empty-state h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.health-empty-state p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.health-dashboard-error {
+  max-width: 620px;
+  padding: 12px 14px;
+  border: 1px solid rgba(240, 103, 103, 0.4);
+  border-radius: 12px;
+  color: #ff9d9d;
 }
 
 .training-plan-toolbar,
@@ -1926,6 +2071,15 @@ label {
 
   .sync-view-content {
     grid-template-columns: 1fr;
+  }
+
+  .health-day-browser {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .health-day-label {
+    order: -1;
   }
 
   .activity-dashboard-panel.activity-selector-collapsed {
