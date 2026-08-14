@@ -288,6 +288,18 @@ body::before {
   max-height: min(42vh, 360px);
 }
 
+.sync-metrics-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.sync-metrics-grid > div {
+  grid-column: span 2;
+}
+
+.sync-metrics-grid > div:nth-child(n + 4) {
+  grid-column: span 3;
+}
+
 .sync-metrics-grid dd {
   line-height: 1.45;
 }
@@ -1966,6 +1978,15 @@ label {
   .sync-view-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .sync-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-metrics-grid > div,
+  .sync-metrics-grid > div:nth-child(n + 4) {
+    grid-column: 1 / -1;
   }
 
   .activity-dashboard-panel.activity-selector-collapsed {

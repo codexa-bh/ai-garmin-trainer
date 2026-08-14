@@ -2537,6 +2537,22 @@ describe("TrainerDashboard dedicated Sync view", () => {
     expect(screen.queryByText(/Import the latest Garmin data/)).toBeNull();
     expect(screen.queryByText(/Logs below are kept only/)).toBeNull();
     expect(screen.queryByText(/Import summary:/)).toBeNull();
+    const metricsSection = screen.getByRole("region", {
+      name: "Local Garmin coverage",
+    });
+    const metricLabels = Array.from(
+      metricsSection.querySelectorAll("dt"),
+      (term) => term.textContent,
+    );
+    expect(metricLabels.slice(0, 3)).toEqual([
+      "Stored activities",
+      "Athlete baseline",
+      "Body metrics",
+    ]);
+    expect(metricLabels.slice(3)).toEqual([
+      "Health coverage",
+      "Detail coverage",
+    ]);
     expect(screen.getByText("Stored activities")).toBeTruthy();
     expect(screen.getByText("247")).toBeTruthy();
     expect(screen.getByText("Health coverage")).toBeTruthy();

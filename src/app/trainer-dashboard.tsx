@@ -3832,6 +3832,14 @@ export function TrainerDashboard() {
                     <dd>{numberLabel(importSummary.activities)}</dd>
                   </div>
                   <div>
+                    <dt>Athlete baseline</dt>
+                    <dd>{importSummary.athleteBaseline.availability}</dd>
+                  </div>
+                  <div>
+                    <dt>Body metrics</dt>
+                    <dd>{importSummary.bodyMetrics.availability}</dd>
+                  </div>
+                  <div>
                     <dt>Health coverage</dt>
                     <dd>
                       {formatHealthCoverageSummary(
@@ -3848,14 +3856,6 @@ export function TrainerDashboard() {
                         importSummary.detailedActivities,
                       )}
                     </dd>
-                  </div>
-                  <div>
-                    <dt>Athlete baseline</dt>
-                    <dd>{importSummary.athleteBaseline.availability}</dd>
-                  </div>
-                  <div>
-                    <dt>Body metrics</dt>
-                    <dd>{importSummary.bodyMetrics.availability}</dd>
                   </div>
                 </dl>
               ) : (
