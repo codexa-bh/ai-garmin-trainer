@@ -80,7 +80,8 @@ body::before {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
-.dashboard-shell.activity-dashboard-active {
+.dashboard-shell.activity-dashboard-active,
+.dashboard-shell.sync-view-active {
   grid-template-rows: minmax(0, 1fr);
 }
 
@@ -191,7 +192,8 @@ body::before {
   background: rgba(7, 11, 18, 0.98);
 }
 
-.training-plan-panel {
+.training-plan-panel,
+.sync-view-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
@@ -214,7 +216,18 @@ body::before {
   padding-bottom: 2px;
 }
 
-.activity-dashboard-header h1 {
+.sync-view-header {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding-bottom: 2px;
+}
+
+.activity-dashboard-header h1,
+.sync-view-header h1 {
   margin: 0;
   font-size: clamp(26px, 4vw, 48px);
   line-height: 1;
@@ -222,7 +235,10 @@ body::before {
 
 .activity-dashboard-selector,
 .selected-activity-detail,
-.training-plan-content {
+.training-plan-content,
+.sync-view-content,
+.sync-action-card,
+.sync-metrics-card {
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -249,8 +265,31 @@ body::before {
   scrollbar-gutter: stable both-edges;
 }
 
-.training-plan-content {
+.training-plan-content,
+.sync-view-content {
   grid-column: 1 / -1;
+}
+
+.sync-view-content {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.86fr) minmax(0, 1.14fr);
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+.sync-action-card,
+.sync-metrics-card {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.sync-log {
+  min-height: 180px;
+  max-height: min(42vh, 360px);
+}
+
+.sync-metrics-grid dd {
+  line-height: 1.45;
 }
 
 .training-plan-toolbar,
@@ -1843,6 +1882,10 @@ label {
     grid-template-rows: auto minmax(170px, 32vh) minmax(0, 1fr);
   }
 
+  .sync-view-content {
+    grid-template-columns: 1fr;
+  }
+
   .activity-dashboard-panel.activity-selector-collapsed {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto minmax(0, 1fr);
@@ -1913,6 +1956,16 @@ label {
     grid-template-rows: auto minmax(140px, 30vh) minmax(0, 1fr);
     gap: 12px;
     padding: 12px;
+  }
+
+  .sync-view-panel {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .sync-view-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .activity-dashboard-panel.activity-selector-collapsed {

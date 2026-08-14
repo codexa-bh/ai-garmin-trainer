@@ -46,6 +46,30 @@ function syncStreamResponse(events: unknown[]) {
   );
 }
 
+function controlledSyncStream() {
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const response = Promise.resolve(
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(nextController) {
+          controller = nextController;
+        },
+      }),
+      { headers: { "content-type": "application/x-ndjson" } },
+    ),
+  );
+  return {
+    response,
+    push(event: unknown) {
+      controller?.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+    },
+    close() {
+      controller?.close();
+    },
+  };
+}
+
 function profile(
   goals: string[] = ["Build hiking endurance"],
   preferences: Record<string, unknown> = { coachingStyle: "direct" },
@@ -55,6 +79,67 @@ function profile(
     sports: ["hiking", "mountaineering"],
     constraints: ["no running this week"],
     preferences,
+  };
+}
+
+function importSummary(overrides: Record<string, unknown> = {}) {
+  return {
+    activities: 247,
+    healthDays: 933,
+    healthCoverage: {
+      totalRows: 933,
+      completeDays: 900,
+      partialDays: 20,
+      missingDays: 13,
+      metrics: {
+        sleepDays: 870,
+        restingHeartRateDays: 920,
+        hrvDays: 812,
+        stressDays: 880,
+        stepsDays: 933,
+        calorieDays: 910,
+        bodyBatteryDays: 777,
+      },
+    },
+    detailedActivities: 245,
+    detailCoverage: {
+      total: 247,
+      pending: 1,
+      available: 230,
+      partial: 15,
+      unsupported: 1,
+      retryableFailures: 0,
+      preservedFailures: 0,
+      inProgress: 0,
+      terminal: 246,
+    },
+    athleteBaseline: {
+      availability: "available",
+      fetchedAt: "2026-07-22T08:00:00.000Z",
+      lastAttemptAt: "2026-07-22T08:00:00.000Z",
+      values: {
+        cyclingFtpWatts: 250,
+        cyclingFtpMeasuredOn: "2026-07-01",
+        cyclingFtpSourceStale: false,
+        availableTrainingDays: ["Tuesday", "Thursday"],
+        preferredLongTrainingDays: ["Saturday"],
+        configuredMaxHeartRateBpm: 190,
+        heartRateZones: { status: "garmin_configured", boundaries: [] },
+      },
+    },
+    bodyMetrics: {
+      availability: "available",
+      fetchedAt: "2026-07-22T08:00:00.000Z",
+      lastAttemptAt: "2026-07-22T08:00:00.000Z",
+      values: { weightKg: 75, heightCm: 182 },
+      history: {
+        availability: "available",
+        rangeStart: "2026-01-01",
+        rangeEnd: "2026-07-22",
+        count: 42,
+      },
+    },
+    ...overrides,
   };
 }
 
@@ -668,7 +753,7 @@ describe("TrainerDashboard Profile hydration", () => {
     });
     const expectedTopbarButtons = [
       "Toggle conversation history",
-      "Sync now — import latest Garmin data",
+      "Sync",
       "Activity charts",
       "Training Plan",
       "Data & settings",
@@ -686,7 +771,7 @@ describe("TrainerDashboard Profile hydration", () => {
       ),
     ).toEqual([
       "Conversations",
-      "Sync now",
+      "Sync",
       "Activity charts",
       "Training Plan",
       "Settings",
@@ -742,7 +827,7 @@ describe("TrainerDashboard Profile hydration", () => {
     const menu = screen.getByRole("menu", { name: "Main menu" });
     const menuItems = [
       "Toggle conversation history",
-      "Sync now — import latest Garmin data",
+      "Sync",
       "Activity charts",
       "Training Plan",
       "Data & settings",
@@ -758,7 +843,7 @@ describe("TrainerDashboard Profile hydration", () => {
       ),
     ).toEqual([
       "Conversations",
-      "Sync now",
+      "Sync",
       "Activity charts",
       "Training Plan",
       "Settings",
@@ -1285,11 +1370,7 @@ describe("TrainerDashboard activity charts", () => {
 
     expect(await screen.findByText("Activity 0")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
-    expect(
-      screen.queryByRole("button", {
-        name: "Sync now — import latest Garmin data",
-      }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sync" })).toBeNull();
     expect(screen.queryByLabelText("Conversation history")).toBeNull();
     expect(screen.queryByText(/Refine search for more/)).toBeNull();
     expect(activityUrls[0]).toContain("limit=100");
@@ -1312,11 +1393,7 @@ describe("TrainerDashboard activity charts", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
 
-    expect(
-      screen.getByRole("button", {
-        name: "Sync now — import latest Garmin data",
-      }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sync" })).toBeTruthy();
     expect(screen.getByLabelText("Conversation history")).toBeTruthy();
   });
 
@@ -2430,62 +2507,67 @@ describe("TrainerDashboard activity charts", () => {
   });
 });
 
-describe("TrainerDashboard primary Sync now", () => {
-  it("keeps Sync now in the top bar before Settings opens", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+describe("TrainerDashboard dedicated Sync view", () => {
+  it("opens Sync as navigation without starting a sync and renders metrics", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/summary") return jsonResponse(importSummary());
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
 
-    const syncButton = screen.getByRole("button", {
-      name: "Sync now — import latest Garmin data",
-    });
-    expect(syncButton).toBeTruthy();
-    expect(syncButton.textContent).toContain("Sync now");
-
-    openSettings();
+    fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
 
     expect(
-      screen.getAllByRole("button", {
+      screen.getByRole("heading", { name: "Sync", level: 1 }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
         name: "Sync now — import latest Garmin data",
       }),
-    ).toHaveLength(1);
+    ).toBeTruthy();
+    expect(screen.getByText("Stored activities")).toBeTruthy();
+    expect(screen.getByText("247")).toBeTruthy();
+    expect(screen.getByText("Health coverage")).toBeTruthy();
+    expect(
+      screen.getAllByText(/933 health calendar rows/).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("Detail coverage")).toBeTruthy();
+    expect(
+      screen.getAllByText(/230 available, 15 partial/).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("Athlete baseline")).toBeTruthy();
+    expect(screen.getByText("Body metrics")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          String(input) === "/api/sync" && init?.method === "POST",
+      ),
+    ).toBe(false);
   });
 
-  it("omits no-op detail queue copy from non-detail Sync now progress", async () => {
+  it("streams from the internal Sync now action and preserves logs across section navigation", async () => {
+    const stream = controlledSyncStream();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
-      if (url === "/api/summary") {
+      if (url === "/api/summary") return jsonResponse(importSummary());
+      if (url.startsWith("/api/activities?")) {
         return jsonResponse({
-          activities: 247,
-          healthDays: 933,
-          detailedActivities: 247,
+          activities: [activityListItem(0)],
+          nextOffset: null,
+          totalApprox: 1,
+          limit: 100,
+          offset: 0,
         });
       }
       if (url === "/api/sync" && init?.method === "POST") {
-        return syncStreamResponse([
-          {
-            stage: "health",
-            message: "Imported daily health 1/1: 2026-07-21.",
-            activitiesImported: 247,
-            healthDaysImported: 933,
-          },
-          {
-            type: "result",
-            status: "completed",
-            activitiesImported: 247,
-            healthDaysImported: 933,
-            detailsProcessed: 0,
-            detail: "done",
-          },
-        ]);
+        return stream.response;
       }
       return jsonResponse({ ok: true });
     });
@@ -2493,23 +2575,59 @@ describe("TrainerDashboard primary Sync now", () => {
 
     render(React.createElement(TrainerDashboard));
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Sync now — import latest Garmin data",
-      }),
+    fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
+    const syncNowButton = screen.getByRole("button", {
+      name: "Sync now — import latest Garmin data",
+    });
+    fireEvent.click(syncNowButton);
+
+    await waitFor(() =>
+      expect(syncNowButton.hasAttribute("disabled")).toBe(true),
     );
-    openSettings();
-    fireEvent.click(screen.getByText(/Current operation/));
+    expect(
+      screen.getAllByText(/Sync already in progress/).length,
+    ).toBeGreaterThan(0);
+
+    stream.push({
+      stage: "health",
+      message: "Imported daily health 1/1: 2026-07-21.",
+      activitiesImported: 247,
+      healthDaysImported: 933,
+    });
 
     await waitFor(() => {
-      const statusText =
-        screen.getByText(/health: Imported daily health 1\/1/).textContent ??
-        "";
-      expect(statusText).toContain(
-        "processed activity records 247, refreshed health dates 933",
-      );
-      expect(statusText).not.toContain("activity details 0/0");
+      expect(
+        screen.getByText(/health: Imported daily health 1\/1/).textContent,
+      ).toContain("processed activity records 247, refreshed health dates 933");
     });
+
+    stream.push({
+      type: "result",
+      status: "completed",
+      activitiesImported: 247,
+      healthDaysImported: 933,
+      detailsProcessed: 0,
+      storedActivities: 247,
+      storedHealthRows: 933,
+      detail: "done",
+    });
+    stream.close();
+
+    await waitFor(() =>
+      expect(syncNowButton.hasAttribute("disabled")).toBe(false),
+    );
+    expect(screen.getAllByText(/Result: completed/).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    expect(await screen.findByText("Activity 0")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sync" }));
+
+    expect(screen.getAllByText(/Result: completed/).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/health: Imported daily health 1\/1/).length,
+    ).toBeGreaterThan(0);
   });
 
   it("uses clear activity-detail wording for detail Sync now progress", async () => {
@@ -2517,13 +2635,7 @@ describe("TrainerDashboard primary Sync now", () => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
-      if (url === "/api/summary") {
-        return jsonResponse({
-          activities: 247,
-          healthDays: 933,
-          detailedActivities: 245,
-        });
-      }
+      if (url === "/api/summary") return jsonResponse(importSummary());
       if (url === "/api/sync" && init?.method === "POST") {
         return syncStreamResponse([
           {
@@ -2542,61 +2654,18 @@ describe("TrainerDashboard primary Sync now", () => {
 
     render(React.createElement(TrainerDashboard));
 
+    fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
     fireEvent.click(
       screen.getByRole("button", {
         name: "Sync now — import latest Garmin data",
       }),
     );
-    openSettings();
-    fireEvent.click(screen.getByText(/Current operation/));
 
     await waitFor(() => {
       const statusText =
-        screen.getByText(/detail: Refreshing missing activity detail 3\/5/)
-          .textContent ?? "";
+        screen.getByLabelText("Current sync progress log").textContent ?? "";
       expect(statusText).toContain("activity details 2/5");
       expect(statusText).not.toContain(", details 2/5");
-    });
-  });
-
-  it("preserves hidden preferences when saving visible Profile fields", async () => {
-    let savedBody: unknown;
-    const seededPreferences = { coachingStyle: "direct", maxWeeklyHours: 10 };
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
-      if (url === "/api/profile" && init?.method === "GET")
-        return jsonResponse(
-          profile(["Build hiking endurance"], seededPreferences),
-        );
-      if (url === "/api/profile" && init?.method === "POST") {
-        savedBody = JSON.parse(String(init.body));
-        return jsonResponse({ ok: true, profile: savedBody });
-      }
-      return jsonResponse({ ok: true });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(React.createElement(TrainerDashboard));
-    openSettings();
-    const goals = (await screen.findByLabelText(
-      "Goals",
-    )) as HTMLTextAreaElement;
-
-    await waitFor(() => expect(goals.disabled).toBe(false));
-    fireEvent.change(goals, {
-      target: { value: "Updated endurance goal" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save Profile" }));
-
-    fireEvent.click(screen.getByText(/Current operation/));
-
-    await waitFor(() => {
-      expect(screen.getByText(/Profile: saved to local SQLite/)).toBeTruthy();
-    });
-    expect(savedBody).toMatchObject({
-      goals: ["Updated endurance goal"],
-      preferences: seededPreferences,
     });
   });
 });

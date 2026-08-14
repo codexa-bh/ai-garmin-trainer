@@ -14,6 +14,11 @@ import {
 } from "react";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
+type SyncRunState = {
+  kind: "idle" | "running" | "completed" | "failed";
+  lines: string[];
+  finalMessage: string;
+};
 type TranscriptScrollSnapshot = {
   scrollTop: number;
   wasNearBottom: boolean;
@@ -316,6 +321,11 @@ type ActivityListPayload = {
 
 const ACTIVITY_LIST_PAGE_SIZE = 100;
 const ACTIVITY_LIST_SCROLL_THRESHOLD_PX = 96;
+const emptySyncRun: SyncRunState = {
+  kind: "idle",
+  lines: [],
+  finalMessage: "No sync has run in this browser session yet.",
+};
 
 type ActivityDashboardPayload = {
   activity: ActivityListItem & {
@@ -1899,6 +1909,12 @@ export function TrainerDashboard() {
   const [renameTitle, setRenameTitle] = useState("");
   const [isRenamingConversation, setIsRenamingConversation] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncRun, setSyncRun] = useState<SyncRunState>(emptySyncRun);
+  const [importSummary, setImportSummary] =
+    useState<ImportSummaryPayload | null>(null);
+  const [importSummaryMessage, setImportSummaryMessage] = useState(
+    "Import summary metrics will load from local SQLite.",
+  );
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [memoryHealth, setMemoryHealth] = useState<MemoryHealth | null>(null);
@@ -1940,6 +1956,7 @@ export function TrainerDashboard() {
   const [activitySelectorCollapsed, setActivitySelectorCollapsed] =
     useState(false);
   const [trainingPlanOpen, setTrainingPlanOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
   const [trainingPlan, setTrainingPlan] = useState<TrainingPlan | null>(null);
   const [trainingPlanStale, setTrainingPlanStale] = useState(true);
   const [trainingPlanStaleAfterDays, setTrainingPlanStaleAfterDays] =
@@ -2001,6 +2018,9 @@ export function TrainerDashboard() {
   const trainingPlanButtonRef = useRef<HTMLButtonElement>(null);
   const trainingPlanCloseRef = useRef<HTMLButtonElement>(null);
   const trainingPlanReturnFocusRef = useRef(false);
+  const syncButtonRef = useRef<HTMLButtonElement>(null);
+  const syncCloseRef = useRef<HTMLButtonElement>(null);
+  const syncReturnFocusRef = useRef(false);
   const activityListRequestRef = useRef(0);
   const activityListQueryRef = useRef("");
   const activityListLoadedCountRef = useRef(0);
@@ -2103,11 +2123,11 @@ export function TrainerDashboard() {
     forceNextScrollRef.current = false;
   }, [chatMessages, isChatLoading]);
   useLayoutEffect(() => {
-    if (activityDashboardOpen || trainingPlanOpen) return;
+    if (activityDashboardOpen || trainingPlanOpen || syncOpen) return;
     if (!restoreTranscriptOnSectionReturnRef.current) return;
     restoreTranscriptOnSectionReturnRef.current = false;
     restoreTranscriptScrollSnapshot();
-  }, [activityDashboardOpen, trainingPlanOpen]);
+  }, [activityDashboardOpen, trainingPlanOpen, syncOpen]);
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -2127,6 +2147,10 @@ export function TrainerDashboard() {
       if (settingsOpen) {
         setSettingsOpen(false);
         focusMainNavigationControl(settingsButtonRef);
+        return;
+      }
+      if (syncOpen) {
+        closeSyncView();
         return;
       }
       if (trainingPlanOpen) {
@@ -2150,6 +2174,7 @@ export function TrainerDashboard() {
     renameTarget,
     activityDashboardOpen,
     trainingPlanOpen,
+    syncOpen,
     settingsOpen,
     isMainMenuOpen,
   ]);
@@ -2177,6 +2202,16 @@ export function TrainerDashboard() {
       focusMainNavigationControl(trainingPlanButtonRef);
     }
   }, [trainingPlanOpen]);
+  useEffect(() => {
+    if (syncOpen) {
+      syncCloseRef.current?.focus();
+      return;
+    }
+    if (syncReturnFocusRef.current) {
+      syncReturnFocusRef.current = false;
+      focusMainNavigationControl(syncButtonRef);
+    }
+  }, [syncOpen]);
   useEffect(() => {
     if (!activityDashboardOpen) return;
     void loadActivities(activitySearchQuery);
@@ -2263,9 +2298,9 @@ export function TrainerDashboard() {
     }
   }
 
-  function syncNowFromNavigation() {
+  function openSyncFromNavigation() {
     setIsMainMenuOpen(false);
-    void syncNow();
+    openSyncView();
   }
 
   function openActivityDashboardFromNavigation() {
@@ -2397,6 +2432,11 @@ export function TrainerDashboard() {
   function openTrainingPlan() {
     captureTranscriptScrollSnapshot();
     setTrainingPlanOpen(true);
+  }
+
+  function openSyncView() {
+    captureTranscriptScrollSnapshot();
+    setSyncOpen(true);
   }
 
   function cancelChat() {
@@ -2652,29 +2692,40 @@ export function TrainerDashboard() {
     if (isSyncingRef.current) return;
     isSyncingRef.current = true;
     setIsSyncing(true);
+    let logLines = ["Sync now: starting…"];
+    setSyncRun({
+      kind: "running",
+      lines: logLines,
+      finalMessage: "Sync in progress…",
+    });
     setStatus({ kind: "busy", message: "Sync now: starting…" });
     try {
       const response = await fetch("/api/sync", { method: "POST" });
       if (!response.ok || !response.body) {
         const body = await readResponse(response);
-        setStatus({
-          kind: "error",
-          message: `Sync now: failed (${response.status})\n${body}`,
-        });
+        const message = `Sync now: failed (${response.status})\n${body}`;
+        logLines = [...logLines, message].slice(-20);
+        setSyncRun({ kind: "failed", lines: logLines, finalMessage: message });
+        setStatus({ kind: "error", message });
         return;
       }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let log = "";
       let finalKind: Status["kind"] = "ok";
 
       const appendLine = (line: string) => {
-        log = `${log}${line}\n`.split("\n").slice(-20).join("\n");
+        logLines = [...logLines, line].slice(-20);
+        const message = logLines.join("\n");
+        setSyncRun({
+          kind: "running",
+          lines: logLines,
+          finalMessage: "Sync in progress…",
+        });
         setStatus({
           kind: finalKind === "error" ? "error" : "busy",
-          message: log.trim(),
+          message,
         });
       };
 
@@ -2698,12 +2749,18 @@ export function TrainerDashboard() {
         }
       }
       await loadImportSummary("sync", false);
-      setStatus({ kind: finalKind, message: log.trim() || "Sync complete." });
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        message: `Sync now failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      const finalMessage = logLines.join("\n") || "Sync complete.";
+      setSyncRun({
+        kind: finalKind === "ok" ? "completed" : "failed",
+        lines: logLines.length ? logLines : ["Sync complete."],
+        finalMessage,
       });
+      setStatus({ kind: finalKind, message: finalMessage });
+    } catch (error) {
+      const message = `Sync now failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      const nextLines = [...logLines, message].slice(-20);
+      setSyncRun({ kind: "failed", lines: nextLines, finalMessage: message });
+      setStatus({ kind: "error", message });
     } finally {
       isSyncingRef.current = false;
       setIsSyncing(false);
@@ -2722,6 +2779,15 @@ export function TrainerDashboard() {
       );
       const nextBaseline = payload.athleteBaseline ?? emptyAthleteBaseline;
       const nextBodyMetrics = payload.bodyMetrics ?? emptyBodyMetrics;
+      const nextSummary = {
+        ...payload,
+        athleteBaseline: nextBaseline,
+        bodyMetrics: nextBodyMetrics,
+      };
+      setImportSummary(nextSummary);
+      setImportSummaryMessage(
+        `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}, body metrics ${nextBodyMetrics.availability}.`,
+      );
       setAthleteBaseline(nextBaseline);
       setBodyMetrics(nextBodyMetrics);
       setAthleteBaselineMessage(formatAthleteBaselineSummary(nextBaseline));
@@ -2732,6 +2798,8 @@ export function TrainerDashboard() {
           message: `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}, body metrics ${nextBodyMetrics.availability}.`,
         });
     } catch (error) {
+      const message = `Import summary failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      setImportSummaryMessage(message);
       setAthleteBaselineMessage(
         `Athlete baseline summary failed: ${error instanceof Error ? error.message : "unknown error"}`,
       );
@@ -2761,6 +2829,12 @@ export function TrainerDashboard() {
     restoreTranscriptOnSectionReturnRef.current = true;
     setTrainingPlanOpen(false);
     setTrainingPlanEditing(false);
+  }
+
+  function closeSyncView() {
+    syncReturnFocusRef.current = true;
+    restoreTranscriptOnSectionReturnRef.current = true;
+    setSyncOpen(false);
   }
 
   function applyTrainingPlanPayload(payload: TrainingPlanPayload) {
@@ -3453,6 +3527,20 @@ export function TrainerDashboard() {
     await submitChat(messageInputRef.current?.value ?? message);
   }
 
+  const syncPillKind: Status["kind"] = isSyncing
+    ? "busy"
+    : syncRun.kind === "completed"
+      ? "ok"
+      : syncRun.kind === "failed"
+        ? "error"
+        : "idle";
+  const syncPillLabel = isSyncing
+    ? "Syncing"
+    : syncRun.kind === "completed"
+      ? "Complete"
+      : syncRun.kind === "failed"
+        ? "Failed"
+        : "Ready";
   const conversationRows = conversations.length
     ? conversations
     : [
@@ -3469,10 +3557,10 @@ export function TrainerDashboard() {
 
   return (
     <section
-      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""}`}
+      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""} ${syncOpen ? "sync-view-active" : ""}`}
       aria-label="AI trainer dashboard"
     >
-      {!activityDashboardOpen && !trainingPlanOpen ? (
+      {!activityDashboardOpen && !trainingPlanOpen && !syncOpen ? (
         <header className="app-topbar">
           <div className="app-brand">
             <h1 className="app-title" title="Garmin AI Trainer">
@@ -3493,11 +3581,12 @@ export function TrainerDashboard() {
             <button
               type="button"
               className="chrome-button sync-now-button"
-              onClick={syncNowFromNavigation}
-              disabled={isSyncing}
-              aria-label="Sync now — import latest Garmin data"
+              onClick={openSyncFromNavigation}
+              ref={syncButtonRef}
+              aria-label="Sync"
+              aria-expanded={syncOpen}
             >
-              {isSyncing ? "Syncing…" : "Sync now"}
+              {isSyncing ? "Sync · syncing" : "Sync"}
             </button>
             <button
               type="button"
@@ -3564,11 +3653,10 @@ export function TrainerDashboard() {
                   type="button"
                   className="app-menu-item"
                   role="menuitem"
-                  onClick={syncNowFromNavigation}
-                  disabled={isSyncing}
-                  aria-label="Sync now — import latest Garmin data"
+                  onClick={openSyncFromNavigation}
+                  aria-label="Sync"
                 >
-                  {isSyncing ? "Syncing…" : "Sync now"}
+                  {isSyncing ? "Sync · syncing" : "Sync"}
                 </button>
                 <button
                   type="button"
@@ -3601,6 +3689,143 @@ export function TrainerDashboard() {
             ) : null}
           </div>
         </header>
+      ) : null}
+
+      {syncOpen ? (
+        <section
+          className="sync-view-panel"
+          aria-labelledby="sync-view-heading"
+        >
+          <div className="sync-view-header">
+            <div>
+              <p className="section-kicker">Garmin sync</p>
+              <h1 id="sync-view-heading">Sync</h1>
+              <p>
+                Import the latest Garmin data, watch the current run, and review
+                local import coverage without leaving this app session.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={closeSyncView}
+              ref={syncCloseRef}
+              aria-label="Back to chat"
+            >
+              Back to chat
+            </button>
+          </div>
+
+          <div className="sync-view-content">
+            <section
+              className="sync-action-card"
+              aria-labelledby="sync-action-heading"
+            >
+              <div className="card-title-row">
+                <div>
+                  <p className="section-kicker">Current run</p>
+                  <h2 id="sync-action-heading">Run Garmin sync</h2>
+                </div>
+                <span className={`pill ${syncPillKind}`}>{syncPillLabel}</span>
+              </div>
+              <p>
+                Uses the existing local read-only connector and normalized
+                import pipeline. Logs below are kept only for this mounted
+                browser session and are replaced when the next sync starts.
+              </p>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={syncNow}
+                  disabled={isSyncing}
+                  aria-label="Sync now — import latest Garmin data"
+                >
+                  {isSyncing ? "Sync already in progress" : "Sync now"}
+                </button>
+              </div>
+              {isSyncing ? (
+                <p className="helper-text" role="status" aria-live="polite">
+                  Sync already in progress. Keep this view open or navigate
+                  elsewhere; the current-run log will remain available here.
+                </p>
+              ) : null}
+              <p className="helper-text" role="status" aria-live="polite">
+                {syncRun.finalMessage}
+              </p>
+              <pre
+                className={`sync-log status ${syncPillKind}`}
+                aria-label="Current sync progress log"
+                aria-live="polite"
+              >
+                {syncRun.lines.length
+                  ? syncRun.lines.join("\n")
+                  : "Current-run progress will appear here after Sync now starts."}
+              </pre>
+            </section>
+
+            <section
+              className="sync-metrics-card"
+              aria-labelledby="sync-metrics-heading"
+            >
+              <div className="card-title-row">
+                <div>
+                  <p className="section-kicker">Import summary</p>
+                  <h2 id="sync-metrics-heading">Local Garmin coverage</h2>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={refreshSummary}
+                >
+                  Refresh metrics
+                </button>
+              </div>
+              <p className="helper-text" role="status" aria-live="polite">
+                {importSummaryMessage}
+              </p>
+              {importSummary ? (
+                <dl className="compact-facts sync-metrics-grid">
+                  <div>
+                    <dt>Stored activities</dt>
+                    <dd>{numberLabel(importSummary.activities)}</dd>
+                  </div>
+                  <div>
+                    <dt>Health coverage</dt>
+                    <dd>
+                      {formatHealthCoverageSummary(
+                        importSummary.healthCoverage,
+                        importSummary.healthDays,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Detail coverage</dt>
+                    <dd>
+                      {formatDetailCoverageSummary(
+                        importSummary.detailCoverage,
+                        importSummary.detailedActivities,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Athlete baseline</dt>
+                    <dd>{importSummary.athleteBaseline.availability}</dd>
+                  </div>
+                  <div>
+                    <dt>Body metrics</dt>
+                    <dd>{importSummary.bodyMetrics.availability}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p>
+                  Summary metrics are not available until the local summary
+                  loads.
+                </p>
+              )}
+            </section>
+          </div>
+        </section>
       ) : null}
 
       {activityDashboardOpen ? (
@@ -4171,7 +4396,7 @@ export function TrainerDashboard() {
         </section>
       ) : null}
 
-      {!activityDashboardOpen && !trainingPlanOpen ? (
+      {!activityDashboardOpen && !trainingPlanOpen && !syncOpen ? (
         <div className="chat-workspace">
           <aside
             className={`conversation-sidebar ${isConversationDrawerOpen ? "open" : ""}`}
@@ -4520,7 +4745,7 @@ export function TrainerDashboard() {
         </div>
       ) : null}
 
-      {!activityDashboardOpen && settingsOpen ? (
+      {!activityDashboardOpen && !syncOpen && settingsOpen ? (
         <div className="modal-layer" role="presentation">
           <button
             type="button"
