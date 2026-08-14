@@ -295,6 +295,8 @@ type SyncProgressEvent = {
   detailCoverage?: DetailCoveragePayload;
   athleteAvailability?: AthleteBaselineAvailability;
   bodyMetricsAvailability?: BodyMetricsAvailability;
+  athleteBaseline?: AthleteBaselinePayload;
+  bodyMetrics?: BodyMetricsPayload;
 };
 
 type ActivityListItem = {
@@ -518,6 +520,55 @@ function formatSyncProgressLine(event: SyncProgressEvent): string {
   const detailProgress = formatDetailProgress(event);
   if (detailProgress) progressParts.push(detailProgress);
   return `${event.stage ?? "progress"}: ${event.message ?? "working"} (${progressParts.join(", ")})`;
+}
+
+function formatSyncResultLine(event: SyncProgressEvent): string {
+  const status = event.status ?? "completed";
+  const activityCount =
+    event.activitiesProcessed ?? event.activitiesImported ?? 0;
+  const healthCount =
+    event.healthDaysRefreshed ?? event.healthDaysImported ?? 0;
+  const detailsProcessed = event.detailsProcessed ?? 0;
+  const parts = [
+    `processed activity records ${activityCount}`,
+    `refreshed health dates ${healthCount}`,
+    `details processed ${detailsProcessed}`,
+    `stored totals ${event.storedActivities ?? "unknown"} activities, ${event.storedHealthRows ?? "unknown"} health rows`,
+  ];
+  if (event.healthCoverage) {
+    parts.push(
+      `health coverage ${event.healthCoverage.completeDays} complete, ${event.healthCoverage.partialDays} partial, ${event.healthCoverage.missingDays} missing`,
+    );
+  }
+  if (event.detailCoverage) {
+    parts.push(
+      `detail coverage ${event.detailCoverage.available} available, ${event.detailCoverage.partial} partial, ${event.detailCoverage.pending} pending`,
+    );
+  }
+  if (status !== "completed" && event.detail) {
+    parts.push(`failure detail ${event.detail}`);
+  }
+  return `Result: ${status} — ${parts.join("; ")}.`;
+}
+
+function formatSyncFinalMessage(event: SyncProgressEvent): string {
+  if (event.status !== "completed") {
+    return `Sync failed. ${event.detail ?? "See the current-run log for details."}`;
+  }
+  const healthCoverage = event.healthCoverage
+    ? ` Health coverage: ${event.healthCoverage.completeDays} complete, ${event.healthCoverage.partialDays} partial, ${event.healthCoverage.missingDays} missing.`
+    : "";
+  const athleteAvailability =
+    event.athleteBaseline?.availability ?? event.athleteAvailability;
+  const bodyAvailability =
+    event.bodyMetrics?.availability ?? event.bodyMetricsAvailability;
+  const profileStatus = [
+    athleteAvailability ? `athlete baseline ${athleteAvailability}` : null,
+    bodyAvailability ? `body metrics ${bodyAvailability}` : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
+  return `Sync complete. Summary refreshed for ${event.storedActivities ?? "unknown"} stored activities and ${event.storedHealthRows ?? "unknown"} health rows.${healthCoverage}${profileStatus ? ` ${profileStatus}.` : ""}`;
 }
 
 function formatHealthCoverageSummary(
@@ -2714,14 +2765,16 @@ export function TrainerDashboard() {
       const decoder = new TextDecoder();
       let buffer = "";
       let finalKind: Status["kind"] = "ok";
+      let finalMessage = "Sync in progress…";
 
-      const appendLine = (line: string) => {
+      const appendLine = (line: string, nextFinalMessage?: string) => {
         logLines = [...logLines, line].slice(-20);
+        finalMessage = nextFinalMessage ?? "Sync in progress…";
         const message = logLines.join("\n");
         setSyncRun({
           kind: "running",
           lines: logLines,
-          finalMessage: "Sync in progress…",
+          finalMessage,
         });
         setStatus({
           kind: finalKind === "error" ? "error" : "busy",
@@ -2741,7 +2794,8 @@ export function TrainerDashboard() {
           if (event.type === "result") {
             finalKind = event.status === "completed" ? "ok" : "error";
             appendLine(
-              `Result: ${event.status}. Processed activity records: ${event.activitiesProcessed ?? event.activitiesImported ?? 0}; refreshed health dates: ${event.healthDaysRefreshed ?? event.healthDaysImported ?? 0}; details processed: ${event.detailsProcessed ?? 0}; stored totals: ${event.storedActivities ?? "unknown"} activities, ${event.storedHealthRows ?? "unknown"} health rows. ${event.detail ?? ""}`,
+              formatSyncResultLine(event),
+              formatSyncFinalMessage(event),
             );
           } else {
             appendLine(formatSyncProgressLine(event));
@@ -2749,7 +2803,6 @@ export function TrainerDashboard() {
         }
       }
       await loadImportSummary("sync", false);
-      const finalMessage = logLines.join("\n") || "Sync complete.";
       setSyncRun({
         kind: finalKind === "ok" ? "completed" : "failed",
         lines: logLines.length ? logLines : ["Sync complete."],
@@ -3773,13 +3826,6 @@ export function TrainerDashboard() {
                   <p className="section-kicker">Import summary</p>
                   <h2 id="sync-metrics-heading">Local Garmin coverage</h2>
                 </div>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={refreshSummary}
-                >
-                  Refresh metrics
-                </button>
               </div>
               <p className="helper-text" role="status" aria-live="polite">
                 {importSummaryMessage}
