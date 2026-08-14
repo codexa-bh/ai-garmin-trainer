@@ -11,7 +11,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { metadata } from "../src/app/layout";
-import { TrainerDashboard } from "../src/app/trainer-dashboard";
+import {
+  activitySportIconDescriptor,
+  TrainerDashboard,
+} from "../src/app/trainer-dashboard";
 
 const emptyChat = {
   conversationId: "default",
@@ -143,7 +146,24 @@ function importSummary(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function activityListItem(index: number) {
+type ActivityListTestItem = {
+  garminId: string;
+  name: string;
+  label: string;
+  sport: string;
+  date: string;
+  startedAt: string;
+  durationSec: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
+  avgHeartRate: number;
+  detailStatus: string;
+};
+
+function activityListItem(
+  index: number,
+  overrides: Partial<ActivityListTestItem> = {},
+): ActivityListTestItem {
   const id = (111111 + index).toString();
   return {
     garminId: id,
@@ -157,6 +177,7 @@ function activityListItem(index: number) {
     elevationGainMeters: 260,
     avgHeartRate: 145,
     detailStatus: "available",
+    ...overrides,
   };
 }
 
@@ -1273,6 +1294,143 @@ describe("TrainerDashboard athlete baseline summary", () => {
 });
 
 describe("TrainerDashboard activity charts", () => {
+  it("maps current synced sports to representative icons with a generic fallback", () => {
+    expect(activitySportIconDescriptor("hiking")).toMatchObject({
+      glyph: "⛰️",
+      label: "Hiking",
+      tone: "trail",
+    });
+    expect(activitySportIconDescriptor("mountaineering")).toMatchObject({
+      glyph: "⛰️",
+      label: "Mountaineering",
+      tone: "trail",
+    });
+    expect(activitySportIconDescriptor("walking")).toMatchObject({
+      glyph: "🚶",
+      label: "Walking",
+      tone: "walk",
+    });
+    expect(activitySportIconDescriptor("resort_snowboarding")).toMatchObject({
+      glyph: "🏂",
+      label: "Resort snowboarding",
+      tone: "snow",
+    });
+    expect(
+      activitySportIconDescriptor("backcountry_snowboarding"),
+    ).toMatchObject({
+      glyph: "🏂",
+      label: "Backcountry snowboarding",
+      tone: "snow",
+    });
+    expect(activitySportIconDescriptor("gravel_cycling")).toMatchObject({
+      glyph: "🚴",
+      label: "Gravel cycling",
+      tone: "cycle",
+    });
+    expect(activitySportIconDescriptor("volleyball")).toMatchObject({
+      glyph: "🏐",
+      label: "Volleyball",
+      tone: "ball",
+    });
+    expect(activitySportIconDescriptor("other")).toMatchObject({
+      glyph: "◆",
+      label: "Other activity",
+      tone: "generic",
+    });
+    expect(activitySportIconDescriptor("future_sport")).toMatchObject({
+      key: "unknown",
+      glyph: "◆",
+      label: "Activity type",
+      tone: "generic",
+    });
+    expect(activitySportIconDescriptor("  ")).toMatchObject({
+      key: "unknown",
+      glyph: "◆",
+      label: "Activity type",
+      tone: "generic",
+    });
+  });
+
+  it("renders sport icons in activity list metadata without visible sport text or tooltips", async () => {
+    const activities = [
+      activityListItem(0, {
+        garminId: "23953090857",
+        label: "Hiking result",
+        name: "Hiking result",
+        sport: "hiking",
+        date: "2026-08-12",
+      }),
+      activityListItem(1, {
+        garminId: "999999",
+        label: "Mystery result",
+        name: "Mystery result",
+        sport: "future_sport",
+      }),
+    ];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url.startsWith("/api/activities?")) {
+        return jsonResponse({
+          activities,
+          nextOffset: null,
+          totalApprox: activities.length,
+          limit: 100,
+          offset: 0,
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+
+    const hikingRow = (await screen.findByText("Hiking result")).closest(
+      ".activity-list-item",
+    );
+    expect(hikingRow).toBeTruthy();
+    const hikingMetadata = hikingRow?.querySelector("small");
+    expect(hikingMetadata?.textContent).toContain("2026-08-12 · ");
+    expect(hikingMetadata?.textContent).toContain("⛰️");
+    expect(hikingMetadata?.textContent).toContain("Garmin ID 23953090857");
+    expect(hikingMetadata?.textContent).not.toContain("hiking");
+    expect(
+      within(hikingMetadata as HTMLElement).getByLabelText("Hiking"),
+    ).toBeTruthy();
+    expect(
+      within(hikingMetadata as HTMLElement)
+        .getByLabelText("Hiking")
+        .getAttribute("title"),
+    ).toBeNull();
+
+    const fallbackMetadata = screen
+      .getByText("Mystery result")
+      .closest(".activity-list-item")
+      ?.querySelector("small");
+    expect(fallbackMetadata?.textContent).toContain("◆");
+    expect(fallbackMetadata?.textContent).not.toContain("future_sport");
+    expect(
+      within(fallbackMetadata as HTMLElement).getByLabelText("Activity type"),
+    ).toBeTruthy();
+    expect(
+      within(fallbackMetadata as HTMLElement)
+        .getByLabelText("Activity type")
+        .getAttribute("title"),
+    ).toBeNull();
+  });
+
+  it("styles activity sport icon chips as compact metadata glyphs", () => {
+    const css = readFileSync("src/app/style.css", "utf8");
+    const iconBlock =
+      css.match(/\.activity-sport-icon\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+
+    expect(iconBlock).toContain("display: inline-grid;");
+    expect(iconBlock).toContain("border-radius: 999px;");
+    expect(iconBlock).toContain("vertical-align: -0.24em;");
+  });
+
   it("keeps Activity dashboard chart cards compact while preserving responsive scroll contracts", () => {
     const css = readFileSync("src/app/style.css", "utf8");
     const chartGridBlock =
