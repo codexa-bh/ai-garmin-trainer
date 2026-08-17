@@ -5,6 +5,7 @@ This repository is ready only for the next controlled clean-machine validation m
 ## Supported boundary
 
 - Primary path: local MCP-only advanced-user source beta.
+- Source control: private GitHub remote `https://github.com/eye1/ai-garmin-trainer` only, used for source backup/collaboration and not as a public distribution, deployment, release, or beta channel.
 - Platforms prepared here: macOS Apple Silicon first; Ubuntu LTS after reproducibility evidence.
 - Unsupported: LAN/public exposure, hosted use, desktop packaging, manual FIT/import fallback, alternate Garmin connectors, public distribution, deployment, release, telemetry, commercial multi-user operation, and treating local no-auth as a hosted safety boundary.
 - Garmin connector: `Taxuspt/garmin_mcp` pinned to `3610be6feed93088d85b0f35aba9d7d07c2505a7` with exact `mcp==1.28.1`, launched over local stdio only, with app-side read-operation allowlisting. A local read-only FIT baseline helper may use the same out-of-band Garmin token store to extract only approved `zones_target` max-HR facts from recent activity FIT files. Garmin auth remains out of band through `garmin-mcp-auth`; the app checks auth-state file presence only and never reads token contents.

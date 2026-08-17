@@ -2,6 +2,8 @@
 
 Local-only, single-user private trainer MVP for importing Garmin Connect history and chatting with a grounded, evidence-based fitness coach.
 
+Source-control boundary: this source tree is backed by the private GitHub repository `https://github.com/eye1/ai-garmin-trainer` for source backup/collaboration only. That private remote does not change the local loopback runtime posture and does not authorize public hosting, LAN exposure, deployment, release, or beta invitation.
+
 ## Quick start
 
 1. Install Node 22+ and Python tooling capable of running `uvx`.
