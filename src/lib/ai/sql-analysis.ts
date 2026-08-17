@@ -490,9 +490,119 @@ function tableRefsForSql(sql: string): string[] {
   ).map((match) => match[1].toLowerCase());
 }
 
-function validateSql(
+function skipWhitespace(sql: string, index: number): number {
+  while (index < sql.length && /\s/.test(sql[index] ?? "")) index += 1;
+  return index;
+}
+
+function readIdentifier(
   sql: string,
-): { ok: true } | { ok: false; reason: string } {
+  index: number,
+): { name: string; end: number } | null {
+  const match = /^[a-zA-Z_][a-zA-Z0-9_]*/.exec(sql.slice(index));
+  if (!match) return null;
+  return { name: match[0].toLowerCase(), end: index + match[0].length };
+}
+
+function skipBalancedParentheses(sql: string, openIndex: number): number {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  for (let index = openIndex; index < sql.length; index += 1) {
+    const char = sql[index];
+    if (quote) {
+      if (char === quote) {
+        const next = sql[index + 1];
+        if (next === quote) {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(") depth += 1;
+    if (char === ")") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return sql.length;
+}
+
+function cteNamesForSql(sql: string): Set<string> {
+  const names = new Set<string>();
+  let index = skipWhitespace(sql, 0);
+  if (!/^with\b/i.test(sql.slice(index))) return names;
+  index += "with".length;
+  index = skipWhitespace(sql, index);
+  if (/^recursive\b/i.test(sql.slice(index))) {
+    index += "recursive".length;
+  }
+
+  while (index < sql.length) {
+    index = skipWhitespace(sql, index);
+    const identifier = readIdentifier(sql, index);
+    if (!identifier) break;
+    names.add(identifier.name);
+    index = skipWhitespace(sql, identifier.end);
+    if (sql[index] === "(") {
+      index = skipBalancedParentheses(sql, index);
+      index = skipWhitespace(sql, index);
+    }
+    if (!/^as\b/i.test(sql.slice(index))) break;
+    index += "as".length;
+    index = skipWhitespace(sql, index);
+    if (sql[index] !== "(") break;
+    index = skipBalancedParentheses(sql, index);
+    index = skipWhitespace(sql, index);
+    if (sql[index] !== ",") break;
+    index += 1;
+  }
+
+  return names;
+}
+
+type SqlValidationResult =
+  { ok: true } | ({ ok: false; reason: string } & SqlFailureDetails);
+
+function disallowedTableDetails(
+  sql: string,
+  tableRefs: string[],
+): SqlFailureDetails {
+  const disallowedRefs = Array.from(
+    new Set(tableRefs.filter((table) => !ALLOWED_TABLES.has(table))),
+  );
+  if (
+    !disallowedRefs.length ||
+    disallowedRefs.some((table) => FORBIDDEN_IDENTIFIERS.has(table))
+  ) {
+    return {};
+  }
+  const schemaHints = schemaHintsForSql(sql);
+  const allowedTables = Array.from(ALLOWED_TABLES).join(", ");
+  const referencedTable = disallowedRefs[0];
+  return {
+    correctionAllowed: true,
+    correctionHint:
+      "Correct the SQL using exact allowlisted table/column names from describeGarminDatabase; for activity calories by month, use activity.started_at (Unix epoch ms) and activity.calories (kcal).",
+    message: [
+      sanitizedMessage("disallowed_table"),
+      referencedTable ? `Referenced table: ${referencedTable}.` : "",
+      `Allowed analytical tables: ${allowedTables}.`,
+      ...schemaHints,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    missingIdentifier: referencedTable,
+    schemaHints,
+  };
+}
+
+function validateSql(sql: string): SqlValidationResult {
   const encodedBytes = new TextEncoder().encode(sql).length;
   if (encodedBytes > SQL_LIMITS.maxSqlBytes)
     return { ok: false, reason: "oversized_sql" };
@@ -526,12 +636,17 @@ function validateSql(
     return { ok: false, reason: "forbidden_token" };
   if (tokens.some((token) => FORBIDDEN_IDENTIFIERS.has(token)))
     return { ok: false, reason: "disallowed_table" };
-  const tableRefs = tableRefsForSql(trimmed);
-  if (
-    !tableRefs.length ||
-    tableRefs.some((table) => !ALLOWED_TABLES.has(table))
-  )
-    return { ok: false, reason: "disallowed_table" };
+  const cteNames = cteNamesForSql(trimmed);
+  const tableRefs = tableRefsForSql(trimmed).filter(
+    (table) => !cteNames.has(table),
+  );
+  if (!tableRefs.length) return { ok: false, reason: "disallowed_table" };
+  if (tableRefs.some((table) => !ALLOWED_TABLES.has(table)))
+    return {
+      ok: false,
+      reason: "disallowed_table",
+      ...disallowedTableDetails(trimmed, tableRefs),
+    };
   return { ok: true };
 }
 
@@ -656,6 +771,7 @@ export function describeGarminDatabase(): GarminDatabaseDescription {
       forbiddenDataClasses: FORBIDDEN_DATA_CLASSES,
       examples: [
         "select garmin_id, name, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec from activity order by duration_sec desc limit 10",
+        "select strftime('%Y-%m', started_at / 1000, 'unixepoch') as month, count(*) as activities, coalesce(sum(calories), 0) as activity_calories_kcal from activity where strftime('%Y', started_at / 1000, 'unixepoch') = strftime('%Y', 'now') group by month order by month",
         "select garmin_id, coalesce(name, sport || ' on ' || date(started_at / 1000, 'unixepoch')) as label, name, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, elevation_gain_meters, elevation_loss_meters, training_effect from activity where started_at >= unixepoch('now', '-365 days') * 1000 order by started_at desc limit 200 -- then use runMathAnalysis score/normalize with a transparent model-selected formula over these columns, e.g. duration_sec + distance_meters + elevation_gain_meters + calories + avg_heart_rate + max_heart_rate + training_effect",
         "select sport, count(*) as activities, avg(duration_sec) as avg_duration_sec from activity group by sport order by activities desc",
         "select a.garmin_id, a.name, d.status, d.record_count from activity a join activity_detail_availability d on d.garmin_id = a.garmin_id limit 20",
@@ -676,7 +792,10 @@ export function runReadOnlySql(input: {
 }): AnalysisResult {
   const resultName = safeResultName(input.resultName);
   const validation = validateSql(input.sql);
-  if (!validation.ok) return reject(validation.reason, resultName);
+  if (!validation.ok) {
+    const details: SqlFailureDetails = validation;
+    return reject(validation.reason, resultName, details);
+  }
 
   const maxRows = clampRows(input.maxRows);
   const sql = input.sql.trim().replace(/;$/, "");
