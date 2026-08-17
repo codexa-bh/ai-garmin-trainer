@@ -508,7 +508,7 @@ body::before {
   justify-content: flex-end;
 }
 
-.health-rollup-bar span {
+.health-rollup-bar-fill {
   display: block;
   width: 100%;
   min-height: 2px;
@@ -521,11 +521,31 @@ body::before {
 }
 
 .health-rollup-bar small {
-  max-width: 72px;
+  display: none;
+}
+
+.health-rollup-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr));
+  gap: 6px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.health-rollup-values li {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
   color: var(--faint);
-  font-size: 10px;
-  line-height: 1.2;
-  text-align: center;
+  font-size: 11px;
+}
+
+.health-rollup-values strong {
+  color: var(--text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .health-widget-trend-note {

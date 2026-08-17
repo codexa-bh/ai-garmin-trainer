@@ -303,6 +303,11 @@ type HealthDashboardPayload = {
   latestDate: string | null;
 };
 
+const BODY_BATTERY_MORNING_EVENING_SOURCE_LIMITED =
+  "Numeric morning/evening readings are not exposed by the current Garmin source for this day.";
+const BODY_BATTERY_ROLLUP_SOURCE_LIMITED =
+  "Garmin did not expose numeric morning/evening body-battery readings for these periods; values are not estimated.";
+
 type HealthDashboardLoadState = "idle" | "loading" | "loaded" | "error";
 type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
 type ProfileSaveState = "idle" | "saving" | "saved" | "error";
@@ -1022,11 +1027,13 @@ function HealthRollupChart({
   metric,
   title,
   unit,
+  emptyMessage = "Unavailable for these periods.",
 }: {
   rollups: HealthRollup[];
   metric: (rollup: HealthRollup) => number | null;
   title: string;
   unit: string;
+  emptyMessage?: string;
 }) {
   const values = rollups.map(metric);
   const numericValues = values.filter(
@@ -1037,11 +1044,16 @@ function HealthRollupChart({
     return (
       <div className="health-rollup-chart empty-state">
         <strong>{title}</strong>
-        <p>Unavailable for these periods.</p>
+        <p>{emptyMessage}</p>
       </div>
     );
   }
   const max = Math.max(...numericValues, 1);
+  const valueLabels = values.map((value) =>
+    value === null
+      ? "Unavailable"
+      : `${numberLabel(value, value % 1 === 0 ? 0 : 1)} ${unit}`,
+  );
   return (
     <div
       className="health-rollup-chart"
@@ -1056,7 +1068,8 @@ function HealthRollupChart({
           return (
             <div className="health-rollup-bar" key={rollup.key}>
               <span
-                aria-label={`${rollup.label}: ${value === null ? "unavailable" : `${numberLabel(value, value % 1 === 0 ? 0 : 1)} ${unit}`}`}
+                className="health-rollup-bar-fill"
+                aria-label={`${rollup.label}: ${valueLabels[index].toLowerCase()}`}
                 style={{ height: `${height}%` }}
               />
               <small>{rollup.label}</small>
@@ -1064,6 +1077,17 @@ function HealthRollupChart({
           );
         })}
       </div>
+      <ul
+        className="health-rollup-values"
+        aria-label={`${title} period values`}
+      >
+        {rollups.map((rollup, index) => (
+          <li key={`${rollup.key}-value`}>
+            <span>{rollup.label}</span>
+            <strong>{valueLabels[index]}</strong>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1329,6 +1353,11 @@ function HealthDashboardView({
                   ? null
                   : numberLabel(day.bodyBatteryMorning)
               }
+              detail={
+                day.bodyBatteryMorning == null
+                  ? BODY_BATTERY_MORNING_EVENING_SOURCE_LIMITED
+                  : "Garmin source morning reading"
+              }
               trendValues={healthTrendSeries(
                 days,
                 clampedIndex,
@@ -1341,6 +1370,11 @@ function HealthDashboardView({
                 day.bodyBatteryEvening == null
                   ? null
                   : numberLabel(day.bodyBatteryEvening)
+              }
+              detail={
+                day.bodyBatteryEvening == null
+                  ? BODY_BATTERY_MORNING_EVENING_SOURCE_LIMITED
+                  : "Garmin source evening reading"
               }
               trendValues={healthTrendSeries(
                 days,
@@ -1387,6 +1421,14 @@ function HealthDashboardView({
               title="Body battery morning avg"
               unit="avg"
               metric={(rollup) => rollup.bodyBatteryMorning}
+              emptyMessage={BODY_BATTERY_ROLLUP_SOURCE_LIMITED}
+            />
+            <HealthRollupChart
+              rollups={rollups}
+              title="Body battery evening avg"
+              unit="avg"
+              metric={(rollup) => rollup.bodyBatteryEvening}
+              emptyMessage={BODY_BATTERY_ROLLUP_SOURCE_LIMITED}
             />
           </div>
         </div>

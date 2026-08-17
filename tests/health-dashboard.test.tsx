@@ -269,6 +269,9 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(unavailable.length).toBeGreaterThanOrEqual(2);
     expect(within(panel).getByText(/Source-unavailable day/)).toBeTruthy();
     expect(
+      within(panel).getAllByText(/Numeric morning\/evening readings/).length,
+    ).toBe(2);
+    expect(
       within(panel).queryByText(/unavailable metrics are not estimated/),
     ).toBeNull();
   });
@@ -317,7 +320,7 @@ describe("TrainerDashboard Health dashboard", () => {
     ).toBeGreaterThanOrEqual(3);
   });
 
-  it("switches to weekly and monthly rollups with source-only metric labels", async () => {
+  it("switches to weekly and monthly rollups with source-only visible metric values", async () => {
     renderDashboard(baseFetchMock());
 
     const panel = await openHealthDashboard();
@@ -325,12 +328,44 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).getByText("Weekly Health rollups")).toBeTruthy();
     expect(within(panel).getByText("Total calories")).toBeTruthy();
     expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
+    expect(within(panel).getByText("16,312 steps")).toBeTruthy();
+    expect(within(panel).getByText("4,415 kcal")).toBeTruthy();
 
     fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
     expect(within(panel).getByText("Monthly Health rollups")).toBeTruthy();
     expect(
       within(panel).getByText(/Sums for sleep, steps, calories/),
     ).toBeTruthy();
+    expect(within(panel).getByText("26,512 steps")).toBeTruthy();
+    expect(within(panel).getByText("6,895 kcal")).toBeTruthy();
+  });
+
+  it("explains source-limited body-battery rollups while other sparse period metrics remain visible", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile());
+      if (url === "/api/health-dashboard")
+        return jsonResponse({
+          latestDate: "2026-07-21",
+          days: healthDashboard().days.map((item) => ({
+            ...item,
+            bodyBatteryMorning: null,
+            bodyBatteryEvening: null,
+          })),
+        });
+      return jsonResponse({ ok: true });
+    });
+    renderDashboard(fetchMock);
+
+    const panel = await openHealthDashboard();
+    fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
+
+    expect(within(panel).getByText("16,312 steps")).toBeTruthy();
+    expect(within(panel).getByText("4,415 kcal")).toBeTruthy();
+    expect(
+      within(panel).getAllByText(/Garmin did not expose numeric/).length,
+    ).toBe(2);
   });
 
   it("shows a truthful error state when the health dashboard request fails", async () => {
