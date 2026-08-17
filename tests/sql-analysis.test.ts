@@ -61,7 +61,13 @@ async function seedActivities() {
       stressAvg: 24,
       steps: 11000,
       calories: 2500,
+      activeCalories: 900,
+      restingCalories: 1600,
+      totalCalories: 2500,
+      intensityMinutes: 45,
       bodyBatteryAvg: 70,
+      bodyBatteryMorning: 86,
+      bodyBatteryEvening: 44,
       availability: "complete",
     },
   ]);

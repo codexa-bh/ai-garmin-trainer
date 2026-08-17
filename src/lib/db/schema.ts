@@ -89,7 +89,13 @@ export const dailyHealth = sqliteTable("daily_health", {
   stressAvg: integer("stress_avg"),
   steps: integer("steps"),
   calories: integer("calories"),
+  activeCalories: integer("active_calories"),
+  restingCalories: integer("resting_calories"),
+  totalCalories: integer("total_calories"),
+  intensityMinutes: integer("intensity_minutes"),
   bodyBatteryAvg: integer("body_battery_avg"),
+  bodyBatteryMorning: integer("body_battery_morning"),
+  bodyBatteryEvening: integer("body_battery_evening"),
   availability: text("availability").notNull().default("partial"),
 });
 

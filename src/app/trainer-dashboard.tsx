@@ -283,9 +283,17 @@ type HealthDashboardDay = {
   stressAvg: number | null;
   steps: number | null;
   calories: number | null;
+  activeCalories: number | null;
+  restingCalories: number | null;
+  totalCalories: number | null;
+  intensityMinutes: number | null;
   bodyBatteryAvg: number | null;
+  bodyBatteryMorning: number | null;
+  bodyBatteryEvening: number | null;
   availability: "complete" | "partial" | "missing";
 };
+
+type HealthDashboardMode = "daily" | "weekly" | "monthly";
 
 type HealthDashboardPayload = {
   days: HealthDashboardDay[];
@@ -867,6 +875,103 @@ function healthTrendSeries(
   return values.slice().reverse();
 }
 
+function sumNumbers(values: Array<number | null>): number | null {
+  const present = values.filter(
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value),
+  );
+  if (present.length === 0) return null;
+  return present.reduce((total, value) => total + value, 0);
+}
+
+function averageNumbers(values: Array<number | null>): number | null {
+  const present = values.filter(
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value),
+  );
+  if (present.length === 0) return null;
+  return present.reduce((total, value) => total + value, 0) / present.length;
+}
+
+function periodKey(
+  date: string,
+  mode: Exclude<HealthDashboardMode, "daily">,
+): string {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  if (mode === "monthly") return date.slice(0, 7);
+  const day = parsed.getUTCDay() || 7;
+  parsed.setUTCDate(parsed.getUTCDate() + 1 - day);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function periodLabel(
+  key: string,
+  mode: Exclude<HealthDashboardMode, "daily">,
+): string {
+  if (mode === "monthly") {
+    const parsed = new Date(`${key}-01T00:00:00Z`);
+    return Number.isNaN(parsed.getTime())
+      ? key
+      : parsed.toLocaleDateString(undefined, {
+          month: "short",
+          year: "numeric",
+          timeZone: "UTC",
+        });
+  }
+  return `Week of ${formatCalendarDate(key)}`;
+}
+
+type HealthRollup = {
+  key: string;
+  label: string;
+  dayCount: number;
+  sleepMinutes: number | null;
+  steps: number | null;
+  activeCalories: number | null;
+  restingCalories: number | null;
+  totalCalories: number | null;
+  intensityMinutes: number | null;
+  restingHeartRate: number | null;
+  hrvMs: number | null;
+  stressAvg: number | null;
+  bodyBatteryMorning: number | null;
+  bodyBatteryEvening: number | null;
+};
+
+function healthRollups(
+  days: HealthDashboardDay[],
+  mode: Exclude<HealthDashboardMode, "daily">,
+): HealthRollup[] {
+  const grouped = new Map<string, HealthDashboardDay[]>();
+  for (const day of days.slice().reverse()) {
+    const key = periodKey(day.date, mode);
+    grouped.set(key, [...(grouped.get(key) ?? []), day]);
+  }
+  return Array.from(grouped.entries()).map(([key, rows]) => ({
+    key,
+    label: periodLabel(key, mode),
+    dayCount: rows.length,
+    sleepMinutes: sumNumbers(rows.map((day) => day.sleepMinutes)),
+    steps: sumNumbers(rows.map((day) => day.steps)),
+    activeCalories: sumNumbers(rows.map((day) => day.activeCalories)),
+    restingCalories: sumNumbers(rows.map((day) => day.restingCalories)),
+    totalCalories: sumNumbers(
+      rows.map((day) => day.totalCalories ?? day.calories),
+    ),
+    intensityMinutes: sumNumbers(rows.map((day) => day.intensityMinutes)),
+    restingHeartRate: averageNumbers(rows.map((day) => day.restingHeartRate)),
+    hrvMs: averageNumbers(rows.map((day) => day.hrvMs)),
+    stressAvg: averageNumbers(rows.map((day) => day.stressAvg)),
+    bodyBatteryMorning: averageNumbers(
+      rows.map((day) => day.bodyBatteryMorning),
+    ),
+    bodyBatteryEvening: averageNumbers(
+      rows.map((day) => day.bodyBatteryEvening),
+    ),
+  }));
+}
+
 function HealthSparkline({ values }: { values: number[] }) {
   if (values.length < 2) return null;
   const width = 96;
@@ -901,6 +1006,57 @@ function HealthSparkline({ values }: { values: number[] }) {
         strokeLinecap="round"
       />
     </svg>
+  );
+}
+
+function HealthRollupChart({
+  rollups,
+  metric,
+  title,
+  unit,
+}: {
+  rollups: HealthRollup[];
+  metric: (rollup: HealthRollup) => number | null;
+  title: string;
+  unit: string;
+}) {
+  const values = rollups.map(metric);
+  const numericValues = values.filter(
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value),
+  );
+  if (numericValues.length === 0) {
+    return (
+      <div className="health-rollup-chart empty-state">
+        <strong>{title}</strong>
+        <p>Unavailable for these periods.</p>
+      </div>
+    );
+  }
+  const max = Math.max(...numericValues, 1);
+  return (
+    <div
+      className="health-rollup-chart"
+      role="group"
+      aria-label={`${title} rollup chart`}
+    >
+      <strong>{title}</strong>
+      <div className="health-rollup-bars">
+        {rollups.map((rollup, index) => {
+          const value = values[index];
+          const height = value === null ? 0 : Math.max(6, (value / max) * 84);
+          return (
+            <div className="health-rollup-bar" key={rollup.key}>
+              <span
+                aria-label={`${rollup.label}: ${value === null ? "unavailable" : `${numberLabel(value, value % 1 === 0 ? 0 : 1)} ${unit}`}`}
+                style={{ height: `${height}%` }}
+              />
+              <small>{rollup.label}</small>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -950,6 +1106,61 @@ function HealthWidget({
   );
 }
 
+function CaloriesWidget({
+  day,
+  trendValues,
+}: {
+  day: HealthDashboardDay;
+  trendValues: number[];
+}) {
+  const total = day.totalCalories ?? day.calories;
+  const splitTotal =
+    day.activeCalories !== null && day.restingCalories !== null
+      ? day.activeCalories + day.restingCalories
+      : null;
+  const showSplit =
+    splitTotal !== null &&
+    splitTotal > 0 &&
+    day.activeCalories !== null &&
+    day.restingCalories !== null;
+  return (
+    <div
+      className="health-widget health-calories-widget"
+      role="group"
+      aria-label="Calories source split"
+    >
+      <p className="health-widget-label">Calories</p>
+      <div className="health-split-values">
+        <span>
+          Active <strong>{finiteNumberLabel(day.activeCalories)}</strong>
+        </span>
+        <span>
+          Resting <strong>{finiteNumberLabel(day.restingCalories)}</strong>
+        </span>
+        <span>
+          Total <strong>{finiteNumberLabel(total)}</strong>
+        </span>
+      </div>
+      {showSplit ? (
+        <div
+          className="health-calorie-split"
+          aria-label="Active and resting calorie split"
+        >
+          <span style={{ flexGrow: day.activeCalories ?? 0 }} />
+          <span style={{ flexGrow: day.restingCalories ?? 0 }} />
+        </div>
+      ) : (
+        <p className="health-widget-trend-note">
+          Split unavailable from source.
+        </p>
+      )}
+      {trendValues.length >= 2 ? (
+        <HealthSparkline values={trendValues} />
+      ) : null}
+    </div>
+  );
+}
+
 function HealthDashboardView({
   days,
   selectedIndex,
@@ -959,6 +1170,7 @@ function HealthDashboardView({
   selectedIndex: number;
   onSelectIndex: (index: number) => void;
 }) {
+  const [mode, setMode] = useState<HealthDashboardMode>("daily");
   const clampedIndex = Math.min(Math.max(selectedIndex, 0), days.length - 1);
   const day = days[clampedIndex];
   const isNewest = clampedIndex <= 0;
@@ -966,123 +1178,211 @@ function HealthDashboardView({
   const hrvValue =
     day.hrvMs != null ? numberLabel(day.hrvMs, 1) : (day.hrvStatus ?? null);
   const hrvDetail = day.hrvMs != null && day.hrvStatus ? day.hrvStatus : null;
+  const rollupMode = mode === "daily" ? null : mode;
+  const rollups = rollupMode ? healthRollups(days, rollupMode).slice(-8) : [];
 
   return (
     <div className="health-dashboard-body">
-      <div className="health-day-browser" aria-label="Browse daily health days">
-        <button
-          type="button"
-          className="chrome-button"
-          onClick={() => onSelectIndex(clampedIndex + 1)}
-          disabled={isOldest}
-          aria-label="Previous day"
-        >
-          ← Previous day
-        </button>
-        <div className="health-day-label">
-          <p className="section-kicker">Selected day</p>
-          <h2>{formatCalendarDate(day.date)}</h2>
-          <p className="health-day-availability">
-            {healthAvailabilityLabel(day.availability)}
-          </p>
-        </div>
-        <button
-          type="button"
-          className="chrome-button"
-          onClick={() => onSelectIndex(clampedIndex - 1)}
-          disabled={isNewest}
-          aria-label="Next day"
-        >
-          Next day →
-        </button>
+      <div
+        className="health-mode-controls"
+        role="tablist"
+        aria-label="Health time range"
+      >
+        {(["daily", "weekly", "monthly"] as const).map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={`chrome-button ${mode === item ? "active" : ""}`}
+            onClick={() => setMode(item)}
+            role="tab"
+            aria-selected={mode === item}
+          >
+            {item[0].toUpperCase() + item.slice(1)}
+          </button>
+        ))}
       </div>
 
-      <div className="health-widget-grid">
-        <HealthWidget
-          label="Sleep"
-          value={
-            day.sleepMinutes == null
-              ? null
-              : formatSleepMinutes(day.sleepMinutes)
-          }
-          trendValues={healthTrendSeries(
-            days,
-            clampedIndex,
-            (item) => item.sleepMinutes,
-          )}
-        />
-        <HealthWidget
-          label="Resting HR"
-          value={
-            day.restingHeartRate == null
-              ? null
-              : numberLabel(day.restingHeartRate)
-          }
-          unit="bpm"
-          trendValues={healthTrendSeries(
-            days,
-            clampedIndex,
-            (item) => item.restingHeartRate,
-          )}
-        />
-        <HealthWidget
-          label="HRV"
-          value={hrvValue}
-          unit={day.hrvMs != null ? "ms" : undefined}
-          detail={hrvDetail}
-          trendValues={healthTrendSeries(
-            days,
-            clampedIndex,
-            (item) => item.hrvMs,
-          )}
-        />
-        <HealthWidget
-          label="Stress avg"
-          value={day.stressAvg == null ? null : numberLabel(day.stressAvg)}
-          unit="avg"
-          trendValues={healthTrendSeries(
-            days,
-            clampedIndex,
-            (item) => item.stressAvg,
-          )}
-        />
-        <HealthWidget
-          label="Steps"
-          value={day.steps == null ? null : numberLabel(day.steps)}
-          unit="steps"
-          trendValues={healthTrendSeries(
-            days,
-            clampedIndex,
-            (item) => item.steps,
-          )}
-        />
-        <HealthWidget
-          label="Calories"
-          value={day.calories == null ? null : numberLabel(day.calories)}
-          unit="kcal"
-          trendValues={healthTrendSeries(
-            days,
-            clampedIndex,
-            (item) => item.calories,
-          )}
-        />
-        <HealthWidget
-          label="Body battery avg"
-          value={
-            day.bodyBatteryAvg == null ? null : numberLabel(day.bodyBatteryAvg)
-          }
-          unit="avg"
-          trendValues={healthTrendSeries(
-            days,
-            clampedIndex,
-            (item) => item.bodyBatteryAvg,
-          )}
-        />
-      </div>
-      <p className="helper-text health-dashboard-footnote">
-        Read-only local daily health summary. Values come from existing
-        normalized Garmin data; unavailable metrics are not estimated.
-      </p>
+      {mode === "daily" ? (
+        <>
+          <div className="health-day-browser" aria-label="Browse health days">
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={() => onSelectIndex(clampedIndex + 1)}
+              disabled={isOldest}
+              aria-label="Previous day"
+            >
+              ← Previous day
+            </button>
+            <div className="health-day-label">
+              <p className="section-kicker">Selected day</p>
+              <h2>{formatCalendarDate(day.date)}</h2>
+              <p className="health-day-availability">
+                {healthAvailabilityLabel(day.availability)}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={() => onSelectIndex(clampedIndex - 1)}
+              disabled={isNewest}
+              aria-label="Next day"
+            >
+              Next day →
+            </button>
+          </div>
+
+          <div className="health-widget-grid">
+            <HealthWidget
+              label="Sleep"
+              value={
+                day.sleepMinutes == null
+                  ? null
+                  : formatSleepMinutes(day.sleepMinutes)
+              }
+              trendValues={healthTrendSeries(
+                days,
+                clampedIndex,
+                (item) => item.sleepMinutes,
+              )}
+            />
+            <HealthWidget
+              label="Resting HR"
+              value={
+                day.restingHeartRate == null
+                  ? null
+                  : numberLabel(day.restingHeartRate)
+              }
+              unit="bpm"
+              trendValues={healthTrendSeries(
+                days,
+                clampedIndex,
+                (item) => item.restingHeartRate,
+              )}
+            />
+            <HealthWidget
+              label="HRV"
+              value={hrvValue}
+              unit={day.hrvMs != null ? "ms" : undefined}
+              detail={hrvDetail}
+              trendValues={healthTrendSeries(
+                days,
+                clampedIndex,
+                (item) => item.hrvMs,
+              )}
+            />
+            <HealthWidget
+              label="Stress avg"
+              value={day.stressAvg == null ? null : numberLabel(day.stressAvg)}
+              unit="avg"
+              trendValues={healthTrendSeries(
+                days,
+                clampedIndex,
+                (item) => item.stressAvg,
+              )}
+            />
+            <HealthWidget
+              label="Steps"
+              value={day.steps == null ? null : numberLabel(day.steps)}
+              unit="steps"
+              trendValues={healthTrendSeries(
+                days,
+                clampedIndex,
+                (item) => item.steps,
+              )}
+            />
+            <CaloriesWidget
+              day={day}
+              trendValues={healthTrendSeries(
+                days,
+                clampedIndex,
+                (item) => item.totalCalories ?? item.calories,
+              )}
+            />
+            <HealthWidget
+              label="Intensity minutes"
+              value={
+                day.intensityMinutes == null
+                  ? null
+                  : numberLabel(day.intensityMinutes)
+              }
+              unit="min"
+              detail="Daily Garmin health source only"
+              trendValues={healthTrendSeries(
+                days,
+                clampedIndex,
+                (item) => item.intensityMinutes,
+              )}
+            />
+            <HealthWidget
+              label="Body battery morning"
+              value={
+                day.bodyBatteryMorning == null
+                  ? null
+                  : numberLabel(day.bodyBatteryMorning)
+              }
+              trendValues={healthTrendSeries(
+                days,
+                clampedIndex,
+                (item) => item.bodyBatteryMorning,
+              )}
+            />
+            <HealthWidget
+              label="Body battery evening"
+              value={
+                day.bodyBatteryEvening == null
+                  ? null
+                  : numberLabel(day.bodyBatteryEvening)
+              }
+              trendValues={healthTrendSeries(
+                days,
+                clampedIndex,
+                (item) => item.bodyBatteryEvening,
+              )}
+            />
+          </div>
+        </>
+      ) : (
+        <div className="health-rollup-view">
+          <div className="health-rollup-summary">
+            <h2>
+              {mode === "weekly"
+                ? "Weekly Health rollups"
+                : "Monthly Health rollups"}
+            </h2>
+            <p>
+              Sums for sleep, steps, calories, and source intensity minutes;
+              averages for heart-rate, HRV, stress, and body-battery values.
+            </p>
+          </div>
+          <div className="health-rollup-grid">
+            <HealthRollupChart
+              rollups={rollups}
+              title="Steps"
+              unit="steps"
+              metric={(rollup) => rollup.steps}
+            />
+            <HealthRollupChart
+              rollups={rollups}
+              title="Total calories"
+              unit="kcal"
+              metric={(rollup) => rollup.totalCalories}
+            />
+            <HealthRollupChart
+              rollups={rollups}
+              title="Intensity minutes"
+              unit="min"
+              metric={(rollup) => rollup.intensityMinutes}
+            />
+            <HealthRollupChart
+              rollups={rollups}
+              title="Body battery morning avg"
+              unit="avg"
+              metric={(rollup) => rollup.bodyBatteryMorning}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3215,6 +3515,9 @@ export function TrainerDashboard() {
         }
       }
       await loadImportSummary("sync", false);
+      if (finalKind === "ok" && (healthDashboardOpen || healthDashboardData)) {
+        await loadHealthDashboard({ preserveSelectedDate: true });
+      }
       setSyncRun({
         kind: finalKind === "ok" ? "completed" : "failed",
         lines: logLines.length ? logLines : ["Sync complete."],
@@ -3278,14 +3581,22 @@ export function TrainerDashboard() {
     await loadImportSummary("manual");
   }
 
-  async function loadHealthDashboard() {
+  async function loadHealthDashboard(
+    options: { preserveSelectedDate?: boolean } = {},
+  ) {
     setHealthDashboardState("loading");
+    const selectedDate = options.preserveSelectedDate
+      ? healthDashboardData?.days[selectedHealthDayIndex]?.date
+      : null;
     try {
       const payload = await readJsonResponse<HealthDashboardPayload>(
         await fetch("/api/health-dashboard", { method: "GET" }),
       );
       setHealthDashboardData(payload);
-      setSelectedHealthDayIndex(0);
+      const preservedIndex = selectedDate
+        ? payload.days.findIndex((day) => day.date === selectedDate)
+        : -1;
+      setSelectedHealthDayIndex(preservedIndex >= 0 ? preservedIndex : 0);
       setHealthDashboardError("");
       setHealthDashboardState("loaded");
     } catch (error) {
@@ -4898,8 +5209,8 @@ export function TrainerDashboard() {
         >
           <div className="health-dashboard-header">
             <div>
-              <p className="section-kicker">Daily health</p>
-              <h1 id="health-dashboard-heading">Health dashboard</h1>
+              <p className="section-kicker">Health</p>
+              <h1 id="health-dashboard-heading">Health</h1>
             </div>
             <button
               type="button"
@@ -4915,7 +5226,7 @@ export function TrainerDashboard() {
           <div className="health-dashboard-content">
             {healthDashboardState === "loading" ? (
               <p className="helper-text" role="status" aria-live="polite">
-                Loading daily health data…
+                Loading health data…
               </p>
             ) : null}
             {healthDashboardState === "error" ? (
@@ -4927,7 +5238,7 @@ export function TrainerDashboard() {
             healthDashboardData &&
             healthDashboardData.days.length === 0 ? (
               <div className="health-empty-state">
-                <h2>No daily health data yet</h2>
+                <h2>No health data yet</h2>
                 <p>
                   No daily health rows are available locally. Use the existing
                   Sync view to import Garmin health data — this dashboard stays

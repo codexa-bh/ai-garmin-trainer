@@ -60,6 +60,7 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
         });
       if (operation === "get_stats") return JSON.stringify({ steps: 1000 });
       if (operation === "get_sleep_summary") return JSON.stringify({});
+      if (operation === "get_body_battery") return JSON.stringify([]);
       if (operation === "get_activity_fit_data") {
         return JSON.stringify({
           zones_target: { max_heart_rate: 190 },

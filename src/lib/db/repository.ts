@@ -408,7 +408,13 @@ function dailyHealthMetricFields(
     stressAvg: day.stressAvg,
     steps: day.steps,
     calories: day.calories,
+    activeCalories: day.activeCalories,
+    restingCalories: day.restingCalories,
+    totalCalories: day.totalCalories,
+    intensityMinutes: day.intensityMinutes,
     bodyBatteryAvg: day.bodyBatteryAvg,
+    bodyBatteryMorning: day.bodyBatteryMorning,
+    bodyBatteryEvening: day.bodyBatteryEvening,
   };
 }
 
@@ -426,7 +432,17 @@ function mergeDailyHealth(
     stressAvg: incoming.stressAvg ?? previous.stressAvg ?? null,
     steps: incoming.steps ?? previous.steps ?? null,
     calories: incoming.calories ?? previous.calories ?? null,
+    activeCalories: incoming.activeCalories ?? previous.activeCalories ?? null,
+    restingCalories:
+      incoming.restingCalories ?? previous.restingCalories ?? null,
+    totalCalories: incoming.totalCalories ?? previous.totalCalories ?? null,
+    intensityMinutes:
+      incoming.intensityMinutes ?? previous.intensityMinutes ?? null,
     bodyBatteryAvg: incoming.bodyBatteryAvg ?? previous.bodyBatteryAvg ?? null,
+    bodyBatteryMorning:
+      incoming.bodyBatteryMorning ?? previous.bodyBatteryMorning ?? null,
+    bodyBatteryEvening:
+      incoming.bodyBatteryEvening ?? previous.bodyBatteryEvening ?? null,
   };
   return {
     ...merged,
@@ -439,12 +455,16 @@ export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
   const byDate = db.prepare(`
     select date, sleep_minutes as sleepMinutes, resting_heart_rate as restingHeartRate,
            hrv_status as hrvStatus, hrv_ms as hrvMs, stress_avg as stressAvg,
-           steps, calories, body_battery_avg as bodyBatteryAvg, availability
+           steps, calories, active_calories as activeCalories,
+           resting_calories as restingCalories, total_calories as totalCalories,
+           intensity_minutes as intensityMinutes, body_battery_avg as bodyBatteryAvg,
+           body_battery_morning as bodyBatteryMorning,
+           body_battery_evening as bodyBatteryEvening, availability
     from daily_health where date = ?
   `);
   const insert = db.prepare(`
-    insert into daily_health (date, sleep_minutes, resting_heart_rate, hrv_status, hrv_ms, stress_avg, steps, calories, body_battery_avg, availability)
-    values (@date, @sleepMinutes, @restingHeartRate, @hrvStatus, @hrvMs, @stressAvg, @steps, @calories, @bodyBatteryAvg, @availability)
+    insert into daily_health (date, sleep_minutes, resting_heart_rate, hrv_status, hrv_ms, stress_avg, steps, calories, active_calories, resting_calories, total_calories, intensity_minutes, body_battery_avg, body_battery_morning, body_battery_evening, availability)
+    values (@date, @sleepMinutes, @restingHeartRate, @hrvStatus, @hrvMs, @stressAvg, @steps, @calories, @activeCalories, @restingCalories, @totalCalories, @intensityMinutes, @bodyBatteryAvg, @bodyBatteryMorning, @bodyBatteryEvening, @availability)
     on conflict(date) do update set
       sleep_minutes=excluded.sleep_minutes,
       resting_heart_rate=excluded.resting_heart_rate,
@@ -453,7 +473,13 @@ export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
       stress_avg=excluded.stress_avg,
       steps=excluded.steps,
       calories=excluded.calories,
+      active_calories=excluded.active_calories,
+      resting_calories=excluded.resting_calories,
+      total_calories=excluded.total_calories,
+      intensity_minutes=excluded.intensity_minutes,
       body_battery_avg=excluded.body_battery_avg,
+      body_battery_morning=excluded.body_battery_morning,
+      body_battery_evening=excluded.body_battery_evening,
       availability=excluded.availability
   `);
   const run = db.transaction((items: NormalizedDailyHealth[]) => {
@@ -724,7 +750,11 @@ export function listRecentDailyHealth(limit = 14): NormalizedDailyHealth[] {
     .prepare(
       `select date, sleep_minutes as sleepMinutes, resting_heart_rate as restingHeartRate,
               hrv_status as hrvStatus, hrv_ms as hrvMs, stress_avg as stressAvg,
-              steps, calories, body_battery_avg as bodyBatteryAvg, availability
+              steps, calories, active_calories as activeCalories,
+              resting_calories as restingCalories, total_calories as totalCalories,
+              intensity_minutes as intensityMinutes, body_battery_avg as bodyBatteryAvg,
+              body_battery_morning as bodyBatteryMorning,
+              body_battery_evening as bodyBatteryEvening, availability
        from daily_health order by date desc limit ?`,
     )
     .all(limit) as NormalizedDailyHealth[];
@@ -2328,8 +2358,8 @@ export function healthCoverage(): HealthCoverage {
               coalesce(sum(case when hrv_ms is not null then 1 else 0 end), 0) as hrvDays,
               coalesce(sum(case when stress_avg is not null then 1 else 0 end), 0) as stressDays,
               coalesce(sum(case when steps is not null then 1 else 0 end), 0) as stepsDays,
-              coalesce(sum(case when calories is not null then 1 else 0 end), 0) as calorieDays,
-              coalesce(sum(case when body_battery_avg is not null then 1 else 0 end), 0) as bodyBatteryDays
+              coalesce(sum(case when coalesce(total_calories, calories) is not null then 1 else 0 end), 0) as calorieDays,
+              coalesce(sum(case when body_battery_morning is not null or body_battery_evening is not null or body_battery_avg is not null then 1 else 0 end), 0) as bodyBatteryDays
        from daily_health`,
     )
     .get() as {

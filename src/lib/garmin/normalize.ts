@@ -13,6 +13,73 @@ function nonNegativeNumberOrNull(value: unknown): number | null {
   return normalized !== null && normalized >= 0 ? normalized : null;
 }
 
+function numericStringOrNumberOrNull(value: unknown): number | null {
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return numberOrNull(value);
+}
+
+function timestampOrNull(value: unknown): Date | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function collectBodyBatteryReadings(
+  payload: unknown,
+  targetDate: string,
+): Array<{ timestamp: Date; value: number }> {
+  const readings: Array<{ timestamp: Date; value: number }> = [];
+  const visit = (item: unknown): void => {
+    if (Array.isArray(item)) {
+      for (const entry of item) visit(entry);
+      return;
+    }
+    if (!item || typeof item !== "object") return;
+    const record = item as Record<string, unknown>;
+    const timestamp =
+      timestampOrNull(record.start_time) ??
+      timestampOrNull(record.startTime) ??
+      timestampOrNull(record.timestamp) ??
+      timestampOrNull(record.time);
+    const value =
+      numericStringOrNumberOrNull(record.body_battery_level) ??
+      numericStringOrNumberOrNull(record.bodyBatteryLevel) ??
+      numericStringOrNumberOrNull(record.level) ??
+      numericStringOrNumberOrNull(record.value);
+    if (
+      timestamp &&
+      timestamp.toISOString().slice(0, 10) === targetDate &&
+      value !== null
+    ) {
+      readings.push({ timestamp, value });
+    }
+    for (const nested of Object.values(record)) {
+      if (nested && typeof nested === "object") visit(nested);
+    }
+  };
+  visit(payload);
+  return readings.sort(
+    (left, right) => left.timestamp.getTime() - right.timestamp.getTime(),
+  );
+}
+
+function bodyBatteryMorningEvening(
+  payload: unknown,
+  targetDate: string,
+): { bodyBatteryMorning: number | null; bodyBatteryEvening: number | null } {
+  const readings = collectBodyBatteryReadings(payload, targetDate);
+  if (readings.length === 0) {
+    return { bodyBatteryMorning: null, bodyBatteryEvening: null };
+  }
+  return {
+    bodyBatteryMorning: Math.round(readings[0].value),
+    bodyBatteryEvening: Math.round(readings[readings.length - 1].value),
+  };
+}
+
 function boundedSourceStringOrNull(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.replace(/\s+/g, " ").trim();
@@ -31,7 +98,7 @@ export function dailyHealthAvailability(
   const present = Object.values(fields).filter(
     (value) => value !== null,
   ).length;
-  return present === 0 ? "missing" : present >= 5 ? "complete" : "partial";
+  return present === 0 ? "missing" : present >= 6 ? "complete" : "partial";
 }
 
 export function normalizeActivity(
@@ -108,6 +175,22 @@ export function normalizeDailyHealth(
   const stats = payloads.stats as Record<string, unknown> | undefined;
   const sleepSeconds =
     numberOrNull(sleep?.sleepTimeSeconds) ?? numberOrNull(sleep?.sleep_seconds);
+  const activeCalories = nonNegativeNumberOrNull(stats?.active_calories);
+  const restingCalories = nonNegativeNumberOrNull(stats?.bmr_calories);
+  const totalCalories =
+    nonNegativeNumberOrNull(stats?.total_calories) ??
+    nonNegativeNumberOrNull(payloads.calories);
+  const moderateIntensity = nonNegativeNumberOrNull(
+    stats?.moderate_intensity_minutes,
+  );
+  const vigorousIntensity = nonNegativeNumberOrNull(
+    stats?.vigorous_intensity_minutes,
+  );
+  const intensityMinutes =
+    moderateIntensity !== null || vigorousIntensity !== null
+      ? Math.round((moderateIntensity ?? 0) + (vigorousIntensity ?? 0))
+      : null;
+  const bodyBattery = bodyBatteryMorningEvening(payloads.bodyBattery, date);
   const fields = {
     sleepMinutes: sleepSeconds ? Math.round(sleepSeconds / 60) : null,
     restingHeartRate:
@@ -118,11 +201,15 @@ export function normalizeDailyHealth(
     hrvMs: numberOrNull(sleep?.avg_overnight_hrv),
     stressAvg: numberOrNull(stats?.avg_stress_level),
     steps: numberOrNull(stats?.total_steps) ?? numberOrNull(payloads.steps),
-    calories:
-      numberOrNull(stats?.total_calories) ?? numberOrNull(payloads.calories),
+    calories: totalCalories,
+    activeCalories,
+    restingCalories,
+    totalCalories,
+    intensityMinutes,
     bodyBatteryAvg:
       numberOrNull(stats?.body_battery_current) ??
       numberOrNull(stats?.body_battery_highest),
+    ...bodyBattery,
   };
   return {
     date,

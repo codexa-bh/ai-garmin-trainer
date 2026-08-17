@@ -9,7 +9,13 @@ const day = (date: string, overrides: Record<string, unknown> = {}) => ({
   stressAvg: 38,
   steps: 8412,
   calories: 2310,
+  activeCalories: 710,
+  restingCalories: 1600,
+  totalCalories: 2310,
+  intensityMinutes: 38,
   bodyBatteryAvg: 74,
+  bodyBatteryMorning: 88,
+  bodyBatteryEvening: 42,
   availability: "complete",
   ...overrides,
 });
@@ -69,7 +75,13 @@ describe("health dashboard route", () => {
       "stressAvg",
       "steps",
       "calories",
+      "activeCalories",
+      "restingCalories",
+      "totalCalories",
+      "intensityMinutes",
       "bodyBatteryAvg",
+      "bodyBatteryMorning",
+      "bodyBatteryEvening",
       "availability",
     ];
     for (const row of payload.days) {

@@ -319,6 +319,19 @@ body::before {
   gap: 16px;
 }
 
+.health-mode-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.health-mode-controls .active {
+  border-color: rgba(73, 214, 200, 0.7);
+  background: rgba(73, 214, 200, 0.14);
+  color: var(--text);
+}
+
 .health-day-browser {
   display: flex;
   gap: 14px;
@@ -403,6 +416,116 @@ body::before {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.health-split-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.health-split-values span,
+.health-split-values strong {
+  display: block;
+}
+
+.health-split-values strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.health-calorie-split {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.health-calorie-split span:first-child {
+  background: rgba(248, 213, 102, 0.95);
+}
+
+.health-calorie-split span:last-child {
+  background: rgba(73, 214, 200, 0.9);
+}
+
+.health-rollup-view,
+.health-rollup-summary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.health-rollup-summary h2,
+.health-rollup-summary p {
+  margin: 0;
+}
+
+.health-rollup-summary p {
+  color: var(--muted);
+}
+
+.health-rollup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 10px;
+}
+
+.health-rollup-chart {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.health-rollup-chart.empty-state p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.health-rollup-bars {
+  display: flex;
+  min-height: 132px;
+  gap: 8px;
+  align-items: end;
+}
+
+.health-rollup-bar {
+  display: flex;
+  min-width: 36px;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.health-rollup-bar span {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(
+    180deg,
+    rgba(73, 214, 200, 0.95),
+    rgba(73, 214, 200, 0.45)
+  );
+}
+
+.health-rollup-bar small {
+  max-width: 72px;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .health-widget-trend-note {

@@ -30,7 +30,13 @@ function dailyHealth(
     stressAvg: values.stressAvg ?? null,
     steps: values.steps ?? null,
     calories: values.calories ?? null,
+    activeCalories: values.activeCalories ?? null,
+    restingCalories: values.restingCalories ?? null,
+    totalCalories: values.totalCalories ?? null,
+    intensityMinutes: values.intensityMinutes ?? null,
     bodyBatteryAvg: values.bodyBatteryAvg ?? null,
+    bodyBatteryMorning: values.bodyBatteryMorning ?? null,
+    bodyBatteryEvening: values.bodyBatteryEvening ?? null,
     availability: values.availability ?? "missing",
   };
 }

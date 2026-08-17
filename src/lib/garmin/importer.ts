@@ -482,8 +482,13 @@ export async function runGarminSync(
       });
       const statsText = await client.callTool("get_stats", { date });
       const sleepText = await client.callTool("get_sleep_summary", { date });
+      const bodyBatteryText = await client.callTool("get_body_battery", {
+        start_date: date,
+        end_date: date,
+      });
       const stats = parseToolJson(statsText);
       const sleep = parseToolJson(sleepText);
+      const bodyBattery = parseToolJson(bodyBatteryText);
       upsertGarminRawPayload({
         sourceTool: "get_stats",
         subjectType: "daily_health",
@@ -496,8 +501,14 @@ export async function runGarminSync(
         subjectId: `${date}:sleep`,
         payload: sleep,
       });
+      upsertGarminRawPayload({
+        sourceTool: "get_body_battery",
+        subjectType: "daily_health",
+        subjectId: `${date}:body_battery`,
+        payload: bodyBattery,
+      });
       healthDaysImported += upsertDailyHealth([
-        normalizeDailyHealth(date, { stats, sleep }),
+        normalizeDailyHealth(date, { stats, sleep, bodyBattery }),
       ]);
       if (checkpointDates.has(date)) {
         const next = new Date(`${date}T00:00:00Z`);

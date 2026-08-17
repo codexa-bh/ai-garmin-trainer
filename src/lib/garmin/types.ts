@@ -59,7 +59,13 @@ export type NormalizedDailyHealth = {
   stressAvg: number | null;
   steps: number | null;
   calories: number | null;
+  activeCalories: number | null;
+  restingCalories: number | null;
+  totalCalories: number | null;
+  intensityMinutes: number | null;
   bodyBatteryAvg: number | null;
+  bodyBatteryMorning: number | null;
+  bodyBatteryEvening: number | null;
   availability: "complete" | "partial" | "missing";
 };
 

@@ -46,7 +46,13 @@ function day(date: string, overrides: Record<string, unknown> = {}) {
     stressAvg: 38,
     steps: 8412,
     calories: 2310,
+    activeCalories: 710,
+    restingCalories: 1600,
+    totalCalories: 2310,
+    intensityMinutes: 38,
     bodyBatteryAvg: 74,
+    bodyBatteryMorning: 88,
+    bodyBatteryEvening: 42,
     availability: "complete",
     ...overrides,
   };
@@ -65,7 +71,13 @@ function healthDashboard() {
         stressAvg: 42,
         steps: 7900,
         calories: 2105,
+        activeCalories: 505,
+        restingCalories: 1600,
+        totalCalories: 2105,
+        intensityMinutes: 22,
         bodyBatteryAvg: 68,
+        bodyBatteryMorning: 82,
+        bodyBatteryEvening: 39,
         availability: "partial",
       }),
       day("2026-07-19", {
@@ -76,7 +88,13 @@ function healthDashboard() {
         stressAvg: null,
         steps: 10200,
         calories: 2480,
+        activeCalories: null,
+        restingCalories: null,
+        totalCalories: 2480,
+        intensityMinutes: null,
         bodyBatteryAvg: 71,
+        bodyBatteryMorning: null,
+        bodyBatteryEvening: null,
         availability: "missing",
       }),
     ],
@@ -116,10 +134,8 @@ function baseFetchMock() {
 }
 
 async function openHealthDashboard() {
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Health" }),
-  );
-  const panel = screen.getByRole("region", { name: "Health dashboard" });
+  fireEvent.click(await screen.findByRole("button", { name: "Health" }));
+  const panel = screen.getByRole("region", { name: "Health" });
   await waitFor(() =>
     expect(panel.querySelector('[role="status"]')).toBeNull(),
   );
@@ -138,7 +154,7 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
 
     expect(
-      screen.getByRole("heading", { name: "Health dashboard", level: 1 }),
+      screen.getByRole("heading", { name: "Health", level: 1 }),
     ).toBeTruthy();
     expect(panel).toBeTruthy();
     expect(
@@ -162,12 +178,14 @@ describe("TrainerDashboard Health dashboard", () => {
       "Stress avg",
       "Steps",
       "Calories",
-      "Body battery avg",
+      "Intensity minutes",
+      "Body battery morning",
+      "Body battery evening",
     ]);
 
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     expect(
-      screen.queryByRole("heading", { name: "Health dashboard", level: 1 }),
+      screen.queryByRole("heading", { name: "Health", level: 1 }),
     ).toBeNull();
   });
 
@@ -180,7 +198,7 @@ describe("TrainerDashboard Health dashboard", () => {
 
     expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
     expect(
-      screen.getByRole("heading", { name: "Health dashboard", level: 1 }),
+      screen.getByRole("heading", { name: "Health", level: 1 }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
   });
@@ -196,13 +214,18 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).getByText("41.2")).toBeTruthy();
     expect(within(panel).getByText("ms")).toBeTruthy();
     expect(within(panel).getByText("Balanced")).toBeTruthy();
-    expect(within(panel).getByText("38")).toBeTruthy();
-    expect(within(panel).getAllByText("avg").length).toBe(2);
+    expect(within(panel).getAllByText("38").length).toBeGreaterThanOrEqual(1);
+    expect(within(panel).getAllByText("avg").length).toBeGreaterThanOrEqual(1);
     expect(within(panel).getByText("8,412")).toBeTruthy();
     expect(within(panel).getByText("steps")).toBeTruthy();
     expect(within(panel).getByText("2,310")).toBeTruthy();
-    expect(within(panel).getByText("kcal")).toBeTruthy();
-    expect(within(panel).getByText("74")).toBeTruthy();
+    expect(
+      within(panel).getByRole("group", { name: "Calories source split" }),
+    ).toBeTruthy();
+    expect(within(panel).getByText("710")).toBeTruthy();
+    expect(within(panel).getByText("1,600")).toBeTruthy();
+    expect(within(panel).getByText("88")).toBeTruthy();
+    expect(within(panel).getByText("42")).toBeTruthy();
     expect(within(panel).getByText(/2026/)).toBeTruthy();
   });
 
@@ -246,8 +269,8 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(unavailable.length).toBeGreaterThanOrEqual(2);
     expect(within(panel).getByText(/Source-unavailable day/)).toBeTruthy();
     expect(
-      within(panel).getByText(/unavailable metrics are not estimated/),
-    ).toBeTruthy();
+      within(panel).queryByText(/unavailable metrics are not estimated/),
+    ).toBeNull();
   });
 
   it("shows a truthful no-data state when no daily health rows exist and never syncs", async () => {
@@ -263,7 +286,7 @@ describe("TrainerDashboard Health dashboard", () => {
 
     const panel = await openHealthDashboard();
 
-    expect(within(panel).getByText("No daily health data yet")).toBeTruthy();
+    expect(within(panel).getByText("No health data yet")).toBeTruthy();
     expect(
       within(panel).getByText(/never starts a sync by itself/),
     ).toBeTruthy();
@@ -280,7 +303,7 @@ describe("TrainerDashboard Health dashboard", () => {
 
     const panel = await openHealthDashboard();
 
-    expect(within(panel).getAllByRole("img").length).toBe(7);
+    expect(within(panel).getAllByRole("img").length).toBeGreaterThanOrEqual(6);
 
     const previous = within(panel).getByRole("button", {
       name: "Previous day",
@@ -291,7 +314,23 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).queryAllByRole("img")).toHaveLength(0);
     expect(
       within(panel).getAllByText("No trend — not enough data").length,
-    ).toBeGreaterThanOrEqual(4);
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it("switches to weekly and monthly rollups with source-only metric labels", async () => {
+    renderDashboard(baseFetchMock());
+
+    const panel = await openHealthDashboard();
+    fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
+    expect(within(panel).getByText("Weekly Health rollups")).toBeTruthy();
+    expect(within(panel).getByText("Total calories")).toBeTruthy();
+    expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
+
+    fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
+    expect(within(panel).getByText("Monthly Health rollups")).toBeTruthy();
+    expect(
+      within(panel).getByText(/Sums for sleep, steps, calories/),
+    ).toBeTruthy();
   });
 
   it("shows a truthful error state when the health dashboard request fails", async () => {

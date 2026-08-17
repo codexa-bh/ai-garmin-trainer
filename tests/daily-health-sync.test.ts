@@ -11,6 +11,7 @@ const mcpState = {
   calls: [] as Array<{ operation: string; args: Record<string, unknown> }>,
   statsByDate: new Map<string, Record<string, unknown>>(),
   sleepByDate: new Map<string, Record<string, unknown>>(),
+  bodyBatteryByDate: new Map<string, unknown>(),
 };
 
 vi.mock("../src/lib/garmin/mcp-client", () => ({
@@ -48,6 +49,11 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
           mcpState.sleepByDate.get(String(args.date)) ?? {},
         );
       }
+      if (operation === "get_body_battery") {
+        return JSON.stringify(
+          mcpState.bodyBatteryByDate.get(String(args.start_date)) ?? [],
+        );
+      }
       if (operation === "get_activity_fit_data") {
         return JSON.stringify({ records: [] });
       }
@@ -56,10 +62,12 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
   },
 }));
 
-function fetchedHealthDates(operation: "get_stats" | "get_sleep_summary") {
+function fetchedHealthDates(
+  operation: "get_stats" | "get_sleep_summary" | "get_body_battery",
+) {
   return mcpState.calls
     .filter((call) => call.operation === operation)
-    .map((call) => String(call.args.date));
+    .map((call) => String(call.args.date ?? call.args.start_date));
 }
 
 function dailyHealth(
@@ -75,7 +83,13 @@ function dailyHealth(
     stressAvg: values.stressAvg ?? null,
     steps: values.steps ?? null,
     calories: values.calories ?? null,
+    activeCalories: values.activeCalories ?? null,
+    restingCalories: values.restingCalories ?? null,
+    totalCalories: values.totalCalories ?? null,
+    intensityMinutes: values.intensityMinutes ?? null,
     bodyBatteryAvg: values.bodyBatteryAvg ?? null,
+    bodyBatteryMorning: values.bodyBatteryMorning ?? null,
+    bodyBatteryEvening: values.bodyBatteryEvening ?? null,
     availability: values.availability ?? "missing",
   };
 }
@@ -92,6 +106,7 @@ beforeEach(() => {
   mcpState.calls = [];
   mcpState.statsByDate = new Map();
   mcpState.sleepByDate = new Map();
+  mcpState.bodyBatteryByDate = new Map();
   vi.resetModules();
 });
 
