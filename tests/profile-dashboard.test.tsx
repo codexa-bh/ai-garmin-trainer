@@ -1528,9 +1528,7 @@ describe("TrainerDashboard activity charts", () => {
 
     render(React.createElement(TrainerDashboard));
 
-    expect(
-      screen.getByRole("button", { name: "Activities" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Activities" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Activities" }));
 
     expect(await screen.findByText("Activity 0")).toBeTruthy();

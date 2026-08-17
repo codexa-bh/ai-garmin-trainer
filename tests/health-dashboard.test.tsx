@@ -116,9 +116,7 @@ function baseFetchMock() {
 }
 
 async function openHealthDashboard() {
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Health" }),
-  );
+  fireEvent.click(await screen.findByRole("button", { name: "Health" }));
   const panel = screen.getByRole("region", { name: "Health dashboard" });
   await waitFor(() =>
     expect(panel.querySelector('[role="status"]')).toBeNull(),

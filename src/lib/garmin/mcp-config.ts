@@ -1,7 +1,7 @@
-export const GARMIN_MCP_COMMIT = "2974244bfda1595b00836b3f942f579ec2d6f7d6";
+export const GARMIN_MCP_COMMIT = "3610be6feed93088d85b0f35aba9d7d07c2505a7";
 export const GARMIN_MCP_EXECUTABLE = "garmin-mcp";
 export const GARMIN_MCP_PACKAGE_URL = `git+https://github.com/Taxuspt/garmin_mcp.git@${GARMIN_MCP_COMMIT}`;
-export const GARMIN_MCP_SDK_VERSION = "1.23.1";
+export const GARMIN_MCP_SDK_VERSION = "1.28.1";
 export const GARMIN_MCP_SDK_REQUIREMENT = `mcp==${GARMIN_MCP_SDK_VERSION}`;
 export const GARMIN_MCP_DEFAULT_ARGS = [
   "--from",

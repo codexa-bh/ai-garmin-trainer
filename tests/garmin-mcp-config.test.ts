@@ -3,6 +3,7 @@ import {
   GARMIN_MCP_COMMIT,
   GARMIN_MCP_PACKAGE_URL,
   GARMIN_MCP_SDK_REQUIREMENT,
+  GARMIN_MCP_SDK_VERSION,
   garminMcpArgs,
   garminMcpSdkConstraintStatus,
   mcpArgs,
@@ -23,29 +24,32 @@ describe("Garmin MCP uvx arguments", () => {
     ]);
   });
 
-  it("preserves the connector pin and explicit spawn-vector package constraint", () => {
+  it("preserves the connector pin and exact reviewed MCP 1.x SDK constraint", () => {
     const args = garminMcpArgs(
       `--from ${GARMIN_MCP_PACKAGE_URL} --with ${GARMIN_MCP_SDK_REQUIREMENT} garmin-mcp`,
     );
 
+    expect(GARMIN_MCP_SDK_VERSION).toBe("1.28.1");
     expect(args).toEqual([
       "--from",
       GARMIN_MCP_PACKAGE_URL,
       "--with",
-      GARMIN_MCP_SDK_REQUIREMENT,
+      "mcp==1.28.1",
       "garmin-mcp",
     ]);
   });
 
-  it("classifies incompatible explicit MCP SDK requirements", () => {
-    expect(
-      garminMcpSdkConstraintStatus([
-        "--from",
-        GARMIN_MCP_PACKAGE_URL,
-        "--with",
-        "mcp==2.0.0",
-        "garmin-mcp",
-      ]),
-    ).toBe("incompatible");
+  it("classifies stale, ranged, and MCP 2.x SDK requirements as incompatible", () => {
+    for (const requirement of ["mcp==1.23.1", "mcp>=1.28.1,<2", "mcp==2.0.0"]) {
+      expect(
+        garminMcpSdkConstraintStatus([
+          "--from",
+          GARMIN_MCP_PACKAGE_URL,
+          "--with",
+          requirement,
+          "garmin-mcp",
+        ]),
+      ).toBe("incompatible");
+    }
   });
 });
