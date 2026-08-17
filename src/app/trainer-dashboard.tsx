@@ -4069,23 +4069,23 @@ export function TrainerDashboard() {
             </button>
             <button
               type="button"
-              className="chrome-button sync-now-button"
-              onClick={openSyncFromNavigation}
-              ref={syncButtonRef}
-              aria-label="Sync"
-              aria-expanded={syncOpen}
+              className="chrome-button"
+              onClick={openActivityDashboardFromNavigation}
+              ref={activityDashboardButtonRef}
+              aria-label="Activities"
+              aria-expanded={activityDashboardOpen}
             >
-              {isSyncing ? "Sync · syncing" : "Sync"}
+              Activities
             </button>
             <button
               type="button"
               className="chrome-button"
-              onClick={openActivityDashboardFromNavigation}
-              ref={activityDashboardButtonRef}
-              aria-label="Activity charts"
-              aria-expanded={activityDashboardOpen}
+              onClick={openHealthDashboardFromNavigation}
+              ref={healthDashboardButtonRef}
+              aria-label="Health"
+              aria-expanded={healthDashboardOpen}
             >
-              Activity charts
+              Health
             </button>
             <button
               type="button"
@@ -4099,13 +4099,13 @@ export function TrainerDashboard() {
             </button>
             <button
               type="button"
-              className="chrome-button"
-              onClick={openHealthDashboardFromNavigation}
-              ref={healthDashboardButtonRef}
-              aria-label="Health dashboard"
-              aria-expanded={healthDashboardOpen}
+              className="chrome-button sync-now-button"
+              onClick={openSyncFromNavigation}
+              ref={syncButtonRef}
+              aria-label="Sync"
+              aria-expanded={syncOpen}
             >
-              Health dashboard
+              {isSyncing ? "Sync · syncing" : "Sync"}
             </button>
             <button
               type="button"
@@ -4152,19 +4152,19 @@ export function TrainerDashboard() {
                   type="button"
                   className="app-menu-item"
                   role="menuitem"
-                  onClick={openSyncFromNavigation}
-                  aria-label="Sync"
+                  onClick={openActivityDashboardFromNavigation}
+                  aria-label="Activities"
                 >
-                  {isSyncing ? "Sync · syncing" : "Sync"}
+                  Activities
                 </button>
                 <button
                   type="button"
                   className="app-menu-item"
                   role="menuitem"
-                  onClick={openActivityDashboardFromNavigation}
-                  aria-label="Activity charts"
+                  onClick={openHealthDashboardFromNavigation}
+                  aria-label="Health"
                 >
-                  Activity charts
+                  Health
                 </button>
                 <button
                   type="button"
@@ -4179,10 +4179,10 @@ export function TrainerDashboard() {
                   type="button"
                   className="app-menu-item"
                   role="menuitem"
-                  onClick={openHealthDashboardFromNavigation}
-                  aria-label="Health dashboard"
+                  onClick={openSyncFromNavigation}
+                  aria-label="Sync"
                 >
-                  Health dashboard
+                  {isSyncing ? "Sync · syncing" : "Sync"}
                 </button>
                 <button
                   type="button"

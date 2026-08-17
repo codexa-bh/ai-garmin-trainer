@@ -117,7 +117,7 @@ function baseFetchMock() {
 
 async function openHealthDashboard() {
   fireEvent.click(
-    await screen.findByRole("button", { name: "Health dashboard" }),
+    await screen.findByRole("button", { name: "Health" }),
   );
   const panel = screen.getByRole("region", { name: "Health dashboard" });
   await waitFor(() =>
@@ -176,7 +176,7 @@ describe("TrainerDashboard Health dashboard", () => {
     renderDashboard(baseFetchMock());
 
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Health dashboard" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Health" }));
 
     expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
     expect(

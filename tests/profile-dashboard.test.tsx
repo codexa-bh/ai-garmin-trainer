@@ -775,9 +775,10 @@ describe("TrainerDashboard Profile hydration", () => {
     });
     const expectedTopbarButtons = [
       "Toggle conversation history",
-      "Sync",
-      "Activity charts",
+      "Activities",
+      "Health",
       "Training Plan",
+      "Sync",
       "Data & settings",
     ];
     for (const name of expectedTopbarButtons) {
@@ -793,10 +794,10 @@ describe("TrainerDashboard Profile hydration", () => {
       ),
     ).toEqual([
       "Conversations",
-      "Sync",
-      "Activity charts",
+      "Activities",
+      "Health",
       "Training Plan",
-      "Health dashboard",
+      "Sync",
       "Settings",
     ]);
     expect(
@@ -850,10 +851,10 @@ describe("TrainerDashboard Profile hydration", () => {
     const menu = screen.getByRole("menu", { name: "Main menu" });
     const menuItems = [
       "Toggle conversation history",
-      "Sync",
-      "Activity charts",
+      "Activities",
+      "Health",
       "Training Plan",
-      "Health dashboard",
+      "Sync",
       "Data & settings",
     ];
     for (const name of menuItems) {
@@ -867,10 +868,10 @@ describe("TrainerDashboard Profile hydration", () => {
       ),
     ).toEqual([
       "Conversations",
-      "Sync",
-      "Activity charts",
+      "Activities",
+      "Health",
       "Training Plan",
-      "Health dashboard",
+      "Sync",
       "Settings",
     ]);
 
@@ -923,7 +924,7 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Activities" }));
 
     expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
     expect(await screen.findByText("Activity 0")).toBeTruthy();
@@ -1388,7 +1389,7 @@ describe("TrainerDashboard activity charts", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
 
     const hikingRow = (await screen.findByText("Hiking result")).closest(
       ".activity-list-item",
@@ -1528,9 +1529,9 @@ describe("TrainerDashboard activity charts", () => {
     render(React.createElement(TrainerDashboard));
 
     expect(
-      screen.getByRole("button", { name: "Activity charts" }),
+      screen.getByRole("button", { name: "Activities" }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
 
     expect(await screen.findByText("Activity 0")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
@@ -1597,7 +1598,7 @@ describe("TrainerDashboard activity charts", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
 
     expect(await screen.findByText("Activity 0")).toBeTruthy();
     const list = screen.getByRole("list", { name: "Synced activities" });
@@ -1857,7 +1858,7 @@ describe("TrainerDashboard activity charts", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
     fireEvent.click(await screen.findByText("Morning Trail Run"));
 
     expect(await screen.findByText("Detail: available")).toBeTruthy();
@@ -2317,7 +2318,7 @@ describe("TrainerDashboard activity charts", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
     fireEvent.click(await screen.findByText("Morning Trail Run"));
 
     expect(await screen.findByText("Heart rate")).toBeTruthy();
@@ -2414,7 +2415,7 @@ describe("TrainerDashboard activity charts", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
 
     const collapseButton = screen.getByRole("button", {
       name: "Collapse activity selector",
@@ -2460,7 +2461,7 @@ describe("TrainerDashboard activity charts", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
     expect(await screen.findByText("Activity 0")).toBeTruthy();
 
     fireEvent.click(
@@ -2597,7 +2598,7 @@ describe("TrainerDashboard activity charts", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(React.createElement(TrainerDashboard));
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
     fireEvent.click(await screen.findByText("Morning Trail Run"));
 
     expect(await screen.findByText("Detail: available")).toBeTruthy();
@@ -2828,7 +2829,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
     ).toBeGreaterThan(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
     expect(await screen.findByText("Activity 0")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     fireEvent.click(screen.getByRole("button", { name: "Sync" }));
@@ -3870,7 +3871,7 @@ describe("TrainerDashboard transcript scrolling", () => {
     });
     fireEvent.scroll(transcript);
 
-    fireEvent.click(screen.getByRole("button", { name: "Activity charts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
     expect(
       await screen.findByRole("button", { name: "Back to chat" }),
     ).toBeTruthy();
