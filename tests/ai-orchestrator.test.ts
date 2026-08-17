@@ -523,6 +523,94 @@ describe("trainer orchestrator fail-closed policy", async () => {
     ]);
   });
 
+  it("corrects a benign wrong monthly activity-calorie table and synthesizes incomplete-month prose", async () => {
+    runReadOnlySql
+      .mockReturnValueOnce({
+        status: "rejected",
+        resultName: "monthly_activity_calories",
+        columns: [],
+        rows: [],
+        rowCount: 0,
+        returnedRows: 0,
+        truncated: false,
+        reason: "disallowed_table",
+        message:
+          "The query referenced a table outside the analytical allowlist. Referenced table: activities. Allowed analytical tables: activity. Allowed activity columns: garmin_id, started_at, calories.",
+        correctionAllowed: true,
+        correctionHint:
+          "Correct the SQL using activity.started_at and activity.calories for activity calories by month.",
+        privacy: "sql privacy",
+      })
+      .mockReturnValueOnce({
+        status: "succeeded",
+        resultName: "monthly_activity_calories",
+        columns: [
+          { name: "month" },
+          { name: "activities" },
+          { name: "activity_calories_kcal" },
+        ],
+        rows: [
+          { month: "2026-01", activities: 2, activity_calories_kcal: 800 },
+          { month: "2026-08", activities: 1, activity_calories_kcal: 300 },
+        ],
+        rowCount: 2,
+        returnedRows: 2,
+        truncated: false,
+        privacy: "sql privacy",
+      });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [{ toolName: "describeGarminDatabase", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select strftime('%Y-%m', started_at / 1000, 'unixepoch') as month, sum(calories) from activities group by month",
+              resultName: "monthly_activity_calories",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select strftime('%Y-%m', started_at / 1000, 'unixepoch') as month, count(*) as activities, sum(calories) as activity_calories_kcal from activity where strftime('%Y', started_at / 1000, 'unixepoch') = '2026' group by month order by month",
+              resultName: "monthly_activity_calories",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "From local activity calories, January totaled 800 kcal and August is 300 kcal month-to-date because August is incomplete.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest:
+        "By the monthly spent calories during activities, can we compare this year month by month, including August which is incomplete?",
+    });
+
+    expect(runReadOnlySql).toHaveBeenCalledTimes(2);
+    expect(generateText.mock.calls[2][0].system).toContain("disallowed_table");
+    expect(generateText.mock.calls[2][0].system).toContain(
+      "activity.started_at",
+    );
+    expect(result.text).toContain("activity calories");
+    expect(result.text).toContain("August");
+    expect(result.text).toContain("month-to-date");
+    expect(result.text).not.toContain("Tool step");
+    expect(result.toolSteps.map((step) => step.status)).toEqual([
+      "succeeded",
+      "rejected",
+      "succeeded",
+    ]);
+  });
+
   it("returns user-facing prose after repeated SQL failure instead of raw tool steps", async () => {
     runReadOnlySql.mockReturnValue({
       status: "failed",
