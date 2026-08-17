@@ -155,6 +155,48 @@ describe("versioned SQLite migration foundation", () => {
     db.close();
   });
 
+  it("adds weigh-in source columns forward-compatibly from v13", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      create table app_metadata (key text primary key, value text not null, updated_at integer not null);
+      insert into app_metadata (key, value, updated_at) values ('schema_version', '13', 1);
+      create table garmin_body_metrics (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, weight_kg real, height_cm real, history_availability text not null, history_range_start text, history_range_end text, history_count integer not null default 0);
+      create table garmin_body_metric_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0);
+      create table garmin_body_weight_history (date text primary key, weight_kg real not null, source text not null, fetched_at integer not null);
+      insert into garmin_body_metrics (id, fetched_at, source, availability, weight_kg, height_cm, history_availability, history_range_start, history_range_end, history_count)
+        values ('default', 1784707200000, 'garmin_mcp', 'partial', 70.2, 181, 'available', '2026-08-10', '2026-08-11', 2);
+      insert into garmin_body_weight_history (date, weight_kg, source, fetched_at) values ('2026-08-10', 70.4, 'garmin_mcp', 1784707200000);
+    `);
+
+    const result = migrateDatabase(db);
+    expect(result.applied).toContain("14:garmin_weigh_in_sources");
+    const columns = db
+      .prepare("pragma table_info(garmin_body_metrics)")
+      .all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "history_source",
+        "current_weight_source",
+        "weigh_in_availability",
+      ]),
+    );
+    expect(
+      db
+        .prepare(
+          "select weight_kg as weightKg, history_count as historyCount from garmin_body_metrics where id = 'default'",
+        )
+        .get(),
+    ).toEqual({ weightKg: 70.2, historyCount: 2 });
+    expect(
+      db
+        .prepare(
+          "select date, weight_kg as weightKg from garmin_body_weight_history",
+        )
+        .all(),
+    ).toEqual([{ date: "2026-08-10", weightKg: 70.4 }]);
+    db.close();
+  });
+
   it("supports backup-before-upgrade restore rehearsal on a disposable fixture", () => {
     const dir = mkdtempSync(join(tmpdir(), "trainer-migration-"));
     const dbPath = join(dir, "trainer.sqlite");

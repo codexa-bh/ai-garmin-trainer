@@ -7,8 +7,10 @@ const dbDir = join(tmpdir(), "ai-garmin-athlete-sync-tests");
 const mcpState = {
   failAthlete: false,
   failBodyMetrics: false,
+  failWeighIns: false,
   nullAthlete: false,
   activities: [] as Array<Record<string, unknown>>,
+  weighIns: [] as Array<Record<string, unknown>>,
 };
 
 vi.mock("../src/lib/garmin/mcp-client", () => ({
@@ -53,6 +55,13 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
           totalAverage: { weight: 70.4, bodyFat: 20 },
         });
       }
+      if (operation === "get_weigh_ins") {
+        if (mcpState.failWeighIns) throw new Error("weigh-in endpoint timeout");
+        return JSON.stringify({
+          measurement_count: mcpState.weighIns.length,
+          measurements: mcpState.weighIns,
+        });
+      }
       if (operation === "get_activities_by_date")
         return JSON.stringify({
           activities: mcpState.activities,
@@ -86,8 +95,10 @@ beforeEach(() => {
   process.env.GARMIN_HISTORY_START_DATE = "2026-07-21";
   mcpState.failAthlete = false;
   mcpState.failBodyMetrics = false;
+  mcpState.failWeighIns = false;
   mcpState.nullAthlete = false;
   mcpState.activities = [];
+  mcpState.weighIns = [];
   vi.resetModules();
 });
 
@@ -159,6 +170,7 @@ describe("Garmin sync athlete baseline stage", () => {
 
     mcpState.failAthlete = true;
     mcpState.failBodyMetrics = true;
+    mcpState.failWeighIns = true;
     const result = await runGarminSync();
 
     expect(result.status).toBe("completed");
@@ -181,6 +193,70 @@ describe("Garmin sync athlete baseline stage", () => {
       availability: "failed",
       preservedPrevious: true,
       values: { cyclingFtpWatts: 250 },
+    });
+  });
+
+  it("imports weigh-ins with latest weigh-in as current weight and truthful status", async () => {
+    mcpState.weighIns = [
+      { date: "2026-07-20", weight_kg: 70.6, source_type: "SCALE" },
+      { date: "2026-07-22", weight_kg: 70.1, source_type: "MANUAL" },
+    ];
+    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const messages: string[] = [];
+
+    const result = await runGarminSync((event) => messages.push(event.message));
+
+    expect(result.status).toBe("completed");
+    expect(result.bodyMetrics).toMatchObject({
+      availability: "complete",
+      values: { weightKg: 70.1, heightCm: 181 },
+      currentWeightSource: "weigh_in",
+      weighInAvailability: "available",
+      history: {
+        availability: "available",
+        source: "mixed",
+        count: 3,
+      },
+    });
+    expect(messages.join("\n")).toContain("weigh-ins available");
+  });
+
+  it("stores only weigh-in rows and reports unavailable weigh-in status when the surface is empty", async () => {
+    const { runGarminSync } = await import("../src/lib/garmin/importer");
+
+    const result = await runGarminSync();
+
+    expect(result.status).toBe("completed");
+    expect(result.bodyMetrics).toMatchObject({
+      availability: "complete",
+      values: { weightKg: 70.2, heightCm: 181 },
+      currentWeightSource: "profile",
+      weighInAvailability: "unavailable",
+      history: {
+        availability: "available",
+        source: "body_composition",
+        count: 1,
+      },
+    });
+  });
+
+  it("preserves previous body metrics and marks weigh-in failed after refresh failure", async () => {
+    mcpState.weighIns = [
+      { date: "2026-07-22", weight_kg: 70.1, source_type: "MANUAL" },
+    ];
+    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    await runGarminSync();
+
+    mcpState.failAthlete = true;
+    mcpState.failBodyMetrics = true;
+    mcpState.failWeighIns = true;
+    const result = await runGarminSync();
+
+    expect(result.status).toBe("completed");
+    expect(result.bodyMetrics).toMatchObject({
+      availability: "failed",
+      preservedPrevious: true,
+      values: { weightKg: 70.1 },
     });
   });
 });

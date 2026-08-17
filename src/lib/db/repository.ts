@@ -13,6 +13,9 @@ import type {
   GarminBodyMetricsAvailability,
   GarminBodyMetricsDto,
   GarminBodyMetricsSnapshot,
+  GarminBodyWeightHistorySource,
+  GarminCurrentWeightSource,
+  GarminWeighInAvailability,
   HeartRateZoneBoundaryDto,
   NormalizedActivity,
   NormalizedDailyHealth,
@@ -1209,6 +1212,28 @@ export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
   };
 }
 
+function normalizeHistorySource(
+  value: string | null,
+): GarminBodyWeightHistorySource {
+  if (value === "weigh_in" || value === "body_composition" || value === "mixed")
+    return value;
+  return null;
+}
+
+function normalizeCurrentWeightSource(
+  value: string | null,
+): GarminCurrentWeightSource {
+  return value === "profile" || value === "weigh_in" ? value : null;
+}
+
+function normalizeWeighInAvailability(
+  value: string | null,
+): GarminWeighInAvailability {
+  return value === "available" || value === "unavailable" || value === "failed"
+    ? value
+    : null;
+}
+
 export function writeGarminBodyMetricsRefresh(input: {
   snapshot: GarminBodyMetricsSnapshot | null;
   status: Exclude<GarminBodyMetricsAvailability, "failed">;
@@ -1223,8 +1248,8 @@ export function writeGarminBodyMetricsRefresh(input: {
     db.prepare("delete from garmin_body_weight_history").run();
     if (input.snapshot && input.snapshot.availability !== "unavailable") {
       db.prepare(
-        `insert into garmin_body_metrics (id, fetched_at, source, availability, weight_kg, height_cm, history_availability, history_range_start, history_range_end, history_count)
-         values ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into garmin_body_metrics (id, fetched_at, source, availability, weight_kg, height_cm, history_availability, history_range_start, history_range_end, history_count, history_source, current_weight_source, weigh_in_availability)
+         values ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         input.snapshot.fetchedAt.getTime(),
         input.snapshot.source,
@@ -1235,6 +1260,9 @@ export function writeGarminBodyMetricsRefresh(input: {
         input.snapshot.history.rangeStart,
         input.snapshot.history.rangeEnd,
         input.snapshot.history.count,
+        input.snapshot.history.source ?? null,
+        input.snapshot.currentWeightSource ?? null,
+        input.snapshot.weighInAvailability ?? null,
       );
       const insertHistory = db.prepare(
         `insert into garmin_body_weight_history (date, weight_kg, source, fetched_at)
@@ -1297,7 +1325,7 @@ export function getGarminBodyMetrics(): GarminBodyMetricsDto {
   const db = getDatabase();
   const metrics = db
     .prepare(
-      `select fetched_at as fetchedAt, source, availability, weight_kg as weightKg, height_cm as heightCm, history_availability as historyAvailability, history_range_start as historyRangeStart, history_range_end as historyRangeEnd, history_count as historyCount from garmin_body_metrics where id = 'default'`,
+      `select fetched_at as fetchedAt, source, availability, weight_kg as weightKg, height_cm as heightCm, history_availability as historyAvailability, history_range_start as historyRangeStart, history_range_end as historyRangeEnd, history_count as historyCount, history_source as historySource, current_weight_source as currentWeightSource, weigh_in_availability as weighInAvailability from garmin_body_metrics where id = 'default'`,
     )
     .get() as
     | {
@@ -1310,6 +1338,9 @@ export function getGarminBodyMetrics(): GarminBodyMetricsDto {
         historyRangeStart: string | null;
         historyRangeEnd: string | null;
         historyCount: number;
+        historySource: string | null;
+        currentWeightSource: string | null;
+        weighInAvailability: string | null;
       }
     | undefined;
   const attempt = db
@@ -1338,16 +1369,24 @@ export function getGarminBodyMetrics(): GarminBodyMetricsDto {
     history: metrics
       ? {
           availability: metrics.historyAvailability,
+          source: normalizeHistorySource(metrics.historySource),
           rangeStart: metrics.historyRangeStart,
           rangeEnd: metrics.historyRangeEnd,
           count: metrics.historyCount,
         }
       : {
           availability: "unavailable",
+          source: null,
           rangeStart: null,
           rangeEnd: null,
           count: 0,
         },
+    currentWeightSource: normalizeCurrentWeightSource(
+      metrics?.currentWeightSource ?? null,
+    ),
+    weighInAvailability: normalizeWeighInAvailability(
+      metrics?.weighInAvailability ?? null,
+    ),
   };
 }
 

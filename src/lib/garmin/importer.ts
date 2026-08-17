@@ -237,7 +237,9 @@ async function fetchAndStoreBodyMetrics(
   const previous = getGarminBodyMetrics();
   let profilePayload: unknown;
   let historyPayload: unknown;
+  let weighInPayload: unknown;
   let historyFailed = false;
+  let weighInFailed = false;
   const errors: string[] = [];
   try {
     profilePayload = parseToolJson(
@@ -257,7 +259,18 @@ async function fetchAndStoreBodyMetrics(
     historyFailed = true;
     errors.push(`body composition history: ${compactError(error)}`);
   }
-  if (!profilePayload && !historyPayload) {
+  try {
+    weighInPayload = parseToolJson(
+      await client.callTool("get_weigh_ins", {
+        start_date: startDate,
+        end_date: endDate,
+      }),
+    );
+  } catch (error) {
+    weighInFailed = true;
+    errors.push(`weigh-ins: ${compactError(error)}`);
+  }
+  if (!profilePayload && !historyPayload && !weighInPayload) {
     const preservedPrevious = Boolean(previous.fetchedAt);
     recordGarminBodyMetricsFailure({
       attemptedAt,
@@ -269,7 +282,9 @@ async function fetchAndStoreBodyMetrics(
   const snapshot = normalizeGarminBodyMetrics({
     profilePayload,
     historyPayload,
+    weighInPayload,
     historyFailed,
+    weighInFailed,
     fetchedAt: new Date(),
   });
   const hasUsableSnapshot = hasUsableGarminBodyMetrics(snapshot);
@@ -377,7 +392,7 @@ export async function runGarminSync(
     onProgress({
       stage: "body_metrics",
       message:
-        "Refreshing Garmin body metrics from approved read-only profile/body-composition tools…",
+        "Refreshing Garmin body metrics from approved read-only profile/body-composition/weigh-in tools…",
       activitiesImported,
       healthDaysImported,
       bodyMetricsAvailability: bodyMetrics.availability,
@@ -385,7 +400,7 @@ export async function runGarminSync(
     bodyMetrics = await fetchAndStoreBodyMetrics(client, startDate, endDate);
     onProgress({
       stage: "body_metrics",
-      message: `Garmin body metrics refresh ${bodyMetrics.availability}; current weight ${bodyMetrics.values.weightKg !== null ? "available" : "unavailable"}; height ${bodyMetrics.values.heightCm !== null ? "available" : "unavailable"}; weight history ${bodyMetrics.history.availability}.`,
+      message: `Garmin body metrics refresh ${bodyMetrics.availability}; current weight ${bodyMetrics.values.weightKg !== null ? `available (source ${bodyMetrics.currentWeightSource ?? "unknown"})` : "unavailable"}; height ${bodyMetrics.values.heightCm !== null ? "available" : "unavailable"}; weight history ${bodyMetrics.history.availability}${bodyMetrics.history.source ? ` (source ${bodyMetrics.history.source})` : ""}; weigh-ins ${bodyMetrics.weighInAvailability ?? "not attempted"}.`,
       activitiesImported,
       healthDaysImported,
       bodyMetricsAvailability: bodyMetrics.availability,

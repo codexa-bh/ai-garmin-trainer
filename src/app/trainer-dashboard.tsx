@@ -224,8 +224,11 @@ type BodyMetricsPayload = {
   lastAttemptAt: string | null;
   preservedPrevious: boolean;
   values: { weightKg: number | null; heightCm: number | null };
+  currentWeightSource: "profile" | "weigh_in" | null;
+  weighInAvailability: "available" | "unavailable" | "failed" | null;
   history: {
     availability: "available" | "unavailable" | "failed";
+    source: "weigh_in" | "body_composition" | "mixed" | null;
     rangeStart: string | null;
     rangeEnd: string | null;
     count: number;
@@ -594,8 +597,11 @@ const emptyBodyMetrics: BodyMetricsPayload = {
   lastAttemptAt: null,
   preservedPrevious: false,
   values: { weightKg: null, heightCm: null },
+  currentWeightSource: null,
+  weighInAvailability: null,
   history: {
     availability: "unavailable",
+    source: null,
     rangeStart: null,
     rangeEnd: null,
     count: 0,
@@ -724,7 +730,7 @@ function formatAthleteBaselineSummary(
 function formatBodyMetricsSummary(metrics: BodyMetricsPayload): string {
   const weight =
     metrics.values.weightKg !== null
-      ? `current weight imported (${metrics.values.weightKg} kg)`
+      ? `current weight imported (${metrics.values.weightKg} kg${metrics.currentWeightSource === "weigh_in" ? ", source: weigh-in" : metrics.currentWeightSource === "profile" ? ", source: profile" : ""})`
       : "current weight unavailable";
   const height =
     metrics.values.heightCm !== null
@@ -732,9 +738,11 @@ function formatBodyMetricsSummary(metrics: BodyMetricsPayload): string {
       : "height unavailable";
   const history =
     metrics.history.availability === "available"
-      ? `weight history ${metrics.history.count} rows (${metrics.history.rangeStart ?? "unknown"} to ${metrics.history.rangeEnd ?? "unknown"})`
+      ? `weight history ${metrics.history.count} rows (${metrics.history.rangeStart ?? "unknown"} to ${metrics.history.rangeEnd ?? "unknown"}${metrics.history.source ? `, source: ${metrics.history.source}` : ""})`
       : `weight history ${metrics.history.availability}`;
-  return `Body metrics ${metrics.availability}; ${weight}; ${height}; ${history}; last attempt ${dateLabel(metrics.lastAttemptAt)}.`;
+  const weighIns =
+    metrics.weighInAvailability === "failed" ? " weigh-in refresh failed" : "";
+  return `Body metrics ${metrics.availability}; ${weight}; ${height}; ${history};${weighIns} last attempt ${dateLabel(metrics.lastAttemptAt)}.`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -6040,7 +6048,14 @@ export function TrainerDashboard() {
                     </div>
                     <div>
                       <dt>Current weight</dt>
-                      <dd>{valueLabel(bodyMetrics.values.weightKg, " kg")}</dd>
+                      <dd>
+                        {valueLabel(bodyMetrics.values.weightKg, " kg")}
+                        {bodyMetrics.currentWeightSource === "weigh_in"
+                          ? " (source: latest weigh-in)"
+                          : bodyMetrics.currentWeightSource === "profile"
+                            ? " (source: profile weight field)"
+                            : ""}
+                      </dd>
                     </div>
                     <div>
                       <dt>Height</dt>
@@ -6050,8 +6065,14 @@ export function TrainerDashboard() {
                       <dt>Weight history</dt>
                       <dd>
                         {bodyMetrics.history.availability === "available"
-                          ? `${bodyMetrics.history.count} rows (${bodyMetrics.history.rangeStart ?? "unknown"} to ${bodyMetrics.history.rangeEnd ?? "unknown"})`
+                          ? `${bodyMetrics.history.count} rows (${bodyMetrics.history.rangeStart ?? "unknown"} to ${bodyMetrics.history.rangeEnd ?? "unknown"}${bodyMetrics.history.source ? `, source: ${bodyMetrics.history.source}` : ""})`
                           : bodyMetrics.history.availability}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Weigh-in status</dt>
+                      <dd>
+                        {bodyMetrics.weighInAvailability ?? "not attempted"}
                       </dd>
                     </div>
                   </dl>

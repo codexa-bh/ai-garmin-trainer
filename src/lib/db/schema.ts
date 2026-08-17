@@ -241,6 +241,9 @@ export const garminBodyMetrics = sqliteTable("garmin_body_metrics", {
   historyRangeStart: text("history_range_start"),
   historyRangeEnd: text("history_range_end"),
   historyCount: integer("history_count").notNull().default(0),
+  historySource: text("history_source"),
+  currentWeightSource: text("current_weight_source"),
+  weighInAvailability: text("weigh_in_availability"),
 });
 
 export const garminBodyMetricAttempt = sqliteTable(

@@ -307,7 +307,7 @@ const ANALYTICAL_SCHEMA: Record<
   garmin_body_metrics: {
     name: "garmin_body_metrics",
     description:
-      "Single normalized Garmin body-metrics snapshot with explicit units and freshness; excludes raw profile/account/demographic fields.",
+      "Single normalized Garmin body-metrics snapshot with explicit units, source, and freshness; excludes raw profile/account/demographic fields.",
     columns: [
       { name: "availability", type: "text" },
       { name: "fetched_at", type: "integer", unit: "Unix epoch ms" },
@@ -317,16 +317,35 @@ const ANALYTICAL_SCHEMA: Record<
       { name: "history_range_start", type: "text", nullable: true },
       { name: "history_range_end", type: "text", nullable: true },
       { name: "history_count", type: "integer" },
+      {
+        name: "history_source",
+        type: "text",
+        nullable: true,
+        note: "weigh_in | body_composition | mixed",
+      },
+      {
+        name: "current_weight_source",
+        type: "text",
+        nullable: true,
+        note: "profile | weigh_in",
+      },
+      {
+        name: "weigh_in_availability",
+        type: "text",
+        nullable: true,
+        note: "available | unavailable | failed",
+      },
     ],
     joins: [],
   },
   garmin_body_weight_history: {
     name: "garmin_body_weight_history",
     description:
-      "Normalized Garmin body-weight history rows imported only from direct read-only body-composition data; one row per date, no raw profile payload.",
+      "Normalized Garmin body-weight history rows imported from read-only weigh-in and body-composition data; one row per date, no raw profile payload.",
     columns: [
       { name: "date", type: "text", note: "YYYY-MM-DD" },
       { name: "weight_kg", type: "real", unit: "kg" },
+      { name: "source", type: "text", note: "garmin_mcp" },
       { name: "fetched_at", type: "integer", unit: "Unix epoch ms" },
     ],
   },

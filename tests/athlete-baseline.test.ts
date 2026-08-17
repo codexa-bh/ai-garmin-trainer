@@ -28,8 +28,11 @@ function bodySnapshot(
     source: "garmin_mcp",
     fetchedAt: new Date("2026-08-12T08:00:00Z"),
     values: { weightKg: 70.2, heightCm: 181 },
+    currentWeightSource: "weigh_in",
+    weighInAvailability: "available",
     history: {
       availability: "available",
+      source: "weigh_in",
       rangeStart: "2026-08-10",
       rangeEnd: "2026-08-11",
       count: 2,
@@ -168,7 +171,9 @@ describe("Garmin athlete baseline repository", () => {
       availability: "complete",
       source: "garmin_mcp",
       values: { weightKg: 70.2, heightCm: 181 },
-      history: { availability: "available", count: 2 },
+      currentWeightSource: "weigh_in",
+      weighInAvailability: "available",
+      history: { availability: "available", source: "weigh_in", count: 2 },
     });
     expect(repo.importSummary().bodyMetrics.values.weightKg).toBe(70.2);
     expect(repo.clearChatAndProfile()).not.toContain("garmin_body_metrics");

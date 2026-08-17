@@ -149,8 +149,11 @@ describe("trainer AI", () => {
         lastAttemptAt: "2026-08-12T08:00:00.000Z",
         preservedPrevious: false,
         values: { weightKg: 70.2, heightCm: 181 },
+        currentWeightSource: "weigh_in",
+        weighInAvailability: "available",
         history: {
           availability: "available",
+          source: "weigh_in",
           rangeStart: "2026-08-10",
           rangeEnd: "2026-08-11",
           count: 2,
@@ -161,8 +164,45 @@ describe("trainer AI", () => {
 
     expect(context).toContain("Garmin body metrics");
     expect(context).toContain("current weight 70.2 kg");
+    expect(context).toContain("from the latest Garmin weigh-in");
+    expect(context).toContain(
+      "weight history 2 rows from 2026-08-10 to 2026-08-11 (source: Garmin weigh-ins)",
+    );
     expect(context).toContain("do not ask for imported weight");
     expect(context).toContain("separate from editable Profile");
+  });
+
+  it("discloses weigh-in refresh failure without obscuring preserved body metrics", () => {
+    const context = buildTrainerContext({
+      activities: [],
+      health: [],
+      profile: { goals: [], sports: [], preferences: {}, constraints: [] },
+      bodyMetrics: {
+        availability: "partial",
+        source: "garmin_mcp",
+        fetchedAt: "2026-08-12T08:00:00.000Z",
+        lastAttemptAt: "2026-08-12T08:00:00.000Z",
+        preservedPrevious: true,
+        values: { weightKg: 70.2, heightCm: 181 },
+        currentWeightSource: "profile",
+        weighInAvailability: "failed",
+        history: {
+          availability: "failed",
+          source: null,
+          rangeStart: null,
+          rangeEnd: null,
+          count: 0,
+        },
+      },
+      recentMessages: [],
+    });
+
+    expect(context).toContain("The Garmin weigh-in refresh failed");
+    expect(context).toContain(
+      "previous normalized Garmin body metrics were preserved",
+    );
+    expect(context).toContain("current weight 70.2 kg");
+    expect(context).not.toContain("start a weekly weigh-in");
   });
 
   it("preserves source facts when applying profile corrections", () => {

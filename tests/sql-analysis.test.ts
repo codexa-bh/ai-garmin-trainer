@@ -110,6 +110,10 @@ describe("read-only Garmin SQL analysis", () => {
       "sportNormalizedDemand",
     );
     expect(JSON.stringify(description)).toContain("weight_kg");
+    expect(JSON.stringify(description)).toContain("history_source");
+    expect(JSON.stringify(description)).toContain("current_weight_source");
+    expect(JSON.stringify(description)).toContain("weigh_in_availability");
+    expect(JSON.stringify(description)).toContain("weigh-in");
     expect(JSON.stringify(description)).not.toContain("bodyFat");
     expect(JSON.stringify(description)).not.toContain("access_token");
     expect(JSON.stringify(description)).not.toContain("session token");

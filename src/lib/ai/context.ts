@@ -128,24 +128,42 @@ function formatBodyMetrics(
   if (!bodyMetrics || bodyMetrics.availability === "unavailable") {
     return "No Garmin body metrics have been imported yet. Do not estimate weight or height; ask only if needed and unavailable.";
   }
+  const weightSource =
+    bodyMetrics.currentWeightSource === "weigh_in"
+      ? "from the latest Garmin weigh-in"
+      : bodyMetrics.currentWeightSource === "profile"
+        ? "from the Garmin profile weight field"
+        : null;
+  const historySource =
+    bodyMetrics.history.source === "weigh_in"
+      ? " (source: Garmin weigh-ins)"
+      : bodyMetrics.history.source === "mixed"
+        ? " (source: Garmin weigh-ins + body composition)"
+        : bodyMetrics.history.source === "body_composition"
+          ? " (source: body composition)"
+          : "";
   const facts = [
     bodyMetrics.values.weightKg !== null
-      ? `current weight ${bodyMetrics.values.weightKg} kg`
+      ? `current weight ${bodyMetrics.values.weightKg} kg${weightSource ? ` ${weightSource}` : ""}`
       : null,
     bodyMetrics.values.heightCm !== null
       ? `height ${bodyMetrics.values.heightCm} cm`
       : null,
     bodyMetrics.history.availability === "available"
-      ? `weight history ${bodyMetrics.history.count} rows from ${bodyMetrics.history.rangeStart ?? "unknown"} to ${bodyMetrics.history.rangeEnd ?? "unknown"}`
+      ? `weight history ${bodyMetrics.history.count} rows from ${bodyMetrics.history.rangeStart ?? "unknown"} to ${bodyMetrics.history.rangeEnd ?? "unknown"}${historySource}`
       : `weight history ${bodyMetrics.history.availability}`,
   ].filter(Boolean);
+  const weighInFailed =
+    bodyMetrics.weighInAvailability === "failed"
+      ? " The Garmin weigh-in refresh failed."
+      : "";
   const freshness = bodyMetrics.fetchedAt
     ? `fetched ${bodyMetrics.fetchedAt.slice(0, 10)}`
     : "freshness unavailable";
   const preserved = bodyMetrics.preservedPrevious
     ? " Latest refresh failed; previous normalized Garmin body metrics were preserved."
     : "";
-  return `Garmin body metrics (${bodyMetrics.availability}, ${freshness}): ${facts.join("; ") || "no supported body metrics available"}.${preserved} These are separate from editable Profile and learned memory; do not ask for imported weight when current weight is available.`;
+  return `Garmin body metrics (${bodyMetrics.availability}, ${freshness}): ${facts.join("; ") || "no supported body metrics available"}.${weighInFailed}${preserved} These are separate from editable Profile and learned memory; do not ask for imported weight when current weight is available.`;
 }
 
 function formatAthleteBaseline(

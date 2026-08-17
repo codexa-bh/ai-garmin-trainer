@@ -53,11 +53,14 @@ describe("Garmin boundary", () => {
     expect(() => assertReadOperation("get_user_profile")).not.toThrow();
     expect(() => assertReadOperation("get_cycling_ftp")).not.toThrow();
     expect(() => assertReadOperation("get_body_composition")).not.toThrow();
+    expect(() => assertReadOperation("get_weigh_ins")).not.toThrow();
     expect(() => assertReadOperation("download_activity_file")).toThrow(
       /Blocked/,
     );
     expect(() => assertReadOperation("set_user_profile")).toThrow(/Blocked/);
     expect(() => assertReadOperation("delete_activity")).toThrow(/Blocked/);
+    expect(() => assertReadOperation("add_weigh_in")).toThrow(/Blocked/);
+    expect(() => assertReadOperation("delete_weigh_ins")).toThrow(/Blocked/);
   });
 
   it("normalizes athlete baseline facts and excludes unsupported profile fields", () => {
@@ -153,6 +156,158 @@ describe("Garmin boundary", () => {
     expect(JSON.stringify(normalized)).not.toContain("weatherLocation");
     expect(JSON.stringify(normalized)).not.toContain("bodyFat");
     expect(JSON.stringify(normalized)).not.toContain("bmi");
+  });
+
+  it("normalizes Garmin weigh-ins into history with the latest weigh-in as current weight", () => {
+    const normalized = normalizeGarminBodyMetrics({
+      profilePayload: { userData: { height: 181 } },
+      weighInPayload: {
+        date_range: { start: "2026-08-01", end: "2026-08-17" },
+        measurement_count: 2,
+        measurements: [
+          { date: "2026-08-10", weight_kg: 70.4, source_type: "SCALE" },
+          {
+            date: "2026-08-15",
+            weight_kg: 70.2,
+            weight_grams: 70200,
+            source_type: "MANUAL",
+            timestamp_gmt: 1755273600,
+          },
+        ],
+      },
+      fetchedAt: new Date("2026-08-17T08:00:00Z"),
+    });
+
+    expect(normalized).toMatchObject({
+      availability: "complete",
+      values: { weightKg: 70.2, heightCm: 181 },
+      currentWeightSource: "weigh_in",
+      weighInAvailability: "available",
+      history: {
+        availability: "available",
+        source: "weigh_in",
+        rangeStart: "2026-08-10",
+        rangeEnd: "2026-08-15",
+        count: 2,
+      },
+    });
+    expect(normalized.historyRows.map((row) => row.date)).toEqual([
+      "2026-08-10",
+      "2026-08-15",
+    ]);
+    expect(JSON.stringify(normalized)).not.toContain("source_type");
+    expect(JSON.stringify(normalized)).not.toContain("weight_grams");
+    expect(JSON.stringify(normalized)).not.toContain("timestamp_gmt");
+    expect(JSON.stringify(normalized)).not.toContain("measurement_count");
+  });
+
+  it("rejects implausible/malformed/non-finite weigh-in values and rows without dates", () => {
+    const normalized = normalizeGarminBodyMetrics({
+      profilePayload: { userData: { height: 181 } },
+      weighInPayload: {
+        measurements: [
+          { date: "2026-08-10", weight_kg: 70.4 },
+          { date: "2026-08-11", weight_kg: 0 },
+          { date: "2026-08-12", weight_kg: -70 },
+          { date: "2026-08-13", weight_kg: 450 },
+          { date: "2026-08-14", weight_kg: Number.NaN },
+          { date: "not-a-date", weight_kg: 70 },
+          { weight_kg: 71 },
+          { date: "2026-08-16", weight_grams: 70100 },
+        ],
+      },
+      fetchedAt: new Date("2026-08-17T08:00:00Z"),
+    });
+
+    expect(normalized.historyRows).toHaveLength(2);
+    expect(normalized.historyRows.map((row) => row.date)).toEqual([
+      "2026-08-10",
+      "2026-08-16",
+    ]);
+    expect(normalized.historyRows[1]?.weightKg).toBe(70.1);
+  });
+
+  it("gives weigh-in rows deterministic priority over body-composition rows on date overlap", () => {
+    const normalized = normalizeGarminBodyMetrics({
+      profilePayload: { userData: { height: 181 } },
+      historyPayload: {
+        dateWeightList: [
+          { date: "2026-08-10", weight: 70.4 },
+          { date: "2026-08-12", weight: 71.0 },
+        ],
+      },
+      weighInPayload: {
+        measurements: [
+          { date: "2026-08-10", weight_kg: 69.9 },
+          { date: "2026-08-11", weight_kg: 70.0 },
+        ],
+      },
+      fetchedAt: new Date("2026-08-17T08:00:00Z"),
+    });
+
+    expect(
+      normalized.historyRows.map((row) => [row.date, row.weightKg]),
+    ).toEqual([
+      ["2026-08-10", 69.9],
+      ["2026-08-11", 70.0],
+      ["2026-08-12", 71.0],
+    ]);
+    expect(normalized.history).toMatchObject({
+      availability: "available",
+      source: "mixed",
+      count: 3,
+    });
+    // Latest row is body-composition here; weigh-in-wins only applies to
+    // current weight when weigh-in rows exist.
+    expect(normalized.values.weightKg).toBe(70.0);
+    expect(normalized.currentWeightSource).toBe("weigh_in");
+  });
+
+  it("falls back to profile weight only when no weigh-in rows exist", () => {
+    const profileOnly = normalizeGarminBodyMetrics({
+      profilePayload: { userData: { weight: 70.25, height: 181 } },
+      historyPayload: {
+        dateWeightList: [{ date: "2026-08-10", weight: 70.4 }],
+      },
+      fetchedAt: new Date("2026-08-17T08:00:00Z"),
+    });
+    expect(profileOnly).toMatchObject({
+      values: { weightKg: 70.25, heightCm: 181 },
+      currentWeightSource: "profile",
+      weighInAvailability: "unavailable",
+      history: {
+        availability: "available",
+        source: "body_composition",
+        count: 1,
+      },
+    });
+
+    const noWeightAtAll = normalizeGarminBodyMetrics({
+      profilePayload: { userData: { height: 181 } },
+      weighInPayload: { measurements: [] },
+      fetchedAt: new Date("2026-08-17T08:00:00Z"),
+    });
+    expect(noWeightAtAll).toMatchObject({
+      values: { weightKg: null, heightCm: 181 },
+      currentWeightSource: null,
+      weighInAvailability: "unavailable",
+      history: { availability: "unavailable", source: null, count: 0 },
+    });
+  });
+
+  it("marks history failed when weigh-in refresh fails and no rows exist", () => {
+    const normalized = normalizeGarminBodyMetrics({
+      profilePayload: { userData: { height: 181 } },
+      historyPayload: { dateWeightList: [] },
+      weighInFailed: true,
+      fetchedAt: new Date("2026-08-17T08:00:00Z"),
+    });
+    expect(normalized).toMatchObject({
+      availability: "partial",
+      weighInAvailability: "failed",
+      history: { availability: "failed", source: null, count: 0 },
+      values: { weightKg: null, heightCm: 181 },
+    });
   });
 
   it("treats all-null athlete baseline payloads as unavailable without estimating max HR", () => {

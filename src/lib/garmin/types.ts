@@ -141,12 +141,21 @@ export type GarminBodyWeightHistoryRow = {
   fetchedAt: Date;
 };
 
+export type GarminBodyWeightHistorySource =
+  "weigh_in" | "body_composition" | "mixed" | null;
+
 export type GarminBodyWeightHistorySummary = {
   availability: "available" | "unavailable" | "failed";
+  source: GarminBodyWeightHistorySource;
   rangeStart: string | null;
   rangeEnd: string | null;
   count: number;
 };
+
+export type GarminCurrentWeightSource = "profile" | "weigh_in" | null;
+
+export type GarminWeighInAvailability =
+  "available" | "unavailable" | "failed" | null;
 
 export type GarminBodyMetricsSnapshot = {
   availability: Exclude<GarminBodyMetricsAvailability, "failed">;
@@ -155,6 +164,8 @@ export type GarminBodyMetricsSnapshot = {
   values: GarminBodyMetricValues;
   history: GarminBodyWeightHistorySummary;
   historyRows: GarminBodyWeightHistoryRow[];
+  currentWeightSource: GarminCurrentWeightSource;
+  weighInAvailability: GarminWeighInAvailability;
 };
 
 export type GarminBodyMetricsDto = {
@@ -165,6 +176,8 @@ export type GarminBodyMetricsDto = {
   preservedPrevious: boolean;
   values: GarminBodyMetricValues;
   history: GarminBodyWeightHistorySummary;
+  currentWeightSource: GarminCurrentWeightSource;
+  weighInAvailability: GarminWeighInAvailability;
 };
 
 export type GarminReadOperation =
@@ -190,4 +203,5 @@ export type GarminReadOperation =
   | "get_morning_training_readiness"
   | "get_user_profile"
   | "get_body_composition"
+  | "get_weigh_ins"
   | "get_cycling_ftp";

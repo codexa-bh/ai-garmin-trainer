@@ -48,6 +48,7 @@ export const READ_OPERATION_ALLOWLIST = new Set<GarminReadOperation>([
   "get_morning_training_readiness",
   "get_user_profile",
   "get_body_composition",
+  "get_weigh_ins",
   "get_cycling_ftp",
 ]);
 
@@ -123,7 +124,7 @@ export function spawnGarminMcp() {
       ...process.env,
       GARMIN_MCP_TOKEN_DIR: env.GARMIN_MCP_TOKEN_DIR,
       GARMIN_ENABLED_TOOLS:
-        "get_activities_by_date,get_activity,get_activity_splits,get_activity_typed_splits,get_activity_split_summaries,get_activity_weather,get_activity_hr_in_timezones,get_activity_power_in_timezones,get_activity_fit_data,get_stats,get_sleep_summary,get_body_battery,get_morning_training_readiness,get_user_profile,get_body_composition,get_cycling_ftp",
+        "get_activities_by_date,get_activity,get_activity_splits,get_activity_typed_splits,get_activity_split_summaries,get_activity_weather,get_activity_hr_in_timezones,get_activity_power_in_timezones,get_activity_fit_data,get_stats,get_sleep_summary,get_body_battery,get_morning_training_readiness,get_user_profile,get_body_composition,get_weigh_ins,get_cycling_ftp",
     },
   });
   child.stderr.setEncoding("utf8");

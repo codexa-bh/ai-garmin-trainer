@@ -132,11 +132,16 @@ function importSummary(overrides: Record<string, unknown> = {}) {
     },
     bodyMetrics: {
       availability: "available",
+      source: "garmin_mcp",
       fetchedAt: "2026-07-22T08:00:00.000Z",
       lastAttemptAt: "2026-07-22T08:00:00.000Z",
+      preservedPrevious: false,
+      currentWeightSource: "weigh_in",
+      weighInAvailability: "available",
       values: { weightKg: 75, heightCm: 182 },
       history: {
         availability: "available",
+        source: "weigh_in",
         rangeStart: "2026-01-01",
         rangeEnd: "2026-07-22",
         count: 42,
@@ -2734,6 +2739,33 @@ describe("TrainerDashboard dedicated Sync view", () => {
           String(input) === "/api/sync" && init?.method === "POST",
       ),
     ).toBe(false);
+  });
+
+  it("discloses weigh-in source and history source in Data & settings body-metrics rows", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/summary") return jsonResponse(importSummary());
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Data & settings" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Data & settings" });
+    expect(dialog.textContent).toContain(
+      "current weight imported (75 kg, source: weigh-in)",
+    );
+    expect(dialog.textContent).toContain(
+      "weight history 42 rows (2026-01-01 to 2026-07-22, source: weigh_in)",
+    );
+    expect(dialog.textContent).toContain("(source: latest weigh-in)");
+    expect(dialog.textContent).toContain("Weigh-in status");
+    expect(dialog.textContent).toContain("available");
   });
 
   it("streams from the internal Sync now action, auto-scrolls, and preserves logs across section navigation", async () => {
