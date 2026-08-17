@@ -78,20 +78,22 @@ describe("source-beta doctor and redaction", () => {
     );
   });
 
-  it("fails when an incompatible MCP SDK requirement is configured", () => {
-    const report = runDoctor({
-      ...baseEnv,
-      GARMIN_MCP_ARGS: `--from ${GARMIN_MCP_PACKAGE_URL} --with mcp==2.0.0 garmin-mcp`,
-    });
+  it("fails when a stale or incompatible MCP SDK requirement is configured", () => {
+    for (const requirement of ["mcp==1.23.1", "mcp==2.0.0"]) {
+      const report = runDoctor({
+        ...baseEnv,
+        GARMIN_MCP_ARGS: `--from ${GARMIN_MCP_PACKAGE_URL} --with ${requirement} garmin-mcp`,
+      });
 
-    expect(report.ok).toBe(false);
-    expect(report.checks).toContainEqual(
-      expect.objectContaining({
-        id: "garmin.mcp_sdk",
-        status: "fail",
-        className: "garmin.mcp_sdk_incompatible",
-      }),
-    );
+      expect(report.ok).toBe(false);
+      expect(report.checks).toContainEqual(
+        expect.objectContaining({
+          id: "garmin.mcp_sdk",
+          status: "fail",
+          className: "garmin.mcp_sdk_incompatible",
+        }),
+      );
+    }
   });
 
   it("fails closed for unsupported LAN/public exposure", () => {
