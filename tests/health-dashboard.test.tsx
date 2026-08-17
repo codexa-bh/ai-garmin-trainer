@@ -330,6 +330,10 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
     expect(within(panel).getByText("16,312 steps")).toBeTruthy();
     expect(within(panel).getByText("4,415 kcal")).toBeTruthy();
+    expect(within(panel).getByText("Body battery morning avg")).toBeTruthy();
+    expect(within(panel).getByText("Body battery evening avg")).toBeTruthy();
+    expect(within(panel).getByText("85 avg")).toBeTruthy();
+    expect(within(panel).getByText("40.5 avg")).toBeTruthy();
 
     fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
     expect(within(panel).getByText("Monthly Health rollups")).toBeTruthy();
@@ -340,7 +344,7 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).getByText("6,895 kcal")).toBeTruthy();
   });
 
-  it("explains source-limited body-battery rollups while other sparse period metrics remain visible", async () => {
+  it("hides unsupported body-battery rollups while other sparse period metrics remain visible", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -363,8 +367,62 @@ describe("TrainerDashboard Health dashboard", () => {
 
     expect(within(panel).getByText("16,312 steps")).toBeTruthy();
     expect(within(panel).getByText("4,415 kcal")).toBeTruthy();
+    expect(within(panel).queryByText("Body battery morning avg")).toBeNull();
+    expect(within(panel).queryByText("Body battery evening avg")).toBeNull();
     expect(
-      within(panel).getAllByText(/Garmin did not expose numeric/).length,
+      within(panel).queryByText(/Garmin did not expose numeric/),
+    ).toBeNull();
+  });
+
+  it("keeps a supported body-battery rollup when the paired metric is unsupported", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile());
+      if (url === "/api/health-dashboard")
+        return jsonResponse({
+          latestDate: "2026-07-21",
+          days: healthDashboard().days.map((item) => ({
+            ...item,
+            bodyBatteryMorning: null,
+          })),
+        });
+      return jsonResponse({ ok: true });
+    });
+    renderDashboard(fetchMock);
+
+    const panel = await openHealthDashboard();
+    fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
+
+    expect(within(panel).queryByText("Body battery morning avg")).toBeNull();
+    expect(within(panel).getByText("Body battery evening avg")).toBeTruthy();
+    expect(within(panel).getByText("40.5 avg")).toBeTruthy();
+  });
+
+  it("preserves daily source-limited copy for null body-battery readings", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile());
+      if (url === "/api/health-dashboard")
+        return jsonResponse({
+          latestDate: "2026-07-21",
+          days: healthDashboard().days.map((item) => ({
+            ...item,
+            bodyBatteryMorning: null,
+            bodyBatteryEvening: null,
+          })),
+        });
+      return jsonResponse({ ok: true });
+    });
+    renderDashboard(fetchMock);
+
+    const panel = await openHealthDashboard();
+
+    expect(within(panel).getByText("Body battery morning")).toBeTruthy();
+    expect(within(panel).getByText("Body battery evening")).toBeTruthy();
+    expect(
+      within(panel).getAllByText(/Numeric morning\/evening readings/).length,
     ).toBe(2);
   });
 

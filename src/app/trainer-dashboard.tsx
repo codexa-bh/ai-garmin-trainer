@@ -305,8 +305,6 @@ type HealthDashboardPayload = {
 
 const BODY_BATTERY_MORNING_EVENING_SOURCE_LIMITED =
   "Numeric morning/evening readings are not exposed by the current Garmin source for this day.";
-const BODY_BATTERY_ROLLUP_SOURCE_LIMITED =
-  "Garmin did not expose numeric morning/evening body-battery readings for these periods; values are not estimated.";
 
 type HealthDashboardLoadState = "idle" | "loading" | "loaded" | "error";
 type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
@@ -1022,6 +1020,16 @@ function HealthSparkline({ values }: { values: number[] }) {
   );
 }
 
+function hasFiniteRollupMetric(
+  rollups: HealthRollup[],
+  metric: (rollup: HealthRollup) => number | null,
+) {
+  return rollups.some((rollup) => {
+    const value = metric(rollup);
+    return typeof value === "number" && Number.isFinite(value);
+  });
+}
+
 function HealthRollupChart({
   rollups,
   metric,
@@ -1212,6 +1220,14 @@ function HealthDashboardView({
   const hrvDetail = day.hrvMs != null && day.hrvStatus ? day.hrvStatus : null;
   const rollupMode = mode === "daily" ? null : mode;
   const rollups = rollupMode ? healthRollups(days, rollupMode).slice(-8) : [];
+  const hasBodyBatteryMorningRollup = hasFiniteRollupMetric(
+    rollups,
+    (rollup) => rollup.bodyBatteryMorning,
+  );
+  const hasBodyBatteryEveningRollup = hasFiniteRollupMetric(
+    rollups,
+    (rollup) => rollup.bodyBatteryEvening,
+  );
 
   return (
     <div className="health-dashboard-body">
@@ -1416,20 +1432,22 @@ function HealthDashboardView({
               unit="min"
               metric={(rollup) => rollup.intensityMinutes}
             />
-            <HealthRollupChart
-              rollups={rollups}
-              title="Body battery morning avg"
-              unit="avg"
-              metric={(rollup) => rollup.bodyBatteryMorning}
-              emptyMessage={BODY_BATTERY_ROLLUP_SOURCE_LIMITED}
-            />
-            <HealthRollupChart
-              rollups={rollups}
-              title="Body battery evening avg"
-              unit="avg"
-              metric={(rollup) => rollup.bodyBatteryEvening}
-              emptyMessage={BODY_BATTERY_ROLLUP_SOURCE_LIMITED}
-            />
+            {hasBodyBatteryMorningRollup ? (
+              <HealthRollupChart
+                rollups={rollups}
+                title="Body battery morning avg"
+                unit="avg"
+                metric={(rollup) => rollup.bodyBatteryMorning}
+              />
+            ) : null}
+            {hasBodyBatteryEveningRollup ? (
+              <HealthRollupChart
+                rollups={rollups}
+                title="Body battery evening avg"
+                unit="avg"
+                metric={(rollup) => rollup.bodyBatteryEvening}
+              />
+            ) : null}
           </div>
         </div>
       )}
