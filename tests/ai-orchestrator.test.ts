@@ -83,7 +83,8 @@ vi.mock("@/lib/db/repository", () => ({
 }));
 
 describe("trainer orchestrator fail-closed policy", async () => {
-  const { orchestrateTrainerChat } = await import("../src/lib/ai/orchestrator");
+  const { orchestrateTrainerChat, trainerOrchestrationLimits } =
+    await import("../src/lib/ai/orchestrator");
 
   beforeEach(() => {
     generateText.mockReset();
@@ -742,5 +743,151 @@ describe("trainer orchestrator fail-closed policy", async () => {
       reason: "unknown_tool",
     });
     expect(result.text).toContain("safe local Garmin tool");
+  });
+
+  it("does not consume the SQL budget for a failed runReadOnlySql and still executes a later SQL call", async () => {
+    runReadOnlySql
+      .mockReturnValueOnce({
+        status: "failed",
+        resultName: "bad_rows",
+        columns: [],
+        rows: [],
+        rowCount: 0,
+        returnedRows: 0,
+        truncated: false,
+        reason: "unknown_column",
+        message:
+          "SQLite rejected the query because it referenced an unknown column.",
+        correctionAllowed: true,
+        correctionHint: "Use exact activity columns such as garmin_id.",
+        privacy: "sql privacy",
+      })
+      .mockReturnValueOnce({
+        status: "succeeded",
+        resultName: "monthly_rows",
+        columns: [{ name: "month" }, { name: "calories" }],
+        rows: [
+          { month: "2026-05", calories: 1200 },
+          { month: "2026-06", calories: 1500 },
+        ],
+        rowCount: 2,
+        returnedRows: 2,
+        truncated: false,
+        privacy: "sql privacy",
+      });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select activity_id from activity",
+              resultName: "bad_rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select month, calories from activity",
+              resultName: "monthly_rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "Your monthly calories from the corrected query are 1200 and 1500.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "compare my monthly calories",
+    });
+
+    expect(runReadOnlySql).toHaveBeenCalledTimes(2);
+    expect(result.toolSteps.map((step) => step.status)).toEqual([
+      "failed",
+      "succeeded",
+    ]);
+    expect(result.text).toContain("monthly calories");
+    expect(result.text).not.toContain("tool_budget_exceeded");
+  });
+
+  it("completes a turn with three successful runReadOnlySql executions", async () => {
+    runReadOnlySql.mockReturnValue({
+      status: "succeeded",
+      resultName: "rows",
+      columns: [{ name: "garmin_id" }, { name: "calories" }],
+      rows: [{ garmin_id: "activity-1", calories: 900 }],
+      rowCount: 1,
+      returnedRows: 1,
+      truncated: false,
+      privacy: "sql privacy",
+    });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select garmin_id, calories from activity",
+              resultName: "rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select garmin_id, calories from activity",
+              resultName: "rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select garmin_id, calories from activity",
+              resultName: "rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "All three SQL queries returned evidence; here is the combined answer.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "query activity calories three ways",
+    });
+
+    expect(runReadOnlySql).toHaveBeenCalledTimes(3);
+    expect(result.toolSteps.every((step) => step.status === "succeeded")).toBe(
+      true,
+    );
+    expect(result.text).toContain("combined answer");
+    expect(result.text).not.toContain("tool_budget_exceeded");
+  });
+
+  it("reports ten-call per-turn caps in the exported budget summary", async () => {
+    expect(trainerOrchestrationLimits).toEqual({
+      maxPlannerCalls: 10,
+      maxToolCalls: 10,
+      maxGeneralToolCalls: 10,
+      maxSchemaCalls: 10,
+      maxSqlCalls: 10,
+      maxMathCalls: 10,
+    });
   });
 });

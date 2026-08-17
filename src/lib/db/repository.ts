@@ -2846,7 +2846,7 @@ export type ChatGrounding = {
   privacy?: string;
   summary?: string;
   toolSteps?: Array<{
-    index: 1 | 2 | 3 | 4;
+    index: number;
     tool: string;
     status: "succeeded" | "rejected" | "failed";
     summary: string;

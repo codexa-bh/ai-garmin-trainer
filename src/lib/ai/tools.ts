@@ -239,7 +239,7 @@ export type TrainerToolSelectionMetadata = {
 };
 
 export type TrainerToolStep = {
-  index: 1 | 2 | 3 | 4;
+  index: number;
   tool: TrainerToolStepName;
   status: "succeeded" | "rejected" | "failed";
   summary: string;
@@ -328,7 +328,7 @@ export function validateTrainerToolCall(
 }
 
 export async function executeTrainerTool(input: {
-  index: 1 | 2 | 3 | 4;
+  index: number;
   toolName: TrainerToolName;
   args: unknown;
   selection?: TrainerToolSelectionMetadata;

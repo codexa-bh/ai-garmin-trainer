@@ -58,7 +58,11 @@ describe("canonical trainer instruction package", () => {
     expect(planner).toContain("the next analytical tool");
     expect(planner).toContain("same-turn SQL result");
     expect(planner).toContain("display conversions");
-    expect(planner).toContain("one schema call, two SQL calls, one math call");
+    expect(planner).toContain("one targeted SQL query for a comparison");
+    expect(planner).toContain("ten tool executions and ten planner rounds");
+    expect(planner).toContain(
+      "per-tool caps for schema, SQL, and math are ten",
+    );
     expect(planner).toContain("bounded normalized lat/lon route slices");
     expect(synthesis).toContain("disclose the selected criteria or formula");
     expect(synthesis).toContain("Never infer terrain");

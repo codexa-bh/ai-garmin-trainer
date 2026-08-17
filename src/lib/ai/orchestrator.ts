@@ -24,12 +24,12 @@ import {
   buildPlannerInstructions,
 } from "@/lib/ai/trainer-instructions";
 
-const MAX_PLANNER_CALLS = 5;
-const MAX_TOOL_CALLS = 4;
-const MAX_GENERAL_TOOL_CALLS = 4;
-const MAX_SCHEMA_CALLS = 1;
-const MAX_SQL_CALLS = 2;
-const MAX_MATH_CALLS = 1;
+const MAX_PLANNER_CALLS = 10;
+const MAX_TOOL_CALLS = 10;
+const MAX_GENERAL_TOOL_CALLS = 10;
+const MAX_SCHEMA_CALLS = 10;
+const MAX_SQL_CALLS = 10;
+const MAX_MATH_CALLS = 10;
 const SIDE_EFFECT_TOOLS = new Set<TrainerToolName>([
   "runGarminSync",
   "forceRefreshActivityDetail",
@@ -93,7 +93,7 @@ function plannerSystem(
 }
 
 function failedStep(
-  index: 1 | 2 | 3 | 4,
+  index: number,
   reason: string,
   tool: TrainerToolStepName = "providerToolSelection",
   summary?: string,
@@ -278,7 +278,7 @@ function selectOneSafeToolCall(input: {
   const sideEffectCalls = validCalls.filter((item) =>
     SIDE_EFFECT_TOOLS.has(item.toolName),
   );
-  const stepIndex = (input.priorSteps.length + 1) as 1 | 2 | 3 | 4;
+  const stepIndex = input.priorSteps.length + 1;
   if (sideEffectCalls.length) {
     return {
       ok: false,
@@ -577,7 +577,7 @@ export async function orchestrateTrainerChat(
       });
     }
 
-    const stepIndex = (steps.length + 1) as 1 | 2 | 3 | 4;
+    const stepIndex = steps.length + 1;
     let selectedToolCall = toolCalls[0];
     let selectionMetadata: TrainerToolSelectionMetadata | undefined;
     if (toolCalls.length > 1) {
@@ -660,7 +660,6 @@ export async function orchestrateTrainerChat(
       }
       sideEffectsUsed.add(accepted.toolName);
     }
-    const currentCount = analysisToolCounts.get(accepted.toolName) ?? 0;
     if (!canToolRunWithinBudget(accepted.toolName, analysisToolCounts)) {
       const step = failedStep(
         stepIndex,
@@ -684,20 +683,23 @@ export async function orchestrateTrainerChat(
         synthesized ? "provider" : "deterministic_fallback",
       );
     }
-    if (
-      accepted.toolName === "describeGarminDatabase" ||
-      accepted.toolName === "runReadOnlySql" ||
-      accepted.toolName === "runMathAnalysis"
-    ) {
-      analysisToolCounts.set(accepted.toolName, currentCount + 1);
-    }
-
     const step = await executeTrainerTool({
       index: stepIndex,
       toolName: accepted.toolName,
       args: accepted.input,
     });
     if (selectionMetadata) step.selection = selectionMetadata;
+    if (
+      step.status === "succeeded" &&
+      (accepted.toolName === "describeGarminDatabase" ||
+        accepted.toolName === "runReadOnlySql" ||
+        accepted.toolName === "runMathAnalysis")
+    ) {
+      analysisToolCounts.set(
+        accepted.toolName,
+        (analysisToolCounts.get(accepted.toolName) ?? 0) + 1,
+      );
+    }
     steps.push(step);
 
     if (step.status !== "succeeded") {
