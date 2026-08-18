@@ -863,6 +863,20 @@ function formatSleepMinutes(value: number | null): string {
   return `${minutes} m`;
 }
 
+function formatSleepRollupMinutesPerDay(value: number): string {
+  if (!Number.isFinite(value)) return "Unavailable";
+  const roundedMinutes = Math.round(value);
+  const hours = Math.floor(roundedMinutes / 60);
+  const minutes = roundedMinutes % 60;
+  const duration =
+    hours > 0
+      ? minutes > 0
+        ? `${hours} h ${minutes} m`
+        : `${hours} h`
+      : `${minutes} m`;
+  return `${duration}/day`;
+}
+
 function formatCalendarDate(dateValue: string): string {
   const parsed = new Date(`${dateValue}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return dateValue;
@@ -988,12 +1002,14 @@ function HealthRollupChart({
   metric,
   title,
   unit,
+  formatValue,
   emptyMessage = "Unavailable for these periods.",
 }: {
   rollups: HealthRollup[];
   metric: (rollup: HealthRollup) => number | null;
   title: string;
   unit: string;
+  formatValue?: (value: number) => string;
   emptyMessage?: string;
 }) {
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -1011,17 +1027,21 @@ function HealthRollupChart({
     );
   }
   const max = Math.max(...numericValues, 1);
-  const scaleLabels = [max, max / 2, 0].map(
-    (value) => `${numberLabel(value, value % 1 === 0 ? 0 : 1)} ${unit}`,
-  );
-  const valueLabels = values.map((value) =>
-    value === null
-      ? "Unavailable"
-      : `${numberLabel(value, value % 1 === 0 ? 0 : 1)} ${unit}`,
-  );
+  const defaultValueLabel = (value: number) =>
+    `${numberLabel(value, value % 1 === 0 ? 0 : 1)} ${unit}`;
+  const labelForValue = formatValue ?? defaultValueLabel;
+  const valueLabelFor = (value: number | null | undefined) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? labelForValue(value)
+      : "Unavailable";
+  const scaleLabels = [max, max / 2, 0].map(valueLabelFor);
+  const valueLabels = values.map(valueLabelFor);
   const chartValues = rollups.map((rollup, index) => {
     const value = values[index];
-    const height = value === null ? null : Math.max(8, (value / max) * 100);
+    const height =
+      typeof value === "number" && Number.isFinite(value)
+        ? Math.max(8, (value / max) * 100)
+        : null;
     return {
       rollup,
       value,
@@ -1031,7 +1051,9 @@ function HealthRollupChart({
   });
   const activeValue =
     chartValues.find((item) => item.rollup.key === activeKey) ??
-    chartValues.find((item) => item.value !== null) ??
+    chartValues.find(
+      (item) => typeof item.value === "number" && Number.isFinite(item.value),
+    ) ??
     chartValues[0];
   const readoutId = `health-rollup-readout-${title
     .toLowerCase()
@@ -1380,9 +1402,10 @@ function HealthDashboardView({
           <div className="health-rollup-grid">
             <HealthRollupChart
               rollups={rollups}
-              title="Sleep duration avg"
+              title="Sleep duration daily avg"
               unit="min"
               metric={(rollup) => rollup.sleepMinutes}
+              formatValue={formatSleepRollupMinutesPerDay}
             />
             <HealthRollupChart
               rollups={rollups}
@@ -1396,9 +1419,10 @@ function HealthDashboardView({
                 <HealthRollupChart
                   key={field}
                   rollups={rollups}
-                  title={`${label} sleep avg`}
+                  title={`${label} sleep daily avg`}
                   unit="min"
                   metric={(rollup) => rollup[field]}
+                  formatValue={formatSleepRollupMinutesPerDay}
                 />
               ))
             ) : (
