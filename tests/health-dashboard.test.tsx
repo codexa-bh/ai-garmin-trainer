@@ -159,6 +159,32 @@ function healthDashboardWithSparseRollups() {
   };
 }
 
+function healthDashboardWithManyRollups() {
+  const latest = Date.UTC(2026, 6, 21);
+  return {
+    latestDate: "2026-07-21",
+    days: Array.from({ length: 366 }, (_, offset) => {
+      const date = new Date(latest - offset * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      return day(date, {
+        sleepMinutes: 360 + (offset % 60),
+        sleepScore: 70 + (offset % 20),
+        sleepDeepMinutes: 50 + (offset % 12),
+        sleepLightMinutes: 205 + (offset % 30),
+        sleepRemMinutes: 80 + (offset % 18),
+        sleepAwakeMinutes: 20 + (offset % 10),
+        steps: 4000 + offset * 17,
+        calories: 2100 + offset * 3,
+        activeCalories: 500 + offset,
+        restingCalories: 1600,
+        totalCalories: 2100 + offset * 3,
+        intensityMinutes: 20 + (offset % 25),
+      });
+    }),
+  };
+}
+
 function healthDashboardWithoutSleepScoreStages() {
   return {
     latestDate: "2026-07-21",
@@ -306,13 +332,23 @@ describe("TrainerDashboard Health dashboard", () => {
     );
     expect(labels).toEqual([
       "Sleep",
+      "Calories",
       "Resting HR",
       "HRV",
       "Stress avg",
       "Steps",
-      "Calories",
       "Intensity minutes",
     ]);
+    const richMetrics = within(
+      panel.querySelector(".health-widget-rich-grid") as HTMLElement,
+    );
+    const compactMetrics = within(
+      panel.querySelector(".health-widget-compact-grid") as HTMLElement,
+    );
+    expect(richMetrics.getByText("Sleep")).toBeTruthy();
+    expect(richMetrics.getByText("Calories")).toBeTruthy();
+    expect(compactMetrics.getByText("Resting HR")).toBeTruthy();
+    expect(compactMetrics.getByText("Intensity minutes")).toBeTruthy();
     expect(within(panel).queryByText("Body battery morning")).toBeNull();
     expect(within(panel).queryByText("Body battery evening")).toBeNull();
     expect(
@@ -492,11 +528,35 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).queryByText("Body battery morning avg")).toBeNull();
     expect(within(panel).queryByText("Body battery evening avg")).toBeNull();
 
+    expect(
+      within(panel).queryByText(/Sleep duration and sleep stages are averages/),
+    ).toBeNull();
+    expect(
+      within(panel)
+        .getByRole("button", { name: /Older periods/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      within(panel)
+        .getByRole("button", { name: /Newer periods/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
     fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
     expect(within(panel).getByText("Monthly Health rollups")).toBeTruthy();
     expect(
-      within(panel).getByText(/Sleep duration and sleep stages are averages/),
-    ).toBeTruthy();
+      within(panel).queryByText(/Sleep duration and sleep stages are averages/),
+    ).toBeNull();
+    expect(
+      within(panel)
+        .getByRole("button", { name: /Older periods/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      within(panel)
+        .getByRole("button", { name: /Newer periods/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
     expect(within(panel).getAllByText("26,512 steps").length).toBeGreaterThan(
       0,
     );
@@ -505,6 +565,74 @@ describe("TrainerDashboard Health dashboard", () => {
     expectRollupChartGraphics(panel, "Steps");
     expectRollupChartGraphics(panel, "Total calories");
     expectRollupChartGraphics(panel, "Intensity minutes");
+  });
+
+  it("browses older and newer weekly and monthly rollup windows", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile());
+      if (url === "/api/health-dashboard")
+        return jsonResponse(healthDashboardWithManyRollups());
+      return jsonResponse({ ok: true });
+    });
+    renderDashboard(fetchMock);
+
+    const panel = await openHealthDashboard();
+    fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
+
+    const weeklyValues = within(panel).getByLabelText("Steps period values");
+    const newestWeeklyText = weeklyValues.textContent;
+    const olderWeekly = within(panel).getByRole("button", {
+      name: /Older periods/,
+    });
+    const newerWeekly = within(panel).getByRole("button", {
+      name: /Newer periods/,
+    });
+    expect(olderWeekly.hasAttribute("disabled")).toBe(false);
+    expect(newerWeekly.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.click(olderWeekly);
+    expect(weeklyValues.textContent).not.toBe(newestWeeklyText);
+    expect(newerWeekly.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(newerWeekly);
+    expect(weeklyValues.textContent).toBe(newestWeeklyText);
+    expect(newerWeekly.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
+    const monthlyValues = within(panel).getByLabelText("Steps period values");
+    const newestMonthlyText = monthlyValues.textContent;
+    const olderMonthly = within(panel).getByRole("button", {
+      name: /Older periods/,
+    });
+    const newerMonthly = within(panel).getByRole("button", {
+      name: /Newer periods/,
+    });
+    expect(olderMonthly.hasAttribute("disabled")).toBe(false);
+    expect(newerMonthly.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.click(olderMonthly);
+    expect(monthlyValues.textContent).not.toBe(newestMonthlyText);
+    expect(newerMonthly.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(newerMonthly);
+    expect(monthlyValues.textContent).toBe(newestMonthlyText);
+    expect(newerMonthly.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("keeps daily rich and compact widget grids responsive", () => {
+    const layoutRule = appStyleRule(".health-widget-layout");
+    const richRule = appStyleRule(".health-widget-rich-grid");
+    const compactRule = appStyleRule(".health-widget-compact-grid");
+    const richCardRule = appStyleRule(
+      ".health-widget-rich-grid .health-widget",
+    );
+
+    expect(layoutRule).toContain("min-width: 0;");
+    expect(richRule).toContain("minmax(min(280px, 100%), 1fr)");
+    expect(compactRule).toContain("minmax(min(180px, 100%), 1fr)");
+    expect(richCardRule).toContain("min-height: 168px;");
   });
 
   it("keeps weekly and monthly rollup chart CSS contained at responsive card widths", () => {
