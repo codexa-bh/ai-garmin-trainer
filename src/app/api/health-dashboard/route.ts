@@ -6,7 +6,7 @@ import { listRecentDailyHealth } from "@/lib/db/repository";
  *
  * Rows are returned newest-first from the existing normalized `daily_health`
  * table. The window is intentionally bounded: enough days for day browsing
- * and compact trend/sparkline context, without unbounded dumps.
+ * and weekly/monthly rollup context, without unbounded dumps.
  */
 export const HEALTH_DASHBOARD_DAY_LIMIT = 366;
 

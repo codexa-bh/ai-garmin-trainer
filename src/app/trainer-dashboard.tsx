@@ -247,6 +247,7 @@ type HealthCoveragePayload = {
     stressDays: number;
     stepsDays: number;
     calorieDays: number;
+    intensityDays?: number;
     bodyBatteryDays: number;
   };
 };
@@ -716,7 +717,8 @@ function formatHealthCoverageSummary(
     coverage.missingDays > 0
       ? `${coverage.missingDays} source-unavailable, often pre-watch/pre-device or Garmin returned no daily-health metrics; not estimated`
       : "0 source-unavailable";
-  return `${coverage.totalRows} health calendar rows (${coverage.completeDays} complete, ${coverage.partialDays} partial, ${unavailable}; populated metrics: sleep ${coverage.metrics.sleepDays}, HRV ${coverage.metrics.hrvDays})`;
+  const intensity = coverage.metrics.intensityDays ?? 0;
+  return `${coverage.totalRows} health calendar rows (${coverage.completeDays} complete, ${coverage.partialDays} partial, ${unavailable}; populated metrics: sleep ${coverage.metrics.sleepDays}, HRV ${coverage.metrics.hrvDays}, intensity ${intensity})`;
 }
 
 function formatDetailCoverageSummary(
@@ -880,25 +882,6 @@ function healthAvailabilityLabel(
   return "Source-unavailable day — no metrics available";
 }
 
-/**
- * Bounded trend window for one numeric health metric. Days are newest-first,
- * so the selected day plus older neighbors become a chronological series
- * (oldest -> newest) for the sparkline. Null values are excluded; missing
- * values are never estimated.
- */
-function healthTrendSeries(
-  days: HealthDashboardDay[],
-  selectedIndex: number,
-  field: (day: HealthDashboardDay) => number | null,
-): number[] {
-  const windowSize = 14;
-  const values = days
-    .slice(selectedIndex, selectedIndex + windowSize)
-    .map((day) => field(day))
-    .filter((value): value is number => typeof value === "number");
-  return values.slice().reverse();
-}
-
 function sumNumbers(values: Array<number | null>): number | null {
   const present = values.filter(
     (value): value is number =>
@@ -980,13 +963,13 @@ function healthRollups(
     key,
     label: periodLabel(key, mode),
     dayCount: rows.length,
-    sleepMinutes: sumNumbers(rows.map((day) => day.sleepMinutes)),
+    sleepMinutes: averageNumbers(rows.map((day) => day.sleepMinutes)),
     sleepScore: averageNumbers(rows.map((day) => day.sleepScore)),
-    sleepDeepMinutes: sumNumbers(rows.map((day) => day.sleepDeepMinutes)),
-    sleepLightMinutes: sumNumbers(rows.map((day) => day.sleepLightMinutes)),
-    sleepRemMinutes: sumNumbers(rows.map((day) => day.sleepRemMinutes)),
-    sleepAwakeMinutes: sumNumbers(rows.map((day) => day.sleepAwakeMinutes)),
-    sleepNapMinutes: sumNumbers(rows.map((day) => day.sleepNapMinutes)),
+    sleepDeepMinutes: averageNumbers(rows.map((day) => day.sleepDeepMinutes)),
+    sleepLightMinutes: averageNumbers(rows.map((day) => day.sleepLightMinutes)),
+    sleepRemMinutes: averageNumbers(rows.map((day) => day.sleepRemMinutes)),
+    sleepAwakeMinutes: averageNumbers(rows.map((day) => day.sleepAwakeMinutes)),
+    sleepNapMinutes: averageNumbers(rows.map((day) => day.sleepNapMinutes)),
     steps: sumNumbers(rows.map((day) => day.steps)),
     activeCalories: sumNumbers(rows.map((day) => day.activeCalories)),
     restingCalories: sumNumbers(rows.map((day) => day.restingCalories)),
@@ -998,43 +981,6 @@ function healthRollups(
     hrvMs: averageNumbers(rows.map((day) => day.hrvMs)),
     stressAvg: averageNumbers(rows.map((day) => day.stressAvg)),
   }));
-}
-
-function HealthSparkline({ values }: { values: number[] }) {
-  if (values.length < 2) return null;
-  const width = 96;
-  const height = 28;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const step = width / (values.length - 1);
-  const points = values
-    .map((value, index) => {
-      const x = index * step;
-      const y = height - 4 - ((value - min) / span) * (height - 8);
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(" ");
-  return (
-    <svg
-      className="health-sparkline"
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      role="img"
-      aria-label={`Recent ${values.length} available daily values`}
-      focusable="false"
-    >
-      <polyline
-        points={points}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
 }
 
 function HealthRollupChart({
@@ -1050,6 +996,7 @@ function HealthRollupChart({
   unit: string;
   emptyMessage?: string;
 }) {
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const values = rollups.map(metric);
   const numericValues = values.filter(
     (value): value is number =>
@@ -1064,6 +1011,9 @@ function HealthRollupChart({
     );
   }
   const max = Math.max(...numericValues, 1);
+  const scaleLabels = [max, max / 2, 0].map(
+    (value) => `${numberLabel(value, value % 1 === 0 ? 0 : 1)} ${unit}`,
+  );
   const valueLabels = values.map((value) =>
     value === null
       ? "Unavailable"
@@ -1079,6 +1029,13 @@ function HealthRollupChart({
       height,
     };
   });
+  const activeValue =
+    chartValues.find((item) => item.rollup.key === activeKey) ??
+    chartValues.find((item) => item.value !== null) ??
+    chartValues[0];
+  const readoutId = `health-rollup-readout-${title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <div
       className="health-rollup-chart"
@@ -1086,30 +1043,48 @@ function HealthRollupChart({
       aria-label={`${title} rollup chart`}
     >
       <strong>{title}</strong>
+      <div className="health-rollup-scale" aria-hidden="true">
+        {scaleLabels.map((label) => (
+          <span key={`${title}-${label}`}>{label}</span>
+        ))}
+      </div>
       <div
         className="health-rollup-bars"
-        role="img"
-        aria-label={`${title} chart graphics`}
+        role="group"
+        aria-label={`${title} chart marks`}
       >
         {chartValues.map(({ rollup, value, valueLabel, height }) => (
-          <div
+          <button
+            type="button"
             className="health-rollup-bar"
             data-chart-state={value === null ? "unavailable" : "available"}
             key={rollup.key}
+            aria-describedby={readoutId}
+            aria-label={`${rollup.label}: ${valueLabel.toLowerCase()}`}
+            title={`${rollup.label}: ${valueLabel}`}
+            onPointerEnter={() => setActiveKey(rollup.key)}
+            onPointerLeave={() => setActiveKey(null)}
+            onFocus={() => setActiveKey(rollup.key)}
+            onBlur={() => setActiveKey(null)}
           >
             {height === null ? (
               <span className="health-rollup-bar-missing" aria-hidden="true" />
             ) : (
               <span
                 className="health-rollup-bar-fill"
-                aria-label={`${rollup.label}: ${valueLabel.toLowerCase()}`}
+                aria-hidden="true"
                 style={{ height: `${height}%` }}
               />
             )}
             <small>{rollup.label}</small>
-          </div>
+          </button>
         ))}
       </div>
+      <p className="health-rollup-readout" id={readoutId} aria-live="polite">
+        {activeValue
+          ? `${activeValue.rollup.label}: ${activeValue.valueLabel}`
+          : "Focus or hover a period to read its value."}
+      </p>
       <ul
         className="health-rollup-values"
         aria-label={`${title} period values`}
@@ -1150,13 +1125,7 @@ function hasSleepStageRollup(rollups: HealthRollup[]): boolean {
   );
 }
 
-function SleepWidget({
-  day,
-  trendValues,
-}: {
-  day: HealthDashboardDay;
-  trendValues: number[];
-}) {
+function SleepWidget({ day }: { day: HealthDashboardDay }) {
   const stages = sleepStageEntries(day);
   const hasScore = typeof day.sleepScore === "number";
   const totalLabel =
@@ -1193,11 +1162,6 @@ function SleepWidget({
       {!hasScore || stages.length === 0 ? (
         <p className="health-widget-detail">{SLEEP_DETAIL_SOURCE_LIMITED}</p>
       ) : null}
-      {trendValues.length >= 2 ? (
-        <HealthSparkline values={trendValues} />
-      ) : day.sleepMinutes != null ? (
-        <p className="health-widget-trend-note">No trend — not enough data</p>
-      ) : null}
     </div>
   );
 }
@@ -1207,13 +1171,11 @@ function HealthWidget({
   value,
   unit,
   detail,
-  trendValues,
 }: {
   label: string;
   value: string | null;
   unit?: string;
   detail?: string | null;
-  trendValues: number[];
 }) {
   const hasValue = value !== null;
   const accessibleValue = hasValue
@@ -1239,22 +1201,11 @@ function HealthWidget({
         )}
       </p>
       {detail ? <p className="health-widget-detail">{detail}</p> : null}
-      {trendValues.length >= 2 ? (
-        <HealthSparkline values={trendValues} />
-      ) : hasValue ? (
-        <p className="health-widget-trend-note">No trend — not enough data</p>
-      ) : null}
     </div>
   );
 }
 
-function CaloriesWidget({
-  day,
-  trendValues,
-}: {
-  day: HealthDashboardDay;
-  trendValues: number[];
-}) {
+function CaloriesWidget({ day }: { day: HealthDashboardDay }) {
   const total = day.totalCalories ?? day.calories;
   const splitTotal =
     day.activeCalories !== null && day.restingCalories !== null
@@ -1296,9 +1247,6 @@ function CaloriesWidget({
           Split unavailable from source.
         </p>
       )}
-      {trendValues.length >= 2 ? (
-        <HealthSparkline values={trendValues} />
-      ) : null}
     </div>
   );
 }
@@ -1376,14 +1324,7 @@ function HealthDashboardView({
           </div>
 
           <div className="health-widget-grid">
-            <SleepWidget
-              day={day}
-              trendValues={healthTrendSeries(
-                days,
-                clampedIndex,
-                (item) => item.sleepMinutes,
-              )}
-            />
+            <SleepWidget day={day} />
             <HealthWidget
               label="Resting HR"
               value={
@@ -1392,51 +1333,24 @@ function HealthDashboardView({
                   : numberLabel(day.restingHeartRate)
               }
               unit="bpm"
-              trendValues={healthTrendSeries(
-                days,
-                clampedIndex,
-                (item) => item.restingHeartRate,
-              )}
             />
             <HealthWidget
               label="HRV"
               value={hrvValue}
               unit={day.hrvMs != null ? "ms" : undefined}
               detail={hrvDetail}
-              trendValues={healthTrendSeries(
-                days,
-                clampedIndex,
-                (item) => item.hrvMs,
-              )}
             />
             <HealthWidget
               label="Stress avg"
               value={day.stressAvg == null ? null : numberLabel(day.stressAvg)}
               unit="avg"
-              trendValues={healthTrendSeries(
-                days,
-                clampedIndex,
-                (item) => item.stressAvg,
-              )}
             />
             <HealthWidget
               label="Steps"
               value={day.steps == null ? null : numberLabel(day.steps)}
               unit="steps"
-              trendValues={healthTrendSeries(
-                days,
-                clampedIndex,
-                (item) => item.steps,
-              )}
             />
-            <CaloriesWidget
-              day={day}
-              trendValues={healthTrendSeries(
-                days,
-                clampedIndex,
-                (item) => item.totalCalories ?? item.calories,
-              )}
-            />
+            <CaloriesWidget day={day} />
             <HealthWidget
               label="Intensity minutes"
               value={
@@ -1446,11 +1360,6 @@ function HealthDashboardView({
               }
               unit="min"
               detail="Daily Garmin health source only"
-              trendValues={healthTrendSeries(
-                days,
-                clampedIndex,
-                (item) => item.intensityMinutes,
-              )}
             />
           </div>
         </>
@@ -1463,15 +1372,15 @@ function HealthDashboardView({
                 : "Monthly Health rollups"}
             </h2>
             <p>
-              Sums for sleep duration, sleep stages, steps, calories, and source
-              intensity minutes; averages for source sleep score, heart-rate,
-              HRV, and stress.
+              Sleep duration and sleep stages are averages over available source
+              days; steps, calories, and source intensity minutes remain period
+              sums. Unavailable days are not estimated.
             </p>
           </div>
           <div className="health-rollup-grid">
             <HealthRollupChart
               rollups={rollups}
-              title="Sleep duration"
+              title="Sleep duration avg"
               unit="min"
               metric={(rollup) => rollup.sleepMinutes}
             />
@@ -1487,7 +1396,7 @@ function HealthDashboardView({
                 <HealthRollupChart
                   key={field}
                   rollups={rollups}
-                  title={`${label} sleep`}
+                  title={`${label} sleep avg`}
                   unit="min"
                   metric={(rollup) => rollup[field]}
                 />

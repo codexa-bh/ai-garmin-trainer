@@ -280,6 +280,46 @@ describe("Garmin daily health recent refresh", () => {
     ).toMatchObject({ availability: "missing" });
   });
 
+  it("repairs historical daily intensity coverage for source-stat rows missing raw stats payload evidence", async () => {
+    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { getDatabase, saveCheckpoint, upsertDailyHealth } =
+      await import("../src/lib/db/repository");
+    saveCheckpoint("health_next_date", "2026-07-24");
+    upsertDailyHealth([
+      dailyHealth("2026-07-05", {
+        steps: 7100,
+        calories: 2200,
+        intensityMinutes: null,
+        availability: "partial",
+      }),
+    ]);
+    mcpState.statsByDate.set("2026-07-05", {
+      total_steps: 7100,
+      total_calories: 2200,
+      moderateIntensityMinutes: 12,
+      vigorousIntensityMinutes: 5,
+    });
+
+    const result = await runGarminSync();
+
+    expect(result.status).toBe("completed");
+    expect(result.healthDaysImported).toBe(8);
+    expect(fetchedHealthDates("get_stats")).toContain("2026-07-05");
+    expect(
+      getDatabase()
+        .prepare(
+          "select intensity_minutes as intensityMinutes, availability from daily_health where date = ?",
+        )
+        .get("2026-07-05"),
+    ).toMatchObject({ intensityMinutes: 17, availability: "partial" });
+    expect(result.healthCoverage.metrics.intensityDays).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(result.detail).toContain(
+      "daily intensity coverage repair candidates",
+    );
+  });
+
   it("bounds repeat syncs to the recent window instead of replaying full history", async () => {
     const { runGarminSync } = await import("../src/lib/garmin/importer");
     const { saveCheckpoint } = await import("../src/lib/db/repository");

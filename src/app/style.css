@@ -504,6 +504,14 @@ body::before {
   color: var(--muted);
 }
 
+.health-rollup-scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
 .health-rollup-bars {
   display: flex;
   min-width: 0;
@@ -513,6 +521,8 @@ body::before {
   overflow: hidden;
   gap: clamp(4px, 1.2vw, 8px);
   align-items: stretch;
+  padding-top: 2px;
+  border-block: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .health-rollup-bar {
@@ -524,6 +534,25 @@ body::before {
   gap: 6px;
   align-items: center;
   justify-content: flex-end;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.health-rollup-bar:focus-visible {
+  outline: 2px solid rgba(73, 214, 200, 0.92);
+  outline-offset: 2px;
+}
+
+.health-rollup-bar:hover .health-rollup-bar-fill,
+.health-rollup-bar:focus-visible .health-rollup-bar-fill {
+  background: linear-gradient(
+    180deg,
+    rgba(113, 255, 238, 0.98),
+    rgba(73, 214, 200, 0.62)
+  );
 }
 
 .health-rollup-bar-fill {
@@ -548,6 +577,12 @@ body::before {
 
 .health-rollup-bar small {
   display: none;
+}
+
+.health-rollup-readout {
+  margin: -2px 0 0;
+  color: var(--text);
+  font-size: 12px;
 }
 
 .health-rollup-values {
@@ -578,11 +613,6 @@ body::before {
   margin: 2px 0 0;
   color: var(--faint);
   font-size: 12px;
-}
-
-.health-sparkline {
-  margin-top: 4px;
-  color: rgba(73, 214, 200, 0.9);
 }
 
 .health-dashboard-footnote {
