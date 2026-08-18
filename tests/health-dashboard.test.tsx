@@ -101,6 +101,45 @@ function healthDashboard() {
   };
 }
 
+function sourceUnavailableDay(date: string) {
+  return day(date, {
+    sleepMinutes: null,
+    restingHeartRate: null,
+    hrvStatus: null,
+    hrvMs: null,
+    stressAvg: null,
+    steps: null,
+    calories: null,
+    activeCalories: null,
+    restingCalories: null,
+    totalCalories: null,
+    intensityMinutes: null,
+    bodyBatteryAvg: null,
+    bodyBatteryMorning: null,
+    bodyBatteryEvening: null,
+    availability: "missing",
+  });
+}
+
+function healthDashboardWithSparseRollups() {
+  return {
+    latestDate: "2026-07-21",
+    days: [
+      ...healthDashboard().days,
+      sourceUnavailableDay("2026-06-30"),
+      day("2026-06-23", {
+        steps: 1200,
+        calories: 1780,
+        activeCalories: 180,
+        restingCalories: 1600,
+        totalCalories: 1780,
+        intensityMinutes: 0,
+      }),
+      sourceUnavailableDay("2026-05-28"),
+    ],
+  };
+}
+
 function stubViewport(matches: boolean) {
   vi.stubGlobal(
     "matchMedia",
@@ -140,6 +179,38 @@ async function openHealthDashboard() {
     expect(panel.querySelector('[role="status"]')).toBeNull(),
   );
   return panel;
+}
+
+function expectRollupChartGraphics(
+  panel: HTMLElement,
+  title: string,
+  { expectUnavailable = false }: { expectUnavailable?: boolean } = {},
+) {
+  const chart = within(panel).getByRole("group", {
+    name: `${title} rollup chart`,
+  });
+  const graphics = within(chart).getByRole("img", {
+    name: `${title} chart graphics`,
+  });
+  const availableBars = Array.from(
+    graphics.querySelectorAll<HTMLElement>('[data-chart-state="available"]'),
+  );
+  const fills = Array.from(
+    graphics.querySelectorAll<HTMLElement>(".health-rollup-bar-fill"),
+  );
+
+  expect(availableBars.length).toBeGreaterThan(0);
+  expect(fills.length).toBe(availableBars.length);
+  for (const fill of fills) {
+    expect(Number.parseFloat(fill.style.height)).toBeGreaterThan(0);
+  }
+  if (expectUnavailable) {
+    expect(
+      graphics.querySelectorAll('[data-chart-state="unavailable"]').length,
+    ).toBeGreaterThan(0);
+    expect(graphics.querySelector(".health-rollup-bar-missing")).toBeTruthy();
+  }
+  expect(within(chart).getByLabelText(`${title} period values`)).toBeTruthy();
 }
 
 describe("TrainerDashboard Health dashboard", () => {
@@ -330,6 +401,9 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
     expect(within(panel).getByText("16,312 steps")).toBeTruthy();
     expect(within(panel).getByText("4,415 kcal")).toBeTruthy();
+    expectRollupChartGraphics(panel, "Steps");
+    expectRollupChartGraphics(panel, "Total calories");
+    expectRollupChartGraphics(panel, "Intensity minutes");
     expect(within(panel).getByText("Body battery morning avg")).toBeTruthy();
     expect(within(panel).getByText("Body battery evening avg")).toBeTruthy();
     expect(within(panel).getByText("85 avg")).toBeTruthy();
@@ -342,6 +416,45 @@ describe("TrainerDashboard Health dashboard", () => {
     ).toBeTruthy();
     expect(within(panel).getByText("26,512 steps")).toBeTruthy();
     expect(within(panel).getByText("6,895 kcal")).toBeTruthy();
+    expectRollupChartGraphics(panel, "Steps");
+    expectRollupChartGraphics(panel, "Total calories");
+    expectRollupChartGraphics(panel, "Intensity minutes");
+  });
+
+  it("renders weekly and monthly chart marks separately from sparse unavailable periods", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile());
+      if (url === "/api/health-dashboard")
+        return jsonResponse(healthDashboardWithSparseRollups());
+      return jsonResponse({ ok: true });
+    });
+    renderDashboard(fetchMock);
+
+    const panel = await openHealthDashboard();
+    fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
+
+    expectRollupChartGraphics(panel, "Steps", { expectUnavailable: true });
+    expectRollupChartGraphics(panel, "Total calories", {
+      expectUnavailable: true,
+    });
+    expectRollupChartGraphics(panel, "Intensity minutes", {
+      expectUnavailable: true,
+    });
+    expect(within(panel).getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("0 min")).toBeTruthy();
+
+    fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
+
+    expectRollupChartGraphics(panel, "Steps", { expectUnavailable: true });
+    expectRollupChartGraphics(panel, "Total calories", {
+      expectUnavailable: true,
+    });
+    expectRollupChartGraphics(panel, "Intensity minutes", {
+      expectUnavailable: true,
+    });
+    expect(within(panel).getAllByText("Unavailable").length).toBeGreaterThan(0);
   });
 
   it("hides unsupported body-battery rollups while other sparse period metrics remain visible", async () => {

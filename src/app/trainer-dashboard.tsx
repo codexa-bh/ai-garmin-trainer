@@ -1062,6 +1062,16 @@ function HealthRollupChart({
       ? "Unavailable"
       : `${numberLabel(value, value % 1 === 0 ? 0 : 1)} ${unit}`,
   );
+  const chartValues = rollups.map((rollup, index) => {
+    const value = values[index];
+    const height = value === null ? null : Math.max(8, (value / max) * 100);
+    return {
+      rollup,
+      value,
+      valueLabel: valueLabels[index],
+      height,
+    };
+  });
   return (
     <div
       className="health-rollup-chart"
@@ -1069,30 +1079,38 @@ function HealthRollupChart({
       aria-label={`${title} rollup chart`}
     >
       <strong>{title}</strong>
-      <div className="health-rollup-bars">
-        {rollups.map((rollup, index) => {
-          const value = values[index];
-          const height = value === null ? 0 : Math.max(6, (value / max) * 84);
-          return (
-            <div className="health-rollup-bar" key={rollup.key}>
+      <div
+        className="health-rollup-bars"
+        role="img"
+        aria-label={`${title} chart graphics`}
+      >
+        {chartValues.map(({ rollup, value, valueLabel, height }) => (
+          <div
+            className="health-rollup-bar"
+            data-chart-state={value === null ? "unavailable" : "available"}
+            key={rollup.key}
+          >
+            {height === null ? (
+              <span className="health-rollup-bar-missing" aria-hidden="true" />
+            ) : (
               <span
                 className="health-rollup-bar-fill"
-                aria-label={`${rollup.label}: ${valueLabels[index].toLowerCase()}`}
+                aria-label={`${rollup.label}: ${valueLabel.toLowerCase()}`}
                 style={{ height: `${height}%` }}
               />
-              <small>{rollup.label}</small>
-            </div>
-          );
-        })}
+            )}
+            <small>{rollup.label}</small>
+          </div>
+        ))}
       </div>
       <ul
         className="health-rollup-values"
         aria-label={`${title} period values`}
       >
-        {rollups.map((rollup, index) => (
+        {chartValues.map(({ rollup, valueLabel }) => (
           <li key={`${rollup.key}-value`}>
             <span>{rollup.label}</span>
-            <strong>{valueLabels[index]}</strong>
+            <strong>{valueLabel}</strong>
           </li>
         ))}
       </ul>
