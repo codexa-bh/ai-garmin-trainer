@@ -9,6 +9,7 @@ import {
   getGarminBodyMetrics,
   listActivityIdsNeedingDetail,
   listDailyHealthRepairCandidateDates,
+  listDailyHealthIntensityRepairCandidateDates,
   listActivityIdsNeedingEffortBackfill,
   listRecentActivities,
   recordActivityDetailAttempt,
@@ -474,10 +475,17 @@ export async function runGarminSync(
     }
 
     const resumeDate = getCheckpoint("health_next_date") ?? startDate;
-    const repairDates = listDailyHealthRepairCandidateDates({
+    const missingRepairDates = listDailyHealthRepairCandidateDates({
       startDate,
       endDate,
     });
+    const intensityRepairDates = listDailyHealthIntensityRepairCandidateDates({
+      startDate,
+      endDate,
+    });
+    const repairDates = Array.from(
+      new Set([...missingRepairDates, ...intensityRepairDates]),
+    );
     const healthPlan = dailyHealthImportPlan({
       historyStartDate: startDate,
       resumeDate,
@@ -575,7 +583,7 @@ export async function runGarminSync(
       detailCoverage: totals.detailCoverage,
       athleteBaseline,
       bodyMetrics,
-      detail: `Sync complete via pinned read-only Garmin MCP stdio. Processed ${activitiesImported} activity records; refreshed ${healthDaysImported} health dates including ${repairDates.length} missing-row repair candidates; refreshed ${detailsProcessed} activity detail records. Stored totals: ${totals.activities} activities; health ${totals.healthCoverage.completeDays} complete, ${totals.healthCoverage.partialDays} partial, ${totals.healthCoverage.missingDays} missing of ${totals.healthCoverage.totalRows}; detail ${totals.detailCoverage.available} available, ${totals.detailCoverage.partial} partial, ${totals.detailCoverage.unsupported} unsupported, ${totals.detailCoverage.pending} pending. Athlete baseline ${athleteBaseline.availability}; body metrics ${bodyMetrics.availability}.`,
+      detail: `Sync complete via pinned read-only Garmin MCP stdio. Processed ${activitiesImported} activity records; refreshed ${healthDaysImported} health dates including ${missingRepairDates.length} missing-row repair candidates and ${intensityRepairDates.length} daily intensity coverage repair candidates; refreshed ${detailsProcessed} activity detail records. Stored totals: ${totals.activities} activities; health ${totals.healthCoverage.completeDays} complete, ${totals.healthCoverage.partialDays} partial, ${totals.healthCoverage.missingDays} missing of ${totals.healthCoverage.totalRows}; daily intensity coverage ${totals.healthCoverage.metrics.intensityDays}/${totals.healthCoverage.totalRows}; detail ${totals.detailCoverage.available} available, ${totals.detailCoverage.partial} partial, ${totals.detailCoverage.unsupported} unsupported, ${totals.detailCoverage.pending} pending. Athlete baseline ${athleteBaseline.availability}; body metrics ${bodyMetrics.availability}.`,
     };
     onProgress({
       stage: "completed",

@@ -65,6 +65,7 @@ describe("import summary health coverage", () => {
           stressDays: 0,
           stepsDays: 0,
           calorieDays: 0,
+          intensityDays: 0,
           bodyBatteryDays: 0,
         },
       },
@@ -84,6 +85,7 @@ describe("import summary health coverage", () => {
         stressAvg: 0,
         steps: 0,
         calories: 0,
+        intensityMinutes: 0,
         bodyBatteryAvg: 0,
         availability: "complete",
       }),
@@ -109,6 +111,7 @@ describe("import summary health coverage", () => {
         stressDays: 1,
         stepsDays: 2,
         calorieDays: 1,
+        intensityDays: 1,
         bodyBatteryDays: 1,
       },
     });

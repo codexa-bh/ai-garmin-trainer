@@ -284,6 +284,7 @@ function summarizeSyncStatus(limit = 10) {
       stressDays: 0,
       stepsDays: 0,
       calorieDays: 0,
+      intensityDays: 0,
       bodyBatteryDays: 0,
     },
   };

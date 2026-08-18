@@ -206,16 +206,20 @@ export function normalizeDailyHealth(
   const sleepMinutes =
     minutesFromSecondsOrNull(sleep?.sleepTimeSeconds) ??
     minutesFromSecondsOrNull(sleep?.sleep_seconds);
-  const activeCalories = nonNegativeNumberOrNull(stats?.active_calories);
-  const restingCalories = nonNegativeNumberOrNull(stats?.bmr_calories);
+  const activeCalories = nonNegativeNumberOrNull(
+    stats?.active_calories ?? stats?.activeCalories,
+  );
+  const restingCalories = nonNegativeNumberOrNull(
+    stats?.bmr_calories ?? stats?.bmrCalories ?? stats?.restingCalories,
+  );
   const totalCalories =
-    nonNegativeNumberOrNull(stats?.total_calories) ??
+    nonNegativeNumberOrNull(stats?.total_calories ?? stats?.totalCalories) ??
     nonNegativeNumberOrNull(payloads.calories);
   const moderateIntensity = nonNegativeNumberOrNull(
-    stats?.moderate_intensity_minutes,
+    stats?.moderate_intensity_minutes ?? stats?.moderateIntensityMinutes,
   );
   const vigorousIntensity = nonNegativeNumberOrNull(
-    stats?.vigorous_intensity_minutes,
+    stats?.vigorous_intensity_minutes ?? stats?.vigorousIntensityMinutes,
   );
   const intensityMinutes =
     moderateIntensity !== null || vigorousIntensity !== null

@@ -51,6 +51,7 @@ export type HealthCoverage = {
     stressDays: number;
     stepsDays: number;
     calorieDays: number;
+    intensityDays: number;
     bodyBatteryDays: number;
   };
 };
@@ -572,6 +573,40 @@ export function listDailyHealthRepairCandidateDates(input: {
                and source_tool = 'get_sleep_summary'
                and subject_id = daily_health.date || ':sleep'
            )
+         )
+       order by daily_health.date asc
+       limit ?`,
+    )
+    .all(input.startDate, input.endDate, safeLimit) as Array<{ date: string }>;
+  return rows.map((row) => row.date);
+}
+
+export function listDailyHealthIntensityRepairCandidateDates(input: {
+  startDate: string;
+  endDate: string;
+  limit?: number;
+}): string[] {
+  const safeLimit = Math.min(
+    Math.max(Math.trunc(input.limit ?? 1000), 1),
+    1000,
+  );
+  const rows = getDatabase()
+    .prepare(
+      `select daily_health.date as date
+       from daily_health
+       where daily_health.intensity_minutes is null
+         and daily_health.date between ? and ?
+         and (
+           daily_health.steps is not null
+           or coalesce(daily_health.total_calories, daily_health.calories) is not null
+           or daily_health.active_calories is not null
+           or daily_health.resting_calories is not null
+         )
+         and not exists (
+           select 1 from garmin_raw_payload
+           where subject_type = 'daily_health'
+             and source_tool = 'get_stats'
+             and subject_id = daily_health.date || ':stats'
          )
        order by daily_health.date asc
        limit ?`,
@@ -2433,6 +2468,7 @@ export function healthCoverage(): HealthCoverage {
               coalesce(sum(case when stress_avg is not null then 1 else 0 end), 0) as stressDays,
               coalesce(sum(case when steps is not null then 1 else 0 end), 0) as stepsDays,
               coalesce(sum(case when coalesce(total_calories, calories) is not null then 1 else 0 end), 0) as calorieDays,
+              coalesce(sum(case when intensity_minutes is not null then 1 else 0 end), 0) as intensityDays,
               coalesce(sum(case when body_battery_morning is not null or body_battery_evening is not null or body_battery_avg is not null then 1 else 0 end), 0) as bodyBatteryDays
        from daily_health`,
     )
@@ -2447,6 +2483,7 @@ export function healthCoverage(): HealthCoverage {
     stressDays: number;
     stepsDays: number;
     calorieDays: number;
+    intensityDays: number;
     bodyBatteryDays: number;
   };
   return {
@@ -2461,6 +2498,7 @@ export function healthCoverage(): HealthCoverage {
       stressDays: row.stressDays,
       stepsDays: row.stepsDays,
       calorieDays: row.calorieDays,
+      intensityDays: row.intensityDays,
       bodyBatteryDays: row.bodyBatteryDays,
     },
   };
