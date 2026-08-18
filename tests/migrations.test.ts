@@ -66,6 +66,22 @@ describe("versioned SQLite migration foundation", () => {
         }>
       ).map((column) => column.name),
     ).toContain("manual_title");
+    expect(
+      (
+        db.prepare("pragma table_info(daily_health)").all() as Array<{
+          name: string;
+        }>
+      ).map((column) => column.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "sleep_score",
+        "sleep_deep_minutes",
+        "sleep_light_minutes",
+        "sleep_rem_minutes",
+        "sleep_awake_minutes",
+        "sleep_nap_minutes",
+      ]),
+    );
     db.close();
   });
 
@@ -194,6 +210,40 @@ describe("versioned SQLite migration foundation", () => {
         )
         .all(),
     ).toEqual([{ date: "2026-08-10", weightKg: 70.4 }]);
+    db.close();
+  });
+
+  it("adds daily-health sleep detail columns forward-compatibly from v14", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      create table app_metadata (key text primary key, value text not null, updated_at integer not null);
+      insert into app_metadata (key, value, updated_at) values ('schema_version', '14', 1);
+      create table daily_health (date text primary key, sleep_minutes integer, resting_heart_rate integer, hrv_status text, hrv_ms real, stress_avg integer, steps integer, calories integer, active_calories integer, resting_calories integer, total_calories integer, intensity_minutes integer, body_battery_avg integer, body_battery_morning integer, body_battery_evening integer, availability text not null default 'partial');
+      insert into daily_health (date, sleep_minutes, resting_heart_rate, availability) values ('2026-07-21', 444, 52, 'partial');
+    `);
+
+    const result = migrateDatabase(db);
+    expect(result.applied).toContain("15:daily_health_sleep_details");
+    const columns = db
+      .prepare("pragma table_info(daily_health)")
+      .all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "sleep_score",
+        "sleep_deep_minutes",
+        "sleep_light_minutes",
+        "sleep_rem_minutes",
+        "sleep_awake_minutes",
+        "sleep_nap_minutes",
+      ]),
+    );
+    expect(
+      db
+        .prepare(
+          "select sleep_minutes as sleepMinutes, sleep_score as sleepScore from daily_health where date = '2026-07-21'",
+        )
+        .get(),
+    ).toEqual({ sleepMinutes: 444, sleepScore: null });
     db.close();
   });
 

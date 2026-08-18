@@ -53,6 +53,12 @@ export type NormalizedActivity = {
 export type NormalizedDailyHealth = {
   date: string;
   sleepMinutes: number | null;
+  sleepScore: number | null;
+  sleepDeepMinutes: number | null;
+  sleepLightMinutes: number | null;
+  sleepRemMinutes: number | null;
+  sleepAwakeMinutes: number | null;
+  sleepNapMinutes: number | null;
   restingHeartRate: number | null;
   hrvStatus: string | null;
   hrvMs: number | null;

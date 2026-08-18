@@ -92,12 +92,42 @@ function sourceNameOrNull(value: unknown): string | null {
   return normalized || null;
 }
 
+function sleepScoreOrNull(value: unknown): number | null {
+  const score = nonNegativeNumberOrNull(value);
+  if (score === null || score > 100) return null;
+  return Math.round(score);
+}
+
+function minutesFromSecondsOrNull(value: unknown): number | null {
+  const seconds = nonNegativeNumberOrNull(value);
+  return seconds === null ? null : Math.round(seconds / 60);
+}
+
 export function dailyHealthAvailability(
   fields: Omit<NormalizedDailyHealth, "date" | "availability">,
 ): NormalizedDailyHealth["availability"] {
-  const present = Object.values(fields).filter(
-    (value) => value !== null,
-  ).length;
+  const metricCategories = [
+    fields.sleepMinutes ??
+      fields.sleepScore ??
+      fields.sleepDeepMinutes ??
+      fields.sleepLightMinutes ??
+      fields.sleepRemMinutes ??
+      fields.sleepAwakeMinutes ??
+      fields.sleepNapMinutes,
+    fields.restingHeartRate,
+    fields.hrvMs ?? fields.hrvStatus,
+    fields.stressAvg,
+    fields.steps,
+    fields.calories ??
+      fields.activeCalories ??
+      fields.restingCalories ??
+      fields.totalCalories,
+    fields.intensityMinutes,
+    fields.bodyBatteryAvg ??
+      fields.bodyBatteryMorning ??
+      fields.bodyBatteryEvening,
+  ];
+  const present = metricCategories.filter((value) => value !== null).length;
   return present === 0 ? "missing" : present >= 6 ? "complete" : "partial";
 }
 
@@ -173,8 +203,9 @@ export function normalizeDailyHealth(
 ): NormalizedDailyHealth {
   const sleep = payloads.sleep as Record<string, unknown> | undefined;
   const stats = payloads.stats as Record<string, unknown> | undefined;
-  const sleepSeconds =
-    numberOrNull(sleep?.sleepTimeSeconds) ?? numberOrNull(sleep?.sleep_seconds);
+  const sleepMinutes =
+    minutesFromSecondsOrNull(sleep?.sleepTimeSeconds) ??
+    minutesFromSecondsOrNull(sleep?.sleep_seconds);
   const activeCalories = nonNegativeNumberOrNull(stats?.active_calories);
   const restingCalories = nonNegativeNumberOrNull(stats?.bmr_calories);
   const totalCalories =
@@ -192,7 +223,23 @@ export function normalizeDailyHealth(
       : null;
   const bodyBattery = bodyBatteryMorningEvening(payloads.bodyBattery, date);
   const fields = {
-    sleepMinutes: sleepSeconds ? Math.round(sleepSeconds / 60) : null,
+    sleepMinutes,
+    sleepScore: sleepScoreOrNull(sleep?.sleep_score ?? sleep?.sleepScore),
+    sleepDeepMinutes: minutesFromSecondsOrNull(
+      sleep?.deep_sleep_seconds ?? sleep?.deepSleepSeconds,
+    ),
+    sleepLightMinutes: minutesFromSecondsOrNull(
+      sleep?.light_sleep_seconds ?? sleep?.lightSleepSeconds,
+    ),
+    sleepRemMinutes: minutesFromSecondsOrNull(
+      sleep?.rem_sleep_seconds ?? sleep?.remSleepSeconds,
+    ),
+    sleepAwakeMinutes: minutesFromSecondsOrNull(
+      sleep?.awake_seconds ?? sleep?.awakeSeconds,
+    ),
+    sleepNapMinutes: minutesFromSecondsOrNull(
+      sleep?.nap_seconds ?? sleep?.napSeconds,
+    ),
     restingHeartRate:
       numberOrNull(payloads.restingHeartRate) ??
       numberOrNull(stats?.resting_heart_rate_bpm) ??

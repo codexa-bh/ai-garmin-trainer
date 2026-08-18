@@ -83,6 +83,12 @@ export const activity = sqliteTable("activity", {
 export const dailyHealth = sqliteTable("daily_health", {
   date: text("date").primaryKey(),
   sleepMinutes: integer("sleep_minutes"),
+  sleepScore: integer("sleep_score"),
+  sleepDeepMinutes: integer("sleep_deep_minutes"),
+  sleepLightMinutes: integer("sleep_light_minutes"),
+  sleepRemMinutes: integer("sleep_rem_minutes"),
+  sleepAwakeMinutes: integer("sleep_awake_minutes"),
+  sleepNapMinutes: integer("sleep_nap_minutes"),
   restingHeartRate: integer("resting_heart_rate"),
   hrvStatus: text("hrv_status"),
   hrvMs: real("hrv_ms"),
