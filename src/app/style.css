@@ -364,10 +364,34 @@ body::before {
   font-size: 13px;
 }
 
-.health-widget-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+.health-widget-layout {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
   gap: 10px;
+}
+
+.health-widget-rich-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: 10px;
+}
+
+.health-widget-compact-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 10px;
+}
+
+.health-widget-rich-grid .health-widget {
+  min-height: 168px;
+  padding: 16px;
+}
+
+.health-widget-rich-grid .health-widget-value {
+  font-size: clamp(28px, 4vw, 42px);
 }
 
 .health-widget {
@@ -471,13 +495,25 @@ body::before {
   gap: 12px;
 }
 
+.health-rollup-summary {
+  align-items: stretch;
+  justify-content: space-between;
+}
+
 .health-rollup-summary h2,
 .health-rollup-summary p {
   margin: 0;
 }
 
-.health-rollup-summary p {
+.health-rollup-range {
   color: var(--muted);
+}
+
+.health-rollup-browser {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .health-rollup-grid {

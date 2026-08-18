@@ -943,6 +943,8 @@ function periodLabel(
   return `Week of ${formatCalendarDate(key)}`;
 }
 
+const HEALTH_ROLLUP_WINDOW_SIZE = 8;
+
 type HealthRollup = {
   key: string;
   label: string;
@@ -1290,9 +1292,41 @@ function HealthDashboardView({
   const hrvValue =
     day.hrvMs != null ? numberLabel(day.hrvMs, 1) : (day.hrvStatus ?? null);
   const hrvDetail = day.hrvMs != null && day.hrvStatus ? day.hrvStatus : null;
+  const [rollupPage, setRollupPage] = useState(0);
   const rollupMode = mode === "daily" ? null : mode;
-  const rollups = rollupMode ? healthRollups(days, rollupMode).slice(-8) : [];
+  const allRollups = rollupMode ? healthRollups(days, rollupMode) : [];
+  const maxRollupPage = Math.max(
+    0,
+    Math.ceil(allRollups.length / HEALTH_ROLLUP_WINDOW_SIZE) - 1,
+  );
+  const clampedRollupPage = Math.min(rollupPage, maxRollupPage);
+  const rollupWindowEnd =
+    allRollups.length - clampedRollupPage * HEALTH_ROLLUP_WINDOW_SIZE;
+  const rollupWindowStart = Math.max(
+    0,
+    rollupWindowEnd - HEALTH_ROLLUP_WINDOW_SIZE,
+  );
+  const rollups = rollupMode
+    ? allRollups.slice(rollupWindowStart, rollupWindowEnd)
+    : [];
   const hasAnySleepStageRollup = hasSleepStageRollup(rollups);
+  const canBrowseOlder =
+    rollupMode !== null && clampedRollupPage < maxRollupPage;
+  const canBrowseNewer = rollupMode !== null && clampedRollupPage > 0;
+  const rollupRangeLabel =
+    rollups.length === 0
+      ? "No available periods"
+      : rollups.length === 1
+        ? rollups[0].label
+        : `${rollups[0].label} – ${rollups[rollups.length - 1].label}`;
+
+  useEffect(() => {
+    setRollupPage(0);
+  }, [rollupMode]);
+
+  useEffect(() => {
+    setRollupPage((page) => Math.min(page, maxRollupPage));
+  }, [maxRollupPage]);
 
   return (
     <div className="health-dashboard-body">
@@ -1345,59 +1379,90 @@ function HealthDashboardView({
             </button>
           </div>
 
-          <div className="health-widget-grid">
-            <SleepWidget day={day} />
-            <HealthWidget
-              label="Resting HR"
-              value={
-                day.restingHeartRate == null
-                  ? null
-                  : numberLabel(day.restingHeartRate)
-              }
-              unit="bpm"
-            />
-            <HealthWidget
-              label="HRV"
-              value={hrvValue}
-              unit={day.hrvMs != null ? "ms" : undefined}
-              detail={hrvDetail}
-            />
-            <HealthWidget
-              label="Stress avg"
-              value={day.stressAvg == null ? null : numberLabel(day.stressAvg)}
-              unit="avg"
-            />
-            <HealthWidget
-              label="Steps"
-              value={day.steps == null ? null : numberLabel(day.steps)}
-              unit="steps"
-            />
-            <CaloriesWidget day={day} />
-            <HealthWidget
-              label="Intensity minutes"
-              value={
-                day.intensityMinutes == null
-                  ? null
-                  : numberLabel(day.intensityMinutes)
-              }
-              unit="min"
-              detail="Daily Garmin health source only"
-            />
+          <div className="health-widget-layout">
+            <div
+              className="health-widget-rich-grid"
+              aria-label="Rich daily health metrics"
+            >
+              <SleepWidget day={day} />
+              <CaloriesWidget day={day} />
+            </div>
+            <div
+              className="health-widget-compact-grid"
+              aria-label="Compact daily health metrics"
+            >
+              <HealthWidget
+                label="Resting HR"
+                value={
+                  day.restingHeartRate == null
+                    ? null
+                    : numberLabel(day.restingHeartRate)
+                }
+                unit="bpm"
+              />
+              <HealthWidget
+                label="HRV"
+                value={hrvValue}
+                unit={day.hrvMs != null ? "ms" : undefined}
+                detail={hrvDetail}
+              />
+              <HealthWidget
+                label="Stress avg"
+                value={
+                  day.stressAvg == null ? null : numberLabel(day.stressAvg)
+                }
+                unit="avg"
+              />
+              <HealthWidget
+                label="Steps"
+                value={day.steps == null ? null : numberLabel(day.steps)}
+                unit="steps"
+              />
+              <HealthWidget
+                label="Intensity minutes"
+                value={
+                  day.intensityMinutes == null
+                    ? null
+                    : numberLabel(day.intensityMinutes)
+                }
+                unit="min"
+                detail="Daily Garmin health source only"
+              />
+            </div>
           </div>
         </>
       ) : (
         <div className="health-rollup-view">
           <div className="health-rollup-summary">
-            <h2>
-              {mode === "weekly"
-                ? "Weekly Health rollups"
-                : "Monthly Health rollups"}
-            </h2>
-            <p>
-              Sleep duration and sleep stages are averages over available source
-              days; steps, calories, and source intensity minutes remain period
-              sums. Unavailable days are not estimated.
-            </p>
+            <div>
+              <h2>
+                {mode === "weekly"
+                  ? "Weekly Health rollups"
+                  : "Monthly Health rollups"}
+              </h2>
+              <p className="health-rollup-range">Showing {rollupRangeLabel}</p>
+            </div>
+            <div
+              className="health-rollup-browser"
+              aria-label={`${mode} rollup period browser`}
+            >
+              <button
+                type="button"
+                className="chrome-button"
+                onClick={() => setRollupPage(clampedRollupPage + 1)}
+                disabled={!canBrowseOlder}
+              >
+                ← Older periods
+              </button>
+              <button
+                type="button"
+                className="chrome-button"
+                onClick={() => setRollupPage(clampedRollupPage - 1)}
+                disabled={!canBrowseNewer}
+              >
+                Newer periods →
+              </button>
+            </div>
           </div>
           <div className="health-rollup-grid">
             <HealthRollupChart
