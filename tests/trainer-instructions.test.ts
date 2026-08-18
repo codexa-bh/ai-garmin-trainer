@@ -18,6 +18,10 @@ describe("canonical trainer instruction package", () => {
     expect(TRAINER_SYSTEM_PROMPT).toContain("active Profile");
     expect(TRAINER_SYSTEM_PROMPT).toContain("prior assistant prose is never");
     expect(TRAINER_SYSTEM_PROMPT).toContain("normalized daily health");
+    expect(TRAINER_SYSTEM_PROMPT).toContain("sleep score");
+    expect(TRAINER_SYSTEM_PROMPT).toContain(
+      "source-provided sleep stage/phase durations",
+    );
     expect(TRAINER_SYSTEM_PROMPT).toContain("server current-date context");
     expect(TRAINER_SYSTEM_PROMPT).toContain(
       "Garmin evidence freshness separately",

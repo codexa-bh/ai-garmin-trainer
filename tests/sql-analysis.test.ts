@@ -85,12 +85,12 @@ async function seedActivities() {
     {
       date: "2026-07-01",
       sleepMinutes: 430,
-      sleepScore: null,
-      sleepDeepMinutes: null,
-      sleepLightMinutes: null,
-      sleepRemMinutes: null,
-      sleepAwakeMinutes: null,
-      sleepNapMinutes: null,
+      sleepScore: 82,
+      sleepDeepMinutes: 74,
+      sleepLightMinutes: 268,
+      sleepRemMinutes: 70,
+      sleepAwakeMinutes: 18,
+      sleepNapMinutes: 20,
       restingHeartRate: 48,
       hrvStatus: "balanced",
       hrvMs: 58,
@@ -127,6 +127,31 @@ describe("read-only Garmin SQL analysis", () => {
     );
     expect(description.tables.map((table) => table.name)).toContain(
       "garmin_body_weight_history",
+    );
+    const dailyHealth = description.tables.find(
+      (table) => table.name === "daily_health",
+    );
+    expect(dailyHealth?.columns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "sleep_score", unit: "score" }),
+        expect.objectContaining({
+          name: "sleep_deep_minutes",
+          unit: "minutes",
+        }),
+        expect.objectContaining({
+          name: "sleep_light_minutes",
+          unit: "minutes",
+        }),
+        expect.objectContaining({ name: "sleep_rem_minutes", unit: "minutes" }),
+        expect.objectContaining({
+          name: "sleep_awake_minutes",
+          unit: "minutes",
+        }),
+        expect.objectContaining({ name: "sleep_nap_minutes", unit: "minutes" }),
+      ]),
+    );
+    expect(JSON.stringify(description)).toContain(
+      "Garmin/source-provided sleep score",
     );
     expect(JSON.stringify(description)).toContain("duration_sec");
     expect(JSON.stringify(description)).toContain("source_updated_at");
@@ -183,6 +208,44 @@ describe("read-only Garmin SQL analysis", () => {
     });
     expect(result.returnedRows).toBe(4);
     expect(result.privacy).toContain("Read-only local SQLite");
+  });
+
+  it("runs bounded SELECT over source-provided sleep detail columns", async () => {
+    await seedActivities();
+    const { runReadOnlySql } = await import("../src/lib/ai/sql-analysis");
+
+    const result = runReadOnlySql({
+      resultName: "sleep_details",
+      maxRows: 7,
+      sql: `
+        select date,
+               sleep_minutes,
+               sleep_score,
+               sleep_deep_minutes,
+               sleep_light_minutes,
+               sleep_rem_minutes,
+               sleep_awake_minutes,
+               sleep_nap_minutes
+        from daily_health
+        where sleep_minutes is not null
+        order by date desc
+        limit 7
+      `,
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.rows).toEqual([
+      {
+        date: "2026-07-01",
+        sleep_minutes: 430,
+        sleep_score: 82,
+        sleep_deep_minutes: 74,
+        sleep_light_minutes: 268,
+        sleep_rem_minutes: 70,
+        sleep_awake_minutes: 18,
+        sleep_nap_minutes: 20,
+      },
+    ]);
   });
 
   it("runs a last-365-days demand candidate extraction query over exact exposed columns", async () => {
