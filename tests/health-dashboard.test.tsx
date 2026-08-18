@@ -264,7 +264,9 @@ function expectRollupChartGraphics(
   expect(within(chart).getByLabelText(`${title} period values`)).toBeTruthy();
   expect(chart.querySelector(".health-rollup-scale")).toBeTruthy();
   const readout = chart.querySelector(".health-rollup-readout");
-  expect(readout?.textContent).toMatch(/: (Unavailable|[0-9,]+(\.[0-9])? \w+)/);
+  expect(readout?.textContent).toMatch(
+    /: (Unavailable|[0-9,]+(\.[0-9])? \w+|[0-9]+ h( [0-9]+ m)?\/day|[0-9]+ m\/day)/,
+  );
   fireEvent.pointerEnter(availableBars[0]);
   expect(readout?.textContent).toContain(
     availableBars[0].getAttribute("aria-label")?.split(": ")[0] ?? "",
@@ -473,19 +475,27 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
     fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
     expect(within(panel).getByText("Weekly Health rollups")).toBeTruthy();
-    expect(within(panel).getByText("Sleep duration avg")).toBeTruthy();
+    expect(within(panel).getByText("Sleep duration daily avg")).toBeTruthy();
     expect(within(panel).getByText("Sleep score avg")).toBeTruthy();
-    expect(within(panel).getByText("Deep sleep avg")).toBeTruthy();
-    expect(within(panel).getAllByText("417 min").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("Deep sleep daily avg")).toBeTruthy();
+    expect(within(panel).getAllByText("6 h 57 m/day").length).toBeGreaterThan(
+      0,
+    );
     expect(within(panel).getAllByText("82 avg").length).toBeGreaterThan(0);
-    expect(within(panel).getAllByText("67 min").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("1 h 7 m/day").length).toBeGreaterThan(0);
+    expect(
+      within(panel).getByRole("button", {
+        name: /Week of July 20, 2026: 6 h 57 m\/day/,
+      }),
+    ).toBeTruthy();
+    expect(within(panel).queryByText("417 min")).toBeNull();
     expect(within(panel).getByText("Total calories")).toBeTruthy();
     expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
     expect(within(panel).getAllByText("16,312 steps").length).toBeGreaterThan(
       0,
     );
     expect(within(panel).getAllByText("4,415 kcal").length).toBeGreaterThan(0);
-    expectRollupChartGraphics(panel, "Sleep duration avg");
+    expectRollupChartGraphics(panel, "Sleep duration daily avg");
     expectRollupChartGraphics(panel, "Steps");
     expectRollupChartGraphics(panel, "Total calories");
     expectRollupChartGraphics(panel, "Intensity minutes");
@@ -501,7 +511,7 @@ describe("TrainerDashboard Health dashboard", () => {
       0,
     );
     expect(within(panel).getAllByText("6,895 kcal").length).toBeGreaterThan(0);
-    expectRollupChartGraphics(panel, "Sleep duration avg");
+    expectRollupChartGraphics(panel, "Sleep duration daily avg");
     expectRollupChartGraphics(panel, "Steps");
     expectRollupChartGraphics(panel, "Total calories");
     expectRollupChartGraphics(panel, "Intensity minutes");
@@ -545,14 +555,14 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
     fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
 
-    expectRollupChartGraphics(panel, "Sleep duration avg");
+    expectRollupChartGraphics(panel, "Sleep duration daily avg");
     expectRollupChartGraphics(panel, "Steps");
     expectRollupEmptyState(panel, "Sleep score avg");
     expectRollupEmptyState(panel, "Sleep stages");
 
     fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
 
-    expectRollupChartGraphics(panel, "Sleep duration avg");
+    expectRollupChartGraphics(panel, "Sleep duration daily avg");
     expectRollupChartGraphics(panel, "Steps");
     expectRollupEmptyState(panel, "Sleep score avg");
     expectRollupEmptyState(panel, "Sleep stages");
