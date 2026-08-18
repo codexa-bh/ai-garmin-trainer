@@ -179,9 +179,12 @@ describe("TrainerDashboard Health dashboard", () => {
       "Steps",
       "Calories",
       "Intensity minutes",
-      "Body battery morning",
-      "Body battery evening",
     ]);
+    expect(within(panel).queryByText("Body battery morning")).toBeNull();
+    expect(within(panel).queryByText("Body battery evening")).toBeNull();
+    expect(
+      within(panel).queryByText(/Numeric morning\/evening readings/),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     expect(
@@ -224,8 +227,8 @@ describe("TrainerDashboard Health dashboard", () => {
     ).toBeTruthy();
     expect(within(panel).getByText("710")).toBeTruthy();
     expect(within(panel).getByText("1,600")).toBeTruthy();
-    expect(within(panel).getByText("88")).toBeTruthy();
-    expect(within(panel).getByText("42")).toBeTruthy();
+    expect(within(panel).queryByText("Body battery morning")).toBeNull();
+    expect(within(panel).queryByText("Body battery evening")).toBeNull();
     expect(within(panel).getByText(/2026/)).toBeTruthy();
   });
 
@@ -269,8 +272,8 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(unavailable.length).toBeGreaterThanOrEqual(2);
     expect(within(panel).getByText(/Source-unavailable day/)).toBeTruthy();
     expect(
-      within(panel).getAllByText(/Numeric morning\/evening readings/).length,
-    ).toBe(2);
+      within(panel).queryByText(/Numeric morning\/evening readings/),
+    ).toBeNull();
     expect(
       within(panel).queryByText(/unavailable metrics are not estimated/),
     ).toBeNull();
@@ -330,10 +333,8 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
     expect(within(panel).getByText("16,312 steps")).toBeTruthy();
     expect(within(panel).getByText("4,415 kcal")).toBeTruthy();
-    expect(within(panel).getByText("Body battery morning avg")).toBeTruthy();
-    expect(within(panel).getByText("Body battery evening avg")).toBeTruthy();
-    expect(within(panel).getByText("85 avg")).toBeTruthy();
-    expect(within(panel).getByText("40.5 avg")).toBeTruthy();
+    expect(within(panel).queryByText("Body battery morning avg")).toBeNull();
+    expect(within(panel).queryByText("Body battery evening avg")).toBeNull();
 
     fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
     expect(within(panel).getByText("Monthly Health rollups")).toBeTruthy();
@@ -344,7 +345,7 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).getByText("6,895 kcal")).toBeTruthy();
   });
 
-  it("hides unsupported body-battery rollups while other sparse period metrics remain visible", async () => {
+  it("keeps body-battery rollups hidden while other sparse period metrics remain visible", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -374,32 +375,7 @@ describe("TrainerDashboard Health dashboard", () => {
     ).toBeNull();
   });
 
-  it("keeps a supported body-battery rollup when the paired metric is unsupported", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
-      const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
-      if (url === "/api/profile") return jsonResponse(profile());
-      if (url === "/api/health-dashboard")
-        return jsonResponse({
-          latestDate: "2026-07-21",
-          days: healthDashboard().days.map((item) => ({
-            ...item,
-            bodyBatteryMorning: null,
-          })),
-        });
-      return jsonResponse({ ok: true });
-    });
-    renderDashboard(fetchMock);
-
-    const panel = await openHealthDashboard();
-    fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
-
-    expect(within(panel).queryByText("Body battery morning avg")).toBeNull();
-    expect(within(panel).getByText("Body battery evening avg")).toBeTruthy();
-    expect(within(panel).getByText("40.5 avg")).toBeTruthy();
-  });
-
-  it("preserves daily source-limited copy for null body-battery readings", async () => {
+  it("omits daily body-battery indicators for null body-battery readings", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -419,11 +395,11 @@ describe("TrainerDashboard Health dashboard", () => {
 
     const panel = await openHealthDashboard();
 
-    expect(within(panel).getByText("Body battery morning")).toBeTruthy();
-    expect(within(panel).getByText("Body battery evening")).toBeTruthy();
+    expect(within(panel).queryByText("Body battery morning")).toBeNull();
+    expect(within(panel).queryByText("Body battery evening")).toBeNull();
     expect(
-      within(panel).getAllByText(/Numeric morning\/evening readings/).length,
-    ).toBe(2);
+      within(panel).queryByText(/Numeric morning\/evening readings/),
+    ).toBeNull();
   });
 
   it("shows a truthful error state when the health dashboard request fails", async () => {

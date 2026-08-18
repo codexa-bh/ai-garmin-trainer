@@ -303,9 +303,6 @@ type HealthDashboardPayload = {
   latestDate: string | null;
 };
 
-const BODY_BATTERY_MORNING_EVENING_SOURCE_LIMITED =
-  "Numeric morning/evening readings are not exposed by the current Garmin source for this day.";
-
 type HealthDashboardLoadState = "idle" | "loading" | "loaded" | "error";
 type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
 type ProfileSaveState = "idle" | "saving" | "saved" | "error";
@@ -946,8 +943,6 @@ type HealthRollup = {
   restingHeartRate: number | null;
   hrvMs: number | null;
   stressAvg: number | null;
-  bodyBatteryMorning: number | null;
-  bodyBatteryEvening: number | null;
 };
 
 function healthRollups(
@@ -974,12 +969,6 @@ function healthRollups(
     restingHeartRate: averageNumbers(rows.map((day) => day.restingHeartRate)),
     hrvMs: averageNumbers(rows.map((day) => day.hrvMs)),
     stressAvg: averageNumbers(rows.map((day) => day.stressAvg)),
-    bodyBatteryMorning: averageNumbers(
-      rows.map((day) => day.bodyBatteryMorning),
-    ),
-    bodyBatteryEvening: averageNumbers(
-      rows.map((day) => day.bodyBatteryEvening),
-    ),
   }));
 }
 
@@ -1018,16 +1007,6 @@ function HealthSparkline({ values }: { values: number[] }) {
       />
     </svg>
   );
-}
-
-function hasFiniteRollupMetric(
-  rollups: HealthRollup[],
-  metric: (rollup: HealthRollup) => number | null,
-) {
-  return rollups.some((rollup) => {
-    const value = metric(rollup);
-    return typeof value === "number" && Number.isFinite(value);
-  });
 }
 
 function HealthRollupChart({
@@ -1220,15 +1199,6 @@ function HealthDashboardView({
   const hrvDetail = day.hrvMs != null && day.hrvStatus ? day.hrvStatus : null;
   const rollupMode = mode === "daily" ? null : mode;
   const rollups = rollupMode ? healthRollups(days, rollupMode).slice(-8) : [];
-  const hasBodyBatteryMorningRollup = hasFiniteRollupMetric(
-    rollups,
-    (rollup) => rollup.bodyBatteryMorning,
-  );
-  const hasBodyBatteryEveningRollup = hasFiniteRollupMetric(
-    rollups,
-    (rollup) => rollup.bodyBatteryEvening,
-  );
-
   return (
     <div className="health-dashboard-body">
       <div
@@ -1362,42 +1332,6 @@ function HealthDashboardView({
                 (item) => item.intensityMinutes,
               )}
             />
-            <HealthWidget
-              label="Body battery morning"
-              value={
-                day.bodyBatteryMorning == null
-                  ? null
-                  : numberLabel(day.bodyBatteryMorning)
-              }
-              detail={
-                day.bodyBatteryMorning == null
-                  ? BODY_BATTERY_MORNING_EVENING_SOURCE_LIMITED
-                  : "Garmin source morning reading"
-              }
-              trendValues={healthTrendSeries(
-                days,
-                clampedIndex,
-                (item) => item.bodyBatteryMorning,
-              )}
-            />
-            <HealthWidget
-              label="Body battery evening"
-              value={
-                day.bodyBatteryEvening == null
-                  ? null
-                  : numberLabel(day.bodyBatteryEvening)
-              }
-              detail={
-                day.bodyBatteryEvening == null
-                  ? BODY_BATTERY_MORNING_EVENING_SOURCE_LIMITED
-                  : "Garmin source evening reading"
-              }
-              trendValues={healthTrendSeries(
-                days,
-                clampedIndex,
-                (item) => item.bodyBatteryEvening,
-              )}
-            />
           </div>
         </>
       ) : (
@@ -1410,7 +1344,7 @@ function HealthDashboardView({
             </h2>
             <p>
               Sums for sleep, steps, calories, and source intensity minutes;
-              averages for heart-rate, HRV, stress, and body-battery values.
+              averages for heart-rate, HRV, and stress.
             </p>
           </div>
           <div className="health-rollup-grid">
@@ -1432,22 +1366,6 @@ function HealthDashboardView({
               unit="min"
               metric={(rollup) => rollup.intensityMinutes}
             />
-            {hasBodyBatteryMorningRollup ? (
-              <HealthRollupChart
-                rollups={rollups}
-                title="Body battery morning avg"
-                unit="avg"
-                metric={(rollup) => rollup.bodyBatteryMorning}
-              />
-            ) : null}
-            {hasBodyBatteryEveningRollup ? (
-              <HealthRollupChart
-                rollups={rollups}
-                title="Body battery evening avg"
-                unit="avg"
-                metric={(rollup) => rollup.bodyBatteryEvening}
-              />
-            ) : null}
           </div>
         </div>
       )}
