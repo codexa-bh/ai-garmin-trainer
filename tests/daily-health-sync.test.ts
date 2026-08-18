@@ -77,6 +77,12 @@ function dailyHealth(
   return {
     date,
     sleepMinutes: values.sleepMinutes ?? null,
+    sleepScore: values.sleepScore ?? null,
+    sleepDeepMinutes: values.sleepDeepMinutes ?? null,
+    sleepLightMinutes: values.sleepLightMinutes ?? null,
+    sleepRemMinutes: values.sleepRemMinutes ?? null,
+    sleepAwakeMinutes: values.sleepAwakeMinutes ?? null,
+    sleepNapMinutes: values.sleepNapMinutes ?? null,
     restingHeartRate: values.restingHeartRate ?? null,
     hrvStatus: values.hrvStatus ?? null,
     hrvMs: values.hrvMs ?? null,
@@ -296,6 +302,11 @@ describe("Garmin daily health recent refresh", () => {
     upsertDailyHealth([
       dailyHealth("2026-07-23", {
         sleepMinutes: 420,
+        sleepScore: 85,
+        sleepDeepMinutes: 72,
+        sleepLightMinutes: 238,
+        sleepRemMinutes: 88,
+        sleepAwakeMinutes: 22,
         restingHeartRate: 48,
         steps: 8200,
         calories: 2300,
@@ -314,6 +325,11 @@ describe("Garmin daily health recent refresh", () => {
     expect(listRecentDailyHealth(1)[0]).toMatchObject({
       date: "2026-07-23",
       sleepMinutes: 420,
+      sleepScore: 85,
+      sleepDeepMinutes: 72,
+      sleepLightMinutes: 238,
+      sleepRemMinutes: 88,
+      sleepAwakeMinutes: 22,
       restingHeartRate: 48,
       hrvMs: 62,
       stressAvg: 21,

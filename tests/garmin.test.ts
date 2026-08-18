@@ -333,6 +333,54 @@ describe("Garmin boundary", () => {
     expect(normalizeDailyHealth("2026-07-01", {}).availability).toBe("missing");
   });
 
+  it("normalizes source-proven Garmin sleep score and stage durations fail-closed", () => {
+    expect(
+      normalizeDailyHealth("2026-07-01", {
+        sleep: {
+          sleep_seconds: 28800,
+          sleep_score: 87.4,
+          deep_sleep_seconds: 5400,
+          light_sleep_seconds: 16200,
+          rem_sleep_seconds: 6000,
+          awake_seconds: 1200,
+          nap_seconds: 0,
+        },
+      }),
+    ).toMatchObject({
+      sleepMinutes: 480,
+      sleepScore: 87,
+      sleepDeepMinutes: 90,
+      sleepLightMinutes: 270,
+      sleepRemMinutes: 100,
+      sleepAwakeMinutes: 20,
+      sleepNapMinutes: 0,
+      availability: "partial",
+    });
+
+    expect(
+      normalizeDailyHealth("2026-07-01", {
+        sleep: {
+          sleep_seconds: -1,
+          sleep_score: 120,
+          deep_sleep_seconds: Number.NaN,
+          light_sleep_seconds: -30,
+          rem_sleep_seconds: "3600",
+          awake_seconds: Infinity,
+          nap_seconds: null,
+        },
+      }),
+    ).toMatchObject({
+      sleepMinutes: null,
+      sleepScore: null,
+      sleepDeepMinutes: null,
+      sleepLightMinutes: null,
+      sleepRemMinutes: null,
+      sleepAwakeMinutes: null,
+      sleepNapMinutes: null,
+      availability: "missing",
+    });
+  });
+
   it("normalizes proven Garmin activity effort fields fail-closed", () => {
     const base = {
       activityId: 123,

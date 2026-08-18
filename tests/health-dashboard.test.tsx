@@ -40,6 +40,12 @@ function day(date: string, overrides: Record<string, unknown> = {}) {
   return {
     date,
     sleepMinutes: 444,
+    sleepScore: 86,
+    sleepDeepMinutes: 74,
+    sleepLightMinutes: 244,
+    sleepRemMinutes: 96,
+    sleepAwakeMinutes: 30,
+    sleepNapMinutes: 0,
     restingHeartRate: 52,
     hrvStatus: "Balanced",
     hrvMs: 41.2,
@@ -65,6 +71,12 @@ function healthDashboard() {
       day("2026-07-21"),
       day("2026-07-20", {
         sleepMinutes: 390,
+        sleepScore: 78,
+        sleepDeepMinutes: 60,
+        sleepLightMinutes: 210,
+        sleepRemMinutes: 85,
+        sleepAwakeMinutes: 35,
+        sleepNapMinutes: null,
         restingHeartRate: 54,
         hrvStatus: null,
         hrvMs: 39.8,
@@ -82,6 +94,12 @@ function healthDashboard() {
       }),
       day("2026-07-19", {
         sleepMinutes: null,
+        sleepScore: null,
+        sleepDeepMinutes: null,
+        sleepLightMinutes: null,
+        sleepRemMinutes: null,
+        sleepAwakeMinutes: null,
+        sleepNapMinutes: null,
         restingHeartRate: 53,
         hrvStatus: "Low",
         hrvMs: 36.1,
@@ -97,6 +115,45 @@ function healthDashboard() {
         bodyBatteryEvening: null,
         availability: "missing",
       }),
+    ],
+  };
+}
+
+function sourceUnavailableDay(date: string) {
+  return day(date, {
+    sleepMinutes: null,
+    restingHeartRate: null,
+    hrvStatus: null,
+    hrvMs: null,
+    stressAvg: null,
+    steps: null,
+    calories: null,
+    activeCalories: null,
+    restingCalories: null,
+    totalCalories: null,
+    intensityMinutes: null,
+    bodyBatteryAvg: null,
+    bodyBatteryMorning: null,
+    bodyBatteryEvening: null,
+    availability: "missing",
+  });
+}
+
+function healthDashboardWithSparseRollups() {
+  return {
+    latestDate: "2026-07-21",
+    days: [
+      ...healthDashboard().days,
+      sourceUnavailableDay("2026-06-30"),
+      day("2026-06-23", {
+        steps: 1200,
+        calories: 1780,
+        activeCalories: 180,
+        restingCalories: 1600,
+        totalCalories: 1780,
+        intensityMinutes: 0,
+      }),
+      sourceUnavailableDay("2026-05-28"),
     ],
   };
 }
@@ -140,6 +197,38 @@ async function openHealthDashboard() {
     expect(panel.querySelector('[role="status"]')).toBeNull(),
   );
   return panel;
+}
+
+function expectRollupChartGraphics(
+  panel: HTMLElement,
+  title: string,
+  { expectUnavailable = false }: { expectUnavailable?: boolean } = {},
+) {
+  const chart = within(panel).getByRole("group", {
+    name: `${title} rollup chart`,
+  });
+  const graphics = within(chart).getByRole("img", {
+    name: `${title} chart graphics`,
+  });
+  const availableBars = Array.from(
+    graphics.querySelectorAll<HTMLElement>('[data-chart-state="available"]'),
+  );
+  const fills = Array.from(
+    graphics.querySelectorAll<HTMLElement>(".health-rollup-bar-fill"),
+  );
+
+  expect(availableBars.length).toBeGreaterThan(0);
+  expect(fills.length).toBe(availableBars.length);
+  for (const fill of fills) {
+    expect(Number.parseFloat(fill.style.height)).toBeGreaterThan(0);
+  }
+  if (expectUnavailable) {
+    expect(
+      graphics.querySelectorAll('[data-chart-state="unavailable"]').length,
+    ).toBeGreaterThan(0);
+    expect(graphics.querySelector(".health-rollup-bar-missing")).toBeTruthy();
+  }
+  expect(within(chart).getByLabelText(`${title} period values`)).toBeTruthy();
 }
 
 describe("TrainerDashboard Health dashboard", () => {
@@ -212,6 +301,12 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
 
     expect(within(panel).getByText("7 h 24 m")).toBeTruthy();
+    expect(within(panel).getByText("Score")).toBeTruthy();
+    expect(within(panel).getByText("Deep")).toBeTruthy();
+    expect(within(panel).getByText("1 h 14 m")).toBeTruthy();
+    expect(within(panel).getByText("REM")).toBeTruthy();
+    expect(within(panel).getByText("1 h 36 m")).toBeTruthy();
+    expect(within(panel).getAllByText("86").length).toBeGreaterThanOrEqual(1);
     expect(within(panel).getByText("52")).toBeTruthy();
     expect(within(panel).getByText("bpm")).toBeTruthy();
     expect(within(panel).getByText("41.2")).toBeTruthy();
@@ -272,6 +367,9 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(unavailable.length).toBeGreaterThanOrEqual(2);
     expect(within(panel).getByText(/Source-unavailable day/)).toBeTruthy();
     expect(
+      within(panel).getByText(/Sleep score or stage details are unavailable/),
+    ).toBeTruthy();
+    expect(
       within(panel).queryByText(/Numeric morning\/evening readings/),
     ).toBeNull();
     expect(
@@ -329,20 +427,68 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
     fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
     expect(within(panel).getByText("Weekly Health rollups")).toBeTruthy();
+    expect(within(panel).getByText("Sleep duration")).toBeTruthy();
+    expect(within(panel).getByText("Sleep score avg")).toBeTruthy();
+    expect(within(panel).getByText("Deep sleep")).toBeTruthy();
+    expect(within(panel).getByText("834 min")).toBeTruthy();
+    expect(within(panel).getByText("82 avg")).toBeTruthy();
+    expect(within(panel).getByText("134 min")).toBeTruthy();
     expect(within(panel).getByText("Total calories")).toBeTruthy();
     expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
     expect(within(panel).getByText("16,312 steps")).toBeTruthy();
     expect(within(panel).getByText("4,415 kcal")).toBeTruthy();
+    expectRollupChartGraphics(panel, "Steps");
+    expectRollupChartGraphics(panel, "Total calories");
+    expectRollupChartGraphics(panel, "Intensity minutes");
     expect(within(panel).queryByText("Body battery morning avg")).toBeNull();
     expect(within(panel).queryByText("Body battery evening avg")).toBeNull();
 
     fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
     expect(within(panel).getByText("Monthly Health rollups")).toBeTruthy();
     expect(
-      within(panel).getByText(/Sums for sleep, steps, calories/),
+      within(panel).getByText(/Sums for sleep duration, sleep stages/),
     ).toBeTruthy();
     expect(within(panel).getByText("26,512 steps")).toBeTruthy();
     expect(within(panel).getByText("6,895 kcal")).toBeTruthy();
+    expectRollupChartGraphics(panel, "Steps");
+    expectRollupChartGraphics(panel, "Total calories");
+    expectRollupChartGraphics(panel, "Intensity minutes");
+  });
+
+  it("renders weekly and monthly chart marks separately from sparse unavailable periods", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile());
+      if (url === "/api/health-dashboard")
+        return jsonResponse(healthDashboardWithSparseRollups());
+      return jsonResponse({ ok: true });
+    });
+    renderDashboard(fetchMock);
+
+    const panel = await openHealthDashboard();
+    fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
+
+    expectRollupChartGraphics(panel, "Steps", { expectUnavailable: true });
+    expectRollupChartGraphics(panel, "Total calories", {
+      expectUnavailable: true,
+    });
+    expectRollupChartGraphics(panel, "Intensity minutes", {
+      expectUnavailable: true,
+    });
+    expect(within(panel).getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("0 min").length).toBeGreaterThan(0);
+
+    fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
+
+    expectRollupChartGraphics(panel, "Steps", { expectUnavailable: true });
+    expectRollupChartGraphics(panel, "Total calories", {
+      expectUnavailable: true,
+    });
+    expectRollupChartGraphics(panel, "Intensity minutes", {
+      expectUnavailable: true,
+    });
+    expect(within(panel).getAllByText("Unavailable").length).toBeGreaterThan(0);
   });
 
   it("keeps body-battery rollups hidden while other sparse period metrics remain visible", async () => {

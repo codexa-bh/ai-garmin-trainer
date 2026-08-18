@@ -24,6 +24,12 @@ function dailyHealth(
   return {
     date,
     sleepMinutes: values.sleepMinutes ?? null,
+    sleepScore: values.sleepScore ?? null,
+    sleepDeepMinutes: values.sleepDeepMinutes ?? null,
+    sleepLightMinutes: values.sleepLightMinutes ?? null,
+    sleepRemMinutes: values.sleepRemMinutes ?? null,
+    sleepAwakeMinutes: values.sleepAwakeMinutes ?? null,
+    sleepNapMinutes: values.sleepNapMinutes ?? null,
     restingHeartRate: values.restingHeartRate ?? null,
     hrvStatus: values.hrvStatus ?? null,
     hrvMs: values.hrvMs ?? null,
