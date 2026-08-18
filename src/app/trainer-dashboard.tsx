@@ -280,6 +280,12 @@ type ProfileFields = {
 type HealthDashboardDay = {
   date: string;
   sleepMinutes: number | null;
+  sleepScore: number | null;
+  sleepDeepMinutes: number | null;
+  sleepLightMinutes: number | null;
+  sleepRemMinutes: number | null;
+  sleepAwakeMinutes: number | null;
+  sleepNapMinutes: number | null;
   restingHeartRate: number | null;
   hrvStatus: string | null;
   hrvMs: number | null;
@@ -305,6 +311,15 @@ type HealthDashboardPayload = {
 
 const BODY_BATTERY_MORNING_EVENING_SOURCE_LIMITED =
   "Numeric morning/evening readings are not exposed by the current Garmin source for this day.";
+const SLEEP_DETAIL_SOURCE_LIMITED =
+  "Sleep score or stage details are unavailable from the Garmin sleep source for this day.";
+const SLEEP_STAGE_FIELDS = [
+  ["Deep", "sleepDeepMinutes"],
+  ["Light", "sleepLightMinutes"],
+  ["REM", "sleepRemMinutes"],
+  ["Awake", "sleepAwakeMinutes"],
+  ["Nap", "sleepNapMinutes"],
+] as const;
 
 type HealthDashboardLoadState = "idle" | "loading" | "loaded" | "error";
 type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
@@ -938,6 +953,12 @@ type HealthRollup = {
   label: string;
   dayCount: number;
   sleepMinutes: number | null;
+  sleepScore: number | null;
+  sleepDeepMinutes: number | null;
+  sleepLightMinutes: number | null;
+  sleepRemMinutes: number | null;
+  sleepAwakeMinutes: number | null;
+  sleepNapMinutes: number | null;
   steps: number | null;
   activeCalories: number | null;
   restingCalories: number | null;
@@ -964,6 +985,12 @@ function healthRollups(
     label: periodLabel(key, mode),
     dayCount: rows.length,
     sleepMinutes: sumNumbers(rows.map((day) => day.sleepMinutes)),
+    sleepScore: averageNumbers(rows.map((day) => day.sleepScore)),
+    sleepDeepMinutes: sumNumbers(rows.map((day) => day.sleepDeepMinutes)),
+    sleepLightMinutes: sumNumbers(rows.map((day) => day.sleepLightMinutes)),
+    sleepRemMinutes: sumNumbers(rows.map((day) => day.sleepRemMinutes)),
+    sleepAwakeMinutes: sumNumbers(rows.map((day) => day.sleepAwakeMinutes)),
+    sleepNapMinutes: sumNumbers(rows.map((day) => day.sleepNapMinutes)),
     steps: sumNumbers(rows.map((day) => day.steps)),
     activeCalories: sumNumbers(rows.map((day) => day.activeCalories)),
     restingCalories: sumNumbers(rows.map((day) => day.restingCalories)),
@@ -1118,6 +1145,73 @@ function HealthRollupChart({
   );
 }
 
+function sleepStageEntries(day: HealthDashboardDay) {
+  return SLEEP_STAGE_FIELDS.flatMap(([label, field]) => {
+    const minutes = day[field];
+    return typeof minutes === "number" && Number.isFinite(minutes)
+      ? [{ label, minutes }]
+      : [];
+  });
+}
+
+function hasSleepStageRollup(rollups: HealthRollup[]): boolean {
+  return SLEEP_STAGE_FIELDS.some(([, field]) =>
+    hasFiniteRollupMetric(rollups, (rollup) => rollup[field]),
+  );
+}
+
+function SleepWidget({
+  day,
+  trendValues,
+}: {
+  day: HealthDashboardDay;
+  trendValues: number[];
+}) {
+  const stages = sleepStageEntries(day);
+  const hasScore = typeof day.sleepScore === "number";
+  const totalLabel =
+    day.sleepMinutes == null
+      ? "Unavailable"
+      : formatSleepMinutes(day.sleepMinutes);
+  return (
+    <div
+      className="health-widget health-sleep-widget"
+      role="group"
+      aria-label={`Sleep: ${totalLabel.toLowerCase()}`}
+    >
+      <p className="health-widget-label">Sleep</p>
+      <p className="health-widget-value">
+        {day.sleepMinutes == null ? (
+          <span className="health-widget-unavailable">Unavailable</span>
+        ) : (
+          totalLabel
+        )}
+      </p>
+      <div className="health-sleep-details" aria-label="Sleep source details">
+        <span>
+          Score{" "}
+          <strong>
+            {hasScore ? numberLabel(day.sleepScore) : "Unavailable"}
+          </strong>
+        </span>
+        {stages.map((stage) => (
+          <span key={stage.label}>
+            {stage.label} <strong>{formatSleepMinutes(stage.minutes)}</strong>
+          </span>
+        ))}
+      </div>
+      {!hasScore || stages.length === 0 ? (
+        <p className="health-widget-detail">{SLEEP_DETAIL_SOURCE_LIMITED}</p>
+      ) : null}
+      {trendValues.length >= 2 ? (
+        <HealthSparkline values={trendValues} />
+      ) : day.sleepMinutes != null ? (
+        <p className="health-widget-trend-note">No trend — not enough data</p>
+      ) : null}
+    </div>
+  );
+}
+
 function HealthWidget({
   label,
   value,
@@ -1246,6 +1340,7 @@ function HealthDashboardView({
     rollups,
     (rollup) => rollup.bodyBatteryEvening,
   );
+  const hasAnySleepStageRollup = hasSleepStageRollup(rollups);
 
   return (
     <div className="health-dashboard-body">
@@ -1299,13 +1394,8 @@ function HealthDashboardView({
           </div>
 
           <div className="health-widget-grid">
-            <HealthWidget
-              label="Sleep"
-              value={
-                day.sleepMinutes == null
-                  ? null
-                  : formatSleepMinutes(day.sleepMinutes)
-              }
+            <SleepWidget
+              day={day}
               trendValues={healthTrendSeries(
                 days,
                 clampedIndex,
@@ -1427,11 +1517,44 @@ function HealthDashboardView({
                 : "Monthly Health rollups"}
             </h2>
             <p>
-              Sums for sleep, steps, calories, and source intensity minutes;
-              averages for heart-rate, HRV, stress, and body-battery values.
+              Sums for sleep duration, sleep stages, steps, calories, and source
+              intensity minutes; averages for source sleep score, heart-rate,
+              HRV, stress, and body-battery values.
             </p>
           </div>
           <div className="health-rollup-grid">
+            <HealthRollupChart
+              rollups={rollups}
+              title="Sleep duration"
+              unit="min"
+              metric={(rollup) => rollup.sleepMinutes}
+            />
+            <HealthRollupChart
+              rollups={rollups}
+              title="Sleep score avg"
+              unit="avg"
+              metric={(rollup) => rollup.sleepScore}
+              emptyMessage="Source sleep scores are unavailable for these periods."
+            />
+            {hasAnySleepStageRollup ? (
+              SLEEP_STAGE_FIELDS.map(([label, field]) => (
+                <HealthRollupChart
+                  key={field}
+                  rollups={rollups}
+                  title={`${label} sleep`}
+                  unit="min"
+                  metric={(rollup) => rollup[field]}
+                />
+              ))
+            ) : (
+              <div className="health-rollup-chart empty-state">
+                <strong>Sleep stages</strong>
+                <p>
+                  Source sleep-stage durations are unavailable for these
+                  periods.
+                </p>
+              </div>
+            )}
             <HealthRollupChart
               rollups={rollups}
               title="Steps"

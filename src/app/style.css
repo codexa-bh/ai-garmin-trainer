@@ -418,20 +418,31 @@ body::before {
   font-size: 13px;
 }
 
-.health-split-values {
+.health-split-values,
+.health-sleep-details {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   color: var(--muted);
   font-size: 12px;
 }
 
+.health-split-values {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.health-sleep-details {
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+}
+
 .health-split-values span,
-.health-split-values strong {
+.health-split-values strong,
+.health-sleep-details span,
+.health-sleep-details strong {
   display: block;
 }
 
-.health-split-values strong {
+.health-split-values strong,
+.health-sleep-details strong {
   color: var(--text);
   font-size: 16px;
 }

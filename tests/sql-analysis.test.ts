@@ -85,6 +85,12 @@ async function seedActivities() {
     {
       date: "2026-07-01",
       sleepMinutes: 430,
+      sleepScore: null,
+      sleepDeepMinutes: null,
+      sleepLightMinutes: null,
+      sleepRemMinutes: null,
+      sleepAwakeMinutes: null,
+      sleepNapMinutes: null,
       restingHeartRate: 48,
       hrvStatus: "balanced",
       hrvMs: 58,

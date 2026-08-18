@@ -40,6 +40,12 @@ function day(date: string, overrides: Record<string, unknown> = {}) {
   return {
     date,
     sleepMinutes: 444,
+    sleepScore: 86,
+    sleepDeepMinutes: 74,
+    sleepLightMinutes: 244,
+    sleepRemMinutes: 96,
+    sleepAwakeMinutes: 30,
+    sleepNapMinutes: 0,
     restingHeartRate: 52,
     hrvStatus: "Balanced",
     hrvMs: 41.2,
@@ -65,6 +71,12 @@ function healthDashboard() {
       day("2026-07-21"),
       day("2026-07-20", {
         sleepMinutes: 390,
+        sleepScore: 78,
+        sleepDeepMinutes: 60,
+        sleepLightMinutes: 210,
+        sleepRemMinutes: 85,
+        sleepAwakeMinutes: 35,
+        sleepNapMinutes: null,
         restingHeartRate: 54,
         hrvStatus: null,
         hrvMs: 39.8,
@@ -82,6 +94,12 @@ function healthDashboard() {
       }),
       day("2026-07-19", {
         sleepMinutes: null,
+        sleepScore: null,
+        sleepDeepMinutes: null,
+        sleepLightMinutes: null,
+        sleepRemMinutes: null,
+        sleepAwakeMinutes: null,
+        sleepNapMinutes: null,
         restingHeartRate: 53,
         hrvStatus: "Low",
         hrvMs: 36.1,
@@ -280,6 +298,12 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
 
     expect(within(panel).getByText("7 h 24 m")).toBeTruthy();
+    expect(within(panel).getByText("Score")).toBeTruthy();
+    expect(within(panel).getByText("Deep")).toBeTruthy();
+    expect(within(panel).getByText("1 h 14 m")).toBeTruthy();
+    expect(within(panel).getByText("REM")).toBeTruthy();
+    expect(within(panel).getByText("1 h 36 m")).toBeTruthy();
+    expect(within(panel).getAllByText("86").length).toBeGreaterThanOrEqual(1);
     expect(within(panel).getByText("52")).toBeTruthy();
     expect(within(panel).getByText("bpm")).toBeTruthy();
     expect(within(panel).getByText("41.2")).toBeTruthy();
@@ -340,6 +364,9 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(unavailable.length).toBeGreaterThanOrEqual(2);
     expect(within(panel).getByText(/Source-unavailable day/)).toBeTruthy();
     expect(
+      within(panel).getByText(/Sleep score or stage details are unavailable/),
+    ).toBeTruthy();
+    expect(
       within(panel).getAllByText(/Numeric morning\/evening readings/).length,
     ).toBe(2);
     expect(
@@ -397,6 +424,12 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
     fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
     expect(within(panel).getByText("Weekly Health rollups")).toBeTruthy();
+    expect(within(panel).getByText("Sleep duration")).toBeTruthy();
+    expect(within(panel).getByText("Sleep score avg")).toBeTruthy();
+    expect(within(panel).getByText("Deep sleep")).toBeTruthy();
+    expect(within(panel).getByText("834 min")).toBeTruthy();
+    expect(within(panel).getByText("82 avg")).toBeTruthy();
+    expect(within(panel).getByText("134 min")).toBeTruthy();
     expect(within(panel).getByText("Total calories")).toBeTruthy();
     expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
     expect(within(panel).getByText("16,312 steps")).toBeTruthy();
@@ -412,7 +445,7 @@ describe("TrainerDashboard Health dashboard", () => {
     fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
     expect(within(panel).getByText("Monthly Health rollups")).toBeTruthy();
     expect(
-      within(panel).getByText(/Sums for sleep, steps, calories/),
+      within(panel).getByText(/Sums for sleep duration, sleep stages/),
     ).toBeTruthy();
     expect(within(panel).getByText("26,512 steps")).toBeTruthy();
     expect(within(panel).getByText("6,895 kcal")).toBeTruthy();
@@ -443,7 +476,7 @@ describe("TrainerDashboard Health dashboard", () => {
       expectUnavailable: true,
     });
     expect(within(panel).getAllByText("Unavailable").length).toBeGreaterThan(0);
-    expect(within(panel).getByText("0 min")).toBeTruthy();
+    expect(within(panel).getAllByText("0 min").length).toBeGreaterThan(0);
 
     fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
 

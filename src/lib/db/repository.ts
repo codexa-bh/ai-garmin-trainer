@@ -405,6 +405,12 @@ function dailyHealthMetricFields(
 ): Omit<NormalizedDailyHealth, "date" | "availability"> {
   return {
     sleepMinutes: day.sleepMinutes,
+    sleepScore: day.sleepScore,
+    sleepDeepMinutes: day.sleepDeepMinutes,
+    sleepLightMinutes: day.sleepLightMinutes,
+    sleepRemMinutes: day.sleepRemMinutes,
+    sleepAwakeMinutes: day.sleepAwakeMinutes,
+    sleepNapMinutes: day.sleepNapMinutes,
     restingHeartRate: day.restingHeartRate,
     hrvStatus: day.hrvStatus,
     hrvMs: day.hrvMs,
@@ -428,6 +434,17 @@ function mergeDailyHealth(
   const merged = {
     date: incoming.date,
     sleepMinutes: incoming.sleepMinutes ?? previous.sleepMinutes ?? null,
+    sleepScore: incoming.sleepScore ?? previous.sleepScore ?? null,
+    sleepDeepMinutes:
+      incoming.sleepDeepMinutes ?? previous.sleepDeepMinutes ?? null,
+    sleepLightMinutes:
+      incoming.sleepLightMinutes ?? previous.sleepLightMinutes ?? null,
+    sleepRemMinutes:
+      incoming.sleepRemMinutes ?? previous.sleepRemMinutes ?? null,
+    sleepAwakeMinutes:
+      incoming.sleepAwakeMinutes ?? previous.sleepAwakeMinutes ?? null,
+    sleepNapMinutes:
+      incoming.sleepNapMinutes ?? previous.sleepNapMinutes ?? null,
     restingHeartRate:
       incoming.restingHeartRate ?? previous.restingHeartRate ?? null,
     hrvStatus: incoming.hrvStatus ?? previous.hrvStatus ?? null,
@@ -456,7 +473,13 @@ function mergeDailyHealth(
 export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
   const db = getDatabase();
   const byDate = db.prepare(`
-    select date, sleep_minutes as sleepMinutes, resting_heart_rate as restingHeartRate,
+    select date, sleep_minutes as sleepMinutes, sleep_score as sleepScore,
+           sleep_deep_minutes as sleepDeepMinutes,
+           sleep_light_minutes as sleepLightMinutes,
+           sleep_rem_minutes as sleepRemMinutes,
+           sleep_awake_minutes as sleepAwakeMinutes,
+           sleep_nap_minutes as sleepNapMinutes,
+           resting_heart_rate as restingHeartRate,
            hrv_status as hrvStatus, hrv_ms as hrvMs, stress_avg as stressAvg,
            steps, calories, active_calories as activeCalories,
            resting_calories as restingCalories, total_calories as totalCalories,
@@ -466,10 +489,16 @@ export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
     from daily_health where date = ?
   `);
   const insert = db.prepare(`
-    insert into daily_health (date, sleep_minutes, resting_heart_rate, hrv_status, hrv_ms, stress_avg, steps, calories, active_calories, resting_calories, total_calories, intensity_minutes, body_battery_avg, body_battery_morning, body_battery_evening, availability)
-    values (@date, @sleepMinutes, @restingHeartRate, @hrvStatus, @hrvMs, @stressAvg, @steps, @calories, @activeCalories, @restingCalories, @totalCalories, @intensityMinutes, @bodyBatteryAvg, @bodyBatteryMorning, @bodyBatteryEvening, @availability)
+    insert into daily_health (date, sleep_minutes, sleep_score, sleep_deep_minutes, sleep_light_minutes, sleep_rem_minutes, sleep_awake_minutes, sleep_nap_minutes, resting_heart_rate, hrv_status, hrv_ms, stress_avg, steps, calories, active_calories, resting_calories, total_calories, intensity_minutes, body_battery_avg, body_battery_morning, body_battery_evening, availability)
+    values (@date, @sleepMinutes, @sleepScore, @sleepDeepMinutes, @sleepLightMinutes, @sleepRemMinutes, @sleepAwakeMinutes, @sleepNapMinutes, @restingHeartRate, @hrvStatus, @hrvMs, @stressAvg, @steps, @calories, @activeCalories, @restingCalories, @totalCalories, @intensityMinutes, @bodyBatteryAvg, @bodyBatteryMorning, @bodyBatteryEvening, @availability)
     on conflict(date) do update set
       sleep_minutes=excluded.sleep_minutes,
+      sleep_score=excluded.sleep_score,
+      sleep_deep_minutes=excluded.sleep_deep_minutes,
+      sleep_light_minutes=excluded.sleep_light_minutes,
+      sleep_rem_minutes=excluded.sleep_rem_minutes,
+      sleep_awake_minutes=excluded.sleep_awake_minutes,
+      sleep_nap_minutes=excluded.sleep_nap_minutes,
       resting_heart_rate=excluded.resting_heart_rate,
       hrv_status=excluded.hrv_status,
       hrv_ms=excluded.hrv_ms,
@@ -751,7 +780,13 @@ export function listActivitiesForDashboard(
 export function listRecentDailyHealth(limit = 14): NormalizedDailyHealth[] {
   return getDatabase()
     .prepare(
-      `select date, sleep_minutes as sleepMinutes, resting_heart_rate as restingHeartRate,
+      `select date, sleep_minutes as sleepMinutes, sleep_score as sleepScore,
+              sleep_deep_minutes as sleepDeepMinutes,
+              sleep_light_minutes as sleepLightMinutes,
+              sleep_rem_minutes as sleepRemMinutes,
+              sleep_awake_minutes as sleepAwakeMinutes,
+              sleep_nap_minutes as sleepNapMinutes,
+              resting_heart_rate as restingHeartRate,
               hrv_status as hrvStatus, hrv_ms as hrvMs, stress_avg as stressAvg,
               steps, calories, active_calories as activeCalories,
               resting_calories as restingCalories, total_calories as totalCalories,

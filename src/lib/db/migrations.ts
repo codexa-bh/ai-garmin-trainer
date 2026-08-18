@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 14;
+export const LATEST_SCHEMA_VERSION = 15;
 export const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -40,7 +40,16 @@ const TRAINING_PLAN_TABLE_SQL = `create table if not exists training_plan (id te
 const LEGACY_ACTIVITY_TABLE_SQL = `create table if not exists activity (id text primary key, garmin_id text not null unique, name text, sport text not null, started_at integer not null, duration_sec integer, distance_meters real, calories integer, avg_heart_rate integer, max_heart_rate integer, steps integer, elevation_gain_meters real, elevation_loss_meters real, training_effect real, source_updated_at integer)`;
 const ACTIVITY_TABLE_SQL = `create table if not exists activity (id text primary key, garmin_id text not null unique, name text, sport text not null, started_at integer not null, duration_sec integer, distance_meters real, calories integer, avg_heart_rate integer, max_heart_rate integer, steps integer, elevation_gain_meters real, elevation_loss_meters real, training_effect real, anaerobic_training_effect real, training_effect_label text, training_load real, moderate_intensity_minutes real, vigorous_intensity_minutes real, total_intensity_minutes real, source_updated_at integer)`;
 const LEGACY_DAILY_HEALTH_TABLE_SQL = `create table if not exists daily_health (date text primary key, sleep_minutes integer, resting_heart_rate integer, hrv_status text, hrv_ms real, stress_avg integer, steps integer, calories integer, body_battery_avg integer, availability text not null default 'partial')`;
-const DAILY_HEALTH_TABLE_SQL = `create table if not exists daily_health (date text primary key, sleep_minutes integer, resting_heart_rate integer, hrv_status text, hrv_ms real, stress_avg integer, steps integer, calories integer, active_calories integer, resting_calories integer, total_calories integer, intensity_minutes integer, body_battery_avg integer, body_battery_morning integer, body_battery_evening integer, availability text not null default 'partial')`;
+const DAILY_HEALTH_TABLE_SQL = `create table if not exists daily_health (date text primary key, sleep_minutes integer, sleep_score integer, sleep_deep_minutes integer, sleep_light_minutes integer, sleep_rem_minutes integer, sleep_awake_minutes integer, sleep_nap_minutes integer, resting_heart_rate integer, hrv_status text, hrv_ms real, stress_avg integer, steps integer, calories integer, active_calories integer, resting_calories integer, total_calories integer, intensity_minutes integer, body_battery_avg integer, body_battery_morning integer, body_battery_evening integer, availability text not null default 'partial')`;
+
+const DAILY_HEALTH_SLEEP_DETAIL_COLUMNS_SQL = [
+  `alter table daily_health add column sleep_score integer`,
+  `alter table daily_health add column sleep_deep_minutes integer`,
+  `alter table daily_health add column sleep_light_minutes integer`,
+  `alter table daily_health add column sleep_rem_minutes integer`,
+  `alter table daily_health add column sleep_awake_minutes integer`,
+  `alter table daily_health add column sleep_nap_minutes integer`,
+];
 
 const ACTIVITY_EFFORT_COLUMNS_SQL = [
   `alter table activity add column anaerobic_training_effect real`,
@@ -212,6 +221,14 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     statements: [
       ...BODY_METRICS_SCHEMA_SQL,
       ...BODY_METRICS_WEIGH_IN_COLUMNS_SQL,
+    ],
+  },
+  {
+    version: 15,
+    name: "daily_health_sleep_details",
+    statements: [
+      LEGACY_DAILY_HEALTH_TABLE_SQL,
+      ...DAILY_HEALTH_SLEEP_DETAIL_COLUMNS_SQL,
     ],
   },
 ];
