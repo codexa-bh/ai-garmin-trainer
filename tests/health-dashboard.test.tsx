@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from "node:fs";
 import React from "react";
 import {
   cleanup,
@@ -158,6 +159,21 @@ function healthDashboardWithSparseRollups() {
   };
 }
 
+function healthDashboardWithoutSleepScoreStages() {
+  return {
+    latestDate: "2026-07-21",
+    days: healthDashboard().days.map((item) => ({
+      ...item,
+      sleepScore: null,
+      sleepDeepMinutes: null,
+      sleepLightMinutes: null,
+      sleepRemMinutes: null,
+      sleepAwakeMinutes: null,
+      sleepNapMinutes: null,
+    })),
+  };
+}
+
 function stubViewport(matches: boolean) {
   vi.stubGlobal(
     "matchMedia",
@@ -178,6 +194,23 @@ function renderDashboard(fetchMock: ReturnType<typeof vi.fn>) {
   vi.stubGlobal("fetch", fetchMock);
   render(React.createElement(TrainerDashboard));
   return fetchMock;
+}
+
+function appStyleRule(selector: string) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = readFileSync("src/app/style.css", "utf8").match(
+    new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\}`),
+  );
+  expect(match, `missing ${selector} rule`).toBeTruthy();
+  return match?.[1] ?? "";
+}
+
+function expectRollupEmptyState(panel: HTMLElement, title: string) {
+  const heading = within(panel).getByText(title);
+  const card = heading.closest<HTMLElement>(".health-rollup-chart");
+  expect(card).toBeTruthy();
+  expect(card?.classList.contains("empty-state")).toBe(true);
+  expect(within(card as HTMLElement).queryByRole("img")).toBeNull();
 }
 
 function baseFetchMock() {
@@ -437,6 +470,7 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
     expect(within(panel).getByText("16,312 steps")).toBeTruthy();
     expect(within(panel).getByText("4,415 kcal")).toBeTruthy();
+    expectRollupChartGraphics(panel, "Sleep duration");
     expectRollupChartGraphics(panel, "Steps");
     expectRollupChartGraphics(panel, "Total calories");
     expectRollupChartGraphics(panel, "Intensity minutes");
@@ -450,9 +484,61 @@ describe("TrainerDashboard Health dashboard", () => {
     ).toBeTruthy();
     expect(within(panel).getByText("26,512 steps")).toBeTruthy();
     expect(within(panel).getByText("6,895 kcal")).toBeTruthy();
+    expectRollupChartGraphics(panel, "Sleep duration");
     expectRollupChartGraphics(panel, "Steps");
     expectRollupChartGraphics(panel, "Total calories");
     expectRollupChartGraphics(panel, "Intensity minutes");
+  });
+
+  it("keeps weekly and monthly rollup chart CSS contained at responsive card widths", () => {
+    const gridRule = appStyleRule(".health-rollup-grid");
+    const chartRule = appStyleRule(".health-rollup-chart");
+    const barsRule = appStyleRule(".health-rollup-bars");
+    const barRule = appStyleRule(".health-rollup-bar");
+    const periodCount = 8;
+    const cardMinWidth = 340;
+    const cardHorizontalPadding = 24;
+    const maxResponsiveGap = 8;
+    const fixedBarRowWidth = (periodCount - 1) * maxResponsiveGap;
+
+    expect(gridRule).toContain("minmax(min(340px, 100%), 1fr)");
+    expect(chartRule).toContain("max-width: 100%;");
+    expect(chartRule).toContain("overflow: hidden;");
+    expect(barsRule).toContain("min-width: 0;");
+    expect(barsRule).toContain("max-width: 100%;");
+    expect(barsRule).toContain("overflow: hidden;");
+    expect(barsRule).toContain("gap: clamp(4px, 1.2vw, 8px);");
+    expect(barRule).toContain("min-width: 0;");
+    expect(fixedBarRowWidth).toBeLessThanOrEqual(
+      cardMinWidth - cardHorizontalPadding,
+    );
+  });
+
+  it("keeps unsupported sleep rollup empty states separate from visible charts", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile());
+      if (url === "/api/health-dashboard")
+        return jsonResponse(healthDashboardWithoutSleepScoreStages());
+      return jsonResponse({ ok: true });
+    });
+    renderDashboard(fetchMock);
+
+    const panel = await openHealthDashboard();
+    fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
+
+    expectRollupChartGraphics(panel, "Sleep duration");
+    expectRollupChartGraphics(panel, "Steps");
+    expectRollupEmptyState(panel, "Sleep score avg");
+    expectRollupEmptyState(panel, "Sleep stages");
+
+    fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
+
+    expectRollupChartGraphics(panel, "Sleep duration");
+    expectRollupChartGraphics(panel, "Steps");
+    expectRollupEmptyState(panel, "Sleep score avg");
+    expectRollupEmptyState(panel, "Sleep stages");
   });
 
   it("renders weekly and monthly chart marks separately from sparse unavailable periods", async () => {
