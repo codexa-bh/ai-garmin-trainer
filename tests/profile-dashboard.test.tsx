@@ -1667,7 +1667,8 @@ describe("TrainerDashboard activity charts", () => {
             hasLaps: true,
             recordCount: 3,
             lapCount: 1,
-            unavailableReason: null,
+            unavailableReason:
+              "Detail payload omits optional developer-only diagnostics.",
           },
           charts: {
             downsampled: false,
@@ -2090,9 +2091,10 @@ describe("TrainerDashboard activity charts", () => {
     });
     expect(screen.getByText("Time in HR zones")).toBeTruthy();
     expect(screen.getByText("Garmin activity HR-zone totals")).toBeTruthy();
+    expect(screen.queryByText(/Source total:/)).toBeNull();
     expect(
-      screen.getByText(/Garmin-configured HR-zone boundaries/),
-    ).toBeTruthy();
+      screen.queryByText(/Garmin-configured HR-zone boundaries/),
+    ).toBeNull();
     expect(screen.getByText("1m 00s · 100%")).toBeTruthy();
     const routeZoneGrid = document.querySelector(".route-zone-grid");
     expect(routeZoneGrid).toBeTruthy();
@@ -2188,8 +2190,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.getByText("143 bpm")).toBeTruthy();
     expect(screen.getByText("Training Effect")).toBeTruthy();
     expect(
-      screen.getByText(/Effort fields come from Garmin activity detail/),
-    ).toBeTruthy();
+      screen.queryByText(/Effort fields come from Garmin activity detail/),
+    ).toBeNull();
+    expect(screen.queryByText(/Detail limitation:/)).toBeNull();
     expect(screen.queryByText("Avg/Max HR")).toBeNull();
     expect(screen.queryByText(/143\s*\/\s*Unavailable/)).toBeNull();
   });
@@ -2326,10 +2329,10 @@ describe("TrainerDashboard activity charts", () => {
 
     expect(await screen.findByText("Heart rate")).toBeTruthy();
     expect(
-      screen.getByText(
+      screen.queryByText(
         /Chart timing is limited to the available sample-index stream/,
       ),
-    ).toBeTruthy();
+    ).toBeNull();
     expect(
       screen.getByText("No per-point altitude stream data available."),
     ).toBeTruthy();
@@ -2346,10 +2349,10 @@ describe("TrainerDashboard activity charts", () => {
       ),
     ).toBeTruthy();
     expect(
-      screen.getByText(
+      screen.queryByText(
         /no measured speed, GPS, summary, lap, or pace fallback is used/,
       ),
-    ).toBeTruthy();
+    ).toBeNull();
     expect(
       screen.queryByRole("img", { name: "Pace over elapsed time" }),
     ).toBeNull();
