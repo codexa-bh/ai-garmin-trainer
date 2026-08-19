@@ -14,7 +14,7 @@ import {
   LATEST_SCHEMA_VERSION,
   runIntegrityCheck,
 } from "../db/migrations";
-import { aiProviderStatus } from "../ai/providers";
+import { aiProviderStatus, isLoopbackAiBaseUrl } from "../ai/providers";
 import { getOptionalEnv, hasConfiguredSecret } from "../env";
 import {
   isLoopbackUrl,
@@ -109,6 +109,10 @@ function ollamaEndpoint(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/api/embed`;
 }
 
+function ollamaChatEndpoint(baseUrl: string): string {
+  return `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+}
+
 function probeOllamaEmbedding(
   baseUrl: string,
   model: string,
@@ -185,6 +189,84 @@ function probeOllamaEmbedding(
         "Ollama embedding probe could not reach the local daemon or timed out.",
       remediation:
         "Start Ollama on the local machine, verify http://127.0.0.1:11434 is reachable, and rerun npm run doctor.",
+    };
+  }
+}
+
+function probeOllamaChat(
+  baseUrl: string,
+  model: string,
+  timeoutMs: string,
+): OllamaProbe {
+  if (!isLoopbackAiBaseUrl(baseUrl))
+    return {
+      ok: false,
+      className: "provider.ollama_non_loopback",
+      message:
+        "Ollama chat is configured with a non-loopback base URL; value content is not printed.",
+      remediation:
+        "Set OLLAMA_BASE_URL=http://127.0.0.1:11434/v1 or leave it unset for the local default.",
+    };
+  const timeoutSeconds = Math.max(
+    1,
+    Math.ceil(Number.parseInt(timeoutMs, 10) / 1000) || 8,
+  ).toString();
+  try {
+    const output = execFileSync(
+      "curl",
+      [
+        "-sS",
+        "--max-time",
+        timeoutSeconds,
+        "-X",
+        "POST",
+        ollamaChatEndpoint(baseUrl),
+        "-H",
+        "content-type: application/json",
+        "--data",
+        JSON.stringify({
+          model,
+          messages: [{ role: "user", content: "doctor readiness probe" }],
+          max_tokens: 1,
+          stream: false,
+        }),
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    const parsed = JSON.parse(output) as {
+      choices?: Array<{ message?: { content?: unknown } }>;
+      error?: unknown;
+    };
+    if (typeof parsed.choices?.[0]?.message?.content === "string")
+      return {
+        ok: true,
+        className: "provider.ollama_chat_ready",
+        message: `Ollama chat model ${model} answered a local readiness probe; response content is not printed.`,
+      };
+    const error = typeof parsed.error === "string" ? parsed.error : "";
+    if (error.toLowerCase().includes("not found"))
+      return {
+        ok: false,
+        className: "provider.ollama_model_missing",
+        message: `Ollama chat model ${model} is not available locally.`,
+        remediation: `Run ollama pull ${model}, then rerun npm run doctor.`,
+      };
+    return {
+      ok: false,
+      className: "provider.ollama_invalid_response",
+      message:
+        "Ollama chat readiness probe returned an invalid OpenAI-compatible response; response content is not printed.",
+      remediation:
+        "Confirm OLLAMA_BASE_URL points at the /v1 OpenAI-compatible endpoint and the configured model supports chat.",
+    };
+  } catch {
+    return {
+      ok: false,
+      className: "provider.ollama_unavailable",
+      message:
+        "Ollama chat probe could not reach the local daemon or timed out.",
+      remediation:
+        "Start Ollama on the local machine, verify http://127.0.0.1:11434/v1 is reachable, and rerun npm run doctor.",
     };
   }
 }
@@ -304,10 +386,26 @@ export function runDoctor(
       ? "provider.configured"
       : (provider.failureClass ?? "provider.missing_key"),
     providerKeyPresent
-      ? `AI provider ${provider.selected}/${provider.modelName} is selected by ${provider.selectionMode} configuration; key value is not printed.`
-      : `No usable AI provider key is configured for ${provider.requested}; missing and placeholder key values are treated as absent.`,
+      ? `AI provider ${provider.selected}/${provider.modelName} is selected by ${provider.selectionMode} configuration; provider configuration values are not printed.`
+      : `No usable AI provider configuration is available for ${provider.requested}; missing and placeholder key values are treated as absent.`,
     providerKeyPresent ? undefined : provider.remediation,
   );
+
+  if (provider.selected === "ollama") {
+    const probe = probeOllamaChat(
+      env.OLLAMA_BASE_URL,
+      env.OLLAMA_MODEL,
+      env.MEMORY_TIMEOUT_MS,
+    );
+    check(
+      checks,
+      probe.ok ? "pass" : "fail",
+      "provider.ollama_chat",
+      probe.className,
+      probe.message,
+      probe.remediation,
+    );
+  }
 
   const memoryEnabled = ["1", "true", "yes", "on"].includes(
     env.MEMORY_ENABLED.toLowerCase(),
@@ -473,6 +571,7 @@ export function runDoctor(
       keyPresent: providerKeyPresent,
       deepseekKeyPresent: provider.deepseekKeyConfigured,
       openaiKeyPresent: provider.openaiKeyConfigured,
+      ollamaBaseUrlLoopback: provider.ollamaBaseUrlLoopback,
     },
     memory: {
       enabled: memoryEnabled,

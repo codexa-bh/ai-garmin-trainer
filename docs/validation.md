@@ -15,7 +15,7 @@ npm run deps:evidence -- --output ./tmp/dependency-evidence.json
 npm run build
 ```
 
-`npm run doctor`, `npm run db:status -- --json`, bootstrap stage output, and dependency evidence output are allowlisted support artifacts. They report versions, schema readiness, current/migration decisions, loopback readiness, and whether Garmin MCP args explicitly include the reviewed exact `mcp==1.28.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, prompts, precise GPS streams, raw connector payloads, vectors, or `.env.local` values.
+`npm run doctor`, `npm run db:status -- --json`, bootstrap stage output, and dependency evidence output are allowlisted support artifacts. They report versions, schema readiness, current/migration decisions, selected chat provider readiness including loopback Ollama chat when configured, loopback readiness, and whether Garmin MCP args explicitly include the reviewed exact `mcp==1.28.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, provider base URLs, prompts, precise GPS streams, raw connector payloads, vectors, or `.env.local` values.
 
 ## Task process guardrails
 
@@ -30,7 +30,7 @@ Live smoke with local secrets:
 5. Enter one imported Garmin activity ID in Activity detail and run Backfill detail. Confirm the status reports normalized record/lap counts or an explicit unsupported/failed reason; redacted connector/detail payloads may be retained only in the local SQLite raw-payload table, and no raw FIT files should be created by the app.
 6. Use Show detail coverage to verify per-activity fields such as streams, GPS, elevation, HR, grade, power, recovery, record count, and lap count.
 7. Interrupt a sync, resume it, and run again to verify idempotency.
-8. Chat with the configured provider using imported facts. Ask for a specific activity comparison, count, trend, ranking, or projection and verify the planner uses schema inspection when needed, guarded `runReadOnlySql`, and `runMathAnalysis` for consequential custom calculation over the same-turn SQL handle. Confirm the answer discloses selected criteria/formula and limitations without a hidden fixed rubric, model-only Garmin arithmetic, raw tool output, or unsupported data claims.
+8. Chat with the configured provider using imported facts. For local Ollama chat, set `AI_PROVIDER=ollama` and `OLLAMA_MODEL=qwen3.5:4b` with a loopback `/v1` base URL. Ask for a specific activity comparison, count, trend, ranking, or projection and verify the planner uses schema inspection when needed, guarded `runReadOnlySql`, and `runMathAnalysis` for consequential custom calculation over the same-turn SQL handle. Confirm the answer discloses selected criteria/formula and limitations without a hidden fixed rubric, model-only Garmin arithmetic, raw tool output, or unsupported data claims.
 9. Restart the app and verify conversation/profile/detail coverage persistence.
 10. Edit profile memory and verify later responses reflect the correction.
 11. Clear chat/profile, clear semantic memory, then disconnect/delete Garmin data and verify activity detail and `garmin_raw_payload` tables are also removed and the state is reconnectable.

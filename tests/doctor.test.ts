@@ -143,6 +143,33 @@ describe("source-beta doctor and redaction", () => {
     expect(text).not.toContain("MEMORY_EMBEDDING_API_KEY");
   });
 
+  it("fails closed for non-loopback Ollama chat URLs without printing the endpoint", () => {
+    const report = runDoctor({
+      ...baseEnv,
+      AI_PROVIDER: "ollama",
+      OLLAMA_BASE_URL: "https://example.com:11434/v1",
+      OPENAI_API_KEY: "replace-with-openai-key",
+    });
+    const providerCheck = report.checks.find(
+      (item) => item.id === "provider.key",
+    );
+    const providerFacts = report.facts.provider as {
+      selected: string;
+      ollamaBaseUrlLoopback: boolean;
+    };
+
+    expect(report.ok).toBe(false);
+    expect(providerCheck).toMatchObject({
+      status: "fail",
+      className: "provider.ollama_non_loopback",
+    });
+    expect(providerFacts).toMatchObject({
+      selected: "none",
+      ollamaBaseUrlLoopback: false,
+    });
+    expect(JSON.stringify(report)).not.toContain("https://example.com:11434");
+  });
+
   it("fails closed for non-loopback Ollama memory embedding URLs", () => {
     const report = runDoctor({
       ...baseEnv,

@@ -13,7 +13,7 @@ Application code must not quietly become the coach by embedding product-level tr
 - The supported runtime is single-user loopback/local use.
 - Garmin credentials and connector auth state stay outside the web app.
 - The app stores normalized local data and avoids exposing secrets, filesystem paths, auth/session rows, raw FIT dumps, connector handles, or environment values to the model or UI.
-- Public hosting, LAN exposure, multi-user tenancy, Garmin write-back, and production operations are outside the local MVP boundary.
+- Public hosting, LAN exposure, non-loopback Ollama endpoints, multi-user tenancy, Garmin write-back, and production operations are outside the local MVP boundary.
 
 ### AI reasoning over tools, not hidden formulas
 
@@ -108,7 +108,8 @@ Responsibilities:
 
 - choose the configured model provider;
 - keep provider-specific wiring isolated;
-- allow vendor changes without changing analytics semantics.
+- allow vendor changes without changing analytics semantics;
+- reject unsupported non-loopback local-provider endpoints before chat wiring.
 
 Non-responsibilities:
 

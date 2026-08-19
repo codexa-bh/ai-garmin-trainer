@@ -260,6 +260,35 @@ describe("embedded SQLite semantic memory adapter", () => {
     ]);
   });
 
+  it("falls back deterministically instead of sending memory extraction to Ollama chat", async () => {
+    process.env.AI_PROVIDER = "ollama";
+    process.env.OLLAMA_MODEL = "qwen3.5:4b";
+    process.env.OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1";
+    const repository = await import("../src/lib/db/repository");
+    const module = await import("../src/lib/memory/sqlite-adapter");
+
+    await module.trainerMemoryStore().addCompletedTurn({
+      conversationId: "ollama-extraction-fallback",
+      userMessageId: "u-ollama-extraction",
+      assistantMessageId: "a-ollama-extraction",
+      userText: "I prefer short easy runs after travel",
+      assistantText: "I will account for that.",
+      completedAt: new Date("2026-07-23T12:00:00Z"),
+    });
+
+    expect(aiMocks.generateText).not.toHaveBeenCalled();
+    const rows = repository
+      .getDatabase()
+      .prepare("select text, source from semantic_memory")
+      .all() as Array<{ text: string; source: string }>;
+    expect(rows).toEqual([
+      {
+        text: "I prefer short easy runs after travel",
+        source: "completed-turn-user-fact",
+      },
+    ]);
+  });
+
   it("honors deterministic and off memory extraction modes", async () => {
     const repository = await import("../src/lib/db/repository");
     const module = await import("../src/lib/memory/sqlite-adapter");

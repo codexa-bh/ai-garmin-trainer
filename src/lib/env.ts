@@ -18,11 +18,13 @@ const optionalEnvSchema = z.object({
   GARMIN_MCP_COMMAND: z.string().default("uvx"),
   GARMIN_MCP_ARGS: z.string().default(GARMIN_MCP_DEFAULT_ARGS_STRING),
   GARMIN_MCP_TOKEN_DIR: z.string().default("./.garmin-token"),
-  AI_PROVIDER: z.enum(["auto", "openai", "deepseek"]).default("auto"),
+  AI_PROVIDER: z.enum(["auto", "openai", "deepseek", "ollama"]).default("auto"),
   AI_MODEL: z.string().default("gpt-4o-mini"),
   OPENAI_API_KEY: z.string().optional(),
   DEEPSEEK_API_KEY: z.string().optional(),
   DEEPSEEK_MODEL: z.string().default("deepseek-chat"),
+  OLLAMA_MODEL: z.string().default("qwen3.5:4b"),
+  OLLAMA_BASE_URL: z.string().url().default("http://127.0.0.1:11434/v1"),
   MEMORY_ENABLED: z.string().default("false"),
   MEMORY_EMBEDDING_PROVIDER: z
     .enum(["openai", "deterministic", "ollama"])
