@@ -2409,23 +2409,12 @@ function HeartRateZoneTimeChart({
 }: {
   summary: ActivityDashboardPayload["heartRateZones"];
 }) {
-  const boundaryProvenance =
-    summary.zoneStatus === "garmin_configured"
-      ? "Garmin-configured HR-zone boundaries"
-      : summary.zoneStatus === "derived_from_garmin_max_hr"
-        ? "Estimated zones derived from Garmin max HR"
-        : "HR-zone boundaries unavailable";
   const timeProvenance =
     summary.timeSource === "garmin_activity"
       ? "Garmin activity HR-zone totals"
       : summary.timeSource === "local_stream"
         ? "Local stream-derived fallback"
         : "HR-zone time unavailable";
-  const totalMismatch =
-    summary.status === "available" &&
-    summary.activityDurationSec !== null &&
-    summary.sourceTotalSeconds !== null &&
-    Math.abs(summary.activityDurationSec - summary.sourceTotalSeconds) >= 60;
   const denominator = Math.max(1, summary.classifiedSeconds);
   const orderedBuckets = [...summary.buckets].sort(
     (left, right) => right.zone - left.zone,
@@ -2465,27 +2454,6 @@ function HeartRateZoneTimeChart({
               );
             })}
           </div>
-          <p className="activity-dashboard-status">
-            Source total:{" "}
-            {durationDetailLabel(
-              summary.sourceTotalSeconds ?? summary.classifiedSeconds,
-            )}
-            {summary.activityDurationSec !== null
-              ? ` · activity duration ${durationDetailLabel(summary.activityDurationSec)}`
-              : ""}
-            . {boundaryProvenance}.
-            {totalMismatch
-              ? " Garmin's HR-zone source total differs from the activity duration, so unclassified/no-HR or moving-time differences may not be included."
-              : ""}
-            {summary.timeSource === "local_stream" &&
-            summary.unclassifiedSeconds > 0
-              ? ` Unclassified HR time: ${durationDetailLabel(summary.unclassifiedSeconds)}.`
-              : ""}
-            {summary.timeSource === "local_stream" &&
-            summary.noHeartRateSeconds > 0
-              ? ` No-HR stream time: ${durationDetailLabel(summary.noHeartRateSeconds)}.`
-              : ""}
-          </p>
         </>
       ) : (
         <div className="activity-chart empty-state">
@@ -5019,19 +4987,9 @@ export function TrainerDashboard() {
                         {activityDashboard.charts.speed?.message ??
                           "Speed unavailable because normalized cumulative-distance stream samples are not available."}
                       </span>
-                      <span>
-                        Requires reliable cumulative-distance and elapsed-time
-                        windows; no measured speed, GPS, summary, lap, or pace
-                        fallback is used.
-                      </span>
                     </div>
                   )}
                 </div>
-                {activityDashboard.charts.timeScaleMessage ? (
-                  <p className="activity-dashboard-status">
-                    {activityDashboard.charts.timeScaleMessage}
-                  </p>
-                ) : null}
                 <div className="route-zone-grid">
                   <RouteMap route={activityDashboard.route} />
                   <HeartRateZoneTimeChart
@@ -5138,11 +5096,6 @@ export function TrainerDashboard() {
                     </dl>
                   </section>
                 </div>
-                <p className="activity-dashboard-status activity-effort-note">
-                  Effort fields come from Garmin activity detail when exposed;
-                  unavailable means the local row has not exposed that field.
-                  Explicit zero values display as 0.
-                </p>
                 {activityDashboard.laps.length ? (
                   <div className="lap-table-wrap">
                     <table className="lap-table">
@@ -5183,12 +5136,6 @@ export function TrainerDashboard() {
                     No lap rows are available for this activity.
                   </p>
                 )}
-                {activityDashboard.detail.unavailableReason ? (
-                  <p className="activity-dashboard-status">
-                    Detail limitation:{" "}
-                    {activityDashboard.detail.unavailableReason}
-                  </p>
-                ) : null}
               </>
             ) : activityDashboardState === "error" ? (
               <p className="empty-chat">
