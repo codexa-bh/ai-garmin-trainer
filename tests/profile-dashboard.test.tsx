@@ -1403,7 +1403,8 @@ describe("TrainerDashboard activity charts", () => {
     const hikingMetadata = hikingRow?.querySelector("small");
     expect(hikingMetadata?.textContent).toContain("2026-08-12 · ");
     expect(hikingMetadata?.textContent).toContain("⛰️");
-    expect(hikingMetadata?.textContent).toContain("Garmin ID 23953090857");
+    expect(hikingMetadata?.textContent).not.toContain("Garmin ID");
+    expect(hikingMetadata?.textContent).not.toContain("23953090857");
     expect(hikingMetadata?.textContent).not.toContain("hiking");
     expect(
       within(hikingMetadata as HTMLElement).getByLabelText("Hiking"),
@@ -1419,6 +1420,8 @@ describe("TrainerDashboard activity charts", () => {
       .closest(".activity-list-item")
       ?.querySelector("small");
     expect(fallbackMetadata?.textContent).toContain("◆");
+    expect(fallbackMetadata?.textContent).not.toContain("Garmin ID");
+    expect(fallbackMetadata?.textContent).not.toContain("999999");
     expect(fallbackMetadata?.textContent).not.toContain("future_sport");
     expect(
       within(fallbackMetadata as HTMLElement).getByLabelText("Activity type"),
