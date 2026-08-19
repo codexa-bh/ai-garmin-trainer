@@ -4842,8 +4842,7 @@ export function TrainerDashboard() {
                           <strong>{activity.label}</strong>
                           <small>
                             {activity.date} ·{" "}
-                            <ActivitySportIcon sport={activity.sport} /> ·
-                            Garmin ID {activity.garminId}
+                            <ActivitySportIcon sport={activity.sport} />
                           </small>
                         </span>
                         <span>
