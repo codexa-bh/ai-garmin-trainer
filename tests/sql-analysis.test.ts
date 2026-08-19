@@ -106,7 +106,77 @@ async function seedActivities() {
       bodyBatteryEvening: 44,
       availability: "complete",
     },
+    {
+      date: "2026-08-05",
+      sleepMinutes: 410,
+      sleepScore: 78,
+      sleepDeepMinutes: 68,
+      sleepLightMinutes: 250,
+      sleepRemMinutes: 72,
+      sleepAwakeMinutes: 20,
+      sleepNapMinutes: null,
+      restingHeartRate: 50,
+      hrvStatus: "balanced",
+      hrvMs: 55,
+      stressAvg: 28,
+      steps: 9000,
+      calories: 2300,
+      activeCalories: 700,
+      restingCalories: 1600,
+      totalCalories: 2300,
+      intensityMinutes: 35,
+      bodyBatteryAvg: 66,
+      bodyBatteryMorning: 80,
+      bodyBatteryEvening: 42,
+      availability: "complete",
+    },
   ]);
+  for (const detail of [
+    {
+      garminId: "run-1",
+      fetchedAt: new Date("2026-07-01T08:00:00Z"),
+      source: "garmin_mcp" as const,
+      status: "available" as const,
+      sourceTotalSeconds: 3600,
+      buckets: [
+        { zone: 1 as const, seconds: 600, sourceLowerBpm: 95 },
+        { zone: 2 as const, seconds: 1200, sourceLowerBpm: 114 },
+        { zone: 3 as const, seconds: 900, sourceLowerBpm: 133 },
+        { zone: 4 as const, seconds: 600, sourceLowerBpm: 152 },
+        { zone: 5 as const, seconds: 300, sourceLowerBpm: 171 },
+      ],
+    },
+    {
+      garminId: "ride-1",
+      fetchedAt: new Date("2026-07-02T09:00:00Z"),
+      source: "garmin_mcp" as const,
+      status: "available" as const,
+      sourceTotalSeconds: 7200,
+      buckets: [
+        { zone: 1 as const, seconds: 1800, sourceLowerBpm: 95 },
+        { zone: 2 as const, seconds: 2400, sourceLowerBpm: 114 },
+        { zone: 3 as const, seconds: 1800, sourceLowerBpm: 133 },
+        { zone: 4 as const, seconds: 900, sourceLowerBpm: 152 },
+        { zone: 5 as const, seconds: 300, sourceLowerBpm: 171 },
+      ],
+    },
+    {
+      garminId: "aug-ride-1",
+      fetchedAt: new Date("2026-08-05T09:00:00Z"),
+      source: "garmin_mcp" as const,
+      status: "available" as const,
+      sourceTotalSeconds: 5400,
+      buckets: [
+        { zone: 1 as const, seconds: 900, sourceLowerBpm: 95 },
+        { zone: 2 as const, seconds: 1500, sourceLowerBpm: 114 },
+        { zone: 3 as const, seconds: 1600, sourceLowerBpm: 133 },
+        { zone: 4 as const, seconds: 1000, sourceLowerBpm: 152 },
+        { zone: 5 as const, seconds: 400, sourceLowerBpm: 171 },
+      ],
+    },
+  ]) {
+    repository.upsertActivityHrZoneTime(detail);
+  }
 }
 
 describe("read-only Garmin SQL analysis", () => {
@@ -127,6 +197,24 @@ describe("read-only Garmin SQL analysis", () => {
     );
     expect(description.tables.map((table) => table.name)).toContain(
       "garmin_body_weight_history",
+    );
+    expect(description.tables.map((table) => table.name)).toContain(
+      "activity_hr_zone_time",
+    );
+    expect(description.tables.map((table) => table.name)).not.toEqual(
+      expect.arrayContaining([
+        "user",
+        "session",
+        "account",
+        "conversation",
+        "message",
+        "trainer_memory",
+        "semantic_memory",
+        "garmin_raw_payload",
+        "sync_run",
+        "sync_checkpoint",
+        "activity_detail_attempt",
+      ]),
     );
     const dailyHealth = description.tables.find(
       (table) => table.name === "daily_health",
@@ -158,15 +246,24 @@ describe("read-only Garmin SQL analysis", () => {
     expect(JSON.stringify(description)).toContain("moderate_intensity_minutes");
     expect(JSON.stringify(description)).toContain("anaerobic_training_effect");
     expect(JSON.stringify(description)).toContain("training_load");
+    expect(JSON.stringify(description)).toContain("distance_meters");
+    expect(JSON.stringify(description)).toContain("temperature_c");
     expect(JSON.stringify(description)).toContain("lat");
     expect(JSON.stringify(description)).toContain("lon");
     expect(JSON.stringify(description)).toContain(
       "bounded normalized GPS route coordinates",
     );
+    expect(JSON.stringify(description)).toContain("activity_hr_zone_time");
+    expect(JSON.stringify(description)).toContain("hr_zone_seconds");
+    expect(JSON.stringify(description)).toContain("source_total_seconds");
+    expect(JSON.stringify(description)).toContain("heart_rate_zones_json");
+    expect(JSON.stringify(description)).toContain("session_json");
     expect(description.examples.join(" ")).toContain(
       "unixepoch('now', '-365 days') * 1000",
     );
     expect(description.examples.join(" ")).toContain("activity_calories_kcal");
+    expect(description.examples.join(" ")).toContain("active_calories_kcal");
+    expect(description.examples.join(" ")).toContain("activity_hr_zone_time");
     expect(description.examples.join(" ")).toContain("strftime('%Y-%m'");
     expect(description.examples.join(" ")).toContain("model-selected formula");
     expect(description.examples.join(" ")).not.toContain(
@@ -182,6 +279,9 @@ describe("read-only Garmin SQL analysis", () => {
     expect(JSON.stringify(description)).not.toContain("session token");
     expect(description.forbiddenDataClasses.join(" ")).toContain(
       "auth/session/account/verification",
+    );
+    expect(description.forbiddenDataClasses.join(" ")).toContain(
+      "conversation/message/memory/profile",
     );
   });
 
@@ -235,6 +335,16 @@ describe("read-only Garmin SQL analysis", () => {
 
     expect(result.status).toBe("succeeded");
     expect(result.rows).toEqual([
+      {
+        date: "2026-08-05",
+        sleep_minutes: 410,
+        sleep_score: 78,
+        sleep_deep_minutes: 68,
+        sleep_light_minutes: 250,
+        sleep_rem_minutes: 72,
+        sleep_awake_minutes: 20,
+        sleep_nap_minutes: null,
+      },
       {
         date: "2026-07-01",
         sleep_minutes: 430,
@@ -329,6 +439,95 @@ describe("read-only Garmin SQL analysis", () => {
       { month: "2026-07", activities: 2, activity_calories_kcal: 1800 },
       { month: "2026-08", activities: 1, activity_calories_kcal: 900 },
     ]);
+  });
+
+  it("runs monthly multi-metric aggregates including HR-zone totals", async () => {
+    await seedActivities();
+    const { runReadOnlySql } = await import("../src/lib/ai/sql-analysis");
+
+    const result = runReadOnlySql({
+      resultName: "monthly_garmin_totals",
+      maxRows: 20,
+      sql: `
+        with months(month) as (
+          values ('2026-07'), ('2026-08')
+        ),
+        daily as (
+          select substr(date, 1, 7) as month,
+                 sum(steps) as steps,
+                 sum(active_calories) as active_calories_kcal,
+                 sum(resting_calories) as resting_calories_kcal,
+                 sum(total_calories) as total_calories_kcal
+          from daily_health
+          where substr(date, 1, 7) in ('2026-07', '2026-08')
+          group by month
+        ),
+        activity_totals as (
+          select strftime('%Y-%m', started_at / 1000, 'unixepoch') as month,
+                 count(*) as activities,
+                 round(sum(distance_meters) / 1000.0, 1) as activity_km,
+                 sum(elevation_gain_meters) as ascent_meters,
+                 sum(calories) as activity_calories_kcal
+          from activity
+          where strftime('%Y-%m', started_at / 1000, 'unixepoch') in ('2026-07', '2026-08')
+          group by month
+        ),
+        zone_totals as (
+          select strftime('%Y-%m', a.started_at / 1000, 'unixepoch') as month,
+                 z.zone,
+                 sum(z.seconds) as seconds
+          from activity a
+          join activity_hr_zone_time z on z.garmin_id = a.garmin_id
+          where z.status = 'available'
+            and strftime('%Y-%m', a.started_at / 1000, 'unixepoch') in ('2026-07', '2026-08')
+          group by month, z.zone
+        )
+        select m.month,
+               d.steps,
+               d.active_calories_kcal,
+               d.resting_calories_kcal,
+               d.total_calories_kcal,
+               a.activities,
+               a.activity_km,
+               a.ascent_meters,
+               a.activity_calories_kcal,
+               z.zone,
+               z.seconds as hr_zone_seconds
+        from months m
+        left join daily d on d.month = m.month
+        left join activity_totals a on a.month = m.month
+        left join zone_totals z on z.month = m.month
+        order by m.month, z.zone
+      `,
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          month: "2026-07",
+          steps: 11000,
+          active_calories_kcal: 900,
+          resting_calories_kcal: 1600,
+          activities: 2,
+          activity_km: 84,
+          ascent_meters: 1350,
+          zone: 2,
+          hr_zone_seconds: 3600,
+        }),
+        expect.objectContaining({
+          month: "2026-08",
+          steps: 9000,
+          active_calories_kcal: 700,
+          resting_calories_kcal: 1600,
+          activities: 1,
+          activity_km: 42,
+          ascent_meters: 520,
+          zone: 5,
+          hr_zone_seconds: 400,
+        }),
+      ]),
+    );
   });
 
   it("allows CTE and month-series aliases while still requiring allowlisted activity data", async () => {
@@ -447,6 +646,9 @@ describe("read-only Garmin SQL analysis", () => {
       "select * from activity; select * from daily_health",
       "select * from activity -- hidden",
       "select token from session",
+      "select content from message",
+      "select value from trainer_memory",
+      "select * from sync_run",
       "select * from garmin_raw_payload",
     ]) {
       const result = runReadOnlySql({ sql });

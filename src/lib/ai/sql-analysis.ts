@@ -60,10 +60,12 @@ export const SQL_LIMITS = {
 };
 
 const PRIVACY =
-  "Read-only local SQLite analytics over allowlisted normalized Garmin tables only, including bounded normalized GPS route coordinates when route/GPS evidence is requested; auth/session/account/verification, secrets, connector credentials, raw payloads, and filesystem paths are excluded.";
+  "Read-only local SQLite analytics over allowlisted app-owned normalized Garmin analytical tables by default, including bounded normalized GPS route coordinates when route/GPS evidence is requested; auth/session/account/verification, conversations/messages/memory/profile, operational sync/import internals, secrets, connector credentials, raw payloads, and filesystem paths are excluded.";
 
 const FORBIDDEN_DATA_CLASSES = [
   "auth/session/account/verification rows",
+  "conversation/message/memory/profile/training-plan rows outside the Garmin SQL analytics surface",
+  "operational sync/import attempt/checkpoint metadata and app metadata",
   "secrets, tokens, passwords, cookies, provider credentials, and connector handles",
   "filesystem paths, database paths, environment variables, process/network access",
   "raw unrestricted FIT streams, unrestricted GPS stream dumps, or raw Garmin connector payload dumps",
@@ -165,6 +167,7 @@ const ANALYTICAL_SCHEMA: Record<
       "activity.garmin_id = activity_detail_availability.garmin_id",
       "activity.garmin_id = activity_lap.garmin_id",
       "activity.garmin_id = activity_stream_point.garmin_id",
+      "activity.garmin_id = activity_hr_zone_time.garmin_id",
     ],
   },
   daily_health: {
@@ -274,15 +277,38 @@ const ANALYTICAL_SCHEMA: Record<
       "Bounded metadata showing whether normalized session/lap/stream/detail rows exist for an activity; not raw FIT content.",
     columns: [
       { name: "garmin_id", type: "text" },
+      {
+        name: "fetched_at",
+        type: "integer",
+        unit: "Unix epoch ms",
+        nullable: true,
+      },
+      { name: "source", type: "text", note: "garmin-fit | garmin-summary" },
       { name: "status", type: "text" },
       { name: "has_session", type: "integer", note: "0/1 boolean" },
       { name: "has_laps", type: "integer", note: "0/1 boolean" },
       { name: "has_streams", type: "integer", note: "0/1 boolean" },
       { name: "has_gps", type: "integer", note: "0/1 boolean" },
+      { name: "has_elevation", type: "integer", note: "0/1 boolean" },
       { name: "has_heart_rate", type: "integer", note: "0/1 boolean" },
+      { name: "has_grade", type: "integer", note: "0/1 boolean" },
+      { name: "has_power", type: "integer", note: "0/1 boolean" },
+      { name: "has_recovery", type: "integer", note: "0/1 boolean" },
       { name: "record_count", type: "integer" },
       { name: "lap_count", type: "integer" },
       { name: "unavailable_reason", type: "text", nullable: true },
+      {
+        name: "session_json",
+        type: "text",
+        nullable: true,
+        note: "app-normalized bounded session summary JSON; not raw FIT or connector payload",
+      },
+      {
+        name: "derived_json",
+        type: "text",
+        nullable: true,
+        note: "app-derived bounded detail metrics JSON; not raw FIT or connector payload",
+      },
     ],
     joins: ["activity_detail_availability.garmin_id = activity.garmin_id"],
   },
@@ -305,6 +331,12 @@ const ANALYTICAL_SCHEMA: Record<
         unit: "meters",
         nullable: true,
       },
+      {
+        name: "elevation_loss_meters",
+        type: "real",
+        unit: "meters",
+        nullable: true,
+      },
       { name: "avg_power_watts", type: "real", unit: "watts", nullable: true },
       {
         name: "normalized_power_watts",
@@ -323,6 +355,7 @@ const ANALYTICAL_SCHEMA: Record<
       { name: "garmin_id", type: "text" },
       { name: "elapsed_sec", type: "integer", unit: "seconds" },
       { name: "timestamp", type: "text", nullable: true },
+      { name: "distance_meters", type: "real", unit: "meters", nullable: true },
       { name: "heart_rate", type: "integer", unit: "bpm", nullable: true },
       { name: "speed_mps", type: "real", unit: "m/s", nullable: true },
       { name: "altitude_meters", type: "real", unit: "meters", nullable: true },
@@ -343,8 +376,43 @@ const ANALYTICAL_SCHEMA: Record<
       },
       { name: "cadence", type: "real", nullable: true },
       { name: "power_watts", type: "real", unit: "watts", nullable: true },
+      { name: "temperature_c", type: "real", unit: "°C", nullable: true },
     ],
     joins: ["activity_stream_point.garmin_id = activity.garmin_id"],
+  },
+  activity_hr_zone_time: {
+    name: "activity_hr_zone_time",
+    description:
+      "Normalized per-activity Garmin heart-rate-zone duration totals. Join to activity by garmin_id for date/month/sport filtering; aggregate seconds by zone for HR-zone summaries when status is available.",
+    columns: [
+      { name: "garmin_id", type: "text" },
+      { name: "zone", type: "integer", note: "heart-rate zone number 1-5" },
+      { name: "fetched_at", type: "integer", unit: "Unix epoch ms" },
+      {
+        name: "source",
+        type: "text",
+        note: "normalized Garmin HR-zone source",
+      },
+      {
+        name: "status",
+        type: "text",
+        note: "filter to status = 'available' for totals",
+      },
+      { name: "seconds", type: "integer", unit: "seconds" },
+      {
+        name: "source_lower_bpm",
+        type: "integer",
+        unit: "bpm",
+        nullable: true,
+      },
+      {
+        name: "source_total_seconds",
+        type: "integer",
+        unit: "seconds",
+        note: "source total repeated on each zone row for coverage checks",
+      },
+    ],
+    joins: ["activity_hr_zone_time.garmin_id = activity.garmin_id"],
   },
   garmin_body_metrics: {
     name: "garmin_body_metrics",
@@ -396,6 +464,8 @@ const ANALYTICAL_SCHEMA: Record<
     description:
       "Single normalized athlete baseline values when available; excludes connector credentials and raw account data.",
     columns: [
+      { name: "fetched_at", type: "integer", unit: "Unix epoch ms" },
+      { name: "source", type: "text" },
       { name: "availability", type: "text" },
       {
         name: "configured_max_heart_rate_bpm",
@@ -410,7 +480,19 @@ const ANALYTICAL_SCHEMA: Record<
         nullable: true,
       },
       { name: "cycling_ftp_measured_on", type: "text", nullable: true },
+      {
+        name: "cycling_ftp_source_stale",
+        type: "integer",
+        nullable: true,
+        note: "0/1 boolean indicating preserved stale FTP source state",
+      },
       { name: "heart_rate_zones_status", type: "text", nullable: true },
+      { name: "heart_rate_zones_formula", type: "text", nullable: true },
+      {
+        name: "heart_rate_zones_json",
+        type: "text",
+        note: "app-normalized HR-zone boundary JSON, not raw connector payload",
+      },
       { name: "available_training_days_json", type: "text", nullable: true },
       {
         name: "preferred_long_training_days_json",
@@ -428,8 +510,12 @@ const FORBIDDEN_IDENTIFIERS = new Set([
   "account",
   "verification",
   "trainer_memory",
+  "semantic_memory",
+  "trainer_profile",
+  "training_plan",
   "message",
   "conversation",
+  "app_metadata",
   "sync_checkpoint",
   "sync_run",
   "garmin_raw_payload",
@@ -649,7 +735,7 @@ function disallowedTableDetails(
   return {
     correctionAllowed: true,
     correctionHint:
-      "Correct the SQL using exact allowlisted table/column names from describeGarminDatabase; for activity calories by month, use activity.started_at (Unix epoch ms) and activity.calories (kcal).",
+      "Correct the SQL using exact allowlisted normalized Garmin analytical table/column names from describeGarminDatabase; for activity dates use activity.started_at, for daily totals use daily_health.date, and for HR-zone totals join activity_hr_zone_time to activity by garmin_id.",
     message: [
       sanitizedMessage("disallowed_table"),
       referencedTable ? `Referenced table: ${referencedTable}.` : "",
@@ -776,7 +862,7 @@ function classifySqliteError(
     message: detailParts.join(" "),
     correctionAllowed: true,
     correctionHint:
-      "Correct the SQL using exact allowlisted table/column names from describeGarminDatabase; for last-365-days activity windows use started_at >= unixepoch('now', '-365 days') * 1000.",
+      "Correct the SQL using exact allowlisted normalized Garmin analytical table/column names from describeGarminDatabase; for activity windows use activity.started_at, daily-health windows use daily_health.date, and HR-zone totals use activity_hr_zone_time joined to activity by garmin_id.",
     sqliteMessage,
     missingIdentifier,
     schemaHints,
@@ -833,6 +919,8 @@ export function describeGarminDatabase(): GarminDatabaseDescription {
       examples: [
         "select garmin_id, name, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec from activity order by duration_sec desc limit 10",
         "select strftime('%Y-%m', started_at / 1000, 'unixepoch') as month, count(*) as activities, coalesce(sum(calories), 0) as activity_calories_kcal from activity where strftime('%Y', started_at / 1000, 'unixepoch') = strftime('%Y', 'now') group by month order by month",
+        "select substr(date, 1, 7) as month, sum(steps) as steps, sum(active_calories) as active_calories_kcal, sum(resting_calories) as resting_calories_kcal, sum(total_calories) as total_calories_kcal from daily_health group by month order by month",
+        "select strftime('%Y-%m', a.started_at / 1000, 'unixepoch') as month, z.zone, sum(z.seconds) as hr_zone_seconds from activity a join activity_hr_zone_time z on z.garmin_id = a.garmin_id where z.status = 'available' group by month, z.zone order by month, z.zone",
         "select garmin_id, coalesce(name, sport || ' on ' || date(started_at / 1000, 'unixepoch')) as label, name, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, elevation_gain_meters, elevation_loss_meters, training_effect from activity where started_at >= unixepoch('now', '-365 days') * 1000 order by started_at desc limit 200 -- then use runMathAnalysis score/normalize with a transparent model-selected formula over these columns, e.g. duration_sec + distance_meters + elevation_gain_meters + calories + avg_heart_rate + max_heart_rate + training_effect",
         "select sport, count(*) as activities, avg(duration_sec) as avg_duration_sec from activity group by sport order by activities desc",
         "select a.garmin_id, a.name, d.status, d.record_count from activity a join activity_detail_availability d on d.garmin_id = a.garmin_id limit 20",
