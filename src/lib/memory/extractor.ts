@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { selectedModel } from "../ai/providers";
+import { selectedMemoryExtractionModel } from "../ai/providers";
 import { getOptionalEnv } from "../env";
 import { compactText, unsafeMemoryReason } from "./filters";
 import type { CompletedTurn, MemoryCandidate, MemoryKind } from "./types";
@@ -321,14 +321,15 @@ export async function extractMemoryCandidatesWithLlm(
 
   let result: RawGenerateTextResult;
   try {
-    const { model } = selectedModel();
+    const selection = selectedMemoryExtractionModel();
+    if (!selection) return null;
     result = await withTimeout(
       (
         generateText as unknown as (
           options: Record<string, unknown>,
         ) => Promise<RawGenerateTextResult>
       )({
-        model,
+        model: selection.model,
         system: EXTRACTION_SYSTEM,
         prompt: extractionPrompt(input),
         toolChoice: "none",

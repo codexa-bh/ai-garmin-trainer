@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { aiProviderStatus } from "../src/lib/ai/providers";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  OLLAMA_CHAT_DEFAULT_BASE_URL,
+  OLLAMA_CHAT_DEFAULT_MODEL,
+  aiProviderStatus,
+  isLoopbackAiBaseUrl,
+  selectedMemoryExtractionModel,
+  selectedModel,
+} from "../src/lib/ai/providers";
 import { getOptionalEnv, hasConfiguredSecret } from "../src/lib/env";
 
 function env(input: Record<string, string | undefined>) {
@@ -10,6 +17,10 @@ function env(input: Record<string, string | undefined>) {
     ...input,
   });
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("AI provider selection", () => {
   it("defaults to DeepSeek when a valid DeepSeek key is configured", () => {
@@ -71,5 +82,67 @@ describe("AI provider selection", () => {
       /placeholder example values are ignored/,
     );
     expect(hasConfiguredSecret("replace-with-openai-key")).toBe(false);
+  });
+
+  it("accepts explicit Ollama chat with local defaults and no cloud key", () => {
+    const status = aiProviderStatus(env({ AI_PROVIDER: "ollama" }));
+
+    expect(status).toMatchObject({
+      requested: "ollama",
+      selected: "ollama",
+      selectionMode: "explicit",
+      modelName: OLLAMA_CHAT_DEFAULT_MODEL,
+      deepseekKeyConfigured: false,
+      openaiKeyConfigured: false,
+      ollamaBaseUrlLoopback: true,
+      failureClass: null,
+    });
+    expect(isLoopbackAiBaseUrl(OLLAMA_CHAT_DEFAULT_BASE_URL)).toBe(true);
+  });
+
+  it("rejects explicit Ollama chat configured with a non-loopback endpoint", () => {
+    const status = aiProviderStatus(
+      env({
+        AI_PROVIDER: "ollama",
+        OLLAMA_BASE_URL: "https://example.com:11434/v1",
+      }),
+    );
+
+    expect(status.selected).toBeNull();
+    expect(status).toMatchObject({
+      failureClass: "provider.ollama_non_loopback",
+      ollamaBaseUrlLoopback: false,
+    });
+    expect(JSON.stringify(status)).not.toContain("https://example.com");
+  });
+
+  it("constructs the explicit Ollama chat model through the trainer-chat selector", () => {
+    vi.stubEnv("AI_PROVIDER", "ollama");
+    vi.stubEnv("OLLAMA_MODEL", "qwen3.5:4b");
+    vi.stubEnv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1");
+
+    const selection = selectedModel();
+
+    expect(selection).toMatchObject({
+      provider: "ollama",
+      selectionMode: "explicit",
+      modelName: "qwen3.5:4b",
+    });
+    expect(selection.model).toBeTruthy();
+  });
+
+  it("keeps memory extraction off the Ollama chat provider", () => {
+    vi.stubEnv("AI_PROVIDER", "ollama");
+    vi.stubEnv("OLLAMA_MODEL", "qwen3.5:4b");
+    vi.stubEnv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1");
+
+    expect(selectedMemoryExtractionModel()).toBeNull();
+
+    vi.stubEnv("DEEPSEEK_API_KEY", "ds-live-memory-key");
+    expect(selectedMemoryExtractionModel()).toMatchObject({
+      provider: "deepseek",
+      selectionMode: "default",
+      modelName: "deepseek-chat",
+    });
   });
 });

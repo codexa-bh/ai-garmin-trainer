@@ -34,8 +34,19 @@ import { LOCAL_MEMORY_USER_ID, type RetrievedMemory } from "@/lib/memory/types";
 
 const CHAT_HISTORY_LIMIT = 40;
 const ACTIVE_TRANSCRIPT_CHAR_BUDGET = 6000;
+const SAFE_CHAT_FAILURE_MESSAGE =
+  "Trainer chat failed before a safe answer was persisted. Run npm run doctor to check local provider readiness, then retry.";
 
 type MemoryProposalResult = { status: "none" };
+
+function safeChatFailureMessage(error: unknown): string {
+  if (
+    error instanceof Error &&
+    /provider|api key|AI_PROVIDER/i.test(error.message)
+  )
+    return error.message;
+  return SAFE_CHAT_FAILURE_MESSAGE;
+}
 
 function messageText(message: UIMessage): string {
   return String(
@@ -233,9 +244,9 @@ function streamingResponse(input: {
           type: "error",
           code: input.requestSignal.aborted ? "aborted" : "chat_failed",
           message:
-            error instanceof Error && error.message !== "stream aborted"
-              ? error.message
-              : "Chat stream stopped before a complete assistant answer was persisted.",
+            error instanceof Error && error.message === "stream aborted"
+              ? "Chat stream stopped before a complete assistant answer was persisted."
+              : safeChatFailureMessage(error),
           retryable: true,
         });
         controller.close();
@@ -510,7 +521,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "chat failed" },
+      { error: safeChatFailureMessage(error) },
       { status: 500 },
     );
   }
