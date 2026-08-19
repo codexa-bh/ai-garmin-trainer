@@ -612,6 +612,95 @@ describe("trainer orchestrator fail-closed policy", async () => {
     ]);
   });
 
+  it("synthesizes a multi-metric monthly aggregate answer from SQL evidence", async () => {
+    runReadOnlySql.mockReturnValueOnce({
+      status: "succeeded",
+      resultName: "monthly_garmin_totals",
+      columns: [
+        { name: "month" },
+        { name: "steps" },
+        { name: "active_calories_kcal" },
+        { name: "resting_calories_kcal" },
+        { name: "activity_km" },
+        { name: "ascent_meters" },
+        { name: "zone" },
+        { name: "hr_zone_seconds" },
+      ],
+      rows: [
+        {
+          month: "2026-07",
+          steps: 11000,
+          active_calories_kcal: 900,
+          resting_calories_kcal: 1600,
+          activity_km: 84,
+          ascent_meters: 1350,
+          zone: 2,
+          hr_zone_seconds: 3600,
+        },
+        {
+          month: "2026-08",
+          steps: 9000,
+          active_calories_kcal: 700,
+          resting_calories_kcal: 1600,
+          activity_km: 42,
+          ascent_meters: 520,
+          zone: 5,
+          hr_zone_seconds: 400,
+        },
+      ],
+      rowCount: 2,
+      returnedRows: 2,
+      truncated: false,
+      privacy: "sql privacy",
+    });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [{ toolName: "describeGarminDatabase", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select strftime('%Y-%m', a.started_at / 1000, 'unixepoch') as month, sum(daily_health.active_calories) as active_calories_kcal, sum(activity.elevation_gain_meters) as ascent_meters, z.zone, sum(z.seconds) as hr_zone_seconds from activity a join activity_hr_zone_time z on z.garmin_id = a.garmin_id left join daily_health on daily_health.date = date(a.started_at / 1000, 'unixepoch') group by month, z.zone",
+              resultName: "monthly_garmin_totals",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "July has 11,000 steps, 900 active kcal, 1,600 resting kcal, 84 km of activities, 1,350 m ascent, and Zone 2 totals. August is month-to-date with 9,000 steps, 700 active kcal, 42 km, 520 m ascent, and Zone 5 totals from available HR-zone rows.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest:
+        "Please give me totals for August and July: steps, active/resting calories, activity ascent, activity kilometers, and each HRZ.",
+    });
+
+    expect(runReadOnlySql).toHaveBeenCalledTimes(1);
+    expect(runReadOnlySql).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("activity_hr_zone_time"),
+      }),
+    );
+    expect(runReadOnlySql).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("active_calories"),
+      }),
+    );
+    expect(result.text).toContain("July");
+    expect(result.text).toContain("August");
+    expect(result.text).toContain("month-to-date");
+    expect(result.text).not.toContain("SQL unavailable");
+    expect(result.text).not.toContain("Tool step");
+    expect(result.toolSteps.map((step) => step.status)).toEqual([
+      "succeeded",
+      "succeeded",
+    ]);
+  });
+
   it("returns user-facing prose after repeated SQL failure instead of raw tool steps", async () => {
     runReadOnlySql.mockReturnValue({
       status: "failed",
