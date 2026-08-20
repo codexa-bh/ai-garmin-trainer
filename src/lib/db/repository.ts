@@ -548,6 +548,91 @@ export function getCheckpoint(key: string): string | null {
   return row?.value ?? null;
 }
 
+export type DailyHealthFreshnessEvidence = {
+  date: string;
+  availability: NormalizedDailyHealth["availability"] | null;
+  hasStatsPayload: boolean;
+  hasSleepPayload: boolean;
+  hasBodyBatteryPayload: boolean;
+};
+
+export function getDailyHealthFreshnessEvidence(
+  date: string,
+): DailyHealthFreshnessEvidence | null {
+  const row = getDatabase()
+    .prepare(
+      `select ? as date,
+              daily_health.availability as availability,
+              exists (
+                select 1 from garmin_raw_payload
+                where subject_type = 'daily_health'
+                  and source_tool = 'get_stats'
+                  and subject_id = ? || ':stats'
+              ) as hasStatsPayload,
+              exists (
+                select 1 from garmin_raw_payload
+                where subject_type = 'daily_health'
+                  and source_tool = 'get_sleep_summary'
+                  and subject_id = ? || ':sleep'
+              ) as hasSleepPayload,
+              exists (
+                select 1 from garmin_raw_payload
+                where subject_type = 'daily_health'
+                  and source_tool = 'get_body_battery'
+                  and subject_id = ? || ':body_battery'
+              ) as hasBodyBatteryPayload
+       from (select 1) seed
+       left join daily_health on daily_health.date = ?`,
+    )
+    .get(date, date, date, date, date) as
+    | {
+        date: string;
+        availability: NormalizedDailyHealth["availability"] | null;
+        hasStatsPayload: 0 | 1;
+        hasSleepPayload: 0 | 1;
+        hasBodyBatteryPayload: 0 | 1;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    date: row.date,
+    availability: row.availability,
+    hasStatsPayload: Boolean(row.hasStatsPayload),
+    hasSleepPayload: Boolean(row.hasSleepPayload),
+    hasBodyBatteryPayload: Boolean(row.hasBodyBatteryPayload),
+  };
+}
+
+export function listDailyHealthMissingGapDates(input: {
+  startDate: string;
+  endDate: string;
+  limit?: number;
+}): string[] {
+  const safeLimit = Math.min(
+    Math.max(Math.trunc(input.limit ?? 1000), 1),
+    1000,
+  );
+  if (input.startDate > input.endDate) return [];
+  const rows = getDatabase()
+    .prepare(
+      `with recursive candidate_dates(date) as (
+         select ?
+         union all
+         select date(candidate_dates.date, '+1 day')
+         from candidate_dates
+         where candidate_dates.date < ?
+       )
+       select candidate_dates.date as date
+       from candidate_dates
+       left join daily_health on daily_health.date = candidate_dates.date
+       where daily_health.date is null
+       order by candidate_dates.date asc
+       limit ?`,
+    )
+    .all(input.startDate, input.endDate, safeLimit) as Array<{ date: string }>;
+  return rows.map((row) => row.date);
+}
+
 export function listDailyHealthRepairCandidateDates(input: {
   startDate: string;
   endDate: string;
