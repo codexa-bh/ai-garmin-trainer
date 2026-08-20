@@ -36,10 +36,13 @@ const SIDE_EFFECT_TOOLS = new Set<TrainerToolName>([
   "saveTrainingPlan",
 ]);
 
+export type OrchestrateTrainerStatus = (message: string) => void;
+
 export type OrchestrateTrainerChatInput = {
   model: unknown;
   system: string;
   userRequest: string;
+  onStatus?: OrchestrateTrainerStatus;
   debug?: {
     enabled: boolean;
     provider?: string;
@@ -143,6 +146,39 @@ function finalAnswerSystem(
     baseSystem,
     synthesisEvidenceForSteps(steps),
   );
+}
+
+function statusForTool(toolName: TrainerToolName): string {
+  switch (toolName) {
+    case "describeGarminDatabase":
+      return "Checking local Garmin data shape…";
+    case "runReadOnlySql":
+      return "Running a read-only local Garmin query…";
+    case "runMathAnalysis":
+      return "Calculating from local analysis results…";
+    case "getSyncStatus":
+      return "Checking local sync status…";
+    case "verifyActivityReference":
+      return "Checking the requested activity reference…";
+    case "getActivityDetailAvailability":
+      return "Checking activity detail availability…";
+    case "getActivityDetailSlice":
+      return "Reading bounded local activity detail…";
+    case "runGarminSync":
+      return "Running the requested Garmin sync action…";
+    case "forceRefreshActivityDetail":
+      return "Refreshing the requested activity detail…";
+    case "saveTrainingPlan":
+      return "Saving the requested training plan update…";
+  }
+}
+
+function emitStatus(input: OrchestrateTrainerChatInput, message: string): void {
+  try {
+    input.onStatus?.(message);
+  } catch {
+    // Progress copy is best-effort and must not affect chat orchestration.
+  }
 }
 
 function isAcceptableToolSynthesisText(text: string): boolean {
@@ -458,6 +494,12 @@ export async function orchestrateTrainerChat(
   };
 
   for (let plannerCall = 0; plannerCall < MAX_PLANNER_CALLS; plannerCall += 1) {
+    emitStatus(
+      input,
+      steps.length
+        ? "Asking the model to choose the next grounded step…"
+        : "Asking the model to choose how to answer…",
+    );
     providerCalls += 1;
     let result: RawGenerateTextResult;
     try {
@@ -525,6 +567,7 @@ export async function orchestrateTrainerChat(
     if (toolCalls.length === 0) {
       if (steps.length) {
         const text = result.text?.trim() ?? "";
+        emitStatus(input, "Synthesizing the final answer…");
         const synthesized = isAcceptableToolSynthesisText(text)
           ? text
           : await synthesizeFinalAnswer(input, steps, recordProviderCall);
@@ -683,6 +726,7 @@ export async function orchestrateTrainerChat(
         synthesized ? "provider" : "deterministic_fallback",
       );
     }
+    emitStatus(input, statusForTool(accepted.toolName));
     const step = await executeTrainerTool({
       index: stepIndex,
       toolName: accepted.toolName,
@@ -711,6 +755,7 @@ export async function orchestrateTrainerChat(
         continue;
       }
       if (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis") {
+        emitStatus(input, "Synthesizing the final answer…");
         const synthesized = await synthesizeFinalAnswer(
           input,
           steps,
@@ -739,6 +784,7 @@ export async function orchestrateTrainerChat(
 
     if (steps.length >= MAX_GENERAL_TOOL_CALLS) {
       providerCalls += 1;
+      emitStatus(input, "Synthesizing the final answer…");
       const text = await synthesizeFinalAnswer(
         input,
         steps,

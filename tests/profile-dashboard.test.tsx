@@ -468,17 +468,14 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeNull();
   });
 
-  it("renders concise pending trainer copy before the response starts", async () => {
-    let resolveChat!: (response: Response) => void;
-    const pendingChat = new Promise<Response>((resolve) => {
-      resolveChat = resolve;
-    });
+  it("renders streamed trainer progress status before the response starts", async () => {
+    const stream = controlledSyncStream();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory") return jsonResponse({ memories: [] });
       if (url.startsWith("/api/chat") && init?.method === "POST") {
-        return pendingChat;
+        return stream.response;
       }
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
@@ -491,42 +488,63 @@ describe("TrainerDashboard Profile hydration", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
+    stream.push({
+      type: "start",
+      conversationId: "default",
+      userMessage: {
+        id: "user-1",
+        role: "user",
+        content: "What should I do tomorrow?",
+        createdAt: "2026-07-21T12:00:00.000Z",
+      },
+    });
+    stream.push({ type: "status", message: "Preparing local context…" });
+
     expect(await screen.findByText("Trainer is thinking…")).toBeTruthy();
     const thinkingIndicator = screen.getByTestId("pending-thinking-indicator");
     expect(thinkingIndicator.getAttribute("aria-hidden")).toBe("true");
     expect(thinkingIndicator.querySelectorAll("span")).toHaveLength(3);
-    const substatusList = screen.getByTestId("pending-substatus-list");
-    expect(substatusList.getAttribute("aria-hidden")).toBe("true");
-    expect(substatusList.getAttribute("aria-live")).toBeNull();
-    expect(substatusList.textContent).toContain("Analyzing context");
-    expect(substatusList.textContent).toContain("Weighing options");
-    expect(substatusList.textContent).toContain("Preparing response");
+    const substatus = await screen.findByTestId("pending-substatus");
+    expect(substatus.getAttribute("aria-hidden")).toBe("true");
+    expect(substatus.getAttribute("aria-live")).toBeNull();
+    expect(substatus.textContent).toBe("Preparing local context…");
+
+    stream.push({
+      type: "status",
+      message: "Asking the model to choose how to answer…",
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("pending-substatus").textContent).toBe(
+        "Asking the model to choose how to answer…",
+      );
+    });
+    expect(screen.queryByText("Analyzing context")).toBeNull();
+    expect(screen.queryByText("Weighing options")).toBeNull();
+    expect(screen.queryByText("Preparing response")).toBeNull();
     expect(
       screen.queryByText("Trainer is thinking with bounded local history…"),
     ).toBeNull();
 
-    resolveChat(
-      new Response(
-        JSON.stringify({
-          conversationId: "default",
-          messages: [
-            {
-              id: "assistant-1",
-              role: "assistant",
-              content: "Keep tomorrow easy.",
-              createdAt: "2026-07-21T12:00:00.000Z",
-            },
-          ],
-          contextWindow: 5,
-          historyLimit: 40,
-        }),
-        { headers: { "content-type": "application/json" } },
-      ),
-    );
+    stream.push({ type: "delta", textDelta: "Keep tomorrow easy." });
+    stream.push({
+      type: "done",
+      assistantMessage: {
+        id: "assistant-1",
+        role: "assistant",
+        content: "Keep tomorrow easy.",
+        createdAt: "2026-07-21T12:00:01.000Z",
+      },
+      conversationId: "default",
+      contextWindow: 5,
+      historyLimit: 40,
+      memoryProposal: { status: "none" },
+    });
+    stream.close();
+
     expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByTestId("pending-thinking-indicator")).toBeNull();
-      expect(screen.queryByTestId("pending-substatus-list")).toBeNull();
+      expect(screen.queryByTestId("pending-substatus")).toBeNull();
     });
   });
 
