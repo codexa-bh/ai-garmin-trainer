@@ -4786,6 +4786,12 @@ export function TrainerDashboard() {
                     : "Collapse activity selector"
                 }
               >
+                <span
+                  className="activity-selector-toggle-label"
+                  aria-hidden="true"
+                >
+                  {activitySelectorCollapsed ? "Expand" : "Collapse"}
+                </span>
                 <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                   <path
                     d="M10.5 3 5.5 8l5 5"
