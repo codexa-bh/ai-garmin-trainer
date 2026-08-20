@@ -495,6 +495,12 @@ describe("TrainerDashboard Profile hydration", () => {
     const thinkingIndicator = screen.getByTestId("pending-thinking-indicator");
     expect(thinkingIndicator.getAttribute("aria-hidden")).toBe("true");
     expect(thinkingIndicator.querySelectorAll("span")).toHaveLength(3);
+    const substatusList = screen.getByTestId("pending-substatus-list");
+    expect(substatusList.getAttribute("aria-hidden")).toBe("true");
+    expect(substatusList.getAttribute("aria-live")).toBeNull();
+    expect(substatusList.textContent).toContain("Analyzing context");
+    expect(substatusList.textContent).toContain("Weighing options");
+    expect(substatusList.textContent).toContain("Preparing response");
     expect(
       screen.queryByText("Trainer is thinking with bounded local history…"),
     ).toBeNull();
@@ -520,6 +526,7 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByTestId("pending-thinking-indicator")).toBeNull();
+      expect(screen.queryByTestId("pending-substatus-list")).toBeNull();
     });
   });
 
