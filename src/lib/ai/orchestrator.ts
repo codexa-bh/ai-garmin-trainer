@@ -30,6 +30,7 @@ const MAX_GENERAL_TOOL_CALLS = 10;
 const MAX_SCHEMA_CALLS = 10;
 const MAX_SQL_CALLS = 10;
 const MAX_MATH_CALLS = 10;
+const PROVIDER_CALL_TIMEOUT_MS = 45_000;
 const SIDE_EFFECT_TOOLS = new Set<TrainerToolName>([
   "runGarminSync",
   "forceRefreshActivityDetail",
@@ -62,6 +63,29 @@ type RawGenerateTextResult = {
   text?: string;
   toolCalls?: unknown[];
 };
+
+async function generateTextWithTimeout(
+  options: Record<string, unknown>,
+): Promise<RawGenerateTextResult> {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error("provider_timeout"));
+    }, PROVIDER_CALL_TIMEOUT_MS);
+  });
+  try {
+    const request = (
+      generateText as unknown as (
+        options: Record<string, unknown>,
+      ) => Promise<RawGenerateTextResult>
+    )({ ...options, abortSignal: controller.signal });
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 function bounded(value: string, max = 2200): string {
   const compact = value.replace(/\s+/g, " ").trim();
@@ -192,6 +216,13 @@ function isAcceptableToolSynthesisText(text: string): boolean {
 const NON_TERMINAL_LOCAL_DATA_LIMITATION =
   "I couldn't complete that local Garmin or recovery check in this turn. Please retry, or narrow the date, activity, or recovery metric you want me to check.";
 
+const EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION =
+  "I couldn't complete current-turn local Garmin verification for those metrics, so I can't verify any totals, counts, or comparisons from this turn. Please retry, or narrow the date range and metric you want me to check.";
+
+type LocalDataEvidenceRequirement =
+  | { required: false }
+  | { required: true; reason: "quantitative_metric" | "metric_correction" };
+
 function isLikelyLocalDataRequest(userRequest: string): boolean {
   const normalized = userRequest.toLowerCase();
   const hasPersonalAnchor =
@@ -230,6 +261,80 @@ function isNonTerminalLocalDataDirectAnswer(input: {
     isLikelyLocalDataRequest(input.userRequest) &&
     isNonTerminalLocalDataPlan(input.text)
   );
+}
+
+function hasQuantitativeMetricIntent(text: string): boolean {
+  const normalized = text.toLowerCase();
+  const hasMetricSubject =
+    /\b(activity|activities|hike|hikes|run|runs|ride|rides|walk|walks|distance|km|kilometers?|miles?|ascent|elevation|gain|calories?|kcal|steps?|duration|time|hrz|hr zone|heart[-\s]?rate zone|zone [1-5]|z[1-5]|sleep|hrv|body battery|stress|resting heart rate|rhr|daily health|active calories?|resting calories?|total calories?)\b/.test(
+      normalized,
+    );
+  const hasQuantitativeAction =
+    /\b(total|totals|count|counts|how many|sum|aggregate|aggregat(?:e|ed|ing|ion)|compare|comparison|month|monthly|week|weekly|year|yearly|january|february|march|april|may|june|july|august|september|october|november|december|\d{4}-\d{2}|average|avg|maximum|max|minimum|min)\b/.test(
+      normalized,
+    );
+  return hasMetricSubject && hasQuantitativeAction;
+}
+
+function hasMetricCorrectionIntent(
+  userRequest: string,
+  system: string,
+): boolean {
+  const normalized = userRequest.toLowerCase();
+  const challengesPriorMetric =
+    /\b(mistake|wrong|incorrect|bad|off|grave|did not|didn't|doesn'?t|missed|undercount|overcount|not aggregate|aggregate all|counted|count how many|recheck|verify again|check again|that total|those totals|that count|those counts)\b/.test(
+      normalized,
+    );
+  if (!challengesPriorMetric) return false;
+  return hasQuantitativeMetricIntent(`${userRequest}\n${system}`);
+}
+
+function localDataEvidenceRequirement(input: {
+  userRequest: string;
+  system: string;
+}): LocalDataEvidenceRequirement {
+  if (
+    isLikelyLocalDataRequest(input.userRequest) &&
+    hasQuantitativeMetricIntent(input.userRequest)
+  ) {
+    return { required: true, reason: "quantitative_metric" };
+  }
+  if (hasMetricCorrectionIntent(input.userRequest, input.system)) {
+    return { required: true, reason: "metric_correction" };
+  }
+  return { required: false };
+}
+
+function hasSuccessfulMetricEvidence(steps: TrainerToolStep[]): boolean {
+  return steps.some(
+    (step) =>
+      step.status === "succeeded" &&
+      (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis"),
+  );
+}
+
+function hasOpenFailedMetricEvidence(steps: TrainerToolStep[]): boolean {
+  const lastMetricStep = [...steps]
+    .reverse()
+    .find(
+      (step) =>
+        step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis",
+    );
+  return Boolean(lastMetricStep && lastMetricStep.status !== "succeeded");
+}
+
+function canAcceptEvidenceRequiredSynthesis(steps: TrainerToolStep[]): boolean {
+  return (
+    hasSuccessfulMetricEvidence(steps) && !hasOpenFailedMetricEvidence(steps)
+  );
+}
+
+function evidenceRequiredLimitationText(steps: TrainerToolStep[]): string {
+  const failed = [...steps]
+    .reverse()
+    .find((step) => step.status === "failed" || step.status === "rejected");
+  const reason = failed?.reason ? ` Reason: ${failed.reason}.` : "";
+  return `${EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION}${reason}`;
 }
 
 function serverCurrentDateBasis(system: string): string | null {
@@ -420,16 +525,12 @@ async function synthesizeFinalAnswer(
 ): Promise<string | null> {
   let result: RawGenerateTextResult;
   try {
-    result = (await (
-      generateText as unknown as (
-        options: Record<string, unknown>,
-      ) => Promise<RawGenerateTextResult>
-    )({
+    result = await generateTextWithTimeout({
       model: input.model,
       system: finalAnswerSystem(input.system, steps),
       prompt: input.userRequest,
       toolChoice: "none",
-    })) as RawGenerateTextResult;
+    });
   } catch (error) {
     recordProviderCall?.(
       debugProviderCall({
@@ -466,6 +567,10 @@ export async function orchestrateTrainerChat(
   const sideEffectsUsed = new Set<TrainerToolName>();
   const analysisToolCounts = new Map<TrainerToolName, number>();
   let providerCalls = 0;
+  const evidenceRequirement = localDataEvidenceRequirement({
+    userRequest: input.userRequest,
+    system: input.system,
+  });
   const debugEnabled = input.debug?.enabled === true;
   const debugProviderCalls: LlmDebugProviderCall[] = [];
   const recordProviderCall = (call: LlmDebugProviderCall) => {
@@ -503,11 +608,7 @@ export async function orchestrateTrainerChat(
     providerCalls += 1;
     let result: RawGenerateTextResult;
     try {
-      result = (await (
-        generateText as unknown as (
-          options: Record<string, unknown>,
-        ) => Promise<RawGenerateTextResult>
-      )({
+      result = await generateTextWithTimeout({
         model: input.model,
         system: plannerSystem(input.system, steps),
         prompt: input.userRequest,
@@ -518,7 +619,7 @@ export async function orchestrateTrainerChat(
           openai: { parallelToolCalls: false },
           deepseek: { parallelToolCalls: false },
         },
-      })) as RawGenerateTextResult;
+      });
     } catch (error) {
       recordProviderCall(
         debugProviderCall({
@@ -540,7 +641,9 @@ export async function orchestrateTrainerChat(
       }
       return finish(
         {
-          text: "I could not get a valid response from the configured model. No Garmin tool was executed.",
+          text: evidenceRequirement.required
+            ? EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION
+            : "I could not get a valid response from the configured model. No Garmin tool was executed.",
           grounding: null,
           toolSteps: [],
           providerCalls,
@@ -566,6 +669,20 @@ export async function orchestrateTrainerChat(
     );
     if (toolCalls.length === 0) {
       if (steps.length) {
+        if (
+          evidenceRequirement.required &&
+          !canAcceptEvidenceRequiredSynthesis(steps)
+        ) {
+          return finish(
+            {
+              text: evidenceRequiredLimitationText(steps),
+              grounding: groundingForSteps(steps),
+              toolSteps: steps,
+              providerCalls,
+            },
+            "deterministic_fallback",
+          );
+        }
         const text = result.text?.trim() ?? "";
         emitStatus(input, "Synthesizing the final answer…");
         const synthesized = isAcceptableToolSynthesisText(text)
@@ -588,6 +705,17 @@ export async function orchestrateTrainerChat(
         return finish(
           {
             text: currentDateBasisAnswer(currentDateBasis),
+            grounding: null,
+            toolSteps: [],
+            providerCalls,
+          },
+          "deterministic_fallback",
+        );
+      }
+      if (evidenceRequirement.required) {
+        return finish(
+          {
+            text: EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION,
             grounding: null,
             toolSteps: [],
             providerCalls,
@@ -755,6 +883,17 @@ export async function orchestrateTrainerChat(
         continue;
       }
       if (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis") {
+        if (evidenceRequirement.required) {
+          return finish(
+            {
+              text: evidenceRequiredLimitationText(steps),
+              grounding: groundingForSteps(steps),
+              toolSteps: steps,
+              providerCalls,
+            },
+            "deterministic_fallback",
+          );
+        }
         emitStatus(input, "Synthesizing the final answer…");
         const synthesized = await synthesizeFinalAnswer(
           input,
@@ -820,4 +959,5 @@ export const trainerOrchestrationLimits = {
   maxSchemaCalls: MAX_SCHEMA_CALLS,
   maxSqlCalls: MAX_SQL_CALLS,
   maxMathCalls: MAX_MATH_CALLS,
+  providerCallTimeoutMs: PROVIDER_CALL_TIMEOUT_MS,
 };
