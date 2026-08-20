@@ -2434,9 +2434,9 @@ describe("TrainerDashboard activity charts", () => {
       "activity-selector-body",
     );
     expect(
-      collapseButton.querySelector(".activity-selector-toggle-label")
-        ?.textContent,
-    ).toBe("Collapse");
+      collapseButton.querySelector(".activity-selector-toggle-label"),
+    ).toBeNull();
+    expect(collapseButton.textContent?.trim()).toBe("");
     expect(collapseButton.querySelector("svg")).toBeTruthy();
     expect(screen.getByText("Activity selector")).toBeTruthy();
     expect(
@@ -2490,9 +2490,9 @@ describe("TrainerDashboard activity charts", () => {
       "activity-selector-body",
     );
     expect(
-      expandButton.querySelector(".activity-selector-toggle-label")
-        ?.textContent,
-    ).toBe("Expand");
+      expandButton.querySelector(".activity-selector-toggle-label"),
+    ).toBeNull();
+    expect(expandButton.textContent?.trim()).toBe("");
     expect(expandButton.querySelector("svg")).toBeTruthy();
     expect(
       screen.queryByRole("heading", { name: "Search synced activities" }),
@@ -2667,12 +2667,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(css).toMatch(
       /\.activity-selector-collapsed \.activity-selector-body\s*\{\s*display: none;\s*}/,
     );
-    expect(css).toContain(".activity-selector-toggle-label");
+    expect(css).not.toContain(".activity-selector-toggle-label");
     expect(css).toMatch(
-      /\.activity-selector-collapsed \.activity-selector-toggle\s*\{[\s\S]*?min-height: 78px;/,
-    );
-    expect(css).toMatch(
-      /\.activity-selector-collapsed \.activity-selector-toggle-label\s*\{[\s\S]*?writing-mode: vertical-rl;/,
+      /\.activity-selector-toggle\s*\{[\s\S]*?width: 36px;[\s\S]*?height: 36px;/,
     );
     expect(css).toMatch(
       /\.activity-selector-collapsed \.activity-selector-heading\s*\{\s*display: none;\s*}/,

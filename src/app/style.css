@@ -786,11 +786,10 @@ body::before {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  gap: 6px;
-  width: auto;
-  min-width: 108px;
-  min-height: 34px;
-  padding: 0 12px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
   border-color: rgba(73, 214, 200, 0.52);
   border-radius: 999px;
   background: rgba(73, 214, 200, 0.12);
@@ -803,31 +802,10 @@ body::before {
   background: rgba(73, 214, 200, 0.18);
 }
 
-.activity-selector-toggle-label {
-  font-size: 12px;
-  line-height: 1;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
 .activity-selector-toggle svg {
   display: block;
-  width: 15px;
-  height: 15px;
-}
-
-.activity-selector-collapsed .activity-selector-toggle {
-  flex-direction: column;
-  gap: 7px;
-  width: 36px;
-  min-width: 36px;
-  min-height: 78px;
-  padding: 8px 4px;
-}
-
-.activity-selector-collapsed .activity-selector-toggle-label {
-  writing-mode: vertical-rl;
-  letter-spacing: 0.12em;
+  width: 16px;
+  height: 16px;
 }
 
 .activity-selector-collapsed .activity-selector-toggle svg {
@@ -2365,18 +2343,6 @@ label {
     flex-direction: row;
     align-items: center;
     gap: 10px;
-  }
-
-  .activity-selector-collapsed .activity-selector-toggle {
-    flex-direction: row;
-    width: auto;
-    min-width: 104px;
-    min-height: 34px;
-    padding: 0 10px;
-  }
-
-  .activity-selector-collapsed .activity-selector-toggle-label {
-    writing-mode: horizontal-tb;
   }
 
   .activity-selector-rail-label {
