@@ -235,6 +235,119 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.grounding).toBeNull();
   });
 
+  it("rejects no-tool direct answers for personal Garmin metric totals", async () => {
+    generateText.mockResolvedValueOnce({
+      text: "Your July total was 3 activities and August had 7, with about 120 km and 8,000 m ascent across both months.",
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest:
+        "I need totals for July and August: km done in activities, ascent in activities, calories burned in activities, steps, and times in each HRZ",
+      debug: { enabled: true, provider: "ollama", model: "qwen3.5:4b" },
+    });
+
+    expect(result.text).toContain("current-turn local Garmin verification");
+    expect(result.text).toContain("can't verify any totals");
+    expect(result.text).not.toContain("3 activities");
+    expect(result.text).not.toContain("7");
+    expect(result.toolSteps).toEqual([]);
+    expect(result.grounding).toBeNull();
+    expect(result.debugTrace?.finalAnswerSource).toBe("deterministic_fallback");
+  });
+
+  it("rejects no-tool correction rationalization for disputed Garmin aggregation", async () => {
+    generateText.mockResolvedValueOnce({
+      text: "That lower July count can still make sense because a few hard recovery-heavy activities can feel like more than the raw total.",
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system:
+        "Active transcript: user asked for July and August activity totals, calories, steps, and HRZ; assistant previously claimed July had 3 activities and August had 7.",
+      userRequest:
+        "You made a grave mistake when you did not aggregate all my activities properly; please verify the counts again.",
+    });
+
+    expect(result.text).toContain("current-turn local Garmin verification");
+    expect(result.text).not.toContain("can still make sense");
+    expect(result.toolSteps).toEqual([]);
+    expect(result.grounding).toBeNull();
+  });
+
+  it("fails closed instead of accepting final prose after unresolved SQL metric failures", async () => {
+    runReadOnlySql
+      .mockReturnValueOnce({
+        status: "succeeded",
+        resultName: "partial_monthly_totals",
+        columns: [{ name: "month" }, { name: "activity_km" }],
+        rows: [{ month: "2026-07", activity_km: 42 }],
+        rowCount: 1,
+        returnedRows: 1,
+        truncated: false,
+        privacy: "sql privacy",
+      })
+      .mockReturnValueOnce({
+        status: "failed",
+        resultName: "monthly_activity_counts",
+        columns: [],
+        rows: [],
+        rowCount: 0,
+        returnedRows: 0,
+        truncated: false,
+        reason: "unknown_column",
+        message:
+          "SQLite rejected the query because it referenced an unknown column.",
+        correctionAllowed: false,
+        privacy: "sql privacy",
+      });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select month, activity_km from activity",
+              resultName: "partial_monthly_totals",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select activity_id, count(*) from activity group by month",
+              resultName: "monthly_activity_counts",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "Verified totals: July had 3 activities and August had 7 activities.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest:
+        "Please compare my July and August activity count, km, ascent, calories, steps, and HRZ totals.",
+      debug: { enabled: true, provider: "deepseek", model: "deepseek-chat" },
+    });
+
+    expect(runReadOnlySql).toHaveBeenCalledTimes(2);
+    expect(result.text).toContain("couldn't complete");
+    expect(result.text).not.toContain("Verified totals");
+    expect(result.text).not.toContain("3 activities");
+    expect(result.toolSteps.map((step) => step.status)).toEqual([
+      "succeeded",
+      "failed",
+    ]);
+    expect(result.debugTrace?.finalAnswerSource).toBe("deterministic_fallback");
+  });
+
   it("repairs no-clock direct answers when server current-date context is present", async () => {
     generateText.mockResolvedValueOnce({
       text: "I don't have an independent real-time clock, so I can only ground today against the freshest Garmin data timestamps.",
@@ -977,6 +1090,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
       maxSchemaCalls: 10,
       maxSqlCalls: 10,
       maxMathCalls: 10,
+      providerCallTimeoutMs: 45000,
     });
   });
 });
