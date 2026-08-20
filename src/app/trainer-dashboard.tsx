@@ -370,6 +370,11 @@ type ActivityListPayload = {
 
 const ACTIVITY_LIST_PAGE_SIZE = 100;
 const ACTIVITY_LIST_SCROLL_THRESHOLD_PX = 96;
+const PENDING_TRAINER_SUBSTATUSES = [
+  "Analyzing context",
+  "Weighing options",
+  "Preparing response",
+] as const;
 
 type ActivitySportIconDescriptor = {
   key: string;
@@ -5638,6 +5643,15 @@ export function TrainerDashboard() {
                       <span />
                     </span>
                   </p>
+                  <div
+                    className="pending-substatus-list"
+                    aria-hidden="true"
+                    data-testid="pending-substatus-list"
+                  >
+                    {PENDING_TRAINER_SUBSTATUSES.map((status) => (
+                      <span key={status}>{status}</span>
+                    ))}
+                  </div>
                 </div>
               ) : null}
               <div ref={transcriptBottomRef} aria-hidden="true" />

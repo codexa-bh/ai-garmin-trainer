@@ -1792,6 +1792,38 @@ h2 {
   animation-delay: 0.32s;
 }
 
+.pending-substatus-list {
+  display: flex;
+  min-height: 25px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pending-substatus-list span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid rgba(120, 212, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(120, 212, 255, 0.08);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0.72;
+  animation: pending-substatus-ambient 3.6s ease-in-out infinite;
+}
+
+.pending-substatus-list span:nth-child(2) {
+  animation-delay: 0.6s;
+}
+
+.pending-substatus-list span:nth-child(3) {
+  animation-delay: 1.2s;
+}
+
 @keyframes pending-thinking-pulse {
   0%,
   80%,
@@ -1806,8 +1838,23 @@ h2 {
   }
 }
 
+@keyframes pending-substatus-ambient {
+  0%,
+  80%,
+  100% {
+    opacity: 0.62;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 0.98;
+    transform: translateY(-1px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .pending-thinking-dots span {
+  .pending-thinking-dots span,
+  .pending-substatus-list span {
     animation: none;
     opacity: 0.7;
     transform: none;
