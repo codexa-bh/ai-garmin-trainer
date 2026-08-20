@@ -370,11 +370,6 @@ type ActivityListPayload = {
 
 const ACTIVITY_LIST_PAGE_SIZE = 100;
 const ACTIVITY_LIST_SCROLL_THRESHOLD_PX = 96;
-const PENDING_TRAINER_SUBSTATUSES = [
-  "Analyzing context",
-  "Weighing options",
-  "Preparing response",
-] as const;
 
 type ActivitySportIconDescriptor = {
   key: string;
@@ -2763,6 +2758,9 @@ export function TrainerDashboard() {
     useState<MemoryKindFilter>("all");
   const [memorySort, setMemorySort] = useState<MemorySort>("newest");
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatPendingStatus, setChatPendingStatus] = useState<string | null>(
+    null,
+  );
   const [lastFailedMessage, setLastFailedMessage] = useState("");
   const [profileFields, setProfileFields] =
     useState<ProfileFields>(emptyProfileFields);
@@ -4300,6 +4298,7 @@ export function TrainerDashboard() {
     chatAbortRef.current = controller;
     setMessage("");
     setLastFailedMessage("");
+    setChatPendingStatus(null);
     setIsChatLoading(true);
     forceNextScrollRef.current = true;
     setStatus({ kind: "busy", message: "Chat: trainer is thinking…" });
@@ -4310,11 +4309,13 @@ export function TrainerDashboard() {
         return;
       }
       if (event.type === "status") {
+        setChatPendingStatus(event.message);
         setStatus({ kind: "busy", message: `Chat: ${event.message}` });
         return;
       }
       if (event.type === "metadata") return;
       if (event.type === "delta") {
+        setChatPendingStatus(null);
         assistantDraft += event.textDelta;
         setChatMessages((items) => {
           const withoutPending = items.filter(
@@ -4333,6 +4334,7 @@ export function TrainerDashboard() {
         return;
       }
       if (event.type === "done") {
+        setChatPendingStatus(null);
         setChatMessages((items) => [
           ...items.filter((item) => item.id !== pendingAssistantId),
           event.assistantMessage,
@@ -4356,6 +4358,7 @@ export function TrainerDashboard() {
         });
         return;
       }
+      setChatPendingStatus(null);
       setLastFailedMessage(trimmed);
       setChatMessages((items) =>
         items.filter((item) => item.id !== pendingAssistantId),
@@ -4388,6 +4391,7 @@ export function TrainerDashboard() {
         const payload = (await response.json()) as ChatPayload;
         const nextMessages = payload.messages ?? [];
         setChatMessages(nextMessages);
+        setChatPendingStatus(null);
         setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled === true);
         if (payload.memoryProposal) void loadMemories(false);
         if (payload.toolEvidence?.tool === "saveTrainingPlan")
@@ -4414,6 +4418,7 @@ export function TrainerDashboard() {
       }
       if (buffer.trim()) applyEvent(JSON.parse(buffer) as ChatStreamEvent);
     } catch (error) {
+      setChatPendingStatus(null);
       setLastFailedMessage(trimmed);
       setChatMessages((items) =>
         items.filter((item) => item.id !== pendingAssistantId),
@@ -5643,15 +5648,15 @@ export function TrainerDashboard() {
                       <span />
                     </span>
                   </p>
-                  <div
-                    className="pending-substatus-list"
-                    aria-hidden="true"
-                    data-testid="pending-substatus-list"
-                  >
-                    {PENDING_TRAINER_SUBSTATUSES.map((status) => (
-                      <span key={status}>{status}</span>
-                    ))}
-                  </div>
+                  {chatPendingStatus ? (
+                    <p
+                      className="pending-substatus"
+                      aria-hidden="true"
+                      data-testid="pending-substatus"
+                    >
+                      {chatPendingStatus}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               <div ref={transcriptBottomRef} aria-hidden="true" />

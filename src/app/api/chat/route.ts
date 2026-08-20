@@ -119,6 +119,13 @@ function streamJsonEvent(
   controller.enqueue(new TextEncoder().encode(`${JSON.stringify(event)}\n`));
 }
 
+function streamStatus(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  message: string,
+): void {
+  streamJsonEvent(controller, { type: "status", message });
+}
+
 function visibleDeltas(text: string): string[] {
   const matches = text.match(/\S+\s*/g);
   return matches?.length ? matches : [text];
@@ -165,11 +172,7 @@ function streamingResponse(input: {
           conversationId: input.conversationId,
           userMessage: apiMessage(input.userRecord, input.debugTraceEnabled),
         });
-        streamJsonEvent(controller, {
-          type: "status",
-          message:
-            "Trainer is preparing a safe final answer from bounded local context.",
-        });
+        streamStatus(controller, "Preparing local context…");
         const previousFailure = latestFailedAssistantMessage(
           input.previousMessages,
         );
@@ -182,14 +185,16 @@ function streamingResponse(input: {
           grounding = previousFailure.grounding;
         } else {
           const { model, provider, modelName } = selectedModel();
+          const system = await buildSystemContext(
+            input.latestMessage,
+            messagesForContext,
+            input.conversationId,
+          );
           const result = await orchestrateTrainerChat({
             model,
-            system: await buildSystemContext(
-              input.latestMessage,
-              messagesForContext,
-              input.conversationId,
-            ),
+            system,
             userRequest: input.latestMessage,
+            onStatus: (message) => streamStatus(controller, message),
             debug: {
               enabled: input.debugTraceEnabled,
               provider,
@@ -204,6 +209,7 @@ function streamingResponse(input: {
           });
         }
 
+        streamStatus(controller, "Preparing response…");
         for (const textDelta of visibleDeltas(text)) {
           if (input.requestSignal.aborted) throw new Error("stream aborted");
           streamJsonEvent(controller, { type: "delta", textDelta });

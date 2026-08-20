@@ -1160,10 +1160,21 @@ describe("chat route LLM tool orchestration", () => {
     expect(events.map((event) => event.type)).toEqual([
       "start",
       "status",
+      "status",
       "metadata",
+      "status",
       "delta",
       "delta",
       "done",
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === "status")
+        .map((event) => event.message),
+    ).toEqual([
+      "Preparing local context…",
+      "Asking the model to choose how to answer…",
+      "Preparing response…",
     ]);
     expect(
       events
