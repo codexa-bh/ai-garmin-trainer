@@ -57,9 +57,9 @@ export function hasConfiguredSecret(value: string | undefined): boolean {
 }
 
 export function isLlmDebugTraceEnabled(
-  env: AppEnv = getOptionalEnv(),
+  _env: AppEnv = getOptionalEnv(),
 ): boolean {
-  return /^(1|true|yes|on)$/i.test(env.LLM_DEBUG_TRACES.trim());
+  return true;
 }
 
 export function getOptionalEnv(

@@ -6,14 +6,14 @@ import {
 } from "../src/lib/env";
 
 describe("environment", () => {
-  it("keeps LLM debug traces disabled by default and enables only true-like env values", () => {
-    expect(isLlmDebugTraceEnabled(getOptionalEnv({}))).toBe(false);
+  it("keeps LLM debug traces enabled for local development visibility", () => {
+    expect(isLlmDebugTraceEnabled(getOptionalEnv({}))).toBe(true);
     expect(
       isLlmDebugTraceEnabled(getOptionalEnv({ LLM_DEBUG_TRACES: "false" })),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isLlmDebugTraceEnabled(getOptionalEnv({ LLM_DEBUG_TRACES: "0" })),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isLlmDebugTraceEnabled(getOptionalEnv({ LLM_DEBUG_TRACES: "true" })),
     ).toBe(true);

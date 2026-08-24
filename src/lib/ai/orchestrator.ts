@@ -30,7 +30,7 @@ const MAX_GENERAL_TOOL_CALLS = 10;
 const MAX_SCHEMA_CALLS = 10;
 const MAX_SQL_CALLS = 10;
 const MAX_MATH_CALLS = 10;
-const PROVIDER_CALL_TIMEOUT_MS = 45_000;
+const PROVIDER_CALL_TIMEOUT_MS = 180_000;
 const SIDE_EFFECT_TOOLS = new Set<TrainerToolName>([
   "runGarminSync",
   "forceRefreshActivityDetail",
