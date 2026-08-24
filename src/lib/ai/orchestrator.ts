@@ -518,6 +518,33 @@ function toolFailureLimitationText(steps: TrainerToolStep[]): string {
   );
 }
 
+function deterministicSideEffectResultText(step: TrainerToolStep): string {
+  if (step.status !== "succeeded") return toolFailureLimitationText([step]);
+  const summary = step.summary.trim();
+  switch (step.tool) {
+    case "runGarminSync":
+      return `I ran the requested Garmin sync once. ${summary}`;
+    case "forceRefreshActivityDetail":
+      return `I ran the requested activity-detail refresh once. ${summary}`;
+    case "saveTrainingPlan":
+      return `I saved the requested Training Plan update once. ${summary}`;
+    default:
+      return `I completed the requested local Garmin tool once. ${summary}`;
+  }
+}
+
+function priorSideEffectStep(
+  steps: TrainerToolStep[],
+  toolName: TrainerToolName,
+): TrainerToolStep | null {
+  return (
+    [...steps]
+      .reverse()
+      .find((step) => step.tool === toolName && step.status !== "rejected") ??
+    null
+  );
+}
+
 async function synthesizeFinalAnswer(
   input: OrchestrateTrainerChatInput,
   steps: TrainerToolStep[],
@@ -819,14 +846,23 @@ export async function orchestrateTrainerChat(
           accepted.toolName,
           `${accepted.toolName} was rejected because that side-effect tool was already used in this turn.`,
         );
+        const allSteps = [...steps, step];
+        const priorStep = priorSideEffectStep(steps, accepted.toolName);
+        const synthesized = priorStep
+          ? await synthesizeFinalAnswer(input, steps, recordProviderCall)
+          : null;
         return finish(
           {
-            text: toolFailureLimitationText([...steps, step]),
-            grounding: groundingForSteps([...steps, step]),
-            toolSteps: [...steps, step],
+            text:
+              synthesized ??
+              (priorStep
+                ? deterministicSideEffectResultText(priorStep)
+                : toolFailureLimitationText(allSteps)),
+            grounding: groundingForSteps(allSteps),
+            toolSteps: allSteps,
             providerCalls,
           },
-          "deterministic_fallback",
+          synthesized ? "provider" : "deterministic_fallback",
         );
       }
       sideEffectsUsed.add(accepted.toolName);

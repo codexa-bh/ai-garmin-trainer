@@ -899,7 +899,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).toContain("SQL evidence");
   });
 
-  it("prevents duplicate side-effect tools across the tool budget", async () => {
+  it("prevents duplicate side-effect tools without masking the first result", async () => {
     generateText
       .mockResolvedValueOnce({
         toolCalls: [{ toolName: "runGarminSync", input: {} }],
@@ -915,7 +915,33 @@ describe("trainer orchestrator fail-closed policy", async () => {
     });
 
     expect(runGarminSync).toHaveBeenCalledTimes(1);
+    expect(result.grounding?.tool).toBe("runGarminSync");
     expect(result.toolSteps.at(-1)?.reason).toBe("duplicate_side_effect");
+    expect(result.text).toContain("ran the requested Garmin sync once");
+    expect(result.text).not.toContain("duplicate_side_effect");
+    expect(result.text).not.toContain("already used in this turn");
+  });
+
+  it("reports the original side-effect failure without implying a duplicate run", async () => {
+    runGarminSync.mockResolvedValueOnce({
+      status: "failed",
+      detail: "temporary connector error",
+    });
+    generateText.mockResolvedValueOnce({
+      toolCalls: [{ toolName: "runGarminSync", input: {} }],
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "sync my most recent data",
+    });
+
+    expect(runGarminSync).toHaveBeenCalledTimes(1);
+    expect(result.text).toContain("sync_failed");
+    expect(result.text).toContain("temporary connector error");
+    expect(result.text).not.toContain("duplicate_side_effect");
+    expect(result.text).not.toContain("already used in this turn");
   });
 
   it("rejects generated Python because the default path is SQL/math", async () => {
