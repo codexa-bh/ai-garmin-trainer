@@ -2789,6 +2789,7 @@ export function TrainerDashboard() {
     useState(false);
   const [trainingPlanOpen, setTrainingPlanOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [healthDashboardOpen, setHealthDashboardOpen] = useState(false);
   const [healthDashboardData, setHealthDashboardData] =
     useState<HealthDashboardPayload | null>(null);
@@ -2861,6 +2862,9 @@ export function TrainerDashboard() {
   const syncCloseRef = useRef<HTMLButtonElement>(null);
   const syncLogRef = useRef<HTMLPreElement>(null);
   const syncReturnFocusRef = useRef(false);
+  const memoryButtonRef = useRef<HTMLButtonElement>(null);
+  const memoryCloseRef = useRef<HTMLButtonElement>(null);
+  const memoryReturnFocusRef = useRef(false);
   const healthDashboardReturnFocusRef = useRef(false);
   const healthDashboardButtonRef = useRef<HTMLButtonElement | null>(null);
   const healthDashboardCloseRef = useRef<HTMLButtonElement | null>(null);
@@ -2966,11 +2970,12 @@ export function TrainerDashboard() {
     forceNextScrollRef.current = false;
   }, [chatMessages, isChatLoading]);
   useLayoutEffect(() => {
-    if (activityDashboardOpen || trainingPlanOpen || syncOpen) return;
+    if (activityDashboardOpen || trainingPlanOpen || syncOpen || memoryOpen)
+      return;
     if (!restoreTranscriptOnSectionReturnRef.current) return;
     restoreTranscriptOnSectionReturnRef.current = false;
     restoreTranscriptScrollSnapshot();
-  }, [activityDashboardOpen, trainingPlanOpen, syncOpen]);
+  }, [activityDashboardOpen, trainingPlanOpen, syncOpen, memoryOpen]);
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -2996,6 +3001,10 @@ export function TrainerDashboard() {
         closeSyncView();
         return;
       }
+      if (memoryOpen) {
+        closeMemoryView();
+        return;
+      }
       if (trainingPlanOpen) {
         closeTrainingPlan();
         return;
@@ -3018,6 +3027,7 @@ export function TrainerDashboard() {
     activityDashboardOpen,
     trainingPlanOpen,
     syncOpen,
+    memoryOpen,
     settingsOpen,
     isMainMenuOpen,
   ]);
@@ -3055,6 +3065,16 @@ export function TrainerDashboard() {
       focusMainNavigationControl(syncButtonRef);
     }
   }, [syncOpen]);
+  useEffect(() => {
+    if (memoryOpen) {
+      memoryCloseRef.current?.focus();
+      return;
+    }
+    if (memoryReturnFocusRef.current) {
+      memoryReturnFocusRef.current = false;
+      focusMainNavigationControl(memoryButtonRef);
+    }
+  }, [memoryOpen]);
   useEffect(() => {
     if (healthDashboardOpen) {
       healthDashboardCloseRef.current?.focus();
@@ -3159,6 +3179,11 @@ export function TrainerDashboard() {
   function openSyncFromNavigation() {
     setIsMainMenuOpen(false);
     openSyncView();
+  }
+
+  function openMemoryFromNavigation() {
+    setIsMainMenuOpen(false);
+    openMemoryView();
   }
 
   function openHealthDashboardFromNavigation() {
@@ -3300,6 +3325,11 @@ export function TrainerDashboard() {
   function openSyncView() {
     captureTranscriptScrollSnapshot();
     setSyncOpen(true);
+  }
+
+  function openMemoryView() {
+    captureTranscriptScrollSnapshot();
+    setMemoryOpen(true);
   }
 
   function openHealthDashboard() {
@@ -3734,6 +3764,14 @@ export function TrainerDashboard() {
     syncReturnFocusRef.current = true;
     restoreTranscriptOnSectionReturnRef.current = true;
     setSyncOpen(false);
+  }
+
+  function closeMemoryView() {
+    memoryReturnFocusRef.current = true;
+    restoreTranscriptOnSectionReturnRef.current = true;
+    setMemoryOpen(false);
+    setEditingMemoryId(null);
+    setEditingMemoryText("");
   }
 
   function closeHealthDashboard() {
@@ -4467,14 +4505,227 @@ export function TrainerDashboard() {
     (item) => item.id === openConversationMenuId,
   );
 
+  const memoryManagementContent = (
+    <details className="settings-card memory-root-card" open>
+      <summary>
+        Learned memory{" "}
+        <span className="pill" aria-live="polite">
+          {memoryHealth?.status ?? "loading"} · {memoryItems.length} loaded ·{" "}
+          {filteredMemories.length} shown
+        </span>
+      </summary>
+      <p>
+        Embedded SQLite memory stores concise user-derived cross-session facts,
+        preferences, corrections, and temporary plans after complete persisted
+        answers; it is not a transcript archive. Current chats carry bounded
+        same-chat continuity. Ready memory needs Ollama, deterministic local
+        embeddings, or a valid OpenAI embedding key; DeepSeek chat alone does
+        not provide embeddings.
+      </p>
+      <p className="helper-text" role="status" aria-live="polite">
+        {memoryMessage}
+      </p>
+      <div className="button-row memory-actions">
+        <button
+          type="button"
+          onClick={() => setMemoryEnabled(!(memoryHealth?.enabled ?? false))}
+          disabled={isMemoryLoading}
+        >
+          {memoryHealth?.enabled ? "Disable memory" : "Enable memory"}
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => loadMemories()}
+          disabled={isMemoryLoading}
+        >
+          Reload memories
+        </button>
+        <button
+          type="button"
+          className="danger-button"
+          onClick={() => actOnMemory("clear")}
+          disabled={isMemoryLoading || !memoryItems.length}
+        >
+          Clear all memory
+        </button>
+      </div>
+      <div
+        className="memory-browser"
+        aria-label="Search and sort semantic memories"
+      >
+        <div className="memory-browser-header">
+          <div>
+            <h3>Inspectable semantic memories</h3>
+            <p className="helper-text compact-helper">
+              Browsing applies only to the {memoryItems.length} loaded local
+              management records.
+            </p>
+          </div>
+          <span className="pill" aria-live="polite">
+            {filteredMemories.length} of {memoryItems.length} shown
+          </span>
+        </div>
+        <div className="memory-controls">
+          <label>
+            Search memory text
+            <input
+              type="search"
+              value={memorySearchQuery}
+              placeholder="Search text, kind, conversation…"
+              onChange={(event) => setMemorySearchQuery(event.target.value)}
+              disabled={isMemoryLoading || !memoryItems.length}
+            />
+          </label>
+          <label>
+            Kind
+            <select
+              value={memoryKindFilter}
+              onChange={(event) =>
+                setMemoryKindFilter(event.target.value as MemoryKindFilter)
+              }
+              disabled={isMemoryLoading || !memoryItems.length}
+            >
+              {memoryKindOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Sort
+            <select
+              value={memorySort}
+              onChange={(event) =>
+                setMemorySort(event.target.value as MemorySort)
+              }
+              disabled={isMemoryLoading || !memoryItems.length}
+            >
+              {memorySortOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setMemorySearchQuery("");
+              setMemoryKindFilter("all");
+            }}
+            disabled={isMemoryLoading || !hasMemoryFilters}
+          >
+            Clear filters
+          </button>
+        </div>
+        <div
+          className="memory-list"
+          aria-label="Inspectable semantic memories"
+          aria-busy={isMemoryLoading}
+        >
+          {filteredMemories.length ? (
+            filteredMemories.map((item) => (
+              <div className="memory-row" key={item.id}>
+                <div className="memory-row-main">
+                  {editingMemoryId === item.id ? (
+                    <label>
+                      Edit memory
+                      <textarea
+                        aria-label="Edit memory"
+                        value={editingMemoryText}
+                        onChange={(event) =>
+                          setEditingMemoryText(event.target.value)
+                        }
+                        disabled={isMemoryLoading}
+                      />
+                    </label>
+                  ) : (
+                    <p className="memory-text">{item.text}</p>
+                  )}
+                  <small className="memory-meta">
+                    <span>{memoryKindLabels[item.kind]}</span>
+                    <span>{memoryScopeLabel(item)}</span>
+                    <span>{memoryUpdatedLabel(item)}</span>
+                  </small>
+                </div>
+                <div className="button-row memory-row-actions">
+                  {editingMemoryId === item.id ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          actOnMemory("update", item.id, editingMemoryText)
+                        }
+                        disabled={isMemoryLoading}
+                      >
+                        Save edit
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => {
+                          setEditingMemoryId(null);
+                          setEditingMemoryText("");
+                        }}
+                        disabled={isMemoryLoading}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        setEditingMemoryId(item.id);
+                        setEditingMemoryText(item.text);
+                      }}
+                      disabled={isMemoryLoading}
+                    >
+                      Edit
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => actOnMemory("delete", item.id)}
+                    disabled={isMemoryLoading}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : memoryItems.length ? (
+            <p className="memory-empty-state">
+              No memories match the current search or kind filter. Clear filters
+              to return to the loaded list.
+            </p>
+          ) : (
+            <p className="memory-empty-state">
+              No inspectable semantic memories. If memory is enabled and ready,
+              explicit preferences, goals, corrections, or useful temporary
+              plans can create concise memories after complete chats; ordinary
+              transient turns may create none.
+            </p>
+          )}
+        </div>
+      </div>
+    </details>
+  );
+
   return (
     <section
-      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""} ${syncOpen ? "sync-view-active" : ""} ${healthDashboardOpen ? "health-dashboard-active" : ""}`}
+      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""} ${syncOpen ? "sync-view-active" : ""} ${memoryOpen ? "memory-view-active" : ""} ${healthDashboardOpen ? "health-dashboard-active" : ""}`}
       aria-label="AI trainer dashboard"
     >
       {!activityDashboardOpen &&
       !trainingPlanOpen &&
       !syncOpen &&
+      !memoryOpen &&
       !healthDashboardOpen ? (
         <header className="app-topbar">
           <div className="app-brand">
@@ -4532,6 +4783,16 @@ export function TrainerDashboard() {
               aria-expanded={syncOpen}
             >
               {isSyncing ? "Sync · syncing" : "Sync"}
+            </button>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={openMemoryFromNavigation}
+              ref={memoryButtonRef}
+              aria-label="Memory"
+              aria-expanded={memoryOpen}
+            >
+              Memory
             </button>
             <button
               type="button"
@@ -4609,6 +4870,15 @@ export function TrainerDashboard() {
                   aria-label="Sync"
                 >
                   {isSyncing ? "Sync · syncing" : "Sync"}
+                </button>
+                <button
+                  type="button"
+                  className="app-menu-item"
+                  role="menuitem"
+                  onClick={openMemoryFromNavigation}
+                  aria-label="Memory"
+                >
+                  Memory
                 </button>
                 <button
                   type="button"
@@ -5352,9 +5622,34 @@ export function TrainerDashboard() {
         </section>
       ) : null}
 
+      {memoryOpen ? (
+        <section
+          className="memory-view-panel"
+          aria-labelledby="memory-view-heading"
+        >
+          <div className="memory-view-header">
+            <div>
+              <p className="section-kicker">Memory</p>
+              <h1 id="memory-view-heading">Memory</h1>
+            </div>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={closeMemoryView}
+              ref={memoryCloseRef}
+              aria-label="Back to chat"
+            >
+              Back to chat
+            </button>
+          </div>
+          <div className="memory-view-content">{memoryManagementContent}</div>
+        </section>
+      ) : null}
+
       {!activityDashboardOpen &&
       !trainingPlanOpen &&
       !syncOpen &&
+      !memoryOpen &&
       !healthDashboardOpen ? (
         <div className="chat-workspace">
           <aside
@@ -5585,9 +5880,9 @@ export function TrainerDashboard() {
               {chatMessages.length === 0 && !isChatLoading ? (
                 <div className="empty-chat empty-chat-hero">
                   <p>
-                    Start with the latest training question. Profile, memory,
-                    Garmin data, diagnostics, and privacy controls are in
-                    Settings.
+                    Start with the latest training question. Profile, Garmin
+                    data, diagnostics, and privacy controls are in Settings;
+                    learned memory has its own Memory view.
                   </p>
                   {trainingPlanState === "loaded" &&
                   (!trainingPlan || trainingPlanStale) ? (
@@ -5713,7 +6008,12 @@ export function TrainerDashboard() {
         </div>
       ) : null}
 
-      {!activityDashboardOpen && !syncOpen && settingsOpen ? (
+      {!activityDashboardOpen &&
+      !trainingPlanOpen &&
+      !syncOpen &&
+      !memoryOpen &&
+      !healthDashboardOpen &&
+      settingsOpen ? (
         <div className="modal-layer" role="presentation">
           <button
             type="button"
@@ -5811,228 +6111,6 @@ export function TrainerDashboard() {
                   >
                     Reload saved Profile
                   </button>
-                </div>
-              </details>
-
-              <details className="settings-card" open>
-                <summary>
-                  Learned memory{" "}
-                  <span className="pill" aria-live="polite">
-                    {memoryHealth?.status ?? "loading"} · {memoryItems.length}{" "}
-                    loaded · {filteredMemories.length} shown
-                  </span>
-                </summary>
-                <p>
-                  Embedded SQLite memory stores concise user-derived
-                  cross-session facts, preferences, corrections, and temporary
-                  plans after complete persisted answers; it is not a transcript
-                  archive. Current chats carry bounded same-chat continuity.
-                  Ready memory needs Ollama, deterministic local embeddings, or
-                  a valid OpenAI embedding key; DeepSeek chat alone does not
-                  provide embeddings.
-                </p>
-                <p className="helper-text" role="status" aria-live="polite">
-                  {memoryMessage}
-                </p>
-                <div className="button-row memory-actions">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setMemoryEnabled(!(memoryHealth?.enabled ?? false))
-                    }
-                    disabled={isMemoryLoading}
-                  >
-                    {memoryHealth?.enabled ? "Disable memory" : "Enable memory"}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => loadMemories()}
-                    disabled={isMemoryLoading}
-                  >
-                    Reload memories
-                  </button>
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => actOnMemory("clear")}
-                    disabled={isMemoryLoading || !memoryItems.length}
-                  >
-                    Clear all memory
-                  </button>
-                </div>
-                <div
-                  className="memory-browser"
-                  aria-label="Search and sort semantic memories"
-                >
-                  <div className="memory-browser-header">
-                    <div>
-                      <h3>Inspectable semantic memories</h3>
-                      <p className="helper-text compact-helper">
-                        Browsing applies only to the {memoryItems.length} loaded
-                        local management records.
-                      </p>
-                    </div>
-                    <span className="pill" aria-live="polite">
-                      {filteredMemories.length} of {memoryItems.length} shown
-                    </span>
-                  </div>
-                  <div className="memory-controls">
-                    <label>
-                      Search memory text
-                      <input
-                        type="search"
-                        value={memorySearchQuery}
-                        placeholder="Search text, kind, conversation…"
-                        onChange={(event) =>
-                          setMemorySearchQuery(event.target.value)
-                        }
-                        disabled={isMemoryLoading || !memoryItems.length}
-                      />
-                    </label>
-                    <label>
-                      Kind
-                      <select
-                        value={memoryKindFilter}
-                        onChange={(event) =>
-                          setMemoryKindFilter(
-                            event.target.value as MemoryKindFilter,
-                          )
-                        }
-                        disabled={isMemoryLoading || !memoryItems.length}
-                      >
-                        {memoryKindOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Sort
-                      <select
-                        value={memorySort}
-                        onChange={(event) =>
-                          setMemorySort(event.target.value as MemorySort)
-                        }
-                        disabled={isMemoryLoading || !memoryItems.length}
-                      >
-                        {memorySortOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => {
-                        setMemorySearchQuery("");
-                        setMemoryKindFilter("all");
-                      }}
-                      disabled={isMemoryLoading || !hasMemoryFilters}
-                    >
-                      Clear filters
-                    </button>
-                  </div>
-                  <div
-                    className="memory-list"
-                    aria-label="Inspectable semantic memories"
-                    aria-busy={isMemoryLoading}
-                  >
-                    {filteredMemories.length ? (
-                      filteredMemories.map((item) => (
-                        <div className="memory-row" key={item.id}>
-                          <div className="memory-row-main">
-                            {editingMemoryId === item.id ? (
-                              <label>
-                                Edit memory
-                                <textarea
-                                  aria-label="Edit memory"
-                                  value={editingMemoryText}
-                                  onChange={(event) =>
-                                    setEditingMemoryText(event.target.value)
-                                  }
-                                  disabled={isMemoryLoading}
-                                />
-                              </label>
-                            ) : (
-                              <p className="memory-text">{item.text}</p>
-                            )}
-                            <small className="memory-meta">
-                              <span>{memoryKindLabels[item.kind]}</span>
-                              <span>{memoryScopeLabel(item)}</span>
-                              <span>{memoryUpdatedLabel(item)}</span>
-                            </small>
-                          </div>
-                          <div className="button-row memory-row-actions">
-                            {editingMemoryId === item.id ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    actOnMemory(
-                                      "update",
-                                      item.id,
-                                      editingMemoryText,
-                                    )
-                                  }
-                                  disabled={isMemoryLoading}
-                                >
-                                  Save edit
-                                </button>
-                                <button
-                                  type="button"
-                                  className="secondary-button"
-                                  onClick={() => {
-                                    setEditingMemoryId(null);
-                                    setEditingMemoryText("");
-                                  }}
-                                  disabled={isMemoryLoading}
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                type="button"
-                                className="secondary-button"
-                                onClick={() => {
-                                  setEditingMemoryId(item.id);
-                                  setEditingMemoryText(item.text);
-                                }}
-                                disabled={isMemoryLoading}
-                              >
-                                Edit
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="danger-button"
-                              onClick={() => actOnMemory("delete", item.id)}
-                              disabled={isMemoryLoading}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    ) : memoryItems.length ? (
-                      <p className="memory-empty-state">
-                        No memories match the current search or kind filter.
-                        Clear filters to return to the loaded list.
-                      </p>
-                    ) : (
-                      <p className="memory-empty-state">
-                        No inspectable semantic memories. If memory is enabled
-                        and ready, explicit preferences, goals, corrections, or
-                        useful temporary plans can create concise memories after
-                        complete chats; ordinary transient turns may create
-                        none.
-                      </p>
-                    )}
-                  </div>
                 </div>
               </details>
 

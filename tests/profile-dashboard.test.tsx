@@ -190,6 +190,10 @@ function openSettings() {
   fireEvent.click(screen.getByRole("button", { name: "Data & settings" }));
 }
 
+function openMemory() {
+  fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+}
+
 function stubViewport(matches: boolean) {
   vi.stubGlobal(
     "matchMedia",
@@ -809,6 +813,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Health",
       "Training Plan",
       "Sync",
+      "Memory",
       "Data & settings",
     ];
     for (const name of expectedTopbarButtons) {
@@ -828,6 +833,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Health",
       "Training Plan",
       "Sync",
+      "Memory",
       "Settings",
     ]);
     expect(
@@ -885,6 +891,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Health",
       "Training Plan",
       "Sync",
+      "Memory",
       "Data & settings",
     ];
     for (const name of menuItems) {
@@ -902,6 +909,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Health",
       "Training Plan",
       "Sync",
+      "Memory",
       "Settings",
     ]);
 
@@ -938,6 +946,17 @@ describe("TrainerDashboard Profile hydration", () => {
     stubViewport(true);
 
     render(React.createElement(TrainerDashboard));
+
+    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Memory" }));
+
+    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Memory" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(screen.queryByRole("heading", { name: "Memory" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Data & settings" }));
@@ -1001,7 +1020,11 @@ describe("TrainerDashboard Profile hydration", () => {
         ?.classList.contains("profile-settings-card"),
     ).toBe(true);
     expect(screen.getByLabelText("Goals")).toBeTruthy();
-    expect(screen.getByText("Learned memory")).toBeTruthy();
+    expect(within(dialog).queryByText("Learned memory")).toBeNull();
+    expect(within(dialog).queryByLabelText("Search memory text")).toBeNull();
+    expect(
+      within(dialog).queryByRole("button", { name: "Clear all memory" }),
+    ).toBeNull();
     expect(
       screen.getByRole("button", { name: "Verify connector" }),
     ).toBeTruthy();
@@ -3071,9 +3094,14 @@ describe("TrainerDashboard memory and new chat", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { container } = render(React.createElement(TrainerDashboard));
-    openSettings();
+    openMemory();
 
     expect(await screen.findByText("Learned memory")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Memory" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
+    expect(
+      screen.queryByRole("dialog", { name: "Data & settings" }),
+    ).toBeNull();
     expect(screen.getAllByText("4 of 4 shown").length).toBeGreaterThan(0);
     expect(screen.getByText("Prefers morning hikes")).toBeTruthy();
     expect(screen.getByText("Temporary plan for taper week")).toBeTruthy();
