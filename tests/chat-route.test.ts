@@ -805,6 +805,34 @@ describe("chat route LLM tool orchestration", () => {
     expect(payload.assistant.content).toContain("sync complete");
   });
 
+  it("answers repeated same-turn Garmin sync selection from the first result", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [{ toolName: "runGarminSync", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [{ toolName: "runGarminSync", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        text: "Garmin sync complete from the first local sync result.",
+      });
+
+    const payload = await postChat("sync my most recent data");
+
+    expect(runGarminSync).toHaveBeenCalledOnce();
+    expect(payload.toolEvidence?.tool).toBe("runGarminSync");
+    expect(payload.toolSteps?.at(-1)).toMatchObject({
+      tool: "runGarminSync",
+      status: "rejected",
+      reason: "duplicate_side_effect",
+    });
+    expect(payload.assistant.content).toContain("sync complete");
+    expect(payload.assistant.content).not.toContain("duplicate_side_effect");
+    expect(payload.assistant.content).not.toContain(
+      "already used in this turn",
+    );
+  });
+
   it("saves the Training Plan only for explicit update requests", async () => {
     const payload = await postChat("Create my Training Plan for the next week");
 
