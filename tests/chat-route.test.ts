@@ -764,19 +764,24 @@ describe("chat route LLM tool orchestration", () => {
     expect(generateText).toHaveBeenCalledTimes(2);
   });
 
-  it("omits persisted debug traces from API payloads when the env flag is disabled", async () => {
+  it("persists and returns bounded debug traces by default", async () => {
     const payload = await postChat(
       "What is my sync status and detail coverage?",
     );
 
-    expect(payload.llmDebugTracesEnabled).toBe(false);
-    expect(payload.assistant.grounding?.debugTrace).toBeUndefined();
-    expect(payload.messages?.at(-1)?.grounding?.debugTrace).toBeUndefined();
-    expect(messages.at(-1)?.grounding).not.toHaveProperty("debugTrace");
+    expect(payload.llmDebugTracesEnabled).toBe(true);
+    expect(payload.assistant.grounding?.debugTrace).toMatchObject({
+      schemaVersion: 1,
+      provider: "deepseek",
+      model: "deepseek-chat",
+      providerCalls: expect.any(Array),
+      toolSteps: [expect.objectContaining({ tool: "getSyncStatus" })],
+    });
+    expect(messages.at(-1)?.grounding).toHaveProperty("debugTrace");
   });
 
-  it("persists and returns bounded debug traces when the env flag is enabled", async () => {
-    process.env.LLM_DEBUG_TRACES = "true";
+  it("persists and returns bounded debug traces even when the env flag is false", async () => {
+    process.env.LLM_DEBUG_TRACES = "false";
 
     const payload = await postChat(
       "What is my sync status and detail coverage?",

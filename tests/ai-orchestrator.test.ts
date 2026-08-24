@@ -1118,7 +1118,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
       maxSchemaCalls: 10,
       maxSqlCalls: 10,
       maxMathCalls: 10,
-      providerCallTimeoutMs: 45000,
+      providerCallTimeoutMs: 180000,
     });
   });
 });
