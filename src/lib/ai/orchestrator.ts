@@ -501,6 +501,26 @@ function genericToolLimitationText(steps: TrainerToolStep[]): string | null {
   return `I couldn't complete the local ${failed.tool} request within the safety guardrails.${reason} ${failed.summary}`;
 }
 
+function duplicateSideEffectPriorResultText(
+  steps: TrainerToolStep[],
+): string | null {
+  const duplicate = [...steps]
+    .reverse()
+    .find((step) => step.reason === "duplicate_side_effect");
+  if (!duplicate) return null;
+  const prior = [...steps]
+    .reverse()
+    .find(
+      (step) =>
+        step.index < duplicate.index &&
+        step.tool === duplicate.tool &&
+        step.status !== "rejected",
+    );
+  if (!prior) return null;
+  if (prior.status !== "succeeded") return genericToolLimitationText([prior]);
+  return `I completed the requested local ${prior.tool} action once. ${prior.summary.trim()}`;
+}
+
 function toolFailureLimitationText(steps: TrainerToolStep[]): string {
   const providerSelectionFailure = [...steps]
     .reverse()
@@ -512,36 +532,10 @@ function toolFailureLimitationText(steps: TrainerToolStep[]): string {
     (providerSelectionFailure
       ? providerSelectionFailureText(providerSelectionFailure)
       : null) ??
+    duplicateSideEffectPriorResultText(steps) ??
     sqlLimitationText(steps) ??
     genericToolLimitationText(steps) ??
     "I couldn't complete that local Garmin tool request within the safety guardrails. Please try a narrower request."
-  );
-}
-
-function deterministicSideEffectResultText(step: TrainerToolStep): string {
-  if (step.status !== "succeeded") return toolFailureLimitationText([step]);
-  const summary = step.summary.trim();
-  switch (step.tool) {
-    case "runGarminSync":
-      return `I ran the requested Garmin sync once. ${summary}`;
-    case "forceRefreshActivityDetail":
-      return `I ran the requested activity-detail refresh once. ${summary}`;
-    case "saveTrainingPlan":
-      return `I saved the requested Training Plan update once. ${summary}`;
-    default:
-      return `I completed the requested local Garmin tool once. ${summary}`;
-  }
-}
-
-function priorSideEffectStep(
-  steps: TrainerToolStep[],
-  toolName: TrainerToolName,
-): TrainerToolStep | null {
-  return (
-    [...steps]
-      .reverse()
-      .find((step) => step.tool === toolName && step.status !== "rejected") ??
-    null
   );
 }
 
@@ -847,17 +841,14 @@ export async function orchestrateTrainerChat(
           `${accepted.toolName} was rejected because that side-effect tool was already used in this turn.`,
         );
         const allSteps = [...steps, step];
-        const priorStep = priorSideEffectStep(steps, accepted.toolName);
-        const synthesized = priorStep
-          ? await synthesizeFinalAnswer(input, steps, recordProviderCall)
-          : null;
+        const synthesized = await synthesizeFinalAnswer(
+          input,
+          steps,
+          recordProviderCall,
+        );
         return finish(
           {
-            text:
-              synthesized ??
-              (priorStep
-                ? deterministicSideEffectResultText(priorStep)
-                : toolFailureLimitationText(allSteps)),
+            text: synthesized ?? toolFailureLimitationText(allSteps),
             grounding: groundingForSteps(allSteps),
             toolSteps: allSteps,
             providerCalls,

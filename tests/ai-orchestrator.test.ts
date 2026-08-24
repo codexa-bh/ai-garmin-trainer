@@ -917,7 +917,9 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(runGarminSync).toHaveBeenCalledTimes(1);
     expect(result.grounding?.tool).toBe("runGarminSync");
     expect(result.toolSteps.at(-1)?.reason).toBe("duplicate_side_effect");
-    expect(result.text).toContain("ran the requested Garmin sync once");
+    expect(result.text).toContain(
+      "completed the requested local runGarminSync action once",
+    );
     expect(result.text).not.toContain("duplicate_side_effect");
     expect(result.text).not.toContain("already used in this turn");
   });
