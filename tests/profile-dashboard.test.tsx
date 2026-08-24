@@ -190,10 +190,6 @@ function openSettings() {
   fireEvent.click(screen.getByRole("button", { name: "Data & settings" }));
 }
 
-function openMemory() {
-  fireEvent.click(screen.getByRole("button", { name: "Memory" }));
-}
-
 function stubViewport(matches: boolean) {
   vi.stubGlobal(
     "matchMedia",
@@ -951,12 +947,16 @@ describe("TrainerDashboard Profile hydration", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Memory" }));
 
     expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "Memory" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
+    const memoryDialog = screen.getByRole("dialog", { name: "Memory" });
+    expect(memoryDialog).toBeTruthy();
+    expect(
+      within(memoryDialog).getByRole("button", { name: "Close" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("log", { name: "Chat transcript" })).toBeTruthy();
 
     fireEvent.keyDown(window, { key: "Escape" });
 
-    expect(screen.queryByRole("heading", { name: "Memory" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Memory" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Data & settings" }));
@@ -1013,6 +1013,7 @@ describe("TrainerDashboard Profile hydration", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Data & settings" });
     expect(dialog).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Memory" })).toBeNull();
     const profileSummary = screen.getByText(/Profile \/ trainer grounding/);
     expect(
       profileSummary
@@ -3094,11 +3095,19 @@ describe("TrainerDashboard memory and new chat", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { container } = render(React.createElement(TrainerDashboard));
-    openMemory();
+    const memoryButton = screen.getByRole("button", { name: "Memory" });
+    fireEvent.click(memoryButton);
 
+    const memoryDialog = await screen.findByRole("dialog", { name: "Memory" });
+    expect(memoryDialog).toBeTruthy();
     expect(await screen.findByText("Learned memory")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Memory" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
+    expect(container.querySelector(".memory-view-panel")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
+    expect(screen.getByRole("log", { name: "Chat transcript" })).toBeTruthy();
+    const closeButton = within(memoryDialog).getByRole("button", {
+      name: "Close",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(closeButton));
     expect(
       screen.queryByRole("dialog", { name: "Data & settings" }),
     ).toBeNull();
@@ -3147,6 +3156,12 @@ describe("TrainerDashboard memory and new chat", () => {
         text: "Prefers sunrise hikes",
       }),
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Close memory" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Memory" })).toBeNull(),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(memoryButton));
   });
 
   it("renames the active saved conversation from the row menu", async () => {
