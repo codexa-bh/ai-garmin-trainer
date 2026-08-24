@@ -1945,6 +1945,19 @@ describe("TrainerDashboard activity charts", () => {
     expect(effortWidgets.textContent).toContain("37 min");
     expect(effortWidgets.textContent).toContain("77 min");
     expect(effortWidgets.textContent).not.toContain("10 min");
+    const intensityWidget = effortWidgets.querySelector(
+      ".activity-effort-widget",
+    );
+    expect(intensityWidget).toBeTruthy();
+    expect(intensityWidget?.querySelector(".activity-effort-total")).toBeNull();
+    const intensityRows = Array.from(
+      intensityWidget?.querySelectorAll(".activity-effort-list > div") ?? [],
+    );
+    expect(intensityRows).toHaveLength(3);
+    expect(intensityRows[0]?.textContent).toContain("Total");
+    expect(intensityRows[0]?.textContent).toContain("77 min");
+    expect(intensityRows[1]?.textContent).toContain("Moderate");
+    expect(intensityRows[2]?.textContent).toContain("Vigorous x2");
     expect(effortWidgets.textContent).toContain("Training Effect");
     expect(effortWidgets.textContent).toContain("Aerobic");
     expect(effortWidgets.textContent).toContain("3.2");
@@ -2431,6 +2444,17 @@ describe("TrainerDashboard activity charts", () => {
     expect(effortWidgets.textContent).toContain("0 min");
     expect(effortWidgets.textContent).toContain("3 min");
     expect(effortWidgets.textContent).not.toContain("99 min");
+    const unavailableIntensityWidget = effortWidgets.querySelector(
+      ".activity-effort-widget",
+    );
+    expect(
+      unavailableIntensityWidget?.querySelector(".activity-effort-total"),
+    ).toBeNull();
+    expect(
+      unavailableIntensityWidget?.querySelectorAll(
+        ".activity-effort-list > div",
+      ),
+    ).toHaveLength(3);
     expect(effortWidgets.textContent).toContain("Training Effect");
     expect(effortWidgets.textContent).toContain("3.2");
     expect(effortWidgets.textContent).toContain("Unavailable");

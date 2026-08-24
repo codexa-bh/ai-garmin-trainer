@@ -5289,20 +5289,22 @@ export function TrainerDashboard() {
                       </h3>
                       <span>Weighted total</span>
                     </div>
-                    <div className="activity-effort-total">
-                      <span>Total</span>
-                      <strong>
-                        {finiteNumberUnitLabel(
-                          weightedIntensityMinutes(
-                            activityDashboard.activity.moderateIntensityMinutes,
-                            activityDashboard.activity.vigorousIntensityMinutes,
-                          ),
-                          "min",
-                          0,
-                        )}
-                      </strong>
-                    </div>
                     <dl className="activity-effort-list">
+                      <div>
+                        <dt>Total</dt>
+                        <dd>
+                          {finiteNumberUnitLabel(
+                            weightedIntensityMinutes(
+                              activityDashboard.activity
+                                .moderateIntensityMinutes,
+                              activityDashboard.activity
+                                .vigorousIntensityMinutes,
+                            ),
+                            "min",
+                            0,
+                          )}
+                        </dd>
+                      </div>
                       <div>
                         <dt>Moderate</dt>
                         <dd>
