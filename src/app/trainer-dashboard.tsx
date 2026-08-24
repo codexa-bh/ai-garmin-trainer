@@ -2970,12 +2970,11 @@ export function TrainerDashboard() {
     forceNextScrollRef.current = false;
   }, [chatMessages, isChatLoading]);
   useLayoutEffect(() => {
-    if (activityDashboardOpen || trainingPlanOpen || syncOpen || memoryOpen)
-      return;
+    if (activityDashboardOpen || trainingPlanOpen || syncOpen) return;
     if (!restoreTranscriptOnSectionReturnRef.current) return;
     restoreTranscriptOnSectionReturnRef.current = false;
     restoreTranscriptScrollSnapshot();
-  }, [activityDashboardOpen, trainingPlanOpen, syncOpen, memoryOpen]);
+  }, [activityDashboardOpen, trainingPlanOpen, syncOpen]);
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -3328,7 +3327,6 @@ export function TrainerDashboard() {
   }
 
   function openMemoryView() {
-    captureTranscriptScrollSnapshot();
     setMemoryOpen(true);
   }
 
@@ -3768,7 +3766,6 @@ export function TrainerDashboard() {
 
   function closeMemoryView() {
     memoryReturnFocusRef.current = true;
-    restoreTranscriptOnSectionReturnRef.current = true;
     setMemoryOpen(false);
     setEditingMemoryId(null);
     setEditingMemoryText("");
@@ -4719,13 +4716,12 @@ export function TrainerDashboard() {
 
   return (
     <section
-      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""} ${syncOpen ? "sync-view-active" : ""} ${memoryOpen ? "memory-view-active" : ""} ${healthDashboardOpen ? "health-dashboard-active" : ""}`}
+      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""} ${syncOpen ? "sync-view-active" : ""} ${healthDashboardOpen ? "health-dashboard-active" : ""}`}
       aria-label="AI trainer dashboard"
     >
       {!activityDashboardOpen &&
       !trainingPlanOpen &&
       !syncOpen &&
-      !memoryOpen &&
       !healthDashboardOpen ? (
         <header className="app-topbar">
           <div className="app-brand">
@@ -5625,33 +5621,43 @@ export function TrainerDashboard() {
       ) : null}
 
       {memoryOpen ? (
-        <section
-          className="memory-view-panel"
-          aria-labelledby="memory-view-heading"
-        >
-          <div className="memory-view-header">
-            <div>
-              <p className="section-kicker">Memory</p>
-              <h1 id="memory-view-heading">Memory</h1>
+        <div className="modal-layer memory-sheet-layer" role="presentation">
+          <button
+            type="button"
+            className="settings-backdrop"
+            aria-label="Close memory"
+            onClick={closeMemoryView}
+          />
+          <aside
+            className="settings-sheet memory-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="memory-sheet-heading"
+          >
+            <header className="sheet-header">
+              <div>
+                <p className="section-kicker">Memory</p>
+                <h2 id="memory-sheet-heading">Memory</h2>
+              </div>
+              <button
+                type="button"
+                className="chrome-button"
+                onClick={closeMemoryView}
+                ref={memoryCloseRef}
+              >
+                Close
+              </button>
+            </header>
+            <div className="settings-groups memory-sheet-groups">
+              {memoryManagementContent}
             </div>
-            <button
-              type="button"
-              className="chrome-button"
-              onClick={closeMemoryView}
-              ref={memoryCloseRef}
-              aria-label="Back to chat"
-            >
-              Back to chat
-            </button>
-          </div>
-          <div className="memory-view-content">{memoryManagementContent}</div>
-        </section>
+          </aside>
+        </div>
       ) : null}
 
       {!activityDashboardOpen &&
       !trainingPlanOpen &&
       !syncOpen &&
-      !memoryOpen &&
       !healthDashboardOpen ? (
         <div className="chat-workspace">
           <aside
@@ -5884,7 +5890,7 @@ export function TrainerDashboard() {
                   <p>
                     Start with the latest training question. Profile, Garmin
                     data, diagnostics, and privacy controls are in Settings;
-                    learned memory has its own Memory view.
+                    learned memory has its own Memory sheet.
                   </p>
                   {trainingPlanState === "loaded" &&
                   (!trainingPlan || trainingPlanStale) ? (
@@ -6013,7 +6019,6 @@ export function TrainerDashboard() {
       {!activityDashboardOpen &&
       !trainingPlanOpen &&
       !syncOpen &&
-      !memoryOpen &&
       !healthDashboardOpen &&
       settingsOpen ? (
         <div className="modal-layer" role="presentation">
