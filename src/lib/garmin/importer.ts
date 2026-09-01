@@ -12,6 +12,7 @@ import {
   listDailyHealthMissingGapDates,
   listDailyHealthRepairCandidateDates,
   listDailyHealthIntensityRepairCandidateDates,
+  listDailyHealthTrailingCandidateDates,
   listActivityIdsNeedingEffortBackfill,
   listRecentActivities,
   recordActivityDetailAttempt,
@@ -159,11 +160,13 @@ export function dailyHealthImportPlan(input: {
   endDate: string;
   latestCandidateDates?: string[];
   repairDates?: string[];
+  trailingDates?: string[];
 }): {
   dates: string[];
   checkpointDates: string[];
   latestDates: string[];
   repairDates: string[];
+  trailingDates: string[];
 } {
   const checkpointDates = dateRange(
     maxIsoDate(input.historyStartDate, input.resumeDate),
@@ -179,13 +182,24 @@ export function dailyHealthImportPlan(input: {
     input.historyStartDate,
     input.endDate,
   );
+  const trailingDates = boundedUniqueDates(
+    input.trailingDates ?? [],
+    input.historyStartDate,
+    input.endDate,
+  );
   return {
     dates: Array.from(
-      new Set([...checkpointDates, ...latestDates, ...repairDates]),
+      new Set([
+        ...checkpointDates,
+        ...latestDates,
+        ...repairDates,
+        ...trailingDates,
+      ]),
     ).sort(),
     checkpointDates,
     latestDates,
     repairDates,
+    trailingDates,
   };
 }
 
@@ -509,6 +523,10 @@ export async function runGarminSync(
       startDate,
       endDate,
     });
+    const trailingDates = listDailyHealthTrailingCandidateDates({
+      startDate,
+      endDate,
+    });
     const repairDates = Array.from(
       new Set([
         ...missingGapDates,
@@ -522,6 +540,7 @@ export async function runGarminSync(
       endDate,
       latestCandidateDates: latestDailyHealthCandidateDates(endDate),
       repairDates,
+      trailingDates,
     });
     const checkpointDates = new Set(healthPlan.checkpointDates);
     for (const [index, date] of healthPlan.dates.entries()) {
@@ -614,7 +633,7 @@ export async function runGarminSync(
       detailCoverage: totals.detailCoverage,
       athleteBaseline,
       bodyMetrics,
-      detail: `Sync complete via pinned read-only Garmin MCP stdio. Processed ${activitiesImported} activity records; refreshed ${healthDaysImported} health dates including ${missingGapDates.length} missing-date gaps, ${missingRepairDates.length} missing-row repair candidates, and ${intensityRepairDates.length} daily intensity coverage repair candidates; refreshed ${detailsProcessed} activity detail records. Stored totals: ${totals.activities} activities; health ${totals.healthCoverage.completeDays} complete, ${totals.healthCoverage.partialDays} partial, ${totals.healthCoverage.missingDays} missing of ${totals.healthCoverage.totalRows}; daily intensity coverage ${totals.healthCoverage.metrics.intensityDays}/${totals.healthCoverage.totalRows}; detail ${totals.detailCoverage.available} available, ${totals.detailCoverage.partial} partial, ${totals.detailCoverage.unsupported} unsupported, ${totals.detailCoverage.pending} pending. Athlete baseline ${athleteBaseline.availability}; body metrics ${bodyMetrics.availability}.`,
+      detail: `Sync complete via pinned read-only Garmin MCP stdio. Processed ${activitiesImported} activity records; refreshed ${healthDaysImported} health dates including ${missingGapDates.length} missing-date gaps, ${missingRepairDates.length} missing-row repair candidates, ${intensityRepairDates.length} daily intensity coverage repair candidates, and ${trailingDates.length} mutable trailing daily-health candidates; refreshed ${detailsProcessed} activity detail records. Stored totals: ${totals.activities} activities; health ${totals.healthCoverage.completeDays} complete, ${totals.healthCoverage.partialDays} partial, ${totals.healthCoverage.missingDays} missing of ${totals.healthCoverage.totalRows}; daily intensity coverage ${totals.healthCoverage.metrics.intensityDays}/${totals.healthCoverage.totalRows}; detail ${totals.detailCoverage.available} available, ${totals.detailCoverage.partial} partial, ${totals.detailCoverage.unsupported} unsupported, ${totals.detailCoverage.pending} pending. Athlete baseline ${athleteBaseline.availability}; body metrics ${bodyMetrics.availability}.`,
     };
     onProgress({
       stage: "completed",

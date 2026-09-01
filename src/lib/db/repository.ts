@@ -700,6 +700,58 @@ export function listDailyHealthIntensityRepairCandidateDates(input: {
   return rows.map((row) => row.date);
 }
 
+function shiftIsoDate(date: string, days: number): string {
+  const cursor = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(cursor.getTime())) return date;
+  cursor.setUTCDate(cursor.getUTCDate() + days);
+  return cursor.toISOString().slice(0, 10);
+}
+
+export const DAILY_HEALTH_MUTABLE_TRAILING_DAYS = 14;
+
+export function listDailyHealthTrailingCandidateDates(input: {
+  startDate: string;
+  endDate: string;
+  mutableTrailingDays?: number;
+  limit?: number;
+}): string[] {
+  const safeLimit = Math.min(
+    Math.max(Math.trunc(input.limit ?? 1000), 1),
+    1000,
+  );
+  const mutableTrailingDays = Math.min(
+    Math.max(
+      Math.trunc(
+        input.mutableTrailingDays ?? DAILY_HEALTH_MUTABLE_TRAILING_DAYS,
+      ),
+      1,
+    ),
+    60,
+  );
+  const tailStart = shiftIsoDate(input.endDate, -(mutableTrailingDays - 1));
+  const startDate = input.startDate > tailStart ? input.startDate : tailStart;
+  if (startDate > input.endDate) return [];
+  const rows = getDatabase()
+    .prepare(
+      `with recursive candidate_dates(date) as (
+         select ?
+         union all
+         select date(candidate_dates.date, '+1 day')
+         from candidate_dates
+         where candidate_dates.date < ?
+       )
+       select candidate_dates.date as date
+       from candidate_dates
+       left join daily_health on daily_health.date = candidate_dates.date
+       where daily_health.date is null
+          or daily_health.availability <> 'complete'
+       order by candidate_dates.date asc
+       limit ?`,
+    )
+    .all(startDate, input.endDate, safeLimit) as Array<{ date: string }>;
+  return rows.map((row) => row.date);
+}
+
 export function recordSyncRun(
   status: string,
   optionsOrLastError?: SyncRunOptions | string,
