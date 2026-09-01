@@ -4,7 +4,7 @@
     "bootstrap:local": "node scripts/bootstrap-local.mjs",
     "doctor": "tsx scripts/doctor.ts",
     "db:status": "tsx scripts/db-status.ts",
-    "start:local": "next start --hostname 127.0.0.1 --port 3000",
+    "start:local": "next start --hostname 127.0.0.1 --port ${PORT:-3000}",
     "restart:local": "bash scripts/restart-local.sh",
     "build": "next build",
     "lint": "eslint . --max-warnings=0",

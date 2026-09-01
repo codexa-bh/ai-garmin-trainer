@@ -560,7 +560,7 @@ export async function ensureApp({
   }
   owned.app = spawn("npm", ["run", "start:local"], {
     cwd,
-    env,
+    env: { ...env, PORT: String(port) },
     stdio: "inherit",
   });
   const started = await waitFor(() => appReady(appUrl, 1000), {
