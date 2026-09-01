@@ -264,9 +264,23 @@ export function clearTrainerAnalysisResultHandles(): void {
   sameTurnSqlResults.clear();
 }
 
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(/(token data from directory\s+)['"][^'"]+['"]/gi, "$1[redacted]")
+    .replace(/(tokens will be saved to:\s*)[^\r\n]+/gi, "$1[redacted]")
+    .replace(/\/Users\/[^\s'"`]+/g, "[redacted-path]")
+    .replace(/\b[A-Z0-9._%+-]+_API_KEY=\S+/gi, "[redacted-api-key]")
+    .replace(/\b(refresh|access)_token\s*[=:]\s*\S+/gi, "$1_token=[redacted]");
+}
+
 function boundedText(value: string, max = 500): string {
-  const compact = value.replace(/\s+/g, " ").trim();
+  const compact = redactSensitiveText(value).replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
+}
+
+function sanitizedResultDetail<T extends { detail?: unknown }>(result: T): T {
+  if (typeof result.detail !== "string") return result;
+  return { ...result, detail: boundedText(result.detail, 1200) };
 }
 
 function summarizeSyncStatus(limit = 10) {
@@ -337,7 +351,7 @@ export async function executeTrainerTool(input: {
   try {
     switch (input.toolName) {
       case "runGarminSync": {
-        const result = await runGarminSync();
+        const result = sanitizedResultDetail(await runGarminSync());
         return {
           index: input.index,
           tool: input.toolName,
@@ -389,9 +403,11 @@ export async function executeTrainerTool(input: {
             reason: "unknown_activity_id",
           };
         }
-        const result = await backfillActivityDetail(args.garminId, {
-          force: true,
-        });
+        const result = sanitizedResultDetail(
+          await backfillActivityDetail(args.garminId, {
+            force: true,
+          }),
+        );
         return {
           index: input.index,
           tool: input.toolName,
