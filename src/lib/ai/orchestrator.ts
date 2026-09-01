@@ -24,18 +24,14 @@ import {
   buildPlannerInstructions,
 } from "@/lib/ai/trainer-instructions";
 
-const MAX_PLANNER_CALLS = 10;
-const MAX_TOOL_CALLS = 10;
-const MAX_GENERAL_TOOL_CALLS = 10;
-const MAX_SCHEMA_CALLS = 10;
-const MAX_SQL_CALLS = 10;
-const MAX_MATH_CALLS = 10;
+const MAX_TOTAL_TURN_EXECUTIONS = 20;
+const MAX_PLANNER_CALLS = 20;
+const MAX_TOOL_CALLS = 20;
+const MAX_GENERAL_TOOL_CALLS = 20;
+const MAX_SCHEMA_CALLS = 20;
+const MAX_SQL_CALLS = 20;
+const MAX_MATH_CALLS = 20;
 const PROVIDER_CALL_TIMEOUT_MS = 180_000;
-const SIDE_EFFECT_TOOLS = new Set<TrainerToolName>([
-  "runGarminSync",
-  "forceRefreshActivityDetail",
-  "saveTrainingPlan",
-]);
 
 export type OrchestrateTrainerStatus = (message: string) => void;
 
@@ -140,7 +136,9 @@ function providerSelectionFailureText(step: TrainerToolStep): string {
   if (step.reason === "multiple_tool_calls")
     return "I tried to continue the local Garmin analysis, but the model selected multiple tools at once. I did not run an unsafe action. Please ask me to retry the ranking with one SQL query, or narrow the criteria you want me to use.";
   if (step.reason === "multiple_tool_calls_with_side_effect")
-    return "The model selected more than one tool, including a tool that can change local sync/detail or Training Plan state. I did not run those actions blindly. Please ask for the single sync, refresh, status, analysis, or Training Plan update action you want next.";
+    return "The model selected more than one local action, but this trainer now supports sequential valid tool execution. I could not run this response for another validation reason; please retry with a narrower Garmin request.";
+  if (step.reason === "tool_budget_exceeded")
+    return "I reached the per-turn limit of 20 total planner/tool executions while working through the local Garmin request. I stopped before running additional tools; please continue with a narrower follow-up if you want more detail.";
   if (step.reason === "multiple_tool_calls_no_safe_tool")
     return "The model selected multiple tools, but none was safe and valid to run as the next single action. I did not execute them blindly; please retry with one narrower local Garmin request.";
   return "I could not select a safe local Garmin tool for that response, so I did not execute any tool. Please retry with one narrower request.";
@@ -400,68 +398,136 @@ function selectedToolPriority(
   return 10;
 }
 
-function selectOneSafeToolCall(input: {
+function totalTurnExecutions(
+  providerCalls: number,
+  steps: TrainerToolStep[],
+): number {
+  return providerCalls + steps.length;
+}
+
+function remainingToolExecutionBudget(
+  providerCalls: number,
+  steps: TrainerToolStep[],
+): number {
+  return Math.max(
+    0,
+    MAX_TOTAL_TURN_EXECUTIONS - totalTurnExecutions(providerCalls, steps),
+  );
+}
+
+function attemptedToolName(call: TrainerToolCall): TrainerToolStepName {
+  return Object.prototype.hasOwnProperty.call(
+    trainerToolDefinitions,
+    call.toolName,
+  ) && typeof call.toolName === "string"
+    ? (call.toolName as TrainerToolName)
+    : "providerToolSelection";
+}
+
+type SelectedTrainerToolCall = {
+  call: TrainerToolCall;
+  accepted: { toolName: TrainerToolName; input: unknown };
+  metadata?: TrainerToolSelectionMetadata;
+};
+
+function selectSafeToolCalls(input: {
   toolCalls: TrainerToolCall[];
   priorSteps: TrainerToolStep[];
   analysisToolCounts: Map<TrainerToolName, number>;
+  providerCalls: number;
 }):
-  | { ok: true; call: TrainerToolCall; metadata: TrainerToolSelectionMetadata }
+  | {
+      ok: true;
+      calls: SelectedTrainerToolCall[];
+      skippedForTurnBudget: number;
+    }
   | { ok: false; step: TrainerToolStep } {
   const toolNames = input.toolCalls
     .map((call) => call.toolName)
     .filter((toolName, index, names) => names.indexOf(toolName) === index)
     .slice(0, 8);
-  const validCalls = input.toolCalls.flatMap((call, order) => {
-    const accepted = validateTrainerToolCall(call);
-    if (!accepted.ok) return [];
-    return [{ call, order, toolName: accepted.toolName }];
-  });
-  const sideEffectCalls = validCalls.filter((item) =>
-    SIDE_EFFECT_TOOLS.has(item.toolName),
-  );
   const stepIndex = input.priorSteps.length + 1;
-  if (sideEffectCalls.length) {
-    return {
-      ok: false,
-      step: failedStep(
-        stepIndex,
-        "multiple_tool_calls_with_side_effect",
-        "providerToolSelection",
-        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ")}); at least one can change local sync/detail or Training Plan state, so none was executed.`,
-      ),
-    };
+  const evaluated: Array<{
+    call: TrainerToolCall;
+    order: number;
+    accepted: { toolName: TrainerToolName; input: unknown };
+  }> = [];
+
+  for (const [order, call] of input.toolCalls.entries()) {
+    const accepted = validateTrainerToolCall(call);
+    if (!accepted.ok) {
+      return {
+        ok: false,
+        step: failedStep(
+          stepIndex,
+          accepted.reason,
+          attemptedToolName(call),
+          `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}); call ${order + 1} was rejected as ${accepted.reason}, so no tools from that provider response were executed.`,
+        ),
+      };
+    }
+    evaluated.push({ call, order, accepted });
   }
-  const candidates = validCalls
+
+  const candidates = evaluated
     .filter((item) =>
-      canToolRunWithinBudget(item.toolName, input.analysisToolCounts),
+      canToolRunWithinBudget(item.accepted.toolName, input.analysisToolCounts),
     )
     .sort((left, right) => {
       const priority =
-        selectedToolPriority(left.toolName, input.priorSteps) -
-        selectedToolPriority(right.toolName, input.priorSteps);
+        selectedToolPriority(left.accepted.toolName, input.priorSteps) -
+        selectedToolPriority(right.accepted.toolName, input.priorSteps);
       return priority || left.order - right.order;
     });
-  const selected = candidates[0];
-  if (!selected) {
+  if (!candidates.length) {
     return {
       ok: false,
       step: failedStep(
         stepIndex,
         "multiple_tool_calls_no_safe_tool",
         "providerToolSelection",
-        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}); none was a safe valid next tool.`,
+        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}); none was a safe valid next tool within the remaining per-tool budgets.`,
       ),
     };
   }
+
+  const remaining = remainingToolExecutionBudget(
+    input.providerCalls,
+    input.priorSteps,
+  );
+  if (remaining <= 0) {
+    return {
+      ok: false,
+      step: failedStep(
+        stepIndex,
+        "tool_budget_exceeded",
+        "providerToolSelection",
+        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}), but the per-turn limit of ${MAX_TOTAL_TURN_EXECUTIONS} total planner/tool executions was already exhausted.`,
+      ),
+    };
+  }
+
+  const selected = candidates.slice(0, remaining);
+  const metadataFor = (
+    toolName: TrainerToolName,
+  ): TrainerToolSelectionMetadata | undefined =>
+    input.toolCalls.length > 1
+      ? {
+          reason: "multiple_tool_calls",
+          count: input.toolCalls.length,
+          toolNames,
+          selectedTool: toolName,
+        }
+      : undefined;
+
   return {
     ok: true,
-    call: selected.call,
-    metadata: {
-      reason: "multiple_tool_calls",
-      count: input.toolCalls.length,
-      toolNames,
-      selectedTool: selected.toolName,
-    },
+    calls: selected.map((item) => ({
+      call: item.call,
+      accepted: item.accepted,
+      metadata: metadataFor(item.accepted.toolName),
+    })),
+    skippedForTurnBudget: Math.max(0, candidates.length - selected.length),
   };
 }
 
@@ -585,7 +651,6 @@ export async function orchestrateTrainerChat(
 ): Promise<OrchestrateTrainerChatResult> {
   clearTrainerAnalysisResultHandles();
   const steps: TrainerToolStep[] = [];
-  const sideEffectsUsed = new Set<TrainerToolName>();
   const analysisToolCounts = new Map<TrainerToolName, number>();
   let providerCalls = 0;
   const evidenceRequirement = localDataEvidenceRequirement({
@@ -619,7 +684,12 @@ export async function orchestrateTrainerChat(
     };
   };
 
-  for (let plannerCall = 0; plannerCall < MAX_PLANNER_CALLS; plannerCall += 1) {
+  for (
+    let plannerCall = 0;
+    plannerCall < MAX_PLANNER_CALLS &&
+    totalTurnExecutions(providerCalls, steps) < MAX_TOTAL_TURN_EXECUTIONS;
+    plannerCall += 1
+  ) {
     emitStatus(
       input,
       steps.length
@@ -769,17 +839,44 @@ export async function orchestrateTrainerChat(
       });
     }
 
-    const stepIndex = steps.length + 1;
-    let selectedToolCall = toolCalls[0];
-    let selectionMetadata: TrainerToolSelectionMetadata | undefined;
-    if (toolCalls.length > 1) {
-      const selection = selectOneSafeToolCall({
-        toolCalls,
-        priorSteps: steps,
-        analysisToolCounts,
-      });
-      if (!selection.ok) {
-        const allSteps = [...steps, selection.step];
+    const selection = selectSafeToolCalls({
+      toolCalls,
+      priorSteps: steps,
+      analysisToolCounts,
+      providerCalls,
+    });
+    if (!selection.ok) {
+      const allSteps = [...steps, selection.step];
+      return finish(
+        {
+          text: toolFailureLimitationText(allSteps),
+          grounding: groundingForSteps(allSteps),
+          toolSteps: allSteps,
+          providerCalls,
+        },
+        "deterministic_fallback",
+      );
+    }
+
+    let skippedForTurnBudget = selection.skippedForTurnBudget;
+    for (const selected of selection.calls) {
+      const stepIndex = steps.length + 1;
+      const { accepted } = selected;
+      if (
+        steps.length >= MAX_TOOL_CALLS ||
+        remainingToolExecutionBudget(providerCalls, steps) <= 0
+      ) {
+        skippedForTurnBudget += 1;
+        break;
+      }
+      if (!canToolRunWithinBudget(accepted.toolName, analysisToolCounts)) {
+        const step = failedStep(
+          stepIndex,
+          "tool_budget_exceeded",
+          accepted.toolName,
+          `${accepted.toolName} was rejected because its per-turn budget was already exhausted.`,
+        );
+        const allSteps = [...steps, step];
         return finish(
           {
             text: toolFailureLimitationText(allSteps),
@@ -790,158 +887,92 @@ export async function orchestrateTrainerChat(
           "deterministic_fallback",
         );
       }
-      selectedToolCall = selection.call;
-      selectionMetadata = selection.metadata;
-    }
-    if (steps.length >= MAX_TOOL_CALLS) {
-      const step = failedStep(
-        2,
-        "tool_budget_exceeded",
-        "providerToolSelection",
-      );
-      const allSteps = [...steps, step];
-      return finish(
-        {
-          text: toolFailureLimitationText(allSteps),
-          grounding: groundingForSteps(allSteps),
-          toolSteps: allSteps,
-          providerCalls,
-        },
-        "deterministic_fallback",
-      );
-    }
-
-    const accepted = validateTrainerToolCall(selectedToolCall);
-    if (!accepted.ok) {
-      const attemptedTool =
-        Object.prototype.hasOwnProperty.call(
-          trainerToolDefinitions,
-          selectedToolCall.toolName,
-        ) && typeof selectedToolCall.toolName === "string"
-          ? (selectedToolCall.toolName as TrainerToolName)
-          : "providerToolSelection";
-      const step = failedStep(stepIndex, accepted.reason, attemptedTool);
-      const allSteps = [...steps, step];
-      return finish(
-        {
-          text: toolFailureLimitationText(allSteps),
-          grounding: groundingForSteps(allSteps),
-          toolSteps: allSteps,
-          providerCalls,
-        },
-        "deterministic_fallback",
-      );
-    }
-    if (SIDE_EFFECT_TOOLS.has(accepted.toolName)) {
-      if (sideEffectsUsed.has(accepted.toolName)) {
-        const step = failedStep(
-          stepIndex,
-          "duplicate_side_effect",
-          accepted.toolName,
-          `${accepted.toolName} was rejected because that side-effect tool was already used in this turn.`,
-        );
-        const allSteps = [...steps, step];
-        const synthesized = await synthesizeFinalAnswer(
-          input,
-          steps,
-          recordProviderCall,
-        );
-        return finish(
-          {
-            text: synthesized ?? toolFailureLimitationText(allSteps),
-            grounding: groundingForSteps(allSteps),
-            toolSteps: allSteps,
-            providerCalls,
-          },
-          synthesized ? "provider" : "deterministic_fallback",
-        );
-      }
-      sideEffectsUsed.add(accepted.toolName);
-    }
-    if (!canToolRunWithinBudget(accepted.toolName, analysisToolCounts)) {
-      const step = failedStep(
-        stepIndex,
-        "tool_budget_exceeded",
-        accepted.toolName,
-        `${accepted.toolName} was rejected because the per-turn tool budget was already exhausted.`,
-      );
-      const allSteps = [...steps, step];
-      const synthesized = await synthesizeFinalAnswer(
-        input,
-        allSteps,
-        recordProviderCall,
-      );
-      return finish(
-        {
-          text: synthesized ?? toolFailureLimitationText(allSteps),
-          grounding: groundingForSteps(allSteps),
-          toolSteps: allSteps,
-          providerCalls,
-        },
-        synthesized ? "provider" : "deterministic_fallback",
-      );
-    }
-    emitStatus(input, statusForTool(accepted.toolName));
-    const step = await executeTrainerTool({
-      index: stepIndex,
-      toolName: accepted.toolName,
-      args: accepted.input,
-    });
-    if (selectionMetadata) step.selection = selectionMetadata;
-    if (
-      step.status === "succeeded" &&
-      (accepted.toolName === "describeGarminDatabase" ||
-        accepted.toolName === "runReadOnlySql" ||
-        accepted.toolName === "runMathAnalysis")
-    ) {
-      analysisToolCounts.set(
-        accepted.toolName,
-        (analysisToolCounts.get(accepted.toolName) ?? 0) + 1,
-      );
-    }
-    steps.push(step);
-
-    if (step.status !== "succeeded") {
+      emitStatus(input, statusForTool(accepted.toolName));
+      const step = await executeTrainerTool({
+        index: stepIndex,
+        toolName: accepted.toolName,
+        args: accepted.input,
+      });
+      if (selected.metadata) step.selection = selected.metadata;
       if (
-        canOfferSqlCorrectionStep(step) &&
-        steps.length < MAX_TOOL_CALLS &&
-        plannerCall + 1 < MAX_PLANNER_CALLS
+        step.status === "succeeded" &&
+        (accepted.toolName === "describeGarminDatabase" ||
+          accepted.toolName === "runReadOnlySql" ||
+          accepted.toolName === "runMathAnalysis")
       ) {
-        continue;
+        analysisToolCounts.set(
+          accepted.toolName,
+          (analysisToolCounts.get(accepted.toolName) ?? 0) + 1,
+        );
       }
-      if (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis") {
-        if (evidenceRequirement.required) {
+      steps.push(step);
+
+      if (step.status !== "succeeded") {
+        if (
+          canOfferSqlCorrectionStep(step) &&
+          steps.length < MAX_TOOL_CALLS &&
+          plannerCall + 1 < MAX_PLANNER_CALLS &&
+          totalTurnExecutions(providerCalls, steps) < MAX_TOTAL_TURN_EXECUTIONS
+        ) {
+          continue;
+        }
+        if (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis") {
+          if (evidenceRequirement.required) {
+            return finish(
+              {
+                text: evidenceRequiredLimitationText(steps),
+                grounding: groundingForSteps(steps),
+                toolSteps: steps,
+                providerCalls,
+              },
+              "deterministic_fallback",
+            );
+          }
+          emitStatus(input, "Synthesizing the final answer…");
+          const synthesized = await synthesizeFinalAnswer(
+            input,
+            steps,
+            recordProviderCall,
+          );
           return finish(
             {
-              text: evidenceRequiredLimitationText(steps),
+              text: synthesized ?? toolFailureLimitationText(steps),
               grounding: groundingForSteps(steps),
               toolSteps: steps,
               providerCalls,
             },
-            "deterministic_fallback",
+            synthesized ? "provider" : "deterministic_fallback",
           );
         }
-        emitStatus(input, "Synthesizing the final answer…");
-        const synthesized = await synthesizeFinalAnswer(
-          input,
-          steps,
-          recordProviderCall,
-        );
         return finish(
           {
-            text: synthesized ?? toolFailureLimitationText(steps),
+            text: toolFailureLimitationText(steps),
             grounding: groundingForSteps(steps),
             toolSteps: steps,
             providerCalls,
           },
-          synthesized ? "provider" : "deterministic_fallback",
+          "deterministic_fallback",
         );
       }
+    }
+
+    if (
+      skippedForTurnBudget > 0 ||
+      steps.length >= MAX_TOOL_CALLS ||
+      totalTurnExecutions(providerCalls, steps) >= MAX_TOTAL_TURN_EXECUTIONS
+    ) {
+      const step = failedStep(
+        steps.length + 1,
+        "tool_budget_exceeded",
+        "providerToolSelection",
+        `Stopped before ${skippedForTurnBudget || "additional"} provider-selected tool call(s) because the per-turn limit is ${MAX_TOTAL_TURN_EXECUTIONS} total planner/tool executions.`,
+      );
+      const allSteps = [...steps, step];
       return finish(
         {
-          text: toolFailureLimitationText(steps),
-          grounding: groundingForSteps(steps),
-          toolSteps: steps,
+          text: toolFailureLimitationText(allSteps),
+          grounding: groundingForSteps(allSteps),
+          toolSteps: allSteps,
           providerCalls,
         },
         "deterministic_fallback",
@@ -980,6 +1011,7 @@ export async function orchestrateTrainerChat(
 }
 
 export const trainerOrchestrationLimits = {
+  maxTotalTurnExecutions: MAX_TOTAL_TURN_EXECUTIONS,
   maxPlannerCalls: MAX_PLANNER_CALLS,
   maxToolCalls: MAX_TOOL_CALLS,
   maxGeneralToolCalls: MAX_GENERAL_TOOL_CALLS,

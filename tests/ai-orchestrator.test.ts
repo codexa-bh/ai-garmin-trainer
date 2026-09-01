@@ -54,6 +54,34 @@ const runMathAnalysis = vi.fn(({ rowsByResult, inputResult, operation }) => ({
   truncated: false,
   privacy: "math privacy",
 }));
+const dataCounts = vi.fn(() => ({
+  activities: 12,
+  healthDays: 3,
+  healthCoverage: undefined,
+}));
+const activityDetailCoverage = vi.fn(() => ({
+  total: 2,
+  pending: 0,
+  available: 2,
+  partial: 0,
+  unsupported: 0,
+  retryableFailures: 0,
+  preservedFailures: 0,
+  inProgress: 0,
+  terminal: 2,
+}));
+const getGarminAthleteBaseline = vi.fn(() => ({
+  availability: "not_available",
+}));
+const getGarminBodyMetrics = vi.fn(() => null);
+const listActivityDetailAvailability = vi.fn(() => []);
+const replaceTrainingPlan = vi.fn(
+  (input: { title?: string; contentMarkdown: string }) => ({
+    title: input.title ?? "Training Plan",
+    contentMarkdown: input.contentMarkdown,
+    revisedAt: "2026-09-01T19:00:00.000Z",
+  }),
+);
 vi.mock("ai", () => ({
   generateText,
   tool: (definition: unknown) => definition,
@@ -70,13 +98,14 @@ vi.mock("@/lib/ai/math-analysis", () => ({
   runMathAnalysis,
 }));
 vi.mock("@/lib/db/repository", () => ({
-  activityDetailCoverage: vi.fn(),
-  dataCounts: vi.fn(),
+  activityDetailCoverage,
+  dataCounts,
   getActivityByGarminId: vi.fn(),
   getActivityDetailForAnalytics: vi.fn(),
-  getGarminAthleteBaseline: vi.fn(),
-  listActivityDetailAvailability: vi.fn(),
-  replaceTrainingPlan: vi.fn(),
+  getGarminAthleteBaseline,
+  getGarminBodyMetrics,
+  listActivityDetailAvailability,
+  replaceTrainingPlan,
   TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
   TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
   verifyActivityReference: vi.fn(),
@@ -93,15 +122,25 @@ describe("trainer orchestrator fail-closed policy", async () => {
     describeGarminDatabase.mockClear();
     runReadOnlySql.mockClear();
     runMathAnalysis.mockClear();
+    dataCounts.mockClear();
+    activityDetailCoverage.mockClear();
+    getGarminAthleteBaseline.mockClear();
+    getGarminBodyMetrics.mockClear();
+    listActivityDetailAvailability.mockClear();
+    replaceTrainingPlan.mockClear();
   });
 
-  it("fails closed for multiple provider tool calls with a side-effect tool", async () => {
-    generateText.mockResolvedValueOnce({
-      toolCalls: [
-        { toolName: "runGarminSync", input: {} },
-        { toolName: "getSyncStatus", input: {} },
-      ],
-    });
+  it("executes multiple provider-selected tools sequentially when one has side effects", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          { toolName: "runGarminSync", input: {} },
+          { toolName: "getSyncStatus", input: {} },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "I synced Garmin and then checked the refreshed local status.",
+      });
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -109,15 +148,25 @@ describe("trainer orchestrator fail-closed policy", async () => {
       userRequest: "sync and status",
     });
 
-    expect(runGarminSync).not.toHaveBeenCalled();
-    expect(result.toolSteps[0]).toMatchObject({
-      tool: "providerToolSelection",
-      status: "rejected",
-      reason: "multiple_tool_calls_with_side_effect",
+    expect(runGarminSync).toHaveBeenCalledOnce();
+    expect(dataCounts).toHaveBeenCalledOnce();
+    expect(result.toolSteps.map((step) => step.tool)).toEqual([
+      "runGarminSync",
+      "getSyncStatus",
+    ]);
+    expect(result.toolSteps.every((step) => step.status === "succeeded")).toBe(
+      true,
+    );
+    expect(result.toolSteps[0]?.selection).toMatchObject({
+      reason: "multiple_tool_calls",
+      count: 2,
+      selectedTool: "runGarminSync",
+      toolNames: ["runGarminSync", "getSyncStatus"],
     });
-    expect(result.text).toContain("selected more than one tool");
+    expect(result.text).toContain("synced Garmin");
+    expect(result.text).not.toContain("selected more than one tool");
+    expect(result.text).not.toContain("multiple_tool_calls_with_side_effect");
     expect(result.text).not.toContain("Tool step");
-    expect(result.text).not.toContain("invalid_tool_cardinality");
     expect(generateText.mock.calls[0][0]).toMatchObject({
       parallelToolCalls: false,
       providerOptions: {
@@ -390,7 +439,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.grounding).toBeNull();
   });
 
-  it("selects one safe analytical tool from multiple provider tool calls", async () => {
+  it("executes valid analytical multi-tool responses in a safe sequence", async () => {
     generateText
       .mockResolvedValueOnce({
         toolCalls: [{ toolName: "describeGarminDatabase", input: {} }],
@@ -416,7 +465,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
         ],
       })
       .mockResolvedValueOnce({
-        text: "The SQL-only answer is grounded and concise.",
+        text: "The SQL and math answer is grounded and concise.",
       });
 
     const result = await orchestrateTrainerChat({
@@ -426,16 +475,20 @@ describe("trainer orchestrator fail-closed policy", async () => {
     });
 
     expect(runReadOnlySql).toHaveBeenCalledTimes(1);
-    expect(runMathAnalysis).not.toHaveBeenCalled();
+    expect(runMathAnalysis).toHaveBeenCalledTimes(1);
     expect(result.toolSteps.map((step) => step.tool)).toEqual([
       "describeGarminDatabase",
       "runReadOnlySql",
+      "runMathAnalysis",
     ]);
     expect(result.toolSteps[1]?.selection).toMatchObject({
       reason: "multiple_tool_calls",
       count: 2,
       selectedTool: "runReadOnlySql",
       toolNames: ["runMathAnalysis", "runReadOnlySql"],
+    });
+    expect(result.toolSteps[2]?.selection).toMatchObject({
+      selectedTool: "runMathAnalysis",
     });
     expect(result.text).not.toContain("Tool step");
     expect(result.grounding?.toolSteps?.[1]?.selection?.selectedTool).toBe(
@@ -899,13 +952,16 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).toContain("SQL evidence");
   });
 
-  it("prevents duplicate side-effect tools without masking the first result", async () => {
+  it("allows repeated provider-selected side-effect tools within the turn cap", async () => {
     generateText
       .mockResolvedValueOnce({
         toolCalls: [{ toolName: "runGarminSync", input: {} }],
       })
       .mockResolvedValueOnce({
         toolCalls: [{ toolName: "runGarminSync", input: {} }],
+      })
+      .mockResolvedValueOnce({
+        text: "Both local Garmin sync selections completed sequentially.",
       });
 
     const result = await orchestrateTrainerChat({
@@ -914,20 +970,22 @@ describe("trainer orchestrator fail-closed policy", async () => {
       userRequest: "sync twice",
     });
 
-    expect(runGarminSync).toHaveBeenCalledTimes(1);
+    expect(runGarminSync).toHaveBeenCalledTimes(2);
     expect(result.grounding?.tool).toBe("runGarminSync");
-    expect(result.toolSteps.at(-1)?.reason).toBe("duplicate_side_effect");
-    expect(result.text).toContain(
-      "completed the requested local runGarminSync action once",
-    );
+    expect(result.toolSteps.map((step) => step.status)).toEqual([
+      "succeeded",
+      "succeeded",
+    ]);
+    expect(result.text).toContain("completed sequentially");
     expect(result.text).not.toContain("duplicate_side_effect");
     expect(result.text).not.toContain("already used in this turn");
   });
 
-  it("reports the original side-effect failure without implying a duplicate run", async () => {
+  it("reports the original side-effect failure without leaking connector token paths", async () => {
     runGarminSync.mockResolvedValueOnce({
       status: "failed",
-      detail: "temporary connector error",
+      detail:
+        "temporary connector error. Trying to login using token data from directory '/Users/example/.garminconnect'. Tokens will be saved to: /Users/example/.garminconnect",
     });
     generateText.mockResolvedValueOnce({
       toolCalls: [{ toolName: "runGarminSync", input: {} }],
@@ -942,6 +1000,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(runGarminSync).toHaveBeenCalledTimes(1);
     expect(result.text).toContain("sync_failed");
     expect(result.text).toContain("temporary connector error");
+    expect(JSON.stringify(result.toolSteps)).not.toContain("/Users/example");
+    expect(JSON.stringify(result.toolSteps)).not.toContain(".garminconnect");
+    expect(JSON.stringify(result.toolSteps)).not.toContain(
+      "token data from directory '/",
+    );
     expect(result.text).not.toContain("duplicate_side_effect");
     expect(result.text).not.toContain("already used in this turn");
   });
@@ -1110,14 +1173,81 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).not.toContain("tool_budget_exceeded");
   });
 
-  it("reports ten-call per-turn caps in the exported budget summary", async () => {
+  it("executes saveTrainingPlan when it appears in a valid multi-tool response", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "saveTrainingPlan",
+            input: {
+              title: "September Plan",
+              contentMarkdown: "# September Plan\n- Easy aerobic work",
+            },
+          },
+          { toolName: "getSyncStatus", input: {} },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "Saved the Training Plan and checked local status without raw tool output.",
+      });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "Save this Training Plan and tell me sync status",
+    });
+
+    expect(replaceTrainingPlan).toHaveBeenCalledWith({
+      title: "September Plan",
+      contentMarkdown: "# September Plan\n- Easy aerobic work",
+    });
+    expect(dataCounts).toHaveBeenCalledOnce();
+    expect(result.toolSteps.map((step) => step.tool)).toEqual([
+      "saveTrainingPlan",
+      "getSyncStatus",
+    ]);
+    expect(result.text).toContain("Saved the Training Plan");
+    expect(result.text).not.toContain("Tool step");
+  });
+
+  it("enforces the 20 total planner/tool execution cap for oversized multi-tool responses", async () => {
+    generateText.mockResolvedValueOnce({
+      toolCalls: Array.from({ length: 20 }, (_, index) => ({
+        toolName: "runReadOnlySql",
+        input: {
+          sql: `select garmin_id, calories from activity limit ${index + 1}`,
+          resultName: `rows_${index + 1}`,
+        },
+      })),
+    });
+
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "run many local Garmin checks",
+    });
+
+    expect(runReadOnlySql).toHaveBeenCalledTimes(19);
+    expect(result.providerCalls).toBe(1);
+    expect(result.toolSteps).toHaveLength(20);
+    expect(result.toolSteps.at(-1)).toMatchObject({
+      tool: "providerToolSelection",
+      status: "rejected",
+      reason: "tool_budget_exceeded",
+    });
+    expect(result.text).toContain("per-turn limit of 20 total");
+    expect(result.text).not.toContain("Tool step");
+  });
+
+  it("reports 20-call per-turn caps in the exported budget summary", async () => {
     expect(trainerOrchestrationLimits).toEqual({
-      maxPlannerCalls: 10,
-      maxToolCalls: 10,
-      maxGeneralToolCalls: 10,
-      maxSchemaCalls: 10,
-      maxSqlCalls: 10,
-      maxMathCalls: 10,
+      maxTotalTurnExecutions: 20,
+      maxPlannerCalls: 20,
+      maxToolCalls: 20,
+      maxGeneralToolCalls: 20,
+      maxSchemaCalls: 20,
+      maxSqlCalls: 20,
+      maxMathCalls: 20,
       providerCallTimeoutMs: 180000,
     });
   });
