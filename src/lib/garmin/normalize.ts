@@ -27,6 +27,36 @@ function timestampOrNull(value: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function objectOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function firstNumberOrNull(...values: unknown[]): number | null {
+  for (const value of values) {
+    const normalized = numberOrNull(value);
+    if (normalized !== null) return normalized;
+  }
+  return null;
+}
+
+function firstNonNegativeNumberOrNull(...values: unknown[]): number | null {
+  for (const value of values) {
+    const normalized = nonNegativeNumberOrNull(value);
+    if (normalized !== null) return normalized;
+  }
+  return null;
+}
+
+function firstMinutesFromSecondsOrNull(...values: unknown[]): number | null {
+  for (const value of values) {
+    const normalized = minutesFromSecondsOrNull(value);
+    if (normalized !== null) return normalized;
+  }
+  return null;
+}
+
 function collectBodyBatteryReadings(
   payload: unknown,
   targetDate: string,
@@ -34,6 +64,17 @@ function collectBodyBatteryReadings(
   const readings: Array<{ timestamp: Date; value: number }> = [];
   const visit = (item: unknown): void => {
     if (Array.isArray(item)) {
+      if (item.length >= 2) {
+        const timestamp = timestampOrNull(item[0]);
+        const value = numericStringOrNumberOrNull(item[1]);
+        if (
+          timestamp &&
+          timestamp.toISOString().slice(0, 10) === targetDate &&
+          value !== null
+        ) {
+          readings.push({ timestamp, value });
+        }
+      }
       for (const entry of item) visit(entry);
       return;
     }
@@ -201,25 +242,40 @@ export function normalizeDailyHealth(
   date: string,
   payloads: Record<string, unknown>,
 ): NormalizedDailyHealth {
-  const sleep = payloads.sleep as Record<string, unknown> | undefined;
-  const stats = payloads.stats as Record<string, unknown> | undefined;
-  const sleepMinutes =
-    minutesFromSecondsOrNull(sleep?.sleepTimeSeconds) ??
-    minutesFromSecondsOrNull(sleep?.sleep_seconds);
-  const activeCalories = nonNegativeNumberOrNull(
-    stats?.active_calories ?? stats?.activeCalories,
+  const sleepPayload = objectOrNull(payloads.sleep);
+  const sleep =
+    objectOrNull(sleepPayload?.dailySleepDTO) ??
+    objectOrNull(sleepPayload?.dailySleepDto) ??
+    sleepPayload;
+  const stats = objectOrNull(payloads.stats);
+  const sleepMinutes = firstMinutesFromSecondsOrNull(
+    sleep?.sleepTimeSeconds,
+    sleep?.sleep_seconds,
   );
-  const restingCalories = nonNegativeNumberOrNull(
-    stats?.bmr_calories ?? stats?.bmrCalories ?? stats?.restingCalories,
+  const activeCalories = firstNonNegativeNumberOrNull(
+    stats?.active_calories,
+    stats?.activeCalories,
+    stats?.activeKilocalories,
   );
-  const totalCalories =
-    nonNegativeNumberOrNull(stats?.total_calories ?? stats?.totalCalories) ??
-    nonNegativeNumberOrNull(payloads.calories);
-  const moderateIntensity = nonNegativeNumberOrNull(
-    stats?.moderate_intensity_minutes ?? stats?.moderateIntensityMinutes,
+  const restingCalories = firstNonNegativeNumberOrNull(
+    stats?.bmr_calories,
+    stats?.bmrCalories,
+    stats?.restingCalories,
+    stats?.bmrKilocalories,
   );
-  const vigorousIntensity = nonNegativeNumberOrNull(
-    stats?.vigorous_intensity_minutes ?? stats?.vigorousIntensityMinutes,
+  const totalCalories = firstNonNegativeNumberOrNull(
+    stats?.total_calories,
+    stats?.totalCalories,
+    stats?.wellnessTotalKilocalories,
+    payloads.calories,
+  );
+  const moderateIntensity = firstNonNegativeNumberOrNull(
+    stats?.moderate_intensity_minutes,
+    stats?.moderateIntensityMinutes,
+  );
+  const vigorousIntensity = firstNonNegativeNumberOrNull(
+    stats?.vigorous_intensity_minutes,
+    stats?.vigorousIntensityMinutes,
   );
   const intensityMinutes =
     moderateIntensity !== null || vigorousIntensity !== null
@@ -229,37 +285,59 @@ export function normalizeDailyHealth(
   const fields = {
     sleepMinutes,
     sleepScore: sleepScoreOrNull(sleep?.sleep_score ?? sleep?.sleepScore),
-    sleepDeepMinutes: minutesFromSecondsOrNull(
-      sleep?.deep_sleep_seconds ?? sleep?.deepSleepSeconds,
+    sleepDeepMinutes: firstMinutesFromSecondsOrNull(
+      sleep?.deep_sleep_seconds,
+      sleep?.deepSleepSeconds,
     ),
-    sleepLightMinutes: minutesFromSecondsOrNull(
-      sleep?.light_sleep_seconds ?? sleep?.lightSleepSeconds,
+    sleepLightMinutes: firstMinutesFromSecondsOrNull(
+      sleep?.light_sleep_seconds,
+      sleep?.lightSleepSeconds,
     ),
-    sleepRemMinutes: minutesFromSecondsOrNull(
-      sleep?.rem_sleep_seconds ?? sleep?.remSleepSeconds,
+    sleepRemMinutes: firstMinutesFromSecondsOrNull(
+      sleep?.rem_sleep_seconds,
+      sleep?.remSleepSeconds,
     ),
-    sleepAwakeMinutes: minutesFromSecondsOrNull(
-      sleep?.awake_seconds ?? sleep?.awakeSeconds,
+    sleepAwakeMinutes: firstMinutesFromSecondsOrNull(
+      sleep?.awake_seconds,
+      sleep?.awakeSeconds,
+      sleep?.awakeSleepSeconds,
     ),
-    sleepNapMinutes: minutesFromSecondsOrNull(
-      sleep?.nap_seconds ?? sleep?.napSeconds,
+    sleepNapMinutes: firstMinutesFromSecondsOrNull(
+      sleep?.nap_seconds,
+      sleep?.napSeconds,
     ),
-    restingHeartRate:
-      numberOrNull(payloads.restingHeartRate) ??
-      numberOrNull(stats?.resting_heart_rate_bpm) ??
-      numberOrNull(sleep?.resting_heart_rate_bpm),
+    restingHeartRate: firstNumberOrNull(
+      payloads.restingHeartRate,
+      stats?.resting_heart_rate_bpm,
+      stats?.restingHeartRate,
+      stats?.restingHR,
+      sleep?.resting_heart_rate_bpm,
+      sleep?.restingHeartRate,
+    ),
     hrvStatus: null,
-    hrvMs: numberOrNull(sleep?.avg_overnight_hrv),
-    stressAvg: numberOrNull(stats?.avg_stress_level),
-    steps: numberOrNull(stats?.total_steps) ?? numberOrNull(payloads.steps),
+    hrvMs: firstNumberOrNull(sleep?.avg_overnight_hrv, sleep?.avgOvernightHrv),
+    stressAvg: firstNumberOrNull(
+      stats?.avg_stress_level,
+      stats?.averageStressLevel,
+    ),
+    steps: firstNumberOrNull(
+      stats?.total_steps,
+      stats?.totalSteps,
+      payloads.steps,
+    ),
     calories: totalCalories,
     activeCalories,
     restingCalories,
     totalCalories,
     intensityMinutes,
-    bodyBatteryAvg:
-      numberOrNull(stats?.body_battery_current) ??
-      numberOrNull(stats?.body_battery_highest),
+    bodyBatteryAvg: firstNumberOrNull(
+      stats?.body_battery_current,
+      stats?.body_battery_highest,
+      stats?.bodyBatteryCurrent,
+      stats?.bodyBatteryHighest,
+      stats?.bodyBatteryMostRecentValue,
+      stats?.bodyBatteryHighestValue,
+    ),
     ...bodyBattery,
   };
   return {
