@@ -381,6 +381,56 @@ describe("Garmin boundary", () => {
     });
   });
 
+  it("normalizes Garmin Connect daily sleep, stats, and body-battery payload aliases", () => {
+    expect(
+      normalizeDailyHealth("2026-08-24", {
+        stats: {
+          totalSteps: 8400,
+          wellnessTotalKilocalories: 2350,
+          activeKilocalories: 720,
+          bmrKilocalories: 1630,
+          moderateIntensityMinutes: 24,
+          vigorousIntensityMinutes: 8,
+          restingHeartRate: 47,
+          averageStressLevel: 21,
+        },
+        sleep: {
+          dailySleepDTO: {
+            sleepTimeSeconds: 26820,
+            deepSleepSeconds: 5400,
+            lightSleepSeconds: 14400,
+            remSleepSeconds: 6000,
+            awakeSleepSeconds: 1020,
+            avgOvernightHrv: 63,
+          },
+        },
+        bodyBattery: {
+          bodyBatteryValuesArray: [
+            ["2026-08-24T06:30:00.000", 79],
+            ["2026-08-24T21:30:00.000", 42],
+          ],
+        },
+      }),
+    ).toMatchObject({
+      availability: "complete",
+      sleepMinutes: 447,
+      sleepDeepMinutes: 90,
+      sleepLightMinutes: 240,
+      sleepRemMinutes: 100,
+      sleepAwakeMinutes: 17,
+      restingHeartRate: 47,
+      hrvMs: 63,
+      stressAvg: 21,
+      steps: 8400,
+      totalCalories: 2350,
+      activeCalories: 720,
+      restingCalories: 1630,
+      intensityMinutes: 32,
+      bodyBatteryMorning: 79,
+      bodyBatteryEvening: 42,
+    });
+  });
+
   it("normalizes proven Garmin activity effort fields fail-closed", () => {
     const base = {
       activityId: 123,
