@@ -54,6 +54,12 @@ async function bootstrapModule() {
 const bootstrapSourcePath = fileURLToPath(
   new URL("../scripts/bootstrap-local.mjs", import.meta.url),
 );
+const packageJsonPath = fileURLToPath(
+  new URL("../package.json", import.meta.url),
+);
+const restartScriptPath = fileURLToPath(
+  new URL("../scripts/restart-local.sh", import.meta.url),
+);
 
 describe("local bootstrap orchestration decisions", () => {
   it("parses local env files without exposing comments or quotes", async () => {
@@ -258,6 +264,26 @@ describe("local bootstrap orchestration decisions", () => {
     );
   });
 
+  it("keeps local restart/start port overrides explicit and loopback-bound", () => {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const restartScript = readFileSync(restartScriptPath, "utf8");
+
+    expect(packageJson.scripts["start:local"]).toContain(
+      "--hostname 127.0.0.1",
+    );
+    expect(packageJson.scripts["start:local"]).toContain(
+      "--port ${PORT:-3000}",
+    );
+    expect(restartScript).toContain("--port)");
+    expect(restartScript).toContain("AI_GARMIN_RESTART_PORT:-3000");
+    expect(restartScript).toContain("http://127.0.0.1:${port}/");
+    expect(restartScript).toContain('lsof -nP -tiTCP:"${port}"');
+    expect(restartScript).toContain('PORT="${port}" npm run start:local');
+    expect(restartScript).not.toMatch(/0\.0\.0\.0|pkill|killall/);
+  });
+
   it("fails prerequisites for unsupported non-loopback app URLs without printing values", async () => {
     const { prerequisites } = await bootstrapModule();
     expect(() =>
@@ -275,6 +301,7 @@ describe("local bootstrap orchestration decisions", () => {
       /run\(\s*"ollama",\s*\["pull",\s*memory\.embeddingModel\]/,
     );
     expect(source).toMatch(/spawn\(\s*"npm",\s*\["run",\s*"start:local"\]/);
+    expect(source).toContain("PORT: String(port)");
     expect(source).toContain("AbortController");
     expect(source).toContain('child.kill("SIGTERM")');
     expect(source).not.toContain("shell: true");

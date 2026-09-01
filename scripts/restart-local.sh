@@ -1,10 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+  printf 'Usage: npm run restart:local -- [--port <1-65535>]\n' >&2
+  printf '       AI_GARMIN_RESTART_PORT=<1-65535> npm run restart:local\n' >&2
+}
+
+is_valid_port() {
+  candidate="$1"
+  case "${candidate}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "${candidate}" -ge 1 ] 2>/dev/null && [ "${candidate}" -le 65535 ] 2>/dev/null
+}
+
+port="${AI_GARMIN_RESTART_PORT:-3000}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --port)
+      if [ "$#" -lt 2 ]; then
+        printf 'missing value for --port\n' >&2
+        usage
+        exit 2
+      fi
+      port="$2"
+      shift 2
+      ;;
+    --port=*)
+      port="${1#--port=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'unknown argument: %s\n' "$1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if ! is_valid_port "${port}"; then
+  printf 'invalid port: %s\n' "${port}" >&2
+  usage
+  exit 2
+fi
+
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 repo="$(CDPATH= cd -- "${script_dir}/.." && pwd -P)"
-log="${AI_GARMIN_RESTART_LOG:-/tmp/ai-garmin-connect-trainer-start-local-3000.log}"
-ready_url="${AI_GARMIN_RESTART_READY_URL:-http://127.0.0.1:3000/}"
+log="${AI_GARMIN_RESTART_LOG:-/tmp/ai-garmin-connect-trainer-start-local-${port}.log}"
+ready_url="${AI_GARMIN_RESTART_READY_URL:-http://127.0.0.1:${port}/}"
 tmp_ps="${TMPDIR:-/tmp}/ai-garmin-connect-trainer-ps.$$"
 
 cleanup() {
@@ -54,7 +101,7 @@ else
 fi
 
 foreign_listeners=""
-port_listener_pids="$(lsof -nP -tiTCP:3000 -sTCP:LISTEN 2>/dev/null || true)"
+port_listener_pids="$(lsof -nP -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)"
 for listener_pid in ${port_listener_pids}; do
   listener_cwd="$(pid_cwd "${listener_pid}")"
   if [ "${listener_cwd}" != "${repo}" ]; then
@@ -66,21 +113,21 @@ for listener_pid in ${port_listener_pids}; do
 done
 
 if [ -n "${foreign_listeners}" ]; then
-  printf 'Port 3000 is already used outside this repo; refusing to kill unrelated listeners:%s\n' "${foreign_listeners}" >&2
-  lsof -nP -iTCP:3000 -sTCP:LISTEN >&2 || true
+  printf 'Port %s is already used outside this repo; refusing to kill unrelated listeners:%s\n' "${port}" "${foreign_listeners}" >&2
+  lsof -nP -iTCP:"${port}" -sTCP:LISTEN >&2 || true
   exit 1
 fi
 
 printf '\nRebuilding production bundle...\n'
 (cd "${repo}" && npm run build)
 
-printf '\nStarting local server on 127.0.0.1:3000...\n'
+printf '\nStarting local server on 127.0.0.1:%s...\n' "${port}"
 log_dir="$(dirname -- "${log}")"
 if [ ! -d "${log_dir}" ]; then
   mkdir -p -- "${log_dir}"
 fi
 : > "${log}"
-(cd "${repo}" && npm run start:local) > "${log}" 2>&1 &
+(cd "${repo}" && PORT="${port}" npm run start:local) > "${log}" 2>&1 &
 launcher_pid=$!
 printf 'launcher_pid=%s\n' "${launcher_pid}"
 
@@ -100,7 +147,7 @@ if [ "${ready}" -ne 1 ]; then
 fi
 
 repo_listener_found=0
-port_listener_pids="$(lsof -nP -tiTCP:3000 -sTCP:LISTEN 2>/dev/null || true)"
+port_listener_pids="$(lsof -nP -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)"
 for listener_pid in ${port_listener_pids}; do
   listener_cwd="$(pid_cwd "${listener_pid}")"
   if [ "${listener_cwd}" = "${repo}" ]; then
@@ -109,14 +156,14 @@ for listener_pid in ${port_listener_pids}; do
 done
 
 if [ "${repo_listener_found}" -ne 1 ]; then
-  printf 'Server responded, but no port-3000 listener belongs to this repo. Log tail follows:\n' >&2
+  printf 'Server responded, but no port-%s listener belongs to this repo. Log tail follows:\n' "${port}" >&2
   tail -n 80 "${log}" >&2
-  printf '\nPort 3000 listeners:\n' >&2
-  lsof -nP -iTCP:3000 -sTCP:LISTEN >&2 || true
+  printf '\nPort %s listeners:\n' "${port}" >&2
+  lsof -nP -iTCP:"${port}" -sTCP:LISTEN >&2 || true
   exit 1
 fi
 
 printf 'ready_url=%s\n' "${ready_url}"
 printf 'log=%s\n' "${log}"
-printf '\nListening process on port 3000:\n'
-lsof -nP -iTCP:3000 -sTCP:LISTEN 2>/dev/null || true
+printf '\nListening process on port %s:\n' "${port}"
+lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
