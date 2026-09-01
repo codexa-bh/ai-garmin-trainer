@@ -3155,7 +3155,7 @@ export function TrainerDashboard() {
   ) {
     const isNarrowViewport =
       typeof window.matchMedia === "function" &&
-      window.matchMedia("(max-width: 720px)").matches;
+      window.matchMedia("(max-width: 960px)").matches;
     if (isNarrowViewport) {
       mainMenuToggleRef.current?.focus();
       return;
@@ -4719,87 +4719,99 @@ export function TrainerDashboard() {
       className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""} ${syncOpen ? "sync-view-active" : ""} ${healthDashboardOpen ? "health-dashboard-active" : ""}`}
       aria-label="AI trainer dashboard"
     >
+      <aside className="app-sidebar" aria-label="Primary sections">
+        <div className="app-sidebar-brand">
+          <h1 className="app-title app-sidebar-title" title="Garmin AI Trainer">
+            Garmin AI Trainer
+          </h1>
+        </div>
+        <nav className="app-nav" aria-label="Main navigation">
+          <button
+            type="button"
+            className="chrome-button app-sidebar-link sidebar-toggle"
+            onClick={toggleConversationHistory}
+            ref={conversationButtonRef}
+            aria-label="Toggle conversation history"
+            aria-expanded={desktopSidebarExpanded || isConversationDrawerOpen}
+          >
+            Conversations
+          </button>
+          <button
+            type="button"
+            className="chrome-button app-sidebar-link"
+            onClick={openActivityDashboardFromNavigation}
+            ref={activityDashboardButtonRef}
+            aria-label="Activities"
+            aria-expanded={activityDashboardOpen}
+          >
+            Activities
+          </button>
+          <button
+            type="button"
+            className="chrome-button app-sidebar-link"
+            onClick={openHealthDashboardFromNavigation}
+            ref={healthDashboardButtonRef}
+            aria-label="Health"
+            aria-expanded={healthDashboardOpen}
+          >
+            Health
+          </button>
+          <button
+            type="button"
+            className="chrome-button app-sidebar-link"
+            onClick={openTrainingPlanFromNavigation}
+            ref={trainingPlanButtonRef}
+            aria-label="Training Plan"
+            aria-expanded={trainingPlanOpen}
+          >
+            Training Plan
+          </button>
+          <button
+            type="button"
+            className="chrome-button app-sidebar-link sync-now-button"
+            onClick={openSyncFromNavigation}
+            ref={syncButtonRef}
+            aria-label="Sync"
+            aria-expanded={syncOpen}
+          >
+            {isSyncing ? "Sync · syncing" : "Sync"}
+          </button>
+          <button
+            type="button"
+            className="chrome-button app-sidebar-link"
+            onClick={openMemoryFromNavigation}
+            ref={memoryButtonRef}
+            aria-label="Memory"
+            aria-expanded={memoryOpen}
+          >
+            Memory
+          </button>
+          <button
+            type="button"
+            className="chrome-button app-sidebar-link"
+            onClick={openSettingsFromNavigation}
+            ref={settingsButtonRef}
+            aria-label="Data & settings"
+          >
+            Settings
+          </button>
+        </nav>
+      </aside>
+
       {!activityDashboardOpen &&
       !trainingPlanOpen &&
       !syncOpen &&
       !healthDashboardOpen ? (
         <header className="app-topbar">
           <div className="app-brand">
-            <h1 className="app-title" title="Garmin AI Trainer">
+            <p
+              className="app-title"
+              title="Garmin AI Trainer"
+              aria-hidden="true"
+            >
               Garmin AI Trainer
-            </h1>
+            </p>
           </div>
-          <nav className="app-nav" aria-label="Main navigation">
-            <button
-              type="button"
-              className="chrome-button sidebar-toggle"
-              onClick={toggleConversationHistory}
-              ref={conversationButtonRef}
-              aria-label="Toggle conversation history"
-              aria-expanded={desktopSidebarExpanded || isConversationDrawerOpen}
-            >
-              Conversations
-            </button>
-            <button
-              type="button"
-              className="chrome-button"
-              onClick={openActivityDashboardFromNavigation}
-              ref={activityDashboardButtonRef}
-              aria-label="Activities"
-              aria-expanded={activityDashboardOpen}
-            >
-              Activities
-            </button>
-            <button
-              type="button"
-              className="chrome-button"
-              onClick={openHealthDashboardFromNavigation}
-              ref={healthDashboardButtonRef}
-              aria-label="Health"
-              aria-expanded={healthDashboardOpen}
-            >
-              Health
-            </button>
-            <button
-              type="button"
-              className="chrome-button"
-              onClick={openTrainingPlanFromNavigation}
-              ref={trainingPlanButtonRef}
-              aria-label="Training Plan"
-              aria-expanded={trainingPlanOpen}
-            >
-              Training Plan
-            </button>
-            <button
-              type="button"
-              className="chrome-button sync-now-button"
-              onClick={openSyncFromNavigation}
-              ref={syncButtonRef}
-              aria-label="Sync"
-              aria-expanded={syncOpen}
-            >
-              {isSyncing ? "Sync · syncing" : "Sync"}
-            </button>
-            <button
-              type="button"
-              className="chrome-button"
-              onClick={openMemoryFromNavigation}
-              ref={memoryButtonRef}
-              aria-label="Memory"
-              aria-expanded={memoryOpen}
-            >
-              Memory
-            </button>
-            <button
-              type="button"
-              className="chrome-button"
-              onClick={openSettingsFromNavigation}
-              ref={settingsButtonRef}
-              aria-label="Data & settings"
-            >
-              Settings
-            </button>
-          </nav>
           <div className="app-mobile-menu" ref={mainMenuRef}>
             <button
               type="button"

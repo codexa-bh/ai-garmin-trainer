@@ -757,7 +757,7 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(actionsBlock).toContain("padding: 0 8px;");
   });
 
-  it("keeps the desktop app topbar visible outside the transcript scroll contract", async () => {
+  it("keeps desktop main navigation in a left sidebar outside the transcript scroll contract", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) {
@@ -785,12 +785,19 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(
       await screen.findByText("Long desktop transcript answer"),
     ).toBeTruthy();
+    const sidebars = Array.from(container.querySelectorAll(".app-sidebar"));
+    expect(sidebars).toHaveLength(1);
+    const desktopSidebar = sidebars[0] as HTMLElement;
+    expect(desktopSidebar.getAttribute("aria-label")).toBe("Primary sections");
     const topbars = Array.from(container.querySelectorAll(".app-topbar"));
     expect(topbars).toHaveLength(1);
     const topbar = topbars[0] as HTMLElement;
     expect(
       topbar.nextElementSibling?.classList.contains("chat-workspace"),
     ).toBe(true);
+    expect(
+      within(topbar).queryByRole("navigation", { name: "Main navigation" }),
+    ).toBeNull();
 
     const transcript = screen.getByRole("log", { name: "Chat transcript" });
     setTranscriptMetrics(transcript, {
@@ -800,10 +807,10 @@ describe("TrainerDashboard Profile hydration", () => {
     });
     fireEvent.scroll(transcript);
 
-    const mainNavigation = within(topbar).getByRole("navigation", {
+    const mainNavigation = within(desktopSidebar).getByRole("navigation", {
       name: "Main navigation",
     });
-    const expectedTopbarButtons = [
+    const expectedSidebarButtons = [
       "Toggle conversation history",
       "Activities",
       "Health",
@@ -812,7 +819,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Memory",
       "Data & settings",
     ];
-    for (const name of expectedTopbarButtons) {
+    for (const name of expectedSidebarButtons) {
       expect(
         mainNavigation.contains(
           within(mainNavigation).getByRole("button", { name }),
@@ -837,27 +844,33 @@ describe("TrainerDashboard Profile hydration", () => {
         .getByRole("button", { name: "Menu" })
         .getAttribute("aria-expanded"),
     ).toBe("false");
-    const title = topbar.querySelector(".app-title");
-    expect(title?.textContent?.trim()).toBe("Garmin AI Trainer");
-    expect(title?.getAttribute("title")).toBe("Garmin AI Trainer");
+    const sidebarTitle = desktopSidebar.querySelector(".app-title");
+    expect(sidebarTitle?.textContent?.trim()).toBe("Garmin AI Trainer");
+    expect(sidebarTitle?.getAttribute("title")).toBe("Garmin AI Trainer");
+    expect(desktopSidebar.textContent).toContain("Garmin AI Trainer");
     expect(topbar.textContent).toContain("Garmin AI Trainer");
     expect(topbar.textContent).not.toContain("⌁");
     expect(topbar.textContent).not.toContain("Trainer chat");
 
     const css = readFileSync("src/app/style.css", "utf8");
-    expect(css).toMatch(/@media \(min-width: 961px\)[\s\S]*\.app-topbar/);
     expect(css).toMatch(
-      /\.app-topbar \{\s*display: flex;[\s\S]*justify-content: space-between;/,
+      /\.dashboard-shell \{[\s\S]*grid-template-columns: minmax\(176px, 220px\) minmax\(0, 1fr\);/,
     );
-    expect(css).toMatch(/\.app-nav \{[\s\S]*display: flex;/);
+    expect(css).toMatch(
+      /\.app-sidebar \{[\s\S]*grid-column: 1;[\s\S]*border-right: 1px solid var\(--line\);/,
+    );
+    expect(css).toMatch(
+      /@media \(min-width: 961px\) \{[\s\S]*\.app-topbar \{\s*display: none;/,
+    );
+    expect(css).toMatch(/\.app-nav \{[\s\S]*flex-direction: column;/);
+    expect(css).toMatch(/\.app-sidebar-link \{[\s\S]*width: 100%;/);
     expect(css).toMatch(/\.app-title \{[\s\S]*text-overflow: ellipsis;/);
     expect(css).toMatch(
-      /@media \(max-width: 640px\) \{[\s\S]*\.app-nav \{\s*display: none;/,
+      /@media \(max-width: 960px\) \{[\s\S]*\.app-sidebar \{\s*display: none;/,
     );
     expect(css).toMatch(
-      /@media \(max-width: 640px\) \{[\s\S]*\.app-mobile-menu \{\s*display: block;/,
+      /@media \(max-width: 960px\) \{[\s\S]*\.app-mobile-menu \{\s*display: block;/,
     );
-    expect(css).toMatch(/\.app-topbar \{[\s\S]*position: sticky;/);
     expect(css).toMatch(/\.dashboard-shell \{[\s\S]*overflow: hidden;/);
   });
 
@@ -1590,7 +1603,12 @@ describe("TrainerDashboard activity charts", () => {
 
     expect(await screen.findByText("Activity 0")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Sync" })).toBeNull();
+    const desktopSidebar = document.querySelector(
+      ".app-sidebar",
+    ) as HTMLElement;
+    expect(
+      within(desktopSidebar).getByRole("button", { name: "Sync" }),
+    ).toBeTruthy();
     expect(screen.queryByLabelText("Conversation history")).toBeNull();
     expect(screen.queryByText(/Refine search for more/)).toBeNull();
     expect(activityUrls[0]).toContain("limit=100");
@@ -2515,7 +2533,10 @@ describe("TrainerDashboard activity charts", () => {
     expect(
       screen.getByRole("heading", { name: "Search synced activities" }),
     ).toBeTruthy();
-    expect(screen.queryByText("Activities")).toBeNull();
+    const selector = document.querySelector(
+      ".activity-dashboard-selector",
+    ) as HTMLElement;
+    expect(within(selector).queryByText("Activities")).toBeNull();
     expect(
       screen.getByLabelText("Search activity name, sport, date, or Garmin ID"),
     ).toBeTruthy();
@@ -2575,7 +2596,10 @@ describe("TrainerDashboard activity charts", () => {
         .querySelector(".activity-selector-heading")
         ?.getAttribute("hidden"),
     ).not.toBeNull();
-    expect(screen.getByText("Activities")).toBeTruthy();
+    const selector = document.querySelector(
+      ".activity-dashboard-selector",
+    ) as HTMLElement;
+    expect(within(selector).getByText("Activities")).toBeTruthy();
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(
       screen.queryByRole("list", { name: "Synced activities" }),
