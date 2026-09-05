@@ -1647,6 +1647,15 @@ type ChartPlotModel = {
   domainEndSec: number;
 };
 
+type PreparedChart = {
+  chartPoints: ChartSeriesPoint[];
+  isXSorted: boolean;
+  maxY: number;
+  minY: number;
+  model: ChartPlotModel;
+  polyline: string;
+};
+
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
@@ -1716,10 +1725,94 @@ function chartPolyline(points: ChartSeriesPoint[]) {
     .join(" ");
 }
 
-function closestChartPoint(points: ChartSeriesPoint[], x: number) {
-  return points.reduce((closest, point) =>
-    Math.abs(point.x - x) < Math.abs(closest.x - x) ? point : closest,
+function chartPointsAreSortedByX(points: ChartSeriesPoint[]) {
+  return points.every(
+    (point, index) => index === 0 || point.x >= points[index - 1]!.x,
   );
+}
+
+function closestChartPointIndex(
+  points: ChartSeriesPoint[],
+  x: number,
+  isXSorted = chartPointsAreSortedByX(points),
+) {
+  if (points.length === 0) return -1;
+  if (!isXSorted) {
+    return points.reduce(
+      (closestIndex, point, index) =>
+        Math.abs(point.x - x) < Math.abs(points[closestIndex]!.x - x)
+          ? index
+          : closestIndex,
+      0,
+    );
+  }
+
+  let low = 0;
+  let high = points.length - 1;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (points[mid]!.x < x) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  const rightIndex = low;
+  const leftIndex = Math.max(0, rightIndex - 1);
+  const leftDistance = Math.abs(points[leftIndex]!.x - x);
+  const rightDistance = Math.abs(points[rightIndex]!.x - x);
+  return rightDistance < leftDistance ? rightIndex : leftIndex;
+}
+
+function prepareChart({
+  points,
+  valueKey,
+  domainStartSec,
+  domainEndSec,
+  readoutDetail,
+}: {
+  points: ActivityDashboardPayload["charts"]["points"];
+  valueKey: "heartRate" | "altitudeMeters" | "speedKmh";
+  domainStartSec: number;
+  domainEndSec: number | null;
+  readoutDetail?: (
+    point: ActivityDashboardPayload["charts"]["points"][number],
+  ) => string | null;
+}): PreparedChart {
+  const width = 320;
+  const height = 120;
+  const series = points
+    .filter(
+      (point) =>
+        typeof point[valueKey] === "number" && Number.isFinite(point[valueKey]),
+    )
+    .map((point) => ({
+      elapsedSec: point.elapsedSec,
+      value: point[valueKey]!,
+      readoutDetail: readoutDetail?.(point) ?? null,
+    }));
+  const values = series.map((point) => point.value);
+  const minY = values.length ? Math.min(...values) : 0;
+  const maxY = values.length ? Math.max(...values) : 0;
+  const maxElapsed = series.length
+    ? Math.max(...series.map((point) => point.elapsedSec))
+    : domainStartSec;
+  const model = chartPlotModel({
+    width,
+    height,
+    domainStartSec,
+    domainEndSec: Math.max(domainEndSec ?? maxElapsed, maxElapsed),
+  });
+  const chartPoints = chartSeriesCoordinates(series, model, minY, maxY);
+  return {
+    chartPoints,
+    isXSorted: chartPointsAreSortedByX(chartPoints),
+    maxY,
+    minY,
+    model,
+    polyline: chartPolyline(chartPoints),
+  };
 }
 
 function chartNumberLabel(value: number, unit: string) {
@@ -1769,9 +1862,9 @@ function MiniLineChart({
   valueKey,
   domainStartSec,
   domainEndSec,
-  formatValue = (value) => chartNumberLabel(value, unit),
+  formatValue,
   averageValue,
-  averageLabel = (value) => `Avg ${formatValue(value)}`,
+  averageLabel,
   readoutDetail,
   note,
 }: {
@@ -1789,20 +1882,48 @@ function MiniLineChart({
   ) => string | null;
   note?: string;
 }) {
-  const width = 320;
-  const height = 120;
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const series = points
-    .filter(
-      (point) =>
-        typeof point[valueKey] === "number" && Number.isFinite(point[valueKey]),
-    )
-    .map((point) => ({
-      elapsedSec: point.elapsedSec,
-      value: point[valueKey]!,
-      readoutDetail: readoutDetail?.(point) ?? null,
-    }));
-  if (series.length < 2) {
+  const formatChartValue = useMemo(
+    () => formatValue ?? ((value: number) => chartNumberLabel(value, unit)),
+    [formatValue, unit],
+  );
+  const preparedChart = useMemo(
+    () =>
+      prepareChart({
+        points,
+        valueKey,
+        domainStartSec,
+        domainEndSec,
+        readoutDetail,
+      }),
+    [domainEndSec, domainStartSec, points, readoutDetail, valueKey],
+  );
+  const averageLine = useMemo(() => {
+    if (typeof averageValue !== "number" || !Number.isFinite(averageValue)) {
+      return null;
+    }
+    return {
+      y: chartYCoordinate(
+        averageValue,
+        preparedChart.minY,
+        preparedChart.maxY,
+        preparedChart.model,
+      ),
+      label: averageLabel
+        ? averageLabel(averageValue)
+        : `Avg ${formatChartValue(averageValue)}`,
+    };
+  }, [averageLabel, averageValue, formatChartValue, preparedChart]);
+
+  useEffect(() => {
+    setActiveIndex((currentIndex) => {
+      if (currentIndex === null) return null;
+      if (preparedChart.chartPoints.length === 0) return null;
+      return Math.min(currentIndex, preparedChart.chartPoints.length - 1);
+    });
+  }, [preparedChart.chartPoints.length]);
+
+  if (preparedChart.chartPoints.length < 2) {
     return (
       <div className="activity-chart empty-state">
         <strong>{title}</strong>
@@ -1810,38 +1931,28 @@ function MiniLineChart({
       </div>
     );
   }
-  const values = series.map((point) => point.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const maxElapsed = Math.max(...series.map((point) => point.elapsedSec));
-  const model = chartPlotModel({
-    width,
-    height,
-    domainStartSec,
-    domainEndSec: Math.max(domainEndSec ?? maxElapsed, maxElapsed),
-  });
-  const averageLine =
-    typeof averageValue === "number" && Number.isFinite(averageValue)
-      ? {
-          y: chartYCoordinate(averageValue, min, max, model),
-          label: averageLabel(averageValue),
-        }
-      : null;
-  const chartPoints = chartSeriesCoordinates(series, model, min, max);
-  const selectedPoint = chartPoints[activeIndex ?? 0];
+
+  const { chartPoints, isXSorted, model, polyline } = preparedChart;
+  const selectedPoint = chartPoints[activeIndex ?? 0] ?? chartPoints[0]!;
   const readoutSuffix = [selectedPoint.readoutDetail, averageLine?.label]
     .filter((part): part is string => Boolean(part))
     .join(" · ");
-  const polyline = chartPolyline(chartPoints);
   function setNearestPoint(x: number) {
     const boundedX = clamp(x, model.plotLeft, model.plotRight);
-    const nearestPoint = closestChartPoint(chartPoints, boundedX);
-    setActiveIndex(chartPoints.indexOf(nearestPoint));
+    const nearestIndex = closestChartPointIndex(
+      chartPoints,
+      boundedX,
+      isXSorted,
+    );
+    if (nearestIndex < 0) return;
+    setActiveIndex((currentIndex) =>
+      currentIndex === nearestIndex ? currentIndex : nearestIndex,
+    );
   }
   function handlePointer(event: ReactPointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
-    const renderedWidth = rect.width || width;
-    const relativeX = ((event.clientX - rect.left) / renderedWidth) * width;
+    if (!Number.isFinite(rect.width) || rect.width <= 0) return;
+    const relativeX = ((event.clientX - rect.left) / rect.width) * model.width;
     setNearestPoint(relativeX);
   }
   function handleKeyDown(event: ReactKeyboardEvent<SVGSVGElement>) {
@@ -1862,11 +1973,13 @@ function MiniLineChart({
       <figcaption>
         <strong>{title}</strong>
         <span>
-          {formatValue(min)}–{formatValue(max)}
+          {formatChartValue(preparedChart.minY)}–
+          {formatChartValue(preparedChart.maxY)}
         </span>
       </figcaption>
       <svg
-        viewBox={`0 0 ${width} ${height}`}
+        viewBox={`0 0 ${model.width} ${model.height}`}
+        preserveAspectRatio="none"
         role="img"
         tabIndex={0}
         aria-label={`${title} over elapsed time`}
@@ -1888,7 +2001,7 @@ function MiniLineChart({
             />
           </g>
         ) : null}
-        <polyline points={polyline} />
+        <polyline points={polyline} vectorEffect="non-scaling-stroke" />
         {activeIndex !== null ? (
           <g className="activity-chart-cursor">
             <line
@@ -1896,13 +2009,24 @@ function MiniLineChart({
               x2={selectedPoint.x}
               y1={model.plotTop}
               y2={model.plotBottom}
+              vectorEffect="non-scaling-stroke"
             />
-            <circle cx={selectedPoint.x} cy={selectedPoint.y} r={4} />
+            <ellipse
+              cx={selectedPoint.x}
+              cy={selectedPoint.y}
+              rx={4}
+              ry={4}
+              vectorEffect="non-scaling-stroke"
+            />
           </g>
         ) : null}
       </svg>
       <p className="activity-chart-readout" aria-live="polite">
-        {chartValueLabel(selectedPoint, formatValue, readoutSuffix || null)}
+        {chartValueLabel(
+          selectedPoint,
+          formatChartValue,
+          readoutSuffix || null,
+        )}
       </p>
       {note ? <p className="activity-chart-note">{note}</p> : null}
     </figure>
