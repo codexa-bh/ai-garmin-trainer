@@ -1500,6 +1500,8 @@ describe("TrainerDashboard activity charts", () => {
       css.match(/\.activity-chart\s*\{([\s\S]*?)\}/)?.[1] ?? "";
     const chartCaptionBlock =
       css.match(/\.activity-chart figcaption\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const chartSvgBlock =
+      css.match(/\.activity-chart svg\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
     expect(chartGridBlock).toContain("minmax(140px, 1fr)");
     expect(chartGridBlock).toContain("gap: 6px;");
@@ -1507,6 +1509,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(chartCardBlock).toContain("padding: 8px;");
     expect(chartCaptionBlock).toContain("gap: 8px;");
     expect(chartCaptionBlock).toContain("margin-bottom: 8px;");
+    expect(chartSvgBlock).toContain("display: block;");
+    expect(chartSvgBlock).toContain("width: 100%;");
+    expect(chartSvgBlock).toContain("touch-action: none;");
   });
 
   it("keeps the full-screen activity dashboard scroll contract reachable at narrow breakpoints", () => {
@@ -2002,10 +2007,38 @@ describe("TrainerDashboard activity charts", () => {
         bottom: 130,
       }),
     });
+    expect(speedChart.getAttribute("preserveAspectRatio")).toBe("none");
+    const speedPolyline = speedChart
+      .querySelector("polyline")
+      ?.getAttribute("points");
     fireEvent.pointerMove(speedChart, { clientX: 420 });
     expect(
       screen.getByText("30m elapsed · 0 km/h · Avg 7.2 km/h"),
     ).toBeTruthy();
+    expect(
+      speedChart
+        .querySelector(".activity-chart-cursor ellipse")
+        ?.getAttribute("cx"),
+    ).toBe("161");
+    expect(
+      speedChart
+        .querySelector(".activity-chart-cursor ellipse")
+        ?.getAttribute("cy"),
+    ).toBe("104");
+    fireEvent.pointerMove(speedChart, { clientX: 100 });
+    expect(screen.getByText("0m elapsed · 9 km/h · Avg 7.2 km/h")).toBeTruthy();
+    fireEvent.pointerMove(speedChart, { clientX: 739 });
+    expect(
+      screen.getByText("1h 00m elapsed · 12.6 km/h · Avg 7.2 km/h"),
+    ).toBeTruthy();
+    expect(
+      speedChart
+        .querySelector(".activity-chart-cursor ellipse")
+        ?.getAttribute("cx"),
+    ).toBe("314");
+    expect(speedChart.querySelector("polyline")?.getAttribute("points")).toBe(
+      speedPolyline,
+    );
     const hrChart = screen.getByRole("img", {
       name: "Heart rate over elapsed time",
     });
@@ -2020,10 +2053,23 @@ describe("TrainerDashboard activity charts", () => {
         bottom: 130,
       }),
     });
+    expect(hrChart.getAttribute("preserveAspectRatio")).toBe("none");
     fireEvent.pointerMove(hrChart, { clientX: 420 });
     expect(
       screen.getByText("30m elapsed · 150 bpm · Avg 145 bpm"),
     ).toBeTruthy();
+    expect(
+      hrChart
+        .querySelector(".activity-chart-cursor ellipse")
+        ?.getAttribute("cy"),
+    ).toBe("8");
+    fireEvent.pointerMove(hrChart, { clientX: 99 });
+    expect(screen.getByText("0m elapsed · 130 bpm · Avg 145 bpm")).toBeTruthy();
+    fireEvent.pointerMove(hrChart, { clientX: 741 });
+    expect(
+      screen.getByText("1h 00m elapsed · 136 bpm · Avg 145 bpm"),
+    ).toBeTruthy();
+    fireEvent.pointerMove(hrChart, { clientX: 420 });
     fireEvent.keyDown(hrChart, { key: "ArrowRight" });
     expect(
       screen.getByText("1h 00m elapsed · 136 bpm · Avg 145 bpm"),
@@ -2042,6 +2088,7 @@ describe("TrainerDashboard activity charts", () => {
         bottom: 130,
       }),
     });
+    expect(elevationChart.getAttribute("preserveAspectRatio")).toBe("none");
     expect(
       screen.getByText("0m elapsed · 1,000 m · Grade unavailable"),
     ).toBeTruthy();
@@ -2049,6 +2096,16 @@ describe("TrainerDashboard activity charts", () => {
     expect(
       screen.getByText("30m elapsed · 1,050 m · Grade +3.0%"),
     ).toBeTruthy();
+    expect(
+      elevationChart
+        .querySelector(".activity-chart-cursor ellipse")
+        ?.getAttribute("cx"),
+    ).toBe("161");
+    expect(
+      elevationChart
+        .querySelector(".activity-chart-cursor ellipse")
+        ?.getAttribute("cy"),
+    ).toBe("8");
     fireEvent.keyDown(elevationChart, { key: "ArrowRight" });
     expect(
       screen.getByText("1h 00m elapsed · 1,012 m · Grade -3.0%"),
