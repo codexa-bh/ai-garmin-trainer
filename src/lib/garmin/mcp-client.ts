@@ -12,6 +12,16 @@ type ToolCallResult = {
   isError?: boolean;
 };
 
+export function safeConnectorFailure(raw: string): string {
+  if (/429|rate.?limit|too many requests/i.test(raw))
+    return "Garmin service rate-limited the request; retry later, not reauthentication.";
+  if (/timeout|timed out|connection|network|\b50[0234]\b/i.test(raw))
+    return "Garmin connection or service is unavailable; authentication validity is inconclusive.";
+  if (/401|403|unauthori|forbidden|auth|token/i.test(raw))
+    return "Garmin authentication could not be verified; check the configured store and perform a separate live verification before requesting reauthentication.";
+  return "Garmin connector request failed; upstream details are withheld to protect credentials and local paths.";
+}
+
 export class GarminMcpClient {
   private child: ChildProcessWithoutNullStreams | undefined;
   private nextId = 1;
@@ -27,9 +37,23 @@ export class GarminMcpClient {
     });
     this.child.on("exit", (code) => {
       const error = new Error(
-        `Garmin MCP exited with code ${code}. ${this.stderr}`,
+        `Garmin MCP exited with code ${code}. ${safeConnectorFailure(this.stderr)}`,
       );
-      for (const pending of this.pending.values()) pending.reject(error);
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(error);
+      }
+      this.pending.clear();
+    });
+    this.child.on("error", () => {
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(
+          new Error(
+            "Garmin connector could not start; check the configured local executable.",
+          ),
+        );
+      }
       this.pending.clear();
     });
 
@@ -51,8 +75,7 @@ export class GarminMcpClient {
       .map((part) => part.text ?? "")
       .join("\n")
       .trim();
-    if (result.isError)
-      throw new Error(text || `Garmin MCP tool ${name} failed`);
+    if (result.isError) throw new Error(safeConnectorFailure(text ?? ""));
     return text ?? "";
   }
 
@@ -87,7 +110,9 @@ export class GarminMcpClient {
       clearTimeout(pending.timeout);
       this.pending.delete(maybe.id);
       if (maybe.error)
-        pending.reject(new Error(maybe.error.message ?? "MCP request failed"));
+        pending.reject(
+          new Error(safeConnectorFailure(maybe.error.message ?? "")),
+        );
       else pending.resolve(maybe.result);
     }
   }
@@ -103,7 +128,9 @@ export class GarminMcpClient {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(
-          new Error(`Garmin MCP request timed out: ${method}. ${this.stderr}`),
+          new Error(
+            "Garmin MCP request timed out; authentication validity is inconclusive.",
+          ),
         );
       }, 120_000);
       this.pending.set(id, { resolve, reject, timeout });

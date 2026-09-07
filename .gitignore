@@ -27,6 +27,8 @@ logs/
 coverage/
 
 # Build artifacts
+__pycache__/
+*.pyc
 .turbo/
 dist/
 

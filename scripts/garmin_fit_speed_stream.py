@@ -18,7 +18,7 @@ import math
 import os
 import sys
 import zipfile
-from pathlib import Path
+from garmin_token_location import tokenstore
 from typing import Any
 
 from fitparse import FitFile
@@ -52,21 +52,6 @@ def finite_non_negative_number(value: Any) -> float | None:
     if not math.isfinite(parsed) or parsed < 0:
         return None
     return parsed
-
-
-def has_token_files(path: str) -> bool:
-    try:
-        expanded = Path(path).expanduser()
-        return expanded.exists() and any(expanded.iterdir())
-    except Exception:
-        return False
-
-
-def tokenstore() -> str:
-    configured = os.getenv("GARMIN_MCP_TOKEN_DIR")
-    if configured and has_token_files(configured):
-        return configured
-    return os.getenv("GARMINTOKENS") or "~/.garminconnect"
 
 
 def speed_mps_from_record(message: Any) -> float | None:

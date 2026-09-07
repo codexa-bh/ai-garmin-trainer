@@ -19,6 +19,7 @@ from typing import Any
 
 from fitparse import FitFile
 from garminconnect import Garmin
+from garmin_token_location import tokenstore
 
 
 def extract_fit_bytes(raw: bytes) -> bytes:
@@ -73,7 +74,7 @@ def main() -> int:
         return 0
 
     garmin = Garmin(is_cn=os.getenv("GARMIN_IS_CN", "").lower() in {"1", "true", "yes"})
-    garmin.login(os.getenv("GARMINTOKENS") or "~/.garminconnect")
+    garmin.login(tokenstore())
 
     for activity_id in activity_ids[:6]:
         try:

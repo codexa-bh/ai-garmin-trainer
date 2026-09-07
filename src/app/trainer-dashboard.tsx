@@ -6248,9 +6248,12 @@ export function TrainerDashboard() {
               <details className="settings-card" open>
                 <summary>Garmin data and sync</summary>
                 <p>
-                  Run <code>garmin-mcp-auth</code> outside the app, then sync
-                  using pinned local stdio read operations. The app never sees
-                  your Garmin password.
+                  Set <code>GARMIN_MCP_TOKEN_DIR</code> in local env. Reuse
+                  existing credentials; only if needed, run{" "}
+                  <code>npm run garmin:auth</code> in a private terminal. Sync
+                  uses pinned local stdio reads. Verification checks file
+                  presence, not authentication validity. The app never sees your
+                  Garmin password.
                 </p>
                 <div className="button-row">
                   <button

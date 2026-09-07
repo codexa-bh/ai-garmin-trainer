@@ -3,6 +3,7 @@
     "dev": "next dev",
     "bootstrap:local": "node scripts/bootstrap-local.mjs",
     "doctor": "tsx scripts/doctor.ts",
+    "garmin:auth": "tsx scripts/garmin-auth.ts",
     "db:status": "tsx scripts/db-status.ts",
     "start:local": "next start --hostname 127.0.0.1 --port ${PORT:-3000}",
     "restart:local": "bash scripts/restart-local.sh",

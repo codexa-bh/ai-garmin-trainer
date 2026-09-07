@@ -18,7 +18,7 @@ This repository is ready only for the next controlled clean-machine validation m
 4. Manual recovery remains available: run `npm run doctor -- --json`, `npm ci`, `npm run db:status -- --json`, `npm run db:migrate` when status says migration is needed, `npm run build`, and `npm run start:local`. Doctor output is allowlisted: versions, config presence booleans, schema/integrity state, connector pin/auth-state presence, provider key presence, and loopback posture. It does not print credentials, token contents, provider keys, prompts, precise GPS streams, or raw connector payloads.
 5. Existing SQLite files are copied to `data/backups/trainer-schema-backup-*.sqlite` only by the migration path; ordinary current-schema bootstrap starts skip migration to avoid redundant backups.
 6. The supported production-local command binds Next.js to `127.0.0.1:3000` by default. For local port conflicts, repeat restarts may use `npm run restart:local -- --port <port>` or `AI_GARMIN_RESTART_PORT=<port>` while still binding only to `127.0.0.1`. LAN/public host binding is unsupported and flagged by doctor/bootstrap.
-7. Authenticate Garmin out of band with `garmin-mcp-auth`. Never paste Garmin password, MFA code, tokens, cookies, or token file contents into the app, chat, diagnostics, or support issues.
+7. Configure the single `GARMIN_MCP_TOKEN_DIR` and follow [Garmin setup/recovery](garmin-auth.md), reusing existing credentials before operator-run `npm run garmin:auth`. Never paste Garmin password, MFA code, tokens, cookies, or token file contents into the app, chat, diagnostics, or support issues.
 
 ## Local data lifecycle
 

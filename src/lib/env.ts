@@ -17,7 +17,7 @@ const optionalEnvSchema = z.object({
     .optional(),
   GARMIN_MCP_COMMAND: z.string().default("uvx"),
   GARMIN_MCP_ARGS: z.string().default(GARMIN_MCP_DEFAULT_ARGS_STRING),
-  GARMIN_MCP_TOKEN_DIR: z.string().default("./.garmin-token"),
+  GARMIN_MCP_TOKEN_DIR: z.string().optional(),
   AI_PROVIDER: z.enum(["auto", "openai", "deepseek", "ollama"]).default("auto"),
   AI_MODEL: z.string().default("gpt-4o-mini"),
   OPENAI_API_KEY: z.string().optional(),
