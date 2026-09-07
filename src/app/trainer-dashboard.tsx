@@ -371,92 +371,6 @@ type ActivityListPayload = {
 const ACTIVITY_LIST_PAGE_SIZE = 100;
 const ACTIVITY_LIST_SCROLL_THRESHOLD_PX = 96;
 
-type ActivitySportIconDescriptor = {
-  key: string;
-  glyph: string;
-  label: string;
-  tone: "trail" | "walk" | "snow" | "cycle" | "ball" | "generic";
-};
-
-const ACTIVITY_SPORT_ICONS: Record<string, ActivitySportIconDescriptor> = {
-  hiking: {
-    key: "hiking",
-    glyph: "⛰️",
-    label: "Hiking",
-    tone: "trail",
-  },
-  walking: {
-    key: "walking",
-    glyph: "🚶",
-    label: "Walking",
-    tone: "walk",
-  },
-  resort_snowboarding: {
-    key: "resort_snowboarding",
-    glyph: "🏂",
-    label: "Resort snowboarding",
-    tone: "snow",
-  },
-  backcountry_snowboarding: {
-    key: "backcountry_snowboarding",
-    glyph: "🏂",
-    label: "Backcountry snowboarding",
-    tone: "snow",
-  },
-  volleyball: {
-    key: "volleyball",
-    glyph: "🏐",
-    label: "Volleyball",
-    tone: "ball",
-  },
-  gravel_cycling: {
-    key: "gravel_cycling",
-    glyph: "🚴",
-    label: "Gravel cycling",
-    tone: "cycle",
-  },
-  mountaineering: {
-    key: "mountaineering",
-    glyph: "⛰️",
-    label: "Mountaineering",
-    tone: "trail",
-  },
-  other: {
-    key: "other",
-    glyph: "◆",
-    label: "Other activity",
-    tone: "generic",
-  },
-};
-
-const FALLBACK_ACTIVITY_SPORT_ICON: ActivitySportIconDescriptor = {
-  key: "unknown",
-  glyph: "◆",
-  label: "Activity type",
-  tone: "generic",
-};
-
-export function activitySportIconDescriptor(
-  sport: string | null | undefined,
-): ActivitySportIconDescriptor {
-  const key = (sport ?? "").trim().toLowerCase();
-  return ACTIVITY_SPORT_ICONS[key] ?? FALLBACK_ACTIVITY_SPORT_ICON;
-}
-
-function ActivitySportIcon({ sport }: { sport: string }) {
-  const icon = activitySportIconDescriptor(sport);
-  return (
-    <span
-      aria-label={icon.label}
-      className={`activity-sport-icon activity-sport-icon-${icon.tone}`}
-      data-sport-icon={icon.key}
-      role="img"
-    >
-      {icon.glyph}
-    </span>
-  );
-}
-
 const emptySyncRun: SyncRunState = {
   kind: "idle",
   lines: [],
@@ -5241,8 +5155,7 @@ export function TrainerDashboard() {
                         <span>
                           <strong>{activity.label}</strong>
                           <small>
-                            {activity.date} ·{" "}
-                            <ActivitySportIcon sport={activity.sport} />
+                            {activity.date} · {activity.sport}
                           </small>
                         </span>
                         <span>
