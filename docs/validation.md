@@ -25,7 +25,7 @@ Live smoke with local secrets:
 
 1. Start the app on loopback and verify the trainer loads chat/Profile without `/api/dev-login`, Google OAuth, cookies, or an email allowlist.
 2. Confirm LAN/public exposure remains unsupported and `npm run doctor` flags non-loopback URLs.
-3. Run out-of-band `garmin-mcp-auth` and verify connector status in the app. The current connector auth stores OAuth state at `~/.garminconnect/garmin_tokens.json`; verify only file existence, never contents.
+3. Follow [Garmin authentication setup and recovery](garmin-auth.md): explicitly set `GARMIN_MCP_TOKEN_DIR`, reuse verified existing credentials, and run `npm run garmin:auth` out of band only if needed. Doctor verifies readable/nonempty expected-file metadata only; a separate bounded authenticated read establishes current usability, not expiry. Do not print credentials or raw connector errors. For task smoke use a disposable populated SQLite copy and bounded sync, not a primary-data backfill.
 4. Sync activities to exhaustion and daily health from `GARMIN_HISTORY_START_DATE` through today.
 5. Enter one imported Garmin activity ID in Activity detail and run Backfill detail. Confirm the status reports normalized record/lap counts or an explicit unsupported/failed reason; redacted connector/detail payloads may be retained only in the local SQLite raw-payload table, and no raw FIT files should be created by the app.
 6. Use Show detail coverage to verify per-activity fields such as streams, GPS, elevation, HR, grade, power, recovery, record count, and lap count.

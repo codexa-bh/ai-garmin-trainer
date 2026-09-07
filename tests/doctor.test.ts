@@ -29,7 +29,10 @@ const baseEnv = {
 
 describe("source-beta doctor and redaction", () => {
   it("reports stable failure classes without printing secret values", () => {
-    writeFileSync(join(baseEnv.GARMIN_MCP_TOKEN_DIR, "state.json"), "{}\n");
+    writeFileSync(
+      join(baseEnv.GARMIN_MCP_TOKEN_DIR, "garmin_tokens.json"),
+      "{}\n",
+    );
     const report = runDoctor(baseEnv);
     const text = JSON.stringify(report);
     expect(report.checks.map((item) => item.className)).toContain(
@@ -39,7 +42,10 @@ describe("source-beta doctor and redaction", () => {
   });
 
   it("reports the explicit Garmin MCP SDK compatibility requirement", () => {
-    writeFileSync(join(baseEnv.GARMIN_MCP_TOKEN_DIR, "state.json"), "{}\n");
+    writeFileSync(
+      join(baseEnv.GARMIN_MCP_TOKEN_DIR, "garmin_tokens.json"),
+      "{}\n",
+    );
     const report = runDoctor(baseEnv);
     const garminFacts = report.facts.garmin as {
       mcpSdkRequirement: string;
@@ -62,7 +68,10 @@ describe("source-beta doctor and redaction", () => {
   });
 
   it("warns when a stale local override relies on runtime MCP SDK injection", () => {
-    writeFileSync(join(baseEnv.GARMIN_MCP_TOKEN_DIR, "state.json"), "{}\n");
+    writeFileSync(
+      join(baseEnv.GARMIN_MCP_TOKEN_DIR, "garmin_tokens.json"),
+      "{}\n",
+    );
     const report = runDoctor({
       ...baseEnv,
       GARMIN_MCP_ARGS: `--from ${GARMIN_MCP_PACKAGE_URL} garmin-mcp`,
@@ -108,7 +117,10 @@ describe("source-beta doctor and redaction", () => {
   });
 
   it("reports DeepSeek-first provider selection and OpenAI memory embedding readiness without retired keys", () => {
-    writeFileSync(join(baseEnv.GARMIN_MCP_TOKEN_DIR, "state.json"), "{}\n");
+    writeFileSync(
+      join(baseEnv.GARMIN_MCP_TOKEN_DIR, "garmin_tokens.json"),
+      "{}\n",
+    );
     const report = runDoctor({
       ...baseEnv,
       AI_PROVIDER: "auto",
@@ -196,6 +208,19 @@ describe("source-beta doctor and redaction", () => {
       ollamaBaseUrlLoopback: false,
     });
     expect(JSON.stringify(report)).not.toContain("https://example.com:11434");
+  });
+
+  it("rejects unrelated files and missing configuration without leaking paths", () => {
+    const dir = mkdtempSync(join(tmpdir(), "doctor-no-fallback-"));
+    writeFileSync(join(dir, "state.json"), "secret canary");
+    for (const value of [dir, "", undefined]) {
+      const report = runDoctor({ ...baseEnv, GARMIN_MCP_TOKEN_DIR: value });
+      expect(
+        report.checks.find((item) => item.id === "garmin.auth_state")?.status,
+      ).toBe("fail");
+      expect(JSON.stringify(report)).not.toContain(dir);
+      expect(JSON.stringify(report)).not.toContain("secret canary");
+    }
   });
 
   it("redacts credentials, token contents, prompts, precise GPS, and raw payload canaries", () => {

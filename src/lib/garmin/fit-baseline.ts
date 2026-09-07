@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { garminTokenEnvironment } from "./token-location";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -45,7 +46,7 @@ export async function fetchFitBaselineWithLocalWrapper(
     const { stdout } = await execFileAsync(command, args, {
       timeout: 120_000,
       maxBuffer: 1024 * 1024,
-      env: process.env,
+      env: garminTokenEnvironment(),
     });
     const parsed = JSON.parse(stdout.trim()) as unknown;
     return hasZonesTarget(parsed) && parsed.zones_target ? parsed : undefined;

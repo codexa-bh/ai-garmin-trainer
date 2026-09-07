@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { inspectTokenLocation } from "../garmin/token-location";
 import Database from "better-sqlite3";
 import { z } from "zod";
 import {
@@ -66,21 +66,6 @@ function commandVersion(command: string, args = ["--version"]): string | null {
   } catch {
     return null;
   }
-}
-
-function tokenState(env: { GARMIN_MCP_TOKEN_DIR?: string }): {
-  configuredTokenDirPresent: boolean;
-  defaultTokenFilePresent: boolean;
-} {
-  const configuredTokenDirPresent = Boolean(
-    env.GARMIN_MCP_TOKEN_DIR &&
-    existsSync(env.GARMIN_MCP_TOKEN_DIR) &&
-    readdirSync(env.GARMIN_MCP_TOKEN_DIR).length > 0,
-  );
-  const defaultTokenFilePresent = existsSync(
-    join(process.env.HOME ?? "", ".garminconnect", "garmin_tokens.json"),
-  );
-  return { configuredTokenDirPresent, defaultTokenFilePresent };
 }
 
 function loopbackHost(rawUrl: string): boolean {
@@ -459,22 +444,16 @@ export function runDoctor(
       : "Semantic memory is disabled; embedded SQLite vector storage will be used when enabled.",
   );
 
-  const token = tokenState(env);
+  const token = inspectTokenLocation(env.GARMIN_MCP_TOKEN_DIR);
   check(
     checks,
-    token.configuredTokenDirPresent || token.defaultTokenFilePresent
-      ? "pass"
-      : "fail",
+    token.ok ? "pass" : "fail",
     "garmin.auth_state",
-    token.configuredTokenDirPresent || token.defaultTokenFilePresent
-      ? "garmin.auth_state_present"
-      : "garmin.auth_state_missing",
-    token.configuredTokenDirPresent || token.defaultTokenFilePresent
-      ? "Garmin auth state file presence was detected without reading token contents."
-      : "No Garmin auth-state file presence detected; no token contents were read.",
-    token.configuredTokenDirPresent || token.defaultTokenFilePresent
+    token.className,
+    token.detail,
+    token.ok
       ? undefined
-      : "Run garmin-mcp-auth out of band and never paste Garmin credentials or token contents into the app.",
+      : "Repair GARMIN_MCP_TOKEN_DIR and verify existing credentials separately. Only if authentication is needed, use npm run garmin:auth in a private terminal; never paste credentials into the app.",
   );
 
   const argsPinned = env.GARMIN_MCP_ARGS.includes(GARMIN_MCP_COMMIT);
@@ -558,8 +537,8 @@ export function runDoctor(
       configuredMcpSdkConstraint: rawSdkConstraint,
       effectiveMcpSdkConstraint: effectiveSdkConstraint,
       effectiveMcpArgCount: effectiveMcpArgs.length,
-      configuredTokenDirPresent: token.configuredTokenDirPresent,
-      defaultTokenFilePresent: token.defaultTokenFilePresent,
+      configuredTokenDirPresent: token.ok,
+      defaultTokenFilePresent: false,
       stdioOnly: true,
       httpTransportSupported: false,
     },
