@@ -17,6 +17,19 @@ npm run build
 
 `npm run doctor`, `npm run db:status -- --json`, bootstrap stage output, and dependency evidence output are allowlisted support artifacts. They report versions, schema readiness, current/migration decisions, selected chat provider readiness including loopback Ollama chat when configured, loopback readiness, and whether Garmin MCP args explicitly include the reviewed exact `mcp==1.28.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, provider base URLs, prompts, precise GPS streams, raw connector payloads, vectors, or `.env.local` values.
 
+## Generated Next.js declarations
+
+`next-env.d.ts` and `.next/` are framework-owned, ignored local output. Do not
+commit or hand-edit them: development and production use different generated
+route imports. TypeScript still includes the Next.js ambient/image declarations
+and both development and production route types through `tsconfig.json`.
+
+On a fresh checkout, run `npm ci` then `npm run typecheck` or `npm run validate`;
+no prior development server or build is needed. Type checking runs `next typegen`
+before `tsc --noEmit` and stops if generation fails. Development startup and
+production builds also regenerate declarations automatically. Switching modes
+should not require restoring generated files or produce Git changes.
+
 ## Task process guardrails
 
 Before handoff, tasks that make local SQLite data stale or incomplete must complete the needed same-task migration/backfill/back-sync/re-sync work against the intended DB target, or record an explicit blocker. Tasks that create smoke/test/mock app data must clean up those task-created artifacts after evidence capture, or record a deferral with provenance and approval/stop-condition rationale. See [developer-process.md](developer-process.md) for the concise planning and evidence contract.
