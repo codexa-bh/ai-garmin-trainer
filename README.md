@@ -12,7 +12,22 @@ Source-control boundary: this source tree is backed by the private GitHub reposi
 4. Set the one explicit `GARMIN_MCP_TOKEN_DIR` in `.env.local`, then use `npm run garmin:auth` in a private interactive terminal only when existing credentials cannot be reused. This env-aware command pins connector `3610be6feed93088d85b0f35aba9d7d07c2505a7` and `mcp==1.28.1`; keep the matching `.env.example` MCP args. Auth, MCP sync, FIT helpers and doctor use that same location without home-directory or inherited-variable fallback. The app never asks for the Garmin password. See [Garmin authentication setup and recovery](docs/garmin-auth.md) before migrating an existing store. Doctor checks only expected-file metadata, not token validity or expiry.
 5. Optional semantic memory: configure embedded SQLite semantic memory using `docs/memory.md`. The no-paid local path is `MEMORY_EMBEDDING_PROVIDER=ollama` with `nomic-embed-text` pulled into loopback Ollama; OpenAI-compatible embeddings use the existing `OPENAI_API_KEY` contract, not a separate memory-only API key. Ollama trainer chat is separate from memory extraction: when `AI_PROVIDER=ollama`, guarded memory extraction uses configured DeepSeek/OpenAI if available and otherwise falls back deterministically instead of sending extraction prompts to the local chat model. Leave `MEMORY_ENABLED=false` to run without semantic memory.
 6. Optional local developer diagnostics: leave `LLM_DEBUG_TRACES=false` for normal use. Set it to `true` only in a private loopback development session to persist bounded per-assistant-message LLM/tool orchestration traces and inspect them from Settings; traces may include private normalized Garmin/chat/tool context.
-7. Run `npm run bootstrap:local` for the production-style loopback bootstrap/start path. It performs locked dependency preparation when needed, checks whether the SQLite schema actually needs migration before invoking `npm run db:migrate`, ensures configured loopback Ollama memory is ready without installing system software, builds, runs doctor, and starts or reuses the verified loopback app. For repeat local work after dependencies/schema/build are already prepared, use `npm run restart:local` to stop any prior loopback server and restart the verified local server; if port `3000` is occupied, run `npm run restart:local -- --port 3001` or set `AI_GARMIN_RESTART_PORT=3001`. Manual recovery remains `npm ci`, `npm run db:status -- --json`, `npm run db:migrate` when needed, `npm run build`, then `npm run start:local`. Use `npm run dev` only for maintainer development.
+7. Run `npm run bootstrap:local` for the production-style loopback bootstrap/start path. It performs locked dependency preparation when needed, checks whether the SQLite schema actually needs migration before invoking `npm run db:migrate`, ensures configured loopback Ollama memory is ready without installing system software, builds, runs doctor, and starts or reuses the verified loopback app. For repeat local work after dependencies/schema are prepared, use the restart modes below. Manual recovery remains `npm ci`, `npm run db:status -- --json`, `npm run db:migrate` when needed, `npm run build`, then `npm run start:local`.
+
+### Local restart modes
+
+```bash
+# Default: rebuild the production bundle, then start on loopback
+npm run restart:local
+npm run restart:local -- --mode production --port 3000
+
+# Development: skip the production build and automatically reload source changes
+npm run restart:local -- --mode dev --port 3000
+```
+
+Production mode requires another rebuild/restart to pick up source edits. Development mode uses Next.js automatic reload; configuration changes may still require a restart. Both modes bind to `127.0.0.1`, stop only matching server processes owned by this repository/worktree, and verify HTTP readiness and listener ownership. Switching modes stops the prior server before starting (and, for production, rebuilding).
+
+If port `3000` is occupied by another repo/worktree, choose `--port 3001` or set `AI_GARMIN_RESTART_PORT=3001`; unrelated listeners are never killed. CLI port selection overrides that environment default. Equals-style options (`--mode=dev --port=3001`) also work; `--help` shows usage. Missing or invalid mode/port values fail before any restart actions.
 
 ## Repo orientation for future agents
 

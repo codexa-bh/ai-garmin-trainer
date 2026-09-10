@@ -2,8 +2,9 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: npm run restart:local -- [--port <1-65535>]\n' >&2
+  printf 'Usage: npm run restart:local -- [--mode dev|production] [--port <1-65535>]\n' >&2
   printf '       AI_GARMIN_RESTART_PORT=<1-65535> npm run restart:local\n' >&2
+  printf 'Modes: production (default) rebuilds then starts; dev reloads source without a production build.\n' >&2
 }
 
 is_valid_port() {
@@ -14,9 +15,23 @@ is_valid_port() {
   [ "${candidate}" -ge 1 ] 2>/dev/null && [ "${candidate}" -le 65535 ] 2>/dev/null
 }
 
+mode="production"
 port="${AI_GARMIN_RESTART_PORT:-3000}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --mode)
+      if [ "$#" -lt 2 ]; then
+        printf 'missing value for --mode\n' >&2
+        usage
+        exit 2
+      fi
+      mode="$2"
+      shift 2
+      ;;
+    --mode=*)
+      mode="${1#--mode=}"
+      shift
+      ;;
     --port)
       if [ "$#" -lt 2 ]; then
         printf 'missing value for --port\n' >&2
@@ -41,6 +56,15 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+case "${mode}" in
+  dev|production) ;;
+  *)
+    printf 'invalid mode: %s (expected dev or production)\n' "${mode}" >&2
+    usage
+    exit 2
+    ;;
+esac
 
 if ! is_valid_port "${port}"; then
   printf 'invalid port: %s\n' "${port}" >&2
@@ -69,6 +93,7 @@ if [ ! -d "${repo}" ]; then
   exit 2
 fi
 
+printf 'mode=%s\n' "${mode}"
 printf 'Stopping local server processes for repo: %s\n' "${repo}"
 ps -axo pid=,command= > "${tmp_ps}"
 pids_to_kill=""
@@ -118,16 +143,25 @@ if [ -n "${foreign_listeners}" ]; then
   exit 1
 fi
 
-printf '\nRebuilding production bundle...\n'
-(cd "${repo}" && npm run build)
+if [ "${mode}" = "production" ]; then
+  printf '\nRebuilding production bundle...\n'
+  (cd "${repo}" && npm run build)
+fi
 
-printf '\nStarting local server on 127.0.0.1:%s...\n' "${port}"
+printf '\nStarting %s local server on 127.0.0.1:%s...\n' "${mode}" "${port}"
 log_dir="$(dirname -- "${log}")"
 if [ ! -d "${log_dir}" ]; then
   mkdir -p -- "${log_dir}"
 fi
 : > "${log}"
-(cd "${repo}" && PORT="${port}" npm run start:local) > "${log}" 2>&1 &
+(
+  cd "${repo}"
+  if [ "${mode}" = "dev" ]; then
+    npm run dev -- --hostname 127.0.0.1 --port "${port}"
+  else
+    PORT="${port}" npm run start:local
+  fi
+) > "${log}" 2>&1 &
 launcher_pid=$!
 printf 'launcher_pid=%s\n' "${launcher_pid}"
 
