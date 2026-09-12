@@ -3378,6 +3378,7 @@ export function TrainerDashboard() {
 
   function cancelChat() {
     chatAbortRef.current?.abort();
+    setChatPendingStatus(null);
     setStatus({
       kind: "busy",
       message: "Chat: cancelling streamed response before completion…",
@@ -4366,28 +4367,33 @@ export function TrainerDashboard() {
     const trimmed = text.trim();
     const pendingAssistantId = `streaming-assistant-${Date.now()}`;
     let assistantDraft = "";
+    let acceptsProgress = true;
     chatHistoryRequestRef.current += 1;
     const controller = new AbortController();
     chatAbortRef.current = controller;
     setMessage("");
     setLastFailedMessage("");
-    setChatPendingStatus(null);
+    setChatPendingStatus("Starting your request…");
     setIsChatLoading(true);
     forceNextScrollRef.current = true;
-    setStatus({ kind: "busy", message: "Chat: trainer is thinking…" });
+    setStatus({ kind: "busy", message: "Chat: starting your request…" });
 
     function applyEvent(event: ChatStreamEvent) {
+      if (chatAbortRef.current !== controller || controller.signal.aborted)
+        return;
       if (event.type === "start") {
         setChatMessages((items) => [...items, event.userMessage]);
         return;
       }
       if (event.type === "status") {
+        if (!acceptsProgress) return;
         setChatPendingStatus(event.message);
         setStatus({ kind: "busy", message: `Chat: ${event.message}` });
         return;
       }
       if (event.type === "metadata") return;
       if (event.type === "delta") {
+        acceptsProgress = false;
         setChatPendingStatus(null);
         assistantDraft += event.textDelta;
         setChatMessages((items) => {
@@ -4407,6 +4413,7 @@ export function TrainerDashboard() {
         return;
       }
       if (event.type === "done") {
+        acceptsProgress = false;
         setChatPendingStatus(null);
         setChatMessages((items) => [
           ...items.filter((item) => item.id !== pendingAssistantId),
@@ -4431,6 +4438,7 @@ export function TrainerDashboard() {
         });
         return;
       }
+      acceptsProgress = false;
       setChatPendingStatus(null);
       setLastFailedMessage(trimmed);
       setChatMessages((items) =>
@@ -4503,8 +4511,11 @@ export function TrainerDashboard() {
           : `Chat failed: ${error instanceof Error ? error.message : "unknown error"}`,
       });
     } finally {
-      if (chatAbortRef.current === controller) chatAbortRef.current = null;
-      setIsChatLoading(false);
+      if (chatAbortRef.current === controller) {
+        chatAbortRef.current = null;
+        setChatPendingStatus(null);
+        setIsChatLoading(false);
+      }
     }
   }
 
@@ -5969,15 +5980,16 @@ export function TrainerDashboard() {
                   ) : null}
                 </div>
               ))}
-              {isChatLoading &&
-              !chatMessages.some((item) => item.id.startsWith("streaming-")) ? (
+              {isChatLoading && chatPendingStatus !== null ? (
                 <div className="chat-message assistant pending">
                   <div className="chat-meta">
                     <strong>Trainer</strong>
                     <span>pending</span>
                   </div>
-                  <p className="pending-thinking-text">
-                    <span>Trainer is thinking…</span>
+                  <p className="pending-thinking-text" aria-atomic="true">
+                    <span data-testid="pending-step-status">
+                      {chatPendingStatus}
+                    </span>
                     <span
                       className="pending-thinking-dots"
                       aria-hidden="true"
@@ -5988,15 +6000,6 @@ export function TrainerDashboard() {
                       <span />
                     </span>
                   </p>
-                  {chatPendingStatus ? (
-                    <p
-                      className="pending-substatus"
-                      aria-hidden="true"
-                      data-testid="pending-substatus"
-                    >
-                      {chatPendingStatus}
-                    </p>
-                  ) : null}
                 </div>
               ) : null}
               <div ref={transcriptBottomRef} aria-hidden="true" />

@@ -130,6 +130,70 @@ describe("trainer orchestrator fail-closed policy", async () => {
     replaceTrainingPlan.mockClear();
   });
 
+  it("emits truthful progress at awaited boundaries and counts repeated tools", async () => {
+    const statuses: string[] = [];
+    generateText
+      .mockImplementationOnce(async () => {
+        expect(statuses.at(-1)).toBe("Choosing how to answer — model pass 1…");
+        return { toolCalls: [{ toolName: "runGarminSync", input: {} }] };
+      })
+      .mockImplementationOnce(async () => {
+        expect(statuses.at(-1)).toBe(
+          "Choosing the next step — model pass 2; tools: 1 succeeded…",
+        );
+        return {
+          toolCalls: [
+            { toolName: "getSyncStatus", input: {} },
+            { toolName: "getSyncStatus", input: {} },
+          ],
+        };
+      })
+      .mockImplementationOnce(async () => {
+        expect(statuses.at(-1)).toBe(
+          "Choosing the next step — model pass 3; tools: 3 succeeded…",
+        );
+        return { text: "Local status checked." };
+      });
+    runGarminSync.mockImplementationOnce(async () => {
+      expect(statuses.at(-1)).toBe("Running the requested Garmin sync action…");
+      return { status: "completed", detail: "ok" };
+    });
+    await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "sync and status",
+      onStatus: (message) => statuses.push(message),
+    });
+    expect(statuses).toEqual([
+      "Choosing how to answer — model pass 1…",
+      "Running the requested Garmin sync action…",
+      "Choosing the next step — model pass 2; tools: 1 succeeded…",
+      "Checking local sync status…",
+      "Checking local sync status…",
+      "Choosing the next step — model pass 3; tools: 3 succeeded…",
+      "Preparing the final answer…",
+    ]);
+  });
+
+  it("keeps progress best-effort and does not announce rejected selections as running", async () => {
+    generateText.mockResolvedValueOnce({
+      toolCalls: [{ toolName: "unknownTool", input: { secret: "not-public" } }],
+    });
+    const statuses: string[] = [];
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "status",
+      onStatus: (message) => {
+        statuses.push(message);
+        throw new Error("observer failed");
+      },
+    });
+    expect(statuses).toEqual(["Choosing how to answer — model pass 1…"]);
+    expect(result.toolSteps[0].status).toBe("rejected");
+    expect(generateText).toHaveBeenCalledOnce();
+  });
+
   it("executes multiple provider-selected tools sequentially when one has side effects", async () => {
     generateText
       .mockResolvedValueOnce({
@@ -606,6 +670,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
   });
 
   it("allows a correctable SQL schema error to lead to one corrected SQL call and final synthesis", async () => {
+    const statuses: string[] = [];
     runReadOnlySql
       .mockReturnValueOnce({
         status: "failed",
@@ -672,9 +737,19 @@ describe("trainer orchestrator fail-closed policy", async () => {
     const result = await orchestrateTrainerChat({
       model: "mock",
       system: "system",
+      onStatus: (message) => statuses.push(message),
       userRequest: "top 10 most demanding activities in the last 365 days",
     });
 
+    expect(statuses).toContain(
+      "Choosing the next step — model pass 3; tools: 1 succeeded, 1 unsuccessful…",
+    );
+    expect(statuses).toContain(
+      "Choosing the next step — model pass 4; tools: 2 succeeded, 1 unsuccessful…",
+    );
+    expect(statuses.join(" ")).not.toMatch(
+      /activity_id|bad_rows|select |unknown_column/,
+    );
     expect(runReadOnlySql).toHaveBeenCalledTimes(2);
     expect(generateText.mock.calls[2][0].system).toContain("unknown_column");
     expect(generateText.mock.calls[2][0].system).toContain(
