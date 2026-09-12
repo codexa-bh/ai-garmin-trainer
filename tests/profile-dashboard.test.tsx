@@ -64,6 +64,9 @@ function controlledSyncStream() {
     push(event: unknown) {
       controller?.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
     },
+    pushRaw(chunk: string) {
+      controller?.enqueue(encoder.encode(chunk));
+    },
     close() {
       controller?.close();
     },
@@ -497,21 +500,22 @@ describe("TrainerDashboard Profile hydration", () => {
     });
     stream.push({ type: "status", message: "Preparing local context…" });
 
-    expect(await screen.findByText("Trainer is thinking…")).toBeTruthy();
+    expect(screen.queryByText("Trainer is thinking…")).toBeNull();
     const thinkingIndicator = screen.getByTestId("pending-thinking-indicator");
     expect(thinkingIndicator.getAttribute("aria-hidden")).toBe("true");
     expect(thinkingIndicator.querySelectorAll("span")).toHaveLength(3);
-    const substatus = await screen.findByTestId("pending-substatus");
-    expect(substatus.getAttribute("aria-hidden")).toBe("true");
-    expect(substatus.getAttribute("aria-live")).toBeNull();
-    expect(substatus.textContent).toBe("Preparing local context…");
+    const stepStatus = await screen.findByTestId("pending-step-status");
+    expect(stepStatus.closest('[aria-hidden="true"]')).toBeNull();
+    expect(stepStatus.closest('[aria-live="polite"]')).not.toBeNull();
+    expect(stepStatus.parentElement?.getAttribute("aria-atomic")).toBe("true");
+    expect(stepStatus.textContent).toBe("Preparing local context…");
 
     stream.push({
       type: "status",
       message: "Asking the model to choose how to answer…",
     });
     await waitFor(() => {
-      expect(screen.getByTestId("pending-substatus").textContent).toBe(
+      expect(screen.getByTestId("pending-step-status").textContent).toBe(
         "Asking the model to choose how to answer…",
       );
     });
@@ -522,7 +526,24 @@ describe("TrainerDashboard Profile hydration", () => {
       screen.queryByText("Trainer is thinking with bounded local history…"),
     ).toBeNull();
 
+    stream.pushRaw(
+      JSON.stringify({
+        type: "status",
+        message: "Checking local sync status…",
+      }) +
+        "\n" +
+        '{"type":"status","message":"Choosing the next',
+    );
+    stream.pushRaw(' step — model pass 2; tools: 1 succeeded…"}\n');
+    await waitFor(() => {
+      expect(screen.getByTestId("pending-step-status").textContent).toContain(
+        "model pass 2",
+      );
+    });
     stream.push({ type: "delta", textDelta: "Keep tomorrow easy." });
+    stream.push({ type: "status", message: "Stale progress after answer" });
+    expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
+    expect(screen.queryByTestId("pending-step-status")).toBeNull();
     stream.push({
       type: "done",
       assistantMessage: {
@@ -536,14 +557,92 @@ describe("TrainerDashboard Profile hydration", () => {
       historyLimit: 40,
       memoryProposal: { status: "none" },
     });
-    stream.close();
-
-    expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByTestId("pending-thinking-indicator")).toBeNull();
-      expect(screen.queryByTestId("pending-substatus")).toBeNull();
+      expect(screen.queryByTestId("pending-step-status")).toBeNull();
     });
+    stream.close();
   });
+
+  it.each(["done", "error", "cancel"])(
+    "clears startup progress on %s without waiting for stream close and ignores late statuses",
+    async (terminal) => {
+      let stream = controlledSyncStream();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url === "/api/profile") return jsonResponse(profile([]));
+          if (url === "/api/memory") return jsonResponse({ memories: [] });
+          if (url.startsWith("/api/chat") && init?.method === "POST")
+            return stream.response;
+          if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+          return jsonResponse({ ok: true });
+        }),
+      );
+      render(React.createElement(TrainerDashboard));
+      fireEvent.change(screen.getByLabelText("Message"), {
+        target: { value: "Status please" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      expect(await screen.findByTestId("pending-step-status")).toHaveProperty(
+        "textContent",
+        "Starting your request…",
+      );
+      if (terminal === "cancel") {
+        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+        expect(screen.queryByTestId("pending-step-status")).toBeNull();
+      }
+      stream.push(
+        terminal === "done"
+          ? {
+              type: "done",
+              conversationId: "default",
+              assistantMessage: {
+                id: "done-1",
+                role: "assistant",
+                content: "Finished",
+                createdAt: "2026-09-12T10:00:00Z",
+              },
+              memoryProposal: { status: "none" },
+            }
+          : {
+              type: "error",
+              code: "chat_failed",
+              message: "Unavailable",
+              retryable: true,
+            },
+      );
+      stream.push({ type: "status", message: "Obsolete progress" });
+      await waitFor(() =>
+        expect(screen.queryByTestId("pending-step-status")).toBeNull(),
+      );
+      expect(screen.queryByText("Obsolete progress")).toBeNull();
+      stream.close();
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "Streaming…" })).toBeNull(),
+      );
+      stream = controlledSyncStream();
+      fireEvent.change(screen.getByLabelText("Message"), {
+        target: { value: "Try a new request" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      expect(await screen.findByTestId("pending-step-status")).toHaveProperty(
+        "textContent",
+        "Starting your request…",
+      );
+      stream.push({ type: "status", message: "New request progress" });
+      await waitFor(() =>
+        expect(screen.getByTestId("pending-step-status").textContent).toBe(
+          "New request progress",
+        ),
+      );
+      stream.close();
+      await waitFor(() =>
+        expect(screen.queryByTestId("pending-step-status")).toBeNull(),
+      );
+    },
+  );
 
   it("uses concise user-facing wording for non-streamed completion status", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

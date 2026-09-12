@@ -1240,6 +1240,31 @@ describe("chat route LLM tool orchestration", () => {
     expect(secondCall.system).not.toContain("provider final");
   });
 
+  it("forwards sequential tool and model-wait statuses in actual event order", async () => {
+    const events = await postChatStream(
+      "sync Garmin and then status",
+      "progress-order",
+    );
+    expect(
+      events
+        .filter((event) => event.type === "status")
+        .map((event) => event.message),
+    ).toEqual([
+      "Preparing local context…",
+      "Choosing how to answer — model pass 1…",
+      "Running the requested Garmin sync action…",
+      "Checking local sync status…",
+      "Choosing the next step — model pass 2; tools: 2 succeeded…",
+      "Preparing the final answer…",
+      "Preparing response…",
+    ]);
+    expect(events.findIndex((event) => event.type === "delta")).toBeGreaterThan(
+      events.map((event) => event.type).lastIndexOf("status"),
+    );
+    expect(events.at(-1)?.type).toBe("done");
+    expect(runGarminSync).toHaveBeenCalledOnce();
+  });
+
   it("streams only final assistant prose and persists one completed assistant", async () => {
     const events = await postChatStream(
       "Give me a simple recovery note",
@@ -1262,7 +1287,7 @@ describe("chat route LLM tool orchestration", () => {
         .map((event) => event.message),
     ).toEqual([
       "Preparing local context…",
-      "Asking the model to choose how to answer…",
+      "Choosing how to answer — model pass 1…",
       "Preparing response…",
     ]);
     expect(
