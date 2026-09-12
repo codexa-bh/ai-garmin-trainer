@@ -1285,16 +1285,20 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).not.toContain("Tool step");
   });
 
-  it("enforces the 20 total planner/tool execution cap for oversized multi-tool responses", async () => {
-    generateText.mockResolvedValueOnce({
-      toolCalls: Array.from({ length: 20 }, (_, index) => ({
-        toolName: "runReadOnlySql",
-        input: {
-          sql: `select garmin_id, calories from activity limit ${index + 1}`,
-          resultName: `rows_${index + 1}`,
-        },
-      })),
-    });
+  it("reserves synthesis within 30 actual executions for oversized multi-tool responses", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: Array.from({ length: 40 }, (_, index) => ({
+          toolName: "runReadOnlySql",
+          input: {
+            sql: `select garmin_id, calories from activity limit ${index + 1}`,
+            resultName: `rows_${index + 1}`,
+          },
+        })),
+      })
+      .mockResolvedValueOnce({
+        text: "The available activity evidence supports a cautious approach; the remaining requested checks are unverified.",
+      });
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1302,27 +1306,359 @@ describe("trainer orchestrator fail-closed policy", async () => {
       userRequest: "run many local Garmin checks",
     });
 
-    expect(runReadOnlySql).toHaveBeenCalledTimes(19);
-    expect(result.providerCalls).toBe(1);
-    expect(result.toolSteps).toHaveLength(20);
+    expect(runReadOnlySql).toHaveBeenCalledTimes(28);
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(result.providerCalls).toBe(generateText.mock.calls.length);
+    expect(
+      generateText.mock.calls.length + runReadOnlySql.mock.calls.length,
+    ).toBe(30);
+    expect(generateText.mock.calls[1][0]).toMatchObject({ toolChoice: "none" });
+    expect(result.toolSteps).toHaveLength(29); // 28 attempts + non-execution diagnostic
     expect(result.toolSteps.at(-1)).toMatchObject({
       tool: "providerToolSelection",
       status: "rejected",
       reason: "tool_budget_exceeded",
     });
-    expect(result.text).toContain("per-turn limit of 20 total");
+    expect(result.text).toContain("supports a cautious approach");
     expect(result.text).not.toContain("Tool step");
   });
 
-  it("reports 20-call per-turn caps in the exported budget summary", async () => {
+  it("allows necessary exploration beyond the soft target and updates every live snapshot", async () => {
+    let planner = 0;
+    generateText.mockImplementation(async () =>
+      ++planner <= 11
+        ? { toolCalls: [{ toolName: "getSyncStatus", input: {} }] }
+        : {
+            text: "The local status checks are complete; here are the available coverage limitations.",
+          },
+    );
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "check local status",
+    });
+    expect(dataCounts).toHaveBeenCalledTimes(11);
+    expect(generateText).toHaveBeenCalledTimes(12);
+    expect(result.providerCalls).toBe(12);
+    expect(result.text).toContain("checks are complete");
+    for (const [index, [options]] of generateText.mock.calls.entries()) {
+      expect(options.system).toContain(
+        "the current planning call is already counted",
+      );
+      expect(options.system).toContain(`"consumed":${index * 2 + 1},`);
+      expect(options.system).toContain(`"remaining":${29 - index * 2},`);
+      expect(options.system).toContain(
+        `"exploratoryRemaining":${28 - index * 2}`,
+      );
+      expect(options.system).toContain('"finalAnswerReserve":1');
+      expect(options.system).toContain('"softTarget":20');
+      expect(options.system).toContain('"hardLimit":30');
+    }
+  });
+
+  it("stops an endless planner loop at the reserve and produces coaching without metric evidence", async () => {
+    generateText.mockImplementation(async (options) =>
+      options.toolChoice === "none"
+        ? {
+            text: "I could not verify your Garmin metrics. Based on your description, keep the family outing comfortable and adjust to fatigue; exact effort remains unverified.",
+          }
+        : { toolCalls: [{ toolName: "describeGarminDatabase", input: {} }] },
+    );
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest:
+        "This was a quiet week, yesterday a medium-effort hike; today my family hike has 600 m ascent and Z3/Z4 with rests. Advice?",
+    });
+    expect(describeGarminDatabase).toHaveBeenCalledTimes(14);
+    expect(generateText).toHaveBeenCalledTimes(16);
+    expect(result.providerCalls).toBe(16);
+    expect(result.text).toContain("Based on your description");
+    expect(result.toolSteps.at(-1)?.reason).toBe("tool_budget_exceeded");
+    const final = generateText.mock.calls.at(-1)![0];
+    expect(final.tools).toBeUndefined();
+    expect(final.system).toContain("personal Garmin metrics are unverified");
+    expect(final.system).toContain("Evidence gathering has stopped");
+    expect(final.prompt).toContain("600 m ascent");
+  });
+
+  it("counts failed SQL correction attempts but not successful quotas, reserving synthesis at the boundary", async () => {
+    runReadOnlySql.mockReturnValue({
+      status: "failed",
+      resultName: "bad",
+      rows: [],
+      columns: [],
+      returnedRows: 0,
+      rowCount: 0,
+      reason: "unknown_column",
+      correctionAllowed: true,
+      correctionHint: "Use schema columns.",
+      privacy: "sql privacy",
+    });
+    generateText.mockImplementation(async (options) =>
+      options.toolChoice === "none"
+        ? {
+            text: "The queries failed, so your personal activity totals remain unverified. General pacing guidance does not establish those metrics.",
+          }
+        : {
+            toolCalls: [
+              {
+                toolName: "runReadOnlySql",
+                input: {
+                  sql: "select unknown_column from activity",
+                  resultName: "bad",
+                },
+              },
+            ],
+          },
+    );
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "compare my weekly activity totals",
+    });
+    expect(runReadOnlySql).toHaveBeenCalledTimes(14);
+    expect(generateText).toHaveBeenCalledTimes(16);
+    expect(result.providerCalls + runReadOnlySql.mock.calls.length).toBe(30);
+    expect(result.text).toContain("remain unverified");
+    expect(generateText.mock.calls[14][0].system).toContain(
+      '"analyticalSuccessCounts":{}',
+    );
+    expect(generateText.mock.calls[14][0].system).toContain(
+      '"runReadOnlySql":30',
+    );
+  });
+
+  it.each([
+    ["provider error", () => Promise.reject(new Error("provider failure"))],
+    ["empty answer", () => Promise.resolve({ text: " " })],
+    [
+      "tool calls",
+      () => Promise.resolve({ text: "Done", toolCalls: [{ nonsense: true }] }),
+    ],
+    [
+      "raw evidence",
+      () => Promise.resolve({ text: "Tool step 1: runReadOnlySql succeeded" }),
+    ],
+    ["JSON dump", () => Promise.resolve({ text: '{"rows": [1, 2]}' })],
+    [
+      "unfinished promise",
+      () =>
+        Promise.resolve({ text: "I will check your Garmin activity next." }),
+    ],
+  ])(
+    "uses bounded truthful fallback after budget synthesis returns %s",
+    async (_label, finalResponse) => {
+      generateText.mockImplementation(async (options) =>
+        options.toolChoice === "none"
+          ? finalResponse()
+          : {
+              toolCalls: Array.from({ length: 40 }, () => ({
+                toolName: "getSyncStatus",
+                input: {},
+              })),
+            },
+      );
+      const result = await orchestrateTrainerChat({
+        model: "mock",
+        system: "system",
+        userRequest: "check my Garmin activity",
+        debug: { enabled: true },
+      });
+      expect(dataCounts).toHaveBeenCalledTimes(28);
+      expect(generateText).toHaveBeenCalledTimes(2);
+      expect(result.providerCalls).toBe(2);
+      expect(result.text).toContain("30-execution allowance");
+      expect(result.text).toContain("remain unverified");
+      expect(result.text).not.toMatch(/narrower|Tool step|\{"rows"/);
+      expect(result.debugTrace?.finalAnswerSource).toBe(
+        "deterministic_fallback",
+      );
+    },
+  );
+
+  it("counts a timed-out final synthesis and never retries beyond the hard cap", async () => {
+    vi.useFakeTimers();
+    try {
+      generateText.mockImplementation(async (options) =>
+        options.toolChoice === "none"
+          ? new Promise(() => {})
+          : {
+              toolCalls: Array.from({ length: 40 }, () => ({
+                toolName: "getSyncStatus",
+                input: {},
+              })),
+            },
+      );
+      const pending = orchestrateTrainerChat({
+        model: "mock",
+        system: "system",
+        userRequest: "check my Garmin activity",
+      });
+      await vi.advanceTimersByTimeAsync(
+        trainerOrchestrationLimits.providerCallTimeoutMs,
+      );
+      const result = await pending;
+      expect(generateText).toHaveBeenCalledTimes(2);
+      expect(dataCounts).toHaveBeenCalledTimes(28);
+      expect(result.providerCalls).toBe(2);
+      expect(result.text).toContain("remain unverified");
+      expect(generateText.mock.calls[1][0].abortSignal.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts explicit invalid-prose repair synthesis independently of tool steps", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [{ toolName: "getSyncStatus", input: {} }],
+      })
+      .mockResolvedValueOnce({ text: "Tool step 1: raw evidence" })
+      .mockResolvedValueOnce({
+        text: "Local data is available, but coverage has limitations.",
+      });
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "check status",
+    });
+    expect(generateText).toHaveBeenCalledTimes(3);
+    expect(result.providerCalls).toBe(3);
+    expect(dataCounts).toHaveBeenCalledOnce();
+    expect(result.text).toContain("coverage has limitations");
+  });
+
+  it("synthesizes partial evidence after an oversized batch of admitted SQL corrections", async () => {
+    runReadOnlySql.mockReturnValue({
+      status: "failed",
+      resultName: "rows",
+      rows: [],
+      columns: [],
+      returnedRows: 0,
+      rowCount: 0,
+      reason: "unknown_column",
+      correctionAllowed: true,
+      privacy: "sql privacy",
+    });
+    runReadOnlySql.mockReturnValueOnce({
+      status: "succeeded",
+      resultName: "rows",
+      rows: [{ duration_sec: 3600 }],
+      columns: [{ name: "duration_sec" }],
+      returnedRows: 1,
+      rowCount: 1,
+      privacy: "sql privacy",
+    });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: Array.from({ length: 40 }, () => ({
+          toolName: "runReadOnlySql",
+          input: {
+            sql: "select duration_sec from activity",
+            resultName: "rows",
+          },
+        })),
+      })
+      .mockResolvedValueOnce({
+        text: "One activity duration was retrieved, but subsequent queries failed. That partial evidence does not establish your weekly total; use your reported fatigue as context rather than assuming recovery is verified.",
+      });
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "compare my weekly activity totals",
+    });
+    expect(runReadOnlySql).toHaveBeenCalledTimes(28);
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(result.providerCalls).toBe(2);
+    expect(result.toolSteps[0].status).toBe("succeeded");
+    expect(result.toolSteps[27].status).toBe("failed");
+    expect(result.text).toContain("does not establish your weekly total");
+    expect(generateText.mock.calls[1][0].system).toContain(
+      "runReadOnlySql succeeded",
+    );
+    expect(generateText.mock.calls[1][0].system).toContain(
+      "runReadOnlySql failed",
+    );
+    expect(result.grounding).not.toBeNull();
+  });
+
+  it("counts non-budget analytical failure synthesis and keeps rejected tools terminal", async () => {
+    runReadOnlySql.mockReturnValueOnce({
+      status: "rejected",
+      reason: "unsafe_query",
+      resultName: "rows",
+      rows: [],
+      columns: [],
+      returnedRows: 0,
+      rowCount: 0,
+      privacy: "sql privacy",
+    });
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "runReadOnlySql",
+            input: {
+              sql: "select duration_sec from activity",
+              resultName: "rows",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        text: "The query was rejected; no activity metrics were retrieved.",
+      });
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "inspect activities",
+    });
+    expect(runReadOnlySql).toHaveBeenCalledOnce();
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(result.providerCalls).toBe(2);
+    expect(result.toolSteps[0].status).toBe("rejected");
+    expect(generateText.mock.calls[1][0]).toMatchObject({ toolChoice: "none" });
+  });
+
+  it("never replays a completed plan save while wrapping up after budget exhaustion", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "saveTrainingPlan",
+            input: { contentMarkdown: "# Plan\nEasy aerobic work" },
+          },
+          ...Array.from({ length: 39 }, () => ({
+            toolName: "getSyncStatus",
+            input: {},
+          })),
+        ],
+      })
+      .mockRejectedValueOnce(new Error("synthesis unavailable"));
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "Save this Training Plan and check status",
+    });
+    expect(replaceTrainingPlan).toHaveBeenCalledOnce();
+    expect(dataCounts).toHaveBeenCalledTimes(27);
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(result.text).toContain("Completed local actions: saveTrainingPlan");
+    expect(result.text).toContain("not repeated");
+  });
+
+  it("reports the hard ceiling, soft target and synthesis reserve", async () => {
     expect(trainerOrchestrationLimits).toEqual({
-      maxTotalTurnExecutions: 20,
-      maxPlannerCalls: 20,
-      maxToolCalls: 20,
-      maxGeneralToolCalls: 20,
-      maxSchemaCalls: 20,
-      maxSqlCalls: 20,
-      maxMathCalls: 20,
+      maxTotalTurnExecutions: 30,
+      softTargetExecutions: 20,
+      finalAnswerReserve: 1,
+      maxPlannerCalls: 30,
+      maxToolCalls: 30,
+      maxGeneralToolCalls: 30,
+      maxSchemaCalls: 30,
+      maxSqlCalls: 30,
+      maxMathCalls: 30,
       providerCallTimeoutMs: 180000,
     });
   });

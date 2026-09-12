@@ -63,13 +63,38 @@ describe("canonical trainer instruction package", () => {
     expect(planner).toContain("same-turn SQL result");
     expect(planner).toContain("display conversions");
     expect(planner).toContain("one targeted SQL query for a comparison");
-    expect(planner).toContain("20 total planner/tool executions");
-    expect(planner).toContain("per-tool caps for schema, SQL, and math are 20");
+    expect(planner).toContain("hard limit 30 combined provider/tool attempts");
+    expect(planner).toContain(
+      "Try to finish within 20 executions (a soft target, not a hard stop)",
+    );
+    expect(planner).toContain(
+      "Per-tool successful schema, SQL, and math caps are 30",
+    );
+    expect(planner).toContain("Reuse sufficient current-turn evidence");
+    expect(planner).toContain("Reserve 1 provider attempt");
     expect(planner).toContain("bounded normalized lat/lon route slices");
     expect(synthesis).toContain("disclose the selected criteria or formula");
     expect(synthesis).toContain("Never infer terrain");
     expect(synthesis).toContain("bounded evidence");
     expect(synthesis).not.toContain("Tool budget");
+  });
+
+  it("teaches safe SQL aliases without relaxing validation or terminal rejections", () => {
+    const planner = buildPlannerInstructions("base-contract", "no prior step");
+    expect(planner).toContain(
+      "forbidden tokens are rejected even when used as aliases",
+    );
+    expect(planner).toContain("column, table, and CTE aliases");
+    expect(planner).toContain(
+      "activity_load or total_training_load instead of AS load",
+    );
+    expect(planner).toContain(
+      "Do not try quoting a forbidden alias to evade validation",
+    );
+    expect(planner).toContain("terminal rejection behavior still apply");
+    expect(
+      buildFinalSynthesisInstructions("base-contract", "bounded evidence"),
+    ).not.toContain("SQL naming:");
   });
 
   it("covers the provider-neutral coaching, hiking, source, and calculation scenarios", () => {
