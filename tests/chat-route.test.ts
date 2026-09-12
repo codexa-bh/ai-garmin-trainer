@@ -758,6 +758,36 @@ describe("chat route LLM tool orchestration", () => {
     savedTrainingPlan = null;
   });
 
+  it("delivers useful hike coaching after a budget-limited batch and explains termination accurately", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: Array.from({ length: 40 }, () => ({
+          toolName: "describeGarminDatabase",
+          input: {},
+        })),
+      })
+      .mockResolvedValueOnce({
+        text: "Your quiet week and yesterday's medium effort are user-reported context, not verified Garmin totals. For the family hike, keep the pace comfortable and adjust to fatigue rather than chasing Z3/Z4. The intended 600 m ascent and rest stops do not prove measured intensity; current recovery metrics remain unverified.",
+      });
+    const payload = await postChat(
+      "This was a quiet training week. Yesterday I did a medium-effort hike; today I plan a slow family hike with roughly 600 m ascent, intended Z3/Z4 and rest stops. What do you advise?",
+      "t0170-hike",
+    );
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(describeGarminDatabase).toHaveBeenCalledTimes(28);
+    expect(payload.assistant.content).toContain("keep the pace comfortable");
+    expect(payload.assistant.content).toContain("remain unverified");
+    expect(payload.toolSteps?.at(-1)?.reason).toBe("tool_budget_exceeded");
+    expect(messages.at(-1)?.content).toBe(payload.assistant.content);
+    expect(generateText.mock.calls[1][0]).toMatchObject({ toolChoice: "none" });
+    const explanation = await postChat("what went wrong?", "t0170-hike");
+    expect(explanation.assistant.content).toContain(
+      "execution-budget boundary",
+    );
+    expect(explanation.assistant.content).not.toContain("refused to execute");
+    expect(generateText).toHaveBeenCalledTimes(2);
+  });
+
   it("lets the planner select local sync status and returns ordered grounding", async () => {
     const payload = await postChat(
       "What is my sync status and detail coverage?",

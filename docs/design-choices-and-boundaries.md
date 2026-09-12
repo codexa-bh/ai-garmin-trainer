@@ -123,9 +123,13 @@ Server-side tool orchestration for trainer chat.
 
 Responsibilities:
 
-- let the model select one tool at a time;
+- let the model select needed tools, executed sequentially;
 - validate tool calls before execution;
-- enforce tool budgets and side-effect deduplication;
+- enforce the shared execution policy: 30 combined admitted provider/tool attempts per turn, including failed attempts and explicit final synthesis; guide the model to finish within 20 without enforcing that soft target;
+- send a live budget snapshot on every planning call, counting that call before rendering remaining capacity; successful schema/SQL/math quotas are separate, and failed queries do not consume those successful quotas;
+- reserve one provider execution for tool-disabled final synthesis, stopping exploration/batches before they consume it; reuse current-turn evidence and distinguish verified facts, user statements, general coaching and missing evidence;
+- count actual admitted tool attempts separately from synthetic skipped-selection/budget diagnostics; diagnostics remain visible in grounding but do not represent executed tools;
+- route invalid/empty/failed/timed-out final synthesis to bounded truthful prose without another call or a mandatory narrower follow-up; wrap-up never replays side effects;
 - pass only server-authored bounded evidence into follow-up planning/synthesis;
 - prevent raw tool logs from becoming visible assistant prose;
 - return fail-closed user-facing text when provider/tool synthesis fails.

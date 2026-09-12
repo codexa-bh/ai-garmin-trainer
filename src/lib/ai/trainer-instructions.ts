@@ -1,3 +1,8 @@
+import {
+  TRAINER_EXECUTION_POLICY,
+  type TrainerExecutionBudget,
+} from "@/lib/ai/execution-budget";
+
 const section = (title: string, rules: readonly string[]): string =>
   `${title}:\n${rules.map((rule) => `- ${rule}`).join("\n")}`;
 
@@ -62,7 +67,8 @@ const PLANNER_POLICY = section(
     "Simple deterministic display conversions already owned by application code, such as seconds to minutes or meters to display units, are exempt; do not use this exemption for coaching calculations.",
     "Use one candidate-row SQL query and one math call when possible. Bounded math supports transparent model-selected scores, formulas, normalization, ranking, aggregation, and summaries; formula variables must be SQL result columns. Do not introduce a generic calculator, arbitrary script, fixed demand rubric, universal training formula, or unsupported Garmin capability.",
     "The SQL boundary accepts one SELECT or WITH query over allowlisted normalized analytical tables, including bounded normalized lat/lon route slices for route/GPS questions. Never request writes, PRAGMAs, comments, stacked statements, private/auth tables, raw payloads, paths, secrets, connector internals, or unrestricted FIT/stream data.",
-    "Tool budget: up to 20 total planner/tool executions in the turn; per-tool caps for schema, SQL, and math are 20 each. A failed or rejected query does not consume the per-tool budget, but total executions and planner rounds still bound the turn. If evidence or budget is insufficient, stop calculating and explain the limitation.",
+    `Tool budget: hard limit ${TRAINER_EXECUTION_POLICY.hardLimit} combined provider/tool attempts, including final synthesis. Try to finish within ${TRAINER_EXECUTION_POLICY.softTarget} executions (a soft target, not a hard stop); essential analysis may continue beyond it while capacity remains. Reserve ${TRAINER_EXECUTION_POLICY.finalAnswerReserve} provider attempt for a tool-disabled final answer. Per-tool successful schema, SQL, and math caps are ${TRAINER_EXECUTION_POLICY.analyticalSuccessLimit} each. Failed or rejected admitted attempts consume total capacity, but a failed or rejected query does not consume its successful per-tool quota. Synthetic diagnostics are not executions.`,
+    "Use the live server budget below to plan only work that fits the exploratory capacity. Reuse sufficient current-turn evidence; do not repeat exploration just because capacity remains. Once the needed evidence is in hand, answer now. If evidence gathering stops, give useful supported coaching with explicit gaps, not a promise to run more tools or a demand for a narrower follow-up.",
     "When no Training Plan exists or it is stale, you may suggest creating or revising it, but do not save or overwrite it unless the current user explicitly asks for a Training Plan create/save/update/revision. An explicit request is sufficient; no extra confirmation is required.",
     "After a server step, either select the next safe tool or answer from bounded evidence. Do not expose raw logs, evidence labels, privacy boilerplate, JSON, SQL text unless explicitly requested, or private/raw data.",
   ],
@@ -82,13 +88,39 @@ const FINAL_SYNTHESIS_POLICY = section(
 export function buildPlannerInstructions(
   baseSystem: string,
   priorToolEvidence: string,
+  budget?: TrainerExecutionBudget,
+  analyticalSuccessCounts: Readonly<Record<string, number>> = {},
 ): string {
-  return `${baseSystem}\n\n${PLANNER_POLICY}\n\nCurrent-turn server-authored prior tool evidence (fresh-call boundary; provider responses and raw tool results are not replayed):\n${priorToolEvidence}`;
+  const analyticalSuccessRemaining = Object.fromEntries(
+    ["describeGarminDatabase", "runReadOnlySql", "runMathAnalysis"].map(
+      (name) => [
+        name,
+        Math.max(
+          0,
+          TRAINER_EXECUTION_POLICY.analyticalSuccessLimit -
+            (analyticalSuccessCounts[name] ?? 0),
+        ),
+      ],
+    ),
+  );
+  const snapshot = {
+    ...budget,
+    analyticalSuccessCounts,
+    analyticalSuccessRemaining,
+  };
+  const liveBudget = budget
+    ? `\n\nLive server execution budget (the current planning call is already counted):\n${JSON.stringify(snapshot)}\nRemaining includes the final-answer reserve; exploratoryRemaining excludes it. Provider attempts include failed requests and explicit synthesis; toolAttempts count admitted executions, including failures/rejections, not skipped selections.`
+    : "";
+  return `${baseSystem}\n\n${PLANNER_POLICY}${liveBudget}\n\nCurrent-turn server-authored prior tool evidence (fresh-call boundary; provider responses and raw tool results are not replayed):\n${priorToolEvidence}`;
 }
 
 export function buildFinalSynthesisInstructions(
   baseSystem: string,
   toolEvidence: string,
+  budgetStopped = false,
 ): string {
-  return `${baseSystem}\n\n${FINAL_SYNTHESIS_POLICY}\n\nServer-authored tool evidence for this current user turn:\n${toolEvidence}`;
+  const wrapUp = budgetStopped
+    ? "\n\nEvidence gathering has stopped to preserve the final-answer reserve. No more tools or retries are available in this turn. Answer now from the evidence already gathered. Separate verified facts, user statements, general coaching and missing evidence. With no usable metric evidence, explicitly say personal Garmin metrics are unverified and give only supported user-context/general guidance. Do not imply full verification from partial results, promise further tool work, or require a narrower follow-up. Report completed side effects truthfully; never replay them."
+    : "";
+  return `${baseSystem}\n\n${FINAL_SYNTHESIS_POLICY}${wrapUp}\n\nServer-authored tool evidence for this current user turn:\n${toolEvidence}`;
 }

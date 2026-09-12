@@ -299,6 +299,9 @@ function explainPreviousToolFailure(message: StoredChatMessage): string {
     .find((step) => step.status === "failed" || step.status === "rejected");
   if (!failed)
     return "I do not have a recorded tool failure in the previous assistant turn.";
+  if (failed.reason === "tool_budget_exceeded") {
+    return "The previous turn stopped gathering evidence to preserve capacity for a final answer. That is an execution-budget boundary, not an unsafe tool selection. Any incomplete Garmin checks remain unverified; no extra tools were run during wrap-up.";
+  }
   if (
     failed.tool === "providerToolSelection" ||
     failed.reason === "invalid_tool_cardinality" ||
