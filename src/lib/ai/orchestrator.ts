@@ -195,6 +195,13 @@ function statusForTool(toolName: TrainerToolName): string {
   }
 }
 
+function plannerStatus(pass: number, steps: TrainerToolStep[]): string {
+  if (!steps.length) return `Choosing how to answer — model pass ${pass}…`;
+  const succeeded = steps.filter((step) => step.status === "succeeded").length;
+  const unsuccessful = steps.length - succeeded;
+  return `Choosing the next step — model pass ${pass}; tools: ${succeeded} succeeded${unsuccessful ? `, ${unsuccessful} unsuccessful` : ""}…`;
+}
+
 function emitStatus(input: OrchestrateTrainerChatInput, message: string): void {
   try {
     input.onStatus?.(message);
@@ -690,12 +697,7 @@ export async function orchestrateTrainerChat(
     totalTurnExecutions(providerCalls, steps) < MAX_TOTAL_TURN_EXECUTIONS;
     plannerCall += 1
   ) {
-    emitStatus(
-      input,
-      steps.length
-        ? "Asking the model to choose the next grounded step…"
-        : "Asking the model to choose how to answer…",
-    );
+    emitStatus(input, plannerStatus(plannerCall + 1, steps));
     providerCalls += 1;
     let result: RawGenerateTextResult;
     try {
@@ -775,8 +777,14 @@ export async function orchestrateTrainerChat(
           );
         }
         const text = result.text?.trim() ?? "";
-        emitStatus(input, "Synthesizing the final answer…");
-        const synthesized = isAcceptableToolSynthesisText(text)
+        const hasFinalAnswer = isAcceptableToolSynthesisText(text);
+        emitStatus(
+          input,
+          hasFinalAnswer
+            ? "Preparing the final answer…"
+            : "Synthesizing the final answer…",
+        );
+        const synthesized = hasFinalAnswer
           ? text
           : await synthesizeFinalAnswer(input, steps, recordProviderCall);
         return finish({
