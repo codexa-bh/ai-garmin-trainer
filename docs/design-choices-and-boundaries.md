@@ -124,7 +124,7 @@ Server-side tool orchestration for trainer chat.
 Responsibilities:
 
 - let the model select needed tools, executed sequentially;
-- validate tool calls before execution;
+- validate tool calls before execution; planner guidance avoids forbidden SQL tokens even as aliases (for example use `total_training_load`, not `load`), without relaxing validation or making terminal safety rejections retryable;
 - enforce the shared execution policy: 30 combined admitted provider/tool attempts per turn, including failed attempts and explicit final synthesis; guide the model to finish within 20 without enforcing that soft target;
 - send a live budget snapshot on every planning call, counting that call before rendering remaining capacity; successful schema/SQL/math quotas are separate, and failed queries do not consume those successful quotas;
 - reserve one provider execution for tool-disabled final synthesis, stopping exploration/batches before they consume it; reuse current-turn evidence and distinguish verified facts, user statements, general coaching and missing evidence;

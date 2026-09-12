@@ -636,6 +636,25 @@ describe("read-only Garmin SQL analysis", () => {
     expect(JSON.stringify(result)).not.toContain("OPENAI_API_KEY");
   });
 
+  it("keeps forbidden alias rejection terminal while accepting descriptive load aliases", async () => {
+    await seedActivities();
+    const { runReadOnlySql } = await import("../src/lib/ai/sql-analysis");
+    const rejected = runReadOnlySql({
+      sql: "select sum(training_load) AS load from activity",
+    });
+    expect(rejected.status).toBe("rejected");
+    expect(rejected.reason).toBe("forbidden_token");
+    expect(rejected.correctionAllowed).toBeUndefined();
+
+    for (const alias of ["activity_load", "total_training_load"]) {
+      const accepted = runReadOnlySql({
+        sql: `select sum(training_load) AS ${alias} from activity`,
+      });
+      expect(accepted.status).toBe("succeeded");
+      expect(accepted.rows).toEqual([{ [alias]: 126 }]);
+    }
+  });
+
   it("rejects writes, pragmas, comments, multi-statements, and disallowed tables", async () => {
     await seedActivities();
     const { runReadOnlySql } = await import("../src/lib/ai/sql-analysis");

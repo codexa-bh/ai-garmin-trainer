@@ -79,6 +79,24 @@ describe("canonical trainer instruction package", () => {
     expect(synthesis).not.toContain("Tool budget");
   });
 
+  it("teaches safe SQL aliases without relaxing validation or terminal rejections", () => {
+    const planner = buildPlannerInstructions("base-contract", "no prior step");
+    expect(planner).toContain(
+      "forbidden tokens are rejected even when used as aliases",
+    );
+    expect(planner).toContain("column, table, and CTE aliases");
+    expect(planner).toContain(
+      "activity_load or total_training_load instead of AS load",
+    );
+    expect(planner).toContain(
+      "Do not try quoting a forbidden alias to evade validation",
+    );
+    expect(planner).toContain("terminal rejection behavior still apply");
+    expect(
+      buildFinalSynthesisInstructions("base-contract", "bounded evidence"),
+    ).not.toContain("SQL naming:");
+  });
+
   it("covers the provider-neutral coaching, hiking, source, and calculation scenarios", () => {
     const domains = new Set(
       COACHING_SCENARIOS.map((scenario) => scenario.domain),
