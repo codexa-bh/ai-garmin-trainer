@@ -839,9 +839,7 @@ export async function orchestrateTrainerChat(
             ? "Preparing the final answer…"
             : "Synthesizing the final answer…",
         );
-        const synthesized = hasFinalAnswer
-          ? text
-          : await synthesize();
+        const synthesized = hasFinalAnswer ? text : await synthesize();
         return finish(
           {
             text: synthesized ?? toolFailureLimitationText(steps),
