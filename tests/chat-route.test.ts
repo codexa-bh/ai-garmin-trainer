@@ -201,6 +201,20 @@ const trainingPlanStatus = vi.fn(() => ({
 
 const generateText = vi.fn(
   async (options: { prompt: string; system: string; toolChoice?: string }) => {
+    if (options.system.startsWith("Classify only the current user's request")) {
+      return {
+        toolCalls: [
+          {
+            toolName: "classifyTrainingPlanWrite",
+            input: {
+              intent: options.prompt.includes("Create my Training Plan")
+                ? "replace"
+                : "none",
+            },
+          },
+        ],
+      };
+    }
     if (options.toolChoice === "none") {
       return {
         text: "After checking the disputed reference and the ordered ranking evidence, the demanding-activity answer should stay grounded in imported local data only.",

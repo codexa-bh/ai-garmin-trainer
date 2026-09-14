@@ -1,4 +1,11 @@
-import { generateText } from "ai";
+import { generateText, tool } from "ai";
+import {
+  completeTrainingPlanSchema,
+  renderCompleteTrainingPlan,
+  trainingPlanWriteIntentSchema,
+  TRAINING_PLAN_WRITE_INTENT_POLICY,
+  type TrainingPlanWriteAccess,
+} from "./training-plan-evidence";
 import {
   clearTrainerAnalysisResultHandles,
   executeTrainerTool,
@@ -158,8 +165,19 @@ function providerSelectionFailureText(step: TrainerToolStep): string {
 }
 
 function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
+  const latestRead = [...steps]
+    .reverse()
+    .find((step) => step.tool === "getTrainingPlan");
   return steps
     .map((step) => {
+      if (step.tool === "getTrainingPlan" && step.status === "succeeded") {
+        if (step !== latestRead)
+          return `Evidence step ${step.index}: earlier Training Plan read superseded.`;
+        return (
+          renderCompleteTrainingPlan(step.result) ??
+          "Complete Training Plan evidence unavailable; do not review or replace from a preview."
+        );
+      }
       const evidence = renderToolSteps([step])
         .split("\n")
         .filter((line) => !line.startsWith("Privacy:"))
@@ -205,6 +223,8 @@ function statusForTool(toolName: TrainerToolName): string {
       return "Running the requested Garmin sync action…";
     case "forceRefreshActivityDetail":
       return "Refreshing the requested activity detail…";
+    case "getTrainingPlan":
+      return "Reading the complete current training plan…";
     case "saveTrainingPlan":
       return "Saving the requested training plan update…";
   }
@@ -565,6 +585,12 @@ function genericToolLimitationText(steps: TrainerToolStep[]): string | null {
     .reverse()
     .find((step) => step.status === "failed" || step.status === "rejected");
   if (!failed || failed.tool === "providerToolSelection") return null;
+  if (failed.tool === "getTrainingPlan")
+    return "I couldn't read the complete current Training Plan safely, so I can't review the missing sections from its preview. This read did not change the plan.";
+  if (failed.tool === "saveTrainingPlan")
+    return failed.status === "failed"
+      ? "I couldn't confirm that the Training Plan was saved. Check the current saved plan before retrying; I won't claim a successful update without persistence evidence."
+      : "This Training Plan save was rejected. A revision needs explicit current-user intent, a complete unchanged read, and precise edits for targeted changes. The rejected save did not change the plan.";
   const reason = failed.reason ? ` Reason: ${failed.reason}.` : "";
   return `I couldn't complete the local ${failed.tool} request within the safety guardrails.${reason} ${failed.summary}`;
 }
@@ -924,6 +950,14 @@ export async function orchestrateTrainerChat(
       );
     }
 
+    // Only evidence already shown to this planner pass may authorize a revision.
+    const priorPlanRead = [...steps]
+      .reverse()
+      .find((step) => step.tool === "getTrainingPlan");
+    const snapshot =
+      priorPlanRead?.status === "succeeded"
+        ? completeTrainingPlanSchema.safeParse(priorPlanRead.result)
+        : null;
     let skippedForTurnBudget = selection.skippedForTurnBudget;
     for (const selected of selection.calls) {
       const stepIndex = steps.length + 1;
@@ -950,12 +984,65 @@ export async function orchestrateTrainerChat(
           "deterministic_fallback",
         );
       }
+      let trainingPlanWriteAccess: TrainingPlanWriteAccess | undefined;
+      if (accepted.toolName === "saveTrainingPlan") {
+        // Separate intent check sees ONLY the current request, never the plan, transcript,
+        // proposed tool arguments or planner prose. It consumes the normal turn budget.
+        if (budget().exploratoryRemaining < 2) return finishAtBudget(1);
+        providerCalls += 1;
+        try {
+          const decision = await generateTextWithTimeout({
+            model: input.model,
+            system: TRAINING_PLAN_WRITE_INTENT_POLICY,
+            prompt: input.userRequest,
+            tools: {
+              classifyTrainingPlanWrite: tool({
+                description: "Classify explicit persistence intent only.",
+                inputSchema: trainingPlanWriteIntentSchema,
+              }),
+            },
+            // Reasoning models may reject forced choice; require a single valid
+            // classification in the response even with portable auto selection.
+            toolChoice: "auto",
+            parallelToolCalls: false,
+          });
+          const calls = (decision.toolCalls ?? []).map(extractToolCall);
+          const parsed =
+            calls.length === 1 &&
+            calls[0]?.toolName === "classifyTrainingPlanWrite"
+              ? trainingPlanWriteIntentSchema.safeParse(calls[0].input)
+              : null;
+          trainingPlanWriteAccess = {
+            intent: parsed?.success ? parsed.data.intent : "none",
+            snapshot: snapshot?.success ? snapshot.data : undefined,
+          };
+          recordProviderCall(
+            debugProviderCall({
+              index: 0,
+              purpose: "planner",
+              toolCalls: calls.filter(
+                (call): call is TrainerToolCall => !!call,
+              ),
+            }),
+          );
+        } catch {
+          trainingPlanWriteAccess = { intent: "none" };
+          recordProviderCall(
+            debugProviderCall({
+              index: 0,
+              purpose: "planner",
+              error: "plan_write_intent_unavailable",
+            }),
+          );
+        }
+      }
       emitStatus(input, statusForTool(accepted.toolName));
       toolAttempts += 1;
       const step = await executeTrainerTool({
         index: stepIndex,
         toolName: accepted.toolName,
         args: accepted.input,
+        trainingPlanWriteAccess,
       });
       if (selected.metadata) step.selection = selected.metadata;
       if (

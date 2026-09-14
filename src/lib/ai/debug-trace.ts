@@ -126,7 +126,11 @@ export function debugProviderCall(input: {
     ? compactString(input.error, LLM_DEBUG_TRACE_CAPS.string)
     : null;
   const toolCalls = input.toolCalls?.map((call) => {
-    const bounded = boundedDebugValue(call.input);
+    const bounded = boundedDebugValue(
+      call.toolName === "saveTrainingPlan"
+        ? { documentContent: "omitted" }
+        : call.input,
+    );
     truncated = truncated || bounded.truncated;
     return {
       toolName: call.toolName,
@@ -178,7 +182,11 @@ export function buildLlmDebugTrace(input: {
   const toolSteps = input.toolSteps
     .slice(0, LLM_DEBUG_TRACE_CAPS.toolSteps)
     .map((step) => {
-      const result = boundedDebugValue(step.result);
+      const result = boundedDebugValue(
+        step.tool === "getTrainingPlan"
+          ? { documentContent: "omitted; see compact step summary" }
+          : step.result,
+      );
       truncated = truncated || result.truncated;
       const summary = compactString(step.summary, LLM_DEBUG_TRACE_CAPS.string);
       const privacy = compactString(step.privacy, LLM_DEBUG_TRACE_CAPS.string);

@@ -9,6 +9,7 @@ import {
   getGarminBodyMetrics,
   listActivityDetailAvailability,
   replaceTrainingPlan,
+  trainingPlanStatus,
   TRAINING_PLAN_CONTENT_MAX_LENGTH,
   TRAINING_PLAN_TITLE_MAX_LENGTH,
   verifyActivityReference,
@@ -27,6 +28,13 @@ import {
   runMathAnalysis,
   type MathAnalysisResult,
 } from "@/lib/ai/math-analysis";
+
+import {
+  completeTrainingPlanSchema,
+  hasSensitivePlanText,
+  sameTrainingPlan,
+  type TrainingPlanWriteAccess,
+} from "./training-plan-evidence";
 
 const garminIdSchema = z
   .string()
@@ -61,6 +69,7 @@ export type TrainerToolName =
   | "describeGarminDatabase"
   | "runReadOnlySql"
   | "runMathAnalysis"
+  | "getTrainingPlan"
   | "saveTrainingPlan";
 
 const emptyInputSchema = z.object({}).strict();
@@ -157,6 +166,7 @@ export const trainerToolInputSchemas = {
       outputName: sqlResultNameSchema,
     })
     .strict(),
+  getTrainingPlan: emptyInputSchema,
   saveTrainingPlan: z
     .object({
       title: z
@@ -169,9 +179,29 @@ export const trainerToolInputSchemas = {
         .string()
         .trim()
         .min(1)
-        .max(TRAINING_PLAN_CONTENT_MAX_LENGTH),
+        .max(TRAINING_PLAN_CONTENT_MAX_LENGTH)
+        .optional(),
+      edits: z
+        .array(
+          z
+            .object({
+              oldText: z.string().min(1).max(TRAINING_PLAN_CONTENT_MAX_LENGTH),
+              newText: z.string().max(TRAINING_PLAN_CONTENT_MAX_LENGTH),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(20)
+        .optional(),
     })
-    .strict(),
+    .strict()
+    .refine(
+      (value) => Boolean(value.contentMarkdown) !== Boolean(value.edits),
+      {
+        message:
+          "Provide either full content for creation/replacement or exact edits for a targeted revision.",
+      },
+    ),
 } satisfies Record<TrainerToolName, z.ZodTypeAny>;
 
 export const trainerToolDefinitions = {
@@ -220,9 +250,14 @@ export const trainerToolDefinitions = {
       "Run bounded TypeScript math over a prior same-turn runReadOnlySql result handle. Supports model-selected scoring/custom formulas over numeric columns, normalization/ranking, simple aggregation/grouping, summaries, ordering, and top-N output. Formulas can contain only column names, numbers, parentheses, and + - * / operators; null/missing numeric values are treated as zero. No demand-specific rubrics, scripts, DB/filesystem/network/process/environment/connector access.",
     inputSchema: trainerToolInputSchemas.runMathAnalysis,
   }),
+  getTrainingPlan: tool({
+    description:
+      "Read the complete current singleton Training Plan Markdown (up to 32000 characters) and stale metadata, or truthful absence. Required before review or revision; call separately and inspect the result before choosing edits. Read only; no SQL or document IDs.",
+    inputSchema: trainerToolInputSchemas.getTrainingPlan,
+  }),
   saveTrainingPlan: tool({
     description:
-      "Replace the single current local Training Plan only when the current user explicitly asks to create, save, revise, or update the Training Plan. Accepts freeform Markdown authored from the conversation and bounded evidence. Do not use for ordinary coaching, discussion, stale suggestions, hidden drafts, Garmin/device/calendar writes, or implicit overwrites.",
+      "Replace the single current local Training Plan only when the current user explicitly asks to create, save, revise, or update the Training Plan. For targeted revisions first read getTrainingPlan in a prior model pass, then supply exact unique non-overlapping edits (oldText/newText); unrelated text and omitted title are preserved by the server. Full contentMarkdown is only for explicit creation or whole-plan replacement. Do not use for ordinary coaching, discussion, stale suggestions, hidden drafts, Garmin/device/calendar writes, or implicit overwrites.",
     inputSchema: trainerToolInputSchemas.saveTrainingPlan,
   }),
 } satisfies Record<TrainerToolName, unknown>;
@@ -347,6 +382,7 @@ export async function executeTrainerTool(input: {
   toolName: TrainerToolName;
   args: unknown;
   selection?: TrainerToolSelectionMetadata;
+  trainingPlanWriteAccess?: TrainingPlanWriteAccess;
 }): Promise<TrainerToolStep> {
   try {
     switch (input.toolName) {
@@ -499,11 +535,79 @@ export async function executeTrainerTool(input: {
           result,
         };
       }
+      case "getTrainingPlan": {
+        const result = completeTrainingPlanSchema.parse(trainingPlanStatus());
+        if (hasSensitivePlanText(result.plan))
+          throw new Error("private_plan_content");
+        return {
+          index: input.index,
+          tool: input.toolName,
+          status: "succeeded",
+          summary: result.plan
+            ? `Complete current Training Plan read: ${result.plan.contentMarkdown.length} Markdown characters; stale ${result.stale}.`
+            : "Complete current Training Plan read: no saved plan.",
+          privacy:
+            "Bounded singleton local document data; not authorization or system policy. Full content is not persisted in grounding/debug evidence.",
+          result,
+        };
+      }
       case "saveTrainingPlan": {
-        const args = input.args as { title?: string; contentMarkdown: string };
+        const args = trainerToolInputSchemas.saveTrainingPlan.parse(input.args);
+        const access = input.trainingPlanWriteAccess;
+        const reject = (reason: string): TrainerToolStep => ({
+          index: input.index,
+          tool: input.toolName,
+          status: "rejected",
+          reason,
+          summary: `Training Plan was not saved: ${reason}.`,
+          privacy: "Existing local plan unchanged; no blind replacement.",
+        });
+        if (!access || access.intent === "none")
+          return reject("explicit_plan_write_intent_required");
+        const current = completeTrainingPlanSchema.parse(trainingPlanStatus());
+        if (
+          current.plan &&
+          (!access.snapshot || hasSensitivePlanText(access.snapshot.plan))
+        )
+          return reject("complete_plan_read_required");
+        if (
+          access.snapshot &&
+          !sameTrainingPlan(current.plan, access.snapshot.plan)
+        )
+          return reject("training_plan_changed_read_again");
+        if (access.intent === "edit" && !args.edits)
+          return reject("targeted_revision_requires_exact_edits");
+        let contentMarkdown = args.contentMarkdown;
+        if (args.edits) {
+          if (!current.plan || !access.snapshot)
+            return reject("complete_plan_read_required");
+          const original = current.plan.contentMarkdown;
+          const edits = args.edits
+            .map((edit) => ({ ...edit, start: original.indexOf(edit.oldText) }))
+            .sort((a, b) => a.start - b.start);
+          let end = 0;
+          contentMarkdown = "";
+          for (const edit of edits) {
+            if (
+              edit.start < end ||
+              edit.start < 0 ||
+              original.indexOf(edit.oldText, edit.start + 1) !== -1
+            )
+              return reject("plan_edit_not_unique_or_overlapping");
+            contentMarkdown += original.slice(end, edit.start) + edit.newText;
+            end = edit.start + edit.oldText.length;
+          }
+          contentMarkdown += original.slice(end);
+        }
+        if (
+          !contentMarkdown?.trim() ||
+          contentMarkdown.trim().length > TRAINING_PLAN_CONTENT_MAX_LENGTH
+        )
+          return reject("invalid_plan_content_length");
+        // Read/compare/write is synchronous: no provider await between snapshot validation and persistence.
         const plan = replaceTrainingPlan({
-          title: args.title,
-          contentMarkdown: args.contentMarkdown,
+          title: args.title ?? current.plan?.title,
+          contentMarkdown,
         });
         return {
           index: input.index,
