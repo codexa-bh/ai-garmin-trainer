@@ -119,7 +119,7 @@ function formatTrainingPlan(
   const stale = status.stale
     ? `stale: revised more than ${status.staleAfterDays} days ago`
     : `current within ${status.staleAfterDays} days`;
-  return `Current Training Plan (${stale}; revised ${plan.revisedAt.slice(0, 10)}; title ${compactText(plan.title, 80)}):\n${compactText(plan.contentMarkdown, 2200)}`;
+  return `Current Training Plan (${stale}; revised ${plan.revisedAt.slice(0, 10)}; title ${compactText(plan.title, 80)}). Compact preview only (${plan.contentMarkdown.length} saved Markdown characters; whitespace compacted${plan.contentMarkdown.length > 2200 ? "; partial/truncated" : ""}). Call getTrainingPlan for complete current Markdown before review or revision; do not infer missing sections or ask the user to paste locally retrievable content:\n${compactText(plan.contentMarkdown, 2200)}`;
 }
 
 function formatBodyMetrics(

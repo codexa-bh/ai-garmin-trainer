@@ -100,6 +100,12 @@ Non-responsibilities:
 - no unbounded history dumps;
 - no raw connector payload or credential exposure.
 
+### Complete current Training Plan evidence and maintenance
+
+The initial context labels the 2200-character whitespace-compacted preview as incomplete evidence. `getTrainingPlan` reads only the singleton document, validates the existing 32000-character/title limits and stale metadata, and preserves Markdown. `training-plan-evidence.ts` owns that narrow contract. Follow-up planner and tool-disabled final synthesis receive one latest complete read outside the ordinary 1800-character analytics cap, including budget wrap-up. Grounding stores only metadata; debug traces omit read content and save arguments. Unsupported/secret-bearing documents fail closed rather than masquerading as complete redacted evidence.
+
+Existing-plan writes require a complete snapshot already seen by a prior planner pass and a current snapshot comparison before synchronous persistence. A separate budgeted semantic intent check sees only the current user request, never document/transcript/proposed tool content; ambiguity or failure denies persistence. This is a model-backed intent safeguard, not proof against arbitrary model misclassification. Targeted revisions require exact unique, non-overlapping edits applied to the original text; unmentioned text and omitted title are preserved mechanically. Full Markdown replacement is reserved for explicit creation/whole-plan rewriting. Coaching judgments remain model-owned. No schema migration, plan history, expanded SQL access, or Garmin write-back is introduced.
+
 ### `src/lib/ai/providers.ts`
 
 Provider selection and adapter boundary.

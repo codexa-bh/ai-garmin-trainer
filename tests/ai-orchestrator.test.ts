@@ -106,6 +106,11 @@ vi.mock("@/lib/db/repository", () => ({
   getGarminBodyMetrics,
   listActivityDetailAvailability,
   replaceTrainingPlan,
+  trainingPlanStatus: vi.fn(() => ({
+    plan: null,
+    stale: true,
+    staleAfterDays: 14,
+  })),
   TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
   TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
   verifyActivityReference: vi.fn(),
@@ -1263,6 +1268,14 @@ describe("trainer orchestrator fail-closed policy", async () => {
         ],
       })
       .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "classifyTrainingPlanWrite",
+            input: { intent: "replace" },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
         text: "Saved the Training Plan and checked local status without raw tool output.",
       });
 
@@ -1635,6 +1648,14 @@ describe("trainer orchestrator fail-closed policy", async () => {
           })),
         ],
       })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "classifyTrainingPlanWrite",
+            input: { intent: "replace" },
+          },
+        ],
+      })
       .mockRejectedValueOnce(new Error("synthesis unavailable"));
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1642,8 +1663,8 @@ describe("trainer orchestrator fail-closed policy", async () => {
       userRequest: "Save this Training Plan and check status",
     });
     expect(replaceTrainingPlan).toHaveBeenCalledOnce();
-    expect(dataCounts).toHaveBeenCalledTimes(27);
-    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(dataCounts).toHaveBeenCalledTimes(26);
+    expect(generateText).toHaveBeenCalledTimes(3);
     expect(result.text).toContain("Completed local actions: saveTrainingPlan");
     expect(result.text).toContain("not repeated");
   });

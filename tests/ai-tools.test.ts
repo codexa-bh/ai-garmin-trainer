@@ -43,6 +43,7 @@ describe("trainer tool registry schemas", async () => {
         "runGarminSync",
         "runMathAnalysis",
         "runReadOnlySql",
+        "getTrainingPlan",
         "saveTrainingPlan",
         "verifyActivityReference",
       ].sort(),
