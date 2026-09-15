@@ -772,6 +772,43 @@ describe("chat route LLM tool orchestration", () => {
     savedTrainingPlan = null;
   });
 
+  it("passes the actual preceding proposal to contextual plan confirmation without promoting it to evidence", async () => {
+    savedTrainingPlan = {
+      title: "Original",
+      contentMarkdown: "# Plan\n- Two sessions\n- Keep tail",
+      revisedAt: "2026-08-01T00:00:00.000Z",
+    };
+    const proposal =
+      "I propose changing only '- Two sessions' to '- Three sessions'. Shall I save it?";
+    generateText.mockResolvedValueOnce({ text: proposal });
+    await postChat("Suggest a targeted plan edit.", "plan-confirmation");
+    generateText
+      .mockImplementationOnce(async (options) => {
+        expect(options.system).toContain(proposal);
+        expect(options.system).toContain("not Garmin/measurement evidence");
+        return { toolCalls: [{ toolName: "getTrainingPlan", input: {} }] };
+      })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          {
+            toolName: "saveTrainingPlan",
+            input: {
+              edits: [
+                { oldText: "- Two sessions", newText: "- Three sessions" },
+              ],
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ text: "Saved the strength change only." });
+    const result = await postChat("ok adjust it", "plan-confirmation");
+    expect(replaceTrainingPlan).toHaveBeenCalledOnce();
+    expect(savedTrainingPlan.contentMarkdown).toBe(
+      "# Plan\n- Three sessions\n- Keep tail",
+    );
+    expect(result.assistant.content).toContain("Saved");
+  });
+
   it("delivers useful hike coaching after a budget-limited batch and explains termination accurately", async () => {
     generateText
       .mockResolvedValueOnce({
