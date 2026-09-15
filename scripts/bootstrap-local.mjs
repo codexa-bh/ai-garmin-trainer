@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -59,7 +66,7 @@ export function isLoopbackUrl(rawUrl) {
     const parsed = new URL(rawUrl);
     return (
       ["http:", "https:"].includes(parsed.protocol) &&
-      ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)
+      ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
     );
   } catch {
     return false;
@@ -190,6 +197,7 @@ function commandExists(command) {
   const result = spawnSync(command, ["--version"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
+    timeout: 5000,
   });
   return !result.error && result.status === 0;
 }
@@ -299,37 +307,37 @@ export function ensureDatabase({
   return databaseStatus({ cwd, env });
 }
 
-async function fetchJson(url, { timeoutMs = 3000, method = "GET", body } = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+async function fetchJson(
+  url,
+  { timeoutMs = 3000, method = "GET", body, signal } = {},
+) {
+  const requestSignal = AbortSignal.timeout(timeoutMs);
+  const response = await fetch(url, {
+    method,
+    body,
+    headers: body ? { "content-type": "application/json" } : undefined,
+    redirect: "error",
+    signal: signal ? AbortSignal.any([signal, requestSignal]) : requestSignal,
+  });
+  const text = await response.text();
+  let parsed = null;
   try {
-    const response = await fetch(url, {
-      method,
-      body,
-      headers: body ? { "content-type": "application/json" } : undefined,
-      signal: controller.signal,
-    });
-    const text = await response.text();
-    let parsed = null;
-    try {
-      parsed = text ? JSON.parse(text) : null;
-    } catch {
-      parsed = null;
-    }
-    return { ok: response.ok, status: response.status, text, json: parsed };
-  } finally {
-    clearTimeout(timer);
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = null;
   }
+  return { ok: response.ok, status: response.status, text, json: parsed };
 }
 
 function trimUrl(url) {
   return url.replace(/\/+$/, "");
 }
 
-export async function ollamaApiModels(baseUrl, timeoutMs = 3000) {
+export async function ollamaApiModels(baseUrl, timeoutMs = 3000, signal) {
   try {
     const response = await fetchJson(`${trimUrl(baseUrl)}/api/tags`, {
       timeoutMs,
+      signal,
     });
     if (!response.ok || !Array.isArray(response.json?.models)) return null;
     return response.json.models
@@ -340,13 +348,14 @@ export async function ollamaApiModels(baseUrl, timeoutMs = 3000) {
   }
 }
 
-export async function ollamaApiReady(baseUrl, timeoutMs = 3000) {
-  return (await ollamaApiModels(baseUrl, timeoutMs)) !== null;
+export async function ollamaApiReady(baseUrl, timeoutMs = 3000, signal) {
+  return (await ollamaApiModels(baseUrl, timeoutMs, signal)) !== null;
 }
 
-async function waitFor(check, { timeoutMs, intervalMs = 500 }) {
+async function waitFor(check, { timeoutMs, intervalMs = 500, signal }) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
+    signal?.throwIfAborted();
     if (await check()) return true;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
@@ -376,37 +385,111 @@ export function installedOllamaModels() {
     .filter(Boolean);
 }
 
-async function proveEmbedding(baseUrl, model, timeoutMs) {
+export async function proveEmbedding(baseUrl, model, timeoutMs, signal) {
   const response = await fetchJson(`${trimUrl(baseUrl)}/api/embed`, {
     timeoutMs,
+    signal,
     method: "POST",
     body: JSON.stringify({ model, input: "memory readiness probe" }),
   });
   const vector = response.json?.embeddings?.[0] ?? response.json?.embedding;
   if (
+    response.ok &&
+    !response.json?.error &&
     Array.isArray(vector) &&
     vector.length > 0 &&
     vector.every((value) => typeof value === "number" && Number.isFinite(value))
   ) {
     return;
   }
-  const error =
-    typeof response.json?.error === "string"
-      ? response.json.error
-      : "invalid embedding response";
   throw new BootstrapError(
-    `Ollama embedding probe failed for configured model ${model}: ${error}`,
+    `Ollama embedding probe failed (HTTP ${response.status}; expected a nonempty finite numeric vector).`,
     {
-      remediation: `Confirm ${model} is an embedding model and rerun npm run bootstrap:local.`,
+      remediation:
+        "Confirm MEMORY_EMBEDDING_MODEL is an embedding model and retry bootstrap:local or restart:local.",
     },
   );
+}
+
+// API and CLI must prepare exactly the same loopback endpoint. Inherited
+// OLLAMA_HOST is deliberately replaced, never used to expose a LAN listener.
+export function ollamaCommandEnv(env, baseUrl) {
+  const url = new URL(baseUrl);
+  if (
+    !isLoopbackUrl(baseUrl) ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    throw new BootstrapError(
+      "Ollama requires a plain loopback origin (no credentials, path, query or fragment).",
+      {
+        remediation:
+          "Set MEMORY_EMBEDDING_BASE_URL=http://127.0.0.1:11434 or leave it unset.",
+      },
+    );
+  }
+  return { ...env, OLLAMA_HOST: url.origin };
+}
+
+function startPersistentOllama({ cwd, env }) {
+  mkdirSync(join(cwd, "logs"), { recursive: true });
+  const log = openSync(join(cwd, "logs", "ollama.log"), "a", 0o600);
+  try {
+    const child = spawn("ollama", ["serve"], {
+      cwd,
+      env,
+      detached: true,
+      stdio: ["ignore", log, log],
+    });
+    child.unref();
+    return child;
+  } finally {
+    closeSync(log);
+  }
+}
+
+async function pullOllamaModel(model, { cwd, env, signal }) {
+  signal?.throwIfAborted();
+  await new Promise((resolve, reject) => {
+    // Visible CLI progress, bounded at 15 minutes; never shell-interpolate models.
+    const child = spawn("ollama", ["pull", model], {
+      cwd,
+      env,
+      stdio: "inherit",
+      signal,
+      timeout: 15 * 60 * 1000,
+      killSignal: "SIGKILL",
+    });
+    child.once("error", () =>
+      reject(
+        new BootstrapError(
+          "Ollama model pull could not start or was cancelled.",
+        ),
+      ),
+    );
+    child.once("exit", (code) =>
+      code === 0
+        ? resolve()
+        : reject(
+            new BootstrapError("Ollama model pull failed or timed out.", {
+              remediation:
+                "Check local network/disk and retry the configured model pull; no app was launched.",
+            }),
+          ),
+    );
+  });
 }
 
 export async function ensureOllama({
   cwd = process.cwd(),
   env = process.env,
   memory,
-  owned,
+  owned = {},
+  lifetime = "session",
+  signal,
 }) {
   if (!memory.effectiveEnabled)
     return { action: "skip", reason: "memory disabled" };
@@ -422,10 +505,23 @@ export async function ensureOllama({
     );
   }
 
+  if (!["session", "persistent"].includes(lifetime)) {
+    throw new BootstrapError("Unsupported Ollama process lifetime.");
+  }
+  const commandEnv = ollamaCommandEnv(env, memory.embeddingBaseUrl);
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(memory.embeddingModel)) {
+    throw new BootstrapError("Invalid configured Ollama model name.", {
+      remediation:
+        "Set MEMORY_EMBEDDING_MODEL to an Ollama embedding model name.",
+    });
+  }
+  signal?.throwIfAborted();
+  let child;
   let started = false;
   const daemonReady = await ollamaApiReady(
     memory.embeddingBaseUrl,
     Math.min(memory.timeoutMs, 3000),
+    signal,
   );
   const cliAvailable = commandExists("ollama");
   const preliminaryPlan = ollamaReadinessPlan({
@@ -442,72 +538,131 @@ export async function ensureOllama({
       {
         remediation:
           preliminaryPlan.reason === "missing Ollama CLI"
-            ? "Install Ollama manually, then rerun npm run bootstrap:local. This command will not install system software."
+            ? "Install Ollama manually, then retry bootstrap:local or restart:local. This command will not install system software."
             : "Set MEMORY_EMBEDDING_BASE_URL=http://127.0.0.1:11434 or leave it unset.",
       },
     );
   }
-  if (!daemonReady) {
-    console.log("Starting local Ollama daemon for this bootstrap session.");
-    owned.ollama = startOwnedProcess("ollama", ["serve"], {
-      cwd,
-      env,
-      name: "ollama",
-    });
-    started = true;
-    const ready = await waitFor(
-      () => ollamaApiReady(memory.embeddingBaseUrl, 1000),
-      {
-        timeoutMs: Math.max(memory.timeoutMs, 15000),
-      },
-    );
-    if (!ready)
-      throw new BootstrapError(
-        "Ollama daemon did not become ready before the readiness deadline.",
+  try {
+    signal?.throwIfAborted();
+    // A concurrent restart may have won while the CLI check was running.
+    if (
+      !daemonReady &&
+      !(await ollamaApiReady(memory.embeddingBaseUrl, 1000, signal))
+    ) {
+      if (new URL(memory.embeddingBaseUrl).protocol !== "http:") {
+        throw new BootstrapError(
+          "Cannot start an HTTPS Ollama daemon automatically.",
+          {
+            remediation:
+              "Start the configured TLS endpoint manually or use a loopback HTTP origin.",
+          },
+        );
+      }
+      console.log(
+        lifetime === "persistent"
+          ? "Starting persistent local Ollama daemon (logs/ollama.log); retained after successful preparation."
+          : "Starting local Ollama daemon for this bootstrap session.",
       );
-  }
+      child =
+        lifetime === "persistent"
+          ? startPersistentOllama({ cwd, env: commandEnv })
+          : startOwnedProcess("ollama", ["serve"], {
+              cwd,
+              env: commandEnv,
+              name: "ollama",
+            });
+      owned.ollama = child;
+      let spawnFailed = false;
+      child.once("error", () => {
+        spawnFailed = true;
+      });
+      started = true;
+      const ready = await waitFor(
+        async () => {
+          // Check the endpoint first: never kill a winner launched elsewhere.
+          if (await ollamaApiReady(memory.embeddingBaseUrl, 1000, signal))
+            return true;
+          if (spawnFailed || child.exitCode !== null) {
+            throw new BootstrapError("Ollama daemon failed to start.", {
+              remediation:
+                "Check the installed CLI, configured endpoint and local daemon log, then retry.",
+            });
+          }
+          return false;
+        },
+        { timeoutMs: Math.max(memory.timeoutMs, 15000), signal },
+      );
+      if (!ready)
+        throw new BootstrapError(
+          "Ollama daemon did not become ready before the readiness deadline.",
+          {
+            remediation:
+              "Check the configured loopback endpoint and local daemon log; start ollama serve manually if necessary.",
+          },
+        );
+    }
 
-  const models =
-    (await ollamaApiModels(
+    const models = await ollamaApiModels(
       memory.embeddingBaseUrl,
       Math.min(memory.timeoutMs, 3000),
-    )) ?? installedOllamaModels();
-  const finalPlan = ollamaReadinessPlan({
-    memory,
-    daemonReady: true,
-    cliAvailable,
-    installedModels: models,
-  });
-  if (finalPlan.action === "fail") {
-    throw new BootstrapError(
-      "Ollama CLI is required to pull the configured missing model.",
-      {
-        remediation:
-          "Install Ollama manually or pull the configured model with an available local Ollama CLI.",
-      },
+      signal,
     );
-  }
-  const pull = finalPlan.pull;
-  if (pull) {
-    console.log(
-      `Pulling configured Ollama embedding model ${memory.embeddingModel}; this may use the network and Ollama's normal progress output.`,
+    if (models === null)
+      throw new BootstrapError(
+        "Ollama model listing became unavailable; retry after checking the local daemon.",
+      );
+    const finalPlan = ollamaReadinessPlan({
+      memory,
+      daemonReady: true,
+      cliAvailable,
+      installedModels: models,
+    });
+    if (finalPlan.action === "fail") {
+      throw new BootstrapError(
+        "Ollama CLI is required to pull the configured missing model.",
+        {
+          remediation:
+            "Install Ollama manually or pull the configured model with an available local Ollama CLI.",
+        },
+      );
+    }
+    const pull = finalPlan.pull;
+    if (pull) {
+      console.log(
+        `Pulling configured Ollama embedding model ${memory.embeddingModel}; this may use the network and Ollama's normal progress output.`,
+      );
+      await pullOllamaModel(memory.embeddingModel, {
+        cwd,
+        env: commandEnv,
+        signal,
+      });
+    }
+    await proveEmbedding(
+      memory.embeddingBaseUrl,
+      memory.embeddingModel,
+      memory.timeoutMs,
+      signal,
     );
-    run("ollama", ["pull", memory.embeddingModel], {
-      cwd,
-      env,
-      stdio: "inherit",
+    signal?.throwIfAborted();
+    // Transfer ownership only after a real embedding succeeds. Failed/cancelled
+    // preparation stops only our child; later app build/start failures retain it.
+    if (lifetime === "persistent" && child) delete owned.ollama;
+    return {
+      action: started ? "start" : "reuse",
+      model: memory.embeddingModel,
+      pull,
+    };
+  } catch (error) {
+    if (child && child.exitCode === null && !child.killed)
+      child.kill("SIGTERM");
+    if (owned.ollama === child) delete owned.ollama;
+    if (error instanceof BootstrapError) throw error;
+    throw new BootstrapError("Ollama readiness failed or was cancelled.", {
+      remediation:
+        "Check the configured loopback daemon/model and MEMORY_TIMEOUT_MS, then retry.",
     });
   }
-  await proveEmbedding(
-    memory.embeddingBaseUrl,
-    memory.embeddingModel,
-    memory.timeoutMs,
-  );
-  return {
-    action: started ? "start" : "reuse",
-    model: memory.embeddingModel,
-    pull,
-  };
 }
 
 function parsePort(url) {
@@ -573,7 +728,7 @@ export async function ensureApp({
   return { action: "start", url: appUrl };
 }
 
-function cleanup(owned) {
+export function cleanup(owned) {
   for (const child of [owned.app, owned.ollama]) {
     if (child && !child.killed) child.kill("SIGTERM");
   }
@@ -592,8 +747,10 @@ export async function main({
   const prepareOnly = args.includes("--prepare-only");
   const localEnv = loadLocalEnv(cwd, env);
   const owned = {};
+  const controller = new AbortController();
   const onSignal = (signal) => {
     console.log(`\nReceived ${signal}; stopping bootstrap-owned processes.`);
+    controller.abort();
     cleanup(owned);
   };
   process.once("SIGINT", onSignal);
@@ -626,7 +783,13 @@ export async function main({
       "ollama",
       "ensuring configured loopback embedding daemon/model only when effective memory uses Ollama",
     );
-    const ollama = await ensureOllama({ cwd, env: localEnv, memory, owned });
+    const ollama = await ensureOllama({
+      cwd,
+      env: localEnv,
+      memory,
+      owned,
+      signal: controller.signal,
+    });
     console.log(
       `Ollama: ${ollama.action}${ollama.model ? ` model=${ollama.model} pull=${ollama.pull}` : ` (${ollama.reason})`}.`,
     );
@@ -670,7 +833,10 @@ export async function main({
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   main({
     cwd: process.cwd(),
     env: process.env,

@@ -53,6 +53,9 @@ case "$command" in
         ;;
     esac
     ;;
+  node)
+    [ "$SCENARIO" != readiness-fail ] || exit 1
+    ;;
   npm)
     if [ "$*" = 'run build' ]; then
       [ "$SCENARIO" != build-fail ] || exit 1
@@ -67,7 +70,7 @@ case "$command" in
   sleep) /bin/sleep 0.01 ;;
 esac
 `;
-  for (const name of ["ps", "lsof", "npm", "curl", "sleep"]) {
+  for (const name of ["ps", "lsof", "npm", "node", "curl", "sleep"]) {
     writeFileSync(join(bin, name), fake, { mode: 0o755 });
   }
   const result = spawnSync("/bin/bash", [script, ...args], {
@@ -184,8 +187,31 @@ describe("local restart CLI", () => {
     expect(result.status).toBe(1);
     expect(result.output).toContain("refusing to kill unrelated listeners");
     expect(result.calls).not.toContain("npm ");
+    expect(result.calls).not.toContain("node ");
     expect(result.calls).not.toMatch(/kill[^\n]*900002/);
   });
+
+  it.each(["dev", "production"])(
+    "prepares embeddings before app launch in %s",
+    (mode) => {
+      const result = restart(["--mode", mode]);
+      expect(result.status).toBe(0);
+      expect(result.calls).toContain("node scripts/restart-readiness.mjs");
+      expect(
+        result.calls.indexOf("node scripts/restart-readiness.mjs"),
+      ).toBeLessThan(result.calls.indexOf("npm run"));
+    },
+  );
+
+  it.each(["dev", "production"])(
+    "blocks build, launch and success on preparation failure in %s",
+    (mode) => {
+      const result = restart(["--mode", mode], { SCENARIO: "readiness-fail" });
+      expect(result.status).toBe(1);
+      expect(result.calls).not.toContain("npm ");
+      expect(result.output).not.toContain("ready_url=");
+    },
+  );
 
   it("does not launch after a failed production build", () => {
     const result = restart([], { SCENARIO: "build-fail" });
