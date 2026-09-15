@@ -46,7 +46,17 @@ const MAX_SQL_CALLS = TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
 const MAX_MATH_CALLS = TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
 const PROVIDER_CALL_TIMEOUT_MS = 180_000;
 
-export type OrchestrateTrainerStatus = (message: string) => void;
+import {
+  answerPreparationMessage,
+  modelWaitMessage,
+  toolProgressMessage,
+  type TrainerProgressCounters,
+} from "./trainer-progress";
+
+export type OrchestrateTrainerStatus = (
+  message: string,
+  counters?: TrainerProgressCounters,
+) => void;
 
 export type OrchestrateTrainerChatInput = {
   model: unknown;
@@ -65,6 +75,7 @@ export type OrchestrateTrainerChatResult = {
   grounding: ChatGrounding | null;
   toolSteps: TrainerToolStep[];
   providerCalls: number;
+  progressCounters: TrainerProgressCounters;
   debugTrace?: LlmDebugTrace;
 };
 
@@ -203,43 +214,13 @@ function finalAnswerSystem(
   );
 }
 
-function statusForTool(toolName: TrainerToolName): string {
-  switch (toolName) {
-    case "describeGarminDatabase":
-      return "Checking local Garmin data shape…";
-    case "runReadOnlySql":
-      return "Running a read-only local Garmin query…";
-    case "runMathAnalysis":
-      return "Calculating from local analysis results…";
-    case "getSyncStatus":
-      return "Checking local sync status…";
-    case "verifyActivityReference":
-      return "Checking the requested activity reference…";
-    case "getActivityDetailAvailability":
-      return "Checking activity detail availability…";
-    case "getActivityDetailSlice":
-      return "Reading bounded local activity detail…";
-    case "runGarminSync":
-      return "Running the requested Garmin sync action…";
-    case "forceRefreshActivityDetail":
-      return "Refreshing the requested activity detail…";
-    case "getTrainingPlan":
-      return "Reading the complete current training plan…";
-    case "saveTrainingPlan":
-      return "Saving the requested training plan update…";
-  }
-}
-
-function plannerStatus(pass: number, steps: TrainerToolStep[]): string {
-  if (!steps.length) return `Choosing how to answer — model pass ${pass}…`;
-  const succeeded = steps.filter((step) => step.status === "succeeded").length;
-  const unsuccessful = steps.length - succeeded;
-  return `Choosing the next step — model pass ${pass}; tools: ${succeeded} succeeded${unsuccessful ? `, ${unsuccessful} unsuccessful` : ""}…`;
-}
-
-function emitStatus(input: OrchestrateTrainerChatInput, message: string): void {
+function emitStatus(
+  input: OrchestrateTrainerChatInput,
+  message: string,
+  counters: TrainerProgressCounters,
+): void {
   try {
-    input.onStatus?.(message);
+    input.onStatus?.(message, counters);
   } catch {
     // Progress copy is best-effort and must not affect chat orchestration.
   }
@@ -690,6 +671,14 @@ export async function orchestrateTrainerChat(
   const analysisToolCounts = new Map<TrainerToolName, number>();
   let providerCalls = 0;
   let toolAttempts = 0;
+  let toolsSucceeded = 0;
+  let toolsUnsuccessful = 0;
+  const progress = (message: string) =>
+    emitStatus(input, message, {
+      modelCalls: providerCalls,
+      toolsSucceeded,
+      toolsUnsuccessful,
+    });
   const budget = () => trainerExecutionBudget(providerCalls, toolAttempts);
   const evidenceRequirement = localDataEvidenceRequirement({
     userRequest: input.userRequest,
@@ -702,12 +691,23 @@ export async function orchestrateTrainerChat(
     debugProviderCalls.push({ ...call, index: debugProviderCalls.length + 1 });
   };
   const finish = (
-    result: Omit<OrchestrateTrainerChatResult, "debugTrace">,
+    result: Omit<
+      OrchestrateTrainerChatResult,
+      "debugTrace" | "progressCounters"
+    >,
     finalAnswerSource?: LlmDebugTrace["finalAnswerSource"],
   ) => {
-    if (!debugEnabled) return result;
-    return {
+    const completed = {
       ...result,
+      progressCounters: {
+        modelCalls: providerCalls,
+        toolsSucceeded,
+        toolsUnsuccessful,
+      },
+    };
+    if (!debugEnabled) return completed;
+    return {
+      ...completed,
       debugTrace: buildLlmDebugTrace({
         provider: input.debug?.provider,
         model: input.debug?.model,
@@ -727,7 +727,7 @@ export async function orchestrateTrainerChat(
   const synthesize = async (budgetStopped = false) => {
     if (budget().remaining <= 0) return null;
     providerCalls += 1;
-    emitStatus(input, "Synthesizing the final answer…");
+    progress(answerPreparationMessage(budgetStopped || toolsUnsuccessful > 0));
     return synthesizeFinalAnswer(
       input,
       steps,
@@ -773,8 +773,8 @@ export async function orchestrateTrainerChat(
   };
 
   while (budget().exploratoryRemaining > 0) {
-    emitStatus(input, plannerStatus(providerCalls + 1, steps));
     providerCalls += 1;
+    progress(modelWaitMessage(steps));
     let result: RawGenerateTextResult;
     try {
       result = await generateTextWithTimeout({
@@ -859,12 +859,7 @@ export async function orchestrateTrainerChat(
         }
         const text = result.text?.trim() ?? "";
         const hasFinalAnswer = isAcceptableToolSynthesisText(text);
-        emitStatus(
-          input,
-          hasFinalAnswer
-            ? "Preparing the final answer…"
-            : "Synthesizing the final answer…",
-        );
+        if (hasFinalAnswer) progress("Formatting the completed answer…");
         const synthesized = hasFinalAnswer ? text : await synthesize();
         return finish(
           {
@@ -990,6 +985,9 @@ export async function orchestrateTrainerChat(
         // proposed tool arguments or planner prose. It consumes the normal turn budget.
         if (budget().exploratoryRemaining < 2) return finishAtBudget(1);
         providerCalls += 1;
+        progress(
+          "Checking whether your request authorizes saving the training plan…",
+        );
         try {
           const decision = await generateTextWithTimeout({
             model: input.model,
@@ -1036,7 +1034,7 @@ export async function orchestrateTrainerChat(
           );
         }
       }
-      emitStatus(input, statusForTool(accepted.toolName));
+      progress(toolProgressMessage(accepted.toolName));
       toolAttempts += 1;
       const step = await executeTrainerTool({
         index: stepIndex,
@@ -1057,6 +1055,8 @@ export async function orchestrateTrainerChat(
         );
       }
       steps.push(step);
+      if (step.status === "succeeded") toolsSucceeded += 1;
+      else toolsUnsuccessful += 1;
 
       if (step.status !== "succeeded") {
         if (canOfferSqlCorrectionStep(step)) {
@@ -1074,7 +1074,6 @@ export async function orchestrateTrainerChat(
               "deterministic_fallback",
             );
           }
-          emitStatus(input, "Synthesizing the final answer…");
           const synthesized = await synthesize();
           return finish(
             {

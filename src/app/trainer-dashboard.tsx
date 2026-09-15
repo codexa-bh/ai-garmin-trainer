@@ -12,6 +12,10 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  validProgressCounters,
+  type TrainerProgress,
+} from "@/lib/ai/trainer-progress";
 
 type Status = { kind: "idle" | "ok" | "error" | "busy"; message: string };
 type SyncRunState = {
@@ -94,7 +98,7 @@ type ConversationRenamePayload = {
 
 type ChatStreamEvent =
   | { type: "start"; conversationId: string; userMessage: ChatMessage }
-  | { type: "status"; message: string }
+  | ({ type: "status" } & TrainerProgress)
   | { type: "delta"; textDelta: string }
   | { type: "metadata"; grounding: ChatGrounding | null }
   | {
@@ -2796,9 +2800,8 @@ export function TrainerDashboard() {
     useState<MemoryKindFilter>("all");
   const [memorySort, setMemorySort] = useState<MemorySort>("newest");
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [chatPendingStatus, setChatPendingStatus] = useState<string | null>(
-    null,
-  );
+  const [chatPendingStatus, setChatPendingStatus] =
+    useState<TrainerProgress | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState("");
   const [profileFields, setProfileFields] =
     useState<ProfileFields>(emptyProfileFields);
@@ -4373,7 +4376,7 @@ export function TrainerDashboard() {
     chatAbortRef.current = controller;
     setMessage("");
     setLastFailedMessage("");
-    setChatPendingStatus("Starting your request…");
+    setChatPendingStatus({ message: "Starting your request…" });
     setIsChatLoading(true);
     forceNextScrollRef.current = true;
     setStatus({ kind: "busy", message: "Chat: starting your request…" });
@@ -4387,7 +4390,10 @@ export function TrainerDashboard() {
       }
       if (event.type === "status") {
         if (!acceptsProgress) return;
-        setChatPendingStatus(event.message);
+        setChatPendingStatus({
+          message: event.message,
+          counters: validProgressCounters(event.counters),
+        });
         setStatus({ kind: "busy", message: `Chat: ${event.message}` });
         return;
       }
@@ -5986,20 +5992,35 @@ export function TrainerDashboard() {
                     <strong>Trainer</strong>
                     <span>pending</span>
                   </div>
-                  <p className="pending-thinking-text" aria-atomic="true">
-                    <span data-testid="pending-step-status">
-                      {chatPendingStatus}
-                    </span>
-                    <span
-                      className="pending-thinking-dots"
-                      aria-hidden="true"
-                      data-testid="pending-thinking-indicator"
-                    >
-                      <span />
-                      <span />
-                      <span />
-                    </span>
-                  </p>
+                  <div className="pending-progress" aria-atomic="true">
+                    <p className="pending-thinking-text">
+                      <span data-testid="pending-step-status">
+                        {chatPendingStatus.message}
+                      </span>
+                      <span
+                        className="pending-thinking-dots"
+                        aria-hidden="true"
+                        data-testid="pending-thinking-indicator"
+                      >
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                    </p>
+                    {chatPendingStatus.counters ? (
+                      <p
+                        className="pending-counters"
+                        data-testid="pending-counters"
+                      >
+                        Model calls: {chatPendingStatus.counters.modelCalls}
+                        {" · "}Tools:{" "}
+                        {chatPendingStatus.counters.toolsSucceeded} succeeded
+                        {" · "}
+                        {chatPendingStatus.counters.toolsUnsuccessful}{" "}
+                        unsuccessful
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
               <div ref={transcriptBottomRef} aria-hidden="true" />
