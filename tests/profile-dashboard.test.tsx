@@ -1386,7 +1386,7 @@ describe("TrainerDashboard athlete baseline summary", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("labels health coverage, detail states, and derived HR zones truthfully", async () => {
+  async function checkBaselineZonePresentation(zoneStatus: string) {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -1431,13 +1431,16 @@ describe("TrainerDashboard athlete baseline summary", () => {
             values: {
               configuredMaxHeartRateBpm: 190,
               heartRateZones: {
-                status: "derived_from_garmin_max_hr",
+                status: zoneStatus,
                 source: "garmin_fit_zones_target",
                 formula: "50/60/70/80/90% of max HR",
-                boundaries: [
-                  { zone: 1, lowerBpm: 95, upperBpm: 113 },
-                  { zone: 2, lowerBpm: 114, upperBpm: 132 },
-                ],
+                boundaries:
+                  zoneStatus === "unavailable"
+                    ? []
+                    : [
+                        { zone: 1, lowerBpm: 95, upperBpm: 113 },
+                        { zone: 2, lowerBpm: 114, upperBpm: 132 },
+                      ],
               },
               cyclingFtpWatts: null,
               cyclingFtpMeasuredOn: null,
@@ -1465,8 +1468,24 @@ describe("TrainerDashboard athlete baseline summary", () => {
       ),
     ).toBeTruthy();
     expect(
-      screen.getByText(/HR zones derived from Garmin max HR/),
+      screen.getByText(
+        zoneStatus === "unavailable"
+          ? /HR-zone boundaries unavailable;/
+          : /HR zones available/,
+      ),
     ).toBeTruthy();
+    expect(
+      screen.getByText("HR-zone boundaries").nextElementSibling?.textContent,
+    ).toBe(
+      zoneStatus === "unavailable"
+        ? "HR-zone boundaries unavailable"
+        : "Z1 95-113, Z2 114-132",
+    );
+    expect(
+      screen.queryByText(
+        /official boundaries unavailable|HR zones derived|Garmin.configured HR.zone/,
+      ),
+    ).toBeNull();
 
     fireEvent.click(screen.getByText("Refresh import summary"));
     fireEvent.click(screen.getByText(/Current operation/));
@@ -1481,7 +1500,12 @@ describe("TrainerDashboard athlete baseline summary", () => {
       expect(statusText).toContain("not estimated");
       expect(statusText).toContain("256 available, 0 partial, 2 unsupported");
     });
-  });
+  }
+
+  it.each(["derived_from_garmin_max_hr", "garmin_configured", "unavailable"])(
+    "labels health coverage and presents %s HR zones neutrally",
+    checkBaselineZonePresentation,
+  );
 });
 
 describe("TrainerDashboard activity charts", () => {
@@ -1751,18 +1775,20 @@ describe("TrainerDashboard activity charts", () => {
     ).toBe(true);
   });
 
-  it.each([
-    ["AEROBIC_BASE", "Aerobic Base"],
-    ["NEW_TRAINING_BENEFIT", "New Training Benefit"],
-    [null, "Unavailable"],
-    [undefined, "Unavailable"],
-    ["", "Unavailable"],
-    [" \t\n ", "Unavailable"],
-    ["___", "Unavailable"],
-    [" __AEROBIC___BASE__ ", "Aerobic Base"],
-    ["Aerobic Base", "Aerobic Base"],
-    ["  aErObIc \t BASE  ", "Aerobic Base"],
-  ])("renders benefit %j as %s", async (label, expected) => {
+  async function checkActivityZonePresentation(
+    timeSource: string,
+    zoneStatus: string,
+    unclassifiedSeconds: number,
+    noHeartRateSeconds: number,
+    activityDurationSec: number | null,
+    {
+      label,
+      expected,
+    }: { label: string | null | undefined; expected: string } = {
+      label: "AEROBIC_BASE",
+      expected: "Aerobic Base",
+    },
+  ) {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -1876,16 +1902,22 @@ describe("TrainerDashboard activity charts", () => {
           },
           heartRateZones: {
             status: "available",
-            timeSource: "garmin_activity",
-            zoneSource: "garmin_mcp",
-            zoneStatus: "garmin_configured",
-            formula: null,
+            timeSource,
+            zoneSource: zoneStatus === "unavailable" ? null : "garmin_mcp",
+            zoneStatus,
+            formula:
+              zoneStatus === "derived_from_garmin_max_hr"
+                ? "50/60/70/80/90% of max HR"
+                : null,
             classifiedSeconds: 60,
-            unclassifiedSeconds: 0,
-            noHeartRateSeconds: 0,
-            activityDurationSec: 3600,
-            sourceTotalSeconds: 60,
-            message: "Using Garmin activity HR-zone time totals.",
+            unclassifiedSeconds,
+            noHeartRateSeconds,
+            activityDurationSec,
+            sourceTotalSeconds: 60 + unclassifiedSeconds + noHeartRateSeconds,
+            message:
+              timeSource === "garmin_activity"
+                ? "Using Garmin activity HR-zone time totals; BPM boundaries are shown from the current Garmin baseline when available."
+                : "Garmin activity HR-zone totals are unavailable; using local stream-derived timing with zones estimated from Garmin max HR.",
             buckets: [
               {
                 zone: 1,
@@ -2295,7 +2327,27 @@ describe("TrainerDashboard activity charts", () => {
       ).toBeTruthy();
     });
     expect(screen.getByText("Time in HR zones")).toBeTruthy();
-    expect(screen.getByText("Garmin activity HR-zone totals")).toBeTruthy();
+    const zoneChart = screen.getByRole("region", {
+      name: "Time in HR zones",
+    });
+    expect(zoneChart.textContent).not.toMatch(
+      /Garmin|derived|fallback|estimated|50\/60|baseline/,
+    );
+    expect(within(zoneChart).getByText("120–139 bpm")).toBeTruthy();
+    expect(
+      within(zoneChart).queryByText(
+        /Recorded HR time differs from activity duration/,
+      ) !== null,
+    ).toBe(
+      activityDurationSec !== null &&
+        activityDurationSec !== 60 + unclassifiedSeconds + noHeartRateSeconds,
+    );
+    expect(
+      within(zoneChart).queryByText("Outside zone ranges: 15s.") !== null,
+    ).toBe(Number(unclassifiedSeconds) > 0);
+    expect(
+      within(zoneChart).queryByText("Missing heart-rate data: 30s.") !== null,
+    ).toBe(Number(noHeartRateSeconds) > 0);
     expect(screen.queryByText(/Source total:/)).toBeNull();
     expect(
       screen.queryByText(/Garmin-configured HR-zone boundaries/),
@@ -2400,9 +2452,45 @@ describe("TrainerDashboard activity charts", () => {
     expect(screen.queryByText(/Detail limitation:/)).toBeNull();
     expect(screen.queryByText("Avg/Max HR")).toBeNull();
     expect(screen.queryByText(/143\s*\/\s*Unavailable/)).toBeNull();
+  }
+
+  it.each([
+    ["garmin_activity", "garmin_configured", 0, 0, 3600],
+    ["garmin_activity", "derived_from_garmin_max_hr", 0, 0, 60],
+    ["garmin_activity", "unavailable", 0, 0, null],
+    ["local_stream", "garmin_configured", 0, 0, 60],
+    ["local_stream", "derived_from_garmin_max_hr", 15, 30, 3600],
+  ] as const)(
+    "renders factual charts with neutral %s / %s zone copy and coverage %s / %s",
+    checkActivityZonePresentation,
+  );
+
+  it.each([
+    ["AEROBIC_BASE", "Aerobic Base"],
+    ["NEW_TRAINING_BENEFIT", "New Training Benefit"],
+    [null, "Unavailable"],
+    [undefined, "Unavailable"],
+    ["", "Unavailable"],
+    [" \t\n ", "Unavailable"],
+    ["___", "Unavailable"],
+    [" __AEROBIC___BASE__ ", "Aerobic Base"],
+    ["Aerobic Base", "Aerobic Base"],
+    ["  aErObIc \t BASE  ", "Aerobic Base"],
+  ] as const)("renders benefit %j as %s", async (label, expected) => {
+    await checkActivityZonePresentation(
+      "garmin_activity",
+      "garmin_configured",
+      0,
+      0,
+      3600,
+      { label, expected },
+    );
   });
 
-  it("renders truthful missing-elevation copy when the selected activity has no altitude stream", async () => {
+  async function checkUnavailableZonePresentation(
+    zoneStatus: string,
+    zoneMessage: string,
+  ) {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -2487,7 +2575,7 @@ describe("TrainerDashboard activity charts", () => {
               "Route unavailable because this activity has no normalized GPS stream points.",
           },
           heartRateZones: {
-            status: "missing_zones",
+            status: zoneStatus,
             timeSource: null,
             zoneSource: null,
             zoneStatus: "unavailable",
@@ -2577,6 +2665,12 @@ describe("TrainerDashboard activity charts", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText("Time in HR zones unavailable")).toBeTruthy();
+    const zoneChart = screen.getByRole("region", {
+      name: "Time in HR zones",
+    });
+    expect(within(zoneChart).getAllByText(zoneMessage)).toHaveLength(1);
+    expect(zoneChart.textContent).not.toMatch(/Garmin|fallback|stream|derived/);
+    expect(zoneChart.querySelector(".hr-zone-bars")).toBeNull();
     const effortWidgets = screen.getByLabelText(
       "Selected activity effort widgets",
     );
@@ -2619,7 +2713,20 @@ describe("TrainerDashboard activity charts", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
       ),
     ).toBe(true);
-  });
+  }
+
+  it.each([
+    ["missing_zones", "HR-zone boundaries unavailable."],
+    ["missing_heart_rate", "No heart-rate data for this activity."],
+    [
+      "insufficient_stream",
+      "Not enough heart-rate samples to show zone durations.",
+    ],
+    ["missing_activity_zone_times", "HR-zone durations unavailable."],
+  ])(
+    "renders useful %s zone copy and missing-elevation copy",
+    checkUnavailableZonePresentation,
+  );
 
   it("opens with the activity selector expanded by default and a truthful collapse control", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
