@@ -1781,6 +1781,13 @@ describe("TrainerDashboard activity charts", () => {
     unclassifiedSeconds: number,
     noHeartRateSeconds: number,
     activityDurationSec: number | null,
+    {
+      label,
+      expected,
+    }: { label: string | null | undefined; expected: string } = {
+      label: "AEROBIC_BASE",
+      expected: "Aerobic Base",
+    },
   ) {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -1805,7 +1812,7 @@ describe("TrainerDashboard activity charts", () => {
             steps: 9200,
             trainingEffect: 3.2,
             anaerobicTrainingEffect: 0,
-            trainingEffectLabel: "AEROBIC_BASE",
+            trainingEffectLabel: label,
             trainingLoad: 98,
             moderateIntensityMinutes: 3,
             vigorousIntensityMinutes: 37,
@@ -2070,7 +2077,11 @@ describe("TrainerDashboard activity charts", () => {
     expect(effortWidgets.textContent).toContain("Anaerobic");
     expect(effortWidgets.textContent).toContain("0.0");
     expect(effortWidgets.textContent).toContain("Primary Benefit");
-    expect(effortWidgets.textContent).toContain("AEROBIC_BASE");
+    const primaryBenefit =
+      screen.getByText("Primary Benefit").nextElementSibling;
+    expect(primaryBenefit?.tagName).toBe("DD");
+    expect(primaryBenefit?.textContent).toBe(expected);
+    expect(primaryBenefit?.textContent).not.toContain("AEROBIC_BASE");
     expect(effortWidgets.textContent).toContain("Exercise Load");
     expect(effortWidgets.textContent).toContain("98");
     expect(summaryStats.textContent).not.toContain("Detail records");
@@ -2454,6 +2465,28 @@ describe("TrainerDashboard activity charts", () => {
     checkActivityZonePresentation,
   );
 
+  it.each([
+    ["AEROBIC_BASE", "Aerobic Base"],
+    ["NEW_TRAINING_BENEFIT", "New Training Benefit"],
+    [null, "Unavailable"],
+    [undefined, "Unavailable"],
+    ["", "Unavailable"],
+    [" \t\n ", "Unavailable"],
+    ["___", "Unavailable"],
+    [" __AEROBIC___BASE__ ", "Aerobic Base"],
+    ["Aerobic Base", "Aerobic Base"],
+    ["  aErObIc \t BASE  ", "Aerobic Base"],
+  ] as const)("renders benefit %j as %s", async (label, expected) => {
+    await checkActivityZonePresentation(
+      "garmin_activity",
+      "garmin_configured",
+      0,
+      0,
+      3600,
+      { label, expected },
+    );
+  });
+
   async function checkUnavailableZonePresentation(
     zoneStatus: string,
     zoneMessage: string,
@@ -2660,6 +2693,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(effortWidgets.textContent).toContain("Training Effect");
     expect(effortWidgets.textContent).toContain("3.2");
     expect(effortWidgets.textContent).toContain("Unavailable");
+    expect(
+      screen.getByText("Primary Benefit").nextElementSibling?.textContent,
+    ).toBe("Unavailable");
     const routeZoneGrid = document.querySelector(".route-zone-grid");
     expect(routeZoneGrid).toBeTruthy();
     expect(
