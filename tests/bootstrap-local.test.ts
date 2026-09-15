@@ -297,9 +297,7 @@ describe("local bootstrap orchestration decisions", () => {
   it("keeps subprocess, timeout, cancellation, and ownership boundaries explicit", () => {
     const source = readFileSync(bootstrapSourcePath, "utf8");
     expect(source).toMatch(/startOwnedProcess\(\s*"ollama",\s*\["serve"\]/);
-    expect(source).toMatch(
-      /run\(\s*"ollama",\s*\["pull",\s*memory\.embeddingModel\]/,
-    );
+    expect(source).toMatch(/spawn\(\s*"ollama",\s*\["pull",\s*model\]/);
     expect(source).toMatch(/spawn\(\s*"npm",\s*\["run",\s*"start:local"\]/);
     expect(source).toContain("PORT: String(port)");
     expect(source).toContain("AbortController");
