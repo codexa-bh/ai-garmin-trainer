@@ -1722,6 +1722,19 @@ h2 {
   color: var(--muted);
 }
 
+.pending-progress .pending-thinking-text {
+  margin: 0;
+  color: var(--text);
+}
+
+.pending-progress .pending-counters {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
 .pending-thinking-text {
   display: inline-flex;
   align-items: center;

@@ -1264,13 +1264,26 @@ describe("chat route LLM tool orchestration", () => {
         .filter((event) => event.type === "status")
         .map((event) => event.message),
     ).toEqual([
-      "Preparing local context…",
-      "Choosing how to answer — model pass 1…",
+      "Preparing local data, conversation, and trainer context…",
+      "Considering your request with the available local context…",
       "Running the requested Garmin sync action…",
-      "Checking local sync status…",
-      "Choosing the next step — model pass 2; tools: 2 succeeded…",
-      "Preparing the final answer…",
-      "Preparing response…",
+      "Checking imported data and local sync coverage…",
+      "Reviewing the local import and sync coverage for your response…",
+      "Formatting the completed answer…",
+      "Formatting the completed response…",
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === "status")
+        .map((event) => event.counters),
+    ).toEqual([
+      undefined,
+      { modelCalls: 1, toolsSucceeded: 0, toolsUnsuccessful: 0 },
+      { modelCalls: 1, toolsSucceeded: 0, toolsUnsuccessful: 0 },
+      { modelCalls: 1, toolsSucceeded: 1, toolsUnsuccessful: 0 },
+      { modelCalls: 2, toolsSucceeded: 2, toolsUnsuccessful: 0 },
+      { modelCalls: 2, toolsSucceeded: 2, toolsUnsuccessful: 0 },
+      { modelCalls: 2, toolsSucceeded: 2, toolsUnsuccessful: 0 },
     ]);
     expect(events.findIndex((event) => event.type === "delta")).toBeGreaterThan(
       events.map((event) => event.type).lastIndexOf("status"),
@@ -1300,9 +1313,9 @@ describe("chat route LLM tool orchestration", () => {
         .filter((event) => event.type === "status")
         .map((event) => event.message),
     ).toEqual([
-      "Preparing local context…",
-      "Choosing how to answer — model pass 1…",
-      "Preparing response…",
+      "Preparing local data, conversation, and trainer context…",
+      "Considering your request with the available local context…",
+      "Formatting the completed response…",
     ]);
     expect(
       events

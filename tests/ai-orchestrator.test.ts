@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { TrainerProgressCounters } from "../src/lib/ai/trainer-progress";
 
 const generateText = vi.fn();
 const runGarminSync = vi.fn(async () => ({
@@ -137,14 +138,22 @@ describe("trainer orchestrator fail-closed policy", async () => {
 
   it("emits truthful progress at awaited boundaries and counts repeated tools", async () => {
     const statuses: string[] = [];
+    const counters: (TrainerProgressCounters | undefined)[] = [];
     generateText
       .mockImplementationOnce(async () => {
-        expect(statuses.at(-1)).toBe("Choosing how to answer — model pass 1…");
+        expect(statuses.at(-1)).toBe(
+          "Considering your request with the available local context…",
+        );
+        expect(counters.at(-1)).toEqual({
+          modelCalls: 1,
+          toolsSucceeded: 0,
+          toolsUnsuccessful: 0,
+        });
         return { toolCalls: [{ toolName: "runGarminSync", input: {} }] };
       })
       .mockImplementationOnce(async () => {
         expect(statuses.at(-1)).toBe(
-          "Choosing the next step — model pass 2; tools: 1 succeeded…",
+          "Reviewing the completed sync outcome for your response…",
         );
         return {
           toolCalls: [
@@ -155,7 +164,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
       })
       .mockImplementationOnce(async () => {
         expect(statuses.at(-1)).toBe(
-          "Choosing the next step — model pass 3; tools: 3 succeeded…",
+          "Reviewing the local import and sync coverage for your response…",
         );
         return { text: "Local status checked." };
       });
@@ -167,17 +176,36 @@ describe("trainer orchestrator fail-closed policy", async () => {
       model: "mock",
       system: "system",
       userRequest: "sync and status",
-      onStatus: (message) => statuses.push(message),
+      onStatus: (message, snapshot) => {
+        statuses.push(message);
+        counters.push(snapshot);
+      },
     });
     expect(statuses).toEqual([
-      "Choosing how to answer — model pass 1…",
+      "Considering your request with the available local context…",
       "Running the requested Garmin sync action…",
-      "Choosing the next step — model pass 2; tools: 1 succeeded…",
-      "Checking local sync status…",
-      "Checking local sync status…",
-      "Choosing the next step — model pass 3; tools: 3 succeeded…",
-      "Preparing the final answer…",
+      "Reviewing the completed sync outcome for your response…",
+      "Checking imported data and local sync coverage…",
+      "Checking imported data and local sync coverage…",
+      "Reviewing the local import and sync coverage for your response…",
+      "Formatting the completed answer…",
     ]);
+    expect(
+      counters.map((c) => [
+        c?.modelCalls,
+        c?.toolsSucceeded,
+        c?.toolsUnsuccessful,
+      ]),
+    ).toEqual([
+      [1, 0, 0],
+      [1, 0, 0],
+      [2, 1, 0],
+      [2, 1, 0],
+      [2, 2, 0],
+      [3, 3, 0],
+      [3, 3, 0],
+    ]);
+    expect(generateText).toHaveBeenCalledTimes(3);
   });
 
   it("keeps progress best-effort and does not announce rejected selections as running", async () => {
@@ -194,7 +222,9 @@ describe("trainer orchestrator fail-closed policy", async () => {
         throw new Error("observer failed");
       },
     });
-    expect(statuses).toEqual(["Choosing how to answer — model pass 1…"]);
+    expect(statuses).toEqual([
+      "Considering your request with the available local context…",
+    ]);
     expect(result.toolSteps[0].status).toBe("rejected");
     expect(generateText).toHaveBeenCalledOnce();
   });
@@ -747,10 +777,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
     });
 
     expect(statuses).toContain(
-      "Choosing the next step — model pass 3; tools: 1 succeeded, 1 unsuccessful…",
+      "Reviewing the local query failure and available evidence…",
     );
     expect(statuses).toContain(
-      "Choosing the next step — model pass 4; tools: 2 succeeded, 1 unsuccessful…",
+      "Reviewing 1 returned query row for your response…",
     );
     expect(statuses.join(" ")).not.toMatch(
       /activity_id|bad_rows|select |unknown_column/,
@@ -760,6 +790,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(generateText.mock.calls[2][0].system).toContain(
       "Allowed activity columns",
     );
+    expect(result.progressCounters).toEqual({
+      modelCalls: 4,
+      toolsSucceeded: 2,
+      toolsUnsuccessful: 1,
+    });
     expect(result.text).toContain("corrected SQL columns");
     expect(result.text).toContain("Long ride");
     expect(result.text).not.toContain("Tool step");
@@ -1635,6 +1670,8 @@ describe("trainer orchestrator fail-closed policy", async () => {
   });
 
   it("never replays a completed plan save while wrapping up after budget exhaustion", async () => {
+    const progress: { message: string; counters?: TrainerProgressCounters }[] =
+      [];
     generateText
       .mockResolvedValueOnce({
         toolCalls: [
@@ -1661,7 +1698,17 @@ describe("trainer orchestrator fail-closed policy", async () => {
       model: "mock",
       system: "system",
       userRequest: "Save this Training Plan and check status",
+      onStatus: (message, counters) => progress.push({ message, counters }),
     });
+    expect(
+      progress.find((p) => p.message.startsWith("Checking whether"))?.counters,
+    ).toEqual({ modelCalls: 2, toolsSucceeded: 0, toolsUnsuccessful: 0 });
+    expect(progress.at(-1)).toEqual({
+      message:
+        "Preparing an answer from the available evidence, with its limits…",
+      counters: { modelCalls: 3, toolsSucceeded: 27, toolsUnsuccessful: 0 },
+    });
+    expect(result.toolSteps).toHaveLength(28); // Synthetic diagnostic is not an executed tool.
     expect(replaceTrainingPlan).toHaveBeenCalledOnce();
     expect(dataCounts).toHaveBeenCalledTimes(26);
     expect(generateText).toHaveBeenCalledTimes(3);

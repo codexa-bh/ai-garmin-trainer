@@ -507,18 +507,36 @@ describe("TrainerDashboard Profile hydration", () => {
     const stepStatus = await screen.findByTestId("pending-step-status");
     expect(stepStatus.closest('[aria-hidden="true"]')).toBeNull();
     expect(stepStatus.closest('[aria-live="polite"]')).not.toBeNull();
-    expect(stepStatus.parentElement?.getAttribute("aria-atomic")).toBe("true");
+    expect(stepStatus.closest('[aria-atomic="true"]')).not.toBeNull();
+    expect(screen.queryByTestId("pending-counters")).toBeNull();
     expect(stepStatus.textContent).toBe("Preparing local context…");
 
     stream.push({
       type: "status",
       message: "Asking the model to choose how to answer…",
+      counters: { modelCalls: 1, toolsSucceeded: 0, toolsUnsuccessful: 0 },
     });
     await waitFor(() => {
       expect(screen.getByTestId("pending-step-status").textContent).toBe(
         "Asking the model to choose how to answer…",
       );
     });
+    const counters = await screen.findByTestId("pending-counters");
+    expect(counters.textContent).toBe(
+      "Model calls: 1 · Tools: 0 succeeded · 0 unsuccessful",
+    );
+    expect(counters.className).toBe("pending-counters");
+    expect(counters.closest('[aria-live="polite"]')).toBe(
+      stepStatus.closest('[aria-live="polite"]'),
+    );
+    expect(
+      stepStatus.compareDocumentPosition(counters) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    stream.push({ type: "status", message: "Legacy status without counters" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("pending-counters")).toBeNull(),
+    );
     expect(screen.queryByText("Analyzing context")).toBeNull();
     expect(screen.queryByText("Weighing options")).toBeNull();
     expect(screen.queryByText("Preparing response")).toBeNull();
@@ -532,17 +550,23 @@ describe("TrainerDashboard Profile hydration", () => {
         message: "Checking local sync status…",
       }) +
         "\n" +
-        '{"type":"status","message":"Choosing the next',
+        '{"type":"status","message":"Reviewing the',
     );
-    stream.pushRaw(' step — model pass 2; tools: 1 succeeded…"}\n');
+    stream.pushRaw(
+      ' local query result…","counters":{"modelCalls":2,"toolsSucceeded":1,"toolsUnsuccessful":0}}\n',
+    );
     await waitFor(() => {
       expect(screen.getByTestId("pending-step-status").textContent).toContain(
-        "model pass 2",
+        "Reviewing the local query result…",
       );
     });
+    expect(screen.getByTestId("pending-counters").textContent).toContain(
+      "Model calls: 2",
+    );
     stream.push({ type: "delta", textDelta: "Keep tomorrow easy." });
     stream.push({ type: "status", message: "Stale progress after answer" });
     expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
+    expect(screen.queryByTestId("pending-counters")).toBeNull();
     expect(screen.queryByTestId("pending-step-status")).toBeNull();
     stream.push({
       type: "done",
@@ -589,6 +613,12 @@ describe("TrainerDashboard Profile hydration", () => {
         "textContent",
         "Starting your request…",
       );
+      stream.push({
+        type: "status",
+        message: "Reviewing local results…",
+        counters: { modelCalls: 2, toolsSucceeded: 1, toolsUnsuccessful: 1 },
+      });
+      expect(await screen.findByTestId("pending-counters")).toBeTruthy();
       if (terminal === "cancel") {
         fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
         expect(screen.queryByTestId("pending-step-status")).toBeNull();
@@ -618,6 +648,7 @@ describe("TrainerDashboard Profile hydration", () => {
         expect(screen.queryByTestId("pending-step-status")).toBeNull(),
       );
       expect(screen.queryByText("Obsolete progress")).toBeNull();
+      expect(screen.queryByTestId("pending-counters")).toBeNull();
       stream.close();
       await waitFor(() =>
         expect(screen.queryByRole("button", { name: "Streaming…" })).toBeNull(),
@@ -631,12 +662,18 @@ describe("TrainerDashboard Profile hydration", () => {
         "textContent",
         "Starting your request…",
       );
-      stream.push({ type: "status", message: "New request progress" });
+      expect(screen.queryByTestId("pending-counters")).toBeNull();
+      stream.push({
+        type: "status",
+        message: "New request progress",
+        counters: { modelCalls: -1, toolsSucceeded: 0, toolsUnsuccessful: 0 },
+      });
       await waitFor(() =>
         expect(screen.getByTestId("pending-step-status").textContent).toBe(
           "New request progress",
         ),
       );
+      expect(screen.queryByTestId("pending-counters")).toBeNull();
       stream.close();
       await waitFor(() =>
         expect(screen.queryByTestId("pending-step-status")).toBeNull(),

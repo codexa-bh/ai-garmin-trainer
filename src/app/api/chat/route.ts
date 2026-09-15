@@ -10,6 +10,10 @@ import {
   type LlmDebugTrace,
 } from "@/lib/ai/debug-trace";
 import { orchestrateTrainerChat } from "@/lib/ai/orchestrator";
+import type {
+  TrainerProgress,
+  TrainerProgressCounters,
+} from "@/lib/ai/trainer-progress";
 import { selectedModel } from "@/lib/ai/providers";
 import { isLlmDebugTraceEnabled } from "@/lib/env";
 import {
@@ -98,7 +102,7 @@ type ApiChatMessage = ReturnType<typeof apiMessage>;
 
 type ChatStreamEvent =
   | { type: "start"; conversationId: string; userMessage: ApiChatMessage }
-  | { type: "status"; message: string }
+  | ({ type: "status" } & TrainerProgress)
   | { type: "delta"; textDelta: string }
   | { type: "metadata"; grounding: ChatGrounding | null }
   | {
@@ -122,8 +126,13 @@ function streamJsonEvent(
 function streamStatus(
   controller: ReadableStreamDefaultController<Uint8Array>,
   message: string,
+  counters?: TrainerProgressCounters,
 ): void {
-  streamJsonEvent(controller, { type: "status", message });
+  streamJsonEvent(controller, {
+    type: "status",
+    message,
+    ...(counters ? { counters } : {}),
+  });
 }
 
 function visibleDeltas(text: string): string[] {
@@ -172,7 +181,11 @@ function streamingResponse(input: {
           conversationId: input.conversationId,
           userMessage: apiMessage(input.userRecord, input.debugTraceEnabled),
         });
-        streamStatus(controller, "Preparing local context…");
+        streamStatus(
+          controller,
+          "Preparing local data, conversation, and trainer context…",
+        );
+        let latestCounters: TrainerProgressCounters | undefined;
         const previousFailure = latestFailedAssistantMessage(
           input.previousMessages,
         );
@@ -194,7 +207,10 @@ function streamingResponse(input: {
             model,
             system,
             userRequest: input.latestMessage,
-            onStatus: (message) => streamStatus(controller, message),
+            onStatus: (message, counters) => {
+              latestCounters = counters;
+              streamStatus(controller, message, counters);
+            },
             debug: {
               enabled: input.debugTraceEnabled,
               provider,
@@ -202,6 +218,7 @@ function streamingResponse(input: {
             },
           });
           text = result.text;
+          latestCounters = result.progressCounters;
           grounding = withDebugTrace(result.grounding, result.debugTrace);
           streamJsonEvent(controller, {
             type: "metadata",
@@ -209,7 +226,11 @@ function streamingResponse(input: {
           });
         }
 
-        streamStatus(controller, "Preparing response…");
+        streamStatus(
+          controller,
+          "Formatting the completed response…",
+          latestCounters,
+        );
         for (const textDelta of visibleDeltas(text)) {
           if (input.requestSignal.aborted) throw new Error("stream aborted");
           streamJsonEvent(controller, { type: "delta", textDelta });
