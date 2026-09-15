@@ -1,10 +1,7 @@
-import { generateText, tool } from "ai";
+import { generateText } from "ai";
 import {
   completeTrainingPlanSchema,
   renderCompleteTrainingPlan,
-  trainingPlanWriteIntentSchema,
-  TRAINING_PLAN_WRITE_INTENT_POLICY,
-  type TrainingPlanWriteAccess,
 } from "./training-plan-evidence";
 import {
   clearTrainerAnalysisResultHandles,
@@ -568,10 +565,23 @@ function genericToolLimitationText(steps: TrainerToolStep[]): string | null {
   if (!failed || failed.tool === "providerToolSelection") return null;
   if (failed.tool === "getTrainingPlan")
     return "I couldn't read the complete current Training Plan safely, so I can't review the missing sections from its preview. This read did not change the plan.";
-  if (failed.tool === "saveTrainingPlan")
-    return failed.status === "failed"
-      ? "I couldn't confirm that the Training Plan was saved. Check the current saved plan before retrying; I won't claim a successful update without persistence evidence."
-      : "This Training Plan save was rejected. A revision needs explicit current-user intent, a complete unchanged read, and precise edits for targeted changes. The rejected save did not change the plan.";
+  if (failed.tool === "saveTrainingPlan") {
+    if (failed.status === "failed")
+      return "I couldn't confirm that the Training Plan was saved. Check the current saved plan before retrying; I won't claim a successful update without persistence evidence.";
+    const reasons: Record<string, string> = {
+      complete_plan_read_required:
+        "I need a complete current-plan read in a previous planning step before revising it. Read the plan again before retrying.",
+      training_plan_changed_read_again:
+        "The saved plan changed after I read it. Read the latest plan and reapply only the intended edits.",
+      plan_edit_not_unique_or_overlapping:
+        "The proposed edits did not match unique, non-overlapping text in the plan. Read it again and choose exact distinct passages.",
+      invalid_plan_content_length:
+        "The proposed plan was empty or exceeded the supported length. Keep the plan nonempty and within 32,000 characters.",
+      malformed_input:
+        "The save arguments were invalid. Use either exact edits or a complete document for an explicitly requested creation or replacement, not both.",
+    };
+    return `This Training Plan save was rejected. ${reasons[failed.reason ?? ""] ?? "The proposed save did not meet the supported plan-edit requirements. Read the current plan and check the requested changes before retrying."} The rejected save did not change the plan.`;
+  }
   const reason = failed.reason ? ` Reason: ${failed.reason}.` : "";
   return `I couldn't complete the local ${failed.tool} request within the safety guardrails.${reason} ${failed.summary}`;
 }
@@ -945,7 +955,7 @@ export async function orchestrateTrainerChat(
       );
     }
 
-    // Only evidence already shown to this planner pass may authorize a revision.
+    // Only a complete read already shown to this planner pass can support a revision.
     const priorPlanRead = [...steps]
       .reverse()
       .find((step) => step.tool === "getTrainingPlan");
@@ -979,60 +989,28 @@ export async function orchestrateTrainerChat(
           "deterministic_fallback",
         );
       }
-      let trainingPlanWriteAccess: TrainingPlanWriteAccess | undefined;
-      if (accepted.toolName === "saveTrainingPlan") {
-        // Separate intent check sees ONLY the current request, never the plan, transcript,
-        // proposed tool arguments or planner prose. It consumes the normal turn budget.
-        if (budget().exploratoryRemaining < 2) return finishAtBudget(1);
-        providerCalls += 1;
-        progress(
-          "Checking whether your request authorizes saving the training plan…",
+      if (
+        accepted.toolName === "saveTrainingPlan" &&
+        steps.some((step) => step.tool === "saveTrainingPlan")
+      ) {
+        const allSteps = [
+          ...steps,
+          failedStep(
+            stepIndex,
+            "duplicate_side_effect",
+            "saveTrainingPlan",
+            "The Training Plan save was already attempted this turn and was not repeated.",
+          ),
+        ];
+        return finish(
+          {
+            text: toolFailureLimitationText(allSteps),
+            grounding: groundingForSteps(allSteps),
+            toolSteps: allSteps,
+            providerCalls,
+          },
+          "deterministic_fallback",
         );
-        try {
-          const decision = await generateTextWithTimeout({
-            model: input.model,
-            system: TRAINING_PLAN_WRITE_INTENT_POLICY,
-            prompt: input.userRequest,
-            tools: {
-              classifyTrainingPlanWrite: tool({
-                description: "Classify explicit persistence intent only.",
-                inputSchema: trainingPlanWriteIntentSchema,
-              }),
-            },
-            // Reasoning models may reject forced choice; require a single valid
-            // classification in the response even with portable auto selection.
-            toolChoice: "auto",
-            parallelToolCalls: false,
-          });
-          const calls = (decision.toolCalls ?? []).map(extractToolCall);
-          const parsed =
-            calls.length === 1 &&
-            calls[0]?.toolName === "classifyTrainingPlanWrite"
-              ? trainingPlanWriteIntentSchema.safeParse(calls[0].input)
-              : null;
-          trainingPlanWriteAccess = {
-            intent: parsed?.success ? parsed.data.intent : "none",
-            snapshot: snapshot?.success ? snapshot.data : undefined,
-          };
-          recordProviderCall(
-            debugProviderCall({
-              index: 0,
-              purpose: "planner",
-              toolCalls: calls.filter(
-                (call): call is TrainerToolCall => !!call,
-              ),
-            }),
-          );
-        } catch {
-          trainingPlanWriteAccess = { intent: "none" };
-          recordProviderCall(
-            debugProviderCall({
-              index: 0,
-              purpose: "planner",
-              error: "plan_write_intent_unavailable",
-            }),
-          );
-        }
       }
       progress(toolProgressMessage(accepted.toolName));
       toolAttempts += 1;
@@ -1040,7 +1018,7 @@ export async function orchestrateTrainerChat(
         index: stepIndex,
         toolName: accepted.toolName,
         args: accepted.input,
-        trainingPlanWriteAccess,
+        trainingPlanSnapshot: snapshot?.success ? snapshot.data : undefined,
       });
       if (selected.metadata) step.selection = selected.metadata;
       if (

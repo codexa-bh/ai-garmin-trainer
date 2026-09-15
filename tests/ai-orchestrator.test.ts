@@ -1303,14 +1303,6 @@ describe("trainer orchestrator fail-closed policy", async () => {
         ],
       })
       .mockResolvedValueOnce({
-        toolCalls: [
-          {
-            toolName: "classifyTrainingPlanWrite",
-            input: { intent: "replace" },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
         text: "Saved the Training Plan and checked local status without raw tool output.",
       });
 
@@ -1685,14 +1677,6 @@ describe("trainer orchestrator fail-closed policy", async () => {
           })),
         ],
       })
-      .mockResolvedValueOnce({
-        toolCalls: [
-          {
-            toolName: "classifyTrainingPlanWrite",
-            input: { intent: "replace" },
-          },
-        ],
-      })
       .mockRejectedValueOnce(new Error("synthesis unavailable"));
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1700,18 +1684,18 @@ describe("trainer orchestrator fail-closed policy", async () => {
       userRequest: "Save this Training Plan and check status",
       onStatus: (message, counters) => progress.push({ message, counters }),
     });
-    expect(
-      progress.find((p) => p.message.startsWith("Checking whether"))?.counters,
-    ).toEqual({ modelCalls: 2, toolsSucceeded: 0, toolsUnsuccessful: 0 });
+    expect(progress.some((p) => p.message.startsWith("Checking whether"))).toBe(
+      false,
+    );
     expect(progress.at(-1)).toEqual({
       message:
         "Preparing an answer from the available evidence, with its limits…",
-      counters: { modelCalls: 3, toolsSucceeded: 27, toolsUnsuccessful: 0 },
+      counters: { modelCalls: 2, toolsSucceeded: 28, toolsUnsuccessful: 0 },
     });
-    expect(result.toolSteps).toHaveLength(28); // Synthetic diagnostic is not an executed tool.
+    expect(result.toolSteps).toHaveLength(29); // Synthetic diagnostic is not an executed tool.
     expect(replaceTrainingPlan).toHaveBeenCalledOnce();
-    expect(dataCounts).toHaveBeenCalledTimes(26);
-    expect(generateText).toHaveBeenCalledTimes(3);
+    expect(dataCounts).toHaveBeenCalledTimes(27);
+    expect(generateText).toHaveBeenCalledTimes(2);
     expect(result.text).toContain("Completed local actions: saveTrainingPlan");
     expect(result.text).toContain("not repeated");
   });
