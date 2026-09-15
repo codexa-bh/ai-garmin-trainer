@@ -654,12 +654,9 @@ function formatAthleteBaselineSummary(
   const maxHr = baseline.values.configuredMaxHeartRateBpm
     ? `configured max HR ${baseline.values.configuredMaxHeartRateBpm} bpm from Garmin FIT zones target`
     : "configured max HR unavailable from the pinned connector";
-  const zones =
-    baseline.values.heartRateZones.status === "derived_from_garmin_max_hr"
-      ? "HR zones derived from Garmin max HR; official boundaries unavailable"
-      : baseline.values.heartRateZones.status === "garmin_configured"
-        ? "Garmin-configured HR-zone boundaries available"
-        : "HR-zone boundaries unavailable";
+  const zones = baseline.values.heartRateZones.boundaries.length
+    ? "HR zones available"
+    : "HR-zone boundaries unavailable";
   return `Athlete baseline ${baseline.availability}; ${maxHr}; ${zones}; last attempt ${dateLabel(baseline.lastAttemptAt)}.`;
 }
 
@@ -2451,12 +2448,13 @@ function HeartRateZoneTimeChart({
 }: {
   summary: ActivityDashboardPayload["heartRateZones"];
 }) {
-  const timeProvenance =
-    summary.timeSource === "garmin_activity"
-      ? "Garmin activity HR-zone totals"
-      : summary.timeSource === "local_stream"
-        ? "Local stream-derived fallback"
-        : "HR-zone time unavailable";
+  const unavailableMessages = {
+    missing_zones: "HR-zone boundaries unavailable.",
+    missing_heart_rate: "No heart-rate data for this activity.",
+    insufficient_stream:
+      "Not enough heart-rate samples to show zone durations.",
+    missing_activity_zone_times: "HR-zone durations unavailable.",
+  };
   const denominator = Math.max(1, summary.classifiedSeconds);
   const orderedBuckets = [...summary.buckets].sort(
     (left, right) => right.zone - left.zone,
@@ -2467,9 +2465,7 @@ function HeartRateZoneTimeChart({
         <div>
           <h2>Time in HR zones</h2>
         </div>
-        <span>{timeProvenance}</span>
       </div>
-      <p className="activity-dashboard-status">{summary.message}</p>
       {summary.status === "available" ? (
         <>
           <div className="hr-zone-bars">
@@ -2496,11 +2492,32 @@ function HeartRateZoneTimeChart({
               );
             })}
           </div>
+          {summary.unclassifiedSeconds > 0 ? (
+            <p className="activity-dashboard-status">
+              Outside zone ranges:{" "}
+              {durationDetailLabel(summary.unclassifiedSeconds)}.
+            </p>
+          ) : null}
+          {summary.noHeartRateSeconds > 0 ? (
+            <p className="activity-dashboard-status">
+              Missing heart-rate data:{" "}
+              {durationDetailLabel(summary.noHeartRateSeconds)}.
+            </p>
+          ) : null}
+          {summary.sourceTotalSeconds !== null &&
+          summary.activityDurationSec !== null &&
+          summary.sourceTotalSeconds !== summary.activityDurationSec ? (
+            <p className="activity-dashboard-status">
+              Recorded HR time differs from activity duration (
+              {durationDetailLabel(summary.sourceTotalSeconds)} vs{" "}
+              {durationDetailLabel(summary.activityDurationSec)}).
+            </p>
+          ) : null}
         </>
       ) : (
         <div className="activity-chart empty-state">
           <strong>Time in HR zones unavailable</strong>
-          <span>{summary.message}</span>
+          <span>{unavailableMessages[summary.status]}</span>
         </div>
       )}
     </section>
@@ -6265,8 +6282,13 @@ export function TrainerDashboard() {
                       <dt>HR-zone boundaries</dt>
                       <dd>
                         {athleteBaseline.values.heartRateZones.boundaries.length
-                          ? `${athleteBaseline.values.heartRateZones.status === "derived_from_garmin_max_hr" ? "Derived from Garmin max HR; official boundaries unavailable" : "Garmin configured"}: ${athleteBaseline.values.heartRateZones.boundaries.map((zone) => `Z${zone.zone} ${zone.lowerBpm}-${zone.upperBpm ?? "max"}`).join(", ")}`
-                          : "Unavailable from current Garmin source"}
+                          ? athleteBaseline.values.heartRateZones.boundaries
+                              .map(
+                                (zone) =>
+                                  `Z${zone.zone} ${zone.lowerBpm}-${zone.upperBpm ?? "max"}`,
+                              )
+                              .join(", ")
+                          : "HR-zone boundaries unavailable"}
                       </dd>
                     </div>
                   </dl>
