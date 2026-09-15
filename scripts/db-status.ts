@@ -16,14 +16,18 @@ function isCurrent(version: number): boolean {
 }
 
 function readMemoryUserDisabled(db: Database.Database): boolean {
-  try {
-    const row = db
-      .prepare("select value from app_metadata where key = ?")
-      .get("memory.user_disabled") as { value?: string } | undefined;
-    return row?.value === "true";
-  } catch {
-    return false;
-  }
+  // An older schema may not have metadata yet; actual read failures must reach
+  // the redacted status error boundary rather than silently enabling memory.
+  const table = db
+    .prepare(
+      "select name from sqlite_master where type = 'table' and name = 'app_metadata'",
+    )
+    .get();
+  if (!table) return false;
+  const row = db
+    .prepare("select value from app_metadata where key = ?")
+    .get("memory.user_disabled") as { value?: string } | undefined;
+  return row?.value === "true";
 }
 
 const json = process.argv.includes("--json");

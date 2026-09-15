@@ -143,6 +143,9 @@ if [ -n "${foreign_listeners}" ]; then
   exit 1
 fi
 
+printf '\nPreparing effective memory embeddings...\n'
+(cd "${repo}" && node scripts/restart-readiness.mjs)
+
 if [ "${mode}" = "production" ]; then
   printf '\nRebuilding production bundle...\n'
   (cd "${repo}" && npm run build)
