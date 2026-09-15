@@ -1751,7 +1751,18 @@ describe("TrainerDashboard activity charts", () => {
     ).toBe(true);
   });
 
-  it("renders selected factual stats, charts, and lap rows from dashboard payload", async () => {
+  it.each([
+    ["AEROBIC_BASE", "Aerobic Base"],
+    ["NEW_TRAINING_BENEFIT", "New Training Benefit"],
+    [null, "Unavailable"],
+    [undefined, "Unavailable"],
+    ["", "Unavailable"],
+    [" \t\n ", "Unavailable"],
+    ["___", "Unavailable"],
+    [" __AEROBIC___BASE__ ", "Aerobic Base"],
+    ["Aerobic Base", "Aerobic Base"],
+    ["  aErObIc \t BASE  ", "Aerobic Base"],
+  ])("renders benefit %j as %s", async (label, expected) => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -1775,7 +1786,7 @@ describe("TrainerDashboard activity charts", () => {
             steps: 9200,
             trainingEffect: 3.2,
             anaerobicTrainingEffect: 0,
-            trainingEffectLabel: "AEROBIC_BASE",
+            trainingEffectLabel: label,
             trainingLoad: 98,
             moderateIntensityMinutes: 3,
             vigorousIntensityMinutes: 37,
@@ -2034,7 +2045,11 @@ describe("TrainerDashboard activity charts", () => {
     expect(effortWidgets.textContent).toContain("Anaerobic");
     expect(effortWidgets.textContent).toContain("0.0");
     expect(effortWidgets.textContent).toContain("Primary Benefit");
-    expect(effortWidgets.textContent).toContain("AEROBIC_BASE");
+    const primaryBenefit =
+      screen.getByText("Primary Benefit").nextElementSibling;
+    expect(primaryBenefit?.tagName).toBe("DD");
+    expect(primaryBenefit?.textContent).toBe(expected);
+    expect(primaryBenefit?.textContent).not.toContain("AEROBIC_BASE");
     expect(effortWidgets.textContent).toContain("Exercise Load");
     expect(effortWidgets.textContent).toContain("98");
     expect(summaryStats.textContent).not.toContain("Detail records");
@@ -2236,7 +2251,11 @@ describe("TrainerDashboard activity charts", () => {
     expect(
       document.querySelector(".route-map-tiles image")?.getAttribute("x"),
     ).not.toBe(initialTileX);
-    fireEvent.pointerUp(routeMap, { pointerId: 7, clientX: 232, clientY: 84 });
+    fireEvent.pointerUp(routeMap, {
+      pointerId: 7,
+      clientX: 232,
+      clientY: 84,
+    });
     expect(routeMap.getAttribute("data-dragging")).toBe("false");
     fireEvent.click(zoomIn);
     expect(routeMap.getAttribute("data-zoom-offset")).toBe("1");
@@ -2580,6 +2599,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(effortWidgets.textContent).toContain("Training Effect");
     expect(effortWidgets.textContent).toContain("3.2");
     expect(effortWidgets.textContent).toContain("Unavailable");
+    expect(
+      screen.getByText("Primary Benefit").nextElementSibling?.textContent,
+    ).toBe("Unavailable");
     const routeZoneGrid = document.querySelector(".route-zone-grid");
     expect(routeZoneGrid).toBeTruthy();
     expect(

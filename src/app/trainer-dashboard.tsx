@@ -1442,6 +1442,15 @@ function HealthDashboardView({
   );
 }
 
+function primaryBenefitLabel(value: string | null | undefined): string {
+  const words = (value ?? "").split(/[_\s]+/).filter(Boolean);
+  return words.length
+    ? words
+        .map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase())
+        .join(" ")
+    : "Unavailable";
+}
+
 function finiteNumberLabel(
   value: number | null | undefined,
   fractionDigits = 0,
@@ -5411,8 +5420,9 @@ export function TrainerDashboard() {
                       <div>
                         <dt>Primary Benefit</dt>
                         <dd>
-                          {activityDashboard.activity.trainingEffectLabel ??
-                            "Unavailable"}
+                          {primaryBenefitLabel(
+                            activityDashboard.activity.trainingEffectLabel,
+                          )}
                         </dd>
                       </div>
                       <div>
