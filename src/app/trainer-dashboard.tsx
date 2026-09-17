@@ -2803,9 +2803,10 @@ export function TrainerDashboard() {
     top: number;
     left: number;
   } | null>(null);
-  const [renameTarget, setRenameTarget] = useState<ConversationSummary | null>(
-    null,
-  );
+  const [renameTarget, setRenameTarget] = useState<Pick<
+    ConversationSummary,
+    "id" | "title"
+  > | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [isRenamingConversation, setIsRenamingConversation] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -4099,7 +4100,7 @@ export function TrainerDashboard() {
   }
 
   function startConversationRename(
-    target: ConversationSummary,
+    target: Pick<ConversationSummary, "id" | "title">,
     trigger?: HTMLElement,
   ) {
     closeConversationMenu();
@@ -4575,8 +4576,7 @@ export function TrainerDashboard() {
         {
           id: conversationId,
           title: activeConversation?.title ?? "Trainer chat",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          updatedAt: null,
         },
       ];
   const openConversationMenuItem = conversationRows.find(
