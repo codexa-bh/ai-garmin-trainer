@@ -4126,6 +4126,111 @@ describe("TrainerDashboard memory and new chat", () => {
 });
 
 describe("TrainerDashboard transcript scrolling", () => {
+  it.each(["follow", "pause", "resume", "error"] as const)(
+    "respects %s intent across growing streamed content and terminal layout",
+    async (intent) => {
+      const stream = controlledSyncStream();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url === "/api/profile") return jsonResponse(profile([]));
+          if (url.startsWith("/api/chat") && init?.method === "POST")
+            return stream.response;
+          if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+          return jsonResponse({ ok: true, conversations: [], memories: [] });
+        }),
+      );
+      render(React.createElement(TrainerDashboard));
+      const transcript = screen.getByRole("log", { name: "Chat transcript" });
+      let height = 200;
+      let top = 0;
+      Object.defineProperties(transcript, {
+        scrollHeight: { configurable: true, get: () => height },
+        clientHeight: { configurable: true, value: 200 },
+        scrollTop: {
+          configurable: true,
+          get: () => top,
+          set: (value: number) => {
+            top = Math.max(0, Math.min(value, height - 200));
+          },
+        },
+      });
+      fireEvent.change(screen.getByLabelText("Message"), {
+        target: { value: "Grow the reply" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await screen.findByText("Starting your request…");
+
+      height = 450;
+      stream.push({ type: "status", message: "A growing pending status" });
+      await screen.findByText("A growing pending status");
+      expect(top).toBe(250);
+      fireEvent.scroll(transcript); // browser event from our own scroll write
+      for (const [index, nextHeight] of [700, 1100, 1600].entries()) {
+        height = nextHeight;
+        stream.push({ type: "delta", textDelta: `Chunk ${index}. ` });
+        await screen.findByText(new RegExp(`Chunk ${index}\\.`));
+        expect(top).toBe(height - 200);
+        fireEvent.scroll(transcript);
+      }
+
+      if (intent !== "follow") {
+        transcript.scrollTop = 400;
+        fireEvent.scroll(transcript);
+      }
+      height = 1900;
+      stream.push({ type: "delta", textDelta: "Paused growth. " });
+      await screen.findByText(/Paused growth/);
+      expect(top).toBe(intent === "follow" ? 1700 : 400);
+      if (intent === "resume") {
+        transcript.scrollTop = height - 200 - 50; // existing near-bottom threshold
+        fireEvent.scroll(transcript);
+      }
+      height = 2300;
+      stream.push({ type: "delta", textDelta: "Later growth." });
+      await screen.findByText(/Later growth/);
+      const following = intent === "follow" || intent === "resume";
+      expect(top).toBe(following ? 2100 : 400);
+      fireEvent.scroll(transcript);
+
+      height = 2500;
+      stream.push(
+        intent === "error"
+          ? { type: "error", code: "provider_error", message: "Test failure" }
+          : {
+              type: "done",
+              assistantMessage: {
+                id: "final-answer",
+                role: "assistant",
+                content: "**Final Markdown answer**",
+                createdAt: "2026-09-17T09:00:00Z",
+              },
+              memoryProposal: { status: "skipped", reason: "test" },
+            },
+      );
+      stream.close();
+      if (intent === "error") {
+        await screen.findByRole("button", { name: "Retry" });
+        expect(screen.queryByText(/Later growth/)).toBeNull();
+      } else {
+        await screen.findByText("Final Markdown answer");
+      }
+      expect(top).toBe(following ? 2300 : 400);
+      expect(screen.queryByTestId("pending-step-status")).toBeNull();
+    },
+  );
+
+  it("keeps transcript scrolling immediate and the shell viewport-constrained at every width", () => {
+    const css = readFileSync("src/app/style.css", "utf8");
+    expect(css.match(/\.transcript \{[^}]+\}/)?.[0]).toContain(
+      "scroll-behavior: auto",
+    );
+    expect(css.match(/\.dashboard-shell \{[^}]+\}/)?.[0]).toContain(
+      "height: 100dvh",
+    );
+  });
+
   it("does not yank passive history reloads when the user has scrolled up", async () => {
     const initialMessages = [
       {

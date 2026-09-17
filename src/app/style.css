@@ -78,6 +78,9 @@ body::before {
 .dashboard-shell {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .dashboard-shell.activity-dashboard-active,
@@ -150,12 +153,6 @@ body::before {
 }
 
 @media (min-width: 961px) {
-  .dashboard-shell {
-    height: 100vh;
-    height: 100dvh;
-    overflow: hidden;
-  }
-
   .app-topbar {
     position: sticky;
     top: 0;
@@ -1681,7 +1678,7 @@ h2 {
   gap: 18px;
   overflow: auto;
   padding: 20px 0 160px;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 .load-older,
