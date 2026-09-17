@@ -2911,7 +2911,6 @@ export function TrainerDashboard() {
   const profileRequestRef = useRef(0);
   const chatHistoryRequestRef = useRef(0);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const transcriptBottomRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const forceNextScrollRef = useRef(false);
   const transcriptScrollSnapshotRef = useRef<TranscriptScrollSnapshot | null>(
@@ -3032,11 +3031,11 @@ export function TrainerDashboard() {
     window.localStorage.setItem("trainer.activeConversationId", conversationId);
     void loadChatHistory(false, conversationId);
   }, [conversationId]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!forceNextScrollRef.current && !shouldAutoScrollRef.current) return;
-    scrollTranscriptToBottom(forceNextScrollRef.current ? "auto" : "smooth");
+    scrollTranscriptToBottom();
     forceNextScrollRef.current = false;
-  }, [chatMessages, isChatLoading]);
+  }, [chatMessages, isChatLoading, chatPendingStatus]);
   useLayoutEffect(() => {
     if (activityDashboardOpen || trainingPlanOpen || syncOpen) return;
     if (!restoreTranscriptOnSectionReturnRef.current) return;
@@ -3345,7 +3344,7 @@ export function TrainerDashboard() {
         scheduleTranscriptScrollRestoreRetry();
         return;
       }
-      scrollTranscriptToBottom("auto");
+      scrollTranscriptToBottom();
       return;
     }
 
@@ -3415,11 +3414,12 @@ export function TrainerDashboard() {
     });
   }
 
-  function scrollTranscriptToBottom(behavior: ScrollBehavior) {
+  function scrollTranscriptToBottom() {
     const transcript = transcriptRef.current;
     if (!transcript) return;
+    // Follow committed layout immediately. Smooth scrolling emits intermediate
+    // scroll events that look like reader opt-out, and a sentinel omits padding.
     transcript.scrollTop = transcript.scrollHeight;
-    transcriptBottomRef.current?.scrollIntoView?.({ block: "end", behavior });
     shouldAutoScrollRef.current = true;
   }
 
@@ -6050,7 +6050,6 @@ export function TrainerDashboard() {
                   </div>
                 </div>
               ) : null}
-              <div ref={transcriptBottomRef} aria-hidden="true" />
             </div>
 
             <div className="composer-dock" aria-label="Message composer">
