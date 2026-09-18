@@ -266,29 +266,17 @@ function expectRollupChartGraphics(
   const chart = within(panel).getByRole("group", {
     name: `${title} rollup chart`,
   });
-  const graphics = within(chart).getByRole("group", {
-    name: `${title} chart marks`,
-  });
   const availableBars = Array.from(
-    graphics.querySelectorAll<HTMLElement>('[data-chart-state="available"]'),
+    chart.querySelectorAll<HTMLElement>('[data-chart-state="available"]'),
   );
-  const fills = Array.from(
-    graphics.querySelectorAll<HTMLElement>(".health-rollup-bar-fill"),
-  );
-
   expect(availableBars.length).toBeGreaterThan(0);
-  expect(fills.length).toBe(availableBars.length);
-  for (const fill of fills) {
-    expect(Number.parseFloat(fill.style.height)).toBeGreaterThan(0);
-  }
   if (expectUnavailable) {
     expect(
-      graphics.querySelectorAll('[data-chart-state="unavailable"]').length,
+      chart.querySelectorAll('[data-chart-state="unavailable"]').length,
     ).toBeGreaterThan(0);
-    expect(graphics.querySelector(".health-rollup-bar-missing")).toBeTruthy();
   }
   expect(within(chart).getByLabelText(`${title} period values`)).toBeTruthy();
-  expect(chart.querySelector(".health-rollup-scale")).toBeTruthy();
+  expect(chart.querySelector(".health-rollup-plot")).toBeTruthy();
   const readout = chart.querySelector(".health-rollup-readout");
   expect(readout?.textContent).toMatch(
     /: (Unavailable|[0-9,]+(\.[0-9])? \w+|[0-9]+ h( [0-9]+ m)?\/day|[0-9]+ m\/day)/,
@@ -648,25 +636,16 @@ describe("TrainerDashboard Health dashboard", () => {
   it("keeps weekly and monthly rollup chart CSS contained at responsive card widths", () => {
     const gridRule = appStyleRule(".health-rollup-grid");
     const chartRule = appStyleRule(".health-rollup-chart");
-    const barsRule = appStyleRule(".health-rollup-bars");
-    const barRule = appStyleRule(".health-rollup-bar");
-    const periodCount = 8;
-    const cardMinWidth = 340;
-    const cardHorizontalPadding = 24;
-    const maxResponsiveGap = 8;
-    const fixedBarRowWidth = (periodCount - 1) * maxResponsiveGap;
+    const plotRule = appStyleRule(".health-rollup-plot");
+    const valueRule = appStyleRule(".health-rollup-values button");
 
-    expect(gridRule).toContain("minmax(min(340px, 100%), 1fr)");
+    expect(gridRule).toContain("minmax(min(380px, 100%), 1fr)");
     expect(chartRule).toContain("max-width: 100%;");
     expect(chartRule).toContain("overflow: hidden;");
-    expect(barsRule).toContain("min-width: 0;");
-    expect(barsRule).toContain("max-width: 100%;");
-    expect(barsRule).toContain("overflow: hidden;");
-    expect(barsRule).toContain("gap: clamp(4px, 1.2vw, 8px);");
-    expect(barRule).toContain("min-width: 0;");
-    expect(fixedBarRowWidth).toBeLessThanOrEqual(
-      cardMinWidth - cardHorizontalPadding,
-    );
+    expect(plotRule).toContain("min-width: 0;");
+    expect(plotRule).toContain("max-width: 100%;");
+    expect(plotRule).toContain("height: 200px;");
+    expect(valueRule).toContain("min-width: 0;");
   });
 
   it("keeps unsupported sleep rollup empty states separate from visible charts", async () => {

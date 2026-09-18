@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { HealthRollupChart } from "./health-rollup-chart";
 import {
   validProgressCounters,
   type TrainerProgress,
@@ -914,131 +915,6 @@ function healthRollups(
   }));
 }
 
-function HealthRollupChart({
-  rollups,
-  metric,
-  title,
-  unit,
-  formatValue,
-  emptyMessage = "Unavailable for these periods.",
-}: {
-  rollups: HealthRollup[];
-  metric: (rollup: HealthRollup) => number | null;
-  title: string;
-  unit: string;
-  formatValue?: (value: number) => string;
-  emptyMessage?: string;
-}) {
-  const [activeKey, setActiveKey] = useState<string | null>(null);
-  const values = rollups.map(metric);
-  const numericValues = values.filter(
-    (value): value is number =>
-      typeof value === "number" && Number.isFinite(value),
-  );
-  if (numericValues.length === 0) {
-    return (
-      <div className="health-rollup-chart empty-state">
-        <strong>{title}</strong>
-        <p>{emptyMessage}</p>
-      </div>
-    );
-  }
-  const max = Math.max(...numericValues, 1);
-  const defaultValueLabel = (value: number) =>
-    `${numberLabel(value, value % 1 === 0 ? 0 : 1)} ${unit}`;
-  const labelForValue = formatValue ?? defaultValueLabel;
-  const valueLabelFor = (value: number | null | undefined) =>
-    typeof value === "number" && Number.isFinite(value)
-      ? labelForValue(value)
-      : "Unavailable";
-  const scaleLabels = [max, max / 2, 0].map(valueLabelFor);
-  const valueLabels = values.map(valueLabelFor);
-  const chartValues = rollups.map((rollup, index) => {
-    const value = values[index];
-    const height =
-      typeof value === "number" && Number.isFinite(value)
-        ? Math.max(8, (value / max) * 100)
-        : null;
-    return {
-      rollup,
-      value,
-      valueLabel: valueLabels[index],
-      height,
-    };
-  });
-  const activeValue =
-    chartValues.find((item) => item.rollup.key === activeKey) ??
-    chartValues.find(
-      (item) => typeof item.value === "number" && Number.isFinite(item.value),
-    ) ??
-    chartValues[0];
-  const readoutId = `health-rollup-readout-${title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")}`;
-  return (
-    <div
-      className="health-rollup-chart"
-      role="group"
-      aria-label={`${title} rollup chart`}
-    >
-      <strong>{title}</strong>
-      <div className="health-rollup-scale" aria-hidden="true">
-        {scaleLabels.map((label) => (
-          <span key={`${title}-${label}`}>{label}</span>
-        ))}
-      </div>
-      <div
-        className="health-rollup-bars"
-        role="group"
-        aria-label={`${title} chart marks`}
-      >
-        {chartValues.map(({ rollup, value, valueLabel, height }) => (
-          <button
-            type="button"
-            className="health-rollup-bar"
-            data-chart-state={value === null ? "unavailable" : "available"}
-            key={rollup.key}
-            aria-describedby={readoutId}
-            aria-label={`${rollup.label}: ${valueLabel.toLowerCase()}`}
-            title={`${rollup.label}: ${valueLabel}`}
-            onPointerEnter={() => setActiveKey(rollup.key)}
-            onPointerLeave={() => setActiveKey(null)}
-            onFocus={() => setActiveKey(rollup.key)}
-            onBlur={() => setActiveKey(null)}
-          >
-            {height === null ? (
-              <span className="health-rollup-bar-missing" aria-hidden="true" />
-            ) : (
-              <span
-                className="health-rollup-bar-fill"
-                aria-hidden="true"
-                style={{ height: `${height}%` }}
-              />
-            )}
-            <small>{rollup.label}</small>
-          </button>
-        ))}
-      </div>
-      <p className="health-rollup-readout" id={readoutId} aria-live="polite">
-        {activeValue
-          ? `${activeValue.rollup.label}: ${activeValue.valueLabel}`
-          : "Focus or hover a period to read its value."}
-      </p>
-      <ul
-        className="health-rollup-values"
-        aria-label={`${title} period values`}
-      >
-        {chartValues.map(({ rollup, valueLabel }) => (
-          <li key={`${rollup.key}-value`}>
-            <span>{rollup.label}</span>
-            <strong>{valueLabel}</strong>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 function hasFiniteRollupMetric(
   rollups: HealthRollup[],
   metric: (rollup: HealthRollup) => number | null,
@@ -1383,6 +1259,7 @@ function HealthDashboardView({
             <HealthRollupChart
               rollups={rollups}
               title="Sleep duration daily avg"
+              kind="line"
               unit="min"
               metric={(rollup) => rollup.sleepMinutes}
               formatValue={formatSleepRollupMinutesPerDay}
@@ -1390,6 +1267,7 @@ function HealthDashboardView({
             <HealthRollupChart
               rollups={rollups}
               title="Sleep score avg"
+              kind="line"
               unit="avg"
               metric={(rollup) => rollup.sleepScore}
               emptyMessage="Source sleep scores are unavailable for these periods."
@@ -1400,6 +1278,7 @@ function HealthDashboardView({
                   key={field}
                   rollups={rollups}
                   title={`${label} sleep daily avg`}
+                  kind="line"
                   unit="min"
                   metric={(rollup) => rollup[field]}
                   formatValue={formatSleepRollupMinutesPerDay}
