@@ -114,6 +114,9 @@ Responsibilities:
 
 - choose the configured model provider;
 - keep provider-specific wiring isolated;
+- offer explicit OpenRouter chat/tools via the OpenAI-compatible chat-completions adapter, without changing DeepSeek-first/OpenAI-fallback auto selection;
+- keep OpenRouter and Ollama chat separate from DeepSeek/OpenAI memory extraction and independently configured embeddings;
+- expose bounded OpenRouter failure categories rather than upstream error text, with no automatic model/provider substitution;
 - allow vendor changes without changing analytics semantics;
 - reject unsupported non-loopback local-provider endpoints before chat wiring.
 

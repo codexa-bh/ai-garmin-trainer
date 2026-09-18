@@ -155,6 +155,37 @@ describe("source-beta doctor and redaction", () => {
     expect(text).not.toContain("MEMORY_EMBEDDING_API_KEY");
   });
 
+  it("reports OpenRouter configuration without treating it as remote readiness or exposing its key", () => {
+    const report = runDoctor({
+      ...baseEnv,
+      AI_PROVIDER: "openrouter",
+      OPENROUTER_API_KEY: "sentinel-router-key",
+    });
+    expect(report.facts.provider).toMatchObject({
+      selected: "openrouter",
+      openrouterKeyPresent: true,
+      model: "nvidia/nemotron-3.5-lightning:free",
+    });
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        className: "provider.openrouter_not_probed",
+        status: "warn",
+      }),
+    );
+    expect(JSON.stringify(report)).not.toContain("sentinel-router-key");
+    const missing = runDoctor({
+      ...baseEnv,
+      AI_PROVIDER: "openrouter",
+      OPENROUTER_API_KEY: "replace-with-openrouter-key",
+    });
+    expect(missing.checks).toContainEqual(
+      expect.objectContaining({
+        className: "provider.missing_openrouter_key",
+        status: "fail",
+      }),
+    );
+  });
+
   it("fails closed for non-loopback Ollama chat URLs without printing the endpoint", () => {
     const report = runDoctor({
       ...baseEnv,

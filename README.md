@@ -14,6 +14,14 @@ Source-control boundary: this source tree is backed by the private GitHub reposi
 6. Optional local developer diagnostics: leave `LLM_DEBUG_TRACES=false` for normal use. Set it to `true` only in a private loopback development session to persist bounded per-assistant-message LLM/tool orchestration traces and inspect them from Settings; traces may include private normalized Garmin/chat/tool context.
 7. Run `npm run bootstrap:local` for the production-style loopback bootstrap/start path. It performs locked dependency preparation when needed, checks whether the SQLite schema actually needs migration before invoking `npm run db:migrate`, ensures configured loopback Ollama memory is ready without installing system software, builds, runs doctor, and starts or reuses the verified loopback app. For repeat local work after dependencies/schema are prepared, use the restart modes below. Manual recovery remains `npm ci`, `npm run db:status -- --json`, `npm run db:migrate` when needed, `npm run build`, then `npm run start:local`.
 
+### Opt-in OpenRouter chat
+
+Set `AI_PROVIDER=openrouter`, `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` in ignored `.env.local`. The initial model is `nvidia/nemotron-3.5-lightning:free`. Chat and guarded tools use `https://openrouter.ai/api/v1/chat/completions`; the key stays server-side. Auto selection remains DeepSeek-first/OpenAI-fallback and ignores OpenRouter keys. Missing/placeholder keys fail closed; no paid model or alternate provider is substituted on failure.
+
+OpenRouter receives the same bounded chat/Garmin context as the selected chat provider. Review its account privacy/routing settings before use. Free-model availability, rate limits and tool support can change; doctor reports configuration presence, not remote readiness. The initial Nemotron free model can repeat otherwise successful read-only tool calls and reach the execution limit instead of answering, especially on explicit tool-directed requests. Existing execution limits remain enforced and return a truthful fallback; a successful smoke is not a reliability guarantee. Validate with a bounded loopback chat/tool request. For temporary tests use task-local ignored configuration, restore the prior provider afterward, and retire temporary credentials.
+
+OpenRouter is **chat/tools only**: extraction continues through configured DeepSeek/OpenAI (or deterministic fallback), and embedding configuration is unchanged. There is no OpenRouter extraction or embedding route, model catalog UI, or cross-provider runtime failover.
+
 ### Local restart modes
 
 ```bash
