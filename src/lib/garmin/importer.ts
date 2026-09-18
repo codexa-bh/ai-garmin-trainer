@@ -5,7 +5,6 @@ import {
   finishSyncRun,
   getActivityDetailForAnalytics,
   getCheckpoint,
-  getDailyHealthFreshnessEvidence,
   getGarminAthleteBaseline,
   getGarminBodyMetrics,
   listActivityIdsNeedingDetail,
@@ -201,15 +200,6 @@ export function dailyHealthImportPlan(input: {
     repairDates,
     trailingDates,
   };
-}
-
-function latestDailyHealthCandidateDates(endDate: string): string[] {
-  const evidence = getDailyHealthFreshnessEvidence(endDate);
-  if (!evidence || evidence.availability !== "complete") return [endDate];
-  if (!evidence.hasStatsPayload) return [endDate];
-  if (!evidence.hasSleepPayload) return [endDate];
-  if (!evidence.hasBodyBatteryPayload) return [endDate];
-  return [];
 }
 
 function compactError(error: unknown): string {
@@ -538,7 +528,6 @@ export async function runGarminSync(
       historyStartDate: startDate,
       resumeDate,
       endDate,
-      latestCandidateDates: latestDailyHealthCandidateDates(endDate),
       repairDates,
       trailingDates,
     });

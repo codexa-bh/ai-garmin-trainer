@@ -708,6 +708,7 @@ function shiftIsoDate(date: string, days: number): string {
 }
 
 export const DAILY_HEALTH_MUTABLE_TRAILING_DAYS = 14;
+const DAILY_HEALTH_COMPLETE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export function listDailyHealthTrailingCandidateDates(input: {
   startDate: string;
@@ -745,10 +746,29 @@ export function listDailyHealthTrailingCandidateDates(input: {
        left join daily_health on daily_health.date = candidate_dates.date
        where daily_health.date is null
           or daily_health.availability <> 'complete'
+          or candidate_dates.date >= ?
+          or (
+            select count(distinct source_tool) from garmin_raw_payload
+            where subject_type = 'daily_health'
+              and fetched_at > ?
+              and (
+                (source_tool = 'get_stats' and subject_id = candidate_dates.date || ':stats')
+                or (source_tool = 'get_sleep_summary' and subject_id = candidate_dates.date || ':sleep')
+                or (source_tool = 'get_body_battery' and subject_id = candidate_dates.date || ':body_battery')
+              )
+          ) < 3
        order by candidate_dates.date asc
        limit ?`,
     )
-    .all(startDate, input.endDate, safeLimit) as Array<{ date: string }>;
+    // Coverage is not finality: today/yesterday always refresh; older complete
+    // days retry daily while in the tail, even after unchanged/empty responses.
+    .all(
+      startDate,
+      input.endDate,
+      shiftIsoDate(input.endDate, -1),
+      Date.now() - DAILY_HEALTH_COMPLETE_REFRESH_INTERVAL_MS,
+      safeLimit,
+    ) as Array<{ date: string }>;
   return rows.map((row) => row.date);
 }
 

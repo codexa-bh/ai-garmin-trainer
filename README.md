@@ -57,6 +57,10 @@ Start with `docs/architecture.md` for the current file/route map, then read only
 
 Keep future task context bounded: do not read every source file by default, do not duplicate guardrails across docs, and do not broaden the local-only/no-auth loopback boundary into LAN, hosted, public beta, deployment, or release assumptions.
 
+## Daily-health freshness
+
+Complete daily-health coverage does not mean final totals. Each sync refreshes today and yesterday on the existing UTC sync calendar. Within the inclusive 14-day trailing window, older complete dates refresh when any stats, sleep, or body-battery fetch evidence is missing or at least 24 hours old. Missing/partial trailing dates still retry every run; historical gap/repair and checkpoint backfill remain separate. This costs at most 42 trailing tool calls per sync, normally six for repeated complete data within 24 hours. Refreshes preserve prior non-null fields when Garmin omits them and accept valid zero/downward corrections. Delayed uploads outside the window may still require a targeted re-sync; source agreement does not prove finality.
+
 ## Design reference
 
 See `docs/design-choices-and-boundaries.md` for the main design choices, app component responsibilities, and separation of concerns between AI reasoning, guarded SQL, bounded math, local storage, Garmin import, and UI/API routes. See `docs/coaching-instructions-and-sources.md` for the coaching evidence, limitations, product-policy distinction, and instruction maintenance contract.

@@ -202,7 +202,7 @@ describe("Garmin daily health adaptive freshness", () => {
     });
   });
 
-  it("skips daily-health fetches when latest local state is complete and source-backed", async () => {
+  it("refreshes complete recent history without replaying dates outside the tail", async () => {
     const { runGarminSync } = await import("../src/lib/garmin/importer");
     const {
       getCheckpoint,
@@ -220,7 +220,7 @@ describe("Garmin daily health adaptive freshness", () => {
     const result = await runGarminSync();
 
     expect(result.status).toBe("completed");
-    expect(result.healthDaysImported).toBe(0);
+    expect(result.healthDaysImported).toBe(14);
     expect(
       getDatabase()
         .prepare(
@@ -232,12 +232,19 @@ describe("Garmin daily health adaptive freshness", () => {
       coverageStart: "2026-07-01",
       coverageEnd: "2026-07-23",
     });
-    expect(fetchedHealthDates("get_stats")).toEqual([]);
-    expect(fetchedHealthDates("get_sleep_summary")).toEqual([]);
+    expect(fetchedHealthDates("get_stats")).toEqual(
+      dateRange("2026-07-10", "2026-07-23"),
+    );
+    expect(fetchedHealthDates("get_sleep_summary")).toEqual(
+      fetchedHealthDates("get_stats"),
+    );
+    expect(fetchedHealthDates("get_body_battery")).toEqual(
+      fetchedHealthDates("get_stats"),
+    );
     expect(getCheckpoint("health_next_date")).toBe("2026-07-24");
   });
 
-  it("refreshes only the latest mutable date without moving a past-today checkpoint", async () => {
+  it("refreshes mutable recent dates without moving a past-today checkpoint", async () => {
     const { runGarminSync } = await import("../src/lib/garmin/importer");
     const { getCheckpoint, saveCheckpoint, upsertDailyHealth } =
       await import("../src/lib/db/repository");
@@ -262,9 +269,13 @@ describe("Garmin daily health adaptive freshness", () => {
     const result = await runGarminSync();
 
     expect(result.status).toBe("completed");
-    expect(result.healthDaysImported).toBe(1);
-    expect(fetchedHealthDates("get_stats")).toEqual(["2026-07-23"]);
-    expect(fetchedHealthDates("get_sleep_summary")).toEqual(["2026-07-23"]);
+    expect(result.healthDaysImported).toBe(14);
+    expect(fetchedHealthDates("get_stats")).toEqual(
+      dateRange("2026-07-10", "2026-07-23"),
+    );
+    expect(fetchedHealthDates("get_sleep_summary")).toEqual(
+      fetchedHealthDates("get_stats"),
+    );
     expect(getCheckpoint("health_next_date")).toBe("2026-07-24");
   });
 
@@ -312,12 +323,10 @@ describe("Garmin daily health adaptive freshness", () => {
     const result = await runGarminSync();
 
     expect(result.status).toBe("completed");
-    expect(result.healthDaysImported).toBe(3);
-    expect(fetchedHealthDates("get_stats")).toEqual([
-      "2026-07-21",
-      "2026-07-22",
-      "2026-07-23",
-    ]);
+    expect(result.healthDaysImported).toBe(14);
+    expect(fetchedHealthDates("get_stats")).toEqual(
+      dateRange("2026-07-10", "2026-07-23"),
+    );
     expect(getCheckpoint("health_next_date")).toBe("2026-07-24");
     expect(
       getDatabase()
@@ -359,8 +368,8 @@ describe("Garmin daily health adaptive freshness", () => {
     const result = await runGarminSync();
 
     expect(result.status).toBe("completed");
-    expect(result.healthDaysImported).toBe(0);
-    expect(fetchedHealthDates("get_stats")).toEqual([]);
+    expect(result.healthDaysImported).toBe(14);
+    expect(fetchedHealthDates("get_stats")).not.toContain("2026-07-05");
     expect(
       getDatabase()
         .prepare("select availability from daily_health where date = ?")
@@ -405,14 +414,11 @@ describe("Garmin daily health adaptive freshness", () => {
     const result = await runGarminSync();
 
     expect(result.status).toBe("completed");
-    expect(result.healthDaysImported).toBe(4);
-    expect(fetchedHealthDates("get_stats")).toEqual([
-      "2026-07-20",
-      "2026-07-21",
-      "2026-07-22",
-      "2026-07-23",
-    ]);
-    expect(new Set(fetchedHealthDates("get_stats")).size).toBe(4);
+    expect(result.healthDaysImported).toBe(14);
+    expect(fetchedHealthDates("get_stats")).toEqual(
+      dateRange("2026-07-10", "2026-07-23"),
+    );
+    expect(new Set(fetchedHealthDates("get_stats")).size).toBe(14);
     expect(getCheckpoint("health_next_date")).toBe("2026-07-24");
   });
 
@@ -457,7 +463,7 @@ describe("Garmin daily health adaptive freshness", () => {
     const result = await runGarminSync();
 
     expect(result.status).toBe("completed");
-    expect(result.healthDaysImported).toBe(1);
+    expect(result.healthDaysImported).toBe(15);
     expect(fetchedHealthDates("get_stats")).toContain("2026-07-03");
     expect(fetchedHealthDates("get_stats")).not.toContain("2026-07-04");
     expect(
@@ -505,7 +511,7 @@ describe("Garmin daily health adaptive freshness", () => {
     const result = await runGarminSync();
 
     expect(result.status).toBe("completed");
-    expect(result.healthDaysImported).toBe(1);
+    expect(result.healthDaysImported).toBe(15);
     expect(fetchedHealthDates("get_stats")).toContain("2026-07-05");
     expect(
       getDatabase()
@@ -522,7 +528,7 @@ describe("Garmin daily health adaptive freshness", () => {
     );
   });
 
-  it("bounds repeat syncs to current adaptive candidates instead of replaying a recent window", async () => {
+  it("bounds repeat complete-row refreshes to six calls inside the daily cadence", async () => {
     const { runGarminSync } = await import("../src/lib/garmin/importer");
     const { saveCheckpoint, upsertDailyHealth, upsertGarminRawPayload } =
       await import("../src/lib/db/repository");
@@ -537,10 +543,206 @@ describe("Garmin daily health adaptive freshness", () => {
     mcpState.calls = [];
     const second = await runGarminSync();
 
-    expect(firstRunDates).toHaveLength(0);
-    expect(second.healthDaysImported).toBe(0);
-    expect(fetchedHealthDates("get_stats")).toHaveLength(0);
+    expect(firstRunDates).toHaveLength(14);
+    expect(second.healthDaysImported).toBe(2);
+    for (const operation of [
+      "get_stats",
+      "get_sleep_summary",
+      "get_body_battery",
+    ] as const) {
+      expect(fetchedHealthDates(operation)).toEqual([
+        "2026-07-22",
+        "2026-07-23",
+      ]);
+    }
   });
+
+  it("updates complete totals on the same day, next day, and after a multi-day delay", async () => {
+    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const {
+      getDatabase,
+      getCheckpoint,
+      saveCheckpoint,
+      upsertDailyHealth,
+      upsertGarminRawPayload,
+    } = await import("../src/lib/db/repository");
+    saveCheckpoint("health_next_date", "2026-07-25");
+    upsertDailyHealth(
+      dateRange("2026-07-01", "2026-07-24").map(completeDailyHealth),
+    );
+    for (const date of dateRange("2026-07-01", "2026-07-24")) {
+      recordDailyHealthPayloadEvidence(upsertGarminRawPayload, date);
+    }
+    const stored = (date: string) =>
+      getDatabase()
+        .prepare(
+          "select steps, total_calories as totalCalories, sleep_minutes as sleepMinutes, availability from daily_health where date = ?",
+        )
+        .get(date);
+    mcpState.statsByDate.set("2026-07-23", {
+      total_steps: 9000,
+      total_calories: 2500,
+    });
+    await runGarminSync();
+    expect(fetchedHealthDates("get_stats")).toEqual([
+      "2026-07-22",
+      "2026-07-23",
+    ]);
+    expect(stored("2026-07-23")).toMatchObject({
+      steps: 9000,
+      totalCalories: 2500,
+      sleepMinutes: 420,
+      availability: "complete",
+    });
+
+    // An identical same-day refresh neither erases prior fields nor adds rows.
+    mcpState.calls = [];
+    await runGarminSync();
+    expect(fetchedHealthDates("get_stats")).toHaveLength(2);
+    expect(stored("2026-07-23")).toMatchObject({
+      steps: 9000,
+      sleepMinutes: 420,
+    });
+
+    vi.setSystemTime(new Date("2026-07-24T00:01:00Z"));
+    mcpState.calls = [];
+    mcpState.statsByDate.set("2026-07-23", {
+      total_steps: 9500,
+      total_calories: 2600,
+    });
+    await runGarminSync();
+    expect(fetchedHealthDates("get_stats")).toEqual([
+      "2026-07-23",
+      "2026-07-24",
+    ]);
+    expect(stored("2026-07-23")).toMatchObject({
+      steps: 9500,
+      totalCalories: 2600,
+    });
+
+    // Stable earlier responses do not finalize a day; accept lower/zero corrections.
+    vi.setSystemTime(new Date("2026-07-24T12:00:00Z"));
+    mcpState.calls = [];
+    mcpState.statsByDate.set("2026-07-20", {
+      total_steps: 0,
+      total_calories: 1900,
+    });
+    const delayed = await runGarminSync();
+    expect(delayed.healthDaysRefreshed).toBe(14);
+    expect(fetchedHealthDates("get_stats")).toContain("2026-07-20");
+    expect(fetchedHealthDates("get_stats")).not.toContain("2026-07-10");
+    expect(stored("2026-07-20")).toMatchObject({
+      steps: 0,
+      totalCalories: 1900,
+      sleepMinutes: 420,
+      availability: "complete",
+    });
+    expect(getCheckpoint("health_next_date")).toBe("2026-07-25");
+    expect(
+      getDatabase().prepare("select count(*) as n from daily_health").get(),
+    ).toEqual({ n: 24 });
+  });
+
+  it("requires fresh evidence from all three tools and retries at the 24-hour boundary", async () => {
+    const {
+      getDatabase,
+      listDailyHealthTrailingCandidateDates,
+      upsertDailyHealth,
+      upsertGarminRawPayload,
+    } = await import("../src/lib/db/repository");
+    upsertDailyHealth(
+      dateRange("2026-07-01", "2026-07-23").map(completeDailyHealth),
+    );
+    for (const date of dateRange("2026-07-01", "2026-07-23"))
+      recordDailyHealthPayloadEvidence(upsertGarminRawPayload, date);
+    const candidates = () =>
+      listDailyHealthTrailingCandidateDates({
+        startDate: "2026-07-01",
+        endDate: "2026-07-23",
+      });
+    expect(candidates()).toEqual(["2026-07-22", "2026-07-23"]);
+    getDatabase()
+      .prepare("delete from garmin_raw_payload where subject_id = ?")
+      .run("2026-07-20:sleep");
+    // Payload history can contain multiple hashes for one tool, not three tools.
+    upsertGarminRawPayload({
+      sourceTool: "get_stats",
+      subjectType: "daily_health",
+      subjectId: "2026-07-20:stats",
+      payload: { total_steps: 1234 },
+    });
+    getDatabase()
+      .prepare(
+        "update garmin_raw_payload set fetched_at = ? where subject_id = ?",
+      )
+      .run(Date.now() - 86400000, "2026-07-19:body_battery");
+    expect(candidates()).toEqual([
+      "2026-07-19",
+      "2026-07-20",
+      "2026-07-22",
+      "2026-07-23",
+    ]);
+    vi.setSystemTime(new Date("2026-07-24T11:59:59.999Z"));
+    expect(candidates()).toHaveLength(4);
+    vi.setSystemTime(new Date("2026-07-24T12:00:00Z"));
+    expect(candidates()).toEqual(dateRange("2026-07-10", "2026-07-23"));
+    // A lower limit remains a hard bound; no dates precede the history start.
+    expect(
+      listDailyHealthTrailingCandidateDates({
+        startDate: "2026-07-21",
+        endDate: "2026-07-23",
+        limit: 1,
+      }),
+    ).toEqual(["2026-07-21"]);
+    expect(
+      listDailyHealthTrailingCandidateDates({
+        startDate: "2026-07-24",
+        endDate: "2026-07-23",
+      }),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["2028-03-01T00:05:00+02:00", "2028-02-28", "2028-02-29"],
+    ["2027-01-01T00:05:00Z", "2026-12-31", "2027-01-01"],
+    ["2026-08-01T01:00:00+02:00", "2026-07-30", "2026-07-31"],
+  ])(
+    "keeps the UTC request/stored dates at offset, leap, and year boundaries: %s",
+    async (instant, yesterday, today) => {
+      vi.setSystemTime(new Date(instant));
+      process.env.GARMIN_HISTORY_START_DATE = yesterday;
+      const { runGarminSync } = await import("../src/lib/garmin/importer");
+      const { getDatabase, getCheckpoint, saveCheckpoint, upsertDailyHealth } =
+        await import("../src/lib/db/repository");
+      saveCheckpoint("health_next_date", "2030-01-01");
+      upsertDailyHealth([
+        completeDailyHealth(yesterday),
+        completeDailyHealth(today),
+      ]);
+      mcpState.statsByDate.set(yesterday, {
+        date: yesterday,
+        total_steps: 111,
+      });
+      mcpState.statsByDate.set(today, { date: today, total_steps: 222 });
+      const result = await runGarminSync();
+      expect(result.coverageEnd).toBe(today);
+      for (const operation of [
+        "get_stats",
+        "get_sleep_summary",
+        "get_body_battery",
+      ] as const)
+        expect(fetchedHealthDates(operation)).toEqual([yesterday, today]);
+      expect(
+        getDatabase()
+          .prepare("select date, steps from daily_health order by date")
+          .all(),
+      ).toEqual([
+        { date: yesterday, steps: 111 },
+        { date: today, steps: 222 },
+      ]);
+      expect(getCheckpoint("health_next_date")).toBe("2030-01-01");
+    },
+  );
 
   it("preserves stored non-null fields on partial refreshes and accepts new non-null arrivals", async () => {
     const { listRecentDailyHealth, upsertDailyHealth } =
