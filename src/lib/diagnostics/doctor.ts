@@ -376,6 +376,17 @@ export function runDoctor(
     providerKeyPresent ? undefined : provider.remediation,
   );
 
+  if (provider.selected === "openrouter") {
+    check(
+      checks,
+      "warn",
+      "provider.openrouter_remote",
+      "provider.openrouter_not_probed",
+      "OpenRouter configuration is present; remote model availability, authentication and tool support have not been probed.",
+      "Run a bounded loopback chat/tool smoke with the configured model. Free models may be unavailable or rate limited; no automatic model substitution is used.",
+    );
+  }
+
   if (provider.selected === "ollama") {
     const probe = probeOllamaChat(
       env.OLLAMA_BASE_URL,
@@ -550,6 +561,7 @@ export function runDoctor(
       keyPresent: providerKeyPresent,
       deepseekKeyPresent: provider.deepseekKeyConfigured,
       openaiKeyPresent: provider.openaiKeyConfigured,
+      openrouterKeyPresent: provider.openrouterKeyConfigured,
       ollamaBaseUrlLoopback: provider.ollamaBaseUrlLoopback,
     },
     memory: {

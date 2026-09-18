@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { providerFailureMessage } from "./provider-errors";
 import {
   completeTrainingPlanSchema,
   renderCompleteTrainingPlan,
@@ -643,7 +644,7 @@ async function synthesizeFinalAnswer(
       debugProviderCall({
         index: 0,
         purpose: "final_synthesis",
-        error: error instanceof Error ? error.message : "provider_exception",
+        error: providerFailureMessage(input.debug?.provider, error),
       }),
     );
     return null;
@@ -809,7 +810,7 @@ export async function orchestrateTrainerChat(
         debugProviderCall({
           index: 0,
           purpose: steps.length ? "failure_fallback" : "planner",
-          error: error instanceof Error ? error.message : "provider_exception",
+          error: providerFailureMessage(input.debug?.provider, error),
         }),
       );
       if (steps.length) {
@@ -825,9 +826,12 @@ export async function orchestrateTrainerChat(
       }
       return finish(
         {
-          text: evidenceRequirement.required
-            ? EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION
-            : "I could not get a valid response from the configured model. No Garmin tool was executed.",
+          text:
+            input.debug?.provider === "openrouter"
+              ? `${providerFailureMessage("openrouter", error)} No Garmin tool was executed.`
+              : evidenceRequirement.required
+                ? EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION
+                : "I could not get a valid response from the configured model. No Garmin tool was executed.",
           grounding: null,
           toolSteps: [],
           providerCalls,

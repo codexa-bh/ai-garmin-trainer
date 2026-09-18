@@ -10,7 +10,7 @@ import {
 export const OLLAMA_CHAT_DEFAULT_MODEL = "qwen3.5:4b";
 export const OLLAMA_CHAT_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
 
-export type AiProviderName = "deepseek" | "openai" | "ollama";
+export type AiProviderName = "deepseek" | "openai" | "ollama" | "openrouter";
 export type AiProviderSelectionMode = "default" | "fallback" | "explicit";
 
 export type AiProviderStatus = {
@@ -20,6 +20,7 @@ export type AiProviderStatus = {
   modelName: string | null;
   deepseekKeyConfigured: boolean;
   openaiKeyConfigured: boolean;
+  openrouterKeyConfigured: boolean;
   ollamaBaseUrlLoopback: boolean | null;
   failureClass: string | null;
   remediation?: string;
@@ -44,7 +45,9 @@ export function isLoopbackAiBaseUrl(rawUrl: string): boolean {
   }
 }
 
-function cloudProviderStatus(env: AppEnv): AiProviderStatus {
+function cloudProviderStatus(
+  env: AppEnv,
+): Omit<AiProviderStatus, "openrouterKeyConfigured"> {
   const deepseekKeyConfigured = hasConfiguredSecret(env.DEEPSEEK_API_KEY);
   const openaiKeyConfigured = hasConfiguredSecret(env.OPENAI_API_KEY);
 
@@ -143,6 +146,28 @@ function cloudProviderStatus(env: AppEnv): AiProviderStatus {
 export function aiProviderStatus(
   env: AppEnv = getOptionalEnv(),
 ): AiProviderStatus {
+  const openrouterKeyConfigured = hasConfiguredSecret(env.OPENROUTER_API_KEY);
+  if (env.AI_PROVIDER === "openrouter") {
+    return {
+      requested: "openrouter",
+      selected: openrouterKeyConfigured ? "openrouter" : null,
+      selectionMode: openrouterKeyConfigured ? "explicit" : null,
+      modelName: openrouterKeyConfigured ? env.OPENROUTER_MODEL : null,
+      deepseekKeyConfigured: hasConfiguredSecret(env.DEEPSEEK_API_KEY),
+      openaiKeyConfigured: hasConfiguredSecret(env.OPENAI_API_KEY),
+      openrouterKeyConfigured,
+      ollamaBaseUrlLoopback: null,
+      failureClass: openrouterKeyConfigured
+        ? null
+        : "provider.missing_openrouter_key",
+      ...(!openrouterKeyConfigured
+        ? {
+            remediation:
+              "Set a valid OPENROUTER_API_KEY for explicit OpenRouter chat; placeholder keys are ignored. No other provider will be substituted.",
+          }
+        : {}),
+    };
+  }
   if (env.AI_PROVIDER === "ollama") {
     const deepseekKeyConfigured = hasConfiguredSecret(env.DEEPSEEK_API_KEY);
     const openaiKeyConfigured = hasConfiguredSecret(env.OPENAI_API_KEY);
@@ -153,6 +178,7 @@ export function aiProviderStatus(
           selected: "ollama",
           selectionMode: "explicit",
           modelName: env.OLLAMA_MODEL,
+          openrouterKeyConfigured,
           deepseekKeyConfigured,
           openaiKeyConfigured,
           ollamaBaseUrlLoopback,
@@ -166,18 +192,19 @@ export function aiProviderStatus(
           deepseekKeyConfigured,
           openaiKeyConfigured,
           ollamaBaseUrlLoopback,
+          openrouterKeyConfigured,
           failureClass: "provider.ollama_non_loopback",
           remediation:
             "Set OLLAMA_BASE_URL to a loopback OpenAI-compatible endpoint such as http://127.0.0.1:11434/v1; LAN and public Ollama endpoints are unsupported.",
         };
   }
 
-  return cloudProviderStatus(env);
+  return { ...cloudProviderStatus(env), openrouterKeyConfigured };
 }
 
 function selectedCloudModel(
   env: AppEnv,
-  status: AiProviderStatus,
+  status: Pick<AiProviderStatus, "selected" | "selectionMode" | "remediation">,
 ): SelectedAiModel {
   if (!status.selected)
     throw new Error(status.remediation ?? "No configured AI provider key.");
@@ -206,7 +233,7 @@ function selectedCloudModel(
     };
   }
 
-  throw new Error("Memory extraction cannot use the Ollama chat provider.");
+  throw new Error("Memory extraction requires a DeepSeek or OpenAI provider.");
 }
 
 export function selectedModel(): SelectedAiModel {
@@ -214,6 +241,20 @@ export function selectedModel(): SelectedAiModel {
   const status = aiProviderStatus(env);
   if (!status.selected)
     throw new Error(status.remediation ?? "No configured AI provider key.");
+
+  if (status.selected === "openrouter") {
+    const openrouter = createOpenAI({
+      apiKey: configuredSecret(env.OPENROUTER_API_KEY),
+      baseURL: "https://openrouter.ai/api/v1",
+      name: "openrouter",
+    });
+    return {
+      provider: "openrouter",
+      selectionMode: status.selectionMode,
+      modelName: env.OPENROUTER_MODEL,
+      model: openrouter.chat(env.OPENROUTER_MODEL),
+    };
+  }
 
   if (status.selected === "ollama") {
     const ollama = createOpenAI({
@@ -235,7 +276,9 @@ export function selectedModel(): SelectedAiModel {
 export function selectedMemoryExtractionModel(): SelectedAiModel | null {
   const env = getOptionalEnv();
   const extractionEnv: AppEnv =
-    env.AI_PROVIDER === "ollama" ? { ...env, AI_PROVIDER: "auto" } : env;
+    env.AI_PROVIDER === "ollama" || env.AI_PROVIDER === "openrouter"
+      ? { ...env, AI_PROVIDER: "auto" }
+      : env;
   const status = cloudProviderStatus(extractionEnv);
   if (!status.selected) return null;
   return selectedCloudModel(extractionEnv, status);

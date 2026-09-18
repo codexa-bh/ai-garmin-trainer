@@ -84,6 +84,73 @@ describe("AI provider selection", () => {
     expect(hasConfiguredSecret("replace-with-openai-key")).toBe(false);
   });
 
+  it("selects OpenRouter only explicitly and rejects missing or placeholder keys", () => {
+    expect(env({}).OPENROUTER_MODEL).toBe("nvidia/nemotron-3.5-lightning:free");
+    expect(() => env({ OPENROUTER_MODEL: "   " })).toThrow();
+    const status = aiProviderStatus(
+      env({
+        AI_PROVIDER: "openrouter",
+        OPENROUTER_API_KEY: "sentinel-router-key",
+      }),
+    );
+    expect(status).toMatchObject({
+      selected: "openrouter",
+      selectionMode: "explicit",
+      modelName: "nvidia/nemotron-3.5-lightning:free",
+      openrouterKeyConfigured: true,
+    });
+    expect(JSON.stringify(status)).not.toContain("sentinel-router-key");
+    for (const key of [undefined, "", "   ", "replace-with-openrouter-key"]) {
+      expect(
+        aiProviderStatus(
+          env({
+            AI_PROVIDER: "openrouter",
+            OPENROUTER_API_KEY: key,
+            DEEPSEEK_API_KEY: "ds-configured",
+          }),
+        ),
+      ).toMatchObject({
+        selected: null,
+        failureClass: "provider.missing_openrouter_key",
+        openrouterKeyConfigured: false,
+      });
+    }
+    expect(
+      aiProviderStatus(env({ OPENROUTER_API_KEY: "sentinel-router-key" }))
+        .selected,
+    ).toBeNull();
+    expect(
+      aiProviderStatus(
+        env({
+          OPENROUTER_API_KEY: "sentinel-router-key",
+          DEEPSEEK_API_KEY: "ds-configured",
+        }),
+      ).selected,
+    ).toBe("deepseek");
+    expect(
+      aiProviderStatus(
+        env({
+          OPENROUTER_API_KEY: "sentinel-router-key",
+          OPENAI_API_KEY: "sk-configured",
+        }),
+      ).selected,
+    ).toBe("openai");
+  });
+
+  it("keeps OpenRouter out of extraction with and without cloud keys", () => {
+    vi.stubEnv("AI_PROVIDER", "openrouter");
+    vi.stubEnv("OPENROUTER_API_KEY", "sentinel-router-key");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("DEEPSEEK_API_KEY", "");
+    expect(selectedMemoryExtractionModel()).toBeNull();
+    vi.stubEnv("OPENAI_API_KEY", "sk-extractor");
+    expect(selectedMemoryExtractionModel()?.provider).toBe("openai");
+    vi.stubEnv("DEEPSEEK_API_KEY", "ds-extractor");
+    expect(selectedMemoryExtractionModel()?.provider).toBe("deepseek");
+    vi.stubEnv("OPENROUTER_API_KEY", "replace-with-openrouter-key");
+    expect(() => selectedModel()).toThrow(/OPENROUTER_API_KEY/);
+  });
+
   it("accepts explicit Ollama chat with local defaults and no cloud key", () => {
     const status = aiProviderStatus(env({ AI_PROVIDER: "ollama" }));
 

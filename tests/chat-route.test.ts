@@ -529,11 +529,15 @@ vi.mock("ai", () => ({
   tool: (definition: unknown) => definition,
 }));
 
+let selectedProvider = "deepseek";
 vi.mock("@/lib/ai/providers", () => ({
   selectedModel: () => ({
     model: "mock-model",
-    provider: "deepseek",
-    modelName: "deepseek-chat",
+    provider: selectedProvider,
+    modelName:
+      selectedProvider === "openrouter"
+        ? "nvidia/nemotron-3.5-lightning:free"
+        : "deepseek-chat",
   }),
 }));
 
@@ -759,6 +763,7 @@ describe("chat route LLM tool orchestration", () => {
     memoryProposals = [];
     retrievedMemories = [];
     memoryAddShouldFail = false;
+    selectedProvider = "deepseek";
     delete process.env.LLM_DEBUG_TRACES;
     generateText.mockClear();
     runGarminSync.mockClear();
@@ -851,6 +856,38 @@ describe("chat route LLM tool orchestration", () => {
     });
     expect(payload.assistant.content).toContain("detail coverage 1/3 terminal");
     expect(generateText).toHaveBeenCalledTimes(2);
+  });
+
+  it("supports the existing guarded tool round trip with OpenRouter metadata", async () => {
+    selectedProvider = "openrouter";
+    const payload = await postChat(
+      "What is my sync status and detail coverage?",
+    );
+    expect(payload.toolSteps?.[0]).toMatchObject({
+      tool: "getSyncStatus",
+      status: "succeeded",
+    });
+    expect(payload.assistant.content).toContain("detail coverage 1/3 terminal");
+    expect(payload.assistant.grounding?.debugTrace).toMatchObject({
+      provider: "openrouter",
+      model: "nvidia/nemotron-3.5-lightning:free",
+    });
+  });
+
+  it("keeps OpenRouter upstream error content out of persisted turns and diagnostics", async () => {
+    selectedProvider = "openrouter";
+    generateText.mockRejectedValueOnce(
+      Object.assign(new Error("provider sentinel-router-key private prompt"), {
+        statusCode: 401,
+      }),
+    );
+    const payload = await postChat("Hello");
+    expect(payload.assistant.content).toContain(
+      "authentication/permission failed",
+    );
+    expect(JSON.stringify(payload)).not.toContain("sentinel-router-key");
+    expect(JSON.stringify(messages)).not.toContain("private prompt");
+    expect(runReadOnlySql).not.toHaveBeenCalled();
   });
 
   it("persists and returns bounded debug traces by default", async () => {
