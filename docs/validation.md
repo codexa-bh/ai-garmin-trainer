@@ -1,5 +1,9 @@
 # Local validation and smoke checklist
 
+Blocking local/private-CI gate: `npm ci && npm run validate`. See
+[project guardrails](project-guardrails.md) for selected lint/SonarJS rules,
+architecture boundaries, Knip coverage and false-positive handling.
+
 Automated validation:
 
 ```bash
@@ -8,6 +12,7 @@ npm run db:status -- --json
 npm run bootstrap:local -- --prepare-only
 npm run format
 npm run lint
+npm run knip
 npm run typecheck
 npm run test
 npm run eval:reliability

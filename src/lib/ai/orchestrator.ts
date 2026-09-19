@@ -51,7 +51,7 @@ import {
   type TrainerProgressCounters,
 } from "./trainer-progress";
 
-export type OrchestrateTrainerStatus = (
+type OrchestrateTrainerStatus = (
   message: string,
   counters?: TrainerProgressCounters,
 ) => void;

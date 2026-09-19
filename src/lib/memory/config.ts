@@ -54,7 +54,7 @@ function embeddingModel(provider: EmbeddingProvider, env: AppEnv): string {
   return env.MEMORY_EMBEDDING_MODEL;
 }
 
-export function memoryUserDisabled(): boolean {
+function memoryUserDisabled(): boolean {
   return getAppMetadata(DISABLED_METADATA_KEY) === "true";
 }
 

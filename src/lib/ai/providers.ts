@@ -10,8 +10,8 @@ import {
 export const OLLAMA_CHAT_DEFAULT_MODEL = "qwen3.5:4b";
 export const OLLAMA_CHAT_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
 
-export type AiProviderName = "deepseek" | "openai" | "ollama" | "openrouter";
-export type AiProviderSelectionMode = "default" | "fallback" | "explicit";
+type AiProviderName = "deepseek" | "openai" | "ollama" | "openrouter";
+type AiProviderSelectionMode = "default" | "fallback" | "explicit";
 
 export type AiProviderStatus = {
   requested: AppEnv["AI_PROVIDER"];

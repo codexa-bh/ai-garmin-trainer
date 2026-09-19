@@ -38,7 +38,7 @@ export type LlmDebugTrace = {
   truncated?: boolean;
 };
 
-export const LLM_DEBUG_TRACE_CAPS = {
+const LLM_DEBUG_TRACE_CAPS = {
   string: 1200,
   finalAnswer: 4000,
   userRequest: 2000,
@@ -66,7 +66,7 @@ function compactString(value: string, max: number): BoundedResult {
   return { value: `${compact.slice(0, max - 1)}…`, truncated: true };
 }
 
-export function boundedDebugValue(
+function boundedDebugValue(
   value: unknown,
   depth: number = LLM_DEBUG_TRACE_CAPS.depth,
 ): BoundedResult {

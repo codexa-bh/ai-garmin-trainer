@@ -89,9 +89,9 @@ describe("embedded SQLite semantic memory adapter", () => {
       toolCalls: [],
     });
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
-    await module.trainerMemoryStore().addCompletedTurn({
+    await adapterModule.trainerMemoryStore().addCompletedTurn({
       conversationId: "llm-chat",
       userMessageId: "u-llm",
       assistantMessageId: "a-llm",
@@ -130,9 +130,9 @@ describe("embedded SQLite semantic memory adapter", () => {
       toolCalls: [],
     });
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
-    await module.trainerMemoryStore().addCompletedTurn({
+    await adapterModule.trainerMemoryStore().addCompletedTurn({
       conversationId: "llm-assistant-context",
       userMessageId: "u-llm-assistant-context",
       assistantMessageId: "a-llm-assistant-context",
@@ -175,9 +175,9 @@ describe("embedded SQLite semantic memory adapter", () => {
       toolCalls: [],
     });
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
-    await module.trainerMemoryStore().addCompletedTurn({
+    await adapterModule.trainerMemoryStore().addCompletedTurn({
       conversationId: "llm-none",
       userMessageId: "u-none",
       assistantMessageId: "a-none",
@@ -200,9 +200,9 @@ describe("embedded SQLite semantic memory adapter", () => {
       toolCalls: [],
     });
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
-    await module.trainerMemoryStore().addCompletedTurn({
+    await adapterModule.trainerMemoryStore().addCompletedTurn({
       conversationId: "llm-fallback",
       userMessageId: "u-fallback",
       assistantMessageId: "a-fallback",
@@ -237,9 +237,9 @@ describe("embedded SQLite semantic memory adapter", () => {
       toolCalls: [],
     });
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
-    await module.trainerMemoryStore().addCompletedTurn({
+    await adapterModule.trainerMemoryStore().addCompletedTurn({
       conversationId: "llm-dedupe",
       userMessageId: "u-dedupe",
       assistantMessageId: "a-dedupe",
@@ -265,9 +265,9 @@ describe("embedded SQLite semantic memory adapter", () => {
     process.env.OLLAMA_MODEL = "qwen3.5:4b";
     process.env.OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1";
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
-    await module.trainerMemoryStore().addCompletedTurn({
+    await adapterModule.trainerMemoryStore().addCompletedTurn({
       conversationId: "ollama-extraction-fallback",
       userMessageId: "u-ollama-extraction",
       assistantMessageId: "a-ollama-extraction",
@@ -291,10 +291,10 @@ describe("embedded SQLite semantic memory adapter", () => {
 
   it("honors deterministic and off memory extraction modes", async () => {
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
     process.env.MEMORY_EXTRACTION_MODE = "deterministic";
     process.env.DEEPSEEK_API_KEY = "sk-test-deepseek";
-    await module.trainerMemoryStore().addCompletedTurn({
+    await adapterModule.trainerMemoryStore().addCompletedTurn({
       conversationId: "mode-deterministic",
       userMessageId: "u-mode-1",
       assistantMessageId: "a-mode-1",
@@ -305,7 +305,7 @@ describe("embedded SQLite semantic memory adapter", () => {
     expect(aiMocks.generateText).not.toHaveBeenCalled();
 
     process.env.MEMORY_EXTRACTION_MODE = "off";
-    await module.trainerMemoryStore().addCompletedTurn({
+    await adapterModule.trainerMemoryStore().addCompletedTurn({
       conversationId: "mode-off",
       userMessageId: "u-mode-2",
       assistantMessageId: "a-mode-2",
@@ -340,9 +340,9 @@ describe("embedded SQLite semantic memory adapter", () => {
       ),
     );
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
-    await module.trainerMemoryStore().addCompletedTurn({
+    await adapterModule.trainerMemoryStore().addCompletedTurn({
       conversationId: "ollama-chat",
       userMessageId: "u-ollama",
       assistantMessageId: "a-ollama",
@@ -377,9 +377,9 @@ describe("embedded SQLite semantic memory adapter", () => {
           ),
       ),
     );
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
-    const health = await module.trainerMemoryStore().health();
+    const health = await adapterModule.trainerMemoryStore().health();
 
     expect(health).toMatchObject({
       ready: false,
@@ -402,10 +402,10 @@ describe("embedded SQLite semantic memory adapter", () => {
           }),
       ),
     );
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
     await expect(
-      module.trainerMemoryStore().addCompletedTurn({
+      adapterModule.trainerMemoryStore().addCompletedTurn({
         conversationId: "ollama-invalid",
         userMessageId: "u-invalid",
         assistantMessageId: "a-invalid",
@@ -418,8 +418,8 @@ describe("embedded SQLite semantic memory adapter", () => {
 
   it("stores concise corrections and temporary plans without assistant prose", async () => {
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
-    const store = module.trainerMemoryStore();
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
+    const store = adapterModule.trainerMemoryStore();
 
     await store.addCompletedTurn({
       conversationId: "correction-chat",
@@ -461,8 +461,8 @@ describe("embedded SQLite semantic memory adapter", () => {
 
   it("skips Garmin/tool-heavy and low-value transient turns", async () => {
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
-    const store = module.trainerMemoryStore();
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
+    const store = adapterModule.trainerMemoryStore();
 
     await store.addCompletedTurn({
       conversationId: "ranking-chat",
@@ -492,7 +492,7 @@ describe("embedded SQLite semantic memory adapter", () => {
   it("migrates only active confirmed legacy memories idempotently", async () => {
     const repository = await import("../src/lib/db/repository");
     const { LOCAL_MEMORY_USER_ID } = await import("../src/lib/memory/types");
-    const module = await import("../src/lib/memory/sqlite-adapter");
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 
     const confirmed = repository.createTrainerMemoryProposal({
       category: "learned_preference",
@@ -509,7 +509,7 @@ describe("embedded SQLite semantic memory adapter", () => {
     });
     repository.rejectTrainerMemory(rejected.id);
 
-    const store = module.trainerMemoryStore();
+    const store = adapterModule.trainerMemoryStore();
     await store.search(
       "What recovery rides do I prefer?",
       { userId: LOCAL_MEMORY_USER_ID },
@@ -532,8 +532,8 @@ describe("embedded SQLite semantic memory adapter", () => {
 
   it("delete and clear take effect before the next retrieval", async () => {
     const { LOCAL_MEMORY_USER_ID } = await import("../src/lib/memory/types");
-    const module = await import("../src/lib/memory/sqlite-adapter");
-    const store = module.trainerMemoryStore();
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
+    const store = adapterModule.trainerMemoryStore();
     await store.addCompletedTurn({
       conversationId: "chat-delete",
       userMessageId: "u-delete",
@@ -570,8 +570,8 @@ describe("embedded SQLite semantic memory adapter", () => {
 
   it("does not invent memory for generic discussion turns", async () => {
     const repository = await import("../src/lib/db/repository");
-    const module = await import("../src/lib/memory/sqlite-adapter");
-    const store = module.trainerMemoryStore();
+    const adapterModule = await import("../src/lib/memory/sqlite-adapter");
+    const store = adapterModule.trainerMemoryStore();
     await store.addCompletedTurn({
       conversationId: "delete-chat",
       userMessageId: "u-conv-delete",

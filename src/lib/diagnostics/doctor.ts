@@ -23,8 +23,8 @@ import {
 } from "../memory/config";
 import { redactDiagnosticValue } from "./redaction";
 
-export type DoctorStatus = "pass" | "warn" | "fail";
-export type DoctorCheck = {
+type DoctorStatus = "pass" | "warn" | "fail";
+type DoctorCheck = {
   id: string;
   status: DoctorStatus;
   className: string;

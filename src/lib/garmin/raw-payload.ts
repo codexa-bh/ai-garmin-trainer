@@ -85,12 +85,6 @@ export function redactGarminRawPayload(
   };
 }
 
-export function payloadHasSecretLikeText(value: unknown): boolean {
-  return SECRET_VALUE_PATTERN.test(
-    typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
-  );
-}
-
 function tryParseJson(value: string): unknown {
   const trimmed = value.trim();
   if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value;

@@ -84,6 +84,27 @@ afterEach(async () => {
 });
 
 describe("conversation sidebar SSR hydration", () => {
+  it("restores the persisted selection without hydration errors or repeated startup requests", async () => {
+    window.localStorage.setItem(
+      "trainer.activeConversationId",
+      "saved-selection",
+    );
+    const evidence = await hydrateConversations();
+    expect(evidence.recoverableError).not.toHaveBeenCalled();
+    expect(evidence.consoleError).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("trainer.activeConversationId")).toBe(
+      "saved-selection",
+    );
+    expect(
+      evidence.fetchMock.mock.calls.some(([url]) =>
+        String(url).startsWith("/api/conversations/saved-selection?"),
+      ),
+    ).toBe(true);
+    const before = evidence.fetchMock.mock.calls.length;
+    await act(async () => root?.render(<TrainerDashboard />));
+    expect(evidence.fetchMock).toHaveBeenCalledTimes(before);
+  });
+
   it.each([
     ["clock drift", "2026-09-18T00:00:02Z", "en-US", "UTC"],
     ["locale/timezone drift", "2026-09-17T23:59:58Z", "en-GB", "Europe/London"],

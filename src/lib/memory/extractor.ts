@@ -72,7 +72,7 @@ export function memoryExtractionMode(): MemoryExtractionMode {
   return raw === "deterministic" || raw === "off" ? raw : "llm";
 }
 
-export function memoryExtractionTimeoutMs(): number {
+function memoryExtractionTimeoutMs(): number {
   const env = getOptionalEnv();
   const raw = process.env.MEMORY_EXTRACTION_TIMEOUT_MS ?? env.MEMORY_TIMEOUT_MS;
   const parsed = Number.parseInt(raw, 10);

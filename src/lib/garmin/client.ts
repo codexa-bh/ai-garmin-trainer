@@ -3,8 +3,6 @@ import { garminTokenEnvironment, inspectTokenLocation } from "./token-location";
 import { getOptionalEnv } from "../env";
 import {
   GARMIN_MCP_COMMIT,
-  GARMIN_MCP_DEFAULT_ARGS_STRING,
-  GARMIN_MCP_EXECUTABLE,
   GARMIN_MCP_PACKAGE_URL,
   GARMIN_MCP_SDK_REQUIREMENT,
   GARMIN_MCP_SDK_VERSION,
@@ -15,8 +13,6 @@ import type { GarminReadOperation } from "./types";
 
 export {
   GARMIN_MCP_COMMIT,
-  GARMIN_MCP_DEFAULT_ARGS_STRING,
-  GARMIN_MCP_EXECUTABLE,
   GARMIN_MCP_PACKAGE_URL,
   GARMIN_MCP_SDK_REQUIREMENT,
   GARMIN_MCP_SDK_VERSION,
@@ -24,7 +20,7 @@ export {
   garminMcpArgs as mcpArgs,
   garminMcpSdkConstraintStatus,
 };
-export const READ_OPERATION_ALLOWLIST = new Set<GarminReadOperation>([
+const READ_OPERATION_ALLOWLIST = new Set<GarminReadOperation>([
   "list_activities",
   "get_sleep",
   "get_rhr",

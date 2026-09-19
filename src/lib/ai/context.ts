@@ -28,7 +28,7 @@ function compactText(value: string, maxLength: number): string {
     : compacted;
 }
 
-export const DEFAULT_ACTIVE_CHAT_CONTEXT_CHAR_BUDGET = 6000;
+const DEFAULT_ACTIVE_CHAT_CONTEXT_CHAR_BUDGET = 6000;
 
 function renderConversationMessage(message: RecentConversationMessage): string {
   const grounding = message.grounding?.tool

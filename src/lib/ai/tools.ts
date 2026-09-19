@@ -262,8 +262,6 @@ export const trainerToolDefinitions = {
   }),
 } satisfies Record<TrainerToolName, unknown>;
 
-export const trainerTools = trainerToolDefinitions;
-
 export type TrainerToolStepName = TrainerToolName | "providerToolSelection";
 
 export type TrainerToolSelectionMetadata = {

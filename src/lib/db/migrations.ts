@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 
 export const LATEST_SCHEMA_VERSION = 15;
-export const SCHEMA_VERSION_KEY = "schema_version";
+const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
 
@@ -15,16 +15,6 @@ const ACTIVITY_STREAM_POINT_TABLE_SQL = `create table if not exists activity_str
 
 const BODY_METRICS_SCHEMA_SQL = [
   `create table if not exists garmin_body_metrics (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, weight_kg real, height_cm real, history_availability text not null, history_range_start text, history_range_end text, history_count integer not null default 0)`,
-  `create table if not exists garmin_body_metric_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0)`,
-  `create table if not exists garmin_body_weight_history (date text primary key, weight_kg real not null, source text not null, fetched_at integer not null)`,
-];
-
-// Full body-metrics shape including weigh-in source columns; used only by the
-// unused createSchemaSql() fresh-schema helper. The migrateDatabase chain keeps
-// the legacy shape in migration 1/10 and evolves it with migration 14 alters so
-// fresh DBs do not hit duplicate-column errors.
-const BODY_METRICS_FULL_SCHEMA_SQL = [
-  `create table if not exists garmin_body_metrics (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, weight_kg real, height_cm real, history_availability text not null, history_range_start text, history_range_end text, history_count integer not null default 0, history_source text, current_weight_source text, weigh_in_availability text)`,
   `create table if not exists garmin_body_metric_attempt (id text primary key default 'default', attempted_at integer not null, completed_at integer, status text not null, error_message text, preserved_previous integer not null default 0)`,
   `create table if not exists garmin_body_weight_history (date text primary key, weight_kg real not null, source text not null, fetched_at integer not null)`,
 ];
@@ -99,13 +89,13 @@ const BASE_SCHEMA_SQL = [
   `create table if not exists app_metadata (key text primary key, value text not null, updated_at integer not null)`,
 ];
 
-export type SchemaMigration = {
+type SchemaMigration = {
   version: number;
   name: string;
   statements: string[];
 };
 
-export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
+const SCHEMA_MIGRATIONS: SchemaMigration[] = [
   {
     version: 1,
     name: "source_beta_foundation",
@@ -233,19 +223,6 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
   },
 ];
 
-export function createSchemaSql(): string[] {
-  return [
-    ...BASE_SCHEMA_SQL.map((statement) =>
-      statement === LEGACY_ATHLETE_BASELINE_TABLE_SQL
-        ? ATHLETE_BASELINE_TABLE_SQL
-        : statement === BODY_METRICS_SCHEMA_SQL[0]
-          ? BODY_METRICS_FULL_SCHEMA_SQL[0]
-          : statement,
-    ),
-    `insert into app_metadata (key, value, updated_at) values ('${SCHEMA_VERSION_KEY}', '${LATEST_SCHEMA_VERSION}', strftime('%s','now') * 1000) on conflict(key) do update set value=excluded.value, updated_at=excluded.updated_at`,
-  ];
-}
-
 function hasTable(db: Database.Database, table: string): boolean {
   const row = db
     .prepare("select name from sqlite_master where type = 'table' and name = ?")
@@ -290,7 +267,7 @@ export function currentSchemaVersion(db: Database.Database): number {
   return Number.isFinite(version) ? version : 0;
 }
 
-export function setSchemaVersion(
+function setSchemaVersion(
   db: Database.Database,
   version: number,
   now = Date.now(),
