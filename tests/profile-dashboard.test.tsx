@@ -264,6 +264,48 @@ describe("app metadata", () => {
 });
 
 describe("TrainerDashboard Profile hydration", () => {
+  it("keeps domain errors and retry behavior through handled async UI adapters", async () => {
+    let failing = false;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile")
+        return failing
+          ? Promise.reject(new Error("Profile temporarily unavailable"))
+          : jsonResponse(profile());
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Goals") as HTMLTextAreaElement).value,
+      ).toBe("Build hiking endurance"),
+    );
+    failing = true;
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reload saved Profile" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getAllByText(/Profile temporarily unavailable/).length,
+      ).toBeGreaterThan(0),
+    );
+    expect(
+      screen.queryByText(/Unexpected background action failure/),
+    ).toBeNull();
+    failing = false;
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reload saved Profile" }),
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Goals") as HTMLTextAreaElement).value,
+      ).toBe("Build hiking endurance"),
+    );
+  });
+
   it("loads a saved Profile on no-auth startup but keeps it hidden until Data & settings opens", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);

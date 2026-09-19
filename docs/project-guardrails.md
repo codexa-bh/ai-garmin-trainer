@@ -1,7 +1,8 @@
 # Blocking project guardrails
 
 `npm ci && npm run validate` is the reproducible Node 22 local/private-CI path.
-Validation runs Prettier, ESLint (zero warnings), Knip, Next type generation and
+Validation runs Prettier, ESLint (zero warnings), the runtime architecture graph,
+Knip, Next type generation and
 strict TypeScript, Vitest, then the production build. Checks do not rewrite
 source; type generation/build produce ignored framework output. Formatting fixes
 are an explicit separate `npx prettier --write <files>` action.
@@ -26,6 +27,21 @@ selected: the project has no measured numerical complexity budget, and cohesion
 is not a function-size contest. These are selection decisions, not a grandfathered
 baseline or per-file debt waiver.
 
+## Typed asynchronous work
+
+All TS/TSX application, tests and tooling use the real `tsconfig.json` project.
+`no-floating-promises` (`ignoreVoid: false`), `no-misused-promises` (including
+void callbacks/JSX) and `await-thenable` are errors. JS/MJS/CJS remain untyped.
+No generated Next files are needed for lint; typecheck still generates them.
+Await or return promises when sequencing/propagation is intended. Background work
+must attach a meaningful rejection handler, not an empty catch or bare `void`.
+The small type-aware `async/no-void-promise` rule also rejects promise erasure in
+concise arrow returns, which statement-oriented floating-promise checks miss.
+It does not reject void applied to synchronous values. Dashboard event/effect
+adapters preserve existing domain errors and cancellation; their final rejection
+boundary reports a sanitized unexpected-failure status without response content.
+Synchronous SQLite calls remain synchronous.
+
 ## Architecture boundaries
 
 `architecture/boundaries` in `scripts/eslint-architecture.mjs` enforces direct
@@ -36,21 +52,38 @@ runtime dependencies in `src`:
   Shared pure helpers and erased type imports remain available.
 - Storage (`src/lib/db`) cannot import AI modules, `ai` or `@ai-sdk/*` at runtime.
   It can use type-only contracts, normalization and persistence dependencies.
-- Bounded `math-analysis.ts` cannot acquire runtime imports. It uses only
-  same-turn rows, erased types and pure built-in operations. Scope-aware
-  `no-restricted-globals` rejects ambient process, network, global-object and
-  code-execution entrypoints; local shadowed identifiers are not capabilities.
+  `npm run architecture` adds blocking transitive enforcement over first-party
+  `src/**` runtime modules. Every client root and every storage module is checked
+  through intermediate helpers/barrels, and runtime cycles (including self-cycles)
+  fail anywhere in src. Diagnostics include a deterministic offending path/cycle.
+  Tests/tooling are linted but are not runtime cycle roots.
 
-The AST check resolves `@/` and relative paths (including normalized `..`),
-static imports/re-exports, literal dynamic imports, unshadowed `require`, and TS
-import-equals. Nonliteral loader paths in constrained modules fail closed.
-Type-only declarations and inline type specifiers are allowed. Route handlers
-retain legitimate server orchestration. The rule is **not** a transitive module
-graph, arbitrary-loader-alias analysis, object/prototype capability analysis,
-filesystem sandbox, or proof of privacy/coaching semantics. Review indirect
-helpers and new capability surfaces as architecture changes; do not rely on lint
-alone for security. Tests exercise both allowed and rejected syntax through the
-actual flat config and TS/TSX routing.
+Bounded `math-analysis.ts` may now import **verified pure local helpers**. Its
+entire reachable runtime closure must remain free of database, filesystem,
+network, process/environment, connector and code-execution capabilities. Shared
+scope-aware `no-restricted-globals` policy checks ambient process, fetch, global
+objects, browser network APIs, require, eval and Function in every reachable
+helper; lexical shadowing remains legal. All external packages/Node builtins and
+assets are opaque, not certified pure, and are rejected in the math closure.
+No helper extraction is required merely to use this allowance.
+
+TypeScript resolution follows the repository aliases, relative extension/index
+resolution and canonical file identities. Shared AST visitors cover imports,
+re-exports, literal import(), unshadowed require and TS import-equals. Explicit
+erased type declarations/specifiers contribute no edges; mixed imports do.
+Use explicit `import type`/`export type` for contracts: inferred type use is
+conservatively treated as a runtime dependency. Missing local modules are errors.
+Nonliteral loaders or modules outside the analyzable src closure fail closed in
+constrained closures. Existing Next relative CSS/static assets are leaf edges,
+never pure math helpers. No application module is executed by the checker.
+
+This is **not** package-internal analysis, arbitrary-loader-alias or computed
+object/prototype/callback capability-flow proof, a filesystem sandbox, or proof
+of privacy/coaching semantics. Aliased loaders and capabilities passed as values
+require review; do not rely on static checks alone for security. No arbitrary
+external package is claimed pure. Direct rules retain quick editor feedback;
+the aggregate gate must always include the graph. Regression tests exercise
+real project-backed typed lint probes and positive/negative graph fixtures.
 
 ## Knip
 

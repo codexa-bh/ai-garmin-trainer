@@ -4,6 +4,8 @@ import sonarjs from "eslint-plugin-sonarjs";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 import architecture from "./scripts/eslint-architecture.mjs";
+import noVoidPromise from "./scripts/eslint-async.mjs";
+import { ambientCapabilities } from "./scripts/architecture-policy.mjs";
 
 const config = [
   {
@@ -44,26 +46,32 @@ const config = [
     },
   },
   {
+    files: ["**/*.{ts,tsx}"],
+    plugins: { async: { rules: { "no-void-promise": noVoidPromise } } },
+    languageOptions: {
+      parserOptions: {
+        project: "./tsconfig.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": [
+        "error",
+        { ignoreVoid: false },
+      ],
+      "@typescript-eslint/no-misused-promises": "error",
+      "@typescript-eslint/await-thenable": "error",
+      "async/no-void-promise": "error",
+    },
+  },
+  {
     files: ["src/app/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
     languageOptions: { globals: globals.browser },
   },
   {
     files: ["src/lib/ai/math-analysis.ts"],
     rules: {
-      "no-restricted-globals": [
-        "error",
-        "process",
-        "fetch",
-        "globalThis",
-        "global",
-        "window",
-        "document",
-        "XMLHttpRequest",
-        "WebSocket",
-        "require",
-        "eval",
-        "Function",
-      ],
+      "no-restricted-globals": ["error", ...ambientCapabilities],
     },
   },
 ];

@@ -9,6 +9,7 @@
     "restart:local": "bash scripts/restart-local.sh",
     "build": "next build",
     "lint": "eslint . --max-warnings=0",
+    "architecture": "node scripts/architecture-check.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "format": "prettier --check .",
@@ -16,7 +17,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "deps:evidence": "tsx scripts/dependency-evidence.ts",
     "eval:reliability": "tsx scripts/evaluate-coaching.ts",
-    "validate": "npm run format && npm run lint && npm run knip && npm run typecheck && npm run test && npm run build",
+    "validate": "npm run format && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test && npm run build",
     "backfill:activity-effort": "tsx scripts/backfill-activity-effort.ts",
     "knip": "knip"
   },
