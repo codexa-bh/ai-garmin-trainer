@@ -51,7 +51,11 @@ content on first use and isolated programs on subsequent calls, whereas the
 watch-program host keeps current overlay text and imported types. Production
 CLI lint keeps its normal single-run optimization. Reproduce the suite with
 `CI=true npx vitest run tests/guardrails.test.ts`; tests include successive
-invalid/valid/invalid overlays with imported promise types.
+invalid/valid/invalid overlays with imported promise types. Cold TypeScript
+project initialization runs once in a `beforeAll` hook with a 30-second setup
+budget; individual rule probes retain the normal five-second test timeout.
+Hosted startup exceeded five seconds in the first test, so project setup must
+not be charged to that assertion. Initialization failures still fail the suite.
 
 ## Architecture boundaries
 

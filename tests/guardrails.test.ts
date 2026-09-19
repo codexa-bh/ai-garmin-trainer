@@ -3,9 +3,6 @@ import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-// Exercise CI inference even in a developer's ordinary local test run.
-beforeAll(() => vi.stubEnv("CI", "true"));
-
 // Real project-backed files must exist before the parser builds its TS program.
 const probeFiles = [
   "src/app/guardrail-probe.tsx",
@@ -47,6 +44,14 @@ const clientFile = "src/app/guardrail-probe.tsx";
 const storageFile = "src/lib/db/guardrail-probe.ts";
 const mathFile = "src/lib/ai/math-analysis.ts";
 const boundary = "architecture/boundaries";
+
+// Building the real TypeScript project is suite setup, not a 5s rule probe.
+// Hosted cold starts can exceed that test budget; keep each assertion's normal
+// timeout and give only project initialization a separate bounded setup budget.
+beforeAll(async () => {
+  vi.stubEnv("CI", "true");
+  expect(await rules("export {};", clientFile)).toEqual([]);
+}, 30_000);
 
 describe("direct architecture boundaries", () => {
   it.each([
