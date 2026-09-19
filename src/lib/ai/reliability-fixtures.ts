@@ -1,4 +1,4 @@
-export type ReliabilitySeverity = "critical" | "high" | "medium" | "low";
+type ReliabilitySeverity = "critical" | "high" | "medium" | "low";
 
 export type ReliabilityFixture = {
   id: string;

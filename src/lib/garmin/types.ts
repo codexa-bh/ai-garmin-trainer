@@ -109,14 +109,6 @@ export type GarminAthleteBaselineSnapshot = {
   values: GarminAthleteBaselineValues;
 };
 
-export type GarminAthleteBaselineAttempt = {
-  status: GarminAthleteBaselineAvailability;
-  attemptedAt: Date;
-  completedAt: Date | null;
-  errorMessage: string | null;
-  preservedPrevious: boolean;
-};
-
 export type GarminAthleteBaselineDto = {
   availability: GarminAthleteBaselineAvailability;
   source: "garmin_mcp" | null;

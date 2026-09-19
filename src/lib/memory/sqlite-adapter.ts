@@ -175,7 +175,7 @@ function mapRow(
   return memorySafeToRender(item) ? item : null;
 }
 
-export class SqliteTrainerMemoryStore implements TrainerMemoryStore {
+class SqliteTrainerMemoryStore implements TrainerMemoryStore {
   private readonly config: MemoryRuntimeConfig;
 
   constructor(config: MemoryRuntimeConfig = memoryRuntimeConfig()) {

@@ -16,13 +16,14 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "deps:evidence": "tsx scripts/dependency-evidence.ts",
     "eval:reliability": "tsx scripts/evaluate-coaching.ts",
-    "validate": "npm run format && npm run lint && npm run typecheck && npm run test && npm run build",
-    "backfill:activity-effort": "tsx scripts/backfill-activity-effort.ts"
+    "validate": "npm run format && npm run lint && npm run knip && npm run typecheck && npm run test && npm run build",
+    "backfill:activity-effort": "tsx scripts/backfill-activity-effort.ts",
+    "knip": "knip"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "3.0.11",
     "@ai-sdk/openai": "4.0.15",
-    "@ai-sdk/react": "4.0.32",
+    "@next/env": "16.2.10",
     "ai": "7.0.29",
     "better-sqlite3": "12.11.1",
     "drizzle-orm": "0.45.2",
@@ -34,7 +35,6 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "3.3.6",
     "@eslint/js": "9.39.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "16.3.2",
@@ -45,8 +45,10 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.1",
     "eslint-config-next": "16.2.10",
+    "eslint-plugin-sonarjs": "4.2.1",
     "globals": "16.5.0",
     "jsdom": "29.1.1",
+    "knip": "6.37.0",
     "prettier": "3.9.5",
     "tsx": "4.23.1",
     "typescript": "5.9.3",

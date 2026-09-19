@@ -1,4 +1,4 @@
-export type CoachingScenarioDomain =
+type CoachingScenarioDomain =
   | "endurance"
   | "strength"
   | "recovery"

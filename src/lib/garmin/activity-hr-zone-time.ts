@@ -1,6 +1,6 @@
-export type ActivityHrZoneNumber = 1 | 2 | 3 | 4 | 5;
+type ActivityHrZoneNumber = 1 | 2 | 3 | 4 | 5;
 
-export type NormalizedActivityHrZoneTimeBucket = {
+type NormalizedActivityHrZoneTimeBucket = {
   zone: ActivityHrZoneNumber;
   seconds: number;
   sourceLowerBpm: number | null;

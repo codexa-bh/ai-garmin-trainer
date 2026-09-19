@@ -5,7 +5,7 @@ import { getDatabase } from "@/lib/db/repository";
 export type AnalysisCell = string | number | boolean | null;
 export type AnalysisRow = Record<string, AnalysisCell>;
 
-export type AnalysisColumnDescriptor = {
+type AnalysisColumnDescriptor = {
   name: string;
   type?: string;
   unit?: string;
@@ -31,7 +31,7 @@ export type AnalysisResult = {
   privacy: string;
 };
 
-export type SchemaTableDescriptor = {
+type SchemaTableDescriptor = {
   name: string;
   description: string;
   rowCount: number;
@@ -50,7 +50,7 @@ export type GarminDatabaseDescription = {
   privacy: string;
 };
 
-export const SQL_LIMITS = {
+const SQL_LIMITS = {
   maxSqlBytes: 6000,
   defaultRows: 50,
   maxRows: 200,

@@ -1,4 +1,4 @@
-import { getOptionalEnv, requireRuntimeEnv } from "../env";
+import { requireRuntimeEnv } from "../env";
 import {
   activityDetailCoverage,
   dataCounts,
@@ -85,7 +85,7 @@ export type GarminSyncResult = {
   detail: string;
 };
 
-export type GarminSyncProgress = {
+type GarminSyncProgress = {
   stage:
     | "starting"
     | "athlete"
@@ -911,9 +911,4 @@ export async function backfillActivityDetail(
   } finally {
     client.close();
   }
-}
-
-export function garminSyncPlan(): string {
-  const env = getOptionalEnv();
-  return `Pinned command: ${env.GARMIN_MCP_COMMAND} ${env.GARMIN_MCP_ARGS}; start date ${env.GARMIN_HISTORY_START_DATE ?? "missing"}`;
 }

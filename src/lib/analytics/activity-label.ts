@@ -1,15 +1,13 @@
 import type { NormalizedActivity } from "../garmin/types";
 
-export type ActivityLabelSource = "garmin" | "fallback";
+type ActivityLabelSource = "garmin" | "fallback";
 
 export type ActivityDisplayLabel = {
   label: string;
   labelSource: ActivityLabelSource;
 };
 
-export function activityDate(
-  activity: Pick<NormalizedActivity, "startedAt">,
-): string {
+function activityDate(activity: Pick<NormalizedActivity, "startedAt">): string {
   return activity.startedAt.toISOString().slice(0, 10);
 }
 

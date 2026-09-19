@@ -7,12 +7,14 @@ import {
   type RefObject,
   type UIEvent,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { HealthRollupChart } from "./health-rollup-chart";
+import { useActiveConversation } from "./use-active-conversation";
 import {
   validProgressCounters,
   type TrainerProgress,
@@ -1111,13 +1113,7 @@ function HealthDashboardView({
         ? rollups[0].label
         : `${rollups[0].label} – ${rollups[rollups.length - 1].label}`;
 
-  useEffect(() => {
-    setRollupPage(0);
-  }, [rollupMode]);
-
-  useEffect(() => {
-    setRollupPage((page) => Math.min(page, maxRollupPage));
-  }, [maxRollupPage]);
+  if (rollupPage !== clampedRollupPage) setRollupPage(clampedRollupPage);
 
   return (
     <div className="health-dashboard-body">
@@ -1131,7 +1127,10 @@ function HealthDashboardView({
             key={item}
             type="button"
             className={`chrome-button ${mode === item ? "active" : ""}`}
-            onClick={() => setMode(item)}
+            onClick={() => {
+              if (item !== mode) setRollupPage(0);
+              setMode(item);
+            }}
             role="tab"
             aria-selected={mode === item}
           >
@@ -1718,13 +1717,11 @@ function MiniLineChart({
     };
   }, [averageLabel, averageValue, formatChartValue, preparedChart]);
 
-  useEffect(() => {
-    setActiveIndex((currentIndex) => {
-      if (currentIndex === null) return null;
-      if (preparedChart.chartPoints.length === 0) return null;
-      return Math.min(currentIndex, preparedChart.chartPoints.length - 1);
-    });
-  }, [preparedChart.chartPoints.length]);
+  const boundedActiveIndex =
+    activeIndex === null || preparedChart.chartPoints.length === 0
+      ? null
+      : Math.min(activeIndex, preparedChart.chartPoints.length - 1);
+  if (activeIndex !== boundedActiveIndex) setActiveIndex(boundedActiveIndex);
 
   if (preparedChart.chartPoints.length < 2) {
     return (
@@ -2066,18 +2063,23 @@ function RouteMap({ route }: { route: ActivityDashboardPayload["route"] }) {
   const canPanRoute = route.status === "available" && svgPoints.length >= 2;
   const panIsCentered = routeMapPanIsCentered(panOffset);
 
-  useEffect(() => {
-    dragStateRef.current = null;
+  const [previousRoute, setPreviousRoute] = useState(route);
+  if (previousRoute !== route) {
+    setPreviousRoute(route);
     setIsDragging(false);
     setMapBackgroundFailed(false);
     setZoomOffset(0);
     setPanOffset(ROUTE_MAP_ZERO_PAN);
+  }
+
+  useEffect(() => {
+    dragStateRef.current = null;
   }, [route]);
 
   useEffect(() => {
+    const routeMapSvg = routeMapSvgRef.current;
     return () => {
       const dragState = dragStateRef.current;
-      const routeMapSvg = routeMapSvgRef.current;
       if (dragState && routeMapSvg?.hasPointerCapture?.(dragState.pointerId)) {
         routeMapSvg.releasePointerCapture(dragState.pointerId);
       }
@@ -2668,7 +2670,7 @@ export function TrainerDashboard() {
   });
   const [message, setMessage] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [conversationId, setConversationId] = useState("default");
+  const [conversationId, setConversationId] = useActiveConversation();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
@@ -2895,20 +2897,35 @@ export function TrainerDashboard() {
   const profileControlsDisabled =
     profileFetchState === "loading" || profileSaveState === "saving";
 
-  useEffect(() => {
-    const savedConversationId = window.localStorage.getItem(
-      "trainer.activeConversationId",
-    );
-    if (savedConversationId) setConversationId(savedConversationId);
+  // These effects react to navigation, not to changing render-local handler
+  // identities. Effect Events read current state without restarting requests.
+  const initializeLocalSession = useEffectEvent(() => {
     void loadConversations(false);
     void loadMemories(false);
     void loadProfile("startup");
     void loadTrainingPlan("startup", false);
     void loadImportSummary("startup", false);
+  });
+  const loadConversationHistory = useEffectEvent((id: string) => {
+    void loadChatHistory(false, id);
+  });
+  const restoreSectionTranscript = useEffectEvent(() =>
+    restoreTranscriptScrollSnapshot(),
+  );
+  const cancelRenameFromKeyboard = useEffectEvent(() =>
+    cancelConversationRename(),
+  );
+  const reloadOpenedPlan = useEffectEvent(() => {
+    void loadTrainingPlan("manual", false);
+  });
+  const reloadActivitySearch = useEffectEvent((query: string) => {
+    void loadActivities(query);
+  });
+  useEffect(() => {
+    initializeLocalSession();
   }, []);
   useEffect(() => {
-    window.localStorage.setItem("trainer.activeConversationId", conversationId);
-    void loadChatHistory(false, conversationId);
+    loadConversationHistory(conversationId);
   }, [conversationId]);
   useLayoutEffect(() => {
     if (!forceNextScrollRef.current && !shouldAutoScrollRef.current) return;
@@ -2919,13 +2936,13 @@ export function TrainerDashboard() {
     if (activityDashboardOpen || trainingPlanOpen || syncOpen) return;
     if (!restoreTranscriptOnSectionReturnRef.current) return;
     restoreTranscriptOnSectionReturnRef.current = false;
-    restoreTranscriptScrollSnapshot();
+    restoreSectionTranscript();
   }, [activityDashboardOpen, trainingPlanOpen, syncOpen]);
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       if (renameTarget) {
-        cancelConversationRename();
+        cancelRenameFromKeyboard();
         return;
       }
       if (openConversationMenuId) {
@@ -2992,7 +3009,7 @@ export function TrainerDashboard() {
   useEffect(() => {
     if (trainingPlanOpen) {
       trainingPlanCloseRef.current?.focus();
-      void loadTrainingPlan("manual", false);
+      reloadOpenedPlan();
       return;
     }
     if (trainingPlanReturnFocusRef.current) {
@@ -3037,7 +3054,7 @@ export function TrainerDashboard() {
   }, [syncOpen, syncRun.lines]);
   useEffect(() => {
     if (!activityDashboardOpen) return;
-    void loadActivities(activitySearchQuery);
+    reloadActivitySearch(activitySearchQuery);
   }, [activityDashboardOpen, activitySearchQuery]);
   useEffect(() => {
     if (renameTarget) renameInputRef.current?.focus();

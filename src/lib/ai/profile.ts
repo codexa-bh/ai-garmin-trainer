@@ -7,7 +7,6 @@ const profilePatchSchema = z.object({
   preferences: z.record(z.string(), z.string()).optional(),
   constraints: z.array(z.string()).optional(),
 });
-export type ProfilePatch = z.infer<typeof profilePatchSchema>;
 
 export function applyProfilePatch(
   current: TrainerProfile,
