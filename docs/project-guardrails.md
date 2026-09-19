@@ -42,6 +42,17 @@ adapters preserve existing domain errors and cancellation; their final rejection
 boundary reports a sanitized unexpected-failure status without response content.
 Synchronous SQLite calls remain synchronous.
 
+The guardrail test worker explicitly sets `CI=true` so local tests also cover
+CI-specific parser behavior. Its long-lived ESLint API instance sets
+`disallowAutomaticSingleRunInference: true`, preserving the real project, rules
+and routing. This is necessary
+for `lintText()` overlays: the single-run optimization reads on-disk placeholder
+content on first use and isolated programs on subsequent calls, whereas the
+watch-program host keeps current overlay text and imported types. Production
+CLI lint keeps its normal single-run optimization. Reproduce the suite with
+`CI=true npx vitest run tests/guardrails.test.ts`; tests include successive
+invalid/valid/invalid overlays with imported promise types.
+
 ## Architecture boundaries
 
 `architecture/boundaries` in `scripts/eslint-architecture.mjs` enforces direct

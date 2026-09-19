@@ -1,7 +1,10 @@
 import { ESLint } from "eslint";
 import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// Exercise CI inference even in a developer's ordinary local test run.
+beforeAll(() => vi.stubEnv("CI", "true"));
 
 // Real project-backed files must exist before the parser builds its TS program.
 const probeFiles = [
@@ -19,10 +22,21 @@ for (const file of probeFiles) {
 }
 afterAll(() => {
   for (const file of probeFiles) unlinkSync(file);
+  vi.unstubAllEnvs();
 });
 
-// Exercise the real flat config/parser/file routing, not a parallel test config.
-const eslint = new ESLint();
+// Keep real flat-config rules/project/routing, but model this long-lived API
+// caller correctly. CI's single-run optimization reads the on-disk placeholder
+// on the first parse, then uses isolated programs for subsequent lintText calls.
+// Watch-program mode honors each overlay and retains imported type information.
+const eslint = new ESLint({
+  overrideConfig: {
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: { disallowAutomaticSingleRunInference: true },
+    },
+  },
+});
 async function rules(code: string, filePath: string) {
   const [result] = await eslint.lintText(code, { filePath });
   expect(result.fatalErrorCount).toBe(0);
@@ -128,6 +142,20 @@ describe("direct architecture boundaries", () => {
 });
 
 describe("typed async enforcement", () => {
+  it("checks successive overlays with imported types under CI", async () => {
+    expect(process.env.CI).toBe("true");
+    const file = "scripts/probe.ts";
+    const importedPromise =
+      'import { readFile } from "node:fs/promises"; readFile("not-executed.txt");';
+    const handledPromise =
+      'import { readFile } from "node:fs/promises"; export async function read() { return await readFile("not-executed.txt"); }';
+    for (const code of [importedPromise, handledPromise, importedPromise]) {
+      const found = await rules(code, file);
+      if (code === handledPromise) expect(found).toEqual([]);
+      else expect(found).toContain("@typescript-eslint/no-floating-promises");
+    }
+  });
+
   it.each([clientFile, "tests/probe.test.ts", "scripts/probe.ts"])(
     "uses real types in %s",
     async (file) => {
