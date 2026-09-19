@@ -1,5 +1,25 @@
 import { ESLint } from "eslint";
-import { describe, expect, it } from "vitest";
+import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
+import path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+
+// Real project-backed files must exist before the parser builds its TS program.
+const probeFiles = [
+  "src/app/guardrail-probe.tsx",
+  "src/lib/db/guardrail-probe.ts",
+  "src/app/api/example/route.ts",
+  "src/components/probe.tsx",
+  "src/lib/probe.ts",
+  "tests/probe.test.ts",
+  "scripts/probe.ts",
+];
+for (const file of probeFiles) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, "export {};\n", { flag: "wx" });
+}
+afterAll(() => {
+  for (const file of probeFiles) unlinkSync(file);
+});
 
 // Exercise the real flat config/parser/file routing, not a parallel test config.
 const eslint = new ESLint();
@@ -74,13 +94,13 @@ describe("direct architecture boundaries", () => {
     expect(await rules(code, storageFile)).not.toContain(boundary);
   });
 
-  it.each([
-    'import { readFile } from "node:fs"; void readFile;',
-    'export * from "../db/repository";',
-    'void import("@/lib/garmin/client");',
-    'void require("node:child_process");',
-  ])("rejects math runtime imports: %s", async (code) => {
-    expect(await rules(code, mathFile)).toContain(boundary);
+  it("leaves local math imports to the transitive graph gate", async () => {
+    expect(
+      await rules(
+        'import { score } from "./pure-helper"; void score;',
+        mathFile,
+      ),
+    ).not.toContain(boundary);
   });
 
   it.each([
@@ -104,6 +124,85 @@ describe("direct architecture boundaries", () => {
         mathFile,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("typed async enforcement", () => {
+  it.each([clientFile, "tests/probe.test.ts", "scripts/probe.ts"])(
+    "uses real types in %s",
+    async (file) => {
+      for (const code of ["Promise.resolve(1);", "void Promise.resolve(1);"]) {
+        expect(await rules(code, file)).toContain(
+          "@typescript-eslint/no-floating-promises",
+        );
+      }
+      expect(
+        await rules(
+          "[1].forEach(async () => { await Promise.resolve(); });",
+          file,
+        ),
+      ).toContain("@typescript-eslint/no-misused-promises");
+      expect(
+        await rules("if (Promise.resolve(true)) console.log('bad');", file),
+      ).toContain("@typescript-eslint/no-misused-promises");
+      expect(
+        await rules("export async function value() { await 1; }", file),
+      ).toContain("@typescript-eslint/await-thenable");
+      expect(
+        await rules(
+          "export async function value() { await Promise.resolve(1); return Promise.resolve(2); } Promise.resolve().catch((error: unknown) => console.error(error));",
+          file,
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("recognizes fetch promises and genuine thenables", async () => {
+    expect(await rules('fetch("/api/profile");', clientFile)).toContain(
+      "@typescript-eslint/no-floating-promises",
+    );
+    expect(
+      await rules(
+        "declare const work: PromiseLike<number>; export async function value() { return await work; }",
+        "scripts/probe.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  it("checks JSX callbacks and allows synchronous handled adapters", async () => {
+    expect(
+      await rules(
+        "export const view = <button onClick={async () => { await Promise.resolve(); }} />;",
+        clientFile,
+      ),
+    ).toContain("@typescript-eslint/no-misused-promises");
+    expect(
+      await rules(
+        "export const view = <button onClick={() => { Promise.resolve().catch((error: unknown) => console.error(error)); }} />;",
+        clientFile,
+      ),
+    ).toEqual([]);
+  });
+
+  it("closes concise-arrow void promise erasure without banning synchronous void", async () => {
+    expect(
+      await rules(
+        "export const callback = () => void Promise.resolve();",
+        clientFile,
+      ),
+    ).toContain("async/no-void-promise");
+    expect(
+      await rules(
+        "export const callback = () => void ({ then: 1 });",
+        clientFile,
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps JavaScript untyped", async () => {
+    expect(
+      await rules("Promise.resolve();", "scripts/probe.mjs"),
+    ).not.toContain("@typescript-eslint/no-floating-promises");
   });
 });
 

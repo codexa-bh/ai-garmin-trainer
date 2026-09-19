@@ -2897,17 +2897,28 @@ export function TrainerDashboard() {
   const profileControlsDisabled =
     profileFetchState === "loading" || profileSaveState === "saving";
 
+  // Domain handlers retain their own errors/cancellation. This final boundary
+  // handles unexpected rejections without leaking response data or credentials.
+  function runInBackground(work: Promise<unknown>): void {
+    work.catch(() => {
+      setStatus({
+        kind: "error",
+        message: "Unexpected background action failure. Please retry.",
+      });
+    });
+  }
+
   // These effects react to navigation, not to changing render-local handler
   // identities. Effect Events read current state without restarting requests.
   const initializeLocalSession = useEffectEvent(() => {
-    void loadConversations(false);
-    void loadMemories(false);
-    void loadProfile("startup");
-    void loadTrainingPlan("startup", false);
-    void loadImportSummary("startup", false);
+    runInBackground(loadConversations(false));
+    runInBackground(loadMemories(false));
+    runInBackground(loadProfile("startup"));
+    runInBackground(loadTrainingPlan("startup", false));
+    runInBackground(loadImportSummary("startup", false));
   });
   const loadConversationHistory = useEffectEvent((id: string) => {
-    void loadChatHistory(false, id);
+    runInBackground(loadChatHistory(false, id));
   });
   const restoreSectionTranscript = useEffectEvent(() =>
     restoreTranscriptScrollSnapshot(),
@@ -2916,10 +2927,10 @@ export function TrainerDashboard() {
     cancelConversationRename(),
   );
   const reloadOpenedPlan = useEffectEvent(() => {
-    void loadTrainingPlan("manual", false);
+    runInBackground(loadTrainingPlan("manual", false));
   });
   const reloadActivitySearch = useEffectEvent((query: string) => {
-    void loadActivities(query);
+    runInBackground(loadActivities(query));
   });
   useEffect(() => {
     initializeLocalSession();
@@ -3297,7 +3308,7 @@ export function TrainerDashboard() {
     captureTranscriptScrollSnapshot();
     setHealthDashboardOpen(true);
     if (healthDashboardData === null && healthDashboardState === "idle") {
-      void loadHealthDashboard();
+      runInBackground(loadHealthDashboard());
     }
   }
 
@@ -3935,7 +3946,9 @@ export function TrainerDashboard() {
     if (remaining > ACTIVITY_LIST_SCROLL_THRESHOLD_PX) return;
     if (activityListState === "loading" || isActivityListLoadingMore) return;
     if (activityListNextOffset === null) return;
-    void loadActivities(activitySearchQuery, activityListNextOffset, true);
+    runInBackground(
+      loadActivities(activitySearchQuery, activityListNextOffset, true),
+    );
   }
 
   async function selectActivityDashboard(garminId: string) {
@@ -4358,9 +4371,10 @@ export function TrainerDashboard() {
         const savedTrainingPlan =
           event.assistantMessage.grounding?.tool === "saveTrainingPlan";
         void event.memoryProposal;
-        void loadMemories(false);
-        void loadConversations(false);
-        if (savedTrainingPlan) void loadTrainingPlan("chat-save", false);
+        runInBackground(loadMemories(false));
+        runInBackground(loadConversations(false));
+        if (savedTrainingPlan)
+          runInBackground(loadTrainingPlan("chat-save", false));
         setStatus({
           kind: "ok",
           message: `Chat: streamed response complete.${memorySuffix}`,
@@ -4403,9 +4417,9 @@ export function TrainerDashboard() {
         setChatMessages(nextMessages);
         setChatPendingStatus(null);
         setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled === true);
-        if (payload.memoryProposal) void loadMemories(false);
+        if (payload.memoryProposal) runInBackground(loadMemories(false));
         if (payload.toolEvidence?.tool === "saveTrainingPlan")
-          void loadTrainingPlan("chat-save", false);
+          runInBackground(loadTrainingPlan("chat-save", false));
         setStatus({
           kind: "ok",
           message: "Chat: response complete.",
@@ -4502,7 +4516,9 @@ export function TrainerDashboard() {
       <div className="button-row memory-actions">
         <button
           type="button"
-          onClick={() => setMemoryEnabled(!(memoryHealth?.enabled ?? false))}
+          onClick={() =>
+            runInBackground(setMemoryEnabled(!(memoryHealth?.enabled ?? false)))
+          }
           disabled={isMemoryLoading}
         >
           {memoryHealth?.enabled ? "Disable memory" : "Enable memory"}
@@ -4510,7 +4526,7 @@ export function TrainerDashboard() {
         <button
           type="button"
           className="secondary-button"
-          onClick={() => loadMemories()}
+          onClick={() => runInBackground(loadMemories())}
           disabled={isMemoryLoading}
         >
           Reload memories
@@ -4518,7 +4534,7 @@ export function TrainerDashboard() {
         <button
           type="button"
           className="danger-button"
-          onClick={() => actOnMemory("clear")}
+          onClick={() => runInBackground(actOnMemory("clear"))}
           disabled={isMemoryLoading || !memoryItems.length}
         >
           Clear all memory
@@ -4631,7 +4647,9 @@ export function TrainerDashboard() {
                       <button
                         type="button"
                         onClick={() =>
-                          actOnMemory("update", item.id, editingMemoryText)
+                          runInBackground(
+                            actOnMemory("update", item.id, editingMemoryText),
+                          )
                         }
                         disabled={isMemoryLoading}
                       >
@@ -4665,7 +4683,9 @@ export function TrainerDashboard() {
                   <button
                     type="button"
                     className="danger-button"
-                    onClick={() => actOnMemory("delete", item.id)}
+                    onClick={() =>
+                      runInBackground(actOnMemory("delete", item.id))
+                    }
                     disabled={isMemoryLoading}
                   >
                     Delete
@@ -4909,7 +4929,7 @@ export function TrainerDashboard() {
                 <button
                   type="button"
                   className="primary-action"
-                  onClick={syncNow}
+                  onClick={() => runInBackground(syncNow())}
                   disabled={isSyncing}
                   aria-label="Sync now — import latest Garmin data"
                 >
@@ -5088,7 +5108,9 @@ export function TrainerDashboard() {
                         className={`activity-list-item ${selectedActivityId === activity.garminId ? "selected" : ""}`}
                         key={activity.garminId}
                         onClick={() =>
-                          void selectActivityDashboard(activity.garminId)
+                          runInBackground(
+                            selectActivityDashboard(activity.garminId),
+                          )
                         }
                       >
                         <span>
@@ -5443,7 +5465,7 @@ export function TrainerDashboard() {
                 <button
                   type="button"
                   className="chrome-button"
-                  onClick={() => void loadTrainingPlan("manual")}
+                  onClick={() => runInBackground(loadTrainingPlan("manual"))}
                   disabled={
                     trainingPlanState === "loading" || trainingPlanSaving
                   }
@@ -5469,7 +5491,7 @@ export function TrainerDashboard() {
                 className="training-plan-editor"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void saveTrainingPlan();
+                  runInBackground(saveTrainingPlan());
                 }}
               >
                 <label>
@@ -5657,7 +5679,7 @@ export function TrainerDashboard() {
             <button
               type="button"
               className="primary-action"
-              onClick={startNewChat}
+              onClick={() => runInBackground(startNewChat())}
             >
               New chat
             </button>
@@ -5678,7 +5700,7 @@ export function TrainerDashboard() {
                       className="conversation-select"
                       onClick={() => {
                         closeConversationMenu();
-                        void selectConversation(item.id);
+                        runInBackground(selectConversation(item.id));
                       }}
                       aria-current={
                         item.id === conversationId ? "true" : undefined
@@ -5740,7 +5762,7 @@ export function TrainerDashboard() {
                   role="menuitem"
                   onClick={() => {
                     closeConversationMenu();
-                    void loadChatHistory();
+                    runInBackground(loadChatHistory());
                   }}
                   disabled={isChatLoading}
                 >
@@ -5763,9 +5785,11 @@ export function TrainerDashboard() {
                 className="danger-menu-item"
                 onClick={() => {
                   closeConversationMenu();
-                  void deleteConversationById(
-                    openConversationMenuItem.id,
-                    openConversationMenuItem.title,
+                  runInBackground(
+                    deleteConversationById(
+                      openConversationMenuItem.id,
+                      openConversationMenuItem.title,
+                    ),
                   );
                 }}
                 disabled={isChatLoading}
@@ -5789,7 +5813,7 @@ export function TrainerDashboard() {
                 aria-labelledby="rename-dialog-title"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void saveConversationRename();
+                  runInBackground(saveConversationRename());
                 }}
               >
                 <div>
@@ -5856,7 +5880,7 @@ export function TrainerDashboard() {
                 <button
                   type="button"
                   className="secondary-button load-older"
-                  onClick={loadOlderMessages}
+                  onClick={() => runInBackground(loadOlderMessages())}
                   disabled={isHistoryLoading}
                 >
                   {isHistoryLoading ? "Loading older…" : "Load older messages"}
@@ -5962,7 +5986,7 @@ export function TrainerDashboard() {
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
-                      void sendChat();
+                      runInBackground(sendChat());
                     }
                   }}
                 />
@@ -5972,7 +5996,9 @@ export function TrainerDashboard() {
                   <button
                     type="button"
                     className="secondary-button"
-                    onClick={() => submitChat(lastFailedMessage)}
+                    onClick={() =>
+                      runInBackground(submitChat(lastFailedMessage))
+                    }
                   >
                     Retry
                   </button>
@@ -5988,7 +6014,7 @@ export function TrainerDashboard() {
                 ) : null}
                 <button
                   type="button"
-                  onClick={sendChat}
+                  onClick={() => runInBackground(sendChat())}
                   disabled={isChatLoading || !message.trim()}
                 >
                   {isChatLoading ? "Streaming…" : "Send"}
@@ -6088,7 +6114,7 @@ export function TrainerDashboard() {
                 <div className="button-row">
                   <button
                     type="button"
-                    onClick={saveProfile}
+                    onClick={() => runInBackground(saveProfile())}
                     disabled={profileControlsDisabled}
                   >
                     {profileSaveState === "saving" ? "Saving…" : "Save Profile"}
@@ -6096,7 +6122,7 @@ export function TrainerDashboard() {
                   <button
                     type="button"
                     className="secondary-button"
-                    onClick={() => loadProfile("manual")}
+                    onClick={() => runInBackground(loadProfile("manual"))}
                     disabled={profileControlsDisabled}
                   >
                     Reload saved Profile
@@ -6118,7 +6144,9 @@ export function TrainerDashboard() {
                   <button
                     type="button"
                     onClick={() =>
-                      runAction("Verify connector", () => fetch("/api/sync"))
+                      runInBackground(
+                        runAction("Verify connector", () => fetch("/api/sync")),
+                      )
                     }
                   >
                     Verify connector
@@ -6126,7 +6154,7 @@ export function TrainerDashboard() {
                   <button
                     type="button"
                     className="secondary-button"
-                    onClick={refreshSummary}
+                    onClick={() => runInBackground(refreshSummary())}
                   >
                     Refresh import summary
                   </button>
@@ -6264,10 +6292,16 @@ export function TrainerDashboard() {
                     />
                   </label>
                   <div className="button-row">
-                    <button type="button" onClick={backfillDetail}>
+                    <button
+                      type="button"
+                      onClick={() => runInBackground(backfillDetail())}
+                    >
                       Force refresh detail
                     </button>
-                    <button type="button" onClick={refreshDetailCoverage}>
+                    <button
+                      type="button"
+                      onClick={() => runInBackground(refreshDetailCoverage())}
+                    >
                       Show detail coverage
                     </button>
                   </div>
@@ -6359,12 +6393,14 @@ export function TrainerDashboard() {
                     type="button"
                     className="danger-button"
                     onClick={() =>
-                      runAction("Clear chat/profile", () =>
-                        fetch("/api/delete", {
-                          method: "POST",
-                          headers: { "content-type": "application/json" },
-                          body: JSON.stringify({ scope: "chat-profile" }),
-                        }),
+                      runInBackground(
+                        runAction("Clear chat/profile", () =>
+                          fetch("/api/delete", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ scope: "chat-profile" }),
+                          }),
+                        ),
                       )
                     }
                   >
@@ -6374,12 +6410,14 @@ export function TrainerDashboard() {
                     type="button"
                     className="danger-button"
                     onClick={() =>
-                      runAction("Disconnect Garmin/delete data", () =>
-                        fetch("/api/delete", {
-                          method: "POST",
-                          headers: { "content-type": "application/json" },
-                          body: JSON.stringify({ scope: "garmin-all" }),
-                        }),
+                      runInBackground(
+                        runAction("Disconnect Garmin/delete data", () =>
+                          fetch("/api/delete", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ scope: "garmin-all" }),
+                          }),
+                        ),
                       )
                     }
                   >

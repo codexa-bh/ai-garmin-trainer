@@ -169,7 +169,11 @@ Non-responsibilities:
 
 ### `src/lib/ai/math-analysis.ts`
 
-Bounded TypeScript math over same-turn SQL rows.
+Bounded TypeScript math over same-turn SQL rows. Pure local runtime helpers are
+allowed only when the blocking architecture graph verifies their entire closure
+against the same capability restrictions as this root. Opaque external packages
+and loaders are not pure-helper exceptions. See [project guardrails](project-guardrails.md)
+for the static enforcement boundary and its limits.
 
 Responsibilities:
 
