@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { TrainingPlan } from "@/lib/db/repository";
+import type { TrainingPlan } from "@/lib/db/training-plan-repository";
 
 const state = vi.hoisted(() => ({
   plan: null as TrainingPlan | null,
@@ -23,6 +23,8 @@ vi.mock("ai", () => ({
 vi.mock("@/lib/db/repository", () => ({
   TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
   TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
+}));
+vi.mock("@/lib/db/training-plan-repository", () => ({
   trainingPlanStatus: () => {
     if (state.failRead) throw new Error("private failure detail");
     return { plan: state.plan, stale: true, staleAfterDays: 14 };

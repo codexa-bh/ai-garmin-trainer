@@ -9,10 +9,12 @@ vi.mock("@/lib/db/repository", () => ({
   getActivityDetailForAnalytics: vi.fn(),
   getGarminAthleteBaseline: vi.fn(),
   listActivityDetailAvailability: vi.fn(),
-  replaceTrainingPlan: vi.fn(),
   TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
   TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
   verifyActivityReference: vi.fn(),
+}));
+vi.mock("@/lib/db/training-plan-repository", () => ({
+  replaceTrainingPlan: vi.fn(),
 }));
 vi.mock("@/lib/garmin/importer", () => ({
   backfillActivityDetail: vi.fn(),

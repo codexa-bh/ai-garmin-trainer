@@ -4,6 +4,18 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db/repository", () => {
   throw new Error("storage capability imported");
 });
+vi.mock("@/lib/db/connection", () => {
+  throw new Error("connection capability imported");
+});
+vi.mock("@/lib/db/conversation-repository", () => {
+  throw new Error("conversation storage capability imported");
+});
+vi.mock("@/lib/db/training-plan-repository", () => {
+  throw new Error("plan storage capability imported");
+});
+vi.mock("@/lib/db/conversation-lifecycle", () => {
+  throw new Error("conversation lifecycle capability imported");
+});
 vi.mock("@/lib/garmin/importer", () => {
   throw new Error("connector capability imported");
 });

@@ -99,6 +99,30 @@ side-effect guards and synthesis. Cancellation semantics are unchanged. See
 [tool-runtime boundaries](design-choices-and-boundaries.md#explicit-tool-runtime-boundaries-srclibaitool-ts)
 and `tests/tool-runtime-ownership.test.ts` / `tests/tool-boundaries.test.ts`.
 
+## Persistence owners
+
+- `src/lib/db/connection.ts` owns the single lazy SQLite connection, ordered
+  migrations and existing compatibility DDL. All storage owners use it directly.
+- `conversation-repository.ts` owns conversation/message persistence, pagination,
+  title/grounding helpers and the single monotonic message timestamp state.
+- `training-plan-repository.ts` owns singleton plan persistence and revision/stale
+  metadata. Synchronous snapshot authorization/edit/write stays in the AI handler.
+- `conversation-lifecycle.ts` owns the complete single-conversation deletion
+  transaction: messages, conversation-derived semantic memory soft deletion, then
+  conversation. History clear delegates to it; routes retain fallback selection.
+- `repository.ts` deliberately retains Profile/memory, Garmin, summaries, metadata
+  and bulk deletion. Explicit compatibility exports serve existing integration
+  callers; new domain consumers import the cohesive owners, never the facade.
+
+Dependency direction is consumer → domain/lifecycle → connection → env/migrations.
+Lifecycle uses conversation ID validation, not the reverse. Storage references AI
+contracts only through erased type imports. No SQL, schema, migration, transaction
+scope or bulk-deletion behavior changes. In particular bulk chat/Profile clearing
+continues to preserve semantic memory, unlike single-conversation deletion.
+`tests/persistence-ownership.test.ts` covers shared connection visibility, edge
+contracts, deletion scope/rollback and route fallback; existing history, memory,
+plan, summary and migration suites remain integration evidence.
+
 ## Raw payload and evidence boundary
 
 The app stores normalized facts **and** a local `garmin_raw_payload` archive where

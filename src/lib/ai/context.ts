@@ -6,7 +6,7 @@ import type {
   NormalizedDailyHealth,
 } from "../garmin/types";
 import type { RetrievedMemory } from "../memory/types";
-import type { TrainingPlanStatus } from "../db/repository";
+import type { TrainingPlanStatus } from "../db/training-plan-repository";
 export { TRAINER_SYSTEM_PROMPT } from "./trainer-instructions";
 
 export type RecentConversationMessage = {

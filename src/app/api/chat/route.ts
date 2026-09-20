@@ -19,21 +19,23 @@ import { selectedModel } from "@/lib/ai/providers";
 import { isLlmDebugTraceEnabled } from "@/lib/env";
 import {
   appendChatMessage,
-  clearConversationHistory,
-  dataCounts,
   ensureConversation,
+  listRecentChatMessages,
+  safeConversationId,
+  type ChatGrounding,
+  type StoredChatMessage,
+} from "@/lib/db/conversation-repository";
+import { clearConversationHistory } from "@/lib/db/conversation-lifecycle";
+import {
+  dataCounts,
   getGarminAthleteBaseline,
   getGarminBodyMetrics,
   getTrainerProfile,
   listActivityDetailAvailability,
   listRecentActivities,
-  listRecentChatMessages,
   listRecentDailyHealth,
-  trainingPlanStatus,
-  safeConversationId,
-  type ChatGrounding,
-  type StoredChatMessage,
 } from "@/lib/db/repository";
+import { trainingPlanStatus } from "@/lib/db/training-plan-repository";
 import { trainerMemoryStore } from "@/lib/memory/sqlite-adapter";
 import { LOCAL_MEMORY_USER_ID, type RetrievedMemory } from "@/lib/memory/types";
 

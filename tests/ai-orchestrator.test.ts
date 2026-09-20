@@ -106,15 +106,17 @@ vi.mock("@/lib/db/repository", () => ({
   getGarminAthleteBaseline,
   getGarminBodyMetrics,
   listActivityDetailAvailability,
+  TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
+  TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
+  verifyActivityReference: vi.fn(),
+}));
+vi.mock("@/lib/db/training-plan-repository", () => ({
   replaceTrainingPlan,
   trainingPlanStatus: vi.fn(() => ({
     plan: null,
     stale: true,
     staleAfterDays: 14,
   })),
-  TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
-  TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
-  verifyActivityReference: vi.fn(),
 }));
 
 describe("trainer orchestrator fail-closed policy", async () => {

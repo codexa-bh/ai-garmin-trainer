@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { getAppMetadata, getDatabase, setAppMetadata } from "../db/repository";
+import { getAppMetadata, setAppMetadata } from "../db/repository";
+import { getDatabase } from "../db/connection";
 import {
   memoryConfigProblems,
   memoryRuntimeConfig,

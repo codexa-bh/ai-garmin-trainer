@@ -3,7 +3,7 @@ import {
   createConversation,
   listConversations,
   safeConversationId,
-} from "@/lib/db/repository";
+} from "@/lib/db/conversation-repository";
 
 function conversationSummary(
   item: ReturnType<typeof listConversations>[number],
