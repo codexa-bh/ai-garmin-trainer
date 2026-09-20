@@ -21,7 +21,6 @@ import {
   describeGarminDatabase,
   runReadOnlySql,
   type AnalysisResult,
-  type AnalysisRow,
   type GarminDatabaseDescription,
 } from "@/lib/ai/sql-analysis";
 import {
@@ -291,11 +290,7 @@ export type TrainerToolCall = {
   input: unknown;
 };
 
-const sameTurnSqlResults = new Map<string, AnalysisRow[]>();
-
-export function clearTrainerAnalysisResultHandles(): void {
-  sameTurnSqlResults.clear();
-}
+import type { TrainerToolExecutionContext } from "./tool-execution-context";
 
 function redactSensitiveText(value: string): string {
   return value
@@ -376,6 +371,7 @@ export function validateTrainerToolCall(
 }
 
 export async function executeTrainerTool(input: {
+  context: TrainerToolExecutionContext;
   index: number;
   toolName: TrainerToolName;
   args: unknown;
@@ -485,7 +481,7 @@ export async function executeTrainerTool(input: {
           input.args as Parameters<typeof runReadOnlySql>[0],
         );
         if (result.status === "succeeded")
-          sameTurnSqlResults.set(result.resultName, result.rows);
+          input.context.analysisResults.set(result.resultName, result.rows);
         return {
           index: input.index,
           tool: input.toolName,
@@ -514,10 +510,10 @@ export async function executeTrainerTool(input: {
         >;
         const result = runMathAnalysis({
           ...args,
-          rowsByResult: sameTurnSqlResults,
+          rowsByResult: input.context.analysisResults,
         });
         if (result.status === "succeeded")
-          sameTurnSqlResults.set(result.resultName, result.rows);
+          input.context.analysisResults.set(result.resultName, result.rows);
         return {
           index: input.index,
           tool: input.toolName,

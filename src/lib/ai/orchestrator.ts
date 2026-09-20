@@ -1,11 +1,11 @@
 import { generateText } from "ai";
+import { TrainerToolExecutionContext } from "./tool-execution-context";
 import { providerFailureMessage } from "./provider-errors";
 import {
   completeTrainingPlanSchema,
   renderCompleteTrainingPlan,
 } from "./training-plan-evidence";
 import {
-  clearTrainerAnalysisResultHandles,
   executeTrainerTool,
   groundingForSteps,
   renderToolSteps,
@@ -677,7 +677,18 @@ async function synthesizeFinalAnswer(
 export async function orchestrateTrainerChat(
   input: OrchestrateTrainerChatInput,
 ): Promise<OrchestrateTrainerChatResult> {
-  clearTrainerAnalysisResultHandles();
+  const context = new TrainerToolExecutionContext();
+  try {
+    return await orchestrateTurn(input, context);
+  } finally {
+    context.dispose();
+  }
+}
+
+async function orchestrateTurn(
+  input: OrchestrateTrainerChatInput,
+  context: TrainerToolExecutionContext,
+): Promise<OrchestrateTrainerChatResult> {
   const steps: TrainerToolStep[] = [];
   const analysisToolCounts = new Map<TrainerToolName, number>();
   let providerCalls = 0;
@@ -1019,6 +1030,7 @@ export async function orchestrateTrainerChat(
       progress(toolProgressMessage(accepted.toolName));
       toolAttempts += 1;
       const step = await executeTrainerTool({
+        context,
         index: stepIndex,
         toolName: accepted.toolName,
         args: accepted.input,

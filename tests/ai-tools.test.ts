@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 vi.mock("ai", () => ({ tool: (definition: unknown) => definition }));
 vi.mock("@/lib/db/repository", () => ({
@@ -31,6 +32,24 @@ describe("trainer tool registry schemas", async () => {
     trainerToolInputSchemas,
     validateTrainerToolCall,
   } = await import("../src/lib/ai/tools");
+
+  it("preserves every provider description and input schema", () => {
+    expect(
+      Object.fromEntries(
+        Object.entries(trainerToolDefinitions).map(([name, definition]) => [
+          name,
+          {
+            description: definition.description,
+            schema: z.toJSONSchema(
+              trainerToolInputSchemas[
+                name as keyof typeof trainerToolInputSchemas
+              ],
+            ),
+          },
+        ]),
+      ),
+    ).toMatchSnapshot();
+  });
 
   it("exposes guarded SQL/math analysis plus data plumbing", () => {
     expect(Object.keys(trainerToolDefinitions).sort()).toEqual(

@@ -33,6 +33,7 @@ vi.mock("@/lib/garmin/importer", () => ({}));
 vi.mock("@/lib/ai/sql-analysis", () => ({}));
 vi.mock("@/lib/ai/math-analysis", () => ({}));
 
+import { TrainerToolExecutionContext } from "../src/lib/ai/tool-execution-context";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import {
   executeTrainerTool,
@@ -389,6 +390,7 @@ describe("complete current Training Plan", () => {
     "rejects absent, nonunique or overlapping exact edits: %j",
     async (...edits) => {
       const result = await executeTrainerTool({
+        context: new TrainerToolExecutionContext(),
         index: 1,
         toolName: "saveTrainingPlan",
         args: { edits },
