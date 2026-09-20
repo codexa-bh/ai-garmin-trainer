@@ -124,27 +124,70 @@ body::before {
   white-space: nowrap;
 }
 
+.app-menu-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 12px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.app-menu-dialog[open] {
+  display: flex;
+  align-items: flex-end;
+}
+
+.app-menu-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.65);
+}
+
 .app-menu-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 30;
-  display: grid;
-  width: min(78vw, 260px);
-  gap: 8px;
-  padding: 10px;
+  width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   border: 1px solid var(--line-strong);
-  border-radius: 18px;
-  background: rgba(8, 13, 22, 0.98);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+  border-radius: 22px 22px 0 0;
+  background: #080d16;
+  box-shadow: 0 -12px 70px rgba(0, 0, 0, 0.35);
+}
+
+.app-menu-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.app-menu-heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.app-menu-panel nav {
+  display: grid;
+  gap: 8px;
 }
 
 .app-menu-item {
   width: 100%;
+  min-height: 44px;
   border-radius: 12px;
   padding: 11px 12px;
   text-align: left;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .app-menu-item:hover {

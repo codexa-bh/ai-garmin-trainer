@@ -14,6 +14,7 @@ import {
   useState,
 } from "react";
 import { HealthRollupChart } from "./health-rollup-chart";
+import { MobileNavigationSheet } from "./mobile-navigation-sheet";
 import { useActiveConversation } from "./use-active-conversation";
 import {
   validProgressCounters,
@@ -2824,8 +2825,8 @@ export function TrainerDashboard() {
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const conversationMenuRef = useRef<HTMLDivElement>(null);
-  const mainMenuRef = useRef<HTMLDivElement>(null);
   const mainMenuToggleRef = useRef<HTMLButtonElement>(null);
+  const conversationDrawerCloseRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const renameReturnFocusRef = useRef<HTMLElement | null>(null);
   const isSyncingRef = useRef(false);
@@ -2960,11 +2961,8 @@ export function TrainerDashboard() {
         closeConversationMenu();
         return;
       }
-      if (isMainMenuOpen) {
-        setIsMainMenuOpen(false);
-        mainMenuToggleRef.current?.focus();
-        return;
-      }
+      // The native mobile dialog owns Escape; never cascade to a destination.
+      if (isMainMenuOpen) return;
       if (settingsOpen) {
         setSettingsOpen(false);
         focusMainNavigationControl(settingsButtonRef);
@@ -3007,6 +3005,9 @@ export function TrainerDashboard() {
   useEffect(() => {
     if (settingsOpen) settingsCloseRef.current?.focus();
   }, [settingsOpen]);
+  useEffect(() => {
+    if (isConversationDrawerOpen) conversationDrawerCloseRef.current?.focus();
+  }, [isConversationDrawerOpen]);
   useEffect(() => {
     if (activityDashboardOpen) {
       activityDashboardCloseRef.current?.focus();
@@ -3072,20 +3073,6 @@ export function TrainerDashboard() {
   }, [renameTarget]);
 
   useEffect(() => {
-    if (!isMainMenuOpen) return;
-    function closeOnOutsidePointerDown(event: PointerEvent) {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (mainMenuRef.current?.contains(target)) return;
-      setIsMainMenuOpen(false);
-    }
-    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
-    };
-  }, [isMainMenuOpen]);
-
-  useEffect(() => {
     if (!openConversationMenuId) return;
     function closeOnViewportChange() {
       closeConversationMenu();
@@ -3129,7 +3116,7 @@ export function TrainerDashboard() {
   ) {
     const isNarrowViewport =
       typeof window.matchMedia === "function" &&
-      window.matchMedia("(max-width: 720px)").matches;
+      window.matchMedia("(max-width: 640px)").matches;
     if (isNarrowViewport) {
       mainMenuToggleRef.current?.focus();
       return;
@@ -4797,93 +4784,85 @@ export function TrainerDashboard() {
               Settings
             </button>
           </nav>
-          <div className="app-mobile-menu" ref={mainMenuRef}>
+          <div className="app-mobile-menu">
             <button
               type="button"
               className="chrome-button app-menu-toggle"
               onClick={() => setIsMainMenuOpen((open) => !open)}
               ref={mainMenuToggleRef}
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
               aria-expanded={isMainMenuOpen}
               aria-controls="app-main-menu"
             >
               Menu
             </button>
-            {isMainMenuOpen ? (
-              <div
-                id="app-main-menu"
-                className="app-menu-panel"
-                role="menu"
-                aria-label="Main menu"
+            <MobileNavigationSheet
+              open={isMainMenuOpen}
+              onDismiss={() => {
+                setIsMainMenuOpen(false);
+                focusMainNavigationControl(conversationButtonRef);
+              }}
+            >
+              <button
+                type="button"
+                className="app-menu-item"
+                onClick={toggleConversationHistory}
+                aria-label="Toggle conversation history"
+                aria-expanded={
+                  desktopSidebarExpanded || isConversationDrawerOpen
+                }
               >
-                <button
-                  type="button"
-                  className="app-menu-item"
-                  role="menuitem"
-                  onClick={toggleConversationHistory}
-                  aria-label="Toggle conversation history"
-                  aria-expanded={
-                    desktopSidebarExpanded || isConversationDrawerOpen
-                  }
-                >
-                  Conversations
-                </button>
-                <button
-                  type="button"
-                  className="app-menu-item"
-                  role="menuitem"
-                  onClick={openActivityDashboardFromNavigation}
-                  aria-label="Activities"
-                >
-                  Activities
-                </button>
-                <button
-                  type="button"
-                  className="app-menu-item"
-                  role="menuitem"
-                  onClick={openHealthDashboardFromNavigation}
-                  aria-label="Health"
-                >
-                  Health
-                </button>
-                <button
-                  type="button"
-                  className="app-menu-item"
-                  role="menuitem"
-                  onClick={openTrainingPlanFromNavigation}
-                  aria-label="Training Plan"
-                >
-                  Training Plan
-                </button>
-                <button
-                  type="button"
-                  className="app-menu-item"
-                  role="menuitem"
-                  onClick={openSyncFromNavigation}
-                  aria-label="Sync"
-                >
-                  {isSyncing ? "Sync · syncing" : "Sync"}
-                </button>
-                <button
-                  type="button"
-                  className="app-menu-item"
-                  role="menuitem"
-                  onClick={openMemoryFromNavigation}
-                  aria-label="Memory"
-                >
-                  Memory
-                </button>
-                <button
-                  type="button"
-                  className="app-menu-item"
-                  role="menuitem"
-                  onClick={openSettingsFromNavigation}
-                  aria-label="Data & settings"
-                >
-                  Settings
-                </button>
-              </div>
-            ) : null}
+                Conversations
+              </button>
+              <button
+                type="button"
+                className="app-menu-item"
+                onClick={openActivityDashboardFromNavigation}
+                aria-label="Activities"
+              >
+                Activities
+              </button>
+              <button
+                type="button"
+                className="app-menu-item"
+                onClick={openHealthDashboardFromNavigation}
+                aria-label="Health"
+              >
+                Health
+              </button>
+              <button
+                type="button"
+                className="app-menu-item"
+                onClick={openTrainingPlanFromNavigation}
+                aria-label="Training Plan"
+              >
+                Training Plan
+              </button>
+              <button
+                type="button"
+                className="app-menu-item"
+                onClick={openSyncFromNavigation}
+                aria-label="Sync"
+              >
+                {isSyncing ? "Sync · syncing" : "Sync"}
+              </button>
+              <button
+                type="button"
+                className="app-menu-item"
+                onClick={openMemoryFromNavigation}
+                aria-label="Memory"
+              >
+                Memory
+              </button>
+              <button
+                type="button"
+                className="app-menu-item"
+                onClick={openSettingsFromNavigation}
+                aria-label="Data & settings"
+              >
+                Settings
+              </button>
+            </MobileNavigationSheet>
           </div>
         </header>
       ) : null}
@@ -5671,6 +5650,7 @@ export function TrainerDashboard() {
               <button
                 type="button"
                 className="chrome-button drawer-close"
+                ref={conversationDrawerCloseRef}
                 onClick={closeConversationDrawer}
               >
                 Close
