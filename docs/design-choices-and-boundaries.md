@@ -68,11 +68,17 @@ Deterministic code is not appropriate for silently deciding that one fixed deman
 
 ### `src/app`
 
-Next.js routes and local UI shell.
+Next.js routes and local UI shell. The [current component map](architecture.md)
+provides source/test entry points, dependency flow and operational references for
+all component families. The shell composes persistent feature hooks under
+`src/app/dashboard/` and conditional views; feature state and HTTP lifecycles are
+not owned by navigation. Explicit shell callbacks coordinate sync → Health and
+chat → memory/conversations/Training Plan. No replacement global dashboard store,
+mega-hook, event bus or server imports are introduced.
 
 Responsibilities:
 
-- expose loopback-only app routes and API endpoints;
+- expose app routes and API endpoints under the operational loopback-only binding (routes are not an authentication boundary);
 - accept chat/profile/sync/delete requests;
 - render local UI state and user-facing messages;
 - keep API responses bounded and compatible with current UI consumers.
@@ -234,7 +240,7 @@ Responsibilities:
 - run the reviewed Garmin MCP dependency over local stdio only;
 - import and normalize selected Garmin data into app-owned SQLite rows;
 - preserve checkpoints and detail availability;
-- discard or redact sensitive raw connector fields according to the storage boundary.
+- archive supported raw connector/detail payloads locally only after redaction via `src/lib/garmin/raw-payload.ts` and the repository archive writer; normalized facts remain the ordinary analytics contract, not unrestricted raw archive access.
 
 Non-responsibilities:
 
@@ -242,6 +248,16 @@ Non-responsibilities:
 - no Garmin write-back;
 - no password collection in the app;
 - no coaching/ranking decisions.
+
+### `src/lib/memory`
+
+Owns embedded SQLite semantic retrieval, concise user-derived extraction,
+independently configured embeddings, and inspectable/editable/deletable memory.
+It does not own current conversation continuity, Profile, Garmin measurements or
+provider chat selection. Current corrections and authoritative tool evidence take
+precedence over memory. Readiness/configuration failures are explicit; no hidden
+provider substitution or transcript archive is implied. See [memory](memory.md)
+and the [source/test map](architecture.md).
 
 ### `src/lib/diagnostics`
 
