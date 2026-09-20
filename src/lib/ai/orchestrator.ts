@@ -5,18 +5,20 @@ import {
   completeTrainingPlanSchema,
   renderCompleteTrainingPlan,
 } from "./training-plan-evidence";
+import { executeTrainerTool } from "./tool-execution";
+import { groundingForSteps, renderToolSteps } from "./tool-evidence";
 import {
-  executeTrainerTool,
-  groundingForSteps,
-  renderToolSteps,
   trainerToolDefinitions,
   validateTrainerToolCall,
-  type TrainerToolCall,
-  type TrainerToolName,
-  type TrainerToolSelectionMetadata,
-  type TrainerToolStep,
-  type TrainerToolStepName,
-} from "@/lib/ai/tools";
+  type ValidatedTrainerToolCall,
+} from "./tool-contracts";
+import type {
+  TrainerToolCall,
+  TrainerToolName,
+  TrainerToolSelectionMetadata,
+  TrainerToolStep,
+  TrainerToolStepName,
+} from "./tool-types";
 import {
   buildLlmDebugTrace,
   debugProviderCall,
@@ -430,7 +432,7 @@ function attemptedToolName(call: TrainerToolCall): TrainerToolStepName {
 
 type SelectedTrainerToolCall = {
   call: TrainerToolCall;
-  accepted: { toolName: TrainerToolName; input: unknown };
+  accepted: ValidatedTrainerToolCall;
   metadata?: TrainerToolSelectionMetadata;
 };
 
@@ -454,7 +456,7 @@ function selectSafeToolCalls(input: {
   const evaluated: Array<{
     call: TrainerToolCall;
     order: number;
-    accepted: { toolName: TrainerToolName; input: unknown };
+    accepted: ValidatedTrainerToolCall;
   }> = [];
 
   for (const [order, call] of input.toolCalls.entries()) {
@@ -1032,8 +1034,7 @@ async function orchestrateTurn(
       const step = await executeTrainerTool({
         context,
         index: stepIndex,
-        toolName: accepted.toolName,
-        args: accepted.input,
+        ...accepted,
         trainingPlanSnapshot: snapshot?.success ? snapshot.data : undefined,
       });
       if (selected.metadata) step.selection = selected.metadata;

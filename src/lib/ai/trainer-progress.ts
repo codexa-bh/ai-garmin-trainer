@@ -1,4 +1,4 @@
-import type { TrainerToolName, TrainerToolStep } from "./tools";
+import type { TrainerToolName, TrainerToolStep } from "./tool-types";
 
 export type TrainerProgressCounters = {
   modelCalls: number;

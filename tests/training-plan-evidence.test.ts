@@ -35,11 +35,9 @@ vi.mock("@/lib/ai/math-analysis", () => ({}));
 
 import { TrainerToolExecutionContext } from "../src/lib/ai/tool-execution-context";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
-import {
-  executeTrainerTool,
-  groundingForSteps,
-  validateTrainerToolCall,
-} from "../src/lib/ai/tools";
+import { executeTrainerTool } from "../src/lib/ai/tool-execution";
+import { groundingForSteps } from "../src/lib/ai/tool-evidence";
+import { validateTrainerToolCall } from "../src/lib/ai/tool-contracts";
 import {
   buildTrainerContext,
   formatTrainingPlanProposalContext,
@@ -393,7 +391,7 @@ describe("complete current Training Plan", () => {
         context: new TrainerToolExecutionContext(),
         index: 1,
         toolName: "saveTrainingPlan",
-        args: { edits },
+        input: { edits },
         trainingPlanSnapshot: snapshot(),
       });
       expect(result.reason).toBe("plan_edit_not_unique_or_overlapping");

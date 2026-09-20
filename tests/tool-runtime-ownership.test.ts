@@ -17,6 +17,8 @@ vi.mock("@/lib/garmin/importer", () => ({}));
 vi.mock("@/lib/ai/sql-analysis", () => ({ runReadOnlySql }));
 
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
+import { executeTrainerTool } from "../src/lib/ai/tool-execution";
+import { validateTrainerToolCall } from "../src/lib/ai/tool-contracts";
 
 function barrier() {
   let resolve!: () => void;
@@ -67,6 +69,65 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
+});
+
+describe("within-turn analytical compatibility", () => {
+  it("retains overwrite, math chaining, success-only registration and evidence after disposal", async () => {
+    const context = new TrainerToolExecutionContext();
+    const execute = (toolName: string, input: unknown) => {
+      const call = validateTrainerToolCall({ toolName, input });
+      if (!call.ok) throw new Error(call.reason);
+      return executeTrainerTool({ ...call, index: 1, context });
+    };
+    await execute("runReadOnlySql", {
+      sql: "select 11 as value",
+      resultName: "shared",
+    });
+    const original = await execute("runReadOnlySql", {
+      sql: "select 22 as value",
+      resultName: "shared",
+    });
+    expect(context.analysisResults.get("shared")).toEqual([{ value: 22 }]);
+    await execute("runMathAnalysis", {
+      inputResult: "shared",
+      operation: "score",
+      formula: "value * 2",
+      outputName: "double",
+    });
+    const chained = await execute("runMathAnalysis", {
+      inputResult: "double",
+      operation: "score",
+      formula: "score + 1",
+      outputName: "chain",
+    });
+    expect(chained).toMatchObject({
+      status: "succeeded",
+      result: { rows: [{ value: 22, score: 45 }] },
+    });
+    const missing = await execute("runMathAnalysis", {
+      inputResult: "foreign",
+      operation: "score",
+      formula: "value",
+      outputName: "shared",
+    });
+    expect(missing.status).toBe("rejected");
+    runReadOnlySql.mockReturnValueOnce({
+      status: "rejected",
+      reason: "forbidden",
+      resultName: "shared",
+      rows: [],
+      privacy: "safe",
+    });
+    await execute("runReadOnlySql", {
+      sql: "select 33 as value",
+      resultName: "shared",
+    });
+    expect(context.analysisResults.get("shared")).toEqual([{ value: 22 }]);
+    context.dispose();
+    expect(context.analysisResults.size).toBe(0);
+    expect(original.result).toMatchObject({ rows: [{ value: 22 }] });
+    expect(chained.result).toMatchObject({ rows: [{ score: 45 }] });
+  });
 });
 
 describe("terminal context cleanup", () => {
@@ -124,7 +185,10 @@ describe("terminal context cleanup", () => {
       if (exit === "timeout") await vi.advanceTimersByTimeAsync(180_001);
       const result = await pending;
       expect(dispose).toHaveBeenCalledTimes(1);
-      expect(dispose.mock.instances[0].analysisResults.size).toBe(0);
+      expect(dispose.mock.instances[0]).toHaveProperty(
+        "analysisResults.size",
+        0,
+      );
       expect(result.toolSteps[0].result).toMatchObject({
         rows: [{ value: 11 }],
       });
@@ -143,7 +207,7 @@ describe("terminal context cleanup", () => {
       }),
     ).rejects.toThrow("input failed");
     expect(dispose).toHaveBeenCalledTimes(1);
-    expect(dispose.mock.instances[0].analysisResults.size).toBe(0);
+    expect(dispose.mock.instances[0]).toHaveProperty("analysisResults.size", 0);
   });
 
   it("allocates and disposes even a direct answer's context", async () => {

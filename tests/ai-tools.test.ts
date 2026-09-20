@@ -31,7 +31,7 @@ describe("trainer tool registry schemas", async () => {
     trainerToolDefinitions,
     trainerToolInputSchemas,
     validateTrainerToolCall,
-  } = await import("../src/lib/ai/tools");
+  } = await import("../src/lib/ai/tool-contracts");
 
   it("preserves every provider description and input schema", () => {
     expect(
@@ -163,7 +163,7 @@ describe("trainer tool registry schemas", async () => {
 });
 
 describe("trainer SQL/math renderer", async () => {
-  const { renderToolSteps } = await import("../src/lib/ai/tools");
+  const { renderToolSteps } = await import("../src/lib/ai/tool-evidence");
 
   it("renders bounded math evidence without fixed demand rubric fields", () => {
     const text = renderToolSteps([

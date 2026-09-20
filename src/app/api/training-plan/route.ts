@@ -1,10 +1,9 @@
-import { NextResponse } from "next/server";
 import {
   TRAINING_PLAN_CONTENT_MAX_LENGTH,
   TRAINING_PLAN_TITLE_MAX_LENGTH,
-  replaceTrainingPlan,
-  trainingPlanStatus,
-} from "@/lib/db/repository";
+} from "@/lib/training-plan-limits";
+import { NextResponse } from "next/server";
+import { replaceTrainingPlan, trainingPlanStatus } from "@/lib/db/repository";
 
 function boundedError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
