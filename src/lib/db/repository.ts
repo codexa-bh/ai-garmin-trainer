@@ -1,3 +1,7 @@
+import {
+  TRAINING_PLAN_CONTENT_MAX_LENGTH,
+  TRAINING_PLAN_TITLE_MAX_LENGTH,
+} from "@/lib/training-plan-limits";
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -259,8 +263,6 @@ export function setAppMetadata(key: string, value: string): void {
 }
 
 export const TRAINING_PLAN_STALE_AFTER_DAYS = 14;
-export const TRAINING_PLAN_TITLE_MAX_LENGTH = 120;
-export const TRAINING_PLAN_CONTENT_MAX_LENGTH = 32000;
 
 export type TrainingPlan = {
   title: string;

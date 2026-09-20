@@ -1,4 +1,4 @@
-import type { TrainerToolCall, TrainerToolStep } from "@/lib/ai/tools";
+import type { TrainerToolCall, TrainerToolStep } from "@/lib/ai/tool-types";
 
 export type LlmDebugProviderCallPurpose =
   "planner" | "final_synthesis" | "direct_answer" | "failure_fallback";

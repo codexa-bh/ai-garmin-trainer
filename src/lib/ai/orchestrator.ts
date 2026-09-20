@@ -1,22 +1,24 @@
 import { generateText } from "ai";
+import { TrainerToolExecutionContext } from "./tool-execution-context";
 import { providerFailureMessage } from "./provider-errors";
 import {
   completeTrainingPlanSchema,
   renderCompleteTrainingPlan,
 } from "./training-plan-evidence";
+import { executeTrainerTool } from "./tool-execution";
+import { groundingForSteps, renderToolSteps } from "./tool-evidence";
 import {
-  clearTrainerAnalysisResultHandles,
-  executeTrainerTool,
-  groundingForSteps,
-  renderToolSteps,
   trainerToolDefinitions,
   validateTrainerToolCall,
-  type TrainerToolCall,
-  type TrainerToolName,
-  type TrainerToolSelectionMetadata,
-  type TrainerToolStep,
-  type TrainerToolStepName,
-} from "@/lib/ai/tools";
+  type ValidatedTrainerToolCall,
+} from "./tool-contracts";
+import type {
+  TrainerToolCall,
+  TrainerToolName,
+  TrainerToolSelectionMetadata,
+  TrainerToolStep,
+  TrainerToolStepName,
+} from "./tool-types";
 import {
   buildLlmDebugTrace,
   debugProviderCall,
@@ -430,7 +432,7 @@ function attemptedToolName(call: TrainerToolCall): TrainerToolStepName {
 
 type SelectedTrainerToolCall = {
   call: TrainerToolCall;
-  accepted: { toolName: TrainerToolName; input: unknown };
+  accepted: ValidatedTrainerToolCall;
   metadata?: TrainerToolSelectionMetadata;
 };
 
@@ -454,7 +456,7 @@ function selectSafeToolCalls(input: {
   const evaluated: Array<{
     call: TrainerToolCall;
     order: number;
-    accepted: { toolName: TrainerToolName; input: unknown };
+    accepted: ValidatedTrainerToolCall;
   }> = [];
 
   for (const [order, call] of input.toolCalls.entries()) {
@@ -677,7 +679,18 @@ async function synthesizeFinalAnswer(
 export async function orchestrateTrainerChat(
   input: OrchestrateTrainerChatInput,
 ): Promise<OrchestrateTrainerChatResult> {
-  clearTrainerAnalysisResultHandles();
+  const context = new TrainerToolExecutionContext();
+  try {
+    return await orchestrateTurn(input, context);
+  } finally {
+    context.dispose();
+  }
+}
+
+async function orchestrateTurn(
+  input: OrchestrateTrainerChatInput,
+  context: TrainerToolExecutionContext,
+): Promise<OrchestrateTrainerChatResult> {
   const steps: TrainerToolStep[] = [];
   const analysisToolCounts = new Map<TrainerToolName, number>();
   let providerCalls = 0;
@@ -1019,9 +1032,9 @@ export async function orchestrateTrainerChat(
       progress(toolProgressMessage(accepted.toolName));
       toolAttempts += 1;
       const step = await executeTrainerTool({
+        context,
         index: stepIndex,
-        toolName: accepted.toolName,
-        args: accepted.input,
+        ...accepted,
         trainingPlanSnapshot: snapshot?.success ? snapshot.data : undefined,
       });
       if (selected.metadata) step.selection = selected.metadata;

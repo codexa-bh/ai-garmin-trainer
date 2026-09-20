@@ -196,23 +196,41 @@ Non-responsibilities:
 - no app-authored medical response policy or training-load authority;
 - no access outside the same-turn SQL result set.
 
-### `src/lib/ai/tools.ts`
+### Explicit tool-runtime boundaries (`src/lib/ai/tool-*.ts`)
 
-Tool schema, validation, execution adapter, rendering, and grounding bridge.
+- `tool-types.ts`: dependency-free names and call/step metadata contracts.
+- `tool-contracts.ts`: unchanged provider descriptions, Zod schemas/defaults and
+  parsed discriminated calls. No repository or connector runtime imports;
+  `src/lib/training-plan-limits.ts` owns shared document bounds.
+- `tool-execution.ts`: direct typed dispatch and sanitized exception boundary.
+  `tool-analytics.ts`, `tool-local-data.ts` and `tool-training-plan.ts` own
+  analytics, sync/reference/detail and complete-plan execution respectively.
+  No plugin registry or service container; admission stays in the orchestrator.
+- `tool-execution-context.ts`: one transient analytical handle map per invocation,
+  required explicitly by execution. Successful SQL/math registers rows; rejected
+  results do not. Within-turn name replacement and chained math are retained.
+- `tool-evidence.ts`: bounded rendering, redaction and metadata-only grounding.
+  Its result-type imports are erased; presentation cannot execute SQL, connector
+  calls, writes or provider calls. Complete-plan evidence retains its separate
+  full-document exception and sensitive-document rejection.
 
-Responsibilities:
+The orchestrator allocates the context before entering its turn body and disposes
+it in `finally` on every exit. Disposal releases map references, not arrays held
+by returned steps or final evidence. It never touches another turn, even for the
+same conversation. Provider timeout and request-disconnect behavior are unchanged:
+route disconnect is not new abort propagation into orchestration. Training Plan
+snapshot authorization still comes from a **prior planner pass**; the synchronous
+compare/edit/write section has no added await.
 
-- define provider-visible tool schemas and descriptions;
-- validate tool inputs;
-- route validated calls to server-owned implementations;
-- preserve compatibility metadata for UI/API grounding;
-- render bounded tool evidence for model synthesis and diagnostics.
-
-Non-responsibilities:
-
-- no hidden ranking policy;
-- no obsolete tool exposure that encourages unsupported analysis paths;
-- no raw secret/path/payload rendering.
+T0188 intentionally corrects the old global-map/reset concurrency behavior:
+starting a second turn no longer clears, overwrites or exposes another turn's
+handles. Controlled real-orchestrator overlap tests reproduced all three failures
+before the fix. The subsequent responsibility extraction preserves provider
+contracts, budgets, side-effect guards, failure prose and evidence shapes. See
+`tests/tool-runtime-ownership.test.ts`, `tests/tool-boundaries.test.ts`, the
+pre-extraction provider snapshot in `tests/ai-tools.test.ts`, and existing
+orchestration/Training Plan regressions. No new coaching/ranking policy, schema,
+backfill or release is introduced; source revert is the rollback path.
 
 ### `src/lib/db`
 

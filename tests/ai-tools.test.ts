@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 vi.mock("ai", () => ({ tool: (definition: unknown) => definition }));
 vi.mock("@/lib/db/repository", () => ({
@@ -30,7 +31,25 @@ describe("trainer tool registry schemas", async () => {
     trainerToolDefinitions,
     trainerToolInputSchemas,
     validateTrainerToolCall,
-  } = await import("../src/lib/ai/tools");
+  } = await import("../src/lib/ai/tool-contracts");
+
+  it("preserves every provider description and input schema", () => {
+    expect(
+      Object.fromEntries(
+        Object.entries(trainerToolDefinitions).map(([name, definition]) => [
+          name,
+          {
+            description: definition.description,
+            schema: z.toJSONSchema(
+              trainerToolInputSchemas[
+                name as keyof typeof trainerToolInputSchemas
+              ],
+            ),
+          },
+        ]),
+      ),
+    ).toMatchSnapshot();
+  });
 
   it("exposes guarded SQL/math analysis plus data plumbing", () => {
     expect(Object.keys(trainerToolDefinitions).sort()).toEqual(
@@ -144,7 +163,7 @@ describe("trainer tool registry schemas", async () => {
 });
 
 describe("trainer SQL/math renderer", async () => {
-  const { renderToolSteps } = await import("../src/lib/ai/tools");
+  const { renderToolSteps } = await import("../src/lib/ai/tool-evidence");
 
   it("renders bounded math evidence without fixed demand rubric fields", () => {
     const text = renderToolSteps([

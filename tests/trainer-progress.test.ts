@@ -5,7 +5,10 @@ import {
   toolProgressMessage,
   validProgressCounters,
 } from "../src/lib/ai/trainer-progress";
-import type { TrainerToolName, TrainerToolStep } from "../src/lib/ai/tools";
+import type {
+  TrainerToolName,
+  TrainerToolStep,
+} from "../src/lib/ai/tool-types";
 
 const canary =
   "SELECT secret FROM /private/token; plan title; raw result; internal reasoning";
