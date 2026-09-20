@@ -1,6 +1,6 @@
 # Developer process guardrails
 
-These guardrails apply to Pivan tasks that change this local-only Garmin trainer. They complement the E0013 repo catalog and local live-smoke runbook; they do not authorize primary SQLite mutation, new fixture infrastructure, remote publication, or deployment.
+These guardrails apply to Pivan tasks that change this local-only Garmin trainer. They complement the E0007 repo catalog and local live-smoke runbook; they do not authorize primary SQLite mutation, new fixture infrastructure, remote publication, or deployment.
 
 ## Same-task local data back-sync
 
@@ -27,7 +27,7 @@ Required cleanup evidence:
 3. Clean up only task-created, unambiguous artifacts using the least-destructive existing app behavior. Use a disposable DB copy for destructive validation, and never delete external Garmin token files, provider keys, raw SQLite files, or ambiguous operator data without an explicitly approved task.
 4. Record the cleanup result or deferral in task state: scope used, artifact identifiers, whether primary DB was untouched, and why any remaining artifact is intentionally left in place.
 
-The E0013 QA test-data cleanup protocol remains authoritative for deletion classification, evidence-first ordering, approval stops, and disposable-copy safeguards.
+The E0007 QA test-data cleanup protocol remains authoritative for deletion classification, evidence-first ordering, approval stops, and disposable-copy safeguards.
 
 ## No new isolated fixture environment for this stage
 
