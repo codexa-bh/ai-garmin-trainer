@@ -123,6 +123,28 @@ continues to preserve semantic memory, unlike single-conversation deletion.
 contracts, deletion scope/rollback and route fallback; existing history, memory,
 plan, summary and migration suites remain integration evidence.
 
+## Selected-activity chart and route calculations
+
+`src/lib/analytics/activity-dashboard-calculations.ts` owns two synchronous pure
+facades over already selected, ordered normalized rows: `buildActivityDashboardCharts`
+and `buildActivityDashboardRoute`. It has no imports or storage, environment,
+filesystem, provider or connector capability. Its plain chart/route contracts are
+composed into the repository's existing `ActivityDashboardDetail` response.
+
+`getActivityDashboardDetail` retains SQLite queries, row selection/order, detail
+availability, laps and HR-zone composition; it delegates only chart timing,
+60-second distance-based speed, 180-second grade readouts and route filtering,
+bounds and endpoint-preserving sampling. Chart points are not downsampled. Route
+bounds use every accepted point, including points omitted by the 400-point cap.
+There is no sorting, input mutation, new fallback, formula or schema change.
+The existing repository window-constant exports remain compatible.
+
+`tests/activity-dashboard-calculations.test.ts` exercises the pure facades without
+SQLite or environment setup, including original window-boundary/duplicate behavior
+and frozen inputs. `tests/activity-dashboard.test.ts` retains repository/API wiring,
+privacy, lap and HR-zone integration coverage. Source revert is sufficient rollback;
+no stored-data backfill or migration is needed.
+
 ## Raw payload and evidence boundary
 
 The app stores normalized facts **and** a local `garmin_raw_payload` archive where
