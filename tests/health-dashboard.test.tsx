@@ -9,7 +9,10 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubNativeDialog } from "./native-dialog-stub";
+
+beforeEach(stubNativeDialog);
 import { TrainerDashboard } from "../src/app/trainer-dashboard";
 
 const emptyChat = {
@@ -356,9 +359,14 @@ describe("TrainerDashboard Health dashboard", () => {
     renderDashboard(baseFetchMock());
 
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Health" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Main menu" })).getByRole(
+        "button",
+        { name: "Health" },
+      ),
+    );
 
-    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Main menu" })).toBeNull();
     expect(
       screen.getByRole("heading", { name: "Health", level: 1 }),
     ).toBeTruthy();

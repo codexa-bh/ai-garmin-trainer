@@ -9,7 +9,10 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubNativeDialog } from "./native-dialog-stub";
+
+beforeEach(stubNativeDialog);
 import { metadata } from "../src/app/layout";
 import { TrainerDashboard } from "../src/app/trainer-dashboard";
 
@@ -1049,13 +1052,13 @@ describe("TrainerDashboard Profile hydration", () => {
     render(React.createElement(TrainerDashboard));
 
     const menuToggle = screen.getByRole("button", { name: "Menu" });
-    expect(menuToggle.getAttribute("aria-haspopup")).toBe("menu");
+    expect(menuToggle.getAttribute("aria-haspopup")).toBe("dialog");
     expect(menuToggle.getAttribute("aria-expanded")).toBe("false");
 
     fireEvent.click(menuToggle);
 
     expect(menuToggle.getAttribute("aria-expanded")).toBe("true");
-    const menu = screen.getByRole("menu", { name: "Main menu" });
+    const menu = screen.getByRole("dialog", { name: "Main menu" });
     const menuItems = [
       "Toggle conversation history",
       "Activities",
@@ -1066,12 +1069,12 @@ describe("TrainerDashboard Profile hydration", () => {
       "Data & settings",
     ];
     for (const name of menuItems) {
-      expect(menu.contains(within(menu).getByRole("menuitem", { name }))).toBe(
+      expect(menu.contains(within(menu).getByRole("button", { name }))).toBe(
         true,
       );
     }
     expect(
-      Array.from(menu.querySelectorAll("button")).map((button) =>
+      Array.from(menu.querySelectorAll("nav button")).map((button) =>
         button.textContent?.trim(),
       ),
     ).toEqual([
@@ -1084,17 +1087,21 @@ describe("TrainerDashboard Profile hydration", () => {
       "Settings",
     ]);
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(within(menu).getByRole("button", { name: "Close" }), {
+      key: "Escape",
+    });
 
     expect(menuToggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Main menu" })).toBeNull();
 
     fireEvent.click(menuToggle);
-    expect(screen.getByRole("menu", { name: "Main menu" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Main menu" })).toBeTruthy();
 
-    fireEvent.pointerDown(document.body);
+    const backdrop = screen.getByRole("dialog", { name: "Main menu" });
+    fireEvent.pointerDown(backdrop);
+    fireEvent.click(backdrop);
 
-    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Main menu" })).toBeNull();
   });
 
   it("activates mobile menu items and dismisses the menu", async () => {
@@ -1119,11 +1126,20 @@ describe("TrainerDashboard Profile hydration", () => {
     render(React.createElement(TrainerDashboard));
 
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Memory" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Main menu" })).getByRole(
+        "button",
+        { name: "Memory" },
+      ),
+    );
 
-    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Main menu" })).toBeNull();
     const memoryDialog = screen.getByRole("dialog", { name: "Memory" });
     expect(memoryDialog).toBeTruthy();
+    expect(document.activeElement).toBe(
+      within(memoryDialog).getByRole("button", { name: "Close" }),
+    );
+    expect(document.body.style.overflow).toBe("");
     expect(
       within(memoryDialog).getByRole("button", { name: "Close" }),
     ).toBeTruthy();
@@ -1134,9 +1150,14 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(screen.queryByRole("dialog", { name: "Memory" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Data & settings" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Main menu" })).getByRole(
+        "button",
+        { name: "Data & settings" },
+      ),
+    );
 
-    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Main menu" })).toBeNull();
     expect(
       screen.getByRole("dialog", { name: "Data & settings" }),
     ).toBeTruthy();
@@ -1148,11 +1169,34 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Activities" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Main menu" })).getByRole(
+        "button",
+        { name: "Activities" },
+      ),
+    );
 
-    expect(screen.queryByRole("menu", { name: "Main menu" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Main menu" })).toBeNull();
     expect(await screen.findByText("Activity 0")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Back to chat" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Menu" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Main menu" })).getByRole(
+        "button",
+        { name: "Toggle conversation history" },
+      ),
+    );
+    expect(document.activeElement).toBe(
+      within(
+        screen.getByRole("complementary", { name: "Conversation history" }),
+      ).getByRole("button", { name: "Close" }),
+    );
   });
 
   it("renders the minimal chat shell and reachable grouped settings disclosure", async () => {
@@ -3139,7 +3183,12 @@ describe("TrainerDashboard dedicated Sync view", () => {
     render(React.createElement(TrainerDashboard));
 
     fireEvent.click(await screen.findByRole("button", { name: "Menu" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Data & settings" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Main menu" })).getByRole(
+        "button",
+        { name: "Data & settings" },
+      ),
+    );
 
     const dialog = screen.getByRole("dialog", { name: "Data & settings" });
     expect(dialog.textContent).toContain(
