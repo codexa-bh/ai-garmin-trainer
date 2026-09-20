@@ -258,6 +258,21 @@ Non-responsibilities:
 - no provider calls;
 - no product-level coaching heuristics.
 
+### `src/lib/analytics/activity-dashboard-calculations.ts`
+
+Pure selected-activity display calculations, not coaching policy or data access.
+Two facades compose chart timing/speed/grade and route filtering/bounds/sampling
+from already selected, ordered normalized rows. Plain inputs/outputs and no imports
+make the calculations directly testable without SQLite, configuration or connector
+setup. Private helpers stay together because window and metadata behavior changes
+together; no generic analytics framework or per-helper service layer is needed.
+
+The repository retains SQL, response composition, laps and HR-zone ownership.
+Existing timing thresholds, signed grade, zero-versus-missing speed, messages,
+point ordering, full route bounds and sampling are preserved, including duplicate
+points outside a selected grade window. No measured-speed, GPS or summary fallback
+is added. See the [source/test boundary map](architecture.md#selected-activity-chart-and-route-calculations).
+
 ### `src/lib/garmin`
 
 Pinned local Garmin connector boundary and normalization.
