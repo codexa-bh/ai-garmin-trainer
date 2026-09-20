@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { getOptionalEnv } from "@/lib/env";
-import { getDatabase } from "@/lib/db/repository";
+import { getDatabase } from "@/lib/db/connection";
 
 export type AnalysisCell = string | number | boolean | null;
 export type AnalysisRow = Record<string, AnalysisCell>;

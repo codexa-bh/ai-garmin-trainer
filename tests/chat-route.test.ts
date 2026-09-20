@@ -555,32 +555,10 @@ vi.mock("@/lib/garmin/importer", () => ({
   backfillActivityDetail,
 }));
 
-vi.mock("@/lib/db/repository", () => ({
+vi.mock("@/lib/db/conversation-repository", () => ({
   DEFAULT_CONVERSATION_ID: "default",
   safeConversationId: (value?: string | null) => value?.trim() || "default",
-  activityDetailCoverage: () => coverage,
-  dataCounts: () => ({
-    activities: 3,
-    healthDays: 10,
-    detailedActivities: 1,
-    detailCoverage: coverage,
-  }),
   ensureConversation: vi.fn(),
-  createTrainerMemoryProposal: vi.fn((input) => {
-    const memory = {
-      id: `memory-${memoryProposals.length + 1}`,
-      category: input.category,
-      value: input.value,
-      status: "pending_confirmation",
-      sourceType: input.sourceType,
-      sourceRef: input.sourceRef ?? null,
-      provenanceText: input.provenanceText,
-      createdAt: new Date("2026-07-17T12:00:00Z"),
-      updatedAt: new Date("2026-07-17T12:00:00Z"),
-    };
-    memoryProposals.push(memory);
-    return memory;
-  }),
   appendChatMessage: vi.fn((input) => {
     const message = {
       id: `${input.role}-${messages.length + 1}`,
@@ -596,13 +574,30 @@ vi.mock("@/lib/db/repository", () => ({
   listRecentChatMessages: vi.fn((conversationId = "default") =>
     messages.filter((message) => message.conversationId === conversationId),
   ),
-  clearConversationHistory: vi.fn((conversationId = "default") => {
-    messages = messages.filter(
-      (message) => message.conversationId !== conversationId,
-    );
+}));
+vi.mock("@/lib/db/repository", () => ({
+  activityDetailCoverage: () => coverage,
+  dataCounts: () => ({
+    activities: 3,
+    healthDays: 10,
+    detailedActivities: 1,
+    detailCoverage: coverage,
   }),
-  trainingPlanStatus,
-  replaceTrainingPlan,
+  createTrainerMemoryProposal: vi.fn((input) => {
+    const memory = {
+      id: `memory-${memoryProposals.length + 1}`,
+      category: input.category,
+      value: input.value,
+      status: "pending_confirmation",
+      sourceType: input.sourceType,
+      sourceRef: input.sourceRef ?? null,
+      provenanceText: input.provenanceText,
+      createdAt: new Date("2026-07-17T12:00:00Z"),
+      updatedAt: new Date("2026-07-17T12:00:00Z"),
+    };
+    memoryProposals.push(memory);
+    return memory;
+  }),
   TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
   TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
   getGarminBodyMetrics: () => ({
@@ -696,6 +691,17 @@ vi.mock("@/lib/db/repository", () => ({
     laps: [],
     stream: [],
   }),
+}));
+vi.mock("@/lib/db/conversation-lifecycle", () => ({
+  clearConversationHistory: vi.fn((conversationId = "default") => {
+    messages = messages.filter(
+      (message) => message.conversationId !== conversationId,
+    );
+  }),
+}));
+vi.mock("@/lib/db/training-plan-repository", () => ({
+  trainingPlanStatus,
+  replaceTrainingPlan,
 }));
 
 vi.mock("@/lib/memory/sqlite-adapter", () => ({

@@ -25,7 +25,7 @@ import {
   type LlmDebugProviderCall,
   type LlmDebugTrace,
 } from "@/lib/ai/debug-trace";
-import type { ChatGrounding } from "@/lib/db/repository";
+import type { ChatGrounding } from "@/lib/db/conversation-repository";
 import {
   buildFinalSynthesisInstructions,
   buildPlannerInstructions,

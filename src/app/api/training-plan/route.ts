@@ -3,7 +3,10 @@ import {
   TRAINING_PLAN_TITLE_MAX_LENGTH,
 } from "@/lib/training-plan-limits";
 import { NextResponse } from "next/server";
-import { replaceTrainingPlan, trainingPlanStatus } from "@/lib/db/repository";
+import {
+  replaceTrainingPlan,
+  trainingPlanStatus,
+} from "@/lib/db/training-plan-repository";
 
 function boundedError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });

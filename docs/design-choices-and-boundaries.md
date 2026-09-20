@@ -234,7 +234,16 @@ backfill or release is introduced; source revert is the rollback path.
 
 ### `src/lib/db`
 
-Local SQLite schema and repositories.
+Local SQLite schema and repositories. Cohesive persistence owners are documented
+in [the architecture map](architecture.md#persistence-owners): one lazy connection,
+a conversation repository, a singleton Training Plan repository and an explicit
+cross-domain conversation-deletion lifecycle owner. The latter preserves atomic
+message deletion, soft deletion of semantic entries matching both conversation ID
+and `kind = 'conversation'`, then conversation deletion—even for a missing target.
+Saved/non-conversation memory and other domains are not its deletion authority.
+The remaining mixed repository is deliberately deferred, not a generic storage
+framework; extracted owners never import its compatibility facade. Source revert
+is sufficient rollback because schema, SQL and stored shapes are unchanged.
 
 Responsibilities:
 

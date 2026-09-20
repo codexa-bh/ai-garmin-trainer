@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { isLlmDebugTraceEnabled } from "@/lib/env";
 import {
   createConversation,
-  deleteConversation,
   getConversation,
   listChatMessagePage,
   listConversations,
   renameConversation,
   safeConversationId,
-} from "@/lib/db/repository";
+} from "@/lib/db/conversation-repository";
+import { deleteConversation } from "@/lib/db/conversation-lifecycle";
 
 const DEFAULT_PAGE_LIMIT = 30;
 

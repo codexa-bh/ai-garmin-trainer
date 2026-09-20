@@ -9,7 +9,7 @@ async function freshRepository() {
     mkdtempSync(join(tmpdir(), "training-plan-repo-")),
     "trainer.sqlite",
   );
-  return import("../src/lib/db/repository");
+  return import("../src/lib/db/training-plan-repository");
 }
 
 describe("training plan repository", () => {

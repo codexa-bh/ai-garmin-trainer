@@ -3,7 +3,7 @@ import {
   TRAINING_PLAN_TITLE_MAX_LENGTH,
 } from "@/lib/training-plan-limits";
 import { z } from "zod";
-import type { TrainingPlan } from "@/lib/db/repository";
+import type { TrainingPlan } from "@/lib/db/training-plan-repository";
 
 export const completeTrainingPlanSchema = z
   .object({

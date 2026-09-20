@@ -1,4 +1,7 @@
-import { replaceTrainingPlan, trainingPlanStatus } from "@/lib/db/repository";
+import {
+  replaceTrainingPlan,
+  trainingPlanStatus,
+} from "@/lib/db/training-plan-repository";
 import { TRAINING_PLAN_CONTENT_MAX_LENGTH } from "@/lib/training-plan-limits";
 import {
   completeTrainingPlanSchema,
