@@ -80,6 +80,22 @@ docs carry the deeper contract rather than duplicating it here.
 | Diagnostics              | Allowlisted readiness/redaction reports, not token-content inspection or destructive repair                                                                      | `src/lib/diagnostics/*`, `scripts/doctor.ts`; `tests/doctor.test.ts`                                                                                                                                                                        | Debug traces may contain private normalized context and stay local. [Source readiness](source-beta-readiness.md)                                                                                                                         |
 | Runtime/validation       | Reproducible Node 22 install, build/doctor/loopback start and blocking checks; not deployment/release authorization                                              | `package.json`, `scripts/bootstrap-local.mjs`, `restart-local.sh`, `migrate.ts`, `architecture-check.mjs`; `tests/bootstrap-local.test.ts`, `tests/restart-local.test.ts`, `tests/guardrails.test.ts`                                       | `npm ci`, `CI=true npm run validate`; [validation](validation.md), E0007 live-smoke runbook and [developer process](developer-process.md)                                                                                                |
 
+## Chat execution and delivery
+
+Chat now follows `route → delivery → chat/turn → chat/context + providers +
+orchestrator + repositories/memory`. Application owners have no HTTP/stream or
+route dependency. Preparation saves the user; generation produces a typed answer
+and progress; completion saves the assistant, awaits best-effort memory and
+reloads history. JSON and NDJSON share those operations, while delivery owns DTOs,
+debug visibility and the existing stream abort-before-completion boundary.
+
+`src/lib/chat/{context,turn}.ts` and `src/app/api/chat/delivery.ts` expose the seams
+covered directly by `tests/chat-boundaries.test.ts` and
+`tests/chat-delivery.test.ts`; integrated `tests/chat-route.test.ts` retains real
+orchestrator wiring. Mode-specific context counts, previous-failure debug traces
+and metadata differences are compatibility requirements, not normalization
+opportunities. See [chat ownership](design-choices-and-boundaries.md#chat-application-and-http-delivery).
+
 ## Turn-owned tool execution
 
 Each orchestration creates one `TrainerToolExecutionContext`, passes it explicitly
