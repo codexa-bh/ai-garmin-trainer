@@ -18,7 +18,7 @@ vi.mock("@/lib/db/repository", () => ({
   TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
   TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
 }));
-vi.mock("@/lib/db/training-plan-repository", () => ({
+vi.mock("@/lib/training-plan/composition", () => ({
   trainingPlanStatus,
   replaceTrainingPlan,
 }));

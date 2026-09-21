@@ -1,2 +1,4 @@
-export const TRAINING_PLAN_TITLE_MAX_LENGTH = 120;
-export const TRAINING_PLAN_CONTENT_MAX_LENGTH = 32000;
+export {
+  TRAINING_PLAN_TITLE_MAX_LENGTH,
+  TRAINING_PLAN_CONTENT_MAX_LENGTH,
+} from "./training-plan/limits";

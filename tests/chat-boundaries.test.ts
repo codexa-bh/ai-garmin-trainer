@@ -56,7 +56,7 @@ vi.mock("@/lib/db/repository", () => ({
     return null;
   },
 }));
-vi.mock("@/lib/db/training-plan-repository", () => ({
+vi.mock("@/lib/training-plan/composition", () => ({
   trainingPlanStatus: () => {
     f.order.push("plan");
     return null;

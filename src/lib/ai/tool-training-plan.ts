@@ -1,13 +1,7 @@
 import {
-  replaceTrainingPlan,
-  trainingPlanStatus,
-} from "@/lib/db/training-plan-repository";
-import { TRAINING_PLAN_CONTENT_MAX_LENGTH } from "@/lib/training-plan-limits";
-import {
-  completeTrainingPlanSchema,
-  hasSensitivePlanText,
-  sameTrainingPlan,
-} from "./training-plan-evidence";
+  readCompleteTrainingPlan,
+  saveGuardedTrainingPlan,
+} from "@/lib/training-plan/composition";
 import { boundedText } from "./tool-evidence";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolStep } from "./tool-types";
@@ -20,9 +14,7 @@ export function executeTrainingPlanTool(
 ): TrainerToolStep {
   switch (input.toolName) {
     case "getTrainingPlan": {
-      const result = completeTrainingPlanSchema.parse(trainingPlanStatus());
-      if (hasSensitivePlanText(result.plan))
-        throw new Error("private_plan_content");
+      const result = readCompleteTrainingPlan();
       return {
         index: input.index,
         tool: input.toolName,
@@ -36,53 +28,20 @@ export function executeTrainingPlanTool(
       };
     }
     case "saveTrainingPlan": {
-      const args = input.input;
-      const snapshot = input.trainingPlanSnapshot;
-      const reject = (reason: string): TrainerToolStep => ({
-        index: input.index,
-        tool: input.toolName,
-        status: "rejected",
-        reason,
-        summary: `Training Plan was not saved: ${reason}.`,
-        privacy: "Existing local plan unchanged; no blind replacement.",
-      });
-      const current = completeTrainingPlanSchema.parse(trainingPlanStatus());
-      if (current.plan && (!snapshot || hasSensitivePlanText(snapshot.plan)))
-        return reject("complete_plan_read_required");
-      if (snapshot && !sameTrainingPlan(current.plan, snapshot.plan))
-        return reject("training_plan_changed_read_again");
-      let contentMarkdown = args.contentMarkdown;
-      if (args.edits) {
-        if (!current.plan || !snapshot)
-          return reject("complete_plan_read_required");
-        const original = current.plan.contentMarkdown;
-        const edits = args.edits
-          .map((edit) => ({ ...edit, start: original.indexOf(edit.oldText) }))
-          .sort((a, b) => a.start - b.start);
-        let end = 0;
-        contentMarkdown = "";
-        for (const edit of edits) {
-          if (
-            edit.start < end ||
-            edit.start < 0 ||
-            original.indexOf(edit.oldText, edit.start + 1) !== -1
-          )
-            return reject("plan_edit_not_unique_or_overlapping");
-          contentMarkdown += original.slice(end, edit.start) + edit.newText;
-          end = edit.start + edit.oldText.length;
-        }
-        contentMarkdown += original.slice(end);
-      }
-      if (
-        !contentMarkdown?.trim() ||
-        contentMarkdown.trim().length > TRAINING_PLAN_CONTENT_MAX_LENGTH
-      )
-        return reject("invalid_plan_content_length");
-      // Read/compare/write is synchronous: no provider await between snapshot validation and persistence.
-      const plan = replaceTrainingPlan({
-        title: args.title ?? current.plan?.title,
-        contentMarkdown,
-      });
+      const outcome = saveGuardedTrainingPlan(
+        input.input,
+        input.trainingPlanSnapshot,
+      );
+      if (!outcome.ok)
+        return {
+          index: input.index,
+          tool: input.toolName,
+          status: "rejected",
+          reason: outcome.reason,
+          summary: `Training Plan was not saved: ${outcome.reason}.`,
+          privacy: "Existing local plan unchanged; no blind replacement.",
+        };
+      const plan = outcome.plan;
       return {
         index: input.index,
         tool: input.toolName,

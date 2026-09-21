@@ -14,7 +14,7 @@ import {
   listRecentActivities,
   listRecentDailyHealth,
 } from "@/lib/db/repository";
-import { trainingPlanStatus } from "@/lib/db/training-plan-repository";
+import { trainingPlanStatus } from "@/lib/training-plan/composition";
 import { trainerMemoryStore } from "@/lib/memory/composition";
 import { trainerProfile } from "@/lib/profile/composition";
 import { LOCAL_MEMORY_USER_ID } from "@/lib/memory/types";

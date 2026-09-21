@@ -6,12 +6,9 @@ import type {
   NormalizedDailyHealth,
 } from "../garmin/types";
 import type { RetrievedMemory } from "../memory/types";
-// Context consumes only this preview, not the storage-owned plan representation.
-export type TrainingPlanContext = {
-  plan: { title: string; contentMarkdown: string; revisedAt: string } | null;
-  stale: boolean;
-  staleAfterDays: number;
-};
+import type { TrainingPlanStatus } from "../training-plan/contracts";
+// Context consumes a preview of the feature-owned document contract.
+export type TrainingPlanContext = TrainingPlanStatus;
 export { TRAINER_SYSTEM_PROMPT } from "./trainer-instructions";
 
 export type RecentConversationMessage = {

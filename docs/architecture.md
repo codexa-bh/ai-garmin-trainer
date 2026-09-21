@@ -160,6 +160,33 @@ suites remain compatibility evidence. No UI, schema, data semantics, provider,
 threshold, TTL or historical cleanup changes: migration/back-sync is a no-op and
 source revert is sufficient rollback.
 
+## Training Plan application and adapters
+
+`training-plan/{contracts,limits,policy,snapshot,edits}.ts` owns the singleton
+plan representation, title/stale policy, complete-evidence validation/privacy
+and original-document exact edits. `application.ts` consumes a synchronous
+`TrainingPlanStore` (read/persist) and supplied clock. Manual save normalizes,
+persists and reads back; guarded tool save reads/validates/compares the prior
+snapshot, applies edits and saves without yielding. They intentionally do not
+share authorization assumptions. Zod validates the existing complete-snapshot
+shape; inner modules have no framework, SQL, AI SDK or composition dependencies.
+
+`composition.ts` lazily binds the existing SQLite owner. HTTP retains alias parsing,
+length errors and status mapping; chat consumes the feature status contract;
+the tool adapter retains summaries/privacy and metadata-only save results.
+Orchestration still owns prior-planner-pass snapshot timing and semantic write
+intent. Manual writes can save documents the tool refuses to read; no new
+sanitization or authorization policy is introduced. Repository compatibility
+functions delegate inward rather than duplicating policy.
+
+`training-plan-application.test.ts` exercises pure rules and supplied store journals;
+`training-plan-wiring.test.ts` covers real HTTP/composition/tool/SQLite paths and
+write failure. `training-plan-dependencies.test.ts` checks type-inclusive inward
+dependencies with negative fixtures. Existing repository, route, evidence,
+orchestrator and chat suites retain compatibility coverage. SQL, schema and
+stored timestamps are unchanged; migration/back-sync is a no-op, source revert
+is sufficient rollback. No UI or release behavior changes.
+
 ## Chat execution and delivery
 
 Chat follows `route → delivery → chat/composition → chat/turn`.
@@ -227,8 +254,9 @@ and `tests/tool-runtime-ownership.test.ts` / `tests/tool-boundaries.test.ts`.
   grounding serialization and the single monotonic message timestamp state.
   It imports pure chat-owned ID/title policy and contracts; compatibility exports
   remain for existing callers.
-- `training-plan-repository.ts` owns singleton plan persistence and revision/stale
-  metadata. Synchronous snapshot authorization/edit/write stays in the AI handler.
+- `training-plan-repository.ts` owns singleton plan SQL and row/ISO conversion.
+  Feature-owned application/rules own normalization, staleness and synchronous
+  guarded read/compare/edit/write; AI retains presentation and planner timing.
 - `conversation-lifecycle.ts` owns the complete single-conversation deletion
   transaction: messages, conversation-derived semantic memory soft deletion, then
   conversation. History clear delegates to it; chat application use cases own

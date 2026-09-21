@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import {
   replaceTrainingPlan,
   trainingPlanStatus,
-} from "@/lib/db/training-plan-repository";
+} from "@/lib/training-plan/composition";
 
 function boundedError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
