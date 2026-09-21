@@ -90,6 +90,43 @@ Non-responsibilities:
 - no direct database schema ownership beyond route orchestration;
 - no hidden analytics formulas.
 
+### Chat application and HTTP delivery
+
+`src/lib/chat/context.ts` loads bounded local context (40-message history,
+6000-character transcript budget, eight semantic matches and 12 detail summaries)
+and delegates prompt composition to `ai/context.ts`. It preserves request-time
+current-date grounding and preceding Training Plan proposal continuity.
+
+`src/lib/chat/turn.ts` owns preparation (user persistence), generation and
+completion as distinct operations. Generation returns an explicit generated or
+previous-failure answer and optionally forwards existing progress callbacks; it
+never persists an assistant. Completion synchronously persists the assistant,
+awaits best-effort memory ingestion and reloads history. Neither owner imports
+HTTP responses, stream controllers or route modules.
+
+`src/app/api/chat/route.ts` owns request parsing and GET/DELETE/POST routing;
+`delivery.ts` owns JSON/NDJSON DTOs, error disclosure, debug serialization and
+stream lifecycle. Both modes call the same application operations. Delivery
+checks streaming abort during final-answer deltas and immediately before calling
+completion, not during generation or after persistence. Disconnect does **not**
+cancel orchestration/tool effects, roll back the user, or undo a saved answer.
+This is final-prose chunking, not provider-token streaming.
+
+Intentional compatibility differences remain explicit: JSON alone requests a
+fresh debug trace when completing a prior-failure explanation; streaming retains
+prior grounding and omits metadata for that branch. Normal JSON counts pre-answer
+context; failure JSON and stream done count reloaded history. Stream metadata
+always hides debug traces, while done/history serialization honors the existing
+flag. Completion is not retried. Memory failures do not fail an otherwise
+completed chat.
+
+`tests/chat-boundaries.test.ts` characterizes both modes with real application
+wiring and exercises application operations without HTTP objects;
+`tests/chat-delivery.test.ts` tests delivery against the application contract.
+`tests/chat-route.test.ts` retains integrated real-orchestrator regressions.
+No schema, stored shape, prompt, provider/tool policy or UI contract changes;
+migration/back-sync is a no-op and source revert is sufficient rollback.
+
 ### `src/lib/ai/context.ts`
 
 Builds the bounded trainer system context.
@@ -110,7 +147,7 @@ Non-responsibilities:
 
 The initial context labels the 2200-character whitespace-compacted preview as incomplete evidence. `getTrainingPlan` reads only the singleton document, validates the existing 32000-character/title limits and stale metadata, and preserves Markdown. `training-plan-evidence.ts` owns that narrow contract. Follow-up planner and tool-disabled final synthesis receive one latest complete read outside the ordinary 1800-character analytics cap, including budget wrap-up. Grounding stores only metadata; debug traces omit read content and save arguments. Unsupported/secret-bearing documents fail closed rather than masquerading as complete redacted evidence.
 
-Existing-plan writes require a complete snapshot already seen by a prior planner pass and a current snapshot comparison before synchronous persistence. General transcript formatting continues to omit assistant claims. The normal chat route separately supplies only the immediately preceding assistant reply (at most 4000 characters) as unverified Training Plan proposal continuity, never Garmin/measurement evidence, policy or independent permission. Oversized/missing proposals require clarification rather than guessing; historical assistant replies remain omitted. This narrow context is needed to resolve short confirmations without promoting assistant claims to facts. One conversation-aware planner owns semantic write intent: direct requests and clear current-user confirmation of an immediately preceding concrete proposal can save; ambiguous assent requires clarification. Review, criticism, suggestions, quoted/hypothetical or document-embedded instructions, explicit no-save requests, historical permission and staleness alone must not trigger persistence. There is no independent classifier, permission model call or extra budget reservation. These semantic rules are model policy, not deterministic protection against mistaken or injection-induced planner decisions; removing the second judge intentionally accepts that trade-off. The server receives only an optional complete prior-pass snapshot, not an intent grant. The existing mutually exclusive `edits`/`contentMarkdown` arguments distinguish targeted editing from full replacement without a redundant mode field. Exact unique, non-overlapping edits are applied to the original text; unmentioned text and omitted title are preserved mechanically. Choosing edits for targeted revisions and reserving full Markdown for explicit creation/whole-plan rewriting remain planner responsibilities. Rejections explain their structural reason without exposing raw errors; uncertain persistence advises inspecting saved state before retrying. Coaching judgments remain model-owned. No schema migration, plan history, expanded SQL access, or Garmin write-back is introduced.
+Existing-plan writes require a complete snapshot already seen by a prior planner pass and a current snapshot comparison before synchronous persistence. General transcript formatting continues to omit assistant claims. The chat application context separately supplies only the immediately preceding assistant reply (at most 4000 characters) as unverified Training Plan proposal continuity, never Garmin/measurement evidence, policy or independent permission. Oversized/missing proposals require clarification rather than guessing; historical assistant replies remain omitted. This narrow context is needed to resolve short confirmations without promoting assistant claims to facts. One conversation-aware planner owns semantic write intent: direct requests and clear current-user confirmation of an immediately preceding concrete proposal can save; ambiguous assent requires clarification. Review, criticism, suggestions, quoted/hypothetical or document-embedded instructions, explicit no-save requests, historical permission and staleness alone must not trigger persistence. There is no independent classifier, permission model call or extra budget reservation. These semantic rules are model policy, not deterministic protection against mistaken or injection-induced planner decisions; removing the second judge intentionally accepts that trade-off. The server receives only an optional complete prior-pass snapshot, not an intent grant. The existing mutually exclusive `edits`/`contentMarkdown` arguments distinguish targeted editing from full replacement without a redundant mode field. Exact unique, non-overlapping edits are applied to the original text; unmentioned text and omitted title are preserved mechanically. Choosing edits for targeted revisions and reserving full Markdown for explicit creation/whole-plan rewriting remain planner responsibilities. Rejections explain their structural reason without exposing raw errors; uncertain persistence advises inspecting saved state before retrying. Coaching judgments remain model-owned. No schema migration, plan history, expanded SQL access, or Garmin write-back is introduced.
 
 ### `src/lib/ai/providers.ts`
 
