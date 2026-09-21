@@ -1,3 +1,4 @@
+// This composed facade exposes admission-guarded operations only, never execution ports.
 import { describeGarminDatabase, runReadOnlySql } from "./sql-analysis";
 import { runMathAnalysis } from "./math-analysis";
 import { boundedText } from "./tool-evidence";

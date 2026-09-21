@@ -249,14 +249,25 @@ success/failure; existing orchestrator, plan and route tests protect integration
 
 ### `src/lib/ai/sql-analysis.ts`
 
-Read-only analytical SQL boundary over normalized local data.
+Guarded production composition over normalized local data. Feature-owned
+`ai/analytics/{contracts,schema,policy,application}.ts` separates plain analytical
+contracts, admission/result interpretation and synchronous use cases from the
+concrete `sqlite-execution.ts` adapter. Only the guarded facade reaches tools;
+math and evidence import neutral contracts. Supplied execution/inspection ports
+carry no DB/statement/path values. See the [boundary and test map](architecture.md#guarded-analytical-policy-and-sqlite-execution).
+
+Admission always precedes opening; inspection accepts no arbitrary metadata SQL.
+Read-only options/query_only, initialization and close ownership, correction
+metadata, byte/row limits and post-execution timeout remain compatible. The
+existing parser and timeout are not strengthened in this separation. No new
+provider-visible schema, coaching policy, migration or back-sync is introduced.
 
 Responsibilities:
 
 - describe allowlisted analytical tables and columns;
 - execute one bounded read-only `SELECT`/`WITH` query;
 - reject writes, PRAGMAs, comments, stacked statements, disallowed tables, auth/session/account data, raw payload dumps, secrets, paths, connector handles, environment/process/network access, raw FIT data, and unrestricted stream dumps;
-- return capped rows and a same-turn result handle for math.
+- return capped rows; the tool adapter registers a same-turn result handle for math only after success.
 
 Non-responsibilities:
 

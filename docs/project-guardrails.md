@@ -100,6 +100,15 @@ external package is claimed pure. Direct rules retain quick editor feedback;
 the aggregate gate must always include the graph. Regression tests exercise
 real project-backed typed lint probes and positive/negative graph fixtures.
 
+The guarded SQL slice also has a type-inclusive dependency regression in
+`tests/sql-dependencies.test.ts`: analytical contracts/schema/policy/application
+cannot import SQLite, DB/environment, SDKs or the outer composition facade,
+even through erased types or local helpers. Production tool wiring and actual
+readonly/query_only behavior are covered in `tests/sql-execution.test.ts`;
+supplied-capability tests prove rejected requests never open execution. These
+checks complement the runtime graph, not a claim of arbitrary capability-flow
+proof or a replacement SQL parser.
+
 ## Knip
 
 `npm run knip` uses Knip 6 full-project analysis, including tests and JS/TS tooling,

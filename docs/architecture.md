@@ -80,6 +80,43 @@ docs carry the deeper contract rather than duplicating it here.
 | Diagnostics              | Allowlisted readiness/redaction reports, not token-content inspection or destructive repair                                                                      | `src/lib/diagnostics/*`, `scripts/doctor.ts`; `tests/doctor.test.ts`                                                                                                                                                                        | Debug traces may contain private normalized context and stay local. [Source readiness](source-beta-readiness.md)                                                                                                                         |
 | Runtime/validation       | Reproducible Node 22 install, build/doctor/loopback start and blocking checks; not deployment/release authorization                                              | `package.json`, `scripts/bootstrap-local.mjs`, `restart-local.sh`, `migrate.ts`, `architecture-check.mjs`; `tests/bootstrap-local.test.ts`, `tests/restart-local.test.ts`, `tests/guardrails.test.ts`                                       | `npm ci`, `CI=true npm run validate`; [validation](validation.md), E0007 live-smoke runbook and [developer process](developer-process.md)                                                                                                |
 
+## Guarded analytical policy and SQLite execution
+
+`ai/sql-analysis.ts` is the lazy production composition/compatibility facade;
+only `describeGarminDatabase` and `runReadOnlySql` are exposed to analytical tools.
+`ai/analytics/contracts.ts` owns plain row/result/schema/input shapes and the
+consumer-owned execution capabilities. Math, tool evidence and the turn-owned
+handle map use these neutral types, never concrete SQLite types.
+
+`analytics/schema.ts` owns the exact allowlisted descriptors, examples, limits
+and privacy description; `policy.ts` owns admission precedence, CTE/table checks,
+name/limit coercion, correction hints/error redaction and bounded normalization.
+`application.ts` receives explicit execution and clock capabilities. It admits
+before opening a session, runs one synchronous query and interprets its result.
+The session exposes rows, empty-result column names and close, not a Database or
+Statement. Inspection is a separate fixed-table statistics operation with no
+caller-provided metadata SQL. There is no container or ambient dependency setter.
+
+`analytics/sqlite-execution.ts` alone initializes the existing app DB, resolves
+the path, opens readonly/fileMustExist with a 750ms busy timeout and enables
+query_only. It keeps prepare → safeIntegers(false) → all, fixed inspection SQL,
+and concrete close mechanics. The application retains open and initial clock
+outside its try, elapsed checking immediately after all (before empty columns),
+normalization inside catch/finally and unhandled close failures. Inspection
+closes on success/failure. The existing timeout is **not** hard query preemption;
+no parser fixes, extra queries, access expansion or lifecycle corrections are
+hidden in this structural change. Only successful results register same-turn
+handles in `tool-analytics.ts`; rejected/failed queries cannot replace them.
+
+`tests/sql-compatibility.test.ts` freezes pre-extraction provider schema and
+admission/error snapshots. `sql-application.test.ts` directly supplies ports and
+a clock to cover rejection-before-I/O, ordering, limits, normalization and errors.
+`sql-execution.test.ts` covers actual readonly/query_only settings, closed handles,
+inspection and production tool wiring. `sql-dependencies.test.ts` checks the
+transitive type-inclusive inner closure, with negative infrastructure/composition
+fixtures; the runtime graph and existing SQL/math/tool/orchestrator suites remain
+required. SQL/schema/back-sync is a no-op; source revert is sufficient rollback.
+
 ## Local-data application and adapters
 
 `local-data/application.ts` exposes synchronous read use cases and scoped deletion
