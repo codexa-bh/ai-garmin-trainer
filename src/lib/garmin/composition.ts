@@ -1,22 +1,24 @@
-import { requireRuntimeEnv } from "../env";
 import {
   activityDetailCoverage,
   dataCounts,
-  finishSyncRun,
   getActivityByGarminId,
-  getActivityDetailAttempt,
   getActivityDetailForAnalytics,
-  getCheckpoint,
   getGarminAthleteBaseline,
   getGarminBodyMetrics,
   listActivityDetailAvailability,
+  listRecentActivities,
+} from "../local-data/composition";
+import { requireRuntimeEnv } from "../env";
+import {
+  finishSyncRun,
+  getActivityDetailAttempt,
+  getCheckpoint,
   listActivityIdsNeedingDetail,
   listDailyHealthMissingGapDates,
   listDailyHealthRepairCandidateDates,
   listDailyHealthIntensityRepairCandidateDates,
   listDailyHealthTrailingCandidateDates,
   listActivityIdsNeedingEffortBackfill,
-  listRecentActivities,
   recordActivityDetailAttempt,
   recordGarminAthleteBaselineFailure,
   recordGarminBodyMetricsFailure,

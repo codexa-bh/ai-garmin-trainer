@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActivityDashboardDetail } from "@/lib/db/repository";
+import { getActivityDashboardDetail } from "@/lib/local-data/composition";
 
 type RouteContext = {
   params: Promise<{ garminId: string }> | { garminId: string };

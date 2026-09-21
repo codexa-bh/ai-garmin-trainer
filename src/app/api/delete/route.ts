@@ -1,33 +1,12 @@
 import { NextResponse } from "next/server";
-import {
-  clearChatAndProfile,
-  clearGarminData,
-  dataCounts,
-} from "@/lib/db/repository";
+import { deleteLocalData } from "@/lib/local-data/composition";
 
 export async function POST(request: Request) {
   const { scope } = (await request.json()) as {
     scope: "chat-profile" | "garmin-all";
   };
-  if (scope === "chat-profile") {
-    return NextResponse.json({
-      ok: true,
-      deleted: clearChatAndProfile(),
-      counts: dataCounts(),
-      detail:
-        "Cleared local conversations, messages, and trainer profile. semantic memory and normalized Garmin data were preserved; use Clear all memory for semantic memory.",
-    });
-  }
-  if (scope === "garmin-all") {
-    const deleted = clearGarminData();
-    return NextResponse.json({
-      ok: true,
-      deleted,
-      counts: dataCounts(),
-      detail:
-        "Deleted normalized Garmin data, athlete baselines, sync runs, and checkpoints managed by the app. External garmin-mcp-auth tokens were not deleted because the app did not create or own them.",
-    });
-  }
+  const result = deleteLocalData(scope);
+  if (result) return NextResponse.json(result);
   return NextResponse.json(
     { error: "unknown deletion scope" },
     { status: 400 },

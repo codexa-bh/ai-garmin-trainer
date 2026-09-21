@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listActivitiesForDashboard } from "@/lib/db/repository";
+import { listActivitiesForDashboard } from "@/lib/local-data/composition";
 
 function activityLabel(activity: {
   name: string | null;

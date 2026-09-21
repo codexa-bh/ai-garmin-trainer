@@ -1,11 +1,56 @@
+import { buildDashboardDetail } from "../local-data/dashboard-policy";
+import {
+  interpretEffortCoverage,
+  interpretHealthCoverage,
+} from "../local-data/coverage-policy";
+import {
+  storedHeartRateZoneTime,
+  streamHeartRateZoneTime,
+} from "../local-data/heart-rate-policy";
+import {
+  boundedInteger,
+  interpretActivityReference,
+} from "../local-data/activity-policy";
+import {
+  dailyHealthMetricFields,
+  mergeDailyHealth,
+  dailyHealthTrailingCriteria,
+  dailyHealthRefreshCutoff,
+  shiftIsoDate,
+} from "../local-data/health-policy";
+export { DAILY_HEALTH_MUTABLE_TRAILING_DAYS } from "../local-data/health-policy";
+import type {
+  ActivityDashboardListPage,
+  ActivityDashboardHeartRateZoneTime,
+  ActivityDashboardDetail,
+  ActivityEffortCoverage,
+  ActivityReferenceInput,
+  ActivityVerificationEvidence,
+  DailyHealthFreshnessEvidence,
+  ActivityAnalyticsDetail,
+  LocalDataCounts,
+  LocalImportSummary,
+} from "../local-data/contracts";
+export type {
+  ActivityDashboardListItem,
+  ActivityDashboardListPage,
+  ActivityDashboardHeartRateZoneBucket,
+  ActivityDashboardHeartRateZoneTime,
+  ActivityDashboardDetail,
+  ActivityEffortCoverage,
+  ActivityReferenceInput,
+  ActivityVerificationEvidence,
+  DailyHealthFreshnessEvidence,
+  ActivityAnalyticsDetail,
+  LocalDataCounts,
+  LocalImportSummary,
+} from "../local-data/contracts";
 import {
   buildActivityDashboardCharts,
   buildActivityDashboardRoute,
 } from "../analytics/activity-dashboard-calculations";
 import type {
   ActivityDashboardChartRow,
-  ActivityDashboardCharts,
-  ActivityDashboardRoute,
   ActivityDashboardRoutePoint,
 } from "../analytics/activity-dashboard-calculations";
 export {
@@ -70,74 +115,6 @@ export type SyncRunOptions = {
   coverageStart?: string | null;
   coverageEnd?: string | null;
   lastError?: string | null;
-};
-
-export type ActivityDashboardListItem = NormalizedActivity & {
-  detailStatus: ActivityDetailStatus | null;
-};
-
-export type ActivityEffortCoverage = {
-  total: number;
-  withAnyEffortField: number;
-  withIntensityMinutes: number;
-  withTrainingLoad: number;
-  withAnaerobicTrainingEffect: number;
-  needingBackfill: number;
-};
-
-export type ActivityDashboardListPage = {
-  activities: ActivityDashboardListItem[];
-  nextOffset: number | null;
-  totalApprox: number;
-  limit: number;
-  offset: number;
-};
-
-export type ActivityDashboardHeartRateZoneBucket = {
-  zone: 1 | 2 | 3 | 4 | 5;
-  label: string | null;
-  lowerBpm: number;
-  upperBpm: number | null;
-  seconds: number;
-  percent: number;
-};
-
-export type ActivityDashboardHeartRateZoneTime = {
-  status:
-    | "available"
-    | "missing_zones"
-    | "missing_heart_rate"
-    | "insufficient_stream"
-    | "missing_activity_zone_times";
-  timeSource: "garmin_activity" | "local_stream" | null;
-  zoneSource: "garmin_mcp" | "derived" | null;
-  zoneStatus:
-    "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
-  formula: string | null;
-  classifiedSeconds: number;
-  unclassifiedSeconds: number;
-  noHeartRateSeconds: number;
-  activityDurationSec: number | null;
-  sourceTotalSeconds: number | null;
-  buckets: ActivityDashboardHeartRateZoneBucket[];
-  message: string;
-};
-
-export type ActivityDashboardDetail = {
-  activity: NormalizedActivity;
-  detail: {
-    status: ActivityDetailStatus;
-    hasHeartRate: boolean;
-    hasElevation: boolean;
-    hasLaps: boolean;
-    recordCount: number;
-    lapCount: number;
-    unavailableReason: string | null;
-  };
-  charts: ActivityDashboardCharts;
-  route: ActivityDashboardRoute;
-  heartRateZones: ActivityDashboardHeartRateZoneTime;
-  laps: ActivityLapDetail[];
 };
 
 export function getAppMetadata(key: string): string | null {
@@ -212,76 +189,6 @@ export function upsertActivities(activities: NormalizedActivity[]): number {
   });
   run(activities);
   return activities.length;
-}
-
-function dailyHealthMetricFields(
-  day: Omit<NormalizedDailyHealth, "availability">,
-): Omit<NormalizedDailyHealth, "date" | "availability"> {
-  return {
-    sleepMinutes: day.sleepMinutes,
-    sleepScore: day.sleepScore,
-    sleepDeepMinutes: day.sleepDeepMinutes,
-    sleepLightMinutes: day.sleepLightMinutes,
-    sleepRemMinutes: day.sleepRemMinutes,
-    sleepAwakeMinutes: day.sleepAwakeMinutes,
-    sleepNapMinutes: day.sleepNapMinutes,
-    restingHeartRate: day.restingHeartRate,
-    hrvStatus: day.hrvStatus,
-    hrvMs: day.hrvMs,
-    stressAvg: day.stressAvg,
-    steps: day.steps,
-    calories: day.calories,
-    activeCalories: day.activeCalories,
-    restingCalories: day.restingCalories,
-    totalCalories: day.totalCalories,
-    intensityMinutes: day.intensityMinutes,
-    bodyBatteryAvg: day.bodyBatteryAvg,
-    bodyBatteryMorning: day.bodyBatteryMorning,
-    bodyBatteryEvening: day.bodyBatteryEvening,
-  };
-}
-
-function mergeDailyHealth(
-  previous: NormalizedDailyHealth,
-  incoming: NormalizedDailyHealth,
-): NormalizedDailyHealth {
-  const merged = {
-    date: incoming.date,
-    sleepMinutes: incoming.sleepMinutes ?? previous.sleepMinutes ?? null,
-    sleepScore: incoming.sleepScore ?? previous.sleepScore ?? null,
-    sleepDeepMinutes:
-      incoming.sleepDeepMinutes ?? previous.sleepDeepMinutes ?? null,
-    sleepLightMinutes:
-      incoming.sleepLightMinutes ?? previous.sleepLightMinutes ?? null,
-    sleepRemMinutes:
-      incoming.sleepRemMinutes ?? previous.sleepRemMinutes ?? null,
-    sleepAwakeMinutes:
-      incoming.sleepAwakeMinutes ?? previous.sleepAwakeMinutes ?? null,
-    sleepNapMinutes:
-      incoming.sleepNapMinutes ?? previous.sleepNapMinutes ?? null,
-    restingHeartRate:
-      incoming.restingHeartRate ?? previous.restingHeartRate ?? null,
-    hrvStatus: incoming.hrvStatus ?? previous.hrvStatus ?? null,
-    hrvMs: incoming.hrvMs ?? previous.hrvMs ?? null,
-    stressAvg: incoming.stressAvg ?? previous.stressAvg ?? null,
-    steps: incoming.steps ?? previous.steps ?? null,
-    calories: incoming.calories ?? previous.calories ?? null,
-    activeCalories: incoming.activeCalories ?? previous.activeCalories ?? null,
-    restingCalories:
-      incoming.restingCalories ?? previous.restingCalories ?? null,
-    totalCalories: incoming.totalCalories ?? previous.totalCalories ?? null,
-    intensityMinutes:
-      incoming.intensityMinutes ?? previous.intensityMinutes ?? null,
-    bodyBatteryAvg: incoming.bodyBatteryAvg ?? previous.bodyBatteryAvg ?? null,
-    bodyBatteryMorning:
-      incoming.bodyBatteryMorning ?? previous.bodyBatteryMorning ?? null,
-    bodyBatteryEvening:
-      incoming.bodyBatteryEvening ?? previous.bodyBatteryEvening ?? null,
-  };
-  return {
-    ...merged,
-    availability: dailyHealthAvailability(dailyHealthMetricFields(merged)),
-  };
 }
 
 export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
@@ -360,14 +267,6 @@ export function getCheckpoint(key: string): string | null {
     .get(key) as { value: string } | undefined;
   return row?.value ?? null;
 }
-
-export type DailyHealthFreshnessEvidence = {
-  date: string;
-  availability: NormalizedDailyHealth["availability"] | null;
-  hasStatsPayload: boolean;
-  hasSleepPayload: boolean;
-  hasBodyBatteryPayload: boolean;
-};
 
 export function getDailyHealthFreshnessEvidence(
   date: string,
@@ -513,37 +412,13 @@ export function listDailyHealthIntensityRepairCandidateDates(input: {
   return rows.map((row) => row.date);
 }
 
-function shiftIsoDate(date: string, days: number): string {
-  const cursor = new Date(`${date}T00:00:00Z`);
-  if (Number.isNaN(cursor.getTime())) return date;
-  cursor.setUTCDate(cursor.getUTCDate() + days);
-  return cursor.toISOString().slice(0, 10);
-}
-
-export const DAILY_HEALTH_MUTABLE_TRAILING_DAYS = 14;
-const DAILY_HEALTH_COMPLETE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
 export function listDailyHealthTrailingCandidateDates(input: {
   startDate: string;
   endDate: string;
   mutableTrailingDays?: number;
   limit?: number;
 }): string[] {
-  const safeLimit = Math.min(
-    Math.max(Math.trunc(input.limit ?? 1000), 1),
-    1000,
-  );
-  const mutableTrailingDays = Math.min(
-    Math.max(
-      Math.trunc(
-        input.mutableTrailingDays ?? DAILY_HEALTH_MUTABLE_TRAILING_DAYS,
-      ),
-      1,
-    ),
-    60,
-  );
-  const tailStart = shiftIsoDate(input.endDate, -(mutableTrailingDays - 1));
-  const startDate = input.startDate > tailStart ? input.startDate : tailStart;
+  const { safeLimit, startDate } = dailyHealthTrailingCriteria(input);
   if (startDate > input.endDate) return [];
   const rows = getDatabase()
     .prepare(
@@ -579,7 +454,7 @@ export function listDailyHealthTrailingCandidateDates(input: {
       startDate,
       input.endDate,
       shiftIsoDate(input.endDate, -1),
-      Date.now() - DAILY_HEALTH_COMPLETE_REFRESH_INTERVAL_MS,
+      dailyHealthRefreshCutoff(Date.now()),
       safeLimit,
     ) as Array<{ date: string }>;
   return rows.map((row) => row.date);
@@ -661,16 +536,6 @@ function normalizeActivityRow<T extends ActivityRow>(
   return { ...row, startedAt: new Date(row.startedAt) };
 }
 
-function boundedInteger(
-  value: number,
-  fallback: number,
-  min: number,
-  max: number,
-) {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, Math.floor(value)));
-}
-
 export function listRecentActivities(limit = 12): NormalizedActivity[] {
   const rows = getDatabase()
     .prepare(
@@ -727,14 +592,7 @@ export function activityEffortCoverage(): ActivityEffortCoverage {
        from activity`,
     )
     .get() as Record<keyof ActivityEffortCoverage, number | null>;
-  return {
-    total: row.total ?? 0,
-    withAnyEffortField: row.withAnyEffortField ?? 0,
-    withIntensityMinutes: row.withIntensityMinutes ?? 0,
-    withTrainingLoad: row.withTrainingLoad ?? 0,
-    withAnaerobicTrainingEffect: row.withAnaerobicTrainingEffect ?? 0,
-    needingBackfill: row.needingBackfill ?? 0,
-  };
+  return interpretEffortCoverage(row);
 }
 
 export function listActivitiesForDashboard(
@@ -854,41 +712,6 @@ function parseHeartRateZoneBoundaries(
   }
 }
 
-function emptyHeartRateZoneTime(
-  input: Pick<
-    ActivityDashboardHeartRateZoneTime,
-    | "status"
-    | "timeSource"
-    | "zoneSource"
-    | "zoneStatus"
-    | "formula"
-    | "activityDurationSec"
-    | "sourceTotalSeconds"
-    | "buckets"
-    | "message"
-  >,
-): ActivityDashboardHeartRateZoneTime {
-  return {
-    ...input,
-    classifiedSeconds: 0,
-    unclassifiedSeconds: 0,
-    noHeartRateSeconds: 0,
-  };
-}
-
-function findHeartRateZone(
-  heartRate: number,
-  boundaries: HeartRateZoneBoundaryDto[],
-): HeartRateZoneBoundaryDto | null {
-  return (
-    boundaries.find(
-      (zone) =>
-        heartRate >= zone.lowerBpm &&
-        (zone.upperBpm === null || heartRate <= zone.upperBpm),
-    ) ?? null
-  );
-}
-
 function getStoredActivityHeartRateZoneTime(
   garminId: string,
   activityDurationSec: number | null,
@@ -906,38 +729,7 @@ function getStoredActivityHeartRateZoneTime(
   }>;
   if (rows.length !== 5) return null;
   const baseline = getGarminAthleteBaseline().values.heartRateZones;
-  const boundariesByZone = new Map(
-    baseline.boundaries.map((boundary) => [boundary.zone, boundary]),
-  );
-  const classifiedSeconds = rows.reduce((total, row) => total + row.seconds, 0);
-  const buckets = rows.map((row) => {
-    const boundary = boundariesByZone.get(row.zone);
-    return {
-      zone: row.zone,
-      label: boundary?.label ?? `Zone ${row.zone}`,
-      lowerBpm: boundary?.lowerBpm ?? row.sourceLowerBpm ?? 0,
-      upperBpm: boundary?.upperBpm ?? null,
-      seconds: row.seconds,
-      percent: classifiedSeconds
-        ? Math.round((row.seconds / classifiedSeconds) * 1000) / 10
-        : 0,
-    };
-  });
-  return {
-    status: "available",
-    timeSource: "garmin_activity",
-    zoneSource: baseline.source,
-    zoneStatus: baseline.status,
-    formula: baseline.formula,
-    classifiedSeconds,
-    unclassifiedSeconds: 0,
-    noHeartRateSeconds: 0,
-    activityDurationSec,
-    sourceTotalSeconds: rows[0]?.sourceTotalSeconds ?? classifiedSeconds,
-    buckets,
-    message:
-      "Using Garmin activity HR-zone time totals; BPM boundaries are shown from the current Garmin baseline when available.",
-  };
+  return storedHeartRateZoneTime(rows, baseline, activityDurationSec);
 }
 
 function getActivityHeartRateZoneTime(
@@ -951,126 +743,16 @@ function getActivityHeartRateZoneTime(
   if (stored) return stored;
 
   const baseline = getGarminAthleteBaseline().values.heartRateZones;
-  const boundaries = baseline.boundaries;
-  if (baseline.status === "unavailable" || boundaries.length !== 5) {
-    return emptyHeartRateZoneTime({
-      status: "missing_zones",
-      timeSource: null,
-      zoneSource: baseline.source,
-      zoneStatus: baseline.status,
-      formula: baseline.formula,
-      activityDurationSec,
-      sourceTotalSeconds: null,
-      buckets: [],
-      message:
-        "Time in HR zones is unavailable because Garmin activity HR-zone totals and complete HR-zone boundaries are not available.",
-    });
+  if (baseline.status === "unavailable" || baseline.boundaries.length !== 5) {
+    return streamHeartRateZoneTime([], baseline, activityDurationSec);
   }
-
   const stream = getDatabase()
     .prepare(
       `select elapsed_sec as elapsedSec, heart_rate as heartRate
        from activity_stream_point where garmin_id = ? order by elapsed_sec`,
     )
     .all(garminId) as Array<{ elapsedSec: number; heartRate: number | null }>;
-  if (!stream.some((point) => point.heartRate !== null)) {
-    return emptyHeartRateZoneTime({
-      status: "missing_heart_rate",
-      timeSource: "local_stream",
-      zoneSource: baseline.source,
-      zoneStatus: baseline.status,
-      formula: baseline.formula,
-      activityDurationSec,
-      sourceTotalSeconds: null,
-      buckets: boundaries.map((zone) => ({ ...zone, seconds: 0, percent: 0 })),
-      message:
-        "Garmin activity HR-zone totals are unavailable, and local fallback cannot run because this activity has no heart-rate stream samples.",
-    });
-  }
-  if (stream.length < 2) {
-    return emptyHeartRateZoneTime({
-      status: "insufficient_stream",
-      timeSource: "local_stream",
-      zoneSource: baseline.source,
-      zoneStatus: baseline.status,
-      formula: baseline.formula,
-      activityDurationSec,
-      sourceTotalSeconds: null,
-      buckets: boundaries.map((zone) => ({ ...zone, seconds: 0, percent: 0 })),
-      message:
-        "Garmin activity HR-zone totals are unavailable; local stream fallback needs at least two elapsed samples to compute durations.",
-    });
-  }
-
-  const secondsByZone = new Map<number, number>();
-  let classifiedSeconds = 0;
-  let unclassifiedSeconds = 0;
-  let noHeartRateSeconds = 0;
-  for (let index = 0; index < stream.length - 1; index += 1) {
-    const current = stream[index];
-    const next = stream[index + 1];
-    const seconds = Math.max(0, next.elapsedSec - current.elapsedSec);
-    if (!seconds) continue;
-    if (current.heartRate === null) {
-      noHeartRateSeconds += seconds;
-      continue;
-    }
-    const zone = findHeartRateZone(current.heartRate, boundaries);
-    if (!zone) {
-      unclassifiedSeconds += seconds;
-      continue;
-    }
-    classifiedSeconds += seconds;
-    secondsByZone.set(zone.zone, (secondsByZone.get(zone.zone) ?? 0) + seconds);
-  }
-
-  if (
-    classifiedSeconds === 0 &&
-    noHeartRateSeconds === 0 &&
-    unclassifiedSeconds === 0
-  ) {
-    return emptyHeartRateZoneTime({
-      status: "insufficient_stream",
-      timeSource: "local_stream",
-      zoneSource: baseline.source,
-      zoneStatus: baseline.status,
-      formula: baseline.formula,
-      activityDurationSec,
-      sourceTotalSeconds: null,
-      buckets: boundaries.map((zone) => ({ ...zone, seconds: 0, percent: 0 })),
-      message:
-        "Garmin activity HR-zone totals are unavailable; local stream fallback needs increasing elapsed samples to compute durations.",
-    });
-  }
-
-  const buckets = boundaries.map((zone) => {
-    const seconds = secondsByZone.get(zone.zone) ?? 0;
-    return {
-      ...zone,
-      seconds,
-      percent: classifiedSeconds
-        ? Math.round((seconds / classifiedSeconds) * 1000) / 10
-        : 0,
-    };
-  });
-  return {
-    status: "available",
-    timeSource: "local_stream",
-    zoneSource: baseline.source,
-    zoneStatus: baseline.status,
-    formula: baseline.formula,
-    classifiedSeconds,
-    unclassifiedSeconds,
-    noHeartRateSeconds,
-    activityDurationSec,
-    sourceTotalSeconds:
-      classifiedSeconds + unclassifiedSeconds + noHeartRateSeconds,
-    buckets,
-    message:
-      baseline.status === "garmin_configured"
-        ? "Garmin activity HR-zone totals are unavailable; using local stream-derived timing with Garmin-configured HR-zone boundaries."
-        : "Garmin activity HR-zone totals are unavailable; using local stream-derived timing with zones estimated from Garmin max HR.",
-  };
+  return streamHeartRateZoneTime(stream, baseline, activityDurationSec);
 }
 
 function parseJsonArray(value: string | null): string[] {
@@ -1685,14 +1367,9 @@ export function listActivityDetailAvailability(
   }));
 }
 
-export function getActivityDetailForAnalytics(garminId: string): {
-  activity: NormalizedActivity | null;
-  availability: ActivityDetailAvailability | null;
-  session: Record<string, unknown> | null;
-  derived: Record<string, unknown> | null;
-  laps: ActivityLapDetail[];
-  stream: ActivityStreamPoint[];
-} {
+export function getActivityDetailForAnalytics(
+  garminId: string,
+): ActivityAnalyticsDetail {
   const db = getDatabase();
   const activity = getActivityByGarminId(garminId);
   const availabilityRow = db
@@ -1812,29 +1489,14 @@ export function getActivityDashboardDetail(
        from activity_lap where garmin_id = ? order by lap_number limit 100`,
     )
     .all(garminId) as ActivityLapDetail[];
-  const hasHeartRate = charts.points.some((point) => point.heartRate !== null);
-  const hasElevation = charts.points.some(
-    (point) => point.altitudeMeters !== null,
-  );
-  return {
+  return buildDashboardDetail(
     activity,
-    detail: {
-      status: availability?.status ?? "not_requested",
-      hasHeartRate,
-      hasElevation,
-      hasLaps: laps.length > 0,
-      recordCount: availability?.recordCount ?? 0,
-      lapCount: availability?.lapCount ?? laps.length,
-      unavailableReason: availability?.unavailableReason ?? null,
-    },
+    availability,
     charts,
     route,
-    heartRateZones: getActivityHeartRateZoneTime(
-      garminId,
-      activity.durationSec,
-    ),
     laps,
-  };
+    getActivityHeartRateZoneTime(garminId, activity.durationSec),
+  );
 }
 
 export function listActivitiesForComparison(
@@ -1867,113 +1529,15 @@ export function listActivitiesForComparison(
   return rows.map((row) => ({ ...row, startedAt: new Date(row.startedAt) }));
 }
 
-export type ActivityReferenceInput = {
-  garminId?: string | null;
-  suppliedName?: string | null;
-  date?: string | null;
-};
-
-export type ActivityVerificationEvidence = {
-  tool: "activityVerification";
-  reference: {
-    garminId: string | null;
-    suppliedName: string | null;
-    date: string | null;
-  };
-  outcome: "found" | "not_found" | "ambiguous";
-  matches: Array<{
-    garminId: string;
-    label: string;
-    labelSource: "garmin" | "fallback";
-    date: string;
-    sport: string;
-    distanceMeters: number | null;
-    durationSec: number | null;
-    elevationGainMeters: number | null;
-    avgHeartRate: number | null;
-  }>;
-  importedCoverage: {
-    activityCount: number;
-    earliestDate: string | null;
-    latestDate: string | null;
-  };
-  privacy: string;
-};
-
-function normalizeActivityReference(value: string): string {
-  return value
-    .normalize("NFKC")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLocaleLowerCase();
-}
-
 export function verifyActivityReference(
   reference: ActivityReferenceInput,
   matchLimit = 5,
 ): ActivityVerificationEvidence {
-  const activities = listActivitiesForComparison();
-  const suppliedName = reference.suppliedName?.trim() || null;
-  const normalizedName = suppliedName
-    ? normalizeActivityReference(suppliedName)
-    : null;
-  const candidates = activities.filter((activity) => {
-    const date = activity.startedAt.toISOString().slice(0, 10);
-    if (reference.garminId && activity.garminId !== reference.garminId)
-      return false;
-    if (reference.date && date !== reference.date) return false;
-    if (normalizedName) {
-      const storedName = activity.name
-        ? normalizeActivityReference(activity.name)
-        : null;
-      if (storedName !== normalizedName) return false;
-    }
-    return true;
-  });
-  const boundedMatches = candidates.slice(0, matchLimit).map((activity) => {
-    const date = activity.startedAt.toISOString().slice(0, 10);
-    const sourceName = activity.name?.trim();
-    return {
-      garminId: activity.garminId,
-      label:
-        sourceName ||
-        `Imported ${activity.sport} on ${date} (Garmin ID ${activity.garminId})`,
-      labelSource: sourceName ? ("garmin" as const) : ("fallback" as const),
-      date,
-      sport: activity.sport,
-      distanceMeters: activity.distanceMeters,
-      durationSec: activity.durationSec,
-      elevationGainMeters: activity.elevationGainMeters,
-      avgHeartRate: activity.avgHeartRate,
-    };
-  });
-  const times = activities.map((activity) => activity.startedAt.getTime());
-  return {
-    tool: "activityVerification",
-    reference: {
-      garminId: reference.garminId ?? null,
-      suppliedName,
-      date: reference.date ?? null,
-    },
-    outcome:
-      candidates.length === 0
-        ? "not_found"
-        : candidates.length === 1
-          ? "found"
-          : "ambiguous",
-    matches: boundedMatches,
-    importedCoverage: {
-      activityCount: activities.length,
-      earliestDate: times.length
-        ? new Date(Math.min(...times)).toISOString().slice(0, 10)
-        : null,
-      latestDate: times.length
-        ? new Date(Math.max(...times)).toISOString().slice(0, 10)
-        : null,
-    },
-    privacy:
-      "Verified against local normalized SQLite activity summaries only; raw FIT, GPS streams, connector payloads, and credentials were not sent to the model.",
-  };
+  return interpretActivityReference(
+    listActivitiesForComparison(),
+    reference,
+    matchLimit,
+  );
 }
 
 export function healthCoverage(): HealthCoverage {
@@ -2007,32 +1571,10 @@ export function healthCoverage(): HealthCoverage {
     intensityDays: number;
     bodyBatteryDays: number;
   };
-  return {
-    totalRows: row.totalRows,
-    completeDays: row.completeDays,
-    partialDays: row.partialDays,
-    missingDays: row.missingDays,
-    metrics: {
-      sleepDays: row.sleepDays,
-      restingHeartRateDays: row.restingHeartRateDays,
-      hrvDays: row.hrvDays,
-      stressDays: row.stressDays,
-      stepsDays: row.stepsDays,
-      calorieDays: row.calorieDays,
-      intensityDays: row.intensityDays,
-      bodyBatteryDays: row.bodyBatteryDays,
-    },
-  };
+  return interpretHealthCoverage(row);
 }
 
-export function dataCounts(): {
-  activities: number;
-  healthDays: number;
-  healthCoverage: HealthCoverage;
-  detailedActivities: number;
-  detailCoverage: ActivityDetailCoverage;
-  activityEffortCoverage: ActivityEffortCoverage;
-} {
+export function dataCounts(): LocalDataCounts {
   const activityRow = getDatabase()
     .prepare("select count(*) as count from activity")
     .get() as { count: number };
@@ -2052,19 +1594,7 @@ export function dataCounts(): {
   };
 }
 
-export function importSummary(): {
-  activities: number;
-  healthDays: number;
-  healthCoverage: HealthCoverage;
-  detailedActivities: number;
-  detailCoverage: ActivityDetailCoverage;
-  activityEffortCoverage: ActivityEffortCoverage;
-  athleteBaseline: GarminAthleteBaselineDto;
-  bodyMetrics: GarminBodyMetricsDto;
-  latestActivityDate: string | null;
-  healthStartDate: string | null;
-  healthEndDate: string | null;
-} {
+export function importSummary(): LocalImportSummary {
   const counts = dataCounts();
   const latestActivity = getDatabase()
     .prepare("select max(started_at) as value from activity")
@@ -2186,49 +1716,7 @@ export function listGarminRawPayloadsForAnalysis(
   return rows.map(parseRawPayload);
 }
 
-export function clearChatAndProfile(): string[] {
-  const db = getDatabase();
-  db.transaction(() => {
-    db.prepare("delete from message").run();
-    db.prepare("delete from conversation").run();
-    db.prepare("delete from trainer_profile").run();
-  })();
-  return ["messages", "conversations", "trainer_profile"];
-}
-
-export function clearGarminData(): string[] {
-  const db = getDatabase();
-  db.transaction(() => {
-    db.prepare("delete from garmin_raw_payload").run();
-    db.prepare("delete from activity_stream_point").run();
-    db.prepare("delete from activity_lap").run();
-    db.prepare("delete from activity_detail_availability").run();
-    db.prepare("delete from garmin_athlete_baseline").run();
-    db.prepare("delete from garmin_athlete_baseline_attempt").run();
-    db.prepare("delete from garmin_body_metrics").run();
-    db.prepare("delete from garmin_body_metric_attempt").run();
-    db.prepare("delete from garmin_body_weight_history").run();
-    db.prepare("delete from activity").run();
-    db.prepare("delete from daily_health").run();
-    db.prepare("delete from sync_checkpoint").run();
-    db.prepare("delete from sync_run").run();
-  })();
-  return [
-    "garmin_raw_payload",
-    "activity_stream_point",
-    "activity_lap",
-    "activity_detail_availability",
-    "garmin_athlete_baseline",
-    "garmin_athlete_baseline_attempt",
-    "garmin_body_metrics",
-    "garmin_body_metric_attempt",
-    "garmin_body_weight_history",
-    "activity",
-    "daily_health",
-    "sync_checkpoint",
-    "sync_run",
-  ];
-}
+export { clearChatAndProfile, clearGarminData } from "./local-data-lifecycle";
 
 export {
   DEFAULT_CONVERSATION_ID,
