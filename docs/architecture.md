@@ -25,6 +25,50 @@ DTOs are client contracts, not imports of server implementations. Storage cannot
 import AI runtime code. The graph gate rejects runtime cycles and verifies the
 pure math closure; it is not a general filesystem sandbox or proof of privacy.
 
+## Enforced backend roles and composition inventory
+
+[`backend-roles.mjs`](../scripts/backend-roles.mjs) is the complete per-file
+feature/layer inventory, checked by normal architecture/validation commands.
+Feature folders intentionally mix responsibilities; names/folder depth do not
+confer an exemption. [Allowed edges and limitations](project-guardrails.md#featurelayer-ownership-runtime-and-erased-contracts)
+include erased contracts without treating them as runtime execution or cycles.
+
+| Feature                     | Inner contracts / application ports                                                                 | Outer composition and capability owners                                                                                                                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chat / conversations        | `chat/{contracts,ports,context-ports}`, `createChatTurns`, `createChatContext`, `ConversationPorts` | `chat/{composition,conversation-composition}` binds storage, memory and selected AI generation; chat/conversation HTTP families invoke these seams                                                              |
+| AI orchestration / tools    | `TrainerOrchestrationPorts`, tool ports, neutral tool schemas/types, selection/evidence/math        | `ai/{composition,tool-composition}`; provider generation/schema wrapping and model selection are adapters, not inner contracts                                                                                  |
+| Guarded analytics           | `analytics/contracts`, synchronous execution/inspection ports and application                       | `ai/sql-analysis` composes `analytics/sqlite-execution`; tool facade never exposes a database handle                                                                                                            |
+| Garmin                      | Import reader/storage/config/clock ports, sync/baseline/detail applications and pure normalizers    | `garmin/composition`; reader/MCP/FIT/archive/token/auth modules are mechanical adapters; `importer` is an outer compatibility facade                                                                            |
+| Local data                  | Plain read models, selected-row policy, `LocalDataReads` / `LocalDataLifecycle`                     | `local-data/composition` binds SQLite for activity/Health/summary/delete, chat and tools                                                                                                                        |
+| Profile / memory            | `ProfileStorage`, semantic `MemoryPorts`, management and legacy application contracts               | Profile/memory compositions bind SQL, config, embeddings/extraction; legacy and sqlite compatibility facades stay outer                                                                                         |
+| Training Plan               | Contracts/policy/edits/snapshot and synchronous `TrainingPlanStore`                                 | `training-plan/composition` binds plan SQL for HTTP and tool use                                                                                                                                                |
+| Infrastructure / operations | No business-policy exemption                                                                        | DB connection/schema/migrations/repositories, env, diagnostics doctor, connector configuration/auth/FIT and provider/config transports are explicitly classified adapters; diagnostics redaction is pure domain |
+
+All 13 HTTP route families consume feature composition. `chat/delivery` owns
+JSON/NDJSON transport; debug configuration is obtained request-time through the
+existing conversation application port, not directly from env. The DB repository
+no longer re-exports legacy-memory composition inward: callers of legacy use cases
+use `memory/legacy-composition` directly. This removes an unused production facade
+edge without changing its SQL, transaction, expiry or confirmation behavior.
+
+Resource ownership stays unchanged: compositions bind functions at import time,
+not resources. One lazy SQLite connection is shared; memory configuration is
+snapshotted per lazy singleton/reset; each Garmin import starts/closes one reader;
+each guarded SQL invocation owns/closes its readonly session; each AI turn owns
+one disposable tool context; each provider call owns its timeout. HTTP disconnect
+still does not acquire cancellation of provider/connector work. No global DI
+container, ambient setter, eager initialization, schema/data migration or new
+retry is introduced. Operational bootstrap/auth/migrate/doctor scripts remain
+outer entrypoints, not domain services.
+
+`tests/backend-composition.test.mjs` checks the complete route mapping and imports
+all production routes with DB/env/provider/connector access probes; construction
+must not invoke any. It also checks request-time debug-port delegation. Existing
+`*-application`, `*-wiring`, SQL execution, provider generation and connector reader
+suites cover supplied ports, real adapters, singleton/transaction lifetimes and
+failure paths. API-only smoke runs on a disposable populated DB; rollback is a
+source revert, data back-sync is a no-op.
+
 ## Dashboard ownership and lifetime
 
 [`trainer-dashboard.tsx`](../src/app/trainer-dashboard.tsx) retains navigation,

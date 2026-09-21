@@ -4,7 +4,6 @@ import { activeTranscriptContext } from "@/lib/chat/context";
 import { CHAT_HISTORY_LIMIT } from "@/lib/chat/turn";
 import { prepareChatTurn } from "@/lib/chat/composition";
 import { conversations } from "@/lib/chat/conversation-composition";
-import { isLlmDebugTraceEnabled } from "@/lib/env";
 import { safeConversationId } from "@/lib/chat/conversation-policy";
 import {
   apiMessage,
@@ -37,7 +36,7 @@ function conversationIdFromRequest(request: Request): string {
 export async function GET(request: Request) {
   try {
     const conversationId = conversationIdFromRequest(request);
-    const debugTraceEnabled = isLlmDebugTraceEnabled();
+    const debugTraceEnabled = conversations.isDebugTraceEnabled();
     const messages = conversations.chatHistory(conversationId);
     return NextResponse.json({
       conversationId,
@@ -82,7 +81,7 @@ export async function POST(request: Request) {
       stream?: boolean;
     };
     const conversationId = safeConversationId(body.conversationId);
-    const debugTraceEnabled = isLlmDebugTraceEnabled();
+    const debugTraceEnabled = conversations.isDebugTraceEnabled();
     const latestMessage = latestRequestMessage(body);
     if (!latestMessage) {
       return NextResponse.json(

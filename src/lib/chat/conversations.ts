@@ -26,6 +26,7 @@ export type ConversationPorts = {
 
 export function createConversationUseCases(ports: ConversationPorts) {
   return {
+    isDebugTraceEnabled: () => ports.isDebugTraceEnabled(),
     listConversations(limit?: number) {
       return ports.listConversations(limit);
     },

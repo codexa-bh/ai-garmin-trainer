@@ -28,9 +28,10 @@ function runtimeImport(node) {
 }
 
 // Keep loader recognition identical in the direct rule and graph collector.
-export function moduleVisitors(context, check) {
+export function moduleVisitors(context, check, { includeTypes = false } = {}) {
   const dependency = (node, source) => {
-    if (runtimeImport(node)) check(node, source);
+    const runtime = runtimeImport(node);
+    if (runtime || includeTypes) check(node, source, runtime);
   };
   return {
     ImportDeclaration(node) {
@@ -55,6 +56,19 @@ export function moduleVisitors(context, check) {
       }
       dependency(node, node.arguments[0]);
     },
+    ...(includeTypes
+      ? {
+          TSImportType(node) {
+            check(
+              node,
+              node.argument.type === "TSLiteralType"
+                ? node.argument.literal
+                : node.argument,
+              false,
+            );
+          },
+        }
+      : {}),
     TSImportEqualsDeclaration(node) {
       if (node.moduleReference.type === "TSExternalModuleReference") {
         dependency(node, node.moduleReference.expression);

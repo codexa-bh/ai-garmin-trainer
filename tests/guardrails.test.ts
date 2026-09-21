@@ -41,7 +41,7 @@ async function rules(code: string, filePath: string) {
 }
 
 const clientFile = "src/app/guardrail-probe.tsx";
-const storageFile = "src/lib/db/guardrail-probe.ts";
+const storageFile = "src/lib/db/connection.ts";
 const mathFile = "src/lib/ai/math-analysis.ts";
 const boundary = "architecture/boundaries";
 
@@ -88,9 +88,15 @@ describe("direct architecture boundaries", () => {
 
   it("allows server route orchestration and applies client directives outside app", async () => {
     const code = 'import { getDb } from "@/lib/db/repository"; void getDb;';
-    expect(await rules(code, "src/app/api/example/route.ts")).not.toContain(
+    expect(await rules(code, "src/app/api/summary/route.ts")).toContain(
       boundary,
     );
+    expect(
+      await rules(
+        'import { importSummary } from "@/lib/local-data/composition"; void importSummary;',
+        "src/app/api/summary/route.ts",
+      ),
+    ).not.toContain(boundary);
     expect(
       await rules(`"use client"; ${code}`, "src/components/probe.tsx"),
     ).toContain(boundary);
@@ -139,10 +145,29 @@ describe("direct architecture boundaries", () => {
   it("allows pure math, erased SQL row types and local shadowing", async () => {
     expect(
       await rules(
-        'import type { AnalysisRow } from "./sql-analysis"; export function score(row: AnalysisRow, fetch: number) { return Math.abs(fetch) + Number(row.value); }',
+        'import type { AnalysisRow } from "./analytics/contracts"; export function score(row: AnalysisRow, fetch: number) { return Math.abs(fetch) + Number(row.value); }',
         mathFile,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("feature ownership editor feedback", () => {
+  it.each([
+    'import type { Database } from "better-sqlite3"; export type Store = Database;',
+    'export type { AppEnv } from "../env";',
+    'export { trainerProfile } from "./composition";',
+    'export type Store = import("../db/connection");',
+    "export const load = () => import(name);",
+  ])("rejects inward dependency %s", async (code) => {
+    expect(await rules(code, "src/lib/profile/application.ts")).toContain(
+      boundary,
+    );
+  });
+  it("requires a role for new backend helpers", async () => {
+    expect(
+      await rules("export {};", "src/lib/db/guardrail-probe.ts"),
+    ).toContain(boundary);
   });
 });
 
