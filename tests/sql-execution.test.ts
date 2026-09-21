@@ -130,7 +130,11 @@ it("inspection reads only fixed allowlisted counts/ranges and closes on failure"
 });
 
 it("production tool wiring exposes only guarded results and success-only same-turn handles", async () => {
-  const { executeAnalyticsTool } = await import("../src/lib/ai/tool-analytics");
+  const { executeAnalyticsTool: execute } =
+    await import("../src/lib/ai/tool-analytics");
+  const ports = await import("../src/lib/ai/sql-analysis");
+  const executeAnalyticsTool = (input: Parameters<typeof execute>[0]) =>
+    execute(input, ports);
   const { TrainerToolExecutionContext } =
     await import("../src/lib/ai/tool-execution-context");
   const context = new TrainerToolExecutionContext();

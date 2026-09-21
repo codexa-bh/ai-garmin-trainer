@@ -22,7 +22,9 @@ vi.mock("@/lib/garmin/composition", () => {
 vi.mock("@/lib/ai/sql-analysis", () => {
   throw new Error("SQL capability imported");
 });
-vi.mock("ai", () => ({ tool: (definition: unknown) => definition }));
+vi.mock("ai", () => {
+  throw new Error("provider SDK imported");
+});
 import {
   validateTrainerToolCall,
   trainerToolInputSchemas,

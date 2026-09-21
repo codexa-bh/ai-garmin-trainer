@@ -3,27 +3,29 @@ import { executeLocalDataTool } from "./tool-local-data";
 import { executeTrainingPlanTool } from "./tool-training-plan";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolStep } from "./tool-types";
+import type { TrainerToolPorts } from "./tool-ports";
 
 /** Executes an admitted, parsed call; orchestration retains all admission policy. */
 export async function executeTrainerTool(
   input: TrainerToolExecutionInput,
+  ports: TrainerToolPorts,
 ): Promise<TrainerToolStep> {
   try {
     switch (input.toolName) {
       case "describeGarminDatabase":
       case "runReadOnlySql":
       case "runMathAnalysis":
-        return executeAnalyticsTool(input);
+        return executeAnalyticsTool(input, ports.analytics);
       case "runGarminSync":
       case "getSyncStatus":
       case "verifyActivityReference":
       case "forceRefreshActivityDetail":
       case "getActivityDetailAvailability":
       case "getActivityDetailSlice":
-        return await executeLocalDataTool(input);
+        return await executeLocalDataTool(input, ports.localData);
       case "getTrainingPlan":
       case "saveTrainingPlan":
-        return executeTrainingPlanTool(input);
+        return executeTrainingPlanTool(input, ports.trainingPlan);
     }
   } catch {
     return {

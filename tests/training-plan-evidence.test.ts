@@ -31,13 +31,19 @@ vi.mock("@/lib/db/training-plan-repository", () => ({
   },
   persistTrainingPlan: replaceTrainingPlan,
 }));
-vi.mock("@/lib/garmin/composition", () => ({}));
-vi.mock("@/lib/ai/sql-analysis", () => ({}));
+vi.mock("@/lib/garmin/composition", () => ({
+  runGarminSync: vi.fn(),
+  backfillActivityDetail: vi.fn(),
+}));
+vi.mock("@/lib/ai/sql-analysis", () => ({
+  describeGarminDatabase: vi.fn(),
+  runReadOnlySql: vi.fn(),
+}));
 vi.mock("@/lib/ai/math-analysis", () => ({}));
 
 import { TrainerToolExecutionContext } from "../src/lib/ai/tool-execution-context";
-import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
-import { executeTrainerTool } from "../src/lib/ai/tool-execution";
+import { orchestrateTrainerChat } from "../src/lib/ai/composition";
+import { executeTrainerTool } from "../src/lib/ai/tool-composition";
 import { groundingForSteps } from "../src/lib/ai/tool-evidence";
 import { validateTrainerToolCall } from "../src/lib/ai/tool-contracts";
 import {

@@ -1,7 +1,4 @@
-import {
-  readCompleteTrainingPlan,
-  saveGuardedTrainingPlan,
-} from "@/lib/training-plan/composition";
+import type { TrainingPlanToolPorts } from "./tool-ports";
 import { boundedText } from "./tool-evidence";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolStep } from "./tool-types";
@@ -11,10 +8,11 @@ export function executeTrainingPlanTool(
     TrainerToolExecutionInput,
     { toolName: "getTrainingPlan" | "saveTrainingPlan" }
   >,
+  ports: TrainingPlanToolPorts,
 ): TrainerToolStep {
   switch (input.toolName) {
     case "getTrainingPlan": {
-      const result = readCompleteTrainingPlan();
+      const result = ports.readComplete();
       return {
         index: input.index,
         tool: input.toolName,
@@ -28,7 +26,7 @@ export function executeTrainingPlanTool(
       };
     }
     case "saveTrainingPlan": {
-      const outcome = saveGuardedTrainingPlan(
+      const outcome = ports.saveGuarded(
         input.input,
         input.trainingPlanSnapshot,
       );

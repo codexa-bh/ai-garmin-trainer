@@ -127,7 +127,7 @@ it("follows transitive type-only dependencies in policy", () => {
 
 it("keeps tool access on the guarded facade and math on neutral contracts", () => {
   const tools = readFileSync(
-    path.join(root, "src/lib/ai/tool-analytics.ts"),
+    path.join(root, "src/lib/ai/tool-composition.ts"),
     "utf8",
   );
   expect(tools).toContain('from "./sql-analysis"');

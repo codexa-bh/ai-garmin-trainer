@@ -235,8 +235,8 @@ it("wires list/dashboard/health/summary/reference/tool reads to the same populat
   expect(app.verifyActivityReference({ garminId: "1" })).toEqual(
     storage.verifyActivityReference({ garminId: "1" }),
   );
-  const tool = await import("../src/lib/ai/tool-local-data");
-  const status = await tool.executeLocalDataTool({
+  const tool = await import("../src/lib/ai/tool-composition");
+  const status = await tool.executeTrainerTool({
     index: 0,
     toolName: "getSyncStatus",
     context: new TrainerToolExecutionContext(),

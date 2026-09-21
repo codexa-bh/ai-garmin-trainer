@@ -80,6 +80,43 @@ docs carry the deeper contract rather than duplicating it here.
 | Diagnostics              | Allowlisted readiness/redaction reports, not token-content inspection or destructive repair                                                                      | `src/lib/diagnostics/*`, `scripts/doctor.ts`; `tests/doctor.test.ts`                                                                                                                                                                        | Debug traces may contain private normalized context and stay local. [Source readiness](source-beta-readiness.md)                                                                                                                         |
 | Runtime/validation       | Reproducible Node 22 install, build/doctor/loopback start and blocking checks; not deployment/release authorization                                              | `package.json`, `scripts/bootstrap-local.mjs`, `restart-local.sh`, `migrate.ts`, `architecture-check.mjs`; `tests/bootstrap-local.test.ts`, `tests/restart-local.test.ts`, `tests/guardrails.test.ts`                                       | `npm ci`, `CI=true npm run validate`; [validation](validation.md), E0007 live-smoke runbook and [developer process](developer-process.md)                                                                                                |
 
+## AI application and provider/tool adapters
+
+`ai/orchestrator.ts` consumes explicit `TrainerOrchestrationPorts`: plain
+planner/final-synthesis generation and admitted tool execution. It has no SDK,
+model, storage, environment, connector or outer composition dependency, including
+erased types. The loop still owns raw-call aliases/malformed parsing, sequential
+admission, counters/quotas, synthesis reserve, prior-pass plan snapshots and one
+explicit context disposed in `finally`. No scheduling, coaching or retry policy
+changes are hidden in this seam.
+
+`tool-contracts.ts` owns unchanged Zod schemas/defaults and neutral descriptions;
+`provider-tool-definitions.ts` alone wraps them with SDK `tool`. Selection and
+handlers consume neutral contracts. `tool-ports.ts` accepts narrow guarded feature
+capabilities from analytics, local-data/Garmin and Training Plan applications;
+`tool-composition.ts` binds their existing lazy facades. Pure math stays local.
+The dispatcher retains bounded exception handling; plan compare/write stays
+synchronous, successful results alone register handles, and no singleton context
+or ambient dependency setter is introduced. Debug/progress/tool metadata already
+have neutral AI owners; grounding remains the chat-owned contract.
+
+`ai/composition.ts` binds the selected model to `provider-generation.ts` before
+calling policy; chat's request-time selection remains before context reads.
+The adapter preserves exact planner tools/auto/parallel options, synthesis with
+no tools and `toolChoice: none`, unfiltered raw results, one 180000ms per-call
+AbortController timeout and timer cleanup. HTTP disconnect does not acquire
+provider cancellation, and memory keeps independent provider configuration.
+
+`tests/ai-application.test.ts` supplies capabilities directly without module mocks;
+`provider-generation.test.ts` verifies exact SDK options/results, schema wrapping,
+rejection/timer cleanup and isolated timeout signals. `ai-dependencies.test.ts`
+follows the reviewed type-inclusive closure (only existing Zod schema use is an
+external exception), with negative SDK/DB/connector/composition/ambient fixtures.
+Existing schema snapshots, real SQLite tool suites, provider-mocked production
+chat, budget/plan and overlapping-turn suites retain integration coverage.
+No schema/data/wire/UI changes: migration/back-sync is a no-op, source revert is
+rollback, and private API smoke uses a disposable populated DB.
+
 ## Guarded analytical policy and SQLite execution
 
 `ai/sql-analysis.ts` is the lazy production composition/compatibility facade;
@@ -314,8 +351,8 @@ The loop delegates selection and live quota rechecks while retaining all mutatio
 Direct tests in `tests/tool-selection.test.ts` need no execution/provider mocks;
 `tests/tool-selection-orchestration.test.ts` exercises live rechecks at a controlled
 quota edge, alongside the existing integrated orchestration/plan regressions.
-The dispatcher directly composes
-analytics, local-data and Training Plan handlers. `tool-evidence.ts` only formats,
+The dispatcher receives explicit feature capabilities from outer
+`tool-composition.ts` and calls analytics, local-data and Training Plan handlers. `tool-evidence.ts` only formats,
 redacts and grounds evidence, with erased result-type imports and no execution
 capabilities. Math receives rows only, never the context owner or repository.
 Orchestration retains sequential admission, budgets, prior-pass plan snapshots,

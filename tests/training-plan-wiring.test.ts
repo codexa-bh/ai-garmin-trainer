@@ -24,8 +24,15 @@ const request = (body: unknown) =>
 
 it("wires manual HTTP and guarded tool operations to the same synchronous SQLite singleton", async () => {
   const route = await import("../src/app/api/training-plan/route");
-  const { executeTrainingPlanTool } =
+  const { executeTrainingPlanTool: execute } =
     await import("../src/lib/ai/tool-training-plan");
+  const { readCompleteTrainingPlan, saveGuardedTrainingPlan } =
+    await import("../src/lib/training-plan/composition");
+  const executeTrainingPlanTool = (input: Parameters<typeof execute>[0]) =>
+    execute(input, {
+      readComplete: readCompleteTrainingPlan,
+      saveGuarded: saveGuardedTrainingPlan,
+    });
   const { completeTrainingPlanSchema } =
     await import("../src/lib/training-plan/snapshot");
   const { trainingPlanStatus } =

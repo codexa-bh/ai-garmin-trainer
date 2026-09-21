@@ -1,5 +1,4 @@
-// This composed facade exposes admission-guarded operations only, never execution ports.
-import { describeGarminDatabase, runReadOnlySql } from "./sql-analysis";
+import type { AnalyticsToolPorts } from "./tool-ports";
 import { runMathAnalysis } from "./math-analysis";
 import { boundedText } from "./tool-evidence";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
@@ -12,10 +11,11 @@ export function executeAnalyticsTool(
       toolName: "describeGarminDatabase" | "runReadOnlySql" | "runMathAnalysis";
     }
   >,
+  ports: AnalyticsToolPorts,
 ): TrainerToolStep {
   switch (input.toolName) {
     case "describeGarminDatabase": {
-      const result = describeGarminDatabase();
+      const result = ports.describeGarminDatabase();
       return {
         index: input.index,
         tool: input.toolName,
@@ -26,7 +26,7 @@ export function executeAnalyticsTool(
       };
     }
     case "runReadOnlySql": {
-      const result = runReadOnlySql(input.input);
+      const result = ports.runReadOnlySql(input.input);
       if (result.status === "succeeded")
         input.context.analysisResults.set(result.resultName, result.rows);
       return {
