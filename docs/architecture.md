@@ -120,6 +120,46 @@ outer imports/ambient capabilities. Existing athlete, daily-health, detail,
 connector and AI tool suites retain compatibility coverage. SQL/schema and stored
 shapes are unchanged: migration/back-sync is a no-op; source revert is rollback.
 
+## Personalization application and adapters
+
+Memory follows `api/memory → memory/composition → management/application`.
+`createMemoryStore` consumes feature-owned `MemoryPorts`: synchronous semantic
+storage, embeddings, extraction, identity, clock and a secret-free configuration
+snapshot. `retrieval-policy.ts` owns ranking, stable ties and render filtering;
+`extraction-policy.ts` owns prompts, parsing and source/privacy validation using
+plain generation results. No inner module imports SQL, environment, HTTP, SDKs
+or composition, including erased types. Existing `TrainerMemoryStore` shapes
+remain the consumer contract, including chat's existing application ports.
+
+`sqlite-storage.ts` retains SQL projections, serialized vectors/source IDs,
+upsert conflict behavior, expiry selection and the 200-row candidate cap.
+`embedding-adapter.ts` owns transport, timeout, normalization and unchanged SHA256
+identities/vectors; `extraction-adapter.ts` selects existing DeepSeek/OpenAI and
+disables tools. Composition snapshots memory configuration once per singleton,
+but extraction mode/provider selection remains invocation-time. Settings writes
+precede singleton reset and health/list reload. Health never migrates; lazy legacy
+migration still precedes ingestion/retrieval/enabled listing, records its marker
+only after all rows and retains earlier writes on failure. No new retry occurs.
+
+`profile/application.ts` owns normalization/read/save through `ProfileStorage`;
+`profile/contracts.ts` owns the existing flexible Profile type independently of
+AI presentation. `db/profile-repository.ts` retains synchronous serialization and
+read-after-write. `memory/legacy-application.ts` owns proposal bounds, status
+validation, expiry-before-list and lifecycle use cases; `legacy-contracts.ts`
+owns their plain stored shapes. `db/legacy-memory-repository.ts` retains SQL and
+atomic supersede/confirm. Compatibility repository/semantic/parser facades are
+outer entry points, never dependencies of policy. HTTP retains error/status and
+malformed-body behavior; no Profile error catch is added.
+
+Direct fake-capability tests are in `tests/personalization-application.test.ts`;
+`personalization-wiring.test.ts` covers real SQLite, chat completion, routes,
+singleton reset, unchanged hash/vector/DTO values and confirmation rollback.
+`personalization-dependencies.test.ts` checks type-inclusive closures with negative
+SDK/storage/composition/ambient fixtures. Existing memory/config/Profile/chat
+suites remain compatibility evidence. No UI, schema, data semantics, provider,
+threshold, TTL or historical cleanup changes: migration/back-sync is a no-op and
+source revert is sufficient rollback.
+
 ## Chat execution and delivery
 
 Chat follows `route → delivery → chat/composition → chat/turn`.
@@ -193,9 +233,13 @@ and `tests/tool-runtime-ownership.test.ts` / `tests/tool-boundaries.test.ts`.
   transaction: messages, conversation-derived semantic memory soft deletion, then
   conversation. History clear delegates to it; chat application use cases own
   fallback selection.
-- `repository.ts` deliberately retains Profile/memory, Garmin, summaries, metadata
-  and bulk deletion. Explicit compatibility exports serve existing integration
-  callers; new domain consumers import the cohesive owners, never the facade.
+- `profile-repository.ts` and `legacy-memory-repository.ts` own Profile and legacy
+  memory SQL; `memory/sqlite-storage.ts` owns semantic SQL. Feature applications
+  own normalization and lifecycle policy through explicit ports.
+- `repository.ts` retains Garmin, summaries, metadata and bulk deletion, with
+  compatibility exports for earlier callers. Extracted storage owners never
+  import the facade; semantic configuration/metadata adapters still use its
+  existing metadata operations.
 
 Dependency direction is delivery → outer composition → application ports, with
 storage adapters implementing those capabilities and depending on chat-owned

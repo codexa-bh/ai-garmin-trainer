@@ -392,13 +392,26 @@ Non-responsibilities:
 
 ### `src/lib/memory`
 
-Owns embedded SQLite semantic retrieval, concise user-derived extraction,
-independently configured embeddings, and inspectable/editable/deletable memory.
-It does not own current conversation continuity, Profile, Garmin measurements or
-provider chat selection. Current corrections and authoritative tool evidence take
-precedence over memory. Readiness/configuration failures are explicit; no hidden
-provider substitution or transcript archive is implied. See [memory](memory.md)
-and the [source/test map](architecture.md).
+Owns semantic retrieval, concise user-derived extraction and inspectable lifecycle
+policy, separately from SQLite, embedding transport and SDK adapters. Application
+factories receive feature-owned ports and plain values; composition alone binds
+storage/providers/configuration/time/identity and retains lazy singleton/reset
+behavior. Configuration is snapshotted per singleton; extraction selection remains
+invocation-time. Ranking/filter order, lazy migration partial writes/marker timing,
+null-only fallback and health probe ordering are compatibility contracts.
+
+Profile normalization/read/save lives in `src/lib/profile`, independent of AI
+presentation; SQLite serialization remains in `db/profile-repository.ts`. Legacy
+memory lifecycle policy is in `memory/legacy-application.ts`, with the atomic
+supersede/confirm transaction retained in `db/legacy-memory-repository.ts`.
+Memory management and Profile HTTP routes translate transport only. Chat binds
+these applications through its existing ports, not through a new coordinator.
+
+Memory does not own current conversation continuity, Profile, Garmin measurements
+or provider chat selection. Current corrections and authoritative tool evidence
+take precedence. Readiness/configuration failures are explicit; no hidden provider
+substitution or transcript archive is implied. See [memory](memory.md) and the
+[personalization boundary/test map](architecture.md#personalization-application-and-adapters).
 
 ### `src/lib/diagnostics`
 

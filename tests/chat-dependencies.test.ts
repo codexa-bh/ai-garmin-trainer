@@ -74,6 +74,8 @@ const allowed = new Set([
   "analytics/activity-label.ts",
   "garmin/types.ts",
   "memory/types.ts",
+  "memory/legacy-contracts.ts",
+  "profile/contracts.ts",
 ]);
 
 function checkClosure(

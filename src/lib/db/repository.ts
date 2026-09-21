@@ -41,7 +41,22 @@ import type {
   ActivityStreamPoint,
   NormalizedActivityDetail,
 } from "../garmin/detail-types";
-import type { TrainerMemory, TrainerProfile } from "../ai/context";
+export { getTrainerProfile, saveTrainerProfile } from "./profile-repository";
+export type {
+  TrainerMemoryStatus,
+  TrainerMemoryCategory,
+  StoredTrainerMemory,
+} from "../memory/legacy-contracts";
+export {
+  getTrainerMemory,
+  createTrainerMemoryProposal,
+  confirmTrainerMemory,
+  expireDueTrainerMemories,
+  listActiveTrainerMemories,
+  listTrainerMemoriesForReview,
+  rejectTrainerMemory,
+  forgetTrainerMemory,
+} from "../memory/legacy-composition";
 import {
   redactGarminRawPayload,
   type GarminRawContentType,
@@ -2067,246 +2082,6 @@ export function importSummary(): {
     healthStartDate: healthRange.start,
     healthEndDate: healthRange.end,
   };
-}
-
-export function getTrainerProfile(): TrainerProfile {
-  const row = getDatabase()
-    .prepare(
-      "select goals_json as goalsJson, sports_json as sportsJson, preferences_json as preferencesJson, constraints_json as constraintsJson from trainer_profile where id = 'default'",
-    )
-    .get() as
-    | {
-        goalsJson: string;
-        sportsJson: string;
-        preferencesJson: string;
-        constraintsJson: string;
-      }
-    | undefined;
-  if (!row) return { goals: [], sports: [], preferences: {}, constraints: [] };
-  return {
-    goals: JSON.parse(row.goalsJson) as string[],
-    sports: JSON.parse(row.sportsJson) as string[],
-    preferences: JSON.parse(row.preferencesJson) as Record<string, string>,
-    constraints: JSON.parse(row.constraintsJson) as string[],
-  };
-}
-
-export function saveTrainerProfile(profile: TrainerProfile): TrainerProfile {
-  getDatabase()
-    .prepare(
-      `insert into trainer_profile (id, goals_json, sports_json, preferences_json, constraints_json, updated_at)
-       values ('default', ?, ?, ?, ?, ?)
-       on conflict(id) do update set
-         goals_json=excluded.goals_json,
-         sports_json=excluded.sports_json,
-         preferences_json=excluded.preferences_json,
-         constraints_json=excluded.constraints_json,
-         updated_at=excluded.updated_at`,
-    )
-    .run(
-      JSON.stringify(profile.goals),
-      JSON.stringify(profile.sports),
-      JSON.stringify(profile.preferences),
-      JSON.stringify(profile.constraints),
-      Date.now(),
-    );
-  return getTrainerProfile();
-}
-
-export type TrainerMemoryStatus =
-  | "pending_confirmation"
-  | "confirmed"
-  | "expired"
-  | "superseded"
-  | "deleted"
-  | "rejected";
-
-export type TrainerMemoryCategory = TrainerMemory["category"];
-
-export type StoredTrainerMemory = TrainerMemory & {
-  status: TrainerMemoryStatus;
-  sourceType: string;
-  sourceRef: string | null;
-  validFrom: Date | null;
-  supersedesId: string | null;
-  supersededById: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-type TrainerMemoryRow = {
-  id: string;
-  category: TrainerMemoryCategory;
-  value: string;
-  status: TrainerMemoryStatus;
-  sourceType: string;
-  sourceRef: string | null;
-  provenanceText: string;
-  validFrom: number | null;
-  expiresAt: number | null;
-  reconfirmAfter: number | null;
-  supersedesId: string | null;
-  supersededById: string | null;
-  createdAt: number;
-  updatedAt: number;
-};
-
-function mapTrainerMemory(row: TrainerMemoryRow): StoredTrainerMemory {
-  return {
-    id: row.id,
-    category: row.category,
-    value: row.value,
-    status: row.status,
-    sourceType: row.sourceType,
-    sourceRef: row.sourceRef,
-    provenanceText: row.provenanceText,
-    validFrom: row.validFrom ? new Date(row.validFrom) : null,
-    expiresAt: row.expiresAt ? new Date(row.expiresAt) : null,
-    reconfirmAfter: row.reconfirmAfter ? new Date(row.reconfirmAfter) : null,
-    supersedesId: row.supersedesId,
-    supersededById: row.supersededById,
-    createdAt: new Date(row.createdAt),
-    updatedAt: new Date(row.updatedAt),
-  };
-}
-
-export function createTrainerMemoryProposal(input: {
-  category: TrainerMemoryCategory;
-  value: string;
-  sourceType: string;
-  sourceRef?: string | null;
-  provenanceText: string;
-  validFrom?: Date | null;
-  expiresAt?: Date | null;
-  reconfirmAfter?: Date | null;
-  supersedesId?: string | null;
-}): StoredTrainerMemory {
-  const now = Date.now();
-  const id = `memory-${now}-${Math.random().toString(36).slice(2, 10)}`;
-  getDatabase()
-    .prepare(
-      `insert into trainer_memory (id, category, value, status, source_type, source_ref, provenance_text, valid_from, expires_at, reconfirm_after, supersedes_id, created_at, updated_at)
-       values (?, ?, ?, 'pending_confirmation', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      id,
-      input.category,
-      input.value.slice(0, 1000),
-      input.sourceType,
-      input.sourceRef ?? null,
-      input.provenanceText.slice(0, 500),
-      input.validFrom?.getTime() ?? null,
-      input.expiresAt?.getTime() ?? null,
-      input.reconfirmAfter?.getTime() ?? null,
-      input.supersedesId ?? null,
-      now,
-      now,
-    );
-  return getTrainerMemory(id)!;
-}
-
-export function confirmTrainerMemory(id: string): StoredTrainerMemory {
-  const now = Date.now();
-  const existing = getTrainerMemory(id);
-  if (!existing) throw new Error(`Memory proposal not found: ${id}`);
-  if (existing.status !== "pending_confirmation") {
-    throw new Error(`Only pending memories can be confirmed: ${id}`);
-  }
-  const db = getDatabase();
-  db.transaction(() => {
-    if (existing.supersedesId) {
-      db.prepare(
-        "update trainer_memory set status = 'superseded', superseded_by_id = ?, updated_at = ? where id = ?",
-      ).run(id, now, existing.supersedesId);
-    }
-    db.prepare(
-      "update trainer_memory set status = 'confirmed', updated_at = ? where id = ?",
-    ).run(now, id);
-  })();
-  return getTrainerMemory(id)!;
-}
-
-export function getTrainerMemory(id: string): StoredTrainerMemory | null {
-  const row = getDatabase()
-    .prepare(
-      `select id, category, value, status, source_type as sourceType, source_ref as sourceRef, provenance_text as provenanceText, valid_from as validFrom, expires_at as expiresAt, reconfirm_after as reconfirmAfter, supersedes_id as supersedesId, superseded_by_id as supersededById, created_at as createdAt, updated_at as updatedAt from trainer_memory where id = ?`,
-    )
-    .get(id) as TrainerMemoryRow | undefined;
-  return row ? mapTrainerMemory(row) : null;
-}
-
-export function expireDueTrainerMemories(now = Date.now()): number {
-  const result = getDatabase()
-    .prepare(
-      `update trainer_memory set status = 'expired', updated_at = ?
-       where status = 'confirmed' and ((expires_at is not null and expires_at <= ?) or (reconfirm_after is not null and reconfirm_after <= ?))`,
-    )
-    .run(now, now, now);
-  return result.changes;
-}
-
-export function listActiveTrainerMemories(
-  limit = 8,
-  now = Date.now(),
-): StoredTrainerMemory[] {
-  expireDueTrainerMemories(now);
-  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 20);
-  const rows = getDatabase()
-    .prepare(
-      `select id, category, value, status, source_type as sourceType, source_ref as sourceRef, provenance_text as provenanceText, valid_from as validFrom, expires_at as expiresAt, reconfirm_after as reconfirmAfter, supersedes_id as supersedesId, superseded_by_id as supersededById, created_at as createdAt, updated_at as updatedAt
-       from trainer_memory
-       where status = 'confirmed'
-       order by updated_at desc
-       limit ?`,
-    )
-    .all(safeLimit) as TrainerMemoryRow[];
-  return rows.map(mapTrainerMemory);
-}
-
-export function listTrainerMemoriesForReview(
-  limit = 40,
-): StoredTrainerMemory[] {
-  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 80);
-  const rows = getDatabase()
-    .prepare(
-      `select id, category, value, status, source_type as sourceType, source_ref as sourceRef, provenance_text as provenanceText, valid_from as validFrom, expires_at as expiresAt, reconfirm_after as reconfirmAfter, supersedes_id as supersedesId, superseded_by_id as supersededById, created_at as createdAt, updated_at as updatedAt
-       from trainer_memory
-       where status in ('pending_confirmation', 'confirmed')
-       order by status = 'pending_confirmation' desc, updated_at desc
-       limit ?`,
-    )
-    .all(safeLimit) as TrainerMemoryRow[];
-  return rows.map(mapTrainerMemory);
-}
-
-export function rejectTrainerMemory(id: string): StoredTrainerMemory {
-  const existing = getTrainerMemory(id);
-  if (!existing) throw new Error(`Memory proposal not found: ${id}`);
-  if (existing.status !== "pending_confirmation") {
-    throw new Error(`Only pending memories can be rejected: ${id}`);
-  }
-  getDatabase()
-    .prepare(
-      "update trainer_memory set status = 'rejected', updated_at = ? where id = ?",
-    )
-    .run(Date.now(), id);
-  return getTrainerMemory(id)!;
-}
-
-export function forgetTrainerMemory(id: string): StoredTrainerMemory {
-  const existing = getTrainerMemory(id);
-  if (!existing) throw new Error(`Memory not found: ${id}`);
-  if (!["pending_confirmation", "confirmed"].includes(existing.status)) {
-    throw new Error(
-      `Only pending or confirmed memories can be forgotten: ${id}`,
-    );
-  }
-  getDatabase()
-    .prepare(
-      "update trainer_memory set status = 'deleted', updated_at = ? where id = ?",
-    )
-    .run(Date.now(), id);
-  return getTrainerMemory(id)!;
 }
 
 export type GarminRawPayloadRecord = {

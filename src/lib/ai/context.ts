@@ -91,21 +91,10 @@ export function formatRecentChatHistory(
   );
 }
 
-export type TrainerProfile = {
-  goals: string[];
-  sports: string[];
-  preferences: Record<string, string>;
-  constraints: string[];
-};
-
-export type TrainerMemory = {
-  id: string;
-  category: "learned_preference" | "temporary_constraint" | "commitment";
-  value: string;
-  provenanceText: string;
-  expiresAt: Date | null;
-  reconfirmAfter: Date | null;
-};
+import type { TrainerProfile } from "../profile/contracts";
+import type { TrainerMemory } from "../memory/legacy-contracts";
+export type { TrainerProfile } from "../profile/contracts";
+export type { TrainerMemory } from "../memory/legacy-contracts";
 
 function padDatePart(value: number): string {
   return String(value).padStart(2, "0");

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { TrainerProfile } from "./context";
+import type { TrainerProfile } from "../profile/contracts";
 
 const profilePatchSchema = z.object({
   goals: z.array(z.string()).optional(),
