@@ -16,7 +16,7 @@ vi.mock("@/lib/db/training-plan-repository", () => {
 vi.mock("@/lib/db/conversation-lifecycle", () => {
   throw new Error("conversation lifecycle capability imported");
 });
-vi.mock("@/lib/garmin/importer", () => {
+vi.mock("@/lib/garmin/composition", () => {
   throw new Error("connector capability imported");
 });
 vi.mock("@/lib/ai/sql-analysis", () => {

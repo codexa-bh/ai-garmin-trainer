@@ -1,19 +1,12 @@
 import { NextResponse } from "next/server";
-import {
-  activityDetailCoverage,
-  getActivityByGarminId,
-  getActivityDetailAttempt,
-  listActivityDetailAvailability,
-  listRecentActivities,
-} from "@/lib/db/repository";
-import { backfillActivityDetail } from "@/lib/garmin/importer";
+import { activityDetailRequests } from "@/lib/garmin/composition";
 
 export async function GET() {
   try {
+    const status = activityDetailRequests.status();
     return NextResponse.json({
-      coverage: activityDetailCoverage(),
-      availability: listActivityDetailAvailability(50),
-      recentActivities: listRecentActivities(12).map((activity) => ({
+      ...status,
+      recentActivities: status.recentActivities.map((activity) => ({
         garminId: activity.garminId,
         name: activity.name,
         sport: activity.sport,
@@ -43,26 +36,18 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    const activity = getActivityByGarminId(garminId);
-    if (!activity) {
+    const result = await activityDetailRequests.refresh(garminId, {
+      force: Boolean(body.force),
+    });
+    if (!result) {
       return NextResponse.json(
         { error: `No imported activity with Garmin ID ${garminId}` },
         { status: 404 },
       );
     }
-    const result = await backfillActivityDetail(garminId, {
-      force: Boolean(body.force),
+    return NextResponse.json(result, {
+      status: result.status === "failed" ? 502 : 200,
     });
-    return NextResponse.json(
-      {
-        ...result,
-        attempt: getActivityDetailAttempt(garminId),
-        coverage: activityDetailCoverage(),
-      },
-      {
-        status: result.status === "failed" ? 502 : 200,
-      },
-    );
   } catch (error) {
     return NextResponse.json(
       {

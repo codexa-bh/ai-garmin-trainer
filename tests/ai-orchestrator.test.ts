@@ -87,7 +87,7 @@ vi.mock("ai", () => ({
   generateText,
   tool: (definition: unknown) => definition,
 }));
-vi.mock("@/lib/garmin/importer", () => ({
+vi.mock("@/lib/garmin/composition", () => ({
   runGarminSync,
   backfillActivityDetail: vi.fn(),
 }));

@@ -31,7 +31,7 @@ vi.mock("@/lib/db/training-plan-repository", () => ({
   },
   replaceTrainingPlan,
 }));
-vi.mock("@/lib/garmin/importer", () => ({}));
+vi.mock("@/lib/garmin/composition", () => ({}));
 vi.mock("@/lib/ai/sql-analysis", () => ({}));
 vi.mock("@/lib/ai/math-analysis", () => ({}));
 

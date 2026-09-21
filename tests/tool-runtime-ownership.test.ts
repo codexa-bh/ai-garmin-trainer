@@ -13,7 +13,7 @@ vi.mock("@/lib/db/repository", () => ({
   TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
   TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
 }));
-vi.mock("@/lib/garmin/importer", () => ({}));
+vi.mock("@/lib/garmin/composition", () => ({}));
 vi.mock("@/lib/ai/sql-analysis", () => ({ runReadOnlySql }));
 
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";

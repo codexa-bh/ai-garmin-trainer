@@ -80,6 +80,46 @@ docs carry the deeper contract rather than duplicating it here.
 | Diagnostics              | Allowlisted readiness/redaction reports, not token-content inspection or destructive repair                                                                      | `src/lib/diagnostics/*`, `scripts/doctor.ts`; `tests/doctor.test.ts`                                                                                                                                                                        | Debug traces may contain private normalized context and stay local. [Source readiness](source-beta-readiness.md)                                                                                                                         |
 | Runtime/validation       | Reproducible Node 22 install, build/doctor/loopback start and blocking checks; not deployment/release authorization                                              | `package.json`, `scripts/bootstrap-local.mjs`, `restart-local.sh`, `migrate.ts`, `architecture-check.mjs`; `tests/bootstrap-local.test.ts`, `tests/restart-local.test.ts`, `tests/guardrails.test.ts`                                       | `npm ci`, `CI=true npm run validate`; [validation](validation.md), E0007 live-smoke runbook and [developer process](developer-process.md)                                                                                                |
 
+## Garmin application and adapter boundary
+
+Sync follows `api/sync → garmin/composition → sync-import`; targeted detail follows
+`api/activity-detail → composition → detail-requests → detail-import`. The CLI and
+local-data tool call the same composed imports. `importer.ts` is a thin legacy
+facade, never an inward dependency. `createGarminImports` binds explicit named
+reader operations, synchronous import storage, request-time config and a clock.
+`baseline-import.ts` owns athlete/body refresh failure and preservation policy;
+`detail-import.ts` owns effort/detail attempts, partial success and lifecycle;
+`import-policy.ts` owns date planning and error classification. Contracts live in
+`import-contracts.ts`, `import-ports.ts` and existing feature types, not DB types.
+
+`reader-adapter.ts` owns MCP wire parsing, activity/health/detail normalization,
+FIT supplement ordering and archive dispatch. Profile/body/FIT-baseline values
+remain unknown inputs to the existing pure, validating feature normalizers; no
+vendor SDK or arbitrary tool dispatcher enters application ports. Composition
+supplies the pinned stdio client, local FIT wrappers and repository archive writer,
+which still redacts before persistence. The archive precedes normalization and
+normalized writes; all three daily-health reads precede parsing and archives.
+No raw archive is exposed to the application store or HTTP response.
+
+Composition performs no DB/env/clock/client work at import time. Sync records its
+run before reader construction, starts/closes one reader per invocation and keeps
+initial DTO reads outside its try/finally. Standalone effort converts startup
+errors to failed results, while standalone detail propagates startup errors.
+Close remains synchronous and is not swallowed. Checkpoints, counters, bounded
+errors, failed callback propagation, detail preservation and best-effort HR-zone
+behavior are unchanged. HTTP owns parsing, date serialization, NDJSON and status
+codes; unknown detail IDs are rejected before connector access. Disconnect does
+not gain cancellation propagation. No retries or async persistence are added.
+
+`tests/garmin-application.test.ts` uses supplied fake capabilities and ordered
+write/event journals, without infrastructure mocks. `garmin-reader-adapter.test.ts`
+checks wire/archive/FIT order; `garmin-production-wiring.test.ts` exercises actual
+HTTP/composition/reader/SQLite wiring with only external connector/process seams
+replaced. `garmin-dependencies.test.ts` follows type-inclusive closures and rejects
+outer imports/ambient capabilities. Existing athlete, daily-health, detail,
+connector and AI tool suites retain compatibility coverage. SQL/schema and stored
+shapes are unchanged: migration/back-sync is a no-op; source revert is rollback.
+
 ## Chat execution and delivery
 
 Chat follows `route → delivery → chat/composition → chat/turn`.
