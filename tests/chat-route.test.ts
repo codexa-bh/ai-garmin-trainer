@@ -700,8 +700,13 @@ vi.mock("@/lib/db/conversation-lifecycle", () => ({
   }),
 }));
 vi.mock("@/lib/db/training-plan-repository", () => ({
-  trainingPlanStatus,
-  replaceTrainingPlan,
+  getTrainingPlan: () => trainingPlanStatus().plan,
+  persistTrainingPlan: (input: { title: string; contentMarkdown: string }) => {
+    replaceTrainingPlan({
+      title: input.title,
+      contentMarkdown: input.contentMarkdown,
+    });
+  },
 }));
 
 vi.mock("@/lib/memory/composition", () => ({

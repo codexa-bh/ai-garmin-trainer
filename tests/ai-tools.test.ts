@@ -14,7 +14,8 @@ vi.mock("@/lib/db/repository", () => ({
   verifyActivityReference: vi.fn(),
 }));
 vi.mock("@/lib/db/training-plan-repository", () => ({
-  replaceTrainingPlan: vi.fn(),
+  getTrainingPlan: vi.fn(),
+  persistTrainingPlan: vi.fn(),
 }));
 vi.mock("@/lib/garmin/composition", () => ({
   backfillActivityDetail: vi.fn(),

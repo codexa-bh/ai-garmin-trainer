@@ -76,6 +76,7 @@ const allowed = new Set([
   "memory/types.ts",
   "memory/legacy-contracts.ts",
   "profile/contracts.ts",
+  "training-plan/contracts.ts",
 ]);
 
 function checkClosure(

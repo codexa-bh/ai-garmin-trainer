@@ -1,6 +1,6 @@
 import type { ValidatedTrainerToolCall } from "./tool-contracts";
 import type { TrainerToolExecutionContext } from "./tool-execution-context";
-import type { CompleteTrainingPlan } from "./training-plan-evidence";
+import type { CompleteTrainingPlan } from "../training-plan/snapshot";
 
 export type TrainerToolExecutionInput = ValidatedTrainerToolCall & {
   index: number;

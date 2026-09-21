@@ -76,6 +76,7 @@ const getGarminAthleteBaseline = vi.fn(() => ({
 }));
 const getGarminBodyMetrics = vi.fn(() => null);
 const listActivityDetailAvailability = vi.fn(() => []);
+let savedTrainingPlan: ReturnType<typeof replaceTrainingPlan> | null = null;
 const replaceTrainingPlan = vi.fn(
   (input: { title?: string; contentMarkdown: string }) => ({
     title: input.title ?? "Training Plan",
@@ -111,12 +112,13 @@ vi.mock("@/lib/db/repository", () => ({
   verifyActivityReference: vi.fn(),
 }));
 vi.mock("@/lib/db/training-plan-repository", () => ({
-  replaceTrainingPlan,
-  trainingPlanStatus: vi.fn(() => ({
-    plan: null,
-    stale: true,
-    staleAfterDays: 14,
-  })),
+  getTrainingPlan: () => savedTrainingPlan,
+  persistTrainingPlan: (input: { title: string; contentMarkdown: string }) => {
+    savedTrainingPlan = replaceTrainingPlan({
+      title: input.title,
+      contentMarkdown: input.contentMarkdown,
+    });
+  },
 }));
 
 describe("trainer orchestrator fail-closed policy", async () => {
@@ -136,6 +138,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     getGarminBodyMetrics.mockClear();
     listActivityDetailAvailability.mockClear();
     replaceTrainingPlan.mockClear();
+    savedTrainingPlan = null;
   });
 
   it("emits truthful progress at awaited boundaries and counts repeated tools", async () => {
