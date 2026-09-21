@@ -684,13 +684,19 @@ vi.mock("@/lib/db/repository", () => ({
       trainingEffect: null,
     },
   ],
-  verifyActivityReference,
   listRecentDailyHealth: () => [],
   getActivityDetailForAnalytics: () => ({
     availability: null,
     laps: [],
     stream: [],
   }),
+}));
+// Reference interpretation now belongs to the local-data application. Keep this
+// orchestration test's supplied evidence seam there; real reference/storage
+// wiring and pure matching are covered in local-data suites.
+vi.mock("@/lib/local-data/composition", async (original) => ({
+  ...(await original<typeof import("@/lib/local-data/composition")>()),
+  verifyActivityReference,
 }));
 vi.mock("@/lib/db/conversation-lifecycle", () => ({
   clearConversationHistory: vi.fn((conversationId = "default") => {

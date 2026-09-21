@@ -13,7 +13,7 @@ import {
   listActivityDetailAvailability,
   listRecentActivities,
   listRecentDailyHealth,
-} from "@/lib/db/repository";
+} from "@/lib/local-data/composition";
 import { trainingPlanStatus } from "@/lib/training-plan/composition";
 import { trainerMemoryStore } from "@/lib/memory/composition";
 import { trainerProfile } from "@/lib/profile/composition";

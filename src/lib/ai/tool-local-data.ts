@@ -1,13 +1,10 @@
 import {
-  activityDetailCoverage,
-  dataCounts,
   getActivityByGarminId,
   getActivityDetailForAnalytics,
-  getGarminAthleteBaseline,
-  getGarminBodyMetrics,
   listActivityDetailAvailability,
   verifyActivityReference,
-} from "@/lib/db/repository";
+  summarizeSyncStatus,
+} from "@/lib/local-data/composition";
 import {
   backfillActivityDetail,
   runGarminSync,
@@ -15,46 +12,6 @@ import {
 import { boundedText, sanitizedResultDetail } from "./tool-evidence";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolStep } from "./tool-types";
-
-function summarizeSyncStatus(limit = 10) {
-  const counts = dataCounts();
-  const coverage = activityDetailCoverage();
-  const healthCoverage = counts.healthCoverage ?? {
-    totalRows: counts.healthDays,
-    completeDays: 0,
-    partialDays: 0,
-    missingDays: 0,
-    metrics: {
-      sleepDays: 0,
-      restingHeartRateDays: 0,
-      hrvDays: 0,
-      stressDays: 0,
-      stepsDays: 0,
-      calorieDays: 0,
-      intensityDays: 0,
-      bodyBatteryDays: 0,
-    },
-  };
-  const athlete = getGarminAthleteBaseline();
-  const bodyMetrics = getGarminBodyMetrics();
-  const availability = listActivityDetailAvailability(limit).map((item) => ({
-    garminId: item.garminId,
-    status: item.status,
-    recordCount: item.recordCount,
-    lapCount: item.lapCount,
-    hasStreams: item.hasStreams,
-    hasGps: item.hasGps,
-    hasHeartRate: item.hasHeartRate,
-    hasElevation: item.hasElevation,
-  }));
-  return {
-    counts: { ...counts, healthCoverage },
-    coverage,
-    athlete,
-    bodyMetrics,
-    availability,
-  };
-}
 
 export async function executeLocalDataTool(
   input: Extract<

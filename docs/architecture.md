@@ -80,6 +80,46 @@ docs carry the deeper contract rather than duplicating it here.
 | Diagnostics              | Allowlisted readiness/redaction reports, not token-content inspection or destructive repair                                                                      | `src/lib/diagnostics/*`, `scripts/doctor.ts`; `tests/doctor.test.ts`                                                                                                                                                                        | Debug traces may contain private normalized context and stay local. [Source readiness](source-beta-readiness.md)                                                                                                                         |
 | Runtime/validation       | Reproducible Node 22 install, build/doctor/loopback start and blocking checks; not deployment/release authorization                                              | `package.json`, `scripts/bootstrap-local.mjs`, `restart-local.sh`, `migrate.ts`, `architecture-check.mjs`; `tests/bootstrap-local.test.ts`, `tests/restart-local.test.ts`, `tests/guardrails.test.ts`                                       | `npm ci`, `CI=true npm run validate`; [validation](validation.md), E0007 live-smoke runbook and [developer process](developer-process.md)                                                                                                |
 
+## Local-data application and adapters
+
+`local-data/application.ts` exposes synchronous read use cases and scoped deletion
+through consumer-owned `LocalDataReads` / `LocalDataLifecycle` capabilities.
+`composition.ts` binds the existing SQLite adapter lazily: Activity, Health,
+summary and delete HTTP routes, chat context, Garmin read composition and local
+data tools use these applications. Transport retains DTO/date serialization,
+labels, lap-speed display fallbacks, parsing and error/status behavior. Health
+retains its newest-first 366-day window; status retains its count fallback and
+read order. Reference verification preserves its existing all-summary selection,
+exact normalized-name/date/ID matching, order and ambiguity before match caps.
+
+`contracts.ts` owns read models independently of SQLite. Existing plain Garmin
+contracts (including stage-2 `HealthCoverage`) remain authoritative, not copied.
+`health-policy.ts` owns nullish merging and clock-supplied trailing/refresh
+criteria; `heart-rate-policy.ts` owns Garmin-total versus local-stream timing;
+`activity-policy.ts`, `coverage-policy.ts` and `dashboard-policy.ts` own reference,
+paging and selected-row interpretation. T0190 chart/route calculations remain
+unchanged. The repository keeps proven SQL predicates, aggregate queries,
+selection/order/caps, JSON/date/boolean row decoding and import transactions.
+Pure functions receive selected values; no unbounded replacement of SQL filters,
+new framework/container, ambient setter or inward compatibility-barrel import.
+
+`db/local-data-lifecycle.ts` owns the two complete atomic bulk transactions. The
+application selects one scope, then reads counts after its commit. Chat/Profile
+clears messages, conversations and Profile only. Garmin clearing retains the exact
+13-statement list/order and labels; in particular it does **not** newly delete
+`activity_hr_zone_time`, `activity_detail_attempt`, either memory store, the plan,
+app metadata, auth rows or external files. These historical exclusions are
+compatibility, not cleanup opportunities. A later statement failure rolls back
+all earlier statements; no catch/retry or expanded transaction includes counts.
+
+`tests/local-data-application.test.ts` covers supplied ports and frozen pure inputs;
+`local-data-wiring.test.ts` covers actual HTTP/tool/composition/SQLite, every bulk
+table and exclusion, exact statement order, late-failure and missing-table rollback.
+`local-data-dependencies.test.ts` follows type-inclusive pure/application closures
+and rejects outer capabilities; existing dashboard, daily-health, summary, import,
+chat and tool suites retain integration coverage. No schema, metric, data shape or
+import behavior changes: migration/back-sync is a no-op, source revert is rollback.
+
 ## Garmin application and adapter boundary
 
 Sync follows `api/sync → garmin/composition → sync-import`; targeted detail follows
@@ -264,8 +304,9 @@ and `tests/tool-runtime-ownership.test.ts` / `tests/tool-boundaries.test.ts`.
 - `profile-repository.ts` and `legacy-memory-repository.ts` own Profile and legacy
   memory SQL; `memory/sqlite-storage.ts` owns semantic SQL. Feature applications
   own normalization and lifecycle policy through explicit ports.
-- `repository.ts` retains Garmin, summaries, metadata and bulk deletion, with
-  compatibility exports for earlier callers. Extracted storage owners never
+- `local-data-lifecycle.ts` owns exact atomic bulk deletion capabilities.
+- `repository.ts` retains Garmin SQL, summaries and metadata, with feature-owned
+  local-data interpretation helpers and compatibility exports for earlier callers. Extracted storage owners never
   import the facade; semantic configuration/metadata adapters still use its
   existing metadata operations.
 
@@ -289,7 +330,8 @@ filesystem, provider or connector capability. Its plain chart/route contracts ar
 composed into the repository's existing `ActivityDashboardDetail` response.
 
 `getActivityDashboardDetail` retains SQLite queries, row selection/order, detail
-availability, laps and HR-zone composition; it delegates only chart timing,
+availability and laps; local-data policies own selected-row and HR-zone composition,
+alongside chart timing,
 60-second distance-based speed, 180-second grade readouts and route filtering,
 bounds and endpoint-preserving sampling. Chart points are not downsampled. Route
 bounds use every accepted point, including points omitted by the 400-point cap.

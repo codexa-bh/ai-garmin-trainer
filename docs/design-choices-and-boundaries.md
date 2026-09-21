@@ -334,15 +334,20 @@ cross-domain conversation-deletion lifecycle owner. The latter preserves atomic
 message deletion, soft deletion of semantic entries matching both conversation ID
 and `kind = 'conversation'`, then conversation deletion—even for a missing target.
 Saved/non-conversation memory and other domains are not its deletion authority.
-The remaining mixed repository is deliberately deferred, not a generic storage
-framework; extracted owners never import its compatibility facade. Source revert
+Local-data application contracts and pure health/freshness/coverage/reference/HR-zone
+interpretation now live in `src/lib/local-data`; the remaining repository is a
+cohesive SQL/row-decoding adapter, not a generic storage framework. Atomic bulk
+scopes live in `db/local-data-lifecycle.ts`, selected by the local-data application
+before post-commit counts. Existing table exclusions and statement order remain
+unchanged. See the [local-data boundary/test map](architecture.md#local-data-application-and-adapters).
+Extracted inner owners never import the compatibility facade. Source revert
 is sufficient rollback because schema, SQL and stored shapes are unchanged.
 
 Responsibilities:
 
 - own normalized storage schema and migrations;
 - persist activities, health, detail availability, chat, profile, confirmed memories, and deletion state;
-- provide repository functions used by routes/tools;
+- supply synchronous capabilities to feature applications composed for routes/tools;
 - separate Garmin data from profile, memories, and chat state.
 
 Non-responsibilities:
@@ -360,7 +365,9 @@ make the calculations directly testable without SQLite, configuration or connect
 setup. Private helpers stay together because window and metadata behavior changes
 together; no generic analytics framework or per-helper service layer is needed.
 
-The repository retains SQL, response composition, laps and HR-zone ownership.
+The repository retains SQL, ordered row selection and lap decoding; local-data
+policies own selected-row read models and HR-zone interpretation. HTTP retains
+wire serialization and display labels/speed fallback.
 Existing timing thresholds, signed grade, zero-versus-missing speed, messages,
 point ordering, full route bounds and sampling are preserved, including duplicate
 points outside a selected grade window. No measured-speed, GPS or summary fallback

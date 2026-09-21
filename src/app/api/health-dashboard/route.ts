@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { listRecentDailyHealth } from "@/lib/db/repository";
+import { healthDashboard } from "@/lib/local-data/composition";
+export { HEALTH_DASHBOARD_DAY_LIMIT } from "@/lib/local-data/application";
 
 /**
  * Bounded read-only daily-health dashboard payload.
@@ -8,12 +9,6 @@ import { listRecentDailyHealth } from "@/lib/db/repository";
  * table. The window is intentionally bounded: enough days for day browsing
  * and weekly/monthly rollup context, without unbounded dumps.
  */
-export const HEALTH_DASHBOARD_DAY_LIMIT = 366;
-
 export async function GET() {
-  const days = listRecentDailyHealth(HEALTH_DASHBOARD_DAY_LIMIT);
-  return NextResponse.json({
-    days,
-    latestDate: days.length > 0 ? days[0].date : null,
-  });
+  return NextResponse.json(healthDashboard());
 }
