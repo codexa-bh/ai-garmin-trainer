@@ -1,14 +1,13 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ChatTurnAnswer, PreparedChatTurn } from "@/lib/chat/turn";
-import type { StoredChatMessage } from "@/lib/db/conversation-repository";
+import type { StoredChatMessage } from "@/lib/chat/contracts";
 
 const f = vi.hoisted(() => ({
   generate: vi.fn(),
   complete: vi.fn(),
   order: [] as string[],
 }));
-vi.mock("@/lib/chat/turn", () => ({
-  CHAT_HISTORY_LIMIT: 40,
+vi.mock("@/lib/chat/composition", () => ({
   generateChatTurn: f.generate,
   completeChatTurn: f.complete,
 }));

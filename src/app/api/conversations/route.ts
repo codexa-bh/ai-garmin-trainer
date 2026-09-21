@@ -1,13 +1,8 @@
 import { NextResponse } from "next/server";
-import {
-  createConversation,
-  listConversations,
-  safeConversationId,
-} from "@/lib/db/conversation-repository";
+import { conversations } from "@/lib/chat/conversation-composition";
+import type { StoredConversation } from "@/lib/chat/contracts";
 
-function conversationSummary(
-  item: ReturnType<typeof listConversations>[number],
-) {
+function conversationSummary(item: StoredConversation) {
   return {
     id: item.id,
     title: item.title,
@@ -21,7 +16,9 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const limit = Number(url.searchParams.get("limit") ?? 40);
     return NextResponse.json({
-      conversations: listConversations(limit).map(conversationSummary),
+      conversations: conversations
+        .listConversations(limit)
+        .map(conversationSummary),
     });
   } catch (error) {
     return NextResponse.json(
@@ -40,10 +37,7 @@ export async function POST(request: Request) {
       id?: string;
       title?: string;
     };
-    const conversation = createConversation({
-      id: body.id ? safeConversationId(body.id) : undefined,
-      title: body.title,
-    });
+    const conversation = conversations.createConversation(body);
     return NextResponse.json({
       conversation: conversationSummary(conversation),
     });

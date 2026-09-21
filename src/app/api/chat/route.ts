@@ -1,14 +1,11 @@
 import type { UIMessage } from "ai";
 import { NextResponse } from "next/server";
 import { activeTranscriptContext } from "@/lib/chat/context";
-import { CHAT_HISTORY_LIMIT, prepareChatTurn } from "@/lib/chat/turn";
+import { CHAT_HISTORY_LIMIT } from "@/lib/chat/turn";
+import { prepareChatTurn } from "@/lib/chat/composition";
+import { conversations } from "@/lib/chat/conversation-composition";
 import { isLlmDebugTraceEnabled } from "@/lib/env";
-import {
-  ensureConversation,
-  listRecentChatMessages,
-  safeConversationId,
-} from "@/lib/db/conversation-repository";
-import { clearConversationHistory } from "@/lib/db/conversation-lifecycle";
+import { safeConversationId } from "@/lib/chat/conversation-policy";
 import {
   apiMessage,
   jsonResponse,
@@ -41,8 +38,7 @@ export async function GET(request: Request) {
   try {
     const conversationId = conversationIdFromRequest(request);
     const debugTraceEnabled = isLlmDebugTraceEnabled();
-    ensureConversation(conversationId);
-    const messages = listRecentChatMessages(conversationId, CHAT_HISTORY_LIMIT);
+    const messages = conversations.chatHistory(conversationId);
     return NextResponse.json({
       conversationId,
       messages: messages.map((message) =>
@@ -63,8 +59,7 @@ export async function GET(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const conversationId = conversationIdFromRequest(request);
-    clearConversationHistory(conversationId);
-    ensureConversation(conversationId);
+    conversations.clearChatHistory(conversationId);
     return NextResponse.json({
       conversationId,
       messages: [],

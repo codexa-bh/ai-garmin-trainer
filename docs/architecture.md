@@ -82,17 +82,32 @@ docs carry the deeper contract rather than duplicating it here.
 
 ## Chat execution and delivery
 
-Chat now follows `route → delivery → chat/turn → chat/context + providers +
-orchestrator + repositories/memory`. Application owners have no HTTP/stream or
-route dependency. Preparation saves the user; generation produces a typed answer
+Chat follows `route → delivery → chat/composition → chat/turn`.
+`createChatTurns` and `createChatContext` consume feature-owned ports; outer
+composition binds existing storage, semantic memory and provider/orchestrator
+adapters. Selection returns a plain generation operation before context reads,
+not an SDK model. Factories bind functions without opening storage or selecting
+providers at import time. Application owners have no HTTP/stream, environment,
+SQLite, singleton memory or SDK dependency, including erased type dependencies. Preparation saves the user; generation produces a typed answer
 and progress; completion saves the assistant, awaits best-effort memory and
 reloads history. JSON and NDJSON share those operations, while delivery owns DTOs,
 debug visibility and the existing stream abort-before-completion boundary.
 
-`src/lib/chat/{context,turn}.ts` and `src/app/api/chat/delivery.ts` expose the seams
-covered directly by `tests/chat-boundaries.test.ts` and
-`tests/chat-delivery.test.ts`; integrated `tests/chat-route.test.ts` retains real
-orchestrator wiring. Mode-specific context counts, previous-failure debug traces
+`src/lib/chat/{context,turn,conversations}.ts` expose application factories
+covered by `tests/chat-application.test.ts` with supplied fake ports, without
+module-mocking infrastructure. `tests/chat-boundaries.test.ts` retains production
+composition characterization; `tests/chat-delivery.test.ts` isolates delivery;
+`tests/chat-route.test.ts` retains real orchestrator wiring. The type-inclusive
+AST closure check in `tests/chat-dependencies.test.ts` rejects outer dependencies
+through imports/re-exports/helpers, including erased types; it complements rather
+than replaces the runtime architecture graph.
+
+Conversation routes call `conversation-composition.ts` / `conversations.ts` for
+history, paging, creation, rename and delete/fallback. `contracts.ts` owns stored
+message/conversation/grounding/page shapes; `conversation-policy.ts` owns pure
+ID/title rules. Dates and wire representations are unchanged. Deletion remains
+one synchronous transactional adapter call before fallback selection; missing
+conversation deletion still cleans only matching conversation-derived memories. Mode-specific context counts, previous-failure debug traces
 and metadata differences are compatibility requirements, not normalization
 opportunities. See [chat ownership](design-choices-and-boundaries.md#chat-application-and-http-delivery).
 
@@ -129,19 +144,24 @@ and `tests/tool-runtime-ownership.test.ts` / `tests/tool-boundaries.test.ts`.
 - `src/lib/db/connection.ts` owns the single lazy SQLite connection, ordered
   migrations and existing compatibility DDL. All storage owners use it directly.
 - `conversation-repository.ts` owns conversation/message persistence, pagination,
-  title/grounding helpers and the single monotonic message timestamp state.
+  grounding serialization and the single monotonic message timestamp state.
+  It imports pure chat-owned ID/title policy and contracts; compatibility exports
+  remain for existing callers.
 - `training-plan-repository.ts` owns singleton plan persistence and revision/stale
   metadata. Synchronous snapshot authorization/edit/write stays in the AI handler.
 - `conversation-lifecycle.ts` owns the complete single-conversation deletion
   transaction: messages, conversation-derived semantic memory soft deletion, then
-  conversation. History clear delegates to it; routes retain fallback selection.
+  conversation. History clear delegates to it; chat application use cases own
+  fallback selection.
 - `repository.ts` deliberately retains Profile/memory, Garmin, summaries, metadata
   and bulk deletion. Explicit compatibility exports serve existing integration
   callers; new domain consumers import the cohesive owners, never the facade.
 
-Dependency direction is consumer → domain/lifecycle → connection → env/migrations.
-Lifecycle uses conversation ID validation, not the reverse. Storage references AI
-contracts only through erased type imports. No SQL, schema, migration, transaction
+Dependency direction is delivery → outer composition → application ports, with
+storage adapters implementing those capabilities and depending on chat-owned
+contracts/policy. Storage I/O flows through connection → env/migrations. Lifecycle
+uses pure conversation ID validation, not the reverse. Debug/tool metadata use
+plain AI contracts, not implementation-owned types. No SQL, schema, migration, transaction
 scope or bulk-deletion behavior changes. In particular bulk chat/Profile clearing
 continues to preserve semantic memory, unlike single-conversation deletion.
 `tests/persistence-ownership.test.ts` covers shared connection visibility, edge

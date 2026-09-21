@@ -1,22 +1,10 @@
-import {
-  fallbackLlmDebugTrace,
-  type LlmDebugTrace,
-} from "@/lib/ai/debug-trace";
-import {
-  orchestrateTrainerChat,
-  type OrchestrateTrainerChatInput,
-  type OrchestrateTrainerChatResult,
-} from "@/lib/ai/orchestrator";
-import { selectedModel } from "@/lib/ai/providers";
-import {
-  appendChatMessage,
-  ensureConversation,
-  listRecentChatMessages,
-  type ChatGrounding,
-  type StoredChatMessage,
-} from "@/lib/db/conversation-repository";
-import { trainerMemoryStore } from "@/lib/memory/sqlite-adapter";
-import { buildSystemContext } from "./context";
+import type { LlmDebugTrace } from "@/lib/ai/debug-types";
+import type { ChatGrounding, StoredChatMessage } from "./contracts";
+import type {
+  ChatGenerationInput,
+  ChatGenerationResult,
+  ChatTurnPorts,
+} from "./ports";
 
 export const CHAT_HISTORY_LIMIT = 40;
 export type MemoryProposalResult = { status: "none" };
@@ -35,100 +23,111 @@ export type ChatTurnAnswer =
       text: string;
       grounding: ChatGrounding | null;
       toolEvidence: ChatGrounding | null;
-      toolSteps: OrchestrateTrainerChatResult["toolSteps"];
-      progressCounters: OrchestrateTrainerChatResult["progressCounters"];
+      toolSteps: ChatGenerationResult["toolSteps"];
+      progressCounters: ChatGenerationResult["progressCounters"];
     };
 
-export function prepareChatTurn(
-  conversationId: string,
-  latestMessage: string,
-): PreparedChatTurn {
-  ensureConversation(conversationId, latestMessage.slice(0, 80));
-  const previousMessages = listRecentChatMessages(
-    conversationId,
-    CHAT_HISTORY_LIMIT,
-  );
-  const userRecord = appendChatMessage({
-    conversationId,
-    role: "user",
-    content: latestMessage,
-  });
-  return { conversationId, latestMessage, previousMessages, userRecord };
-}
+export function createChatTurns(ports: ChatTurnPorts) {
+  const {
+    ensureConversation,
+    listRecentChatMessages,
+    appendChatMessage,
+    buildSystemContext,
+  } = ports;
+  function prepareChatTurn(
+    conversationId: string,
+    latestMessage: string,
+  ): PreparedChatTurn {
+    ensureConversation(conversationId, latestMessage.slice(0, 80));
+    const previousMessages = listRecentChatMessages(
+      conversationId,
+      CHAT_HISTORY_LIMIT,
+    );
+    const userRecord = appendChatMessage({
+      conversationId,
+      role: "user",
+      content: latestMessage,
+    });
+    return { conversationId, latestMessage, previousMessages, userRecord };
+  }
 
-// Generation never commits an assistant: delivery still owns the abort boundary.
-export async function generateChatTurn(
-  input: PreparedChatTurn,
-  options: {
-    debugTraceEnabled: boolean;
-    onStatus?: OrchestrateTrainerChatInput["onStatus"];
-  },
-): Promise<ChatTurnAnswer> {
-  const previousFailure = latestFailedAssistantMessage(input.previousMessages);
-  if (previousFailure && isFailureMetaQuestion(input.latestMessage)) {
+  // Generation never commits an assistant: delivery still owns the abort boundary.
+  async function generateChatTurn(
+    input: PreparedChatTurn,
+    options: {
+      debugTraceEnabled: boolean;
+      onStatus?: ChatGenerationInput["onStatus"];
+    },
+  ): Promise<ChatTurnAnswer> {
+    const previousFailure = latestFailedAssistantMessage(
+      input.previousMessages,
+    );
+    if (previousFailure && isFailureMetaQuestion(input.latestMessage)) {
+      return {
+        kind: "previous-failure",
+        text: explainPreviousToolFailure(previousFailure),
+        grounding: previousFailure.grounding,
+      };
+    }
+    const generate = ports.selectGeneration();
+    const system = await buildSystemContext(
+      input.latestMessage,
+      [...input.previousMessages, input.userRecord],
+      input.conversationId,
+    );
+    const result = await generate({
+      system,
+      userRequest: input.latestMessage,
+      ...(options.onStatus ? { onStatus: options.onStatus } : {}),
+      debugTraceEnabled: options.debugTraceEnabled,
+    });
     return {
-      kind: "previous-failure",
-      text: explainPreviousToolFailure(previousFailure),
-      grounding: previousFailure.grounding,
+      kind: "generated",
+      text: result.text,
+      grounding: withDebugTrace(result.grounding, result.debugTrace),
+      toolEvidence: result.grounding,
+      toolSteps: result.toolSteps,
+      progressCounters: result.progressCounters,
     };
   }
-  const { model, provider, modelName } = selectedModel();
-  const system = await buildSystemContext(
-    input.latestMessage,
-    [...input.previousMessages, input.userRecord],
-    input.conversationId,
-  );
-  const result = await orchestrateTrainerChat({
-    model,
-    system,
-    userRequest: input.latestMessage,
-    ...(options.onStatus ? { onStatus: options.onStatus } : {}),
-    debug: { enabled: options.debugTraceEnabled, provider, model: modelName },
-  });
-  return {
-    kind: "generated",
-    text: result.text,
-    grounding: withDebugTrace(result.grounding, result.debugTrace),
-    toolEvidence: result.grounding,
-    toolSteps: result.toolSteps,
-    progressCounters: result.progressCounters,
-  };
-}
 
-// Call exactly once, only after delivery's existing completion checks.
-export async function completeChatTurn(
-  input: PreparedChatTurn,
-  answer: ChatTurnAnswer,
-  options: { failureDebugTraceEnabled?: boolean } = {},
-): Promise<{
-  assistantRecord: StoredChatMessage;
-  messages: StoredChatMessage[];
-}> {
-  const grounding =
-    answer.kind === "previous-failure" && options.failureDebugTraceEnabled
-      ? withDebugTrace(
-          answer.grounding,
-          fallbackLlmDebugTrace({
-            userRequest: input.latestMessage,
-            finalAnswer: answer.text,
-            toolSteps: answer.grounding?.toolSteps,
-            reason:
-              "Explained the previous persisted tool failure without a new provider call.",
-          }),
-        )
-      : answer.grounding;
-  const assistantRecord = appendChatMessage({
-    conversationId: input.conversationId,
-    role: "assistant",
-    content: answer.text,
-    grounding,
-  });
-  await recordCompletedTurn({ ...input, assistantRecord });
-  const messages = listRecentChatMessages(
-    input.conversationId,
-    CHAT_HISTORY_LIMIT,
-  );
-  return { assistantRecord, messages };
+  // Call exactly once, only after delivery's existing completion checks.
+  async function completeChatTurn(
+    input: PreparedChatTurn,
+    answer: ChatTurnAnswer,
+    options: { failureDebugTraceEnabled?: boolean } = {},
+  ): Promise<{
+    assistantRecord: StoredChatMessage;
+    messages: StoredChatMessage[];
+  }> {
+    const grounding =
+      answer.kind === "previous-failure" && options.failureDebugTraceEnabled
+        ? withDebugTrace(
+            answer.grounding,
+            ports.fallbackDebugTrace({
+              userRequest: input.latestMessage,
+              finalAnswer: answer.text,
+              toolSteps: answer.grounding?.toolSteps,
+              reason:
+                "Explained the previous persisted tool failure without a new provider call.",
+            }),
+          )
+        : answer.grounding;
+    const assistantRecord = appendChatMessage({
+      conversationId: input.conversationId,
+      role: "assistant",
+      content: answer.text,
+      grounding,
+    });
+    await recordCompletedTurn(ports, { ...input, assistantRecord });
+    const messages = listRecentChatMessages(
+      input.conversationId,
+      CHAT_HISTORY_LIMIT,
+    );
+    return { assistantRecord, messages };
+  }
+
+  return { prepareChatTurn, generateChatTurn, completeChatTurn };
 }
 
 function isFailureMetaQuestion(message: string): boolean {
@@ -173,14 +172,17 @@ function explainPreviousToolFailure(message: StoredChatMessage): string {
   return `The previous turn reached ${failed.tool} and it was ${failed.status}.${reason} ${failed.summary}`;
 }
 
-async function recordCompletedTurn(input: {
-  conversationId: string;
-  userRecord: StoredChatMessage;
-  assistantRecord: StoredChatMessage;
-  latestMessage: string;
-}): Promise<void> {
+async function recordCompletedTurn(
+  ports: ChatTurnPorts,
+  input: {
+    conversationId: string;
+    userRecord: StoredChatMessage;
+    assistantRecord: StoredChatMessage;
+    latestMessage: string;
+  },
+): Promise<void> {
   try {
-    await trainerMemoryStore().addCompletedTurn({
+    await ports.addCompletedTurn({
       conversationId: input.conversationId,
       userMessageId: input.userRecord.id,
       assistantMessageId: input.assistantRecord.id,

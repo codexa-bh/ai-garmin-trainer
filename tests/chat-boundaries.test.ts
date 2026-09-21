@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  StoredChatMessage,
-  ChatGrounding,
-} from "@/lib/db/conversation-repository";
+import type { StoredChatMessage, ChatGrounding } from "@/lib/chat/contracts";
 import type {
   OrchestrateTrainerChatInput,
   OrchestrateTrainerChatResult,
@@ -38,14 +35,32 @@ vi.mock("@/lib/ai/context", async (original) => ({
 vi.mock("@/lib/db/repository", () => ({
   dataCounts: f.counts,
   listActivityDetailAvailability: f.details,
-  listRecentActivities: () => [],
-  listRecentDailyHealth: () => [],
-  getTrainerProfile: () => null,
-  getGarminAthleteBaseline: () => null,
-  getGarminBodyMetrics: () => null,
+  listRecentActivities: () => {
+    f.order.push("activities");
+    return [];
+  },
+  listRecentDailyHealth: () => {
+    f.order.push("health");
+    return [];
+  },
+  getTrainerProfile: () => {
+    f.order.push("profile");
+    return null;
+  },
+  getGarminAthleteBaseline: () => {
+    f.order.push("athlete");
+    return null;
+  },
+  getGarminBodyMetrics: () => {
+    f.order.push("body");
+    return null;
+  },
 }));
 vi.mock("@/lib/db/training-plan-repository", () => ({
-  trainingPlanStatus: () => null,
+  trainingPlanStatus: () => {
+    f.order.push("plan");
+    return null;
+  },
 }));
 vi.mock("@/lib/memory/sqlite-adapter", () => ({
   trainerMemoryStore: () => ({ search: f.search, addCompletedTurn: f.memory }),
@@ -186,10 +201,19 @@ beforeEach(() => {
   });
 });
 
-describe("chat application without HTTP or stream objects", () => {
+describe("chat application production wiring", () => {
+  it("imports composition without selecting providers, reading storage or initializing memory", async () => {
+    await import("@/lib/chat/composition");
+    await import("@/lib/chat/conversation-composition");
+    expect(f.order).toEqual([]);
+    expect(f.selected).not.toHaveBeenCalled();
+    expect(f.search).not.toHaveBeenCalled();
+    expect(f.memory).not.toHaveBeenCalled();
+    expect(f.counts).not.toHaveBeenCalled();
+  });
   it("loads bounded context and generates without completion, then commits once", async () => {
     const { prepareChatTurn, generateChatTurn, completeChatTurn } =
-      await import("@/lib/chat/turn");
+      await import("@/lib/chat/composition");
     const turn = prepareChatTurn("default", "hello");
     const progress = vi.fn();
     const answer = await generateChatTurn(turn, {
@@ -230,7 +254,7 @@ describe("chat application without HTTP or stream objects", () => {
 
   it("returns prior-failure reasoning without provider/context work and leaves decoration to completion", async () => {
     const { prepareChatTurn, generateChatTurn, completeChatTurn } =
-      await import("@/lib/chat/turn");
+      await import("@/lib/chat/composition");
     seedFailure();
     const previous = f.messages[0].grounding;
     const turn = prepareChatTurn("default", "what happened");
@@ -251,7 +275,7 @@ describe("chat application without HTTP or stream objects", () => {
 
   it("propagates generation failure without committing or swallowing it", async () => {
     const { prepareChatTurn, generateChatTurn } =
-      await import("@/lib/chat/turn");
+      await import("@/lib/chat/composition");
     const turn = prepareChatTurn("default", "hello");
     f.orchestrate.mockRejectedValueOnce(new Error("generation failed"));
     await expect(
@@ -263,6 +287,36 @@ describe("chat application without HTTP or stream objects", () => {
 });
 
 describe("chat delivery compatibility (real route/application wiring)", () => {
+  it("defers context reads until semantic retrieval settles", async () => {
+    const gate = deferred();
+    const started = deferred();
+    f.search.mockImplementationOnce(async () => {
+      f.order.push("search");
+      started.resolve();
+      await gate.promise;
+      return [];
+    });
+    const response = post({ message: "hello" });
+    await started.promise;
+    expect(f.order).toEqual([
+      "ensure",
+      "history:40",
+      "save:user",
+      "select",
+      "counts",
+      "search",
+    ]);
+    gate.resolve();
+    expect((await response).status).toBe(200);
+    expect(f.order.slice(6, 12)).toEqual([
+      "activities",
+      "health",
+      "profile",
+      "athlete",
+      "body",
+      "plan",
+    ]);
+  });
   it.each([false, true])(
     "preserves completion, counters and context counts: stream=%s",
     async (stream) => {
@@ -282,6 +336,12 @@ describe("chat delivery compatibility (real route/application wiring)", () => {
         "select",
         "counts",
         "search",
+        "activities",
+        "health",
+        "profile",
+        "athlete",
+        "body",
+        "plan",
         "context",
         "generate",
         "save:assistant",

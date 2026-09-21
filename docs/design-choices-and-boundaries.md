@@ -92,17 +92,37 @@ Non-responsibilities:
 
 ### Chat application and HTTP delivery
 
-`src/lib/chat/context.ts` loads bounded local context (40-message history,
+`src/lib/chat/context.ts` receives `ChatContextPorts` through `createChatContext`
+and loads bounded local context (40-message history,
 6000-character transcript budget, eight semantic matches and 12 detail summaries)
 and delegates prompt composition to `ai/context.ts`. It preserves request-time
 current-date grounding and preceding Training Plan proposal continuity.
 
-`src/lib/chat/turn.ts` owns preparation (user persistence), generation and
-completion as distinct operations. Generation returns an explicit generated or
+`src/lib/chat/turn.ts` exposes `createChatTurns(ChatTurnPorts)` and owns
+preparation (user persistence), generation and completion as distinct operations. Generation returns an explicit generated or
 previous-failure answer and optionally forwards existing progress callbacks; it
 never persists an assistant. Completion synchronously persists the assistant,
 awaits best-effort memory ingestion and reloads history. Neither owner imports
-HTTP responses, stream controllers or route modules.
+HTTP responses, stream controllers, route modules, storage owners, environment,
+provider SDKs or memory singleton implementations, including type-only imports.
+
+`chat/composition.ts` binds the existing adapters lazily. Request-time generation
+selection runs before context reads and returns a plain generation function;
+SDK model objects stay outside policy. Counts and detail availability are read
+before awaited semantic search; activities, health, Profile, athlete/body facts,
+plan preview and clock are read after it. No retries or new async boundaries are
+introduced around synchronous persistence. The pure AI context formatter consumes
+a narrow plan-preview contract rather than a repository-owned plan type.
+
+`chat/conversations.ts` owns history/page and lifecycle use cases, composed
+separately in `conversation-composition.ts` so conversation routes need no AI
+runtime. `chat/contracts.ts` owns existing Date/null stored shapes and paging;
+`conversation-policy.ts` owns ID validation and title normalization. Storage
+retains timestamp generation, cursor encoding, retitling writes, grounding
+serialization and the atomic single-delete transaction. The use case invokes
+that one deletion operation, selects the most recent remaining conversation or
+creates a fallback, then reloads the list. Bulk deletion remains outside this
+feature and unchanged.
 
 `src/app/api/chat/route.ts` owns request parsing and GET/DELETE/POST routing;
 `delivery.ts` owns JSON/NDJSON DTOs, error disclosure, debug serialization and
@@ -120,8 +140,14 @@ always hides debug traces, while done/history serialization honors the existing
 flag. Completion is not retried. Memory failures do not fail an otherwise
 completed chat.
 
-`tests/chat-boundaries.test.ts` characterizes both modes with real application
-wiring and exercises application operations without HTTP objects;
+`tests/chat-application.test.ts` exercises factories directly with supplied
+ports, without infrastructure module mocks. `tests/chat-dependencies.test.ts`
+checks the transitive type-inclusive closure over reviewed plain/pure modules,
+with negative infrastructure/SDK/composition fixtures. Production wiring and
+malformed conversation route behavior are covered by
+`tests/conversation-application-wiring.test.ts` and
+`tests/chat-boundaries.test.ts`; the latter characterizes both chat modes and
+request-time ordering;
 `tests/chat-delivery.test.ts` tests delivery against the application contract.
 `tests/chat-route.test.ts` retains integrated real-orchestrator regressions.
 No schema, stored shape, prompt, provider/tool policy or UI contract changes;
