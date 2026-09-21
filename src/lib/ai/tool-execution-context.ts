@@ -1,4 +1,4 @@
-import type { AnalysisRow } from "./sql-analysis";
+import type { AnalysisRow } from "./analytics/contracts";
 
 /** One orchestration's transient handles, never shared or persisted. */
 export class TrainerToolExecutionContext {

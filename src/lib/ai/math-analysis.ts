@@ -1,4 +1,4 @@
-import type { AnalysisCell, AnalysisRow } from "@/lib/ai/sql-analysis";
+import type { AnalysisCell, AnalysisRow } from "./analytics/contracts";
 
 export type MathAnalysisOperation =
   | "score"

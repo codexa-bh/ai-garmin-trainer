@@ -1,5 +1,8 @@
 import type { ActivityVerificationEvidence } from "@/lib/local-data/contracts";
-import type { AnalysisResult, GarminDatabaseDescription } from "./sql-analysis";
+import type {
+  AnalysisResult,
+  GarminDatabaseDescription,
+} from "./analytics/contracts";
 import type { MathAnalysisResult } from "./math-analysis";
 import type { TrainerToolStep } from "./tool-types";
 
