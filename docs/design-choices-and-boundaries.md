@@ -139,7 +139,7 @@ Server-side tool orchestration for trainer chat.
 Responsibilities:
 
 - let the model select needed tools, executed sequentially;
-- validate tool calls before execution; planner guidance avoids forbidden SQL tokens even as aliases (for example use `total_training_load`, not `load`), without relaxing validation or making terminal safety rejections retryable;
+- delegate deterministic batch selection and live successful-quota rechecks to `tool-selection.ts` before sequential execution; planner guidance avoids forbidden SQL tokens even as aliases (for example use `total_training_load`, not `load`), without relaxing validation or making terminal safety rejections retryable;
 - enforce the shared execution policy: 30 combined admitted provider/tool attempts per turn, including failed attempts and explicit final synthesis; guide the model to finish within 20 without enforcing that soft target;
 - send a live budget snapshot on every planning call, counting that call before rendering remaining capacity; successful schema/SQL/math quotas are separate, and failed queries do not consume those successful quotas;
 - reserve one provider execution for tool-disabled final synthesis, stopping exploration/batches before they consume it; reuse current-turn evidence and distinguish verified facts, user statements, general coaching and missing evidence;
@@ -154,6 +154,35 @@ Non-responsibilities:
 - no fixed demand, training-load, sport-normalization, or ranking rubric as primary behavior;
 - no provider-visible secrets, SQL text in final answers unless explicitly requested, or raw dumps;
 - no direct connector or database mutation beyond validated tool execution.
+
+### `src/lib/ai/tool-selection.ts`
+
+Synchronous, side-effect-free selection over already extracted provider calls and
+readonly turn snapshots. It validates the whole batch in provider order before
+filtering, stable priority sorting or truncation: the first invalid call rejects
+all calls, even beyond remaining capacity. Only successful prior steps influence
+priority; selection neither invents prerequisites nor reserves successful quotas.
+Repeated valid calls remain separate. Metadata describes the original batch,
+while skipped counts include only eligible calls truncated by turn capacity.
+
+Dependencies are the existing tool contracts/definitions, shared
+`TRAINER_EXECUTION_POLICY`, erased tool types and `tool-step-diagnostics.ts` for
+unchanged rejected-step construction shared with orchestration. The contracts'
+SDK definition wrapper is not provider I/O. No execution context, tool handlers,
+provider calls, database, connector or orchestrator back-import belongs here.
+
+The turn loop retains raw-call parsing, provider I/O, mutable counts, actual-attempt
+accounting, synthesis reserve, sequential execution, prior-planner-pass Training
+Plan snapshots and non-replay/side-effect guards. It calls the same quota predicate
+immediately before each execution, so an earlier same-batch success can exhaust a
+quota; failed executions never consume successful-result quotas. Public limits,
+diagnostic text/privacy, grounding and progress remain compatible.
+
+`tests/tool-selection.test.ts` directly covers validation precedence, defaults,
+ordering, repeated calls, quota/capacity edges, metadata and input preservation
+without execution/provider mocks. `tests/tool-selection-orchestration.test.ts`
+lowers only the test success quota to exercise real-loop live rechecks after
+success/failure; existing orchestrator, plan and route tests protect integration.
 
 ### `src/lib/ai/sql-analysis.ts`
 

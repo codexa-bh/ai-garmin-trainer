@@ -1126,6 +1126,55 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).not.toContain("already used in this turn");
   });
 
+  it.each([
+    ["toString", {}, "unknown_tool", "providerToolSelection"],
+    [
+      "getSyncStatus",
+      { availabilityLimit: 0 },
+      "malformed_input",
+      "getSyncStatus",
+    ],
+  ])(
+    "validates %s beyond truncation before executing a valid prefix",
+    async (toolName, input, reason, tool) => {
+      generateText.mockResolvedValueOnce({
+        toolCalls: [
+          ...Array.from({ length: 30 }, () => ({
+            toolName: "getSyncStatus",
+            input: {},
+          })),
+          { toolName, input },
+        ],
+      });
+      const result = await orchestrateTrainerChat({
+        model: "mock",
+        system: "system",
+        userRequest: "check local status",
+      });
+      expect(dataCounts).not.toHaveBeenCalled();
+      expect(result.toolSteps).toEqual([
+        {
+          index: 1,
+          tool,
+          status: "rejected",
+          reason,
+          summary:
+            `Provider selected 31 tools (getSyncStatus, ${toolName}); call 31 was rejected as ${reason}, so no tools from that provider response were executed.`.replace(
+              "getSyncStatus, getSyncStatus",
+              "getSyncStatus",
+            ),
+          privacy:
+            "No Garmin connector action or local analytics tool was executed for the rejected provider response.",
+        },
+      ]);
+      expect(result.progressCounters).toEqual({
+        modelCalls: 1,
+        toolsSucceeded: 0,
+        toolsUnsuccessful: 0,
+      });
+    },
+  );
+
   it("rejects generated Python because the default path is SQL/math", async () => {
     generateText.mockResolvedValueOnce({
       toolCalls: [
