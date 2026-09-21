@@ -49,22 +49,7 @@ import {
 } from "../garmin/raw-payload";
 import { dailyHealthAvailability } from "../garmin/normalize";
 
-export type HealthCoverage = {
-  totalRows: number;
-  completeDays: number;
-  partialDays: number;
-  missingDays: number;
-  metrics: {
-    sleepDays: number;
-    restingHeartRateDays: number;
-    hrvDays: number;
-    stressDays: number;
-    stepsDays: number;
-    calorieDays: number;
-    intensityDays: number;
-    bodyBatteryDays: number;
-  };
-};
+import type { HealthCoverage } from "../garmin/import-contracts";
 
 export type SyncRunOptions = {
   coverageStart?: string | null;

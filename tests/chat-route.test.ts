@@ -550,7 +550,7 @@ vi.mock("@/lib/ai/math-analysis", () => ({
   runMathAnalysis,
 }));
 
-vi.mock("@/lib/garmin/importer", () => ({
+vi.mock("@/lib/garmin/composition", () => ({
   runGarminSync,
   backfillActivityDetail,
 }));

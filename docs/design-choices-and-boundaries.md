@@ -367,7 +367,14 @@ is added. See the [source/test boundary map](architecture.md#selected-activity-c
 
 ### `src/lib/garmin`
 
-Pinned local Garmin connector boundary and normalization.
+Pinned local Garmin connector boundary, feature-owned import workflows and
+normalization. `composition.ts` supplies explicit capabilities to `sync-import`,
+`baseline-import`, `detail-import` and `detail-requests`; the application closure
+contains only plain contracts and pure policy. `reader-adapter.ts` keeps MCP JSON,
+FIT process supplements and archive mechanics outside that closure. There is no
+DI container, ambient dependency setter, second client per invocation or generic
+persistence interface. See the [Garmin boundary map](architecture.md#garmin-application-and-adapter-boundary)
+for exact owners, ordering/failure contracts and direct/integrated test entries.
 
 Responsibilities:
 

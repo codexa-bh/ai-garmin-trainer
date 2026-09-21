@@ -8,7 +8,10 @@ import {
   listActivityDetailAvailability,
   verifyActivityReference,
 } from "@/lib/db/repository";
-import { backfillActivityDetail, runGarminSync } from "@/lib/garmin/importer";
+import {
+  backfillActivityDetail,
+  runGarminSync,
+} from "@/lib/garmin/composition";
 import { boundedText, sanitizedResultDetail } from "./tool-evidence";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolStep } from "./tool-types";

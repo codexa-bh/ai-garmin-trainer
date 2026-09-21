@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { verifyConnectorToken } from "@/lib/garmin/client";
-import { runGarminSync } from "@/lib/garmin/importer";
+import {
+  verifyGarminConnection as verifyConnectorToken,
+  runGarminSync,
+} from "@/lib/garmin/composition";
 
 export async function GET() {
   const verification = await verifyConnectorToken();

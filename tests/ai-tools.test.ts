@@ -16,7 +16,7 @@ vi.mock("@/lib/db/repository", () => ({
 vi.mock("@/lib/db/training-plan-repository", () => ({
   replaceTrainingPlan: vi.fn(),
 }));
-vi.mock("@/lib/garmin/importer", () => ({
+vi.mock("@/lib/garmin/composition", () => ({
   backfillActivityDetail: vi.fn(),
   runGarminSync: vi.fn(),
 }));

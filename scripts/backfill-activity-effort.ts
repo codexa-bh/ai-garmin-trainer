@@ -1,5 +1,5 @@
 import { loadEnvConfig } from "@next/env";
-import { backfillActivityEffortFields } from "../src/lib/garmin/importer";
+import { backfillActivityEffortFields } from "../src/lib/garmin/composition";
 import { activityEffortCoverage } from "../src/lib/db/repository";
 
 loadEnvConfig(process.cwd());
