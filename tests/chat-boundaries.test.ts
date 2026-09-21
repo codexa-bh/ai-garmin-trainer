@@ -62,7 +62,7 @@ vi.mock("@/lib/db/training-plan-repository", () => ({
     return null;
   },
 }));
-vi.mock("@/lib/memory/sqlite-adapter", () => ({
+vi.mock("@/lib/memory/composition", () => ({
   trainerMemoryStore: () => ({ search: f.search, addCompletedTurn: f.memory }),
 }));
 vi.mock("@/lib/db/conversation-lifecycle", () => ({

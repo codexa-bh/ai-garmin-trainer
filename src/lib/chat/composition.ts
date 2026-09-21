@@ -10,13 +10,13 @@ import {
   dataCounts,
   getGarminAthleteBaseline,
   getGarminBodyMetrics,
-  getTrainerProfile,
   listActivityDetailAvailability,
   listRecentActivities,
   listRecentDailyHealth,
 } from "@/lib/db/repository";
 import { trainingPlanStatus } from "@/lib/db/training-plan-repository";
-import { trainerMemoryStore } from "@/lib/memory/sqlite-adapter";
+import { trainerMemoryStore } from "@/lib/memory/composition";
+import { trainerProfile } from "@/lib/profile/composition";
 import { LOCAL_MEMORY_USER_ID } from "@/lib/memory/types";
 import { createChatContext } from "./context";
 import { createChatTurns } from "./turn";
@@ -27,7 +27,7 @@ const buildSystemContext = createChatContext({
   dataCounts,
   getGarminAthleteBaseline,
   getGarminBodyMetrics,
-  getTrainerProfile,
+  getTrainerProfile: trainerProfile.read,
   listActivityDetailAvailability,
   listRecentActivities,
   listRecentDailyHealth,

@@ -704,7 +704,7 @@ vi.mock("@/lib/db/training-plan-repository", () => ({
   replaceTrainingPlan,
 }));
 
-vi.mock("@/lib/memory/sqlite-adapter", () => ({
+vi.mock("@/lib/memory/composition", () => ({
   trainerMemoryStore: () => ({
     search: vi.fn(async () => retrievedMemories),
     addCompletedTurn: vi.fn(async () => {
