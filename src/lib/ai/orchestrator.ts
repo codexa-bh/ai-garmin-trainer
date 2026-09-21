@@ -7,17 +7,13 @@ import {
 } from "./training-plan-evidence";
 import { executeTrainerTool } from "./tool-execution";
 import { groundingForSteps, renderToolSteps } from "./tool-evidence";
-import {
-  trainerToolDefinitions,
-  validateTrainerToolCall,
-  type ValidatedTrainerToolCall,
-} from "./tool-contracts";
+import { trainerToolDefinitions } from "./tool-contracts";
+import { canToolRunWithinBudget, selectSafeToolCalls } from "./tool-selection";
+import { failedStep } from "./tool-step-diagnostics";
 import type {
   TrainerToolCall,
   TrainerToolName,
-  TrainerToolSelectionMetadata,
   TrainerToolStep,
-  TrainerToolStepName,
 } from "./tool-types";
 import {
   buildLlmDebugTrace,
@@ -144,23 +140,6 @@ function plannerSystem(
     budget,
     Object.fromEntries(analysisToolCounts),
   );
-}
-
-function failedStep(
-  index: number,
-  reason: string,
-  tool: TrainerToolStepName = "providerToolSelection",
-  summary?: string,
-): TrainerToolStep {
-  return {
-    index,
-    tool,
-    status: "rejected",
-    summary: summary ?? `Provider tool selection was rejected: ${reason}.`,
-    privacy:
-      "No Garmin connector action or local analytics tool was executed for the rejected provider response.",
-    reason,
-  };
 }
 
 function providerSelectionFailureText(step: TrainerToolStep): string {
@@ -384,154 +363,6 @@ function rejectsAvailableDateBasis(text: string): boolean {
 
 function currentDateBasisAnswer(isoDate: string): string {
   return `Yes. For this chat turn I have a server-provided current date basis: ${isoDate}. I use that for relative terms such as today and yesterday; Garmin activity or daily-health row dates are separate evidence for imported-data freshness.`;
-}
-
-function canToolRunWithinBudget(
-  toolName: TrainerToolName,
-  analysisToolCounts: Map<TrainerToolName, number>,
-): boolean {
-  const currentCount = analysisToolCounts.get(toolName) ?? 0;
-  if (toolName === "describeGarminDatabase")
-    return currentCount < MAX_SCHEMA_CALLS;
-  if (toolName === "runReadOnlySql") return currentCount < MAX_SQL_CALLS;
-  if (toolName === "runMathAnalysis") return currentCount < MAX_MATH_CALLS;
-  return true;
-}
-
-function selectedToolPriority(
-  toolName: TrainerToolName,
-  priorSteps: TrainerToolStep[],
-): number {
-  const hasSchema = priorSteps.some(
-    (step) =>
-      step.tool === "describeGarminDatabase" && step.status === "succeeded",
-  );
-  const hasSql = priorSteps.some(
-    (step) => step.tool === "runReadOnlySql" && step.status === "succeeded",
-  );
-  const hasMath = priorSteps.some(
-    (step) => step.tool === "runMathAnalysis" && step.status === "succeeded",
-  );
-  if (!hasSchema && toolName === "describeGarminDatabase") return 0;
-  if (hasSchema && !hasSql && toolName === "runReadOnlySql") return 0;
-  if (hasSql && !hasMath && toolName === "runMathAnalysis") return 0;
-  if (toolName === "runReadOnlySql") return 1;
-  if (toolName === "runMathAnalysis") return 2;
-  if (toolName === "describeGarminDatabase") return 3;
-  return 10;
-}
-
-function attemptedToolName(call: TrainerToolCall): TrainerToolStepName {
-  return Object.prototype.hasOwnProperty.call(
-    trainerToolDefinitions,
-    call.toolName,
-  ) && typeof call.toolName === "string"
-    ? (call.toolName as TrainerToolName)
-    : "providerToolSelection";
-}
-
-type SelectedTrainerToolCall = {
-  call: TrainerToolCall;
-  accepted: ValidatedTrainerToolCall;
-  metadata?: TrainerToolSelectionMetadata;
-};
-
-function selectSafeToolCalls(input: {
-  toolCalls: TrainerToolCall[];
-  priorSteps: TrainerToolStep[];
-  analysisToolCounts: Map<TrainerToolName, number>;
-  exploratoryRemaining: number;
-}):
-  | {
-      ok: true;
-      calls: SelectedTrainerToolCall[];
-      skippedForTurnBudget: number;
-    }
-  | { ok: false; step: TrainerToolStep } {
-  const toolNames = input.toolCalls
-    .map((call) => call.toolName)
-    .filter((toolName, index, names) => names.indexOf(toolName) === index)
-    .slice(0, 8);
-  const stepIndex = input.priorSteps.length + 1;
-  const evaluated: Array<{
-    call: TrainerToolCall;
-    order: number;
-    accepted: ValidatedTrainerToolCall;
-  }> = [];
-
-  for (const [order, call] of input.toolCalls.entries()) {
-    const accepted = validateTrainerToolCall(call);
-    if (!accepted.ok) {
-      return {
-        ok: false,
-        step: failedStep(
-          stepIndex,
-          accepted.reason,
-          attemptedToolName(call),
-          `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}); call ${order + 1} was rejected as ${accepted.reason}, so no tools from that provider response were executed.`,
-        ),
-      };
-    }
-    evaluated.push({ call, order, accepted });
-  }
-
-  const candidates = evaluated
-    .filter((item) =>
-      canToolRunWithinBudget(item.accepted.toolName, input.analysisToolCounts),
-    )
-    .sort((left, right) => {
-      const priority =
-        selectedToolPriority(left.accepted.toolName, input.priorSteps) -
-        selectedToolPriority(right.accepted.toolName, input.priorSteps);
-      return priority || left.order - right.order;
-    });
-  if (!candidates.length) {
-    return {
-      ok: false,
-      step: failedStep(
-        stepIndex,
-        "multiple_tool_calls_no_safe_tool",
-        "providerToolSelection",
-        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}); none was a safe valid next tool within the remaining per-tool budgets.`,
-      ),
-    };
-  }
-
-  const remaining = input.exploratoryRemaining;
-  if (remaining <= 0) {
-    return {
-      ok: false,
-      step: failedStep(
-        stepIndex,
-        "tool_budget_exceeded",
-        "providerToolSelection",
-        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}), but the per-turn limit of ${MAX_TOTAL_TURN_EXECUTIONS} total planner/tool executions was already exhausted.`,
-      ),
-    };
-  }
-
-  const selected = candidates.slice(0, remaining);
-  const metadataFor = (
-    toolName: TrainerToolName,
-  ): TrainerToolSelectionMetadata | undefined =>
-    input.toolCalls.length > 1
-      ? {
-          reason: "multiple_tool_calls",
-          count: input.toolCalls.length,
-          toolNames,
-          selectedTool: toolName,
-        }
-      : undefined;
-
-  return {
-    ok: true,
-    calls: selected.map((item) => ({
-      call: item.call,
-      accepted: item.accepted,
-      metadata: metadataFor(item.accepted.toolName),
-    })),
-    skippedForTurnBudget: Math.max(0, candidates.length - selected.length),
-  };
 }
 
 function canOfferSqlCorrectionStep(step: TrainerToolStep): boolean {

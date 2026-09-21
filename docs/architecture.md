@@ -90,7 +90,16 @@ a turn, but cannot be cleared, overwritten or consumed by another turn. This is 
 intentional concurrency correction, independently tested with provider barriers.
 
 `tool-contracts.ts` validates provider inputs into a discriminated union;
-`tool-types.ts` owns dependency-free metadata. The dispatcher directly composes
+`tool-types.ts` owns dependency-free metadata. `tool-selection.ts` owns synchronous
+batch validation, stable priority ordering, successful-quota eligibility,
+truncation and selection metadata. It observes readonly turn snapshots and imports
+only contracts, shared execution policy and the rejected-step constructor
+in `tool-step-diagnostics.ts` (whose imports are erased types); it cannot execute tools or import orchestration.
+The loop delegates selection and live quota rechecks while retaining all mutations.
+Direct tests in `tests/tool-selection.test.ts` need no execution/provider mocks;
+`tests/tool-selection-orchestration.test.ts` exercises live rechecks at a controlled
+quota edge, alongside the existing integrated orchestration/plan regressions.
+The dispatcher directly composes
 analytics, local-data and Training Plan handlers. `tool-evidence.ts` only formats,
 redacts and grounds evidence, with erased result-type imports and no execution
 capabilities. Math receives rows only, never the context owner or repository.
