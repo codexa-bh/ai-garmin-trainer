@@ -64,6 +64,26 @@ Deterministic code is appropriate for:
 
 Deterministic code is not appropriate for silently deciding that one fixed demand formula, sport grouping, or weighting scheme is “the” generic trainer answer.
 
+## Mechanical feature ownership
+
+The backend now has a reviewed per-file feature/layer inventory and a separate
+**type-inclusive ownership graph**, in addition to the existing runtime graph.
+Domain depends on domain; applications depend on inward contracts/applications;
+adapters implement those ports; composition binds adapters; HTTP invokes composed
+use cases. A type-only infrastructure import is still an ownership inversion,
+not an acceptable way to avoid runtime lint. The narrow existing schema-only Zod
+owners remain accepted; provider/DB/framework types do not become domain contracts.
+See the [role/port/lifetime inventory](architecture.md#enforced-backend-roles-and-composition-inventory)
+and [mechanical rules and limits](project-guardrails.md#featurelayer-ownership-runtime-and-erased-contracts).
+
+Explicit UI ownership prevents new backend helpers outside the usual folders from
+escaping coverage, without introducing unrelated UI layering rules. Role entries
+are review decisions, not permission to relabel policy as infrastructure. Existing
+scope-aware capability checks, runtime cycles, client/server, storage/AI and pure
+math enforcement remain independent and blocking. No application code executes
+inside the checker. Static analysis does not prove arbitrary loader/capability
+flow, external package purity, privacy or coaching semantics.
+
 ## Main components and responsibilities
 
 ### `src/app`

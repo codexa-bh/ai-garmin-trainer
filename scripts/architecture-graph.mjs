@@ -11,6 +11,13 @@ import {
   moduleVisitors,
 } from "./architecture-policy.mjs";
 
+import {
+  backendRoles,
+  allowedLayers,
+  allowedExternalDependency,
+  presentationModules,
+} from "./backend-roles.mjs";
+
 const codeExtension = /\.(?:[cm]?[jt]sx?)$/;
 const linter = new Linter();
 
@@ -37,15 +44,20 @@ function collect(text, filename) {
                         (item) => item.directive === "use client",
                       );
                     },
-                    ...moduleVisitors(context, (node, source) => {
-                      result.imports.push({
-                        specifier:
-                          typeof source?.value === "string"
-                            ? source.value
-                            : null,
-                        line: node.loc.start.line,
-                      });
-                    }),
+                    ...moduleVisitors(
+                      context,
+                      (node, source, runtime) => {
+                        result.imports.push({
+                          specifier:
+                            typeof source?.value === "string"
+                              ? source.value
+                              : null,
+                          line: node.loc.start.line,
+                          runtime,
+                        });
+                      },
+                      { includeTypes: true },
+                    ),
                   };
                 },
               },
@@ -70,7 +82,7 @@ function collect(text, filename) {
 }
 
 // No application code is imported/executed. Package internals are opaque leaves.
-export function checkArchitecture(root) {
+export function checkArchitecture(root, roles = backendRoles) {
   root = fs.realpathSync(root);
   const src = path.join(root, "src");
   const configPath = path.join(root, "tsconfig.json");
@@ -113,7 +125,7 @@ export function checkArchitecture(root) {
     graph.set(file, node);
     for (const error of node.errors)
       report("analysis", [`${label(file)}:${error.line}`], error.message);
-    node.edges = node.imports.map((edge) => {
+    node.ownershipEdges = node.imports.map((edge) => {
       if (edge.specifier === null) return { ...edge, kind: "opaque" };
       const resolved = ts.resolveModuleName(
         edge.specifier,
@@ -146,12 +158,80 @@ export function checkArchitecture(root) {
         report(
           "unresolved",
           [`${label(file)}:${edge.line}`, edge.specifier],
-          "cannot resolve local runtime dependency",
+          "cannot resolve local dependency",
         );
         return { ...edge, kind: "unresolved" };
       }
       return { ...edge, kind: "external" };
     });
+    node.edges = node.ownershipEdges.filter((edge) => edge.runtime);
+  }
+
+  // Ownership includes erased contracts; it never contributes runtime cycles or
+  // client/storage/math capabilities. Every inner root gets a transitive witness.
+  for (const [file] of graph) {
+    const name = label(file);
+    const role = roles[name];
+    if (!role && !presentationModules.has(name))
+      report(
+        "layer-coverage",
+        [name],
+        "unclassified backend module; declare feature/layer in backend-roles.mjs",
+      );
+    if (!role) continue;
+    if (!role.feature || !allowedLayers[role.layer]) {
+      report("layer-coverage", [name], "invalid feature/layer classification");
+      continue;
+    }
+    const inner = ["domain", "application"].includes(role.layer);
+    const visited = new Set();
+    function ownership(current, witness) {
+      if (visited.has(current)) return;
+      visited.add(current);
+      const node = graph.get(current);
+      if (inner)
+        for (const capability of node?.capabilities ?? [])
+          report(
+            "layer-capability",
+            [...witness, `${label(current)}:${capability.line}`],
+            capability.message,
+          );
+      for (const edge of node?.ownershipEdges ?? []) {
+        const targetName = edge.target
+          ? label(edge.target)
+          : (edge.specifier ?? "<nonliteral loader>");
+        const next = [
+          ...witness.slice(0, -1),
+          `${label(current)}:${edge.line}`,
+          targetName,
+        ];
+        const targetRole = roles[targetName];
+        if (
+          edge.kind === "local" &&
+          targetRole &&
+          allowedLayers[role.layer].includes(targetRole.layer)
+        ) {
+          if (inner) ownership(edge.target, next);
+          continue;
+        }
+        if (
+          edge.kind === "external" &&
+          allowedExternalDependency(
+            label(current),
+            role.layer,
+            edge.specifier,
+            edge.runtime,
+          )
+        )
+          continue;
+        report(
+          "layer-dependency",
+          next,
+          `${role.feature}/${role.layer} cannot depend on ${targetRole ? `${targetRole.feature}/${targetRole.layer}` : `${edge.kind} unclassified owner`}${edge.runtime ? "" : " (type-only)"}; depend on an inward feature contract/port`,
+        );
+      }
+    }
+    ownership(file, [name]);
   }
 
   // Each constrained root gets a deterministic witness, visiting each node once.

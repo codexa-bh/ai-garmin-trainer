@@ -92,16 +92,6 @@ export type {
   TrainerMemoryCategory,
   StoredTrainerMemory,
 } from "../memory/legacy-contracts";
-export {
-  getTrainerMemory,
-  createTrainerMemoryProposal,
-  confirmTrainerMemory,
-  expireDueTrainerMemories,
-  listActiveTrainerMemories,
-  listTrainerMemoriesForReview,
-  rejectTrainerMemory,
-  forgetTrainerMemory,
-} from "../memory/legacy-composition";
 import {
   redactGarminRawPayload,
   type GarminRawContentType,

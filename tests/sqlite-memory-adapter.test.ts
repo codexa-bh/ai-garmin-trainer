@@ -490,7 +490,7 @@ describe("embedded SQLite semantic memory adapter", () => {
   });
 
   it("migrates only active confirmed legacy memories idempotently", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("../src/lib/memory/legacy-composition");
     const { LOCAL_MEMORY_USER_ID } = await import("../src/lib/memory/types");
     const adapterModule = await import("../src/lib/memory/sqlite-adapter");
 

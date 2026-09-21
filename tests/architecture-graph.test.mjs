@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { checkArchitecture } from "../scripts/architecture-graph.mjs";
+import { backendRoles } from "../scripts/backend-roles.mjs";
 
 const roots = [];
 afterEach(() => {
@@ -31,7 +32,11 @@ function project(files) {
   return root;
 }
 function diagnostics(files) {
-  return checkArchitecture(project(files)).diagnostics.join("\n");
+  // These original regressions isolate runtime policy; erased ownership is
+  // intentionally stricter and has its own positive/negative fixtures below.
+  return checkArchitecture(project(files))
+    .diagnostics.filter((message) => !message.startsWith("layer-"))
+    .join("\n");
 }
 
 const client = '"use client"; import "@/shared";';
@@ -102,9 +107,17 @@ describe("runtime architecture graph", () => {
   });
   it("reports self cycles deterministically and sees changed files on rerun", () => {
     const root = project({ "a.ts": 'import "./a";' });
-    expect(checkArchitecture(root).diagnostics[0]).toContain("a.ts -> a.ts");
+    expect(
+      checkArchitecture(root).diagnostics.find((line) =>
+        line.startsWith("runtime-cycle:"),
+      ),
+    ).toContain("a.ts -> a.ts");
     writeFileSync(path.join(root, "src/a.ts"), "export {};");
-    expect(checkArchitecture(root).diagnostics).toEqual([]);
+    expect(
+      checkArchitecture(root).diagnostics.filter(
+        (line) => !line.startsWith("layer-"),
+      ),
+    ).toEqual([]);
   });
   it("reports three-module cycles", () => {
     expect(
@@ -134,6 +147,187 @@ describe("runtime architecture graph", () => {
   );
   it("fails on syntax errors rather than dropping edges", () => {
     expect(diagnostics({ "bad.ts": "export const = ;" })).toContain("analysis");
+  });
+});
+
+describe("type-inclusive backend ownership", () => {
+  function layers(files, roles = backendRoles) {
+    return checkArchitecture(project(files), roles).diagnostics.join("\n");
+  }
+  it("accepts feature contracts, cross-feature applications, adapters and composition", () => {
+    expect(
+      layers({
+        "app/api/profile/route.ts": 'import "@/lib/profile/composition";',
+        "lib/profile/composition.ts":
+          'import "./application"; import "../db/profile-repository";',
+        "lib/profile/application.ts":
+          'import type { Profile } from "./contracts"; import "../local-data/application";',
+        "lib/profile/contracts.ts": "export type Profile = string;",
+        "lib/local-data/application.ts": "export {};",
+        "lib/db/profile-repository.ts":
+          'import type { Profile } from "../profile/contracts";',
+      }),
+    ).toBe("");
+  });
+  it.each([
+    'import "../db/connection";',
+    'import type { Row } from "../db/connection";',
+    'import { type Row } from "../db/connection";',
+    'import { type Row, value } from "../db/connection";',
+    'export type { Row } from "../db/connection";',
+    'export type * from "../db/connection";',
+    'export * from "../db/connection";',
+    'type Row = import("../db/connection").Row;',
+    'import db = require("../db/connection");',
+    'import type db = require("../db/connection");',
+    'import("../db/connection");',
+    'require("../db/connection");',
+  ])("rejects runtime/erased ownership syntax %s", (source) => {
+    const output = layers({
+      "lib/profile/application.ts": source,
+      "lib/db/connection.ts":
+        "export type Row = number; export const value = 1;",
+    });
+    expect(output).toContain(
+      "layer-dependency: lib/profile/application.ts:1 -> lib/db/connection.ts:",
+    );
+    expect(output).toContain(
+      "profile/application cannot depend on storage/adapter",
+    );
+  });
+  it("follows aliases and erased barrels with a deterministic full witness", () => {
+    const files = {
+      "lib/profile/application.ts":
+        'import type { Row } from "@/lib/profile/contracts";',
+      "lib/profile/contracts.ts":
+        'export type { Row } from "../db/connection";',
+      "lib/db/connection.ts": "export type Row = number;",
+    };
+    const output = layers(files);
+    expect(output).toContain(
+      "lib/profile/application.ts:1 -> lib/profile/contracts.ts:1 -> lib/db/connection.ts",
+    );
+    expect(output).toContain("(type-only)");
+    expect(layers(files)).toBe(output);
+  });
+  it.each([
+    ["lib/profile/contracts.ts", 'import "./application";'],
+    ["lib/profile/application.ts", 'import "./composition";'],
+    ["lib/db/profile-repository.ts", 'import "../profile/composition";'],
+    ["lib/profile/composition.ts", 'import "../../app/api/profile/route";'],
+    [
+      "app/api/profile/route.ts",
+      'import "../../../lib/db/profile-repository";',
+    ],
+  ])("rejects reverse ownership from %s", (source, code) => {
+    expect(
+      layers({
+        "lib/profile/contracts.ts": "export {};",
+        "lib/profile/application.ts": "export {};",
+        "lib/profile/composition.ts": "export {};",
+        "lib/db/profile-repository.ts": "export {};",
+        "app/api/profile/route.ts": "export {};",
+        [source]: code,
+      }),
+    ).toContain("layer-dependency:");
+  });
+  it.each([
+    'import "ai";',
+    'import type { Model } from "@ai-sdk/openai";',
+    'import "node:fs";',
+    'import "next/server";',
+    'import "zod";',
+    "import(name);",
+    "require(name);",
+    'import "./missing";',
+  ])("fails closed for opaque/unapproved dependencies %s", (source) => {
+    expect(layers({ "lib/profile/application.ts": source })).toContain(
+      "layer-dependency:",
+    );
+  });
+  it.each([
+    'import "better-sqlite3";',
+    'import "@ai-sdk/openai";',
+    'import "ai";',
+    'import type { Database } from "better-sqlite3";',
+  ])("rejects HTTP bypassing feature composition with %s", (source) => {
+    expect(layers({ "app/api/profile/route.ts": source })).toContain(
+      "layer-dependency:",
+    );
+  });
+  it("accepts framework transport and erased UI wire types only in delivery", () => {
+    expect(
+      layers({
+        "app/api/chat/route.ts":
+          'import "next/server"; import type { UIMessage } from "ai";',
+      }),
+    ).toBe("");
+  });
+  it("accepts only the existing neutral schema owners, not arbitrary Zod wrappers", () => {
+    expect(
+      layers({
+        "lib/ai/tool-contracts.ts":
+          'import { z } from "zod"; export const schema = z.string();',
+      }),
+    ).toBe("");
+  });
+  it.each([
+    "process.env",
+    "fetch('/')",
+    "globalThis.fetch",
+    "eval('1')",
+    "Function('')",
+  ])("rejects inner ambient capabilities %s", (expression) => {
+    expect(
+      layers({
+        "lib/profile/contracts.ts": `export const value = ${expression};`,
+      }),
+    ).toContain("layer-capability:");
+  });
+  it("permits lexical shadows and type-only inward cycles without creating runtime cycles", () => {
+    expect(
+      layers({
+        "lib/profile/contracts.ts":
+          'export type { A } from "../chat/contracts"; export type B = number; export function f(fetch: number) { return fetch; }',
+        "lib/chat/contracts.ts":
+          'export type { B } from "../profile/contracts"; export type A = number;',
+      }),
+    ).toBe("");
+  });
+  it.each([
+    "lib/profile/new-helper.ts",
+    "server.ts",
+    "app/new-backend-helper.ts",
+    "lib/new-feature/application.ts",
+    "app/api/new/route.ts",
+  ])("requires classification of %s even when unreachable", (name) => {
+    expect(layers({ [name]: "export {};" })).toContain(
+      `layer-coverage: ${name}: unclassified backend module`,
+    );
+  });
+  it("cannot launder a dependency through an unclassified helper outside backend folders", () => {
+    expect(
+      layers({
+        "lib/profile/application.ts": 'import "../../shared";',
+        "shared.ts": 'import "./lib/db/connection";',
+        "lib/db/connection.ts": "export {};",
+      }),
+    ).toContain("layer-dependency: lib/profile/application.ts:1 -> shared.ts");
+  });
+  it("checks classified transitive helper capabilities, including erased imports", () => {
+    expect(
+      layers(
+        {
+          "lib/profile/application.ts":
+            'import type { T } from "../../helper";',
+          "helper.ts": 'export type T = string; fetch("/");',
+        },
+        {
+          ...backendRoles,
+          "helper.ts": { feature: "profile", layer: "domain" },
+        },
+      ),
+    ).toContain("layer-capability: lib/profile/application.ts:1 -> helper.ts");
   });
 });
 

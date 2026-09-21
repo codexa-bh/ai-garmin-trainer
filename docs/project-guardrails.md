@@ -118,6 +118,53 @@ exception. Supplied-port and exact provider-adapter tests complement production
 chat/tool wiring and the runtime graph; this is not an arbitrary capability-flow
 proof or a new sandbox.
 
+### Feature/layer ownership (runtime and erased contracts)
+
+The same `npm run architecture` gate also checks a **separate ownership graph**.
+`scripts/backend-roles.mjs` explicitly assigns each backend file a feature and
+`domain`, `application`, `adapter`, `composition` or `delivery` role. Its explicit
+presentation-file inventory accounts for the remaining UI modules; there is no
+folder-wide exemption for new helpers, even outside `lib`/`app/api`. Unclassified
+runtime source fails, including unreachable files. New files require a reviewed
+ownership decision, not a suppression. Operational scripts remain outer entrypoints
+outside the `src` runtime graph and retain lint/Knip/type/test coverage.
+
+Allowed local edges (also through aliases, barrels and erased contracts):
+
+| Source                             | Allowed targets                                                     |
+| ---------------------------------- | ------------------------------------------------------------------- |
+| Domain / plain contracts           | Domain                                                              |
+| Application / application ports    | Domain, application (including another feature's use case contract) |
+| Adapter / infrastructure           | Domain, application, adapters                                       |
+| Composition / compatibility facade | Domain, application, adapters, composition                          |
+| HTTP delivery                      | Domain, application, composition, delivery; never concrete adapters |
+
+Every inner root is checked transitively with deterministic source/line/target
+witnesses. Unknown modules, unresolved/nonliteral loaders, assets and external
+packages fail closed there. External packages are opaque, including their types;
+the only inner exceptions are the existing exact `zod` imports in `ai/profile`,
+`ai/tool-contracts` and `training-plan/snapshot`. This is schema use, not blanket
+Zod/package purity. Delivery accepts only `next/server` transport and its existing
+erased `ai` UI message type; direct SQL/provider packages cannot bypass composition.
+Inner closures also use the existing scope-aware ambient
+capability restrictions (local parameter shadows remain legal).
+
+`import type`, `export type`, mixed imports, `import("...")` type expressions and
+TS import-equals all contribute ownership edges. Only runtime edges contribute to
+runtime cycles and client/storage/math capability traversal: a harmless erased
+contract cycle is not a runtime cycle. Existing client erased-type allowance does
+not grant inner policy permission to depend on concrete infrastructure contracts.
+The direct ESLint rule gives fast coverage/layer feedback for known paths; the
+TypeScript-resolved graph remains authoritative for aliases and transitive edges.
+
+`tests/architecture-graph.test.mjs` separates original runtime regressions from
+ownership fixtures; `guardrails.test.ts` verifies actual configured editor rules.
+`backend-composition.test.mjs` covers every HTTP family and lazy production imports,
+complementing supplied-port and real-adapter suites listed in the architecture map.
+These are architectural checks, not package-internal analysis, arbitrary alias or
+capability-flow proof, or a privacy/security sandbox. Role assignments still need
+code review: labelling application policy an adapter is not an acceptable fix.
+
 ## Knip
 
 `npm run knip` uses Knip 6 full-project analysis, including tests and JS/TS tooling,

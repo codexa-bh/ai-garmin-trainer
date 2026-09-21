@@ -234,8 +234,8 @@ it("wires real chat completion, Profile routes, singleton reset and memory-only 
 });
 
 it("retains legacy confirmation rollback, expiry/reconfirmation and missing/invalid lifecycle errors", async () => {
-  const repository = await import("../src/lib/db/repository");
-  db = repository.getDatabase();
+  const repository = await import("../src/lib/memory/legacy-composition");
+  db = (await import("../src/lib/db/connection")).getDatabase();
   const proposal = (value: string, extra = {}) =>
     repository.createTrainerMemoryProposal({
       category: "learned_preference",

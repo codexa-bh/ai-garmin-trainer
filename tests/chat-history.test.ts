@@ -353,14 +353,15 @@ describe("local chat history repository", () => {
         trainingEffect: 3.1,
       },
     ]);
-    const memory = repository.createTrainerMemoryProposal({
+    const legacy = await import("../src/lib/memory/legacy-composition");
+    const memory = legacy.createTrainerMemoryProposal({
       category: "learned_preference",
       value: "Prefers morning hikes",
       sourceType: "chat",
       sourceRef: "keep-chat",
       provenanceText: "User asked to remember this preference.",
     });
-    repository.confirmTrainerMemory(memory.id);
+    legacy.confirmTrainerMemory(memory.id);
     repository.appendChatMessage({
       conversationId: "delete-chat",
       role: "user",
@@ -400,7 +401,7 @@ describe("local chat history repository", () => {
     expect(repository.getTrainerProfile().goals).toEqual([
       "Preserve this profile",
     ]);
-    expect(repository.listActiveTrainerMemories()).toHaveLength(1);
+    expect(legacy.listActiveTrainerMemories()).toHaveLength(1);
     expect(repository.dataCounts().activities).toBe(1);
   });
 });
