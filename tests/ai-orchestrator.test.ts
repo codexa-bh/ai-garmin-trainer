@@ -122,7 +122,8 @@ vi.mock("@/lib/db/training-plan-repository", () => ({
 }));
 
 describe("trainer orchestrator fail-closed policy", async () => {
-  const { orchestrateTrainerChat, trainerOrchestrationLimits } =
+  const { orchestrateTrainerChat } = await import("../src/lib/ai/composition");
+  const { trainerOrchestrationLimits } =
     await import("../src/lib/ai/orchestrator");
 
   beforeEach(() => {

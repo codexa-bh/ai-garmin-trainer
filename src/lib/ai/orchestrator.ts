@@ -1,13 +1,15 @@
-import { generateText } from "ai";
+import {
+  TRAINER_PROVIDER_CALL_TIMEOUT_MS,
+  type TrainerGenerationResult,
+  type TrainerOrchestrationPorts,
+} from "./orchestration-ports";
 import { TrainerToolExecutionContext } from "./tool-execution-context";
 import { providerFailureMessage } from "./provider-errors";
 import {
   completeTrainingPlanSchema,
   renderCompleteTrainingPlan,
 } from "./training-plan-evidence";
-import { executeTrainerTool } from "./tool-execution";
 import { groundingForSteps, renderToolSteps } from "./tool-evidence";
-import { trainerToolDefinitions } from "./tool-contracts";
 import { canToolRunWithinBudget, selectSafeToolCalls } from "./tool-selection";
 import { failedStep } from "./tool-step-diagnostics";
 import type {
@@ -40,7 +42,6 @@ const MAX_GENERAL_TOOL_CALLS = MAX_TOTAL_TURN_EXECUTIONS;
 const MAX_SCHEMA_CALLS = TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
 const MAX_SQL_CALLS = TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
 const MAX_MATH_CALLS = TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
-const PROVIDER_CALL_TIMEOUT_MS = 180_000;
 
 import {
   answerPreparationMessage,
@@ -55,7 +56,6 @@ type OrchestrateTrainerStatus = (
 ) => void;
 
 export type OrchestrateTrainerChatInput = {
-  model: unknown;
   system: string;
   userRequest: string;
   onStatus?: OrchestrateTrainerStatus;
@@ -74,34 +74,6 @@ export type OrchestrateTrainerChatResult = {
   progressCounters: TrainerProgressCounters;
   debugTrace?: LlmDebugTrace;
 };
-
-type RawGenerateTextResult = {
-  text?: string;
-  toolCalls?: unknown[];
-};
-
-async function generateTextWithTimeout(
-  options: Record<string, unknown>,
-): Promise<RawGenerateTextResult> {
-  const controller = new AbortController();
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      controller.abort();
-      reject(new Error("provider_timeout"));
-    }, PROVIDER_CALL_TIMEOUT_MS);
-  });
-  try {
-    const request = (
-      generateText as unknown as (
-        options: Record<string, unknown>,
-      ) => Promise<RawGenerateTextResult>
-    )({ ...options, abortSignal: controller.signal });
-    return await Promise.race([request, timeout]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
 
 function bounded(value: string, max = 2200): string {
   const compact = value.replace(/\s+/g, " ").trim();
@@ -462,15 +434,15 @@ async function synthesizeFinalAnswer(
   input: OrchestrateTrainerChatInput,
   steps: TrainerToolStep[],
   recordProviderCall: (call: LlmDebugProviderCall) => void,
+  generate: TrainerOrchestrationPorts["generate"],
   budgetStopped = false,
 ): Promise<string | null> {
-  let result: RawGenerateTextResult;
+  let result: TrainerGenerationResult;
   try {
-    result = await generateTextWithTimeout({
-      model: input.model,
+    result = await generate({
+      purpose: "final_synthesis",
       system: finalAnswerSystem(input.system, steps, budgetStopped),
       prompt: input.userRequest,
-      toolChoice: "none",
     });
   } catch (error) {
     recordProviderCall?.(
@@ -509,10 +481,11 @@ async function synthesizeFinalAnswer(
 
 export async function orchestrateTrainerChat(
   input: OrchestrateTrainerChatInput,
+  ports: TrainerOrchestrationPorts,
 ): Promise<OrchestrateTrainerChatResult> {
   const context = new TrainerToolExecutionContext();
   try {
-    return await orchestrateTurn(input, context);
+    return await orchestrateTurn(input, context, ports);
   } finally {
     context.dispose();
   }
@@ -521,6 +494,7 @@ export async function orchestrateTrainerChat(
 async function orchestrateTurn(
   input: OrchestrateTrainerChatInput,
   context: TrainerToolExecutionContext,
+  ports: TrainerOrchestrationPorts,
 ): Promise<OrchestrateTrainerChatResult> {
   const steps: TrainerToolStep[] = [];
   const analysisToolCounts = new Map<TrainerToolName, number>();
@@ -587,6 +561,7 @@ async function orchestrateTurn(
       input,
       steps,
       recordProviderCall,
+      ports.generate,
       budgetStopped,
     );
   };
@@ -630,10 +605,10 @@ async function orchestrateTurn(
   while (budget().exploratoryRemaining > 0) {
     providerCalls += 1;
     progress(modelWaitMessage(steps));
-    let result: RawGenerateTextResult;
+    let result: TrainerGenerationResult;
     try {
-      result = await generateTextWithTimeout({
-        model: input.model,
+      result = await ports.generate({
+        purpose: "planner",
         system: plannerSystem(
           input.system,
           steps,
@@ -641,13 +616,6 @@ async function orchestrateTurn(
           analysisToolCounts,
         ),
         prompt: input.userRequest,
-        tools: trainerToolDefinitions,
-        toolChoice: "auto",
-        parallelToolCalls: false,
-        providerOptions: {
-          openai: { parallelToolCalls: false },
-          deepseek: { parallelToolCalls: false },
-        },
       });
     } catch (error) {
       recordProviderCall(
@@ -862,7 +830,7 @@ async function orchestrateTurn(
       }
       progress(toolProgressMessage(accepted.toolName));
       toolAttempts += 1;
-      const step = await executeTrainerTool({
+      const step = await ports.executeTool({
         context,
         index: stepIndex,
         ...accepted,
@@ -941,5 +909,5 @@ export const trainerOrchestrationLimits = {
   maxSchemaCalls: MAX_SCHEMA_CALLS,
   maxSqlCalls: MAX_SQL_CALLS,
   maxMathCalls: MAX_MATH_CALLS,
-  providerCallTimeoutMs: PROVIDER_CALL_TIMEOUT_MS,
+  providerCallTimeoutMs: TRAINER_PROVIDER_CALL_TIMEOUT_MS,
 };

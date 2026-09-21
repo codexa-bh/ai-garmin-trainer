@@ -19,8 +19,8 @@ vi.mock("../src/lib/ai/execution-budget", async (importOriginal) => {
     },
   };
 });
-vi.mock("../src/lib/ai/tool-execution", () => ({ executeTrainerTool }));
-import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
+vi.mock("../src/lib/ai/tool-composition", () => ({ executeTrainerTool }));
+import { orchestrateTrainerChat } from "../src/lib/ai/composition";
 
 // Lower only the success quota to expose the real loop's live recheck without
 // exhausting the independent 30-execution allowance first.

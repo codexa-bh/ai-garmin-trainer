@@ -13,11 +13,17 @@ vi.mock("@/lib/db/repository", () => ({
   TRAINING_PLAN_CONTENT_MAX_LENGTH: 32000,
   TRAINING_PLAN_TITLE_MAX_LENGTH: 120,
 }));
-vi.mock("@/lib/garmin/composition", () => ({}));
-vi.mock("@/lib/ai/sql-analysis", () => ({ runReadOnlySql }));
+vi.mock("@/lib/garmin/composition", () => ({
+  runGarminSync: vi.fn(),
+  backfillActivityDetail: vi.fn(),
+}));
+vi.mock("@/lib/ai/sql-analysis", () => ({
+  runReadOnlySql,
+  describeGarminDatabase: vi.fn(),
+}));
 
-import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
-import { executeTrainerTool } from "../src/lib/ai/tool-execution";
+import { orchestrateTrainerChat } from "../src/lib/ai/composition";
+import { executeTrainerTool } from "../src/lib/ai/tool-composition";
 import { validateTrainerToolCall } from "../src/lib/ai/tool-contracts";
 
 function barrier() {
@@ -197,14 +203,18 @@ describe("terminal context cleanup", () => {
 
   it("cleans a thrown orchestration exit", async () => {
     const dispose = vi.spyOn(TrainerToolExecutionContext.prototype, "dispose");
+    const { orchestrateTrainerChat: orchestrate } =
+      await import("../src/lib/ai/orchestrator");
     await expect(
-      orchestrateTrainerChat({
-        model: "mock",
-        system: "system",
-        get userRequest(): string {
-          throw new Error("input failed");
+      orchestrate(
+        {
+          system: "system",
+          get userRequest(): string {
+            throw new Error("input failed");
+          },
         },
-      }),
+        { generate: generateText, executeTool: executeTrainerTool },
+      ),
     ).rejects.toThrow("input failed");
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(dispose.mock.instances[0]).toHaveProperty("analysisResults.size", 0);

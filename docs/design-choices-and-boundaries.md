@@ -197,7 +197,14 @@ Non-responsibilities:
 
 ### `src/lib/ai/orchestrator.ts`
 
-Server-side tool orchestration for trainer chat.
+Server-side application policy for trainer chat, consuming plain generation and
+execution capabilities from `orchestration-ports.ts`. `ai/composition.ts` binds
+the already-selected SDK model through `provider-generation.ts` and supplies the
+composed tool dispatcher; no SDK/model/DB/connector/outer-composition dependency
+enters policy, even through types. The provider adapter owns unchanged options,
+raw results and per-call abort/timeout mechanics; HTTP disconnect behavior and
+independent memory provider configuration are unchanged. See the
+[AI boundary/test map](architecture.md#ai-application-and-providertool-adapters).
 
 Responsibilities:
 
@@ -228,10 +235,10 @@ priority; selection neither invents prerequisites nor reserves successful quotas
 Repeated valid calls remain separate. Metadata describes the original batch,
 while skipped counts include only eligible calls truncated by turn capacity.
 
-Dependencies are the existing tool contracts/definitions, shared
+Dependencies are the neutral tool contracts/descriptions, shared
 `TRAINER_EXECUTION_POLICY`, erased tool types and `tool-step-diagnostics.ts` for
-unchanged rejected-step construction shared with orchestration. The contracts'
-SDK definition wrapper is not provider I/O. No execution context, tool handlers,
+unchanged rejected-step construction shared with orchestration. SDK wrapping now
+lives exclusively in the outer `provider-tool-definitions.ts` adapter. No execution context, tool handlers,
 provider calls, database, connector or orchestrator back-import belongs here.
 
 The turn loop retains raw-call parsing, provider I/O, mutable counts, actual-attempt
@@ -302,14 +309,16 @@ Non-responsibilities:
 ### Explicit tool-runtime boundaries (`src/lib/ai/tool-*.ts`)
 
 - `tool-types.ts`: dependency-free names and call/step metadata contracts.
-- `tool-contracts.ts`: unchanged provider descriptions, Zod schemas/defaults and
-  parsed discriminated calls. No repository or connector runtime imports;
+- `tool-contracts.ts`: unchanged neutral descriptions, Zod schemas/defaults and
+  parsed discriminated calls. No SDK, repository or connector imports;
   `src/lib/training-plan/limits.ts` owns shared document bounds; the prior
   limits entry point remains a compatibility re-export.
 - `tool-execution.ts`: direct typed dispatch and sanitized exception boundary.
   `tool-analytics.ts`, `tool-local-data.ts` and `tool-training-plan.ts` own
   analytics, sync/reference/detail and complete-plan execution respectively.
-  No plugin registry or service container; admission stays in the orchestrator.
+  Handlers receive narrow feature-owned capabilities via `tool-ports.ts`;
+  `tool-composition.ts` alone binds concrete feature facades. No plugin registry,
+  service container or ambient dependency setter; admission stays in the orchestrator.
 - `tool-execution-context.ts`: one transient analytical handle map per invocation,
   required explicitly by execution. Successful SQL/math registers rows; rejected
   results do not. Within-turn name replacement and chained math are retained.

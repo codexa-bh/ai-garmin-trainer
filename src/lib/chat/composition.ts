@@ -1,5 +1,5 @@
 import { fallbackLlmDebugTrace } from "@/lib/ai/debug-trace";
-import { orchestrateTrainerChat } from "@/lib/ai/orchestrator";
+import { orchestrateTrainerChat } from "@/lib/ai/composition";
 import { selectedModel } from "@/lib/ai/providers";
 import {
   appendChatMessage,

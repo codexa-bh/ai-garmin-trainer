@@ -1,5 +1,5 @@
 import {
-  trainerToolDefinitions,
+  trainerToolContracts,
   validateTrainerToolCall,
   type ValidatedTrainerToolCall,
 } from "./tool-contracts";
@@ -53,7 +53,7 @@ function selectedToolPriority(
 
 function attemptedToolName(call: TrainerToolCall): TrainerToolStepName {
   return Object.prototype.hasOwnProperty.call(
-    trainerToolDefinitions,
+    trainerToolContracts,
     call.toolName,
   ) && typeof call.toolName === "string"
     ? (call.toolName as TrainerToolName)

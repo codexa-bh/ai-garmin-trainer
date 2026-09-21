@@ -109,6 +109,15 @@ supplied-capability tests prove rejected requests never open execution. These
 checks complement the runtime graph, not a claim of arbitrary capability-flow
 proof or a replacement SQL parser.
 
+The AI application slice has a type-inclusive regression in
+`tests/ai-dependencies.test.ts`. Orchestration, dispatch/handlers, selection and
+metadata may reach only reviewed feature contracts/application and pure rules,
+not SDKs, storage, connector adapters, environment, HTTP or outer composition.
+Existing Zod use in tool and complete-plan schemas is the narrow external
+exception. Supplied-port and exact provider-adapter tests complement production
+chat/tool wiring and the runtime graph; this is not an arbitrary capability-flow
+proof or a new sandbox.
+
 ## Knip
 
 `npm run knip` uses Knip 6 full-project analysis, including tests and JS/TS tooling,

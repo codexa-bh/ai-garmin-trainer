@@ -30,11 +30,10 @@ vi.mock("@/lib/ai/math-analysis", () => ({
 }));
 
 describe("trainer tool registry schemas", async () => {
-  const {
-    trainerToolDefinitions,
-    trainerToolInputSchemas,
-    validateTrainerToolCall,
-  } = await import("../src/lib/ai/tool-contracts");
+  const { trainerToolInputSchemas, validateTrainerToolCall } =
+    await import("../src/lib/ai/tool-contracts");
+  const { trainerToolDefinitions } =
+    await import("../src/lib/ai/provider-tool-definitions");
 
   it("preserves every provider description and input schema", () => {
     expect(

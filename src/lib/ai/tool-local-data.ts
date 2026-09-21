@@ -1,14 +1,4 @@
-import {
-  getActivityByGarminId,
-  getActivityDetailForAnalytics,
-  listActivityDetailAvailability,
-  verifyActivityReference,
-  summarizeSyncStatus,
-} from "@/lib/local-data/composition";
-import {
-  backfillActivityDetail,
-  runGarminSync,
-} from "@/lib/garmin/composition";
+import type { LocalDataToolPorts } from "./tool-ports";
 import { boundedText, sanitizedResultDetail } from "./tool-evidence";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolStep } from "./tool-types";
@@ -26,10 +16,11 @@ export async function executeLocalDataTool(
         | "getActivityDetailSlice";
     }
   >,
+  ports: LocalDataToolPorts,
 ): Promise<TrainerToolStep> {
   switch (input.toolName) {
     case "runGarminSync": {
-      const result = sanitizedResultDetail(await runGarminSync());
+      const result = sanitizedResultDetail(await ports.runGarminSync());
       return {
         index: input.index,
         tool: input.toolName,
@@ -43,7 +34,7 @@ export async function executeLocalDataTool(
     }
     case "getSyncStatus": {
       const args = input.input;
-      const result = summarizeSyncStatus(args.availabilityLimit ?? 10);
+      const result = ports.summarizeSyncStatus(args.availabilityLimit ?? 10);
       return {
         index: input.index,
         tool: input.toolName,
@@ -54,7 +45,7 @@ export async function executeLocalDataTool(
       };
     }
     case "verifyActivityReference": {
-      const result = verifyActivityReference(input.input);
+      const result = ports.verifyActivityReference(input.input);
       return {
         index: input.index,
         tool: input.toolName,
@@ -67,7 +58,7 @@ export async function executeLocalDataTool(
     }
     case "forceRefreshActivityDetail": {
       const args = input.input;
-      const activity = getActivityByGarminId(args.garminId);
+      const activity = ports.getActivityByGarminId(args.garminId);
       if (!activity) {
         return {
           index: input.index,
@@ -80,7 +71,7 @@ export async function executeLocalDataTool(
         };
       }
       const result = sanitizedResultDetail(
-        await backfillActivityDetail(args.garminId, {
+        await ports.backfillActivityDetail(args.garminId, {
           force: true,
         }),
       );
@@ -99,7 +90,7 @@ export async function executeLocalDataTool(
     }
     case "getActivityDetailAvailability": {
       const args = input.input;
-      const result = listActivityDetailAvailability(args.limit);
+      const result = ports.listActivityDetailAvailability(args.limit);
       return {
         index: input.index,
         tool: input.toolName,
@@ -113,7 +104,7 @@ export async function executeLocalDataTool(
     }
     case "getActivityDetailSlice": {
       const args = input.input;
-      if (!getActivityByGarminId(args.garminId)) {
+      if (!ports.getActivityByGarminId(args.garminId)) {
         return {
           index: input.index,
           tool: input.toolName,
@@ -124,7 +115,7 @@ export async function executeLocalDataTool(
           reason: "unknown_activity_id",
         };
       }
-      const detail = getActivityDetailForAnalytics(args.garminId);
+      const detail = ports.getActivityDetailForAnalytics(args.garminId);
       const result = {
         tool: "getActivityDetailSlice",
         garminId: args.garminId,

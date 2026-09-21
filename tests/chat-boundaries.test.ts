@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoredChatMessage, ChatGrounding } from "@/lib/chat/contracts";
-import type {
-  OrchestrateTrainerChatInput,
-  OrchestrateTrainerChatResult,
-} from "@/lib/ai/orchestrator";
+import type { OrchestrateTrainerChatResult } from "@/lib/ai/orchestrator";
+import type { ComposedTrainerChatInput } from "@/lib/ai/composition";
 import { fallbackLlmDebugTrace } from "@/lib/ai/debug-trace";
 
 const f = vi.hoisted(() => ({
@@ -18,14 +16,12 @@ const f = vi.hoisted(() => ({
   details: vi.fn(),
   orchestrate:
     vi.fn<
-      (
-        input: OrchestrateTrainerChatInput,
-      ) => Promise<OrchestrateTrainerChatResult>
+      (input: ComposedTrainerChatInput) => Promise<OrchestrateTrainerChatResult>
     >(),
 }));
 vi.mock("@/lib/env", () => ({ isLlmDebugTraceEnabled: () => f.debug }));
 vi.mock("@/lib/ai/providers", () => ({ selectedModel: f.selected }));
-vi.mock("@/lib/ai/orchestrator", () => ({
+vi.mock("@/lib/ai/composition", () => ({
   orchestrateTrainerChat: f.orchestrate,
 }));
 vi.mock("@/lib/ai/context", async (original) => ({
