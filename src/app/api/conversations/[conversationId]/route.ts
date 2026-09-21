@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
-import { isLlmDebugTraceEnabled } from "@/lib/env";
-import {
-  createConversation,
-  getConversation,
-  listChatMessagePage,
-  listConversations,
-  renameConversation,
-  safeConversationId,
-} from "@/lib/db/conversation-repository";
-import { deleteConversation } from "@/lib/db/conversation-lifecycle";
+import { conversations } from "@/lib/chat/conversation-composition";
+import { safeConversationId } from "@/lib/chat/conversation-policy";
+import type {
+  StoredChatMessage,
+  StoredConversation,
+} from "@/lib/chat/contracts";
 
 const DEFAULT_PAGE_LIMIT = 30;
 
@@ -20,10 +16,7 @@ async function paramsFrom(context: RouteContext) {
   return await context.params;
 }
 
-function apiMessage(
-  message: ReturnType<typeof listChatMessagePage>["messages"][number],
-  includeDebugTrace = false,
-) {
+function apiMessage(message: StoredChatMessage, includeDebugTrace = false) {
   const grounding = includeDebugTrace
     ? message.grounding
     : message.grounding?.debugTrace
@@ -43,9 +36,7 @@ function apiMessage(
   };
 }
 
-function conversationSummary(
-  item: ReturnType<typeof listConversations>[number],
-) {
+function conversationSummary(item: StoredConversation) {
   return {
     id: item.id,
     title: item.title,
@@ -59,19 +50,18 @@ export async function GET(request: Request, context: RouteContext) {
     const { conversationId: rawConversationId } = await paramsFrom(context);
     const conversationId = safeConversationId(rawConversationId);
     const url = new URL(request.url);
-    const conversation = getConversation(conversationId);
-    if (!conversation) {
+    const loaded = conversations.loadConversationPage({
+      conversationId,
+      cursor: url.searchParams.get("cursor"),
+      limit: Number(url.searchParams.get("limit") ?? DEFAULT_PAGE_LIMIT),
+    });
+    if (!loaded) {
       return NextResponse.json(
         { error: "Conversation not found" },
         { status: 404 },
       );
     }
-    const debugTraceEnabled = isLlmDebugTraceEnabled();
-    const page = listChatMessagePage({
-      conversationId,
-      cursor: url.searchParams.get("cursor"),
-      limit: Number(url.searchParams.get("limit") ?? DEFAULT_PAGE_LIMIT),
-    });
+    const { conversation, page, debugTraceEnabled } = loaded;
     return NextResponse.json({
       conversation: conversationSummary(conversation),
       conversationId,
@@ -105,7 +95,10 @@ export async function PATCH(request: Request, context: RouteContext) {
         { status: 400 },
       );
     }
-    const conversation = renameConversation(conversationId, body.title);
+    const conversation = conversations.renameConversation(
+      conversationId,
+      body.title,
+    );
     if (!conversation) {
       return NextResponse.json(
         { error: "Conversation not found" },
@@ -130,13 +123,10 @@ export async function DELETE(_request: Request, context: RouteContext) {
   try {
     const { conversationId: rawConversationId } = await paramsFrom(context);
     const conversationId = safeConversationId(rawConversationId);
-    const deleted = deleteConversation(conversationId);
-    const remaining = listConversations(1)[0] ?? createConversation();
+    const result = conversations.deleteConversation(conversationId);
     return NextResponse.json({
-      deleted,
-      conversationId,
-      nextConversationId: remaining.id,
-      conversations: listConversations().map(conversationSummary),
+      ...result,
+      conversations: result.conversations.map(conversationSummary),
     });
   } catch (error) {
     return NextResponse.json(

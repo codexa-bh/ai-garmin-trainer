@@ -2,7 +2,7 @@ import { getDatabase } from "./connection";
 import {
   DEFAULT_CONVERSATION_ID,
   safeConversationId,
-} from "./conversation-repository";
+} from "@/lib/chat/conversation-policy";
 
 export function deleteConversation(id = DEFAULT_CONVERSATION_ID): boolean {
   const conversationId = safeConversationId(id);

@@ -6,7 +6,12 @@ import type {
   NormalizedDailyHealth,
 } from "../garmin/types";
 import type { RetrievedMemory } from "../memory/types";
-import type { TrainingPlanStatus } from "../db/training-plan-repository";
+// Context consumes only this preview, not the storage-owned plan representation.
+export type TrainingPlanContext = {
+  plan: { title: string; contentMarkdown: string; revisedAt: string } | null;
+  stale: boolean;
+  staleAfterDays: number;
+};
 export { TRAINER_SYSTEM_PROMPT } from "./trainer-instructions";
 
 export type RecentConversationMessage = {
@@ -124,7 +129,7 @@ export function formatCurrentDateContext(currentDate: Date): string {
 }
 
 function formatTrainingPlan(
-  status: TrainingPlanStatus | null | undefined,
+  status: TrainingPlanContext | null | undefined,
 ): string {
   if (!status?.plan)
     return `Current Training Plan: none saved. A new chat should suggest creating one; do not persist a plan unless the user explicitly asks to create, save, revise, or update the Training Plan.`;
@@ -223,7 +228,7 @@ export function buildTrainerContext(input: {
   bodyMetrics?: GarminBodyMetricsDto | null;
   learnedMemories?: TrainerMemory[];
   retrievedMemories?: RetrievedMemory[];
-  trainingPlan?: TrainingPlanStatus;
+  trainingPlan?: TrainingPlanContext;
   currentDate?: Date;
   recentMessages: string[];
 }): string {

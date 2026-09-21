@@ -1,4 +1,33 @@
-import type { LlmDebugTrace } from "@/lib/ai/debug-trace";
+import type {
+  ChatRole,
+  ChatGrounding,
+  StoredChatMessage,
+  StoredConversation,
+  ConversationSummary,
+  ChatMessagePage,
+  ChatPageRequest,
+} from "@/lib/chat/contracts";
+import {
+  DEFAULT_CONVERSATION_ID,
+  GENERIC_CONVERSATION_TITLES,
+  safeConversationId,
+  normalizeConversationTitle,
+  initialConversationTitle,
+} from "@/lib/chat/conversation-policy";
+export type {
+  ChatRole,
+  ChatGrounding,
+  StoredChatMessage,
+  StoredConversation,
+  ConversationSummary,
+  ChatMessagePage,
+} from "@/lib/chat/contracts";
+export {
+  DEFAULT_CONVERSATION_ID,
+  safeConversationId,
+  normalizeConversationTitle,
+  initialConversationTitle,
+} from "@/lib/chat/conversation-policy";
 import { getDatabase } from "./connection";
 
 let lastChatMessageTimestamp = 0;
@@ -7,60 +36,6 @@ function nextChatMessageTimestamp(): number {
   lastChatMessageTimestamp = Math.max(Date.now(), lastChatMessageTimestamp + 1);
   return lastChatMessageTimestamp;
 }
-
-export const DEFAULT_CONVERSATION_ID = "default";
-const GENERIC_CONVERSATION_TITLES = new Set(["Trainer chat", "New chat"]);
-
-export type ChatRole = "user" | "assistant";
-
-export type ChatGrounding = {
-  debugTrace?: LlmDebugTrace;
-  tool?: string;
-  activityId?: string;
-  activityName?: string | null;
-  activityDate?: string | null;
-  privacy?: string;
-  summary?: string;
-  toolSteps?: Array<{
-    index: number;
-    tool: string;
-    status: "succeeded" | "rejected" | "failed";
-    summary: string;
-    activityIds?: string[];
-    privacy: string;
-    reason?: string;
-    selection?: {
-      reason: "multiple_tool_calls";
-      count: number;
-      toolNames: string[];
-      selectedTool?: string;
-    };
-  }>;
-};
-
-export type StoredChatMessage = {
-  id: string;
-  conversationId: string;
-  role: ChatRole;
-  content: string;
-  grounding: ChatGrounding | null;
-  createdAt: Date;
-};
-
-export type StoredConversation = {
-  id: string;
-  title: string;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-export type ConversationSummary = StoredConversation;
-
-export type ChatMessagePage = {
-  conversationId: string;
-  messages: StoredChatMessage[];
-  nextCursor: string | null;
-};
 
 const MAX_GROUNDING_JSON_CHARS = 24000;
 
@@ -185,30 +160,6 @@ function mapStoredConversation(row: StoredConversationRow): StoredConversation {
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),
   };
-}
-
-export function safeConversationId(value: string | null | undefined): string {
-  const candidate = value?.trim() || DEFAULT_CONVERSATION_ID;
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$/.test(candidate)) {
-    throw new Error(
-      "Conversation id must be a local opaque id with letters, numbers, dashes, underscores, dots, or colons only",
-    );
-  }
-  return candidate;
-}
-
-export function normalizeConversationTitle(value: string): string {
-  const compact = value.replace(/\s+/g, " ").trim();
-  if (!compact) throw new Error("Conversation title cannot be empty");
-  return compact.length > 48 ? `${compact.slice(0, 47)}…` : compact;
-}
-
-export function initialConversationTitle(value: string): string {
-  try {
-    return normalizeConversationTitle(value);
-  } catch {
-    return "New chat";
-  }
 }
 
 function conversationCursor(
@@ -389,11 +340,7 @@ export function listRecentChatMessages(
   return rows.reverse().map(mapStoredMessage);
 }
 
-export function listChatMessagePage(input: {
-  conversationId?: string;
-  cursor?: string | null;
-  limit?: number;
-}): ChatMessagePage {
+export function listChatMessagePage(input: ChatPageRequest): ChatMessagePage {
   const conversationId = safeConversationId(input.conversationId);
   const safeLimit = Math.min(Math.max(Math.trunc(input.limit ?? 30), 1), 60);
   const cursor = parseConversationCursor(input.cursor);

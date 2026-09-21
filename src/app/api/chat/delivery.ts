@@ -3,18 +3,14 @@ import type {
   TrainerProgress,
   TrainerProgressCounters,
 } from "@/lib/ai/trainer-progress";
-import type {
-  ChatGrounding,
-  StoredChatMessage,
-} from "@/lib/db/conversation-repository";
+import type { ChatGrounding, StoredChatMessage } from "@/lib/chat/contracts";
 import { activeTranscriptContext } from "@/lib/chat/context";
 import {
   CHAT_HISTORY_LIMIT,
-  generateChatTurn,
-  completeChatTurn,
   type PreparedChatTurn,
   type MemoryProposalResult,
 } from "@/lib/chat/turn";
+import { generateChatTurn, completeChatTurn } from "@/lib/chat/composition";
 
 const SAFE_CHAT_FAILURE_MESSAGE =
   "Trainer chat failed before a safe answer was persisted. Run npm run doctor to check local provider readiness, then retry.";
