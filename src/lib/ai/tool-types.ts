@@ -9,7 +9,10 @@ export type TrainerToolName =
   | "runReadOnlySql"
   | "runMathAnalysis"
   | "getTrainingPlan"
-  | "saveTrainingPlan";
+  | "saveTrainingPlan"
+  | "getWeeklyPlan"
+  | "proposeWeeklyDocuments"
+  | "applyWeeklyProposal";
 
 export type TrainerToolStepName = TrainerToolName | "providerToolSelection";
 

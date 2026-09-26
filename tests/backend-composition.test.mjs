@@ -17,6 +17,7 @@ const routes = {
   "summary/route": "local-data/composition",
   "sync/route": "garmin/composition",
   "training-plan/route": "training-plan/composition",
+  "weekly/route": "weekly/composition",
 };
 
 afterEach(() => {
@@ -88,6 +89,7 @@ it("constructs every production route/factory without opening DB, reading env, s
     import("../src/app/api/summary/route"),
     import("../src/app/api/sync/route"),
     import("../src/app/api/training-plan/route"),
+    import("../src/app/api/weekly/route"),
     import("../src/lib/memory/legacy-composition"),
     import("../src/lib/ai/sql-analysis"),
   ]);

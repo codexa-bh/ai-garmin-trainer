@@ -8,6 +8,9 @@ export function deleteConversation(id = DEFAULT_CONVERSATION_ID): boolean {
   const conversationId = safeConversationId(id);
   const db = getDatabase();
   const changes = db.transaction(() => {
+    db.prepare("delete from weekly_proposal where conversation_id = ?").run(
+      conversationId,
+    );
     db.prepare("delete from message where conversation_id = ?").run(
       conversationId,
     );

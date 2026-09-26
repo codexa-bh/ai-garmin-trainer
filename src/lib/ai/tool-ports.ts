@@ -1,3 +1,4 @@
+import type { createWeekly } from "../weekly/application";
 import type {
   AnalysisResult,
   GarminDatabaseDescription,
@@ -41,4 +42,5 @@ export type TrainerToolPorts = {
   analytics: AnalyticsToolPorts;
   localData: LocalDataToolPorts;
   trainingPlan: TrainingPlanToolPorts;
+  weekly?: Pick<ReturnType<typeof createWeekly>, "read" | "propose" | "apply">;
 };

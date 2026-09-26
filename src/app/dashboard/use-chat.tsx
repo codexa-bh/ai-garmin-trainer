@@ -29,6 +29,7 @@ export function useChatFeature({
   runInBackground,
   loadMemories,
   loadTrainingPlan,
+  loadWeekly,
   messageInputRef,
 }: {
   setStatus: Dispatch<SetStateAction<Status>>;
@@ -44,6 +45,7 @@ export function useChatFeature({
     trigger: "startup" | "manual" | "chat-save",
     showStatus?: boolean,
   ) => Promise<void>;
+  loadWeekly?: () => Promise<void>;
   messageInputRef: RefObject<HTMLTextAreaElement | null>;
 }) {
   const [message, setMessage] = useState("");
@@ -489,6 +491,15 @@ export function useChatFeature({
         runInBackground(loadConversations(false));
         if (savedTrainingPlan)
           runInBackground(loadTrainingPlan("chat-save", false));
+        if (
+          loadWeekly &&
+          event.assistantMessage.grounding?.toolSteps?.some(
+            (step) =>
+              step.tool === "applyWeeklyProposal" &&
+              step.status === "succeeded",
+          )
+        )
+          runInBackground(loadWeekly());
         setStatus({
           kind: "ok",
           message: `Chat: streamed response complete.${memorySuffix}`,
@@ -517,6 +528,7 @@ export function useChatFeature({
         body: JSON.stringify({
           conversationId,
           message: trimmed,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           stream: true,
         }),
         signal: controller.signal,
@@ -534,6 +546,15 @@ export function useChatFeature({
         if (payload.memoryProposal) runInBackground(loadMemories(false));
         if (payload.toolEvidence?.tool === "saveTrainingPlan")
           runInBackground(loadTrainingPlan("chat-save", false));
+        if (
+          loadWeekly &&
+          payload.toolEvidence?.toolSteps?.some(
+            (step) =>
+              step.tool === "applyWeeklyProposal" &&
+              step.status === "succeeded",
+          )
+        )
+          runInBackground(loadWeekly());
         setStatus({
           kind: "ok",
           message: "Chat: response complete.",

@@ -318,6 +318,14 @@ suites remain compatibility evidence. No UI, schema, data semantics, provider,
 threshold, TTL or historical cleanup changes: migration/back-sync is a no-op and
 source revert is sufficient rollback.
 
+## Weekly plans and reviews
+
+`weekly/{contracts,calendar}` owns civil Monday identity, timezone validation and local-midnight evidence intervals (including DST); `weekly/application` owns bounded document policy, immutable original/latest separation, as-of review revisions and confirmation lifecycle through synchronous `WeeklyStore` ports. `weekly/composition` lazily binds the JSON SQLite adapter and clock/opaque IDs. Migration 16 adds `weekly_artifact` and `weekly_proposal`; no general-plan or Garmin rows are derived/rewritten. Weekly-only data participates in upgrade backup detection.
+
+Dedicated get/propose/apply tools consume complete prior-pass reads. Proposal records retain exact documents/targets and expected aggregate revisions. Orchestration returns canonical complete proposal text outside analytics caps; chat completion binds it to the persisted assistant ID. Apply checks conversation, immediately preceding assistant, surviving message, calendar, 24-hour validity and current revisions in one all-or-nothing transaction. A used/replaced proposal cannot be replayed. General and weekly saves share the once-per-turn write-attempt guard; semantic confirmation is still model policy, not a second classifier or injection-proof guarantee. Debug/grounding retain metadata only, not weekly Markdown. Chat/profile deletion invalidates drafts while confirmed weekly artifacts survive both deletion scopes.
+
+`/api/weekly` is a read-only detail/paged-summary adapter; browser chat transports an IANA timezone and legacy callers receive an explicit server-local fallback. `use-weekly` is a persistent shell-owned request owner with generation guards and date/zone rollover checks. `weekly-plan-view` wraps the preserved General Plan editor with This Week/Upcoming/secondary History; history corrections merely prefill chat. Streaming and JSON confirmed-save metadata trigger refresh. Focus/section-return ownership remains in the dashboard shell. Focused coverage: `weekly.test.ts`, `weekly-ui.test.tsx`, existing chat/orchestrator/plan suites and the production composition/ownership checks.
+
 ## Training Plan application and adapters
 
 `training-plan/{contracts,limits,policy,snapshot,edits}.ts` owns the singleton

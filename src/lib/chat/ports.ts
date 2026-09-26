@@ -1,3 +1,4 @@
+import type { WeeklyTurn } from "../weekly/contracts";
 import type { LlmDebugTrace } from "@/lib/ai/debug-types";
 import type { TrainerToolStep } from "@/lib/ai/tool-types";
 import type { TrainerProgressCounters } from "@/lib/ai/trainer-progress";
@@ -7,6 +8,7 @@ import type { ChatGrounding, ChatRole, StoredChatMessage } from "./contracts";
 export type ChatGenerationInput = {
   system: string;
   userRequest: string;
+  weeklyTurn?: WeeklyTurn;
   debugTraceEnabled: boolean;
   onStatus?: (message: string, counters?: TrainerProgressCounters) => void;
 };
@@ -20,6 +22,13 @@ export type ChatGenerationResult = {
 };
 
 export type ChatTurnPorts = {
+  weeklyContext?(turn: WeeklyTurn): unknown;
+  bindWeeklyProposal?(
+    turnId: string,
+    conversationId: string,
+    assistantId: string,
+    text: string,
+  ): void;
   ensureConversation(id: string, title: string): unknown;
   listRecentChatMessages(id: string, limit: number): StoredChatMessage[];
   appendChatMessage(input: {

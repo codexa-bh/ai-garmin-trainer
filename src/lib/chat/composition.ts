@@ -1,3 +1,4 @@
+import { weekly } from "../weekly/composition";
 import { fallbackLlmDebugTrace } from "@/lib/ai/debug-trace";
 import { orchestrateTrainerChat } from "@/lib/ai/composition";
 import { selectedModel } from "@/lib/ai/providers";
@@ -43,6 +44,8 @@ const buildSystemContext = createChatContext({
 
 export const { prepareChatTurn, generateChatTurn, completeChatTurn } =
   createChatTurns({
+    weeklyContext: weekly.context,
+    bindWeeklyProposal: weekly.bindDisplayed,
     appendChatMessage,
     ensureConversation,
     listRecentChatMessages,
@@ -51,11 +54,18 @@ export const { prepareChatTurn, generateChatTurn, completeChatTurn } =
     addCompletedTurn: (input) => trainerMemoryStore().addCompletedTurn(input),
     selectGeneration: () => {
       const { model, provider, modelName } = selectedModel();
-      return ({ system, userRequest, onStatus, debugTraceEnabled }) =>
+      return ({
+        system,
+        userRequest,
+        weeklyTurn,
+        onStatus,
+        debugTraceEnabled,
+      }) =>
         orchestrateTrainerChat({
           model,
           system,
           userRequest,
+          weeklyTurn,
           ...(onStatus ? { onStatus } : {}),
           debug: { enabled: debugTraceEnabled, provider, model: modelName },
         });

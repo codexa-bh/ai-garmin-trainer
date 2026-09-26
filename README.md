@@ -5,7 +5,7 @@ A private, local-first training companion: import your Garmin Connect history, e
 - **Trainer chat** — streaming answers using normalized Garmin data, guarded read-only SQL/math tools, and conversation context.
 - **Activity Dashboard** — searchable synced activities with summary stats, heart-rate, elevation, speed, and other available detail charts.
 - **Health** — daily metrics plus weekly/monthly rollups for training and recovery context.
-- **Personalization** — an editable Profile and Training Plan, with optional inspectable, editable, deletable semantic memory.
+- **Personalization** — an editable Profile and General Plan, chat-confirmed weekly plans/reviews with original commitments and secondary history, and optional inspectable, editable, deletable semantic memory.
 - **Provider choice** — direct DeepSeek/OpenAI, explicit loopback Ollama chat, or opt-in OpenRouter. Cloud providers receive bounded chat/Garmin context; local storage does not mean all AI processing stays on your machine.
 
 **Local-only, single-user, no app sign-in.** Run on loopback only; do not expose it on your LAN, a public host, or a tunnel. Garmin access uses a pinned **unofficial** connector, not Garmin's official Developer Program APIs; undocumented endpoints may change or stop working. This private source repository is not a public release, deployment, or beta invitation.
@@ -127,6 +127,16 @@ Start with [architecture](docs/architecture.md), then read only the detailed doc
 - [Source readiness and data lifecycle](docs/source-beta-readiness.md) — supported boundary, backup/restore, diagnostics, and dependency evidence.
 
 Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/style.css`, `src/app/api/`, `src/lib/ai/`, `src/lib/garmin/`, and `src/lib/memory/`.
+
+## Weekly plans and reviews
+
+Training Plan opens to **This Week**, using your device's Monday–Sunday calendar. **Upcoming** exposes the following week (including plans prepared on Sunday); **General Plan** retains the existing independent manual editor. **History** loads bounded summaries and individual past documents, not an entire archive.
+
+Discuss a weekly plan in chat using the general template, current Garmin evidence and your feedback. A displayed **Weekly draft — not saved** is not a commitment until you explicitly confirm it. Confirmation saves the exact proposal; a review and next plan can be confirmed atomically together. Drafts expire after 24 hours and cannot be confirmed after an intervening assistant reply, replacement, deletion of the chat, timezone change or conflicting saved revision—request a fresh draft. Ambiguous assent should prompt clarification, not saving.
+
+The first confirmed plan stays available as **Original commitment**; current/upcoming revisions update only the latest copy. Historical plans are read-only. Reviews state their as-of cutoff and the plan revision evaluated; Sunday is not automatically a finished week. Late evidence or corrections require a newly confirmed review through chat. Saved date ranges/calendar bases never silently shift with a device timezone change. No workouts, scores, background reminders, automatic saves or Garmin write-back are introduced.
+
+Weekly artifacts and the general template survive chat/Profile and Garmin deletion. Chat deletion invalidates pending proposal authority, not confirmed documents. Schema upgrade is additive; use the normal backed-up migration procedure below. Source delivery does not upgrade a running database automatically or authorize a restart.
 
 ## Daily-health freshness
 

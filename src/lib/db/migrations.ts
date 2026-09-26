@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 15;
+export const LATEST_SCHEMA_VERSION = 16;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -23,6 +23,11 @@ const BODY_METRICS_WEIGH_IN_COLUMNS_SQL = [
   `alter table garmin_body_metrics add column history_source text`,
   `alter table garmin_body_metrics add column current_weight_source text`,
   `alter table garmin_body_metrics add column weigh_in_availability text`,
+];
+
+const WEEKLY_SCHEMA_SQL = [
+  `create table if not exists weekly_artifact (week_start text primary key, document_json text not null)`,
+  `create table if not exists weekly_proposal (id text primary key, conversation_id text not null unique, proposal_json text not null)`,
 ];
 
 const TRAINING_PLAN_TABLE_SQL = `create table if not exists training_plan (id text primary key default 'default', title text not null, content_markdown text not null, revised_at integer not null, updated_at integer not null)`;
@@ -86,6 +91,7 @@ const BASE_SCHEMA_SQL = [
   `create index if not exists semantic_memory_user_status_idx on semantic_memory(user_id, status, updated_at)`,
   `create index if not exists semantic_memory_conversation_idx on semantic_memory(source_conversation_id)`,
   TRAINING_PLAN_TABLE_SQL,
+  ...WEEKLY_SCHEMA_SQL,
   `create table if not exists app_metadata (key text primary key, value text not null, updated_at integer not null)`,
 ];
 
@@ -221,6 +227,11 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       ...DAILY_HEALTH_SLEEP_DETAIL_COLUMNS_SQL,
     ],
   },
+  {
+    version: 16,
+    name: "weekly_plans_and_reviews",
+    statements: WEEKLY_SCHEMA_SQL,
+  },
 ];
 
 function hasTable(db: Database.Database, table: string): boolean {
@@ -248,6 +259,8 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "garmin_raw_payload",
     "activity_hr_zone_time",
     "training_plan",
+    "weekly_artifact",
+    "weekly_proposal",
   ];
   return tables.some((table) => {
     if (!hasTable(db, table)) return false;

@@ -1,3 +1,4 @@
+import { validTimeZone } from "@/lib/weekly/calendar";
 import type { UIMessage } from "ai";
 import { NextResponse } from "next/server";
 import { activeTranscriptContext } from "@/lib/chat/context";
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
       message?: string;
       messages?: UIMessage[];
       stream?: boolean;
+      timeZone?: string;
     };
     const conversationId = safeConversationId(body.conversationId);
     const debugTraceEnabled = conversations.isDebugTraceEnabled();
@@ -90,7 +92,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const turn = prepareChatTurn(conversationId, latestMessage);
+    if (body.timeZone !== undefined && !validTimeZone(body.timeZone))
+      return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
+    const turn = prepareChatTurn(conversationId, latestMessage, body.timeZone);
     if (body.stream === true) {
       return streamingResponse({
         ...turn,

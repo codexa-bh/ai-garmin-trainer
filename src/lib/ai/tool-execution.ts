@@ -1,3 +1,4 @@
+import { executeWeeklyTool } from "./tool-weekly";
 import { executeAnalyticsTool } from "./tool-analytics";
 import { executeLocalDataTool } from "./tool-local-data";
 import { executeTrainingPlanTool } from "./tool-training-plan";
@@ -12,6 +13,10 @@ export async function executeTrainerTool(
 ): Promise<TrainerToolStep> {
   try {
     switch (input.toolName) {
+      case "getWeeklyPlan":
+      case "proposeWeeklyDocuments":
+      case "applyWeeklyProposal":
+        return executeWeeklyTool(input, ports.weekly);
       case "describeGarminDatabase":
       case "runReadOnlySql":
       case "runMathAnalysis":

@@ -3,6 +3,9 @@ import { trainerToolContracts as contracts } from "./tool-contracts";
 
 /** SDK wrapping belongs to the provider adapter, never selection or validation. */
 export const trainerToolDefinitions = {
+  getWeeklyPlan: tool(contracts.getWeeklyPlan),
+  proposeWeeklyDocuments: tool(contracts.proposeWeeklyDocuments),
+  applyWeeklyProposal: tool(contracts.applyWeeklyProposal),
   runGarminSync: tool(contracts.runGarminSync),
   getSyncStatus: tool(contracts.getSyncStatus),
   verifyActivityReference: tool(contracts.verifyActivityReference),

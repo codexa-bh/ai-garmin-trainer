@@ -77,6 +77,7 @@ const allowed = new Set([
   "memory/legacy-contracts.ts",
   "profile/contracts.ts",
   "training-plan/contracts.ts",
+  "weekly/contracts.ts",
 ]);
 
 function checkClosure(

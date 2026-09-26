@@ -18,6 +18,8 @@ import { HealthView } from "./dashboard/health-view";
 import { MemoryContent } from "./dashboard/memory-content";
 import { SettingsView } from "./dashboard/settings-view";
 import { SyncView } from "./dashboard/sync-view";
+import { WeeklyPlanView } from "./dashboard/weekly-plan-view";
+import { useWeeklyFeature } from "./dashboard/use-weekly";
 import { TrainingPlanView } from "./dashboard/training-plan-view";
 import { useActivityFeature } from "./dashboard/use-activity";
 import { useChatFeature } from "./dashboard/use-chat";
@@ -118,6 +120,7 @@ export function TrainerDashboard() {
     setTrainingPlanMarkdownDraft,
     cancelTrainingPlanEdit,
   } = useTrainingPlanFeature({ setStatus });
+  const weekly = useWeeklyFeature();
   const {
     loadMemories,
     setEditingMemoryId,
@@ -218,6 +221,7 @@ export function TrainerDashboard() {
     runInBackground,
     loadMemories,
     loadTrainingPlan,
+    loadWeekly: () => weekly.load(),
     messageInputRef,
   });
 
@@ -253,6 +257,7 @@ export function TrainerDashboard() {
   const closeMemoryFromKeyboard = useEffectEvent(() => closeMemoryView());
   const closePlanFromKeyboard = useEffectEvent(() => closeTrainingPlan());
   const reloadOpenedPlan = useEffectEvent(() => {
+    runInBackground(weekly.load());
     runInBackground(loadTrainingPlan("manual", false));
   });
   const reloadActivitySearch = useEffectEvent((query: string) => {
@@ -907,26 +912,37 @@ export function TrainerDashboard() {
       ) : null}
 
       {trainingPlanOpen ? (
-        <TrainingPlanView
-          trainingPlan={trainingPlan}
-          closeTrainingPlan={closeTrainingPlan}
-          trainingPlanCloseRef={trainingPlanCloseRef}
-          trainingPlanMessage={trainingPlanMessage}
-          trainingPlanStale={trainingPlanStale}
-          trainingPlanStaleAfterDays={trainingPlanStaleAfterDays}
-          runInBackground={runInBackground}
-          loadTrainingPlan={loadTrainingPlan}
-          trainingPlanState={trainingPlanState}
-          trainingPlanSaving={trainingPlanSaving}
-          trainingPlanEditing={trainingPlanEditing}
-          startTrainingPlanEdit={startTrainingPlanEdit}
-          saveTrainingPlan={saveTrainingPlan}
-          trainingPlanTitleDraft={trainingPlanTitleDraft}
-          setTrainingPlanTitleDraft={setTrainingPlanTitleDraft}
-          trainingPlanMarkdownDraft={trainingPlanMarkdownDraft}
-          setTrainingPlanMarkdownDraft={setTrainingPlanMarkdownDraft}
-          cancelTrainingPlanEdit={cancelTrainingPlanEdit}
-        />
+        <WeeklyPlanView
+          weekly={weekly}
+          close={closeTrainingPlan}
+          closeRef={trainingPlanCloseRef}
+          run={runInBackground}
+          startChat={(text) => {
+            setMessage(text);
+            closeTrainingPlan();
+          }}
+        >
+          <TrainingPlanView
+            trainingPlan={trainingPlan}
+            closeTrainingPlan={closeTrainingPlan}
+            trainingPlanCloseRef={trainingPlanCloseRef}
+            trainingPlanMessage={trainingPlanMessage}
+            trainingPlanStale={trainingPlanStale}
+            trainingPlanStaleAfterDays={trainingPlanStaleAfterDays}
+            runInBackground={runInBackground}
+            loadTrainingPlan={loadTrainingPlan}
+            trainingPlanState={trainingPlanState}
+            trainingPlanSaving={trainingPlanSaving}
+            trainingPlanEditing={trainingPlanEditing}
+            startTrainingPlanEdit={startTrainingPlanEdit}
+            saveTrainingPlan={saveTrainingPlan}
+            trainingPlanTitleDraft={trainingPlanTitleDraft}
+            setTrainingPlanTitleDraft={setTrainingPlanTitleDraft}
+            trainingPlanMarkdownDraft={trainingPlanMarkdownDraft}
+            setTrainingPlanMarkdownDraft={setTrainingPlanMarkdownDraft}
+            cancelTrainingPlanEdit={cancelTrainingPlanEdit}
+          />
+        </WeeklyPlanView>
       ) : null}
 
       {healthDashboardOpen ? (
