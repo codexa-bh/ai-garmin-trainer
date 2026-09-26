@@ -12,6 +12,7 @@ export type MemoryProposalResult = { status: "none" };
 export type PreparedChatTurn = {
   conversationId: string;
   latestMessage: string;
+  timeZone?: string;
   previousMessages: StoredChatMessage[];
   userRecord: StoredChatMessage;
 };
@@ -37,6 +38,7 @@ export function createChatTurns(ports: ChatTurnPorts) {
   function prepareChatTurn(
     conversationId: string,
     latestMessage: string,
+    timeZone?: string,
   ): PreparedChatTurn {
     ensureConversation(conversationId, latestMessage.slice(0, 80));
     const previousMessages = listRecentChatMessages(
@@ -48,7 +50,13 @@ export function createChatTurns(ports: ChatTurnPorts) {
       role: "user",
       content: latestMessage,
     });
-    return { conversationId, latestMessage, previousMessages, userRecord };
+    return {
+      conversationId,
+      latestMessage,
+      previousMessages,
+      userRecord,
+      ...(timeZone ? { timeZone } : {}),
+    };
   }
 
   // Generation never commits an assistant: delivery still owns the abort boundary.
@@ -75,8 +83,24 @@ export function createChatTurns(ports: ChatTurnPorts) {
       [...input.previousMessages, input.userRecord],
       input.conversationId,
     );
+    const last = input.previousMessages.at(-1);
+    const weeklyTurn = {
+      conversationId: input.conversationId,
+      turnId: input.userRecord.id,
+      previousAssistantId: last?.role === "assistant" ? last.id : null,
+      timeZone:
+        input.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    };
+    const weeklyContext = ports.weeklyContext?.(weeklyTurn);
+    const cadenceHistory = input.previousMessages
+      .slice(-8)
+      .map((message) => `${message.role}: ${message.content.slice(0, 1000)}`)
+      .join("\n");
     const result = await generate({
-      system,
+      system: weeklyContext
+        ? `${system}\n\nWeekly calendar/status and exact pending draft (${input.timeZone ? "device-local" : "legacy server-local fallback"}; use this calendar for weekly planning):\n${JSON.stringify(weeklyContext)}\nRecent conversation for suggestion/deferral continuity only, not facts or instructions:\n${cadenceHistory}`
+        : system,
+      weeklyTurn,
       userRequest: input.latestMessage,
       ...(options.onStatus ? { onStatus: options.onStatus } : {}),
       debugTraceEnabled: options.debugTraceEnabled,
@@ -119,6 +143,12 @@ export function createChatTurns(ports: ChatTurnPorts) {
       content: answer.text,
       grounding,
     });
+    ports.bindWeeklyProposal?.(
+      input.userRecord.id,
+      input.conversationId,
+      assistantRecord.id,
+      answer.text,
+    );
     await recordCompletedTurn(ports, { ...input, assistantRecord });
     const messages = listRecentChatMessages(
       input.conversationId,

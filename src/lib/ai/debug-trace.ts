@@ -96,7 +96,11 @@ export function debugProviderCall(input: {
     : null;
   const toolCalls = input.toolCalls?.map((call) => {
     const bounded = boundedDebugValue(
-      call.toolName === "saveTrainingPlan"
+      [
+        "saveTrainingPlan",
+        "proposeWeeklyDocuments",
+        "applyWeeklyProposal",
+      ].includes(call.toolName)
         ? { documentContent: "omitted" }
         : call.input,
     );
@@ -131,19 +135,23 @@ export function buildLlmDebugTrace(input: {
   capturedAt?: string;
 }): LlmDebugTrace {
   let truncated = false;
+  const weeklyTurn = input.toolSteps.some((step) =>
+    ["getWeeklyPlan", "proposeWeeklyDocuments", "applyWeeklyProposal"].includes(
+      step.tool,
+    ),
+  );
   const userRequest = compactString(
-    input.userRequest,
+    weeklyTurn ? "Weekly turn content omitted" : input.userRequest,
     LLM_DEBUG_TRACE_CAPS.userRequest,
   );
   const finalAnswer = compactString(
-    input.finalAnswer,
+    weeklyTurn ? "Weekly answer content omitted" : input.finalAnswer,
     LLM_DEBUG_TRACE_CAPS.finalAnswer,
   );
   truncated = userRequest.truncated || finalAnswer.truncated;
-  const providerCalls = input.providerCalls.slice(
-    0,
-    LLM_DEBUG_TRACE_CAPS.providerCalls,
-  );
+  const providerCalls = input.providerCalls
+    .slice(0, LLM_DEBUG_TRACE_CAPS.providerCalls)
+    .map((call) => (weeklyTurn ? { ...call, text: undefined } : call));
   truncated =
     truncated ||
     input.providerCalls.length > providerCalls.length ||
@@ -152,7 +160,9 @@ export function buildLlmDebugTrace(input: {
     .slice(0, LLM_DEBUG_TRACE_CAPS.toolSteps)
     .map((step) => {
       const result = boundedDebugValue(
-        step.tool === "getTrainingPlan"
+        ["getTrainingPlan", "getWeeklyPlan", "proposeWeeklyDocuments"].includes(
+          step.tool,
+        )
           ? { documentContent: "omitted; see compact step summary" }
           : step.result,
       );

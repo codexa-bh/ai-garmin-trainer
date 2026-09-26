@@ -3,6 +3,7 @@ import { getDatabase } from "./connection";
 export function clearChatAndProfile(): string[] {
   const db = getDatabase();
   db.transaction(() => {
+    db.prepare("delete from weekly_proposal").run();
     db.prepare("delete from message").run();
     db.prepare("delete from conversation").run();
     db.prepare("delete from trainer_profile").run();

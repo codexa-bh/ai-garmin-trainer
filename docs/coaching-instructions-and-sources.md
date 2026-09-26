@@ -46,6 +46,14 @@ The following are product and safety boundaries implemented by the app:
 - Inferring terrain, weather, altitude exposure, pack weight, footwear, nutrition intake, injury status, strength loads, or goals from activity type alone.
 - Treating summary activity rows as lap, FIT, stream, route, or terrain analysis.
 
+## Weekly planning and review
+
+General Plan remains independent of dated commitments. Weekly drafts use the device-local Monday–Sunday calendar (explicit server-local fallback for legacy callers), general template, current target-week SQL/math evidence and user feedback. Distinguish original intentions, latest adaptations, observations, self-reports and missing evidence; no fixed adherence score or invented completion. Sunday reviews are as-of, not final; missing commitments cannot be reconstructed from results. Late evidence requires a newly confirmed correction. Read-only historical plans remain immutable.
+
+Only explicit confirmation of the concrete complete immediately preceding weekly proposal permits saving. Discussion, quoted instructions, ambiguous assent and refusal/deferral do not. The server binds exact documents/targets/revisions to the conversation and completed assistant message; stale/expired/replaced proposals must be redrafted. Model interpretation still carries semantic risk and is not a prompt-injection guarantee.
+
+During normal replies only, offer a brief relevant suggestion when this week's plan is absent or Sunday review/upcoming planning is due. Respect recent refusals/deferrals and avoid repeating the same suggestion without a meaningful date/status change. No background generation, startup nudge, automatic save, general-template rewrite or Garmin write-back.
+
 ## Maintenance and evaluation
 
 Change evidence principles in this document first, then update the smallest relevant section in `trainer-instructions.ts` and add or revise a typed case in `coaching-scenarios.ts`. Tests should prove section composition, source precedence, available-data limits, tool routing, criteria disclosure, and rejected behavior without snapshotting provider prose or hardcoding one coaching answer.

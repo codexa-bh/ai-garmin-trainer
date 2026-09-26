@@ -1,3 +1,4 @@
+import { weekly } from "../weekly/composition";
 import { describeGarminDatabase, runReadOnlySql } from "./sql-analysis";
 import {
   getActivityByGarminId,
@@ -18,6 +19,7 @@ import type { TrainerToolPorts } from "./tool-ports";
 // Binding is inert. Feature adapters retain their existing lazy lifetimes and
 // synchronous compare/write boundaries; each turn still owns its own context.
 const ports: TrainerToolPorts = {
+  weekly,
   analytics: { describeGarminDatabase, runReadOnlySql },
   localData: {
     getActivityByGarminId,

@@ -10,6 +10,8 @@ const f = vi.hoisted(() => ({
   debug: true,
   selected: vi.fn(),
   context: vi.fn(),
+  weeklyContext: vi.fn(),
+  bindWeekly: vi.fn(),
   search: vi.fn(),
   memory: vi.fn(),
   counts: vi.fn(),
@@ -18,6 +20,9 @@ const f = vi.hoisted(() => ({
     vi.fn<
       (input: ComposedTrainerChatInput) => Promise<OrchestrateTrainerChatResult>
     >(),
+}));
+vi.mock("@/lib/weekly/composition", () => ({
+  weekly: { context: f.weeklyContext, bindDisplayed: f.bindWeekly },
 }));
 vi.mock("@/lib/env", () => ({ isLlmDebugTraceEnabled: () => f.debug }));
 vi.mock("@/lib/ai/providers", () => ({ selectedModel: f.selected }));
@@ -158,6 +163,7 @@ beforeEach(() => {
   f.messages = [];
   f.order = [];
   f.debug = true;
+  f.weeklyContext.mockReturnValue(null);
   f.selected.mockImplementation(() => {
     f.order.push("select");
     return { model: "model", provider: "deepseek", modelName: "deepseek-chat" };
@@ -198,6 +204,31 @@ beforeEach(() => {
 });
 
 describe("chat application production wiring", () => {
+  it("transports validated device calendar and binds displayed proposal after assistant persistence", async () => {
+    expect(
+      (await post({ message: "Draft", timeZone: "invalid-zone" })).status,
+    ).toBe(400);
+    expect(f.messages).toHaveLength(0);
+    f.weeklyContext.mockReturnValue({ calendar: { weekStart: "2026-09-21" } });
+    expect(
+      (await post({ message: "Draft", timeZone: "Europe/Zagreb" })).status,
+    ).toBe(200);
+    expect(f.orchestrate.mock.calls[0][0]).toMatchObject({
+      weeklyTurn: {
+        conversationId: "default",
+        turnId: "0",
+        previousAssistantId: null,
+        timeZone: "Europe/Zagreb",
+      },
+    });
+    expect(f.orchestrate.mock.calls[0][0].system).toContain("device-local");
+    expect(f.bindWeekly).toHaveBeenCalledWith(
+      "0",
+      "default",
+      "1",
+      result().text,
+    );
+  });
   it("imports composition without selecting providers, reading storage or initializing memory", async () => {
     await import("@/lib/chat/composition");
     await import("@/lib/chat/conversation-composition");

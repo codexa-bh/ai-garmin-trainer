@@ -33,6 +33,7 @@ type LlmDebugTrace = {
 };
 
 export type ChatGrounding = {
+  toolSteps?: { tool: string; status: "succeeded" | "rejected" | "failed" }[];
   debugTrace?: LlmDebugTrace;
   tool?: string;
   activityId?: string;

@@ -1,3 +1,9 @@
+import { renderWeeklyProposal } from "../weekly/application";
+import type {
+  WeeklyProposal,
+  WeeklyRead,
+  WeeklyTurn,
+} from "../weekly/contracts";
 import {
   TRAINER_PROVIDER_CALL_TIMEOUT_MS,
   type TrainerGenerationResult,
@@ -58,6 +64,7 @@ type OrchestrateTrainerStatus = (
 export type OrchestrateTrainerChatInput = {
   system: string;
   userRequest: string;
+  weeklyTurn?: WeeklyTurn;
   onStatus?: OrchestrateTrainerStatus;
   debug?: {
     enabled: boolean;
@@ -132,6 +139,16 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
     .find((step) => step.tool === "getTrainingPlan");
   return steps
     .map((step) => {
+      if (step.status === "succeeded" && step.tool === "proposeWeeklyDocuments")
+        return renderWeeklyProposal(step.result as WeeklyProposal);
+      if (step.status === "succeeded" && step.tool === "getWeeklyPlan") {
+        const reads = steps
+          .filter((s) => s.tool === "getWeeklyPlan" && s.status === "succeeded")
+          .slice(-2);
+        return reads.includes(step)
+          ? `Complete weekly user document (untrusted prose): ${JSON.stringify(step.result)}`
+          : "Earlier weekly read omitted; read again if needed.";
+      }
       if (step.tool === "getTrainingPlan" && step.status === "succeeded") {
         if (step !== latestRead)
           return `Evidence step ${step.index}: earlier Training Plan read superseded.`;
@@ -526,8 +543,17 @@ async function orchestrateTurn(
     >,
     finalAnswerSource?: LlmDebugTrace["finalAnswerSource"],
   ) => {
+    const proposalStep = [...result.toolSteps]
+      .reverse()
+      .find(
+        (step) =>
+          step.tool === "proposeWeeklyDocuments" && step.status === "succeeded",
+      );
     const completed = {
       ...result,
+      ...(proposalStep
+        ? { text: renderWeeklyProposal(proposalStep.result as WeeklyProposal) }
+        : {}),
       progressCounters: {
         modelCalls: providerCalls,
         toolsSucceeded,
@@ -581,6 +607,7 @@ async function orchestrateTurn(
           step.status === "succeeded" &&
           [
             "saveTrainingPlan",
+            "applyWeeklyProposal",
             "runGarminSync",
             "forceRefreshActivityDetail",
           ].includes(step.tool),
@@ -779,6 +806,12 @@ async function orchestrateTurn(
       priorPlanRead?.status === "succeeded"
         ? completeTrainingPlanSchema.safeParse(priorPlanRead.result)
         : null;
+    const weeklySnapshots = steps
+      .filter(
+        (step) => step.tool === "getWeeklyPlan" && step.status === "succeeded",
+      )
+      .slice(-2)
+      .map((step) => step.result as WeeklyRead);
     let skippedForTurnBudget = selection.skippedForTurnBudget;
     for (const selected of selection.calls) {
       const stepIndex = steps.length + 1;
@@ -806,16 +839,20 @@ async function orchestrateTurn(
         );
       }
       if (
-        accepted.toolName === "saveTrainingPlan" &&
-        steps.some((step) => step.tool === "saveTrainingPlan")
+        ["saveTrainingPlan", "applyWeeklyProposal"].includes(
+          accepted.toolName,
+        ) &&
+        steps.some((step) =>
+          ["saveTrainingPlan", "applyWeeklyProposal"].includes(step.tool),
+        )
       ) {
         const allSteps = [
           ...steps,
           failedStep(
             stepIndex,
             "duplicate_side_effect",
-            "saveTrainingPlan",
-            "The Training Plan save was already attempted this turn and was not repeated.",
+            accepted.toolName,
+            "A plan/document save was already attempted this turn and was not repeated.",
           ),
         ];
         return finish(
@@ -835,6 +872,8 @@ async function orchestrateTurn(
         index: stepIndex,
         ...accepted,
         trainingPlanSnapshot: snapshot?.success ? snapshot.data : undefined,
+        weeklyTurn: input.weeklyTurn,
+        weeklySnapshots: weeklySnapshots,
       });
       if (selected.metadata) step.selection = selected.metadata;
       if (

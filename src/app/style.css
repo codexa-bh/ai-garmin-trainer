@@ -26,6 +26,33 @@
   box-sizing: border-box;
 }
 
+.weekly-plan-panel {
+  min-width: 0;
+}
+.weekly-tabs {
+  padding: 16px;
+  flex-wrap: wrap;
+}
+.weekly-tabs [aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.weekly-plan-panel .training-plan-content {
+  overflow-wrap: anywhere;
+}
+.weekly-plan-panel details {
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.weekly-plan-panel summary {
+  cursor: pointer;
+}
+.weekly-plan-panel li {
+  margin: 8px 0;
+}
+
 html,
 body {
   height: 100%;

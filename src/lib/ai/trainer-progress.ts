@@ -45,6 +45,9 @@ const activity: Record<TrainerToolName, string> = {
   getActivityDetailSlice: "Reading a bounded portion of local activity detail…",
   runGarminSync: "Running the requested Garmin sync action…",
   forceRefreshActivityDetail: "Refreshing the requested activity detail…",
+  getWeeklyPlan: "Reading the selected weekly documents…",
+  proposeWeeklyDocuments: "Preparing a weekly draft for confirmation…",
+  applyWeeklyProposal: "Saving the confirmed weekly proposal…",
   getTrainingPlan: "Reading the complete current training plan…",
   saveTrainingPlan: "Saving the requested training plan update…",
 };
@@ -59,6 +62,9 @@ const evidence: Record<TrainerToolName, string> = {
   getActivityDetailSlice: "the returned portion of activity detail",
   runGarminSync: "the completed sync outcome",
   forceRefreshActivityDetail: "the activity detail refresh outcome",
+  getWeeklyPlan: "the selected weekly documents",
+  proposeWeeklyDocuments: "the unconfirmed weekly draft",
+  applyWeeklyProposal: "the saved weekly documents",
   getTrainingPlan: "the current training plan result",
   saveTrainingPlan: "the saved training plan update",
 };

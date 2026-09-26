@@ -56,6 +56,9 @@ describe("trainer tool registry schemas", async () => {
   it("exposes guarded SQL/math analysis plus data plumbing", () => {
     expect(Object.keys(trainerToolDefinitions).sort()).toEqual(
       [
+        "getWeeklyPlan",
+        "proposeWeeklyDocuments",
+        "applyWeeklyProposal",
         "forceRefreshActivityDetail",
         "getActivityDetailAvailability",
         "describeGarminDatabase",
