@@ -67,6 +67,13 @@ export function useChatFeature({
 
   const [renameTitle, setRenameTitle] = useState("");
 
+  const [renameError, setRenameError] = useState("");
+
+  const renameRevisionRef = useRef(0);
+  const acknowledgedRenamesRef = useRef(
+    new Map<string, { revision: number; title: string; updatedAt: string }>(),
+  );
+
   const [isRenamingConversation, setIsRenamingConversation] = useState(false);
 
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -116,13 +123,28 @@ export function useChatFeature({
   }
 
   async function loadConversations(showStatus = true) {
+    const renameRevision = renameRevisionRef.current;
     if (showStatus)
       setStatus({ kind: "busy", message: "Conversations: loading…" });
     try {
       const payload = await readJsonResponse<ConversationListPayload>(
         await fetch("/api/conversations", { method: "GET" }),
       );
-      setConversations(payload.conversations ?? []);
+      // Keep list membership/order fresh, but an older GET cannot undo a PATCH.
+      const reconciled = (payload.conversations ?? []).map((item) => {
+        const renamed = acknowledgedRenamesRef.current.get(item.id);
+        return renamed && renamed.revision > renameRevision
+          ? {
+              ...item,
+              title: renamed.title,
+              updatedAt:
+                item.updatedAt > renamed.updatedAt
+                  ? item.updatedAt
+                  : renamed.updatedAt,
+            }
+          : item;
+      });
+      setConversations(reconciled);
       if (showStatus)
         setStatus({
           kind: "ok",
@@ -236,12 +258,14 @@ export function useChatFeature({
   function closeConversationRenameDialog(restoreFocus = true) {
     setRenameTarget(null);
     setRenameTitle("");
+    setRenameError("");
     setIsRenamingConversation(false);
     if (restoreFocus) renameReturnFocusRef.current?.focus();
     renameReturnFocusRef.current = null;
   }
 
   function cancelConversationRename() {
+    if (isRenamingConversation) return;
     closeConversationRenameDialog();
   }
 
@@ -250,14 +274,8 @@ export function useChatFeature({
     trigger?: HTMLElement,
   ) {
     closeConversationMenu();
-    if (isChatLoading) {
-      setStatus({
-        kind: "error",
-        message:
-          "Cancel or finish the current streamed answer before renaming.",
-      });
-      return;
-    }
+    if (isRenamingConversation) return;
+    setRenameError("");
     renameReturnFocusRef.current =
       trigger ??
       [
@@ -270,14 +288,6 @@ export function useChatFeature({
 
   async function saveConversationRename() {
     if (!renameTarget || isRenamingConversation) return;
-    if (isChatLoading) {
-      setStatus({
-        kind: "error",
-        message:
-          "Cancel or finish the current streamed answer before renaming.",
-      });
-      return;
-    }
     const nextTitle = renameTitle.trim();
     if (!nextTitle) {
       setStatus({
@@ -296,6 +306,7 @@ export function useChatFeature({
       return;
     }
     setIsRenamingConversation(true);
+    setRenameError("");
     setStatus({ kind: "busy", message: "Conversation: renaming…" });
     try {
       const payload = await readJsonResponse<ConversationRenamePayload>(
@@ -309,8 +320,25 @@ export function useChatFeature({
         ),
       );
       const renamed = payload.conversation;
+      renameRevisionRef.current += 1;
+      acknowledgedRenamesRef.current.set(renamed.id, {
+        revision: renameRevisionRef.current,
+        title: renamed.title,
+        updatedAt: renamed.updatedAt,
+      });
       setConversations((items) =>
-        items.map((item) => (item.id === renamed.id ? renamed : item)),
+        items.map((item) =>
+          item.id === renamed.id
+            ? {
+                ...item,
+                title: renamed.title,
+                updatedAt:
+                  item.updatedAt > renamed.updatedAt
+                    ? item.updatedAt
+                    : renamed.updatedAt,
+              }
+            : item,
+        ),
       );
       closeConversationRenameDialog();
       setStatus({
@@ -320,10 +348,9 @@ export function useChatFeature({
       });
     } catch (error) {
       setIsRenamingConversation(false);
-      setStatus({
-        kind: "error",
-        message: `Conversation rename failed: ${error instanceof Error ? error.message : "unknown error"}`,
-      });
+      const message = `Conversation rename failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      setRenameError(message);
+      setStatus({ kind: "error", message });
       renameInputRef.current?.focus();
     }
   }
@@ -627,6 +654,7 @@ export function useChatFeature({
     deleteConversationById,
     saveConversationRename,
     renameTitle,
+    renameError,
     setRenameTitle,
     isRenamingConversation,
     historyCursor,

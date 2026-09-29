@@ -35,6 +35,7 @@ export function ChatView({
   saveConversationRename,
   renameInputRef,
   renameTitle,
+  renameError,
   setRenameTitle,
   isRenamingConversation,
   transcriptRef,
@@ -85,6 +86,7 @@ export function ChatView({
   saveConversationRename: () => Promise<void>;
   renameInputRef: RefObject<HTMLInputElement | null>;
   renameTitle: string;
+  renameError: string;
   setRenameTitle: Dispatch<SetStateAction<string>>;
   isRenamingConversation: boolean;
   transcriptRef: RefObject<HTMLDivElement | null>;
@@ -222,7 +224,7 @@ export function ChatView({
             onClick={() => {
               startConversationRename(openConversationMenuItem);
             }}
-            disabled={isChatLoading}
+            disabled={isRenamingConversation}
           >
             Rename
           </button>
@@ -275,13 +277,14 @@ export function ChatView({
               ref={renameInputRef}
               value={renameTitle}
               onChange={(event) => setRenameTitle(event.target.value)}
-              disabled={isRenamingConversation || isChatLoading}
+              disabled={isRenamingConversation}
               maxLength={160}
             />
             <p className="helper-text">
               Saves a local title only; messages, Garmin data, Profile, and
               saved memories stay unchanged.
             </p>
+            {renameError ? <p role="alert">{renameError}</p> : null}
             <div className="button-row rename-dialog-actions">
               <button
                 type="button"
@@ -295,9 +298,7 @@ export function ChatView({
                 type="submit"
                 className="primary-action"
                 disabled={
-                  isRenamingConversation ||
-                  isChatLoading ||
-                  renameTitle.trim().length === 0
+                  isRenamingConversation || renameTitle.trim().length === 0
                 }
               >
                 {isRenamingConversation ? "Saving…" : "Save"}
