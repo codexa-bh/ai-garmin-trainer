@@ -197,6 +197,7 @@ export function TrainerDashboard() {
     deleteConversationById,
     saveConversationRename,
     renameTitle,
+    renameError,
     setRenameTitle,
     isRenamingConversation,
     historyCursor,
@@ -1020,6 +1021,7 @@ export function TrainerDashboard() {
           saveConversationRename={saveConversationRename}
           renameInputRef={renameInputRef}
           renameTitle={renameTitle}
+          renameError={renameError}
           setRenameTitle={setRenameTitle}
           isRenamingConversation={isRenamingConversation}
           transcriptRef={transcriptRef}

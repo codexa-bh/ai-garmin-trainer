@@ -294,6 +294,23 @@ describe("local chat history repository", () => {
       "Preserve this profile",
     ]);
     expect(repository.dataCounts().activities).toBe(1);
+
+    repository.appendChatMessage({
+      conversationId: "rename-route-chat",
+      role: "assistant",
+      content: "Completed answer after rename",
+    });
+    expect(repository.getConversation("rename-route-chat")?.title).toBe(
+      "Recovery plan title",
+    );
+    expect(
+      repository
+        .listRecentChatMessages("rename-route-chat")
+        .map((message) => message.content),
+    ).toEqual([
+      "Keep this transcript during rename",
+      "Completed answer after rename",
+    ]);
   });
 
   it("returns validation and not-found responses for route rename", async () => {

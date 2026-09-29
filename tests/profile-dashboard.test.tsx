@@ -3706,7 +3706,8 @@ describe("TrainerDashboard memory and new chat", () => {
     );
   });
 
-  it("keeps rename disabled while a streamed answer is in flight", async () => {
+  it("enables rename but keeps destructive actions disabled during a request", async () => {
+    const stream = controlledSyncStream();
     const updatedAt = "2026-07-17T12:00:00.000Z";
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -3733,7 +3734,7 @@ describe("TrainerDashboard memory and new chat", () => {
         });
       }
       if (url === "/api/chat" && init?.method === "POST") {
-        return new Promise<Response>(() => undefined);
+        return stream.response;
       }
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
@@ -3757,11 +3758,20 @@ describe("TrainerDashboard memory and new chat", () => {
     expect(
       (screen.getByRole("menuitem", { name: "Rename" }) as HTMLButtonElement)
         .disabled,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       (screen.getByRole("menuitem", { name: "Delete" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+    expect(
+      (
+        screen.getByRole("menuitem", {
+          name: "Reload history",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    stream.close();
+    await screen.findByRole("button", { name: "Send" });
   });
 
   it("deletes a previous saved conversation without selecting it", async () => {
