@@ -4,8 +4,71 @@ import {
   type DetailCoveragePayload,
   type HealthCoveragePayload,
   type SyncProgressEvent,
+  type SyncRunState,
 } from "./contracts";
 import { dateLabel } from "./formatting";
+
+// Match the existing redacted server vocabulary, never incidental auth/token words.
+// Keep this client-only allowlist separate from error severity and rendered prose.
+export function syncFailureRecovery(
+  detail: string | undefined,
+): SyncRunState["recovery"] {
+  const safeDetail = detail?.replace(
+    /^Garmin MCP exited with code (?:-?\d+|null)\. /,
+    "",
+  );
+  switch (safeDetail) {
+    case "Garmin service rate-limited the request; retry later, not reauthentication.":
+      return "rate-limit";
+    case "Garmin connection or service is unavailable; authentication validity is inconclusive.":
+      return "network";
+    case "Garmin connector request failed; upstream details are withheld to protect credentials and local paths.":
+      return "connector";
+    case "Garmin authentication could not be verified; check the configured store and perform a separate live verification before requesting reauthentication.":
+    case "Set a literal GARMIN_MCP_TOKEN_DIR in .env.local; no alternate location is searched.":
+    case "Configured token location must be a directory, not a symlink.":
+    case "Expected Garmin token file must be a regular file, not a symlink.":
+    case "Expected Garmin token file is empty; repair the selected store before live verification.":
+    case "Configured Garmin token directory or expected file is missing; repair this location, then perform a separate live verification.":
+    case "Configured Garmin auth state is inaccessible; check file types and private permissions. No token contents were read.":
+      return "auth";
+    default:
+      return null;
+  }
+}
+
+export function syncFailureSummary(recovery: SyncRunState["recovery"]): string {
+  switch (recovery) {
+    case "rate-limit":
+      return "Garmin rate-limited the request. Retry later, not reauthentication.";
+    case "network":
+      return "Garmin connection or service is unavailable. Check connectivity and retry later.";
+    case "auth":
+      return "Garmin authentication could not be verified. Check the selected credential store first.";
+    case "connector":
+      return "The Garmin connector failed. The cause is not established.";
+    default:
+      return "The sync request failed. See the current-run error log for details.";
+  }
+}
+
+export function syncHttpFailureRecovery(
+  status: number,
+  body: string,
+): SyncRunState["recovery"] {
+  if (status !== 409) return null;
+  try {
+    const payload = JSON.parse(body) as {
+      status?: unknown;
+      detail?: unknown;
+    } | null;
+    return payload?.status === "blocked" && typeof payload.detail === "string"
+      ? syncFailureRecovery(payload.detail)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 function formatDetailProgress(event: SyncProgressEvent): string | null {
   const detailTotal = event.detailTotal ?? 0;

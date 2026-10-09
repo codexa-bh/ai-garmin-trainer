@@ -3105,6 +3105,166 @@ describe("TrainerDashboard activity charts", () => {
 });
 
 describe("TrainerDashboard dedicated Sync view", () => {
+  it("labels only failed entries, retains recovery across navigation, and resets it on the next run", async () => {
+    const detail =
+      "Garmin MCP exited with code 1. Garmin connector request failed; upstream details are withheld to protect credentials and local paths.";
+    let stream = controlledSyncStream();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/sync") return stream.response;
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/summary") return jsonResponse(importSummary());
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return (this.textContent ?? "").length;
+      },
+    );
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }),
+    );
+    for (let i = 0; i < 25; i++)
+      stream.push({ stage: "starting", message: `Normal progress ${i}` });
+    stream.push({ stage: "failed", message: detail, activitiesProcessed: 0 });
+    await screen.findByRole("heading", { name: "Sync failed" });
+    const log = screen.getByLabelText("Current sync progress log");
+    expect(log.querySelectorAll(".sync-log-entry")).toHaveLength(20);
+    expect(log.querySelectorAll(".error")).toHaveLength(1);
+    expect(log.querySelector(".error")?.textContent).toContain(
+      "ERROR: failed:",
+    );
+    expect(log.querySelector(".info")?.textContent).not.toContain("ERROR");
+    expect(log.scrollTop).toBe(log.scrollHeight);
+    stream.push({
+      type: "result",
+      status: "failed",
+      detail,
+      activitiesProcessed: 0,
+      storedActivities: 247,
+    });
+    stream.close();
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Sync now — import latest Garmin data" })
+          .hasAttribute("disabled"),
+      ).toBe(false),
+    );
+    expect(log.querySelectorAll(".error")).toHaveLength(2);
+    expect(log.textContent).toContain("processed activity records 0");
+    expect(log.textContent).toContain("stored totals 247 activities");
+    const help = screen.getByRole("region", { name: "Optional login help" });
+    expect(help.textContent).toContain(
+      "This does not prove expired credentials",
+    );
+    expect(help.textContent).toContain(
+      "Verify and reuse existing credentials first",
+    );
+    expect(help.textContent).toContain("refuses to overwrite");
+    expect(help.textContent).toContain(
+      "manually preserve existing artifacts outside",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy login command" }));
+    await screen.findByText("Login command copied.");
+    expect(writeText).toHaveBeenCalledExactlyOnceWith("npm run garmin:auth");
+    expect(screen.getByRole("heading", { name: "Sync failed" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sync" }));
+    expect(
+      screen.getByRole("region", { name: "Optional login help" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText("Current sync progress log").textContent,
+    ).toContain(detail);
+    stream = controlledSyncStream();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }),
+    );
+    expect(
+      screen.queryByRole("region", { name: "Optional login help" }),
+    ).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Sync failed" })).toBeNull();
+    expect(screen.queryByText("Login command copied.")).toBeNull();
+    stream.push({
+      type: "result",
+      status: "completed",
+      storedActivities: 247,
+      healthCoverage: importSummary().healthCoverage,
+    });
+    stream.close();
+    await screen.findByText(/Sync complete\. Summary refreshed/);
+    expect(
+      screen.queryByRole("region", { name: "Optional login help" }),
+    ).toBeNull();
+    expect(
+      screen
+        .getByLabelText("Current sync progress log")
+        .querySelector(".error"),
+    ).toBeNull();
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input) === "/api/sync"),
+    ).toHaveLength(2);
+  });
+
+  it.each(["unavailable", "rejected"] as const)(
+    "offers manual copy when clipboard is %s without false success",
+    async (clipboard) => {
+      const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+      vi.stubGlobal("navigator", {
+        clipboard: clipboard === "unavailable" ? undefined : { writeText },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url === "/api/sync")
+            return jsonResponse(
+              {
+                status: "blocked",
+                detail:
+                  "Expected Garmin token file is empty; repair the selected store before live verification.",
+              },
+              { status: 409 },
+            );
+          if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+          if (url === "/api/profile") return jsonResponse(profile([]));
+          if (url === "/api/summary") return jsonResponse(importSummary());
+          return jsonResponse({ ok: true });
+        }),
+      );
+      render(React.createElement(TrainerDashboard));
+      fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Sync now — import latest Garmin data",
+        }),
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Copy login command" }),
+      );
+      await screen.findByText(
+        /Could not copy automatically\. Select the command above/,
+      );
+      expect(screen.queryByText("Login command copied.")).toBeNull();
+      expect(screen.getByText("npm run garmin:auth").tagName).toBe("CODE");
+      expect(screen.getByRole("heading", { name: "Sync failed" })).toBeTruthy();
+      expect(
+        screen.getByLabelText("Current sync progress log").textContent,
+      ).toContain("ERROR: Sync now: failed (409)");
+    },
+  );
+
   it("opens Sync as navigation without starting a sync and renders metrics", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);

@@ -7,8 +7,10 @@ export type Status = {
 
 export type SyncRunState = {
   kind: "idle" | "running" | "completed" | "failed";
-  lines: string[];
+  lines: Array<{ text: string; severity: "info" | "error" }>;
   finalMessage: string;
+  failureSummary: string | null;
+  recovery: "connector" | "auth" | "network" | "rate-limit" | null;
 };
 
 export type TranscriptScrollSnapshot = {
@@ -391,6 +393,8 @@ export const emptySyncRun: SyncRunState = {
   kind: "idle",
   lines: [],
   finalMessage: "No sync has run in this browser session yet.",
+  failureSummary: null,
+  recovery: null,
 };
 
 export type ActivityDashboardPayload = {

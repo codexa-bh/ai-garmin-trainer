@@ -355,6 +355,55 @@ body::before {
 .sync-log {
   min-height: 180px;
   max-height: min(42vh, 360px);
+  flex-shrink: 0;
+}
+
+.sync-log-entry {
+  display: block;
+}
+
+.sync-log-entry.error {
+  padding: 6px 8px;
+  border-left: 3px solid var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.sync-failure-summary {
+  padding: 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-bg);
+}
+
+.sync-failure-summary h3 {
+  color: var(--danger);
+}
+
+.sync-login-help {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.sync-failure-summary p,
+.sync-login-help p {
+  margin: 0;
+}
+
+.sync-login-command {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sync-login-command code {
+  user-select: text;
+  overflow-wrap: anywhere;
 }
 
 .sync-metrics-grid {
