@@ -8,6 +8,7 @@ import {
 import { useHealthFeature } from "../src/app/dashboard/use-health";
 import { useProfileFeature } from "../src/app/dashboard/use-profile";
 import { useSyncFeature } from "../src/app/dashboard/use-sync";
+import { syncFailureRecovery } from "../src/app/dashboard/sync-presentation";
 import { useTrainingPlanFeature } from "../src/app/dashboard/use-training-plan";
 
 function response(body: unknown, status = 200) {
@@ -158,6 +159,137 @@ describe("independent dashboard feature ownership", () => {
     expect(result.current.syncRun.kind).toBe("completed");
     expect(result.current.isSyncing).toBe(false);
   });
+
+  it.each([
+    [
+      "Garmin connector request failed; upstream details are withheld to protect credentials and local paths.",
+      "connector",
+    ],
+    [
+      "Garmin MCP exited with code 1. Garmin connector request failed; upstream details are withheld to protect credentials and local paths.",
+      "connector",
+    ],
+    [
+      "Garmin MCP exited with code null. Garmin service rate-limited the request; retry later, not reauthentication.",
+      "rate-limit",
+    ],
+    [
+      "Garmin connection or service is unavailable; authentication validity is inconclusive.",
+      "network",
+    ],
+    [
+      "Garmin authentication could not be verified; check the configured store and perform a separate live verification before requesting reauthentication.",
+      "auth",
+    ],
+    [
+      "Set a literal GARMIN_MCP_TOKEN_DIR in .env.local; no alternate location is searched.",
+      "auth",
+    ],
+    ["Configured token location must be a directory, not a symlink.", "auth"],
+    [
+      "Expected Garmin token file must be a regular file, not a symlink.",
+      "auth",
+    ],
+    [
+      "Expected Garmin token file is empty; repair the selected store before live verification.",
+      "auth",
+    ],
+    [
+      "Configured Garmin token directory or expected file is missing; repair this location, then perform a separate live verification.",
+      "auth",
+    ],
+    [
+      "Configured Garmin auth state is inaccessible; check file types and private permissions. No token contents were read.",
+      "auth",
+    ],
+    ["Application token counter failed", null],
+    ["Garmin MCP exited with code 1. Unknown failure", null],
+    [undefined, null],
+  ] as const)(
+    "classifies only recognized sanitized failure vocabulary: %s",
+    (detail, expected) => {
+      expect(syncFailureRecovery(detail)).toBe(expected);
+    },
+  );
+
+  it.each([
+    {
+      name: "failed result without progress",
+      body: '{"type":"result","status":"failed","detail":"Garmin connector request failed; upstream details are withheld to protect credentials and local paths."}\n',
+      recovery: "connector",
+    },
+    {
+      name: "failed progress with detail-less result",
+      body: '{"stage":"failed","message":"Garmin connector request failed; upstream details are withheld to protect credentials and local paths."}\n{"type":"result","status":"failed"}\n',
+      recovery: "connector",
+    },
+    {
+      name: "failed progress without result",
+      body: '{"stage":"failed"}\n',
+      recovery: null,
+    },
+    {
+      name: "missing detail",
+      body: '{"type":"result","status":"failed"}\n',
+      recovery: null,
+    },
+    {
+      name: "unrelated error",
+      body: '{"type":"result","status":"failed","detail":"Application token counter failed"}\n',
+      recovery: null,
+    },
+    {
+      name: "malformed response",
+      body: "not JSON token auth\n",
+      recovery: null,
+    },
+    {
+      name: "unrelated HTTP",
+      body: '{"status":"blocked","detail":"Expected Garmin token file is empty; repair the selected store before live verification."}',
+      http: 500,
+      recovery: null,
+    },
+    {
+      name: "unrelated 409",
+      body: '{"status":"blocked","detail":"Application token counter failed"}',
+      http: 409,
+      recovery: null,
+    },
+    { name: "thrown fetch", body: "", throws: true, recovery: null },
+  ])(
+    "keeps failure severity separate from login eligibility: $name",
+    async ({ body, http, throws, recovery }) => {
+      const fetch = vi.fn((url: string) => {
+        if (url === "/api/sync") {
+          if (throws)
+            return Promise.reject(new Error("Private diagnostic token auth"));
+          return Promise.resolve(new Response(body, { status: http ?? 200 }));
+        }
+        return Promise.resolve(response({ activities: 0, healthDays: 0 }));
+      });
+      vi.stubGlobal("fetch", fetch);
+      const refreshHealthAfterSync = vi.fn();
+      const { result } = renderHook(() =>
+        useSyncFeature({
+          setStatus: vi.fn(),
+          refreshHealthAfterSync,
+          runAction: vi.fn(),
+        }),
+      );
+      await act(() => result.current.syncNow());
+      expect(result.current.syncRun.kind).toBe("failed");
+      expect(
+        result.current.syncRun.lines.some((line) => line.severity === "error"),
+      ).toBe(true);
+      expect(result.current.syncRun.lines[0].severity).toBe("info");
+      expect(result.current.syncRun.recovery).toBe(recovery);
+      expect(result.current.syncRun.failureSummary).toBeTruthy();
+      expect(refreshHealthAfterSync).not.toHaveBeenCalled();
+      expect(JSON.stringify(result.current.syncRun)).not.toContain(
+        "Private diagnostic",
+      );
+    },
+  );
 
   it("preserves distinct null and finite-number presentation contracts", () => {
     expect(numberLabel(null)).toBe("Unavailable");

@@ -1,10 +1,85 @@
-import { type RefObject } from "react";
+import { useState, type RefObject } from "react";
 import { type ImportSummaryPayload, type SyncRunState } from "./contracts";
 import { numberLabel } from "./formatting";
 import {
   formatDetailCoverageSummary,
   formatHealthCoverageSummary,
+  syncFailureSummary,
 } from "./sync-presentation";
+
+function SyncLoginHelp({
+  recovery,
+}: {
+  recovery: NonNullable<SyncRunState["recovery"]>;
+}) {
+  const [copyFeedback, setCopyFeedback] = useState("");
+  const [copying, setCopying] = useState(false);
+  const command = "npm run garmin:auth";
+
+  async function copyCommand() {
+    setCopying(true);
+    setCopyFeedback("");
+    try {
+      if (!navigator.clipboard?.writeText)
+        throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(command);
+      setCopyFeedback("Login command copied.");
+    } catch {
+      setCopyFeedback(
+        "Could not copy automatically. Select the command above and copy it manually.",
+      );
+    } finally {
+      setCopying(false);
+    }
+  }
+
+  return (
+    <section
+      className="sync-login-help"
+      aria-labelledby="sync-login-help-heading"
+    >
+      <h3 id="sync-login-help-heading">Optional login help</h3>
+      <p>
+        {syncFailureSummary(recovery)} This does not prove expired credentials.
+        {recovery === "network" || recovery === "rate-limit"
+          ? " Login is not an established remedy for this failure."
+          : " Login may not resolve this failure."}
+      </p>
+      <p>
+        Verify and reuse existing credentials first. Only if new authentication
+        is genuinely needed, run this from the selected app checkout in a
+        private interactive terminal:
+      </p>
+      <div className="sync-login-command">
+        <code>{command}</code>
+        <button
+          type="button"
+          onClick={() => {
+            copyCommand().catch(() =>
+              setCopyFeedback(
+                "Could not copy automatically. Select the command above and copy it manually.",
+              ),
+            );
+          }}
+          disabled={copying}
+          aria-label="Copy login command"
+        >
+          {copying ? "Copying…" : "Copy"}
+        </button>
+      </div>
+      <p className="helper-text" role="status" aria-live="polite">
+        {copyFeedback}
+      </p>
+      <p>
+        The command refuses to overwrite existing credential artifacts. Before
+        genuinely needed replacement, manually preserve existing artifacts
+        outside the selected credential directory; never delete your only usable
+        credentials. Keep passwords, MFA codes and auth output private. This app
+        will not run login for you.
+      </p>
+    </section>
+  );
+}
 
 export function SyncView({
   closeSyncView,
@@ -80,17 +155,36 @@ export function SyncView({
               elsewhere; the current-run log will remain available here.
             </p>
           ) : null}
-          <p className="helper-text" role="status" aria-live="polite">
-            {syncRun.finalMessage}
-          </p>
+          {syncRun.failureSummary ? (
+            <div className="sync-failure-summary" role="alert">
+              <h3>Sync failed</h3>
+              <p>{syncRun.failureSummary}</p>
+            </div>
+          ) : (
+            <p className="helper-text" role="status" aria-live="polite">
+              {syncRun.finalMessage}
+            </p>
+          )}
+          {syncRun.recovery ? (
+            <SyncLoginHelp recovery={syncRun.recovery} />
+          ) : null}
           <pre
             ref={syncLogRef}
-            className={`sync-log status ${syncPillKind}`}
+            className="sync-log status"
             aria-label="Current sync progress log"
             aria-live="polite"
           >
             {syncRun.lines.length
-              ? syncRun.lines.join("\n")
+              ? syncRun.lines.map((entry, index) => (
+                  <span
+                    key={index}
+                    className={`sync-log-entry ${entry.severity}`}
+                  >
+                    {entry.severity === "error" ? "ERROR: " : ""}
+                    {entry.text}
+                    {"\n"}
+                  </span>
+                ))
               : "Current-run progress will appear here after Sync now starts."}
           </pre>
         </section>

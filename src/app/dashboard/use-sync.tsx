@@ -19,6 +19,9 @@ import {
   formatSyncFinalMessage,
   formatSyncProgressLine,
   formatSyncResultLine,
+  syncFailureRecovery,
+  syncFailureSummary,
+  syncHttpFailureRecovery,
 } from "./sync-presentation";
 import { readJsonResponse, readResponse } from "./transport";
 
@@ -61,11 +64,17 @@ export function useSyncFeature({
     if (isSyncingRef.current) return;
     isSyncingRef.current = true;
     setIsSyncing(true);
-    let logLines = ["Sync now: starting…"];
+    let logLines: SyncRunState["lines"] = [
+      { text: "Sync now: starting…", severity: "info" },
+    ];
+    let recovery: SyncRunState["recovery"] = null;
+    let failureSummary: string | null = null;
     setSyncRun({
       kind: "running",
       lines: logLines,
       finalMessage: "Sync in progress…",
+      failureSummary,
+      recovery,
     });
     setStatus({ kind: "busy", message: "Sync now: starting…" });
     try {
@@ -73,8 +82,19 @@ export function useSyncFeature({
       if (!response.ok || !response.body) {
         const body = await readResponse(response);
         const message = `Sync now: failed (${response.status})\n${body}`;
-        logLines = [...logLines, message].slice(-20);
-        setSyncRun({ kind: "failed", lines: logLines, finalMessage: message });
+        recovery = syncHttpFailureRecovery(response.status, body);
+        failureSummary = syncFailureSummary(recovery);
+        logLines = [
+          ...logLines,
+          { text: message, severity: "error" as const },
+        ].slice(-20);
+        setSyncRun({
+          kind: "failed",
+          lines: logLines,
+          finalMessage: message,
+          failureSummary,
+          recovery,
+        });
         setStatus({ kind: "error", message });
         return;
       }
@@ -85,14 +105,20 @@ export function useSyncFeature({
       let finalKind: Status["kind"] = "ok";
       let finalMessage = "Sync in progress…";
 
-      const appendLine = (line: string, nextFinalMessage?: string) => {
-        logLines = [...logLines, line].slice(-20);
+      const appendLine = (
+        line: string,
+        severity: "info" | "error",
+        nextFinalMessage?: string,
+      ) => {
+        logLines = [...logLines, { text: line, severity }].slice(-20);
         finalMessage = nextFinalMessage ?? "Sync in progress…";
-        const message = logLines.join("\n");
+        const message = logLines.map((entry) => entry.text).join("\n");
         setSyncRun({
           kind: "running",
           lines: logLines,
           finalMessage,
+          failureSummary,
+          recovery,
         });
         setStatus({
           kind: finalKind === "error" ? "error" : "busy",
@@ -109,14 +135,33 @@ export function useSyncFeature({
         for (const line of lines) {
           if (!line.trim()) continue;
           const event = JSON.parse(line) as SyncProgressEvent;
+          const failed =
+            event.type === "result"
+              ? event.status !== "completed"
+              : event.stage === "failed";
+          if (failed) {
+            finalKind = "error";
+            const detail =
+              event.type === "result" ? event.detail : event.message;
+            if (detail) recovery = syncFailureRecovery(detail);
+            failureSummary = syncFailureSummary(recovery);
+          }
           if (event.type === "result") {
             finalKind = event.status === "completed" ? "ok" : "error";
+            if (!failed) {
+              recovery = null;
+              failureSummary = null;
+            }
             appendLine(
               formatSyncResultLine(event),
+              failed ? "error" : "info",
               formatSyncFinalMessage(event),
             );
           } else {
-            appendLine(formatSyncProgressLine(event));
+            appendLine(
+              formatSyncProgressLine(event),
+              failed ? "error" : "info",
+            );
           }
         }
       }
@@ -124,14 +169,26 @@ export function useSyncFeature({
       if (finalKind === "ok") await refreshHealthAfterSync();
       setSyncRun({
         kind: finalKind === "ok" ? "completed" : "failed",
-        lines: logLines.length ? logLines : ["Sync complete."],
+        lines: logLines,
         finalMessage,
+        failureSummary,
+        recovery,
       });
       setStatus({ kind: finalKind, message: finalMessage });
-    } catch (error) {
-      const message = `Sync now failed: ${error instanceof Error ? error.message : "unknown error"}`;
-      const nextLines = [...logLines, message].slice(-20);
-      setSyncRun({ kind: "failed", lines: nextLines, finalMessage: message });
+    } catch {
+      const message =
+        "Sync now failed: the local app request or sync response could not be read. Check the local app and try again.";
+      const nextLines = [
+        ...logLines,
+        { text: message, severity: "error" as const },
+      ].slice(-20);
+      setSyncRun({
+        kind: "failed",
+        lines: nextLines,
+        finalMessage: message,
+        failureSummary: syncFailureSummary(null),
+        recovery: null,
+      });
       setStatus({ kind: "error", message });
     } finally {
       isSyncingRef.current = false;
