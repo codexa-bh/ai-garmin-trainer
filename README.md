@@ -53,7 +53,7 @@ Install **Git, Node.js 22+ with npm, and Python 3.12-capable `uv`/`uvx`**. Nativ
 Authenticate Git with an account authorized for this private repository, then:
 
 ```bash
-git clone https://github.com/eye1/ai-garmin-trainer.git
+git clone https://github.com/codexa-bh/ai-garmin-trainer.git
 cd ai-garmin-trainer
 npm ci
 cp .env.example .env.local
@@ -148,7 +148,7 @@ Run `npm run validate` for formatting, linting, type checking, tests, and produc
 
 ## Safety and privacy
 
-- Source control stays in the private repository `https://github.com/eye1/ai-garmin-trainer` for backup/collaboration only. This does not authorize public hosting, LAN exposure, deployment, release, or beta invitations.
+- Source control stays in the private repository `https://github.com/codexa-bh/ai-garmin-trainer` for backup/collaboration only. This does not authorize public hosting, LAN exposure, deployment, release, or beta invitations.
 - Local app access has no sign-in gate; loopback/private operation and local secret handling are required.
 - Garmin access is local-only through stdio to a pinned unofficial connector; HTTP transport and connector write operations are not used.
 - The selected cloud AI provider receives bounded chat/Garmin context. Review provider privacy/routing settings; local SQLite storage is not an assurance of fully local processing.
