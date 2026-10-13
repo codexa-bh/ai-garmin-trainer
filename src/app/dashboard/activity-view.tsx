@@ -23,6 +23,202 @@ import {
 } from "./contracts";
 import { numberLabel, finiteNumberLabel } from "./formatting";
 
+function isFiniteMetric(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function activityPresentation(dashboard: ActivityDashboardPayload) {
+  const { activity, charts, detail, route, heartRateZones, laps } = dashboard;
+  const strength = activity.sport === "strength_training";
+  const field = (label: string, value: string, available: boolean) => ({
+    label,
+    value,
+    available,
+  });
+  const visibleFields = (fields: ReturnType<typeof field>[]) =>
+    fields.filter((item) => !strength || item.available);
+  const summary = visibleFields([
+    field(
+      "Duration",
+      durationLabel(activity.durationSec),
+      isFiniteMetric(activity.durationSec),
+    ),
+    field(
+      "Distance",
+      distanceLabel(activity.distanceMeters),
+      isFiniteMetric(activity.distanceMeters) && activity.distanceMeters !== 0,
+    ),
+    field(
+      "Elevation gain",
+      metersLabel(activity.elevationGainMeters),
+      isFiniteMetric(activity.elevationGainMeters),
+    ),
+    field(
+      "Elevation loss",
+      metersLabel(activity.elevationLossMeters),
+      isFiniteMetric(activity.elevationLossMeters),
+    ),
+    field(
+      "Calories",
+      numberLabel(activity.calories),
+      isFiniteMetric(activity.calories),
+    ),
+    field(
+      "Avg HR",
+      `${numberLabel(activity.avgHeartRate)} bpm`,
+      isFiniteMetric(activity.avgHeartRate),
+    ),
+    field(
+      "Max HR",
+      `${numberLabel(activity.maxHeartRate)} bpm`,
+      isFiniteMetric(activity.maxHeartRate),
+    ),
+    field("Steps", numberLabel(activity.steps), isFiniteMetric(activity.steps)),
+  ]);
+  const weightedTotal = weightedIntensityMinutes(
+    activity.moderateIntensityMinutes,
+    activity.vigorousIntensityMinutes,
+  );
+  const intensity = visibleFields([
+    field(
+      "Total",
+      finiteNumberUnitLabel(weightedTotal, "min", 0),
+      isFiniteMetric(weightedTotal),
+    ),
+    field(
+      "Moderate",
+      finiteNumberUnitLabel(activity.moderateIntensityMinutes, "min", 0),
+      isFiniteMetric(activity.moderateIntensityMinutes),
+    ),
+    field(
+      "Vigorous",
+      finiteNumberUnitLabel(activity.vigorousIntensityMinutes, "min", 0),
+      isFiniteMetric(activity.vigorousIntensityMinutes),
+    ),
+  ]);
+  const benefit = primaryBenefitLabel(activity.trainingEffectLabel);
+  const trainingEffect = visibleFields([
+    field(
+      "Aerobic",
+      finiteNumberLabel(activity.trainingEffect, 1),
+      isFiniteMetric(activity.trainingEffect),
+    ),
+    field(
+      "Anaerobic",
+      finiteNumberLabel(activity.anaerobicTrainingEffect, 1),
+      isFiniteMetric(activity.anaerobicTrainingEffect),
+    ),
+    field(
+      "Primary Benefit",
+      benefit,
+      (activity.trainingEffectLabel ?? "").split(/[_\s]+/).some(Boolean),
+    ),
+    field(
+      "Exercise Load",
+      finiteNumberLabel(activity.trainingLoad, 0),
+      isFiniteMetric(activity.trainingLoad),
+    ),
+  ]);
+  const chartable = (key: "heartRate" | "altitudeMeters" | "speedKmh") =>
+    charts.points.filter((point) => isFiniteMetric(point[key])).length >= 2;
+  const heartRate =
+    !strength || (detail.hasHeartRate && chartable("heartRate"));
+  const elevation =
+    !strength || (detail.hasElevation && chartable("altitudeMeters"));
+  const speed =
+    !strength ||
+    (charts.speed?.status === "available" &&
+      chartable("speedKmh") &&
+      charts.points.some(
+        (point) => isFiniteMetric(point.speedKmh) && point.speedKmh !== 0,
+      ));
+  const showRoute =
+    !strength ||
+    (route.status === "available" &&
+      route.bounds !== null &&
+      route.points.length >= 2);
+  const zones =
+    !strength ||
+    (heartRateZones.status === "available" &&
+      heartRateZones.buckets.some(
+        (bucket) =>
+          isFiniteMetric(bucket.seconds) && isFiniteMetric(bucket.percent),
+      ));
+
+  // Pick one column set for every row; null cells stay blank, never shift left.
+  const lapRows = laps.map((lap) => {
+    const pace = paceLabel(lap.durationSec, lap.distanceMeters);
+    const speedLabel = averageSpeedLabel(lap.avgSpeedMps);
+    const gain = isFiniteMetric(lap.elevationGainMeters);
+    const loss = isFiniteMetric(lap.elevationLossMeters);
+    return {
+      lapNumber: lap.lapNumber,
+      cells: [
+        !strength || isFiniteMetric(lap.durationSec)
+          ? durationLabel(lap.durationSec)
+          : null,
+        !strength ||
+        (isFiniteMetric(lap.distanceMeters) && lap.distanceMeters !== 0)
+          ? distanceLabel(lap.distanceMeters)
+          : null,
+        !strength ||
+        (isFiniteMetric(lap.durationSec) &&
+          isFiniteMetric(lap.distanceMeters) &&
+          pace !== "Unavailable")
+          ? pace
+          : null,
+        !strength ||
+        (isFiniteMetric(lap.avgSpeedMps) && speedLabel !== "Unavailable")
+          ? speedLabel
+          : null,
+        !strength || isFiniteMetric(lap.avgHeartRate)
+          ? `${numberLabel(lap.avgHeartRate)} bpm`
+          : null,
+        !strength
+          ? `${metersLabel(lap.elevationGainMeters)} / ${metersLabel(lap.elevationLossMeters)}`
+          : gain || loss
+            ? `${gain ? metersLabel(lap.elevationGainMeters) : "—"} / ${loss ? metersLabel(lap.elevationLossMeters) : "—"}`
+            : null,
+      ],
+    };
+  });
+  const lapColumns = [
+    "Duration",
+    "Distance",
+    "Pace",
+    "Avg Speed",
+    "Avg HR",
+    "Elev +/−",
+  ]
+    .map((label, index) => ({ label, index }))
+    .filter(
+      ({ index }) =>
+        !strength ||
+        (lapRows.some((row) => row.cells[index] !== null) &&
+          (index !== 3 ||
+            laps.some(
+              (lap) => isFiniteMetric(lap.avgSpeedMps) && lap.avgSpeedMps > 0,
+            ))),
+    );
+  const visibleLaps = lapRows.filter(
+    (row) =>
+      !strength || lapColumns.some(({ index }) => row.cells[index] !== null),
+  );
+  return {
+    strength,
+    summary,
+    intensity,
+    trainingEffect,
+    heartRate,
+    elevation,
+    speed,
+    showRoute,
+    zones,
+    lapColumns,
+    visibleLaps,
+  };
+}
+
 export function ActivityView({
   activitySelectorCollapsed,
   closeActivityDashboard,
@@ -62,6 +258,9 @@ export function ActivityView({
   activityDashboardState: "error" | "idle" | "loading" | "loaded";
   activityDashboard: ActivityDashboardPayload | null;
 }) {
+  const presentation = activityDashboard
+    ? activityPresentation(activityDashboard)
+    : null;
   return (
     <section
       className={`activity-dashboard-panel ${activitySelectorCollapsed ? "activity-selector-collapsed" : ""}`}
@@ -194,7 +393,7 @@ export function ActivityView({
       <div className="selected-activity-detail">
         {activityDashboardState === "loading" ? (
           <p className="empty-chat">Loading selected activity details…</p>
-        ) : activityDashboard ? (
+        ) : activityDashboard && presentation ? (
           <>
             <div className="selected-activity-heading">
               <div>
@@ -209,242 +408,188 @@ export function ActivityView({
                 Detail: {activityDashboard.detail.status ?? "not requested"}
               </span>
             </div>
-            <div
-              className="activity-stat-grid"
-              aria-label="Selected activity summary stats"
-            >
-              <span>
-                <strong>Duration</strong>
-                {durationLabel(activityDashboard.activity.durationSec)}
-              </span>
-              <span>
-                <strong>Distance</strong>
-                {distanceLabel(activityDashboard.activity.distanceMeters)}
-              </span>
-              <span>
-                <strong>Elevation gain</strong>
-                {metersLabel(activityDashboard.activity.elevationGainMeters)}
-              </span>
-              <span>
-                <strong>Elevation loss</strong>
-                {metersLabel(activityDashboard.activity.elevationLossMeters)}
-              </span>
-              <span>
-                <strong>Calories</strong>
-                {numberLabel(activityDashboard.activity.calories)}
-              </span>
-              <span>
-                <strong>Avg HR</strong>
-                {numberLabel(activityDashboard.activity.avgHeartRate)} bpm
-              </span>
-              <span>
-                <strong>Max HR</strong>
-                {numberLabel(activityDashboard.activity.maxHeartRate)} bpm
-              </span>
-              <span>
-                <strong>Steps</strong>
-                {numberLabel(activityDashboard.activity.steps)}
-              </span>
-            </div>
-            <div className="activity-chart-grid">
-              {activityDashboard.detail.hasHeartRate ? (
-                <MiniLineChart
-                  title="Heart rate"
-                  unit="bpm"
-                  points={activityDashboard.charts.points}
-                  valueKey="heartRate"
-                  domainStartSec={activityDashboard.charts.domainStartSec}
-                  domainEndSec={activityDashboard.charts.domainEndSec}
-                  averageValue={finiteHeartRateAverage(
-                    activityDashboard.activity.avgHeartRate,
-                  )}
-                />
-              ) : (
-                <div className="activity-chart empty-state">
-                  No heart-rate stream data available.
-                </div>
-              )}
-              {activityDashboard.detail.hasElevation ? (
-                <MiniLineChart
-                  title="Elevation profile"
-                  unit="m"
-                  points={activityDashboard.charts.points}
-                  valueKey="altitudeMeters"
-                  domainStartSec={activityDashboard.charts.domainStartSec}
-                  domainEndSec={activityDashboard.charts.domainEndSec}
-                  readoutDetail={(point) => gradeReadoutLabel(point.gradePct)}
-                />
-              ) : (
-                <div className="activity-chart empty-state">
-                  No per-point altitude stream data available.
-                </div>
-              )}
-              {activityDashboard.charts.speed?.status === "available" ? (
-                <MiniLineChart
-                  title="Speed"
-                  unit="km/h"
-                  points={activityDashboard.charts.points}
-                  valueKey="speedKmh"
-                  domainStartSec={activityDashboard.charts.domainStartSec}
-                  domainEndSec={activityDashboard.charts.domainEndSec}
-                  formatValue={speedKmhLabel}
-                  averageValue={finiteChartAverage(
-                    activityDashboard.charts.points.map(
-                      (point) => point.speedKmh,
-                    ),
-                  )}
-                />
-              ) : (
-                <div className="activity-chart empty-state">
-                  <strong>Speed</strong>
-                  <span>
-                    {activityDashboard.charts.speed?.message ??
-                      "Speed unavailable because normalized cumulative-distance stream samples are not available."}
+            {presentation.summary.length ? (
+              <div
+                className="activity-stat-grid"
+                aria-label="Selected activity summary stats"
+              >
+                {presentation.summary.map((item) => (
+                  <span key={item.label}>
+                    <strong>{item.label}</strong>
+                    {item.value}
                   </span>
-                </div>
-              )}
-            </div>
-            <div className="route-zone-grid">
-              <RouteMap route={activityDashboard.route} />
-              <HeartRateZoneTimeChart
-                summary={activityDashboard.heartRateZones}
-              />
-            </div>
-            <div
-              className="activity-effort-widget-grid"
-              aria-label="Selected activity effort widgets"
-            >
-              <section
-                className="activity-effort-widget"
-                aria-labelledby="activity-intensity-minutes-heading"
-              >
-                <div className="activity-effort-widget-heading">
-                  <h3 id="activity-intensity-minutes-heading">
-                    Intensity Minutes
-                  </h3>
-                  <span>Weighted total</span>
-                </div>
-                <dl className="activity-effort-list">
-                  <div>
-                    <dt>Total</dt>
-                    <dd>
-                      {finiteNumberUnitLabel(
-                        weightedIntensityMinutes(
-                          activityDashboard.activity.moderateIntensityMinutes,
-                          activityDashboard.activity.vigorousIntensityMinutes,
+                ))}
+              </div>
+            ) : null}
+            {presentation.heartRate ||
+            presentation.elevation ||
+            presentation.speed ? (
+              <div className="activity-chart-grid">
+                {presentation.heartRate ? (
+                  activityDashboard.detail.hasHeartRate ? (
+                    <MiniLineChart
+                      title="Heart rate"
+                      unit="bpm"
+                      points={activityDashboard.charts.points}
+                      valueKey="heartRate"
+                      domainStartSec={activityDashboard.charts.domainStartSec}
+                      domainEndSec={activityDashboard.charts.domainEndSec}
+                      averageValue={finiteHeartRateAverage(
+                        activityDashboard.activity.avgHeartRate,
+                      )}
+                    />
+                  ) : (
+                    <div className="activity-chart empty-state">
+                      No heart-rate stream data available.
+                    </div>
+                  )
+                ) : null}
+                {presentation.elevation ? (
+                  activityDashboard.detail.hasElevation ? (
+                    <MiniLineChart
+                      title="Elevation profile"
+                      unit="m"
+                      points={activityDashboard.charts.points}
+                      valueKey="altitudeMeters"
+                      domainStartSec={activityDashboard.charts.domainStartSec}
+                      domainEndSec={activityDashboard.charts.domainEndSec}
+                      readoutDetail={(point) =>
+                        gradeReadoutLabel(point.gradePct)
+                      }
+                    />
+                  ) : (
+                    <div className="activity-chart empty-state">
+                      No per-point altitude stream data available.
+                    </div>
+                  )
+                ) : null}
+                {presentation.speed ? (
+                  activityDashboard.charts.speed?.status === "available" ? (
+                    <MiniLineChart
+                      title="Speed"
+                      unit="km/h"
+                      points={activityDashboard.charts.points}
+                      valueKey="speedKmh"
+                      domainStartSec={activityDashboard.charts.domainStartSec}
+                      domainEndSec={activityDashboard.charts.domainEndSec}
+                      formatValue={speedKmhLabel}
+                      averageValue={finiteChartAverage(
+                        activityDashboard.charts.points.map(
+                          (point) => point.speedKmh,
                         ),
-                        "min",
-                        0,
                       )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Moderate</dt>
-                    <dd>
-                      {finiteNumberUnitLabel(
-                        activityDashboard.activity.moderateIntensityMinutes,
-                        "min",
-                        0,
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>
-                      Vigorous <span className="effort-weight-cue">x2</span>
-                    </dt>
-                    <dd>
-                      {finiteNumberUnitLabel(
-                        activityDashboard.activity.vigorousIntensityMinutes,
-                        "min",
-                        0,
-                      )}
-                    </dd>
-                  </div>
-                </dl>
-              </section>
-              <section
-                className="activity-effort-widget"
-                aria-labelledby="activity-training-effect-heading"
+                    />
+                  ) : (
+                    <div className="activity-chart empty-state">
+                      <strong>Speed</strong>
+                      <span>
+                        {activityDashboard.charts.speed?.message ??
+                          "Speed unavailable because normalized cumulative-distance stream samples are not available."}
+                      </span>
+                    </div>
+                  )
+                ) : null}
+              </div>
+            ) : null}
+            {presentation.showRoute || presentation.zones ? (
+              <div
+                className={`route-zone-grid ${presentation.strength ? "strength-detail-grid" : ""}`}
               >
-                <div className="activity-effort-widget-heading">
-                  <h3 id="activity-training-effect-heading">Training Effect</h3>
-                  <span>Effort summary</span>
-                </div>
-                <dl className="activity-effort-list activity-effort-list-grid">
-                  <div>
-                    <dt>Aerobic</dt>
-                    <dd>
-                      {finiteNumberLabel(
-                        activityDashboard.activity.trainingEffect,
-                        1,
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Anaerobic</dt>
-                    <dd>
-                      {finiteNumberLabel(
-                        activityDashboard.activity.anaerobicTrainingEffect,
-                        1,
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Primary Benefit</dt>
-                    <dd>
-                      {primaryBenefitLabel(
-                        activityDashboard.activity.trainingEffectLabel,
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Exercise Load</dt>
-                    <dd>
-                      {finiteNumberLabel(
-                        activityDashboard.activity.trainingLoad,
-                        0,
-                      )}
-                    </dd>
-                  </div>
-                </dl>
-              </section>
-            </div>
-            {activityDashboard.laps.length ? (
+                {presentation.showRoute ? (
+                  <RouteMap route={activityDashboard.route} />
+                ) : null}
+                {presentation.zones ? (
+                  <HeartRateZoneTimeChart
+                    summary={activityDashboard.heartRateZones}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+            {presentation.intensity.length ||
+            presentation.trainingEffect.length ? (
+              <div
+                className="activity-effort-widget-grid"
+                aria-label="Selected activity effort widgets"
+              >
+                {presentation.intensity.length ? (
+                  <section
+                    className="activity-effort-widget"
+                    aria-labelledby="activity-intensity-minutes-heading"
+                  >
+                    <div className="activity-effort-widget-heading">
+                      <h3 id="activity-intensity-minutes-heading">
+                        Intensity Minutes
+                      </h3>
+                      <span>Weighted total</span>
+                    </div>
+                    <dl className="activity-effort-list">
+                      {presentation.intensity.map((item) => (
+                        <div key={item.label}>
+                          <dt>
+                            {item.label}
+                            {item.label === "Vigorous" ? (
+                              <>
+                                {" "}
+                                <span className="effort-weight-cue">x2</span>
+                              </>
+                            ) : null}
+                          </dt>
+                          <dd>{item.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ) : null}
+                {presentation.trainingEffect.length ? (
+                  <section
+                    className={`activity-effort-widget ${presentation.strength ? "strength-detail-grid" : ""}`}
+                    aria-labelledby="activity-training-effect-heading"
+                  >
+                    <div className="activity-effort-widget-heading">
+                      <h3 id="activity-training-effect-heading">
+                        Training Effect
+                      </h3>
+                      <span>Effort summary</span>
+                    </div>
+                    <dl className="activity-effort-list activity-effort-list-grid">
+                      {presentation.trainingEffect.map((item) => (
+                        <div key={item.label}>
+                          <dt>{item.label}</dt>
+                          <dd>{item.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+            {presentation.visibleLaps.length ? (
               <div className="lap-table-wrap">
                 <table className="lap-table">
                   <caption>Lap details</caption>
                   <thead>
                     <tr>
-                      <th>Lap</th>
-                      <th>Duration</th>
-                      <th>Distance</th>
-                      <th>Pace</th>
-                      <th>Avg Speed</th>
-                      <th>Avg HR</th>
-                      <th>Elev +/−</th>
+                      <th scope="col">Lap</th>
+                      {presentation.lapColumns.map(({ label }) => (
+                        <th scope="col" key={label}>
+                          {label}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {activityDashboard.laps.map((lap) => (
+                    {presentation.visibleLaps.map((lap) => (
                       <tr key={lap.lapNumber}>
                         <td>{lap.lapNumber}</td>
-                        <td>{durationLabel(lap.durationSec)}</td>
-                        <td>{distanceLabel(lap.distanceMeters)}</td>
-                        <td>
-                          {paceLabel(lap.durationSec, lap.distanceMeters)}
-                        </td>
-                        <td>{averageSpeedLabel(lap.avgSpeedMps)}</td>
-                        <td>{numberLabel(lap.avgHeartRate)} bpm</td>
-                        <td>
-                          {metersLabel(lap.elevationGainMeters)} /{" "}
-                          {metersLabel(lap.elevationLossMeters)}
-                        </td>
+                        {presentation.lapColumns.map(({ label, index }) => (
+                          <td key={label}>{lap.cells[index] ?? ""}</td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            ) : (
+            ) : presentation.strength ? null : (
               <p className="activity-dashboard-status">
                 No lap rows are available for this activity.
               </p>
