@@ -1242,6 +1242,11 @@ body::before {
   min-width: 0;
 }
 
+.route-zone-grid.strength-detail-grid > :only-child,
+.strength-detail-grid .activity-effort-list-grid > :only-child {
+  grid-column: 1 / -1;
+}
+
 .route-map-card,
 .hr-zone-card {
   display: flex;
@@ -2467,6 +2472,16 @@ label {
 }
 
 @media (max-width: 640px) {
+  .strength-detail-grid .hr-zone-row {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .strength-detail-grid .hr-zone-row > div,
+  .strength-detail-grid .hr-zone-row > p {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .app-topbar {
     gap: 10px;
     padding: 8px;

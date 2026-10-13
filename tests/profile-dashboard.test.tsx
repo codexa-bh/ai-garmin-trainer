@@ -15,6 +15,8 @@ import { stubNativeDialog } from "./native-dialog-stub";
 beforeEach(stubNativeDialog);
 import { metadata } from "../src/app/layout";
 import { TrainerDashboard } from "../src/app/trainer-dashboard";
+import { ActivityView } from "../src/app/dashboard/activity-view";
+import type { ActivityDashboardPayload } from "../src/app/dashboard/contracts";
 
 const emptyChat = {
   conversationId: "default",
@@ -1592,6 +1594,438 @@ describe("TrainerDashboard athlete baseline summary", () => {
     "labels health coverage and presents %s HR zones neutrally",
     checkBaselineZonePresentation,
   );
+});
+
+describe("strength activity detail visibility", () => {
+  it("scopes single-child reflow and narrow HR-zone tracks to strength details", () => {
+    const css = readFileSync("src/app/style.css", "utf8");
+    expect(css).toMatch(
+      /\.route-zone-grid\.strength-detail-grid > :only-child,[\s\S]*?grid-column: 1 \/ -1;/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 640px\) \{\s*\.strength-detail-grid \.hr-zone-row \{\s*grid-template-columns: minmax\(0, 0.9fr\) minmax\(0, 1fr\) minmax\(0, 1fr\);/,
+    );
+    expect(css).toMatch(
+      /\.strength-detail-grid \.hr-zone-row > p \{\s*min-width: 0;\s*overflow-wrap: anywhere;/,
+    );
+  });
+
+  function sparseStrength(): ActivityDashboardPayload {
+    return {
+      activity: {
+        garminId: "strength-205",
+        name: null,
+        label: "Strength session",
+        sport: "strength_training",
+        date: "2026-10-13",
+        startedAt: "2026-10-13T07:00:00Z",
+        detailStatus: null,
+        durationSec: null,
+        distanceMeters: 0,
+        elevationGainMeters: null,
+        elevationLossMeters: null,
+        calories: null,
+        avgHeartRate: null,
+        maxHeartRate: null,
+        steps: null,
+        trainingEffect: null,
+        anaerobicTrainingEffect: null,
+        trainingEffectLabel: null,
+        trainingLoad: null,
+        moderateIntensityMinutes: null,
+        vigorousIntensityMinutes: null,
+        totalIntensityMinutes: 99,
+      },
+      detail: {
+        status: "available",
+        hasHeartRate: false,
+        hasElevation: false,
+        hasLaps: false,
+        recordCount: 0,
+        lapCount: 0,
+      },
+      charts: {
+        downsampled: false,
+        sourcePointCount: 0,
+        pointCount: 0,
+        maxPoints: 400,
+        domainStartSec: 0,
+        domainEndSec: 60,
+        timeScaleStatus: "elapsed",
+        timeScaleMessage: null,
+        points: [],
+        speed: {
+          status: "missing_speed",
+          sourcePointCount: 0,
+          pointCount: 0,
+          message: "Speed unavailable",
+        },
+      },
+      route: {
+        status: "missing_gps",
+        sourcePointCount: 0,
+        pointCount: 0,
+        maxPoints: 400,
+        simplified: false,
+        bounds: null,
+        points: [],
+        message: "Route unavailable",
+      },
+      heartRateZones: {
+        status: "missing_zones",
+        timeSource: null,
+        zoneSource: null,
+        zoneStatus: "unavailable",
+        formula: null,
+        classifiedSeconds: 0,
+        unclassifiedSeconds: 0,
+        noHeartRateSeconds: 0,
+        activityDurationSec: null,
+        sourceTotalSeconds: null,
+        message: "Zones unavailable",
+        buckets: [],
+      },
+      laps: [],
+    };
+  }
+
+  function detailView(dashboard: ActivityDashboardPayload) {
+    return (
+      <ActivityView
+        activitySelectorCollapsed={false}
+        closeActivityDashboard={() => {}}
+        activityDashboardCloseRef={{ current: null }}
+        setActivitySelectorCollapsed={() => {}}
+        activitySearchQuery=""
+        setActivitySearchQuery={() => {}}
+        activityListMessage=""
+        handleActivityListScroll={() => {}}
+        activityListState="loaded"
+        activities={[dashboard.activity]}
+        selectedActivityId={dashboard.activity.garminId}
+        runInBackground={() => {}}
+        selectActivityDashboard={() => Promise.resolve()}
+        isActivityListLoadingMore={false}
+        activityListNextOffset={null}
+        activityListTotalApprox={1}
+        activityDashboardState="loaded"
+        activityDashboard={dashboard}
+      />
+    );
+  }
+
+  function lap(
+    overrides: Partial<ActivityDashboardPayload["laps"][number]> = {},
+  ): ActivityDashboardPayload["laps"][number] {
+    return {
+      lapNumber: 1,
+      durationSec: null,
+      distanceMeters: null,
+      avgSpeedMps: null,
+      avgHeartRate: null,
+      maxHeartRate: null,
+      elevationGainMeters: null,
+      elevationLossMeters: null,
+      avgPowerWatts: null,
+      normalizedPowerWatts: null,
+      ...overrides,
+    };
+  }
+
+  it("unmounts every empty strength group, including unavailable effort and laps", () => {
+    const data = sparseStrength();
+    data.activity.calories = NaN;
+    data.activity.steps = Infinity;
+    data.activity.trainingEffectLabel = " ___ \t ";
+    data.laps = [lap({ distanceMeters: 0, avgSpeedMps: 0, maxHeartRate: 150 })];
+    render(detailView(data));
+    const detail = screen
+      .getByRole("region", { name: "Selected activity dashboard" })
+      .querySelector(".selected-activity-detail")!;
+    expect(
+      detail.querySelectorAll(
+        ".activity-stat-grid, .activity-chart-grid, .route-zone-grid, .activity-effort-widget-grid, .lap-table-wrap",
+      ).length,
+    ).toBe(0);
+    expect(detail.textContent).not.toMatch(
+      /Unavailable|No lap|Not enough|Infinity|NaN/,
+    );
+    expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
+    expect(screen.getByRole("searchbox")).toBeTruthy();
+    expect(detail.textContent).toContain("Detail: available");
+  });
+
+  it("keeps useful screenshot-like strength stats, heart rate, and zero HR-zone buckets", () => {
+    const data = sparseStrength();
+    Object.assign(data.activity, {
+      durationSec: 3720,
+      calories: 688,
+      avgHeartRate: 131,
+      maxHeartRate: 162,
+      steps: 218,
+    });
+    data.detail.hasHeartRate = true;
+    data.charts.speed!.status = "available";
+    data.charts.points = [0, 60].map((elapsedSec) => ({
+      elapsedSec,
+      heartRate: 131,
+      altitudeMeters: null,
+      speedKmh: 0,
+      gradePct: null,
+    }));
+    Object.assign(data.heartRateZones, {
+      status: "available",
+      classifiedSeconds: 60,
+      sourceTotalSeconds: 60,
+      activityDurationSec: 3720,
+      buckets: [
+        {
+          zone: 5,
+          label: null,
+          lowerBpm: 160,
+          upperBpm: null,
+          seconds: 0,
+          percent: 0,
+        },
+        {
+          zone: 2,
+          label: null,
+          lowerBpm: 100,
+          upperBpm: 130,
+          seconds: 60,
+          percent: 100,
+        },
+      ],
+    });
+    render(detailView(data));
+    const summary = screen.getByLabelText("Selected activity summary stats");
+    expect(summary.textContent).toContain("688");
+    expect(within(summary).queryByText("Distance")).toBeNull();
+    expect(within(summary).queryByText("Elevation gain")).toBeNull();
+    expect(
+      screen.getByRole("img", { name: "Heart rate over elapsed time" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("img", { name: "Speed over elapsed time" }),
+    ).toBeNull();
+    expect(screen.queryByText("Route map unavailable")).toBeNull();
+    expect(screen.getByText("Zone 5")).toBeTruthy();
+    expect(screen.getByText("0s · 0%")).toBeTruthy();
+    expect(screen.getByText(/Recorded HR time differs/)).toBeTruthy();
+    expect(
+      screen.getByLabelText("Time in HR zones").parentElement?.children.length,
+    ).toBe(1);
+  });
+
+  it("keeps meaningful zero stats and partial effort without inventing weighted inputs", () => {
+    const data = sparseStrength();
+    Object.assign(data.activity, {
+      durationSec: 0,
+      calories: 0,
+      elevationGainMeters: 0,
+      anaerobicTrainingEffect: 0,
+      trainingLoad: 0,
+      moderateIntensityMinutes: 0,
+      trainingEffectLabel: " __aErObIc___BASE__ ",
+    });
+    const view = render(detailView(data));
+    expect(
+      screen.getByLabelText("Selected activity summary stats").textContent,
+    ).toContain("Elevation gain0 m");
+    const effort = screen.getByLabelText("Selected activity effort widgets");
+    expect(
+      within(effort).getByText("Moderate").nextElementSibling?.textContent,
+    ).toBe("0 min");
+    expect(within(effort).queryByText("Total")).toBeNull();
+    expect(within(effort).queryByText("Aerobic")).toBeNull();
+    expect(
+      within(effort).getByText("Anaerobic").nextElementSibling?.textContent,
+    ).toBe("0.0");
+    expect(
+      within(effort).getByText("Exercise Load").nextElementSibling?.textContent,
+    ).toBe("0");
+    expect(within(effort).getByText("Aerobic Base")).toBeTruthy();
+    data.activity.vigorousIntensityMinutes = 0;
+    view.rerender(detailView(data));
+    expect(
+      within(effort).getByText("Total").nextElementSibling?.textContent,
+    ).toBe("0 min");
+    expect(within(effort).getByText("x2")).toBeTruthy();
+  });
+
+  it("requires displayable streams, routes and zone buckets even when flags say available", () => {
+    const data = sparseStrength();
+    Object.assign(data.detail, { hasHeartRate: true, hasElevation: true });
+    data.charts.speed!.status = "available";
+    data.charts.points = [
+      {
+        elapsedSec: 0,
+        heartRate: 130,
+        altitudeMeters: 0,
+        speedKmh: 2,
+        gradePct: null,
+      },
+      {
+        elapsedSec: 60,
+        heartRate: NaN,
+        altitudeMeters: Infinity,
+        speedKmh: null,
+        gradePct: null,
+      },
+    ];
+    Object.assign(data.route, {
+      status: "available",
+      points: [
+        { elapsedSec: 0, lat: 1, lon: 1, altitudeMeters: null, gradePct: null },
+      ],
+    });
+    data.heartRateZones.status = "available";
+    const view = render(detailView(data));
+    expect(view.container.querySelector(".activity-chart-grid")).toBeNull();
+    expect(view.container.querySelector(".route-zone-grid")).toBeNull();
+    data.charts.points = [];
+    view.rerender(detailView(data));
+    expect(screen.queryByText("Not enough chartable data.")).toBeNull();
+  });
+
+  it("retains real movement, stopped samples, flat zero elevation and usable route", () => {
+    const data = sparseStrength();
+    data.activity.distanceMeters = 500;
+    data.detail.hasElevation = true;
+    data.charts.speed!.status = "available";
+    data.charts.points = [0, 60, 120].map((elapsedSec, index) => ({
+      elapsedSec,
+      heartRate: null,
+      altitudeMeters: 0,
+      speedKmh: index === 0 ? 0 : index === 1 ? null : 2,
+      gradePct: null,
+    }));
+    Object.assign(data.route, {
+      status: "available",
+      bounds: {
+        minLat: 1,
+        maxLat: 1.01,
+        minLon: 1,
+        maxLon: 1.01,
+        minAltitudeMeters: null,
+        maxAltitudeMeters: null,
+      },
+      points: [
+        { elapsedSec: 0, lat: 1, lon: 1, altitudeMeters: null, gradePct: null },
+        {
+          elapsedSec: 60,
+          lat: 1.01,
+          lon: 1.01,
+          altitudeMeters: null,
+          gradePct: null,
+        },
+      ],
+    });
+    render(detailView(data));
+    expect(
+      within(
+        screen.getByLabelText("Selected activity summary stats"),
+      ).getByText("Distance"),
+    ).toBeTruthy();
+    const speed = screen.getByRole("img", { name: "Speed over elapsed time" });
+    expect(screen.getByText("0m elapsed · 0 km/h · Avg 1 km/h")).toBeTruthy();
+    fireEvent.keyDown(speed, { key: "ArrowRight" });
+    expect(screen.getByText("2m elapsed · 2 km/h · Avg 1 km/h")).toBeTruthy();
+    expect(
+      screen.getByRole("img", { name: "Elevation profile over elapsed time" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Route map unavailable")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Zoom in route map" }),
+    ).toBeTruthy();
+  });
+
+  it("uses aligned lap columns, partial elevation and neutral missing cells", () => {
+    const data = sparseStrength();
+    data.laps = [
+      lap({
+        lapNumber: 1,
+        durationSec: 60,
+        distanceMeters: 0,
+        avgSpeedMps: 0,
+        elevationGainMeters: 0,
+      }),
+      lap({
+        lapNumber: 2,
+        durationSec: 120,
+        distanceMeters: 100,
+        avgSpeedMps: 2,
+        avgHeartRate: 120,
+        elevationLossMeters: 5,
+      }),
+      lap({ lapNumber: 3 }),
+      lap({ lapNumber: 4, avgHeartRate: 0 }),
+    ];
+    render(detailView(data));
+    const table = screen.getByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      "Lap",
+      "Duration",
+      "Distance",
+      "Pace",
+      "Avg Speed",
+      "Avg HR",
+      "Elev +/−",
+    ]);
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    expect(
+      rows.map((row) =>
+        Array.from(row.children).map((cell) => cell.textContent),
+      ),
+    ).toEqual([
+      ["1", "1m", "", "", "0 km/h", "", "0 m / —"],
+      ["2", "2m", "0.10 km", "20:00/km", "7.2 km/h", "120 bpm", "— / 5 m"],
+      ["4", "", "", "", "", "0 bpm", ""],
+    ]);
+    expect(
+      rows.every(
+        (row) => row.children.length === table.querySelectorAll("th").length,
+      ),
+    ).toBe(true);
+  });
+
+  it("omits all-zero lap speed/distance columns and resets visibility on sport selection", () => {
+    const data = sparseStrength();
+    data.laps = [
+      lap({ durationSec: 60, distanceMeters: 0, avgSpeedMps: 0 }),
+      lap({ lapNumber: 2, avgSpeedMps: 0 }),
+    ];
+    const view = render(detailView(data));
+    expect(
+      screen.getAllByRole("columnheader").map((cell) => cell.textContent),
+    ).toEqual(["Lap", "Duration"]);
+    expect(screen.getByRole("table").querySelectorAll("tbody tr").length).toBe(
+      1,
+    );
+    const running = structuredClone(data);
+    running.activity.sport = "running";
+    view.rerender(detailView(running));
+    expect(
+      screen.getByText("No heart-rate stream data available."),
+    ).toBeTruthy();
+    expect(screen.getByText("Route map unavailable")).toBeTruthy();
+    expect(
+      within(
+        screen.getByLabelText("Selected activity summary stats"),
+      ).getByText("Distance"),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("columnheader").length).toBe(7);
+    expect(screen.getByRole("table").querySelectorAll("tbody tr").length).toBe(
+      2,
+    );
+    view.rerender(detailView(data));
+    expect(screen.queryByText("Route map unavailable")).toBeNull();
+    expect(screen.getAllByRole("columnheader").length).toBe(2);
+  });
 });
 
 describe("TrainerDashboard activity charts", () => {
