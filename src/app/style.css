@@ -1206,6 +1206,10 @@ body::before {
   outline-offset: 4px;
 }
 
+.activity-chart-cursor {
+  pointer-events: none;
+}
+
 .activity-chart-cursor line {
   stroke: rgba(255, 255, 255, 0.58);
   stroke-dasharray: 4 4;

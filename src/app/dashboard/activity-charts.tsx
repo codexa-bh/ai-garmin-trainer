@@ -1,5 +1,6 @@
 "use client";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -384,6 +385,48 @@ export function MiniLineChart({
       }),
     [domainEndSec, domainStartSec, points, readoutDetail, valueKey],
   );
+  const [markerRadii, setMarkerRadii] = useState<{
+    rx: number;
+    ry: number;
+  } | null>(null);
+  const { width: modelWidth, height: modelHeight } = preparedChart.model;
+  const updateMarkerGeometry = useCallback(
+    ({ width, height }: Pick<DOMRect, "width" | "height">) => {
+      // The full-width SVG stretches both axes independently. Keep the fill
+      // radius at 4 CSS pixels; non-scaling-stroke only preserves the outline.
+      const rx = (4 * modelWidth) / width;
+      const ry = (4 * modelHeight) / height;
+      const valid =
+        Number.isFinite(width) &&
+        width > 0 &&
+        Number.isFinite(height) &&
+        height > 0 &&
+        Number.isFinite(rx) &&
+        rx > 0 &&
+        Number.isFinite(ry) &&
+        ry > 0;
+      setMarkerRadii((current) => {
+        if (!valid) return current === null ? current : null;
+        return current?.rx === rx && current.ry === ry ? current : { rx, ry };
+      });
+    },
+    [modelWidth, modelHeight],
+  );
+  const attachChartSvg = useCallback(
+    (svg: SVGSVGElement | null) => {
+      if (!svg) return;
+      const measure = () => updateMarkerGeometry(svg.getBoundingClientRect());
+      measure();
+      if (typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(measure);
+        observer.observe(svg);
+        return () => observer.disconnect();
+      }
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    },
+    [updateMarkerGeometry],
+  );
   const averageLine = useMemo(() => {
     if (typeof averageValue !== "number" || !Number.isFinite(averageValue)) {
       return null;
@@ -435,6 +478,7 @@ export function MiniLineChart({
   }
   function handlePointer(event: ReactPointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
+    updateMarkerGeometry(rect);
     if (!Number.isFinite(rect.width) || rect.width <= 0) return;
     const relativeX = ((event.clientX - rect.left) / rect.width) * model.width;
     setNearestPoint(relativeX);
@@ -462,6 +506,7 @@ export function MiniLineChart({
         </span>
       </figcaption>
       <svg
+        ref={attachChartSvg}
         viewBox={`0 0 ${model.width} ${model.height}`}
         preserveAspectRatio="none"
         role="img"
@@ -470,7 +515,10 @@ export function MiniLineChart({
         onPointerEnter={handlePointer}
         onPointerMove={handlePointer}
         onPointerLeave={() => setActiveIndex(null)}
-        onFocus={() => setActiveIndex(0)}
+        onFocus={(event) => {
+          updateMarkerGeometry(event.currentTarget.getBoundingClientRect());
+          setActiveIndex(0);
+        }}
         onBlur={() => setActiveIndex(null)}
         onKeyDown={handleKeyDown}
       >
@@ -495,13 +543,15 @@ export function MiniLineChart({
               y2={model.plotBottom}
               vectorEffect="non-scaling-stroke"
             />
-            <ellipse
-              cx={selectedPoint.x}
-              cy={selectedPoint.y}
-              rx={4}
-              ry={4}
-              vectorEffect="non-scaling-stroke"
-            />
+            {markerRadii ? (
+              <ellipse
+                cx={selectedPoint.x}
+                cy={selectedPoint.y}
+                rx={markerRadii.rx}
+                ry={markerRadii.ry}
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
           </g>
         ) : null}
       </svg>
