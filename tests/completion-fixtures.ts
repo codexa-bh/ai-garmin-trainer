@@ -1,24 +1,31 @@
 import type { TrainerGenerationResult } from "../src/lib/ai/orchestration-ports";
 
-export const finalToolChoice = {
-  type: "tool",
-  toolName: "completeTrainerTurn",
-};
+export const finalToolChoice = "auto";
+export function isFinalSynthesis(options: {
+  tools?: Record<string, unknown>;
+}): boolean {
+  return Boolean(
+    options.tools &&
+    Object.keys(options.tools).length === 1 &&
+    Object.hasOwn(options.tools, "completeTrainerTurn"),
+  );
+}
 export function completion(completion: unknown): TrainerGenerationResult {
   return {
     toolCalls: [{ toolName: "completeTrainerTurn", input: { completion } }],
   };
 }
 export const coaching = (answer: string) =>
-  completion({ kind: "coaching", answer });
+  completion({ kind: "coaching", answer, claims: [], missingEvidence: [] });
 export const incomplete = (answer: string) =>
   completion({
     kind: "incomplete",
     answer,
+    claims: [],
     missingEvidence: ["requested evidence remains unavailable"],
   });
 export const grounded = (answer: string, claims: unknown[]) =>
-  completion({ kind: "grounded", answer, claims });
+  completion({ kind: "grounded", answer, claims, missingEvidence: [] });
 export const metric = (
   stepIndex: number,
   resultName: string,

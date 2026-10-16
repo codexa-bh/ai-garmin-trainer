@@ -148,7 +148,7 @@ have neutral AI owners; grounding remains the chat-owned contract.
 calling policy; chat's request-time selection remains before context reads.
 The adapter preserves planner action tools/auto/parallel options and adds the
 non-executing `completeTrainerTurn` response tool. Reserved synthesis exposes only
-that response tool with a forced choice, never action tools. Raw results remain
+that response tool with auto choice (DeepSeek thinking mode rejects forced choice), never action tools. Raw results remain
 application-validated, with one 180000ms per-call AbortController timeout and timer
 cleanup. HTTP disconnect does not acquire
 provider cancellation, and memory keeps independent provider configuration.
@@ -167,7 +167,11 @@ rollback, and private API smoke uses a disposable populated DB.
 
 `tool-contracts.ts` defines the strict object-root terminal schema; pure
 `turn-completion.ts` validates it against current-turn execution. The `completion`
-variant is `coaching`, `grounded` (nonempty claims), or `incomplete` (nonempty gaps).
+kind is `coaching`, `grounded` (nonempty claims), or `incomplete` (nonempty gaps).
+The uniform object requires `kind`, `answer`, `claims` and `missingEvidence`;
+coaching has empty arrays, grounded has claims only, incomplete has gaps only.
+Strict cross-field validation rejects contradictions without parsing answer prose.
+This avoids real DeepSeek union-branch leakage of empty claims into coaching.
 A metric claim references an exact successful SQL/math step, result name, zero-based
 row, column and non-null scalar value. Status/schema tools cannot verify metric
 claims, and unresolved later analytical failures reject completed metric answers.
@@ -189,7 +193,8 @@ preceding failed/rejected step metadata. Every follow-up uses ordinary generatio
 previous failures are context, never fresh tool evidence. The old prior-failure
 answer type remains accepted by delivery for compatibility, but generation no
 longer emits that bypass. Terminal tool arguments omit answer/document content in
-debug logs; validated answer excerpts retain existing bounded/weekly redaction.
+debug logs; schema diagnostics retain only validation flags and bounded issue
+codes/paths, and validated answer excerpts retain existing bounded/weekly redaction.
 No database, import, HTTP or UI shape changes; back-sync is a no-op and rollback
 is a source revert. Private source delivery does not restart/install/release.
 

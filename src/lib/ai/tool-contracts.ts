@@ -5,73 +5,72 @@ import {
 } from "@/lib/training-plan/limits";
 import type { TrainerToolName, TrainerToolCall } from "./tool-types";
 
-// A response declaration, never a dispatched action or an authorization grant.
+// One object shape avoids provider-specific union field leakage. All fields
+// are explicit; cross-field rules are validated, never inferred from answer text.
 export const trainerCompletionSchema = z
   .object({
-    completion: z.discriminatedUnion("kind", [
-      z
-        .object({
-          kind: z.literal("coaching"),
-          answer: z.string().trim().min(1).max(32000),
-        })
-        .strict(),
-      z
-        .object({
-          kind: z.literal("grounded"),
-          answer: z.string().trim().min(1).max(32000),
-          claims: z
-            .array(
-              z.discriminatedUnion("kind", [
-                z
-                  .object({
-                    kind: z.literal("metric"),
-                    stepIndex: z.number().int().positive(),
-                    resultName: z.string().min(1).max(100),
-                    rowIndex: z.number().int().nonnegative(),
-                    column: z.string().min(1).max(100),
-                    value: z.union([
-                      z.string().max(2000),
-                      z.number().finite(),
-                      z.boolean(),
-                    ]),
-                  })
-                  .strict(),
-                z
-                  .object({
-                    kind: z.literal("tool"),
-                    stepIndex: z.number().int().positive(),
-                    tool: z.enum([
-                      "runGarminSync",
-                      "getSyncStatus",
-                      "verifyActivityReference",
-                      "forceRefreshActivityDetail",
-                      "getActivityDetailAvailability",
-                      "getActivityDetailSlice",
-                      "getTrainingPlan",
-                      "saveTrainingPlan",
-                      "getWeeklyPlan",
-                      "proposeWeeklyDocuments",
-                      "applyWeeklyProposal",
-                    ]),
-                  })
-                  .strict(),
-              ]),
-            )
-            .min(1)
-            .max(64),
-        })
-        .strict(),
-      z
-        .object({
-          kind: z.literal("incomplete"),
-          answer: z.string().trim().min(1).max(32000),
-          missingEvidence: z
-            .array(z.string().trim().min(1).max(300))
-            .min(1)
-            .max(32),
-        })
-        .strict(),
-    ]),
+    completion: z
+      .object({
+        kind: z.enum(["coaching", "grounded", "incomplete"]),
+        answer: z.string().trim().min(1).max(32000),
+        claims: z
+          .array(
+            z.discriminatedUnion("kind", [
+              z
+                .object({
+                  kind: z.literal("metric"),
+                  stepIndex: z.number().int().positive(),
+                  resultName: z.string().min(1).max(100),
+                  rowIndex: z.number().int().nonnegative(),
+                  column: z.string().min(1).max(100),
+                  value: z.union([
+                    z.string().max(2000),
+                    z.number().finite(),
+                    z.boolean(),
+                  ]),
+                })
+                .strict(),
+              z
+                .object({
+                  kind: z.literal("tool"),
+                  stepIndex: z.number().int().positive(),
+                  tool: z.enum([
+                    "runGarminSync",
+                    "getSyncStatus",
+                    "verifyActivityReference",
+                    "forceRefreshActivityDetail",
+                    "getActivityDetailAvailability",
+                    "getActivityDetailSlice",
+                    "getTrainingPlan",
+                    "saveTrainingPlan",
+                    "getWeeklyPlan",
+                    "proposeWeeklyDocuments",
+                    "applyWeeklyProposal",
+                  ]),
+                })
+                .strict(),
+            ]),
+          )
+          .max(64),
+        missingEvidence: z.array(z.string().trim().min(1).max(300)).max(32),
+      })
+      .strict()
+      .superRefine((completion, ctx) => {
+        const valid =
+          completion.kind === "grounded"
+            ? completion.claims.length > 0 &&
+              completion.missingEvidence.length === 0
+            : completion.claims.length === 0 &&
+              (completion.kind === "incomplete"
+                ? completion.missingEvidence.length > 0
+                : completion.missingEvidence.length === 0);
+        if (!valid)
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "Completion kind conflicts with declared evidence or gaps.",
+          });
+      }),
   })
   .strict();
 

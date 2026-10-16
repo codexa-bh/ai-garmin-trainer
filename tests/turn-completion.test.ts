@@ -24,6 +24,8 @@ it("retains terminal kind/count diagnostics without retaining answer/document ar
     toolCalls: result.toolCalls as Array<{ toolName: string; input: unknown }>,
   });
   expect(trace.toolCalls?.[0].input).toEqual({
+    schemaValid: true,
+    schemaIssues: [],
     completionKind: "coaching",
     declaredClaims: 0,
     missingEvidenceCount: 0,
@@ -91,6 +93,33 @@ it("retains an explicitly incomplete check without treating it as verified evide
 
 it.each([
   { kind: "coaching", answer: "", extra: true },
+  {
+    kind: "coaching",
+    answer: "text",
+    claims: [],
+    missingEvidence: [],
+    extra: true,
+  },
+  {
+    kind: "coaching",
+    answer: "text",
+    claims: [toolClaim(1, "getSyncStatus")],
+    missingEvidence: [],
+  },
+  {
+    kind: "coaching",
+    answer: "text",
+    claims: [],
+    missingEvidence: ["unfinished"],
+  },
+  { kind: "grounded", answer: "text", claims: [], missingEvidence: [] },
+  { kind: "incomplete", answer: "text", claims: [], missingEvidence: [] },
+  {
+    kind: "incomplete",
+    answer: "text",
+    claims: [toolClaim(1, "getSyncStatus")],
+    missingEvidence: ["unfinished"],
+  },
   { kind: "coaching", answer: "valid text", extra: true },
   { kind: "complete", answer: "unknown enum" },
   { kind: "grounded", answer: "verified", claims: [] },

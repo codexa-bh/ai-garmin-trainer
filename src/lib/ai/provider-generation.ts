@@ -45,7 +45,9 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
             }
           : {
               tools: { [COMPLETION_TOOL]: completionTool },
-              toolChoice: { type: "tool", toolName: COMPLETION_TOOL },
+              // DeepSeek thinking mode supports auto but rejects forced tool choice.
+              // Only the terminal schema is exposed; no action can execute here.
+              toolChoice: "auto",
             }),
         abortSignal: controller.signal,
       };

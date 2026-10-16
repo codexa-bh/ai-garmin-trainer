@@ -6,6 +6,7 @@ import {
   metric,
   toolClaim,
   finalToolChoice,
+  isFinalSynthesis,
 } from "./completion-fixtures";
 import type { TrainerProgressCounters } from "../src/lib/ai/trainer-progress";
 
@@ -1530,7 +1531,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
 
   it("stops an endless planner loop at the reserve and produces coaching without metric evidence", async () => {
     generateText.mockImplementation(async (options) =>
-      typeof options.toolChoice === "object"
+      isFinalSynthesis(options)
         ? incomplete(
             "I could not verify your Garmin metrics. Based on your description, keep the family outing comfortable and adjust to fatigue; exact effort remains unverified.",
           )
@@ -1568,7 +1569,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
       privacy: "sql privacy",
     });
     generateText.mockImplementation(async (options) =>
-      typeof options.toolChoice === "object"
+      isFinalSynthesis(options)
         ? incomplete(
             "The queries failed, so your personal activity totals remain unverified. General pacing guidance does not establish those metrics.",
           )
@@ -1622,7 +1623,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     "uses bounded truthful fallback after budget synthesis returns %s",
     async (_label, finalResponse) => {
       generateText.mockImplementation(async (options) =>
-        typeof options.toolChoice === "object"
+        isFinalSynthesis(options)
           ? finalResponse()
           : {
               toolCalls: Array.from({ length: 40 }, () => ({
@@ -1653,7 +1654,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     vi.useFakeTimers();
     try {
       generateText.mockImplementation(async (options) =>
-        typeof options.toolChoice === "object"
+        isFinalSynthesis(options)
           ? new Promise(() => {})
           : {
               toolCalls: Array.from({ length: 40 }, () => ({

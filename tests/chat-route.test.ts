@@ -6,6 +6,7 @@ import {
   metric,
   toolClaim,
   finalToolChoice,
+  isFinalSynthesis,
 } from "./completion-fixtures";
 
 const runGarminSync = vi.fn(async () => ({
@@ -211,7 +212,8 @@ const generateText = vi.fn(
   async (options: {
     prompt: string;
     system: string;
-    toolChoice?: string | { type: string; toolName: string };
+    toolChoice?: string;
+    tools?: Record<string, unknown>;
   }) => {
     if (options.system.startsWith("Classify only the current user's request")) {
       return {
@@ -227,7 +229,7 @@ const generateText = vi.fn(
         ],
       };
     }
-    if (typeof options.toolChoice === "object") {
+    if (isFinalSynthesis(options)) {
       return incomplete(
         "The requested local check could not be completed; its metrics remain unverified.",
       );

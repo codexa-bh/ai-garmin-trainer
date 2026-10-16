@@ -1,3 +1,4 @@
+import { trainerCompletionSchema } from "./tool-contracts";
 import type { TrainerToolCall, TrainerToolStep } from "@/lib/ai/tool-types";
 
 import type {
@@ -105,7 +106,18 @@ export function debugProviderCall(input: {
       terminal && typeof terminal === "object"
         ? (terminal as Record<string, unknown>)
         : null;
+    const validation =
+      call.toolName === "completeTrainerTurn"
+        ? trainerCompletionSchema.safeParse(call.input)
+        : null;
     const terminalMetadata = {
+      schemaValid: validation?.success === true,
+      schemaIssues:
+        validation && !validation.success
+          ? validation.error.issues
+              .slice(0, 8)
+              .map(({ code, path }) => ({ code, path }))
+          : [],
       completionKind: ["coaching", "grounded", "incomplete"].includes(
         String(declaration?.kind),
       )
