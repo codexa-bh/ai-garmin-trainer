@@ -1,4 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  coaching,
+  incomplete,
+  grounded,
+  metric,
+  toolClaim,
+  finalToolChoice,
+} from "./completion-fixtures";
 import type { TrainerProgressCounters } from "../src/lib/ai/trainer-progress";
 
 const generateText = vi.fn();
@@ -15,7 +23,7 @@ const describeGarminDatabase = vi.fn(() => ({
   limits: {},
   privacy: "schema privacy",
 }));
-const runReadOnlySql = vi.fn((): Record<string, unknown> => ({
+const defaultSqlRows = (): Record<string, unknown> => ({
   status: "succeeded",
   resultName: "activity_rows",
   columns: [{ name: "garmin_id" }, { name: "duration_sec" }],
@@ -37,7 +45,8 @@ const runReadOnlySql = vi.fn((): Record<string, unknown> => ({
   returnedRows: 2,
   truncated: false,
   privacy: "sql privacy",
-}));
+});
+const runReadOnlySql = vi.fn(defaultSqlRows);
 const runMathAnalysis = vi.fn(({ rowsByResult, inputResult, operation }) => ({
   status: "succeeded",
   resultName: "demand_scores",
@@ -131,7 +140,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     runGarminSync.mockReset();
     runGarminSync.mockResolvedValue({ status: "completed", detail: "ok" });
     describeGarminDatabase.mockClear();
-    runReadOnlySql.mockClear();
+    runReadOnlySql.mockReset().mockImplementation(defaultSqlRows);
     runMathAnalysis.mockClear();
     dataCounts.mockClear();
     activityDetailCoverage.mockClear();
@@ -172,7 +181,9 @@ describe("trainer orchestrator fail-closed policy", async () => {
         expect(statuses.at(-1)).toBe(
           "Reviewing the local import and sync coverage for your response…",
         );
-        return { text: "Local status checked." };
+        return grounded("Local status checked.", [
+          toolClaim(3, "getSyncStatus"),
+        ]);
       });
     runGarminSync.mockImplementationOnce(async () => {
       expect(statuses.at(-1)).toBe("Running the requested Garmin sync action…");
@@ -243,9 +254,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
           { toolName: "getSyncStatus", input: {} },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "I synced Garmin and then checked the refreshed local status.",
-      });
+      .mockResolvedValueOnce(
+        grounded(
+          "I synced Garmin and then checked the refreshed local status.",
+          [toolClaim(1, "runGarminSync"), toolClaim(2, "getSyncStatus")],
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -295,7 +309,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({ text: "The debug-enabled final answer." });
+      .mockResolvedValueOnce(
+        grounded("The debug-enabled final answer.", [
+          metric(1, "activity_rows", "duration_sec", 3600),
+        ]),
+      );
 
     const disabled = await orchestrateTrainerChat({
       model: "mock",
@@ -318,7 +336,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({ text: "The debug-enabled final answer." });
+      .mockResolvedValueOnce(
+        grounded("The debug-enabled final answer.", [
+          metric(1, "activity_rows", "duration_sec", 3600),
+        ]),
+      );
 
     const enabled = await orchestrateTrainerChat({
       model: "mock",
@@ -359,7 +381,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
 
     expect(result.text).not.toContain("I'll pull up");
     expect(result.text).not.toContain("Next");
-    expect(result.text).toContain("couldn't complete that local Garmin");
+    expect(result.text).toContain("could not validate the model's completion");
     expect(result.text).not.toContain("model returned a plan");
     expect(result.text).not.toContain("safe local-data tool");
     expect(result.toolSteps).toEqual([]);
@@ -381,7 +403,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
         "Can you check my sleep stats and recovery for today and yesterday?",
     });
 
-    expect(result.text).toContain("local Garmin or recovery check");
+    expect(result.text).toContain("could not validate the model's completion");
     expect(result.text).not.toContain("I'll check");
     expect(result.text).not.toContain("planner");
     expect(result.text).not.toContain("safe local-data tool");
@@ -402,8 +424,8 @@ describe("trainer orchestrator fail-closed policy", async () => {
       debug: { enabled: true, provider: "ollama", model: "qwen3.5:4b" },
     });
 
-    expect(result.text).toContain("current-turn local Garmin verification");
-    expect(result.text).toContain("can't verify any totals");
+    expect(result.text).toContain("could not validate the model's completion");
+    expect(result.text).toContain("No unverified personal metrics");
     expect(result.text).not.toContain("3 activities");
     expect(result.text).not.toContain("7");
     expect(result.toolSteps).toEqual([]);
@@ -424,7 +446,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
         "You made a grave mistake when you did not aggregate all my activities properly; please verify the counts again.",
     });
 
-    expect(result.text).toContain("current-turn local Garmin verification");
+    expect(result.text).toContain("could not validate the model's completion");
     expect(result.text).not.toContain("can still make sense");
     expect(result.toolSteps).toEqual([]);
     expect(result.grounding).toBeNull();
@@ -502,9 +524,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.debugTrace?.finalAnswerSource).toBe("deterministic_fallback");
   });
 
-  it("repairs no-clock direct answers when server current-date context is present", async () => {
-    generateText.mockResolvedValueOnce({
-      text: "I don't have an independent real-time clock, so I can only ground today against the freshest Garmin data timestamps.",
+  it("supplies typed current-date context without replacing the model answer", async () => {
+    generateText.mockImplementationOnce(async (options) => {
+      expect(options.system).toContain('"currentDate":"2026-08-14"');
+      return coaching(
+        "The server-provided current date basis: 2026-08-14. Garmin activity or daily-health row dates are separate freshness evidence.",
+      );
     });
 
     const result = await orchestrateTrainerChat({
@@ -512,6 +537,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
       system:
         'system\nServer current date basis: 2026-08-14 (server-local date; ISO date-time 2026-08-14T09:30:00.000Z; UTC offset +00:00). Use this server-owned date for relative terms like "today" and derive "yesterday" from it; Garmin import freshness and newest activity/health rows are separate evidence.',
       userRequest: "Are you aware of today's date?",
+      turnContext: { currentDate: "2026-08-14" },
     });
 
     expect(result.text).toContain(
@@ -527,9 +553,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
   });
 
   it("accepts complete direct no-tool coaching when local Garmin evidence is not required", async () => {
-    generateText.mockResolvedValueOnce({
-      text: "Keep tomorrow easy: 30 to 45 minutes conversational, then add mobility if soreness stays low.",
-    });
+    generateText.mockResolvedValueOnce(
+      coaching(
+        "Keep tomorrow easy: 30 to 45 minutes conversational, then add mobility if soreness stays low.",
+      ),
+    );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -569,9 +597,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "The SQL and math answer is grounded and concise.",
-      });
+      .mockResolvedValueOnce(
+        grounded("The SQL and math answer is grounded and concise.", [
+          metric(3, "demand_scores", "score", 10),
+        ]),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -670,9 +700,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "The most demanding local activities are led by Long ride, using model-selected duration plus elevation criteria over SQL rows and a bounded score.",
-      });
+      .mockResolvedValueOnce(
+        grounded(
+          "The most demanding local activities are led by Long ride, using model-selected duration plus elevation criteria over SQL rows and a bounded score.",
+          [metric(3, "demand_scores", "score", 10)],
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -771,9 +804,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "Using the corrected SQL columns, your most demanding activity is Long ride.",
-      });
+      .mockResolvedValueOnce(
+        grounded(
+          "Using the corrected SQL columns, your most demanding activity is Long ride.",
+          [metric(3, "demand_rows", "garmin_id", "activity-2")],
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -872,9 +908,19 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "From local activity calories, January totaled 800 kcal and August is 300 kcal month-to-date because August is incomplete.",
-      });
+      .mockResolvedValueOnce(
+        grounded(
+          "From local activity calories, January totaled 800 kcal and August is 300 kcal month-to-date because August is incomplete.",
+          [
+            metric(
+              3,
+              "monthly_activity_calories",
+              "activity_calories_kcal",
+              800,
+            ),
+          ],
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -955,9 +1001,15 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "July has 11,000 steps, 900 active kcal, 1,600 resting kcal, 84 km of activities, 1,350 m ascent, and Zone 2 totals. August is month-to-date with 9,000 steps, 700 active kcal, 42 km, 520 m ascent, and Zone 5 totals from available HR-zone rows.",
-      });
+      .mockResolvedValueOnce(
+        grounded(
+          "July has 11,000 steps, 900 active kcal, 1,600 resting kcal, 84 km of activities, 1,350 m ascent, and Zone 2 totals. August is month-to-date with 9,000 steps, 700 active kcal, 42 km, 520 m ascent, and Zone 5 totals from available HR-zone rows.",
+          [
+            metric(2, "monthly_garmin_totals", "steps", 11000),
+            metric(2, "monthly_garmin_totals", "activity_km", 42, 1),
+          ],
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1029,9 +1081,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
         ],
       })
       .mockResolvedValueOnce({ text: "Tool step 1: raw debug" })
-      .mockResolvedValueOnce({
-        text: "I couldn't complete that ranking from local SQL after a correction, but I can retry with duration, distance, elevation, or calories.",
-      });
+      .mockResolvedValueOnce(
+        incomplete(
+          "I couldn't complete that ranking from local SQL after a correction, but I can retry with duration, distance, elevation, or calories.",
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1057,9 +1111,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "Your local activities are grouped by sport from SQL evidence.",
-      });
+      .mockResolvedValueOnce(
+        grounded(
+          "Your local activities are grouped by sport from SQL evidence.",
+          [metric(1, "activity_rows", "duration_sec", 3600)],
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1081,9 +1138,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
       .mockResolvedValueOnce({
         toolCalls: [{ toolName: "runGarminSync", input: {} }],
       })
-      .mockResolvedValueOnce({
-        text: "Both local Garmin sync selections completed sequentially.",
-      });
+      .mockResolvedValueOnce(
+        grounded("Both local Garmin sync selections completed sequentially.", [
+          toolClaim(1, "runGarminSync"),
+          toolClaim(2, "runGarminSync"),
+        ]),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1261,9 +1321,15 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "Your monthly calories from the corrected query are 1200 and 1500.",
-      });
+      .mockResolvedValueOnce(
+        grounded(
+          "Your monthly calories from the corrected query are 1200 and 1500.",
+          [
+            metric(2, "monthly_rows", "calories", 1200),
+            metric(2, "monthly_rows", "calories", 1500, 1),
+          ],
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1325,9 +1391,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "All three SQL queries returned evidence; here is the combined answer.",
-      });
+      .mockResolvedValueOnce(
+        grounded(
+          "All three SQL queries returned evidence; here is the combined answer.",
+          [metric(3, "rows", "calories", 900)],
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1357,9 +1426,12 @@ describe("trainer orchestrator fail-closed policy", async () => {
           { toolName: "getSyncStatus", input: {} },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "Saved the Training Plan and checked local status without raw tool output.",
-      });
+      .mockResolvedValueOnce(
+        grounded(
+          "Saved the Training Plan and checked local status without raw tool output.",
+          [toolClaim(1, "saveTrainingPlan")],
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1391,9 +1463,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         })),
       })
-      .mockResolvedValueOnce({
-        text: "The available activity evidence supports a cautious approach; the remaining requested checks are unverified.",
-      });
+      .mockResolvedValueOnce(
+        incomplete(
+          "The available activity evidence supports a cautious approach; the remaining requested checks are unverified.",
+        ),
+      );
 
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1407,7 +1481,9 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(
       generateText.mock.calls.length + runReadOnlySql.mock.calls.length,
     ).toBe(30);
-    expect(generateText.mock.calls[1][0]).toMatchObject({ toolChoice: "none" });
+    expect(generateText.mock.calls[1][0]).toMatchObject({
+      toolChoice: finalToolChoice,
+    });
     expect(result.toolSteps).toHaveLength(29); // 28 attempts + non-execution diagnostic
     expect(result.toolSteps.at(-1)).toMatchObject({
       tool: "providerToolSelection",
@@ -1423,9 +1499,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
     generateText.mockImplementation(async () =>
       ++planner <= 11
         ? { toolCalls: [{ toolName: "getSyncStatus", input: {} }] }
-        : {
-            text: "The local status checks are complete; here are the available coverage limitations.",
-          },
+        : grounded(
+            "The local status checks are complete; here are the available coverage limitations.",
+            [toolClaim(11, "getSyncStatus")],
+          ),
     );
     const result = await orchestrateTrainerChat({
       model: "mock",
@@ -1453,10 +1530,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
 
   it("stops an endless planner loop at the reserve and produces coaching without metric evidence", async () => {
     generateText.mockImplementation(async (options) =>
-      options.toolChoice === "none"
-        ? {
-            text: "I could not verify your Garmin metrics. Based on your description, keep the family outing comfortable and adjust to fatigue; exact effort remains unverified.",
-          }
+      typeof options.toolChoice === "object"
+        ? incomplete(
+            "I could not verify your Garmin metrics. Based on your description, keep the family outing comfortable and adjust to fatigue; exact effort remains unverified.",
+          )
         : { toolCalls: [{ toolName: "describeGarminDatabase", input: {} }] },
     );
     const result = await orchestrateTrainerChat({
@@ -1471,7 +1548,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).toContain("Based on your description");
     expect(result.toolSteps.at(-1)?.reason).toBe("tool_budget_exceeded");
     const final = generateText.mock.calls.at(-1)![0];
-    expect(final.tools).toBeUndefined();
+    expect(Object.keys(final.tools)).toEqual(["completeTrainerTurn"]);
     expect(final.system).toContain("personal Garmin metrics are unverified");
     expect(final.system).toContain("Evidence gathering has stopped");
     expect(final.prompt).toContain("600 m ascent");
@@ -1491,10 +1568,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
       privacy: "sql privacy",
     });
     generateText.mockImplementation(async (options) =>
-      options.toolChoice === "none"
-        ? {
-            text: "The queries failed, so your personal activity totals remain unverified. General pacing guidance does not establish those metrics.",
-          }
+      typeof options.toolChoice === "object"
+        ? incomplete(
+            "The queries failed, so your personal activity totals remain unverified. General pacing guidance does not establish those metrics.",
+          )
         : {
             toolCalls: [
               {
@@ -1545,7 +1622,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     "uses bounded truthful fallback after budget synthesis returns %s",
     async (_label, finalResponse) => {
       generateText.mockImplementation(async (options) =>
-        options.toolChoice === "none"
+        typeof options.toolChoice === "object"
           ? finalResponse()
           : {
               toolCalls: Array.from({ length: 40 }, () => ({
@@ -1576,7 +1653,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     vi.useFakeTimers();
     try {
       generateText.mockImplementation(async (options) =>
-        options.toolChoice === "none"
+        typeof options.toolChoice === "object"
           ? new Promise(() => {})
           : {
               toolCalls: Array.from({ length: 40 }, () => ({
@@ -1610,9 +1687,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
         toolCalls: [{ toolName: "getSyncStatus", input: {} }],
       })
       .mockResolvedValueOnce({ text: "Tool step 1: raw evidence" })
-      .mockResolvedValueOnce({
-        text: "Local data is available, but coverage has limitations.",
-      });
+      .mockResolvedValueOnce(
+        grounded("Local data is available, but coverage has limitations.", [
+          toolClaim(1, "getSyncStatus"),
+        ]),
+      );
     const result = await orchestrateTrainerChat({
       model: "mock",
       system: "system",
@@ -1655,9 +1734,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         })),
       })
-      .mockResolvedValueOnce({
-        text: "One activity duration was retrieved, but subsequent queries failed. That partial evidence does not establish your weekly total; use your reported fatigue as context rather than assuming recovery is verified.",
-      });
+      .mockResolvedValueOnce(
+        incomplete(
+          "One activity duration was retrieved, but subsequent queries failed. That partial evidence does not establish your weekly total; use your reported fatigue as context rather than assuming recovery is verified.",
+        ),
+      );
     const result = await orchestrateTrainerChat({
       model: "mock",
       system: "system",
@@ -1701,9 +1782,11 @@ describe("trainer orchestrator fail-closed policy", async () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        text: "The query was rejected; no activity metrics were retrieved.",
-      });
+      .mockResolvedValueOnce(
+        incomplete(
+          "The query was rejected; no activity metrics were retrieved.",
+        ),
+      );
     const result = await orchestrateTrainerChat({
       model: "mock",
       system: "system",
@@ -1713,7 +1796,9 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(generateText).toHaveBeenCalledTimes(2);
     expect(result.providerCalls).toBe(2);
     expect(result.toolSteps[0].status).toBe("rejected");
-    expect(generateText.mock.calls[1][0]).toMatchObject({ toolChoice: "none" });
+    expect(generateText.mock.calls[1][0]).toMatchObject({
+      toolChoice: finalToolChoice,
+    });
   });
 
   it("never replays a completed plan save while wrapping up after budget exhaustion", async () => {

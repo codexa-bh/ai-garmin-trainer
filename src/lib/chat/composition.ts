@@ -44,6 +44,7 @@ const buildSystemContext = createChatContext({
 
 export const { prepareChatTurn, generateChatTurn, completeChatTurn } =
   createChatTurns({
+    currentDate: () => new Date().toISOString().slice(0, 10),
     weeklyContext: weekly.context,
     bindWeeklyProposal: weekly.bindDisplayed,
     appendChatMessage,
@@ -58,6 +59,7 @@ export const { prepareChatTurn, generateChatTurn, completeChatTurn } =
         system,
         userRequest,
         weeklyTurn,
+        turnContext,
         onStatus,
         debugTraceEnabled,
       }) =>
@@ -66,6 +68,7 @@ export const { prepareChatTurn, generateChatTurn, completeChatTurn } =
           system,
           userRequest,
           weeklyTurn,
+          turnContext,
           ...(onStatus ? { onStatus } : {}),
           debug: { enabled: debugTraceEnabled, provider, model: modelName },
         });

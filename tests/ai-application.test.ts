@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { coaching, grounded, incomplete, metric } from "./completion-fixtures";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import { executeTrainerTool } from "../src/lib/ai/tool-execution";
 import type { TrainerToolPorts } from "../src/lib/ai/tool-ports";
@@ -71,7 +72,7 @@ function scripted(results: TrainerGenerationResult[], ports = capabilities()) {
 
 describe("AI application through supplied capabilities (no infrastructure mocks)", () => {
   it("answers directly with a plain request and never asks for tools", async () => {
-    const test = scripted([{ text: "A conversational answer." }]);
+    const test = scripted([coaching("A conversational answer.")]);
     expect(await test.run()).toMatchObject({
       text: "A conversational answer.",
       providerCalls: 1,
@@ -119,7 +120,9 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
             },
           ],
         },
-        { text: "The transformed value is fourteen." },
+        grounded("The transformed value is fourteen.", [
+          metric(2, "scores", "score", 14),
+        ]),
       ],
       ports,
     );
@@ -277,7 +280,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
           return Promise.resolve(
             request.purpose === "planner"
               ? call("runReadOnlySql", { sql: "select missing" })
-              : { text: "Evidence remains incomplete." },
+              : incomplete("Evidence remains incomplete."),
           );
         },
         executeTool: (input) => {
@@ -342,7 +345,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
       );
     }
     const read = scripted(
-      [call("getActivityDetailAvailability"), { text: "No available detail." }],
+      [call("getActivityDetailAvailability"), coaching("No available detail.")],
       ports,
     );
     expect((await read.run()).toolSteps[0]).toMatchObject({
@@ -430,7 +433,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
     const second = scripted(
       [
         call("runReadOnlySql", { sql: "select 2" }),
-        { text: "Second completed." },
+        coaching("Second completed."),
       ],
       ports,
     );

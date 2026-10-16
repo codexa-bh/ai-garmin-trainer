@@ -55,10 +55,18 @@ export const TRAINER_SYSTEM_PROMPT = [
   TRAINER_INSTRUCTION_SECTIONS.privacy,
 ].join("\n\n");
 
+const COMPLETION_POLICY = section("Structured turn completion", [
+  "Interpret user intent yourself; application code does not classify their words or your prose. Select native action tools when needed. To finish, call completeTrainerTurn exactly once, alone, instead of returning plain text. Its single completion property contains the coaching/grounded/incomplete variant. The terminal tool is a response declaration, never an action or save permission.",
+  "Use kind=coaching for completed general physiology/coaching (including general numbers), user-supplied context, server currentDate or explanations of previousFailures. Such guidance needs no Garmin lookup, even if hiking, HR/Z3, recovery or checking breathing is discussed. Do not claim imported personal measurements were verified in coaching mode.",
+  "Use kind=grounded for imported personal-data answers. Declare each consequential metric as a metric claim with exact current-turn stepIndex, resultName, zero-based rowIndex, column and unconverted scalar value. Choose relevant evidence for the requested metric/date window; a successful unrelated query, old transcript, schema or sync status cannot establish a metric. Derived Garmin numbers need executed SQL/math; display-only unit conversions may cite the original cell. Non-analytical outcomes use tool claims with exact successful stepIndex/tool. Never invent references or self-certify verification.",
+  "Use kind=incomplete with nonempty missingEvidence for unfinished checks, absent/failed/partial evidence or unavailable capabilities; give useful supported advice and explicit limitations in answer. Never declare a promise to execute a tool as completed coaching. Report completed side effects accurately; no further work happens after a terminal declaration. Do not present unverified metrics as checked.",
+  "Human-readable answer is display data only: be substantive, do not dump tool logs, and distinguish verified imported facts, user reports, general advice and unknowns. Explicit server turn context contains currentDate and recorded previousFailures; the latter describes a prior turn, not a new execution or current evidence. Respond to the actual user question using that context without assuming any follow-up is a failure explanation.",
+]);
+
 const PLANNER_POLICY = section(
   "Trainer tool-selection and calculation policy",
   [
-    "Choose the listed tool or tools needed for the next local Garmin or Training Plan step; otherwise answer directly. The server validates selected tools and executes valid selections sequentially under the per-turn budget.",
+    "Choose the listed tool or tools needed for the next local Garmin or Training Plan step; otherwise finish with completeTrainerTurn. The server validates selected tools and executes valid selections sequentially under the per-turn budget.",
     "Use reference lookup for a supplied or disputed activity identity. Use status, detail availability, or a bounded detail slice only for their documented capability. Side-effect tools require explicit user intent. For saveTrainingPlan, you own intent interpretation using the current request and conversation context: a direct explicit plan-write request or clear current-user assent to an immediately preceding concrete plan-edit proposal (such as 'ok adjust it') is sufficient. Do not ask for redundant confirmation. Apply only the confirmed proposed edits; do not substitute newly generated coaching changes. If the referent or proposed edits are unclear or unavailable, ask one focused clarification and do not save.",
     "For relative-date Garmin or daily-health questions, ground today/yesterday from server current-date context and use guarded local data tools when the answer depends on imported activity, sleep, recovery, HRV, body battery, stress, steps, calories, or freshness evidence.",
     "For personal Garmin totals, counts, comparisons, monthly/date-window summaries, and HR-zone/activity/health metric questions, use current-turn local tools before answering; do not answer those quantities directly from transcript, memory, or prior assistant prose.",
@@ -118,7 +126,7 @@ export function buildPlannerInstructions(
   const liveBudget = budget
     ? `\n\nLive server execution budget (the current planning call is already counted):\n${JSON.stringify(snapshot)}\nRemaining includes the final-answer reserve; exploratoryRemaining excludes it. Provider attempts include failed requests and explicit synthesis; toolAttempts count admitted executions, including failures/rejections, not skipped selections.`
     : "";
-  return `${baseSystem}\n\n${PLANNER_POLICY}${liveBudget}\n\nCurrent-turn server-authored prior tool evidence (fresh-call boundary; provider responses and raw tool results are not replayed):\n${priorToolEvidence}`;
+  return `${baseSystem}\n\n${COMPLETION_POLICY}\n\n${PLANNER_POLICY}${liveBudget}\n\nCurrent-turn server-authored prior tool evidence (fresh-call boundary; provider responses and raw tool results are not replayed):\n${priorToolEvidence}`;
 }
 
 export function buildFinalSynthesisInstructions(
@@ -129,5 +137,5 @@ export function buildFinalSynthesisInstructions(
   const wrapUp = budgetStopped
     ? "\n\nEvidence gathering has stopped to preserve the final-answer reserve. No more tools or retries are available in this turn. Answer now from the evidence already gathered. Separate verified facts, user statements, general coaching and missing evidence. With no usable metric evidence, explicitly say personal Garmin metrics are unverified and give only supported user-context/general guidance. Do not imply full verification from partial results, promise further tool work, or require a narrower follow-up. Report completed side effects truthfully; never replay them."
     : "";
-  return `${baseSystem}\n\n${FINAL_SYNTHESIS_POLICY}${wrapUp}\n\nServer-authored tool evidence for this current user turn:\n${toolEvidence}`;
+  return `${baseSystem}\n\n${COMPLETION_POLICY}\n\n${FINAL_SYNTHESIS_POLICY}${wrapUp}\n\nServer-authored tool evidence for this current user turn:\n${toolEvidence}`;
 }

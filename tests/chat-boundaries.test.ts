@@ -279,26 +279,44 @@ describe("chat application production wiring", () => {
     expect(f.order.slice(-2)).toEqual(["save:assistant", "history:40"]);
   });
 
-  it("returns prior-failure reasoning without provider/context work and leaves decoration to completion", async () => {
-    const { prepareChatTurn, generateChatTurn, completeChatTurn } =
-      await import("@/lib/chat/composition");
-    seedFailure();
-    const previous = f.messages[0].grounding;
-    const turn = prepareChatTurn("default", "what happened");
-    const answer = await generateChatTurn(turn, { debugTraceEnabled: true });
-    expect(answer.kind).toBe("previous-failure");
-    expect(answer.grounding).toBe(previous);
-    expect(f.selected).not.toHaveBeenCalled();
-    expect(f.counts).not.toHaveBeenCalled();
-    expect(f.messages).toHaveLength(2);
-    const { assistantRecord } = await completeChatTurn(turn, answer, {
-      failureDebugTraceEnabled: true,
-    });
-    expect(assistantRecord.grounding?.debugTrace).not.toEqual(
-      previous?.debugTrace,
-    );
-    expect(assistantRecord.grounding?.toolSteps).toEqual(previous?.toolSteps);
-  });
+  it.each([
+    "what happened",
+    "why?",
+    "Explain in another language",
+    "How should I breathe?",
+  ])(
+    "passes prior failure facts without keyword bypass: %s",
+    async (message) => {
+      const { prepareChatTurn, generateChatTurn, completeChatTurn } =
+        await import("@/lib/chat/composition");
+      seedFailure();
+      const previous = f.messages[0].grounding;
+      const turn = prepareChatTurn("default", message);
+      const answer = await generateChatTurn(turn, { debugTraceEnabled: true });
+      expect(answer.kind).toBe("generated");
+      expect(f.selected).toHaveBeenCalledOnce();
+      expect(f.counts).toHaveBeenCalledOnce();
+      expect(f.orchestrate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          turnContext: {
+            currentDate: new Date().toISOString().slice(0, 10),
+            previousFailures: previous?.toolSteps?.map(
+              ({ tool, status, reason, summary }) => ({
+                tool,
+                status,
+                reason,
+                summary,
+              }),
+            ),
+          },
+        }),
+      );
+      expect(f.messages).toHaveLength(2);
+      const { assistantRecord } = await completeChatTurn(turn, answer);
+      expect(assistantRecord.grounding?.debugTrace).toEqual(debugTrace);
+      expect(assistantRecord.grounding?.toolSteps).toBeUndefined();
+    },
+  );
 
   it("propagates generation failure without committing or swallowing it", async () => {
     const { prepareChatTurn, generateChatTurn } =
@@ -429,36 +447,33 @@ describe("chat delivery compatibility (real route/application wiring)", () => {
   );
 
   it.each([false, true])(
-    "retains prior-failure debug/count differences without a provider: stream=%s",
+    "generates prior-failure follow-ups through the ordinary delivery path: stream=%s",
     async (stream) => {
       seedFailure();
-      const previousGrounding = f.messages[0].grounding;
       const response = await post({ message: "why?", stream });
       const payload = stream ? await events(response) : await response.json();
-      expect(f.selected).not.toHaveBeenCalled();
-      expect(f.search).not.toHaveBeenCalled();
-      expect(f.orchestrate).not.toHaveBeenCalled();
-      expect(f.messages.at(-1)?.content).toContain(
-        "model selected multiple tools",
-      );
+      expect(f.selected).toHaveBeenCalledOnce();
+      expect(f.search).toHaveBeenCalledOnce();
+      expect(f.orchestrate).toHaveBeenCalledOnce();
+      expect(
+        f.orchestrate.mock.calls[0][0].turnContext?.previousFailures?.[0],
+      ).toMatchObject({ reason: "multiple_tool_calls" });
+      expect(f.messages.at(-1)?.content).toBe(result().text);
       expect(f.memory).toHaveBeenCalledOnce();
       if (stream) {
-        const list = payload as Event[];
-        expect(list.some((e) => e.type === "metadata")).toBe(false);
-        expect(list.at(-1)).toMatchObject({
+        expect((payload as Event[]).some((e) => e.type === "metadata")).toBe(
+          true,
+        );
+        expect((payload as Event[]).at(-1)).toMatchObject({
           contextWindow: 3,
-          assistantMessage: { grounding: previousGrounding },
+          assistantMessage: { grounding: { debugTrace } },
         });
-        expect(f.messages.at(-1)?.grounding).toBe(previousGrounding);
       } else {
         expect(payload).toMatchObject({
-          contextWindow: 3,
-          toolEvidence: previousGrounding,
+          contextWindow: 2,
+          toolEvidence: result().grounding,
           toolSteps: [],
         });
-        expect(f.messages.at(-1)?.grounding?.debugTrace).not.toEqual(
-          debugTrace,
-        );
       }
     },
   );
@@ -480,7 +495,7 @@ describe("chat delivery compatibility (real route/application wiring)", () => {
               !m.grounding?.debugTrace,
           ),
         ).toBe(true);
-        expect(payload.toolEvidence.debugTrace).toEqual(debugTrace);
+        expect(payload.toolEvidence).toEqual(result().grounding);
       }
     },
   );

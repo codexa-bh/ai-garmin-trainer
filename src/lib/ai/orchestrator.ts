@@ -1,4 +1,9 @@
 import { renderWeeklyProposal } from "../weekly/application";
+import {
+  COMPLETION_TOOL,
+  COMPLETION_LIMITATION,
+  validatedCompletion,
+} from "./turn-completion";
 import type {
   WeeklyProposal,
   WeeklyRead,
@@ -29,7 +34,7 @@ import {
   type LlmDebugProviderCall,
   type LlmDebugTrace,
 } from "@/lib/ai/debug-trace";
-import type { ChatGrounding } from "@/lib/chat/contracts";
+import type { ChatGrounding, ChatTurnContext } from "@/lib/chat/contracts";
 import {
   buildFinalSynthesisInstructions,
   buildPlannerInstructions,
@@ -64,6 +69,7 @@ type OrchestrateTrainerStatus = (
 export type OrchestrateTrainerChatInput = {
   system: string;
   userRequest: string;
+  turnContext?: ChatTurnContext;
   weeklyTurn?: WeeklyTurn;
   onStatus?: OrchestrateTrainerStatus;
   debug?: {
@@ -102,6 +108,10 @@ function extractToolCall(raw: unknown): TrainerToolCall | null {
     }
   }
   return { toolName, input: parsedInput };
+}
+
+function systemWithTurnContext(input: OrchestrateTrainerChatInput): string {
+  return `${input.system}\n\nExplicit server turn context (date basis and recorded prior failures, not current-turn evidence):\n${JSON.stringify(input.turnContext ?? {})}`;
 }
 
 function plannerSystem(
@@ -192,166 +202,6 @@ function emitStatus(
   } catch {
     // Progress copy is best-effort and must not affect chat orchestration.
   }
-}
-
-function isAcceptableToolSynthesisText(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  if (/\bTool step \d+:/i.test(trimmed)) return false;
-  if (/^Privacy:/im.test(trimmed)) return false;
-  return true;
-}
-
-const NON_TERMINAL_LOCAL_DATA_LIMITATION =
-  "I couldn't complete that local Garmin or recovery check in this turn. Please retry, or narrow the date, activity, or recovery metric you want me to check.";
-
-const EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION =
-  "I couldn't complete current-turn local Garmin verification for those metrics, so I can't verify any totals, counts, or comparisons from this turn. Please retry, or narrow the date range and metric you want me to check.";
-
-type LocalDataEvidenceRequirement =
-  | { required: false }
-  | { required: true; reason: "quantitative_metric" | "metric_correction" };
-
-function isLikelyLocalDataRequest(userRequest: string): boolean {
-  const normalized = userRequest.toLowerCase();
-  const hasPersonalAnchor =
-    /\b(my|mine|me|i)\b/.test(normalized) ||
-    /\b(yesterday|today|last|recent|near (to )?my home)\b/.test(normalized);
-  const hasLocalDataSubject =
-    /\b(garmin|activity|activities|hike|hikes|run|runs|ride|rides|walk|walks|route|routes|sync|detail|details|variation|variations|sleep|slept|recovery|recovering|recover|hrv|body battery|body-battery|stress|readiness|resting heart rate|rhr|daily health|health stats|steps|calories)\b/.test(
-      normalized,
-    );
-  return hasPersonalAnchor && hasLocalDataSubject;
-}
-
-function isNonTerminalLocalDataPlan(text: string): boolean {
-  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
-  if (!normalized) return false;
-  const hasFutureMarker =
-    /\b(i['’]?ll|i will|i would|i need to|i'm going to|i am going to|let me)\b/.test(
-      normalized,
-    ) || /\b(first|next|then|after that)\b/.test(normalized);
-  const hasLocalDataAction =
-    /\b(pull up|look up|fetch|retrieve|check|inspect|review|verify|find|compare|analy[sz]e|query)\b/.test(
-      normalized,
-    );
-  const hasLocalDataSubject =
-    /\b(garmin|activity|activities|hike|hikes|run|runs|ride|rides|route|routes|local data|metadata|detail|details|database|sql|nearby|variation|variations|yesterday|today|recent|sleep|slept|recovery|hrv|body battery|body-battery|stress|readiness|resting heart rate|rhr|daily health|health stats|steps|calories)\b/.test(
-      normalized,
-    );
-  return hasFutureMarker && hasLocalDataAction && hasLocalDataSubject;
-}
-
-function isNonTerminalLocalDataDirectAnswer(input: {
-  userRequest: string;
-  text: string;
-}): boolean {
-  return (
-    isLikelyLocalDataRequest(input.userRequest) &&
-    isNonTerminalLocalDataPlan(input.text)
-  );
-}
-
-function hasQuantitativeMetricIntent(text: string): boolean {
-  const normalized = text.toLowerCase();
-  const hasMetricSubject =
-    /\b(activity|activities|hike|hikes|run|runs|ride|rides|walk|walks|distance|km|kilometers?|miles?|ascent|elevation|gain|calories?|kcal|steps?|duration|time|hrz|hr zone|heart[-\s]?rate zone|zone [1-5]|z[1-5]|sleep|hrv|body battery|stress|resting heart rate|rhr|daily health|active calories?|resting calories?|total calories?)\b/.test(
-      normalized,
-    );
-  const hasQuantitativeAction =
-    /\b(total|totals|count|counts|how many|sum|aggregate|aggregat(?:e|ed|ing|ion)|compare|comparison|month|monthly|week|weekly|year|yearly|january|february|march|april|may|june|july|august|september|october|november|december|\d{4}-\d{2}|average|avg|maximum|max|minimum|min)\b/.test(
-      normalized,
-    );
-  return hasMetricSubject && hasQuantitativeAction;
-}
-
-function hasMetricCorrectionIntent(
-  userRequest: string,
-  system: string,
-): boolean {
-  const normalized = userRequest.toLowerCase();
-  const challengesPriorMetric =
-    /\b(mistake|wrong|incorrect|bad|off|grave|did not|didn't|doesn'?t|missed|undercount|overcount|not aggregate|aggregate all|counted|count how many|recheck|verify again|check again|that total|those totals|that count|those counts)\b/.test(
-      normalized,
-    );
-  if (!challengesPriorMetric) return false;
-  return hasQuantitativeMetricIntent(`${userRequest}\n${system}`);
-}
-
-function localDataEvidenceRequirement(input: {
-  userRequest: string;
-  system: string;
-}): LocalDataEvidenceRequirement {
-  if (
-    isLikelyLocalDataRequest(input.userRequest) &&
-    hasQuantitativeMetricIntent(input.userRequest)
-  ) {
-    return { required: true, reason: "quantitative_metric" };
-  }
-  if (hasMetricCorrectionIntent(input.userRequest, input.system)) {
-    return { required: true, reason: "metric_correction" };
-  }
-  return { required: false };
-}
-
-function hasSuccessfulMetricEvidence(steps: TrainerToolStep[]): boolean {
-  return steps.some(
-    (step) =>
-      step.status === "succeeded" &&
-      (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis"),
-  );
-}
-
-function hasOpenFailedMetricEvidence(steps: TrainerToolStep[]): boolean {
-  const lastMetricStep = [...steps]
-    .reverse()
-    .find(
-      (step) =>
-        step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis",
-    );
-  return Boolean(lastMetricStep && lastMetricStep.status !== "succeeded");
-}
-
-function canAcceptEvidenceRequiredSynthesis(steps: TrainerToolStep[]): boolean {
-  return (
-    hasSuccessfulMetricEvidence(steps) && !hasOpenFailedMetricEvidence(steps)
-  );
-}
-
-function evidenceRequiredLimitationText(steps: TrainerToolStep[]): string {
-  const failed = [...steps]
-    .reverse()
-    .find((step) => step.status === "failed" || step.status === "rejected");
-  const reason = failed?.reason ? ` Reason: ${failed.reason}.` : "";
-  return `${EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION}${reason}`;
-}
-
-function serverCurrentDateBasis(system: string): string | null {
-  return (
-    /Server current date basis:\s*(\d{4}-\d{2}-\d{2})\b/.exec(system)?.[1] ??
-    null
-  );
-}
-
-function isCurrentDateMetaQuestion(userRequest: string): boolean {
-  return /\b(today'?s date|current date|server date|system clock|aware of today|what date)\b/i.test(
-    userRequest,
-  );
-}
-
-function rejectsAvailableDateBasis(text: string): boolean {
-  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
-  if (!normalized) return false;
-  return (
-    /\b(i do not|i don't|i cannot|i can't|i lack|no independent)\b.{0,90}\b(clock|real-time|current date|today'?s date|system itself)\b/.test(
-      normalized,
-    ) ||
-    /\bground ["']?today["']? only against the freshest garmin/.test(normalized)
-  );
-}
-
-function currentDateBasisAnswer(isoDate: string): string {
-  return `Yes. For this chat turn I have a server-provided current date basis: ${isoDate}. I use that for relative terms such as today and yesterday; Garmin activity or daily-health row dates are separate evidence for imported-data freshness.`;
 }
 
 function canOfferSqlCorrectionStep(step: TrainerToolStep): boolean {
@@ -458,7 +308,11 @@ async function synthesizeFinalAnswer(
   try {
     result = await generate({
       purpose: "final_synthesis",
-      system: finalAnswerSystem(input.system, steps, budgetStopped),
+      system: finalAnswerSystem(
+        systemWithTurnContext(input),
+        steps,
+        budgetStopped,
+      ),
       prompt: input.userRequest,
     });
   } catch (error) {
@@ -471,7 +325,11 @@ async function synthesizeFinalAnswer(
     );
     return null;
   }
-  if (!result) return null;
+  if (
+    !result ||
+    (result.toolCalls !== undefined && !Array.isArray(result.toolCalls))
+  )
+    return null;
 
   const text = result.text?.trim() ?? "";
   const toolCalls = (result.toolCalls ?? [])
@@ -482,18 +340,20 @@ async function synthesizeFinalAnswer(
       index: 0,
       purpose: "final_synthesis",
       toolCalls,
-      text,
+      text:
+        validatedCompletion(
+          toolCalls.find((call) => call.toolName === COMPLETION_TOOL)?.input,
+          steps,
+        ) ?? text,
     }),
   );
   if (
-    (result.toolCalls?.length ?? 0) > 0 ||
-    !isAcceptableToolSynthesisText(text) ||
-    /^\s*(?:[[{]|```)/.test(text) ||
-    /\bEvidence step \d+:/i.test(text) ||
-    isNonTerminalLocalDataDirectAnswer({ userRequest: input.userRequest, text })
+    (result.toolCalls?.length ?? 0) !== 1 ||
+    toolCalls.length !== 1 ||
+    toolCalls[0].toolName !== COMPLETION_TOOL
   )
     return null;
-  return text;
+  return validatedCompletion(toolCalls[0].input, steps);
 }
 
 export async function orchestrateTrainerChat(
@@ -526,10 +386,6 @@ async function orchestrateTurn(
       toolsUnsuccessful,
     });
   const budget = () => trainerExecutionBudget(providerCalls, toolAttempts);
-  const evidenceRequirement = localDataEvidenceRequirement({
-    userRequest: input.userRequest,
-    system: input.system,
-  });
   const debugEnabled = input.debug?.enabled === true;
   const debugProviderCalls: LlmDebugProviderCall[] = [];
   const recordProviderCall = (call: LlmDebugProviderCall) => {
@@ -637,7 +493,7 @@ async function orchestrateTurn(
       result = await ports.generate({
         purpose: "planner",
         system: plannerSystem(
-          input.system,
+          systemWithTurnContext(input),
           steps,
           budget(),
           analysisToolCounts,
@@ -668,9 +524,7 @@ async function orchestrateTurn(
           text:
             input.debug?.provider === "openrouter"
               ? `${providerFailureMessage("openrouter", error)} No Garmin tool was executed.`
-              : evidenceRequirement.required
-                ? EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION
-                : "I could not get a valid response from the configured model. No Garmin tool was executed.",
+              : "I could not get a valid response from the configured model. No Garmin tool was executed.",
           grounding: null,
           toolSteps: [],
           providerCalls,
@@ -679,102 +533,77 @@ async function orchestrateTurn(
       );
     }
 
+    if (!result) result = {};
+    if (result.toolCalls !== undefined && !Array.isArray(result.toolCalls)) {
+      return finish(
+        {
+          text: COMPLETION_LIMITATION,
+          grounding: groundingForSteps(steps),
+          toolSteps: steps,
+          providerCalls,
+        },
+        "deterministic_fallback",
+      );
+    }
     const toolCalls = (result.toolCalls ?? [])
       .map(extractToolCall)
       .filter((call): call is TrainerToolCall => Boolean(call));
     recordProviderCall(
       debugProviderCall({
         index: 0,
-        purpose: toolCalls.length
+        purpose: toolCalls.some((call) => call.toolName !== COMPLETION_TOOL)
           ? "planner"
           : steps.length
             ? "final_synthesis"
             : "direct_answer",
         toolCalls,
-        text: result.text?.trim() ?? "",
+        text:
+          validatedCompletion(
+            toolCalls.find((call) => call.toolName === COMPLETION_TOOL)?.input,
+            steps,
+          ) ??
+          result.text?.trim() ??
+          "",
       }),
     );
-    if (toolCalls.length === 0) {
-      if (steps.length) {
-        if (
-          evidenceRequirement.required &&
-          !canAcceptEvidenceRequiredSynthesis(steps)
-        ) {
-          return finish(
-            {
-              text: evidenceRequiredLimitationText(steps),
-              grounding: groundingForSteps(steps),
-              toolSteps: steps,
-              providerCalls,
-            },
-            "deterministic_fallback",
-          );
-        }
-        const text = result.text?.trim() ?? "";
-        const hasFinalAnswer = isAcceptableToolSynthesisText(text);
-        if (hasFinalAnswer) progress("Formatting the completed answer…");
-        const synthesized = hasFinalAnswer ? text : await synthesize();
-        return finish(
-          {
-            text: synthesized ?? toolFailureLimitationText(steps),
-            grounding: groundingForSteps(steps),
-            toolSteps: steps,
-            providerCalls,
-          },
-          synthesized ? "provider" : "deterministic_fallback",
-        );
-      }
-      const text = result.text?.trim() ?? "";
-      const currentDateBasis = serverCurrentDateBasis(input.system);
-      if (
-        currentDateBasis &&
-        isCurrentDateMetaQuestion(input.userRequest) &&
-        rejectsAvailableDateBasis(text)
-      ) {
-        return finish(
-          {
-            text: currentDateBasisAnswer(currentDateBasis),
-            grounding: null,
-            toolSteps: [],
-            providerCalls,
-          },
-          "deterministic_fallback",
-        );
-      }
-      if (evidenceRequirement.required) {
-        return finish(
-          {
-            text: EVIDENCE_REQUIRED_LOCAL_DATA_LIMITATION,
-            grounding: null,
-            toolSteps: [],
-            providerCalls,
-          },
-          "deterministic_fallback",
-        );
-      }
-      if (
-        isNonTerminalLocalDataDirectAnswer({
-          userRequest: input.userRequest,
-          text,
-        })
-      ) {
-        return finish(
-          {
-            text: NON_TERMINAL_LOCAL_DATA_LIMITATION,
-            grounding: null,
-            toolSteps: [],
-            providerCalls,
-          },
-          "deterministic_fallback",
-        );
-      }
-      return finish({
-        text:
-          text || "I could not produce a useful answer from the local context.",
-        grounding: null,
-        toolSteps: [],
-        providerCalls,
-      });
+    const terminal = toolCalls.find(
+      (call) => call.toolName === COMPLETION_TOOL,
+    );
+    const malformedCalls = toolCalls.length !== (result.toolCalls?.length ?? 0);
+    if (malformedCalls || (terminal && toolCalls.length !== 1)) {
+      return finish(
+        {
+          text: COMPLETION_LIMITATION,
+          grounding: groundingForSteps(steps),
+          toolSteps: steps,
+          providerCalls,
+        },
+        "deterministic_fallback",
+      );
+    }
+    if (terminal || toolCalls.length === 0) {
+      const completed = terminal
+        ? validatedCompletion(terminal.input, steps)
+        : null;
+      if (completed) progress("Formatting the completed answer…");
+      const answer = completed ?? (await synthesize());
+      return finish(
+        {
+          text:
+            answer ??
+            (steps.some((step) => step.status !== "succeeded")
+              ? toolFailureLimitationText(steps)
+              : COMPLETION_LIMITATION),
+          grounding: groundingForSteps(steps),
+          toolSteps: steps,
+          providerCalls,
+        },
+        answer
+          ? steps.length
+            ? "provider"
+            : "direct"
+          : "deterministic_fallback",
+      );
     }
 
     const selection = selectSafeToolCalls({
@@ -896,17 +725,6 @@ async function orchestrateTurn(
           continue;
         }
         if (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis") {
-          if (evidenceRequirement.required) {
-            return finish(
-              {
-                text: evidenceRequiredLimitationText(steps),
-                grounding: groundingForSteps(steps),
-                toolSteps: steps,
-                providerCalls,
-              },
-              "deterministic_fallback",
-            );
-          }
           const synthesized = await synthesize();
           return finish(
             {

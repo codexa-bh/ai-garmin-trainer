@@ -6,6 +6,7 @@ vi.mock("ai", async (original) => ({
 }));
 import { createTrainerGeneration } from "../src/lib/ai/provider-generation";
 import { trainerToolDefinitions } from "../src/lib/ai/provider-tool-definitions";
+import { finalToolChoice } from "./completion-fixtures";
 import { trainerToolContracts } from "../src/lib/ai/tool-contracts";
 import { TRAINER_PROVIDER_CALL_TIMEOUT_MS } from "../src/lib/ai/orchestration-ports";
 
@@ -36,7 +37,12 @@ it("maps exact planner and synthesis options while retaining selected model and 
     model,
     system: "system",
     prompt: "prompt",
-    tools: trainerToolDefinitions,
+    tools: {
+      ...trainerToolDefinitions,
+      completeTrainerTurn: expect.objectContaining({
+        inputSchema: expect.anything(),
+      }),
+    },
     toolChoice: "auto",
     parallelToolCalls: false,
     providerOptions: {
@@ -56,7 +62,12 @@ it("maps exact planner and synthesis options while retaining selected model and 
     model,
     system: "final",
     prompt: "prompt",
-    toolChoice: "none",
+    tools: {
+      completeTrainerTurn: expect.objectContaining({
+        inputSchema: expect.anything(),
+      }),
+    },
+    toolChoice: finalToolChoice,
     abortSignal: expect.any(AbortSignal),
   });
   expect(generateText.mock.calls[0][0].abortSignal).not.toBe(

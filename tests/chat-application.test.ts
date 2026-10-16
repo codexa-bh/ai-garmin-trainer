@@ -45,7 +45,7 @@ function turnFixture() {
     }),
     selectGeneration: vi.fn<ChatTurnPorts["selectGeneration"]>(() => {
       order.push("select");
-      return async (input) => {
+      return vi.fn(async (input) => {
         order.push("generate");
         input.onStatus?.("working");
         return {
@@ -58,7 +58,7 @@ function turnFixture() {
             toolsUnsuccessful: 0,
           },
         };
-      };
+      });
     }),
     buildSystemContext: vi.fn(async () => {
       order.push("context");
@@ -121,7 +121,7 @@ describe("chat turn factories with supplied ports, no infrastructure mocks", () 
     expect(order.at(-1)).toBe("history");
   });
 
-  it("bypasses generation for prior failures and decorates only when completion requests it", async () => {
+  it("passes recorded prior failures to generation without keyword routing", async () => {
     const { app, ports, messages } = turnFixture();
     messages.push({
       id: "old",
@@ -146,11 +146,25 @@ describe("chat turn factories with supplied ports, no infrastructure mocks", () 
       debugTraceEnabled: true,
     });
     expect(answer).toMatchObject({
-      kind: "previous-failure",
-      text: expect.stringContaining("runReadOnlySql"),
+      kind: "generated",
+      text: "answer",
     });
-    expect(ports.selectGeneration).not.toHaveBeenCalled();
-    expect(ports.buildSystemContext).not.toHaveBeenCalled();
+    expect(ports.selectGeneration).toHaveBeenCalledOnce();
+    expect(ports.buildSystemContext).toHaveBeenCalledOnce();
+    const generation = vi.mocked(ports.selectGeneration).mock.results[0].value;
+    expect(generation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnContext: expect.objectContaining({
+          previousFailures: [
+            {
+              tool: "runReadOnlySql",
+              status: "failed",
+              summary: "unavailable",
+            },
+          ],
+        }),
+      }),
+    );
     vi.mocked(ports.addCompletedTurn).mockRejectedValueOnce(
       new Error("offline"),
     );
@@ -158,10 +172,8 @@ describe("chat turn factories with supplied ports, no infrastructure mocks", () 
       failureDebugTraceEnabled: true,
     });
     expect(result.messages).toHaveLength(3);
-    expect(result.assistantRecord.grounding?.debugTrace?.capturedAt).toBe(
-      now.toISOString(),
-    );
-    expect(ports.fallbackDebugTrace).toHaveBeenCalledOnce();
+    expect(result.assistantRecord.grounding).toBeNull();
+    expect(ports.fallbackDebugTrace).not.toHaveBeenCalled();
   });
 
   it.each(["select", "context", "save"])(

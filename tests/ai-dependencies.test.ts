@@ -43,6 +43,7 @@ const allowed = new Set([
   "ai/trainer-instructions.ts",
   "ai/trainer-progress.ts",
   "ai/training-plan-evidence.ts",
+  "ai/turn-completion.ts",
   "analytics/activity-dashboard-calculations.ts",
   "chat/contracts.ts",
   "garmin/detail-types.ts",
