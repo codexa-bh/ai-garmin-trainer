@@ -37,6 +37,7 @@ export const trainerCompletionSchema = z
                   tool: z.enum([
                     "runGarminSync",
                     "getSyncStatus",
+                    "describeGarminDatabase",
                     "verifyActivityReference",
                     "forceRefreshActivityDetail",
                     "getActivityDetailAvailability",
@@ -60,10 +61,10 @@ export const trainerCompletionSchema = z
           completion.kind === "grounded"
             ? completion.claims.length > 0 &&
               completion.missingEvidence.length === 0
-            : completion.claims.length === 0 &&
-              (completion.kind === "incomplete"
-                ? completion.missingEvidence.length > 0
-                : completion.missingEvidence.length === 0);
+            : completion.kind === "incomplete"
+              ? completion.missingEvidence.length > 0
+              : completion.claims.length === 0 &&
+                completion.missingEvidence.length === 0;
         if (!valid)
           ctx.addIssue({
             code: "custom",

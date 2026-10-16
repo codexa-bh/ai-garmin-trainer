@@ -169,13 +169,15 @@ rollback, and private API smoke uses a disposable populated DB.
 `turn-completion.ts` validates it against current-turn execution. The `completion`
 kind is `coaching`, `grounded` (nonempty claims), or `incomplete` (nonempty gaps).
 The uniform object requires `kind`, `answer`, `claims` and `missingEvidence`;
-coaching has empty arrays, grounded has claims only, incomplete has gaps only.
+coaching has empty arrays, grounded has claims only, incomplete has mandatory gaps
+and optional individually validated partial claims.
 Strict cross-field validation rejects contradictions without parsing answer prose.
 This avoids real DeepSeek union-branch leakage of empty claims into coaching.
 A metric claim references an exact successful SQL/math step, result name, zero-based
 row, column and non-null scalar value. Status/schema tools cannot verify metric
 claims, and unresolved later analytical failures reject completed metric answers.
-Non-analytical claims require the exact successful tool/step. Relevance selection
+Non-analytical or schema-availability observations require the exact successful
+tool/step; schema observations cannot establish a numeric metric claim. Relevance selection
 and faithful prose remain model responsibilities; cell validation is not proof of
 natural-language entailment. Incomplete responses disclose gaps without certifying
 verification. Native terminal calls never execute or grant save authority.

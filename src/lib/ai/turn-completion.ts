@@ -13,7 +13,7 @@ export function validatedCompletion(
   const parsed = trainerCompletionSchema.safeParse(input);
   if (!parsed.success) return null;
   const completion = parsed.data.completion;
-  if (completion.kind !== "grounded") return completion.answer;
+  if (completion.kind === "coaching") return completion.answer;
   const latestMetric = [...steps]
     .reverse()
     .find(
@@ -29,7 +29,8 @@ export function validatedCompletion(
     }
     if (
       (step.tool !== "runReadOnlySql" && step.tool !== "runMathAnalysis") ||
-      latestMetric?.status !== "succeeded" ||
+      (completion.kind === "grounded" &&
+        latestMetric?.status !== "succeeded") ||
       !step.result ||
       typeof step.result !== "object"
     )

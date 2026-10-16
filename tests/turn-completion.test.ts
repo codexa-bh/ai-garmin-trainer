@@ -243,12 +243,44 @@ it("does not certify partial metric success after an unresolved later failure; a
       steps,
     ),
   ).toContain("calculation failed");
+  const partial = (value: number) =>
+    completion({
+      kind: "incomplete",
+      answer: "Available July distance is 84 km; requested calculation failed.",
+      claims: [metric(1, "monthly", "total_km", value)],
+      missingEvidence: ["failed calculation"],
+    });
+  expect(checked(partial(84), steps)).toContain("calculation failed");
+  expect(checked(partial(85), steps)).toBeNull();
   expect(
     checked(grounded("Corrected", [metric(3, "monthly", "total_km", 84)]), [
       ...steps,
       sqlStep(3),
     ]),
   ).toBe("Corrected");
+});
+
+it("allows schema observations for missing-field explanations but never for metric verification", () => {
+  const step: TrainerToolStep = {
+    index: 1,
+    tool: "describeGarminDatabase",
+    status: "succeeded",
+    summary: "Schema inspected",
+    privacy: "bounded",
+  };
+  const output = completion({
+    kind: "incomplete",
+    answer: "Pack weight is not recorded in the schema; it remains unknown.",
+    claims: [toolClaim(1, "describeGarminDatabase")],
+    missingEvidence: ["backpack weight"],
+  });
+  expect(checked(output, [step])).toContain("remains unknown");
+  expect(checked(output, [{ ...step, status: "failed" }])).toBeNull();
+  expect(
+    checked(grounded("Weight 5 kg", [metric(1, "schema", "weight", 5)]), [
+      step,
+    ]),
+  ).toBeNull();
 });
 
 it("validates non-analytical claims against actual successful tool identity", () => {
