@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { coaching } from "./completion-fixtures";
 import { TrainerToolExecutionContext } from "../src/lib/ai/tool-execution-context";
 
 const { generateText, runReadOnlySql } = vi.hoisted(() => ({
@@ -176,7 +177,7 @@ describe("terminal context cleanup", () => {
         vi.useFakeTimers();
         generateText.mockImplementationOnce(() => new Promise(() => {}));
       }
-      generateText.mockResolvedValue({ text: "Completed." });
+      generateText.mockResolvedValue(coaching("Completed."));
       const pending = orchestrateTrainerChat({
         model: "mock",
         system: "system",
@@ -209,20 +210,23 @@ describe("terminal context cleanup", () => {
       orchestrate(
         {
           system: "system",
-          get userRequest(): string {
-            throw new Error("input failed");
+          userRequest: "input",
+        },
+        {
+          generate: async () => sql("shared", 11),
+          executeTool: () => {
+            throw new Error("execution failed");
           },
         },
-        { generate: generateText, executeTool: executeTrainerTool },
       ),
-    ).rejects.toThrow("input failed");
+    ).rejects.toThrow("execution failed");
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(dispose.mock.instances[0]).toHaveProperty("analysisResults.size", 0);
   });
 
   it("allocates and disposes even a direct answer's context", async () => {
     const dispose = vi.spyOn(TrainerToolExecutionContext.prototype, "dispose");
-    generateText.mockResolvedValue({ text: "Hello." });
+    generateText.mockResolvedValue(coaching("Hello."));
     await turn("A");
     await turn("B");
     expect(dispose).toHaveBeenCalledTimes(2);
@@ -236,7 +240,7 @@ describe("real orchestration turn ownership", () => {
     const resume = barrier();
     let aCalls = 0;
     generateText.mockImplementation(async ({ prompt }: { prompt: string }) => {
-      if (prompt === "B") return { text: "Ready." };
+      if (prompt === "B") return coaching("Ready.");
       aCalls += 1;
       if (aCalls === 1) return sql("shared", 11);
       if (aCalls === 2) {
@@ -244,7 +248,7 @@ describe("real orchestration turn ownership", () => {
         await resume.promise;
         return math("shared");
       }
-      return { text: "The calculated value is 11." };
+      return coaching("The calculated value is 11.");
     });
     const a = turn("A");
     await paused.promise;

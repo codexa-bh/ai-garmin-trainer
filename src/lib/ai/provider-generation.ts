@@ -1,4 +1,12 @@
-import { generateText } from "ai";
+import { generateText, tool } from "ai";
+import { trainerCompletionSchema } from "./tool-contracts";
+import { COMPLETION_TOOL } from "./turn-completion";
+
+const completionTool = tool({
+  description:
+    "Declare the final coaching, evidence-grounded or incomplete answer. This is a response, not an action. Personal measurements require exact current-turn evidence references. Never declare unfinished tool work as completed coaching.",
+  inputSchema: trainerCompletionSchema,
+});
 import { trainerToolDefinitions } from "./provider-tool-definitions";
 import {
   TRAINER_PROVIDER_CALL_TIMEOUT_MS,
@@ -24,7 +32,10 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
         prompt: request.prompt,
         ...(request.purpose === "planner"
           ? {
-              tools: trainerToolDefinitions,
+              tools: {
+                ...trainerToolDefinitions,
+                [COMPLETION_TOOL]: completionTool,
+              },
               toolChoice: "auto",
               parallelToolCalls: false,
               providerOptions: {
@@ -32,7 +43,12 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
                 deepseek: { parallelToolCalls: false },
               },
             }
-          : { toolChoice: "none" }),
+          : {
+              tools: { [COMPLETION_TOOL]: completionTool },
+              // DeepSeek thinking mode supports auto but rejects forced tool choice.
+              // Only the terminal schema is exposed; no action can execute here.
+              toolChoice: "auto",
+            }),
         abortSignal: controller.signal,
       };
       // Preserve the existing SDK compatibility boundary and raw call shapes.

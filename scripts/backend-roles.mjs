@@ -26,6 +26,7 @@ const groups = [
       "trainer-instructions",
       "trainer-progress",
       "training-plan-evidence",
+      "turn-completion",
     ],
   ],
   [

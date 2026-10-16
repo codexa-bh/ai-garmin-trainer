@@ -146,9 +146,11 @@ have neutral AI owners; grounding remains the chat-owned contract.
 
 `ai/composition.ts` binds the selected model to `provider-generation.ts` before
 calling policy; chat's request-time selection remains before context reads.
-The adapter preserves exact planner tools/auto/parallel options, synthesis with
-no tools and `toolChoice: none`, unfiltered raw results, one 180000ms per-call
-AbortController timeout and timer cleanup. HTTP disconnect does not acquire
+The adapter preserves planner action tools/auto/parallel options and adds the
+non-executing `completeTrainerTurn` response tool. Reserved synthesis exposes only
+that response tool with auto choice (DeepSeek thinking mode rejects forced choice), never action tools. Raw results remain
+application-validated, with one 180000ms per-call AbortController timeout and timer
+cleanup. HTTP disconnect does not acquire
 provider cancellation, and memory keeps independent provider configuration.
 
 `tests/ai-application.test.ts` supplies capabilities directly without module mocks;
@@ -160,6 +162,43 @@ Existing schema snapshots, real SQLite tool suites, provider-mocked production
 chat, budget/plan and overlapping-turn suites retain integration coverage.
 No schema/data/wire/UI changes: migration/back-sync is a no-op, source revert is
 rollback, and private API smoke uses a disposable populated DB.
+
+### Structured chat completion and evidence
+
+`tool-contracts.ts` defines the strict object-root terminal schema; pure
+`turn-completion.ts` validates it against current-turn execution. The `completion`
+kind is `coaching`, `grounded` (nonempty claims), or `incomplete` (nonempty gaps).
+The uniform object requires `kind`, `answer`, `claims` and `missingEvidence`;
+coaching has empty arrays, grounded has claims only, incomplete has mandatory gaps
+and optional individually validated partial claims.
+Strict cross-field validation rejects contradictions without parsing answer prose.
+This avoids real DeepSeek union-branch leakage of empty claims into coaching.
+A metric claim references an exact successful SQL/math step, result name, zero-based
+row, column and non-null scalar value. Status/schema tools cannot verify metric
+claims, and unresolved later analytical failures reject completed metric answers.
+Non-analytical or schema-availability observations require the exact successful
+tool/step; schema observations cannot establish a numeric metric claim. Relevance selection
+and faithful prose remain model responsibilities; cell validation is not proof of
+natural-language entailment. Incomplete responses disclose gaps without certifying
+verification. Native terminal calls never execute or grant save authority.
+
+Plain text, missing/malformed declarations and conflicting terminal/action batches
+cannot become completed coaching. A missing/invalid terminal result may consume
+only the existing budget-admitted final synthesis; failure uses truthful limitation
+text. There is no keyword classifier, answer-prose critic, JSON-prefix rejection,
+date-answer rewrite or prior-failure keyword bypass. General physiology quantities
+and hiking/HR/Z3/action vocabulary do not affect control flow. Tool/SQL/math safety,
+full prior-pass plan snapshots, side-effect guards and the final reserve remain.
+
+Chat passes typed `ChatTurnContext` with a server UTC ISO date and immediately
+preceding failed/rejected step metadata. Every follow-up uses ordinary generation;
+previous failures are context, never fresh tool evidence. The old prior-failure
+answer type remains accepted by delivery for compatibility, but generation no
+longer emits that bypass. Terminal tool arguments omit answer/document content in
+debug logs; schema diagnostics retain only validation flags and bounded issue
+codes/paths, and validated answer excerpts retain existing bounded/weekly redaction.
+No database, import, HTTP or UI shape changes; back-sync is a no-op and rollback
+is a source revert. Private source delivery does not restart/install/release.
 
 ## Guarded analytical policy and SQLite execution
 
@@ -380,9 +419,9 @@ history, paging, creation, rename and delete/fallback. `contracts.ts` owns store
 message/conversation/grounding/page shapes; `conversation-policy.ts` owns pure
 ID/title rules. Dates and wire representations are unchanged. Deletion remains
 one synchronous transactional adapter call before fallback selection; missing
-conversation deletion still cleans only matching conversation-derived memories. Mode-specific context counts, previous-failure debug traces
-and metadata differences are compatibility requirements, not normalization
-opportunities. See [chat ownership](design-choices-and-boundaries.md#chat-application-and-http-delivery).
+conversation deletion still cleans only matching conversation-derived memories. Mode-specific context counts and metadata differences remain delivery contracts.
+Prior-failure follow-ups now use normal generated-answer delivery with explicit
+failure context rather than a keyword-triggered bypass. See [chat ownership](design-choices-and-boundaries.md#chat-application-and-http-delivery).
 
 ## Turn-owned tool execution
 

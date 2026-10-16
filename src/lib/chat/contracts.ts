@@ -27,6 +27,17 @@ export type ChatGrounding = {
   }>;
 };
 
+// Explicit server facts for generation, never inferred from transcript prose.
+export type ChatTurnContext = {
+  currentDate?: string;
+  previousFailures?: Array<
+    Pick<
+      NonNullable<ChatGrounding["toolSteps"]>[number],
+      "tool" | "status" | "reason" | "summary"
+    >
+  >;
+};
+
 export type StoredChatMessage = {
   id: string;
   conversationId: string;

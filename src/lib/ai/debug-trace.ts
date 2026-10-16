@@ -1,3 +1,4 @@
+import { trainerCompletionSchema } from "./tool-contracts";
 import type { TrainerToolCall, TrainerToolStep } from "@/lib/ai/tool-types";
 
 import type {
@@ -95,14 +96,51 @@ export function debugProviderCall(input: {
     ? compactString(input.error, LLM_DEBUG_TRACE_CAPS.string)
     : null;
   const toolCalls = input.toolCalls?.map((call) => {
+    const terminal =
+      call.toolName === "completeTrainerTurn" &&
+      call.input &&
+      typeof call.input === "object"
+        ? (call.input as { completion?: unknown }).completion
+        : null;
+    const declaration =
+      terminal && typeof terminal === "object"
+        ? (terminal as Record<string, unknown>)
+        : null;
+    const validation =
+      call.toolName === "completeTrainerTurn"
+        ? trainerCompletionSchema.safeParse(call.input)
+        : null;
+    const terminalMetadata = {
+      schemaValid: validation?.success === true,
+      schemaIssues:
+        validation && !validation.success
+          ? validation.error.issues
+              .slice(0, 8)
+              .map(({ code, path }) => ({ code, path }))
+          : [],
+      completionKind: ["coaching", "grounded", "incomplete"].includes(
+        String(declaration?.kind),
+      )
+        ? declaration?.kind
+        : "invalid",
+      declaredClaims: Array.isArray(declaration?.claims)
+        ? declaration.claims.length
+        : 0,
+      missingEvidenceCount: Array.isArray(declaration?.missingEvidence)
+        ? declaration.missingEvidence.length
+        : 0,
+      answerContent: "omitted",
+    };
     const bounded = boundedDebugValue(
-      [
-        "saveTrainingPlan",
-        "proposeWeeklyDocuments",
-        "applyWeeklyProposal",
-      ].includes(call.toolName)
-        ? { documentContent: "omitted" }
-        : call.input,
+      call.toolName === "completeTrainerTurn"
+        ? terminalMetadata
+        : [
+              "saveTrainingPlan",
+              "proposeWeeklyDocuments",
+              "applyWeeklyProposal",
+            ].includes(call.toolName)
+          ? { documentContent: "omitted" }
+          : call.input,
     );
     truncated = truncated || bounded.truncated;
     return {

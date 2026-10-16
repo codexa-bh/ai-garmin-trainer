@@ -1,4 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  coaching,
+  grounded,
+  incomplete,
+  metric,
+  toolClaim,
+  finalToolChoice,
+  isFinalSynthesis,
+} from "./completion-fixtures";
 
 const runGarminSync = vi.fn(async () => ({
   status: "completed",
@@ -200,7 +209,12 @@ const trainingPlanStatus = vi.fn(() => ({
 }));
 
 const generateText = vi.fn(
-  async (options: { prompt: string; system: string; toolChoice?: string }) => {
+  async (options: {
+    prompt: string;
+    system: string;
+    toolChoice?: string;
+    tools?: Record<string, unknown>;
+  }) => {
     if (options.system.startsWith("Classify only the current user's request")) {
       return {
         toolCalls: [
@@ -215,10 +229,10 @@ const generateText = vi.fn(
         ],
       };
     }
-    if (options.toolChoice === "none") {
-      return {
-        text: "After checking the disputed reference and the ordered ranking evidence, the demanding-activity answer should stay grounded in imported local data only.",
-      };
+    if (isFinalSynthesis(options)) {
+      return incomplete(
+        "The requested local check could not be completed; its metrics remain unverified.",
+      );
     }
     if (
       options.system.includes("Evidence step 1:") &&
@@ -240,19 +254,22 @@ const generateText = vi.fn(
       };
     }
     if (options.system.includes("Evidence step 1: getSyncStatus")) {
-      return {
-        text: "Your local Garmin import is available with detail coverage 1/3 terminal.",
-      };
+      return grounded(
+        "Your local Garmin import is available with detail coverage 1/3 terminal.",
+        [toolClaim(1, "getSyncStatus")],
+      );
     }
     if (options.system.includes("Evidence step 1: runGarminSync")) {
-      return {
-        text: "Garmin sync complete; the local normalized store was updated.",
-      };
+      return grounded(
+        "Garmin sync complete; the local normalized store was updated.",
+        [toolClaim(1, "runGarminSync")],
+      );
     }
     if (options.system.includes("Evidence step 1: saveTrainingPlan")) {
-      return {
-        text: "Saved your Training Plan with an aerobic base week and recovery day.",
-      };
+      return grounded(
+        "Saved your Training Plan with an aerobic base week and recovery day.",
+        [toolClaim(1, "saveTrainingPlan")],
+      );
     }
     if (
       options.system.includes("Evidence step 1: runMathAnalysis") ||
@@ -260,19 +277,22 @@ const generateText = vi.fn(
       options.system.includes("Evidence step 3: runMathAnalysis")
     ) {
       if (options.prompt.toLowerCase().includes("snowboard")) {
-        return {
-          text: "Using model-selected generic criteria from SQL/math evidence, I checked whether snowboardings qualified without dumping raw tool steps.",
-        };
+        return grounded(
+          "Using model-selected generic criteria from SQL/math evidence, I checked whether snowboardings qualified without dumping raw tool steps.",
+          [metric(1, "demand_rows", "garmin_id", "source-1", 1)],
+        );
       }
-      return {
-        text: "Source climb — Špik stands out in the bounded SQL/math evidence.",
-      };
+      return grounded(
+        "Source climb — Špik stands out in the bounded SQL/math evidence.",
+        [metric(1, "demand_rows", "garmin_id", "source-1", 1)],
+      );
     }
     if (options.system.includes("Evidence step 1: runReadOnlySql")) {
       if (options.prompt.includes("latest activity")) {
-        return {
-          text: "The latest imported local activity is latest-999, based on read-only SQL evidence.",
-        };
+        return grounded(
+          "The latest imported local activity is latest-999, based on read-only SQL evidence.",
+          [metric(1, "latest_activity", "garmin_id", "latest-999")],
+        );
       }
       if (
         options.prompt.includes("most demanding") ||
@@ -294,39 +314,54 @@ const generateText = vi.fn(
         };
       }
       if (options.prompt.toLowerCase().includes("training load")) {
-        return {
-          text: "Read-only SQL evidence shows Source climb — Špik with training load 126 and 58 total intensity minutes; unavailable effort fields would remain nullable rather than inferred.",
-        };
+        return grounded(
+          "Read-only SQL evidence shows Source climb — Špik with training load 126 and 58 total intensity minutes; unavailable effort fields would remain nullable rather than inferred.",
+          [metric(1, "activity_effort_rows", "training_load", 126, 1)],
+        );
       }
-      return { text: "provider final" };
+      return coaching("provider final");
     }
     if (options.system.includes("Evidence step 1: verifyActivityReference")) {
       if (options.system.includes("No matching normalized local activity")) {
-        return {
-          text: "No matching normalized local activity was found in the imported corpus, so I would not use an arbitrary latest fallback.",
-        };
+        return grounded(
+          "No matching normalized local activity was found in the imported corpus, so I would not use an arbitrary latest fallback.",
+          [toolClaim(1, "verifyActivityReference")],
+        );
       }
       if (options.system.includes("Garmin ID 23667792496")) {
-        return {
-          text: "I found Selo - Rašica as Garmin ID 23667792496 with distance 12340 m in local imported data.",
-        };
+        return grounded(
+          "I found Selo - Rašica as Garmin ID 23667792496 with distance 12340 m in local imported data.",
+          [toolClaim(1, "verifyActivityReference")],
+        );
       }
       if (
         options.system.includes("dup-1") &&
         options.system.includes("dup-2")
       ) {
-        return {
-          text: "The Duplicate reference is ambiguous between dup-1 and dup-2 in local imported data.",
-        };
+        return grounded(
+          "The Duplicate reference is ambiguous between dup-1 and dup-2 in local imported data.",
+          [toolClaim(1, "verifyActivityReference")],
+        );
       }
     }
     if (options.system.includes("Evidence step 1:"))
-      return { text: "provider final" };
+      return coaching("provider final");
     const prompt = options.prompt;
+    if (
+      prompt === "what went wrong?" &&
+      options.system.includes('"previousFailures":[')
+    ) {
+      return coaching(
+        options.system.includes('"reason":"tool_budget_exceeded"')
+          ? "The previous turn stopped at an execution-budget boundary, not an unsafe action."
+          : "The model selected multiple tools in the previous recorded turn; no unsafe action was run.",
+      );
+    }
     if (prompt.includes("today's date")) {
-      return {
-        text: "I don't have an independent real-time clock, so I can only ground today against the freshest Garmin data timestamps.",
-      };
+      expect(options.system).toContain('"currentDate":"2026-08-14"');
+      return coaching(
+        "The server-provided current date basis: 2026-08-14 is separate from Garmin data freshness.",
+      );
     }
     if (prompt === "sync Garmin and then status") {
       return {
@@ -367,9 +402,9 @@ const generateText = vi.fn(
       };
     }
     if (prompt.includes("Discuss a possible plan")) {
-      return {
-        text: "We can discuss a plan draft here, but I will not save it unless you explicitly ask me to update the Training Plan.",
-      };
+      return coaching(
+        "We can discuss a plan draft here, but I will not save it unless you explicitly ask me to update the Training Plan.",
+      );
     }
     if (prompt.includes("Compare 111111")) {
       return {
@@ -481,9 +516,10 @@ const generateText = vi.fn(
         ],
       };
     }
-    return { text: "model response" };
+    return coaching("model response");
   },
 );
+const generateResponse = generateText.getMockImplementation()!;
 
 const coverage = {
   total: 3,
@@ -782,7 +818,7 @@ describe("chat route LLM tool orchestration", () => {
     memoryAddShouldFail = false;
     selectedProvider = "deepseek";
     delete process.env.LLM_DEBUG_TRACES;
-    generateText.mockClear();
+    generateText.mockReset().mockImplementation(generateResponse);
     runGarminSync.mockClear();
     backfillActivityDetail.mockClear();
     describeGarminDatabase.mockClear();
@@ -802,7 +838,7 @@ describe("chat route LLM tool orchestration", () => {
     };
     const proposal =
       "I propose changing only '- Two sessions' to '- Three sessions'. Shall I save it?";
-    generateText.mockResolvedValueOnce({ text: proposal });
+    generateText.mockResolvedValueOnce(coaching(proposal));
     await postChat("Suggest a targeted plan edit.", "plan-confirmation");
     generateText
       .mockImplementationOnce(async (options) => {
@@ -822,7 +858,11 @@ describe("chat route LLM tool orchestration", () => {
           },
         ],
       })
-      .mockResolvedValueOnce({ text: "Saved the strength change only." });
+      .mockResolvedValueOnce(
+        grounded("Saved the strength change only.", [
+          toolClaim(2, "saveTrainingPlan"),
+        ]),
+      );
     const result = await postChat("ok adjust it", "plan-confirmation");
     expect(replaceTrainingPlan).toHaveBeenCalledOnce();
     expect(savedTrainingPlan.contentMarkdown).toBe(
@@ -839,9 +879,11 @@ describe("chat route LLM tool orchestration", () => {
           input: {},
         })),
       })
-      .mockResolvedValueOnce({
-        text: "Your quiet week and yesterday's medium effort are user-reported context, not verified Garmin totals. For the family hike, keep the pace comfortable and adjust to fatigue rather than chasing Z3/Z4. The intended 600 m ascent and rest stops do not prove measured intensity; current recovery metrics remain unverified.",
-      });
+      .mockResolvedValueOnce(
+        incomplete(
+          "Your quiet week and yesterday's medium effort are user-reported context, not verified Garmin totals. For the family hike, keep the pace comfortable and adjust to fatigue rather than chasing Z3/Z4. The intended 600 m ascent and rest stops do not prove measured intensity; current recovery metrics remain unverified.",
+        ),
+      );
     const payload = await postChat(
       "This was a quiet training week. Yesterday I did a medium-effort hike; today I plan a slow family hike with roughly 600 m ascent, intended Z3/Z4 and rest stops. What do you advise?",
       "t0170-hike",
@@ -852,13 +894,18 @@ describe("chat route LLM tool orchestration", () => {
     expect(payload.assistant.content).toContain("remain unverified");
     expect(payload.toolSteps?.at(-1)?.reason).toBe("tool_budget_exceeded");
     expect(messages.at(-1)?.content).toBe(payload.assistant.content);
-    expect(generateText.mock.calls[1][0]).toMatchObject({ toolChoice: "none" });
+    expect(generateText.mock.calls[1][0]).toMatchObject({
+      toolChoice: finalToolChoice,
+    });
     const explanation = await postChat("what went wrong?", "t0170-hike");
     expect(explanation.assistant.content).toContain(
       "execution-budget boundary",
     );
     expect(explanation.assistant.content).not.toContain("refused to execute");
-    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(generateText).toHaveBeenCalledTimes(3);
+    expect(generateText.mock.calls[2][0].system).toContain(
+      '"reason":"tool_budget_exceeded"',
+    );
   });
 
   it("lets the planner select local sync status and returns ordered grounding", async () => {
@@ -980,9 +1027,12 @@ describe("chat route LLM tool orchestration", () => {
       .mockResolvedValueOnce({
         toolCalls: [{ toolName: "runGarminSync", input: {} }],
       })
-      .mockResolvedValueOnce({
-        text: "Garmin sync complete from both local sync selections.",
-      });
+      .mockResolvedValueOnce(
+        grounded("Garmin sync complete from both local sync selections.", [
+          toolClaim(1, "runGarminSync"),
+          toolClaim(2, "runGarminSync"),
+        ]),
+      );
 
     const payload = await postChat("sync my most recent data");
 
@@ -1128,9 +1178,7 @@ describe("chat route LLM tool orchestration", () => {
       "ok check my yesterdays hike. I did one of the variations near to my home.",
     );
 
-    expect(payload.assistant.content).toContain(
-      "couldn't complete that local Garmin",
-    );
+    expect(payload.assistant.content).toContain("remain unverified");
     expect(payload.assistant.content).not.toContain("model returned a plan");
     expect(payload.assistant.content).not.toContain("safe local-data tool");
     expect(payload.assistant.content).not.toContain("I'll pull up");
@@ -1151,7 +1199,7 @@ describe("chat route LLM tool orchestration", () => {
       .map((event) => event.textDelta)
       .join("");
 
-    expect(streamedText).toContain("couldn't complete that local Garmin");
+    expect(streamedText).toContain("remain unverified");
     expect(streamedText).not.toContain("model returned a plan");
     expect(streamedText).not.toContain("safe local-data tool");
     expect(streamedText).not.toContain("I'll pull up");
@@ -1193,9 +1241,7 @@ describe("chat route LLM tool orchestration", () => {
       "sleep-recovery-fallback-test",
     );
 
-    expect(payload.assistant.content).toContain(
-      "couldn't complete that local Garmin or recovery check",
-    );
+    expect(payload.assistant.content).toContain("remain unverified");
     expect(payload.assistant.content).not.toContain("I'll check");
     expect(payload.assistant.content).not.toContain("model returned a plan");
     expect(payload.assistant.content).not.toContain("safe local-data tool");
@@ -1309,15 +1355,14 @@ describe("chat route LLM tool orchestration", () => {
 
     const payload = await postChat("what went wrong?", "meta-failure");
 
-    expect(generateText).not.toHaveBeenCalled();
+    expect(generateText).toHaveBeenCalledOnce();
+    expect(generateText.mock.calls[0][0].system).toContain(
+      '"previousFailures":[{"tool":"providerToolSelection"',
+    );
     expect(describeGarminDatabase).not.toHaveBeenCalled();
     expect(runReadOnlySql).not.toHaveBeenCalled();
     expect(payload.toolSteps).toEqual([]);
-    expect(payload.toolEvidence?.toolSteps?.[0]).toMatchObject({
-      tool: "providerToolSelection",
-      status: "rejected",
-      reason: "multiple_tool_calls",
-    });
+    expect(payload.toolEvidence).toBeNull(); // prior failures are context, not new tool executions
     expect(payload.assistant.content).toContain(
       "model selected multiple tools",
     );
@@ -1393,6 +1438,7 @@ describe("chat route LLM tool orchestration", () => {
       "start",
       "status",
       "status",
+      "status",
       "metadata",
       "status",
       "delta",
@@ -1406,6 +1452,7 @@ describe("chat route LLM tool orchestration", () => {
     ).toEqual([
       "Preparing local data, conversation, and trainer context…",
       "Considering your request with the available local context…",
+      "Formatting the completed answer…",
       "Formatting the completed response…",
     ]);
     expect(

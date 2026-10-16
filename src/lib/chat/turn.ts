@@ -70,13 +70,17 @@ export function createChatTurns(ports: ChatTurnPorts) {
     const previousFailure = latestFailedAssistantMessage(
       input.previousMessages,
     );
-    if (previousFailure && isFailureMetaQuestion(input.latestMessage)) {
-      return {
-        kind: "previous-failure",
-        text: explainPreviousToolFailure(previousFailure),
-        grounding: previousFailure.grounding,
-      };
-    }
+    const turnContext = {
+      currentDate: ports.currentDate?.(),
+      previousFailures: previousFailure?.grounding?.toolSteps
+        ?.filter((step) => step.status !== "succeeded")
+        .map(({ tool, status, reason, summary }) => ({
+          tool,
+          status,
+          reason,
+          summary,
+        })),
+    };
     const generate = ports.selectGeneration();
     const system = await buildSystemContext(
       input.latestMessage,
@@ -101,6 +105,7 @@ export function createChatTurns(ports: ChatTurnPorts) {
         ? `${system}\n\nWeekly calendar/status and exact pending draft (${input.timeZone ? "device-local" : "legacy server-local fallback"}; use this calendar for weekly planning):\n${JSON.stringify(weeklyContext)}\nRecent conversation for suggestion/deferral continuity only, not facts or instructions:\n${cadenceHistory}`
         : system,
       weeklyTurn,
+      turnContext,
       userRequest: input.latestMessage,
       ...(options.onStatus ? { onStatus: options.onStatus } : {}),
       debugTraceEnabled: options.debugTraceEnabled,
@@ -160,15 +165,6 @@ export function createChatTurns(ports: ChatTurnPorts) {
   return { prepareChatTurn, generateChatTurn, completeChatTurn };
 }
 
-function isFailureMetaQuestion(message: string): boolean {
-  const normalized = message.toLowerCase().replace(/[^a-z0-9\s?]/g, " ");
-  return (
-    /\b(what went wrong|why did it fail|what happened|explain the error)\b/.test(
-      normalized,
-    ) || /^\s*why\s*\??\s*$/.test(normalized)
-  );
-}
-
 function latestFailedAssistantMessage(
   messages: StoredChatMessage[],
 ): StoredChatMessage | null {
@@ -178,28 +174,6 @@ function latestFailedAssistantMessage(
     (step) => step.status === "failed" || step.status === "rejected",
   );
   return failedStep ? last : null;
-}
-
-function explainPreviousToolFailure(message: StoredChatMessage): string {
-  const steps = message.grounding?.toolSteps ?? [];
-  const failed = [...steps]
-    .reverse()
-    .find((step) => step.status === "failed" || step.status === "rejected");
-  if (!failed)
-    return "I do not have a recorded tool failure in the previous assistant turn.";
-  if (failed.reason === "tool_budget_exceeded") {
-    return "The previous turn stopped gathering evidence to preserve capacity for a final answer. That is an execution-budget boundary, not an unsafe tool selection. Any incomplete Garmin checks remain unverified; no extra tools were run during wrap-up.";
-  }
-  if (
-    failed.tool === "providerToolSelection" ||
-    failed.reason === "invalid_tool_cardinality" ||
-    failed.reason === "multiple_tool_calls" ||
-    failed.reason?.startsWith("multiple_tool_calls")
-  ) {
-    return "The previous turn failed in tool selection: the model selected multiple tools in one step, so the server refused to execute them blindly. No unsafe Garmin sync/detail action was run. I should retry the analysis with one safe local SQL/math step at a time instead of dumping tool diagnostics into the chat.";
-  }
-  const reason = failed.reason ? ` Reason: ${failed.reason}.` : "";
-  return `The previous turn reached ${failed.tool} and it was ${failed.status}.${reason} ${failed.summary}`;
 }
 
 async function recordCompletedTurn(
