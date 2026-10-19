@@ -319,6 +319,8 @@ Responsibilities:
 - compute generic transformations over already-returned SQL rows;
 - support safe formula scoring, normalization, ranking/order, aggregation, and summaries;
 - validate formula syntax and referenced numeric columns;
+- offer bounded correction hints only for eligible column mismatches: formula/grouping use input fields, ordering uses transformed output fields; hints omit values and sensitive-looking identifiers (up to 16 ASCII names of at most 48 bytes each);
+- preserve rejected attempts without publishing output handles; eligible math correction returns to fresh budgeted planning, discards stale batch tails, and synthesizes an honest limitation after repeated unchanged failure without successful analytical progress;
 - keep row/byte/output bounds;
 - operate without database, filesystem, network, process, environment, connector, or arbitrary script access.
 

@@ -131,6 +131,31 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     severity: "critical",
   },
   {
+    id: "HIKE-STOPS-04",
+    domain: "hiking",
+    userPrompt:
+      "Compare last week's hill sessions; I stopped for foraging on steep terrain.",
+    providedEvidence: [
+      "server currentDate 2026-10-19; prior week 2026-10-12 through 2026-10-18",
+      "summary duration, distance, ascent and HR; no measured pause or moving-time fields",
+      "user-reported stops and steep terrain",
+      "correctable math column rejection followed by successful current-turn calculation",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "grounded comparison from successful result cells",
+      "unavailable exact stopped duration and moving-only pace",
+      "user attribution for stops and terrain",
+      "transparent criteria and partial-evidence limitations",
+    ],
+    forbiddenBehavior: [
+      "threshold-based estimate presented as measured pause duration",
+      "invented reason for stops",
+      "failed math output used as evidence",
+    ],
+    severity: "critical",
+  },
+  {
     id: "HIKE-PACING-03",
     domain: "hiking",
     userPrompt: "Compare pacing across my last three steep hikes.",

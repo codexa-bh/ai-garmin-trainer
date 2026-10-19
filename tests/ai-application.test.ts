@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { coaching, grounded, incomplete, metric } from "./completion-fixtures";
+import {
+  coaching,
+  completion,
+  grounded,
+  incomplete,
+  metric,
+} from "./completion-fixtures";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import { executeTrainerTool } from "../src/lib/ai/tool-execution";
 import type { TrainerToolPorts } from "../src/lib/ai/tool-ports";
@@ -52,6 +58,7 @@ function scripted(results: TrainerGenerationResult[], ports = capabilities()) {
       {
         system: "system",
         userRequest: "Explain evidence",
+        turnContext: { currentDate: "2026-10-19" },
         debug: { enabled: true },
       },
       {
@@ -145,6 +152,139 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
     expect(test.requests[2].system).toContain("14");
   });
 
+  it("recovers math on a fresh pass, drops stale batch work and grounds only corrected cells", async () => {
+    const ports = capabilities();
+    ports.analytics.runReadOnlySql = () => rows(7);
+    const badMath = {
+      toolName: "runMathAnalysis",
+      input: {
+        inputResult: "facts",
+        operation: "score",
+        formula: "missing_metric",
+        outputName: "facts",
+      },
+    };
+    const test = scripted(
+      [
+        call("runReadOnlySql", { sql: "select 7 as value" }),
+        {
+          toolCalls: [
+            badMath,
+            {
+              toolName: "saveTrainingPlan",
+              input: { contentMarkdown: "Must not execute stale batch" },
+            },
+          ],
+        },
+        call("runMathAnalysis", {
+          inputResult: "facts",
+          operation: "score",
+          formula: "value * 2",
+          outputName: "scores",
+        }),
+        grounded(
+          "The transformed value is fourteen; stops are reported, not measured.",
+          [metric(3, "scores", "score", 14)],
+        ),
+      ],
+      ports,
+    );
+    const result = await test.run();
+    expect(result.toolSteps.map((s) => s.status)).toEqual([
+      "succeeded",
+      "rejected",
+      "succeeded",
+    ]);
+    expect(result.toolSteps[1]).toMatchObject({
+      correctionAllowed: true,
+      reason: "unknown_column",
+      failureMessage: expect.any(String),
+    });
+    expect(test.requests.map((r) => r.purpose)).toEqual([
+      "planner",
+      "planner",
+      "planner",
+      "planner",
+    ]);
+    expect(test.requests[2].system).toContain('"currentDate":"2026-10-19"');
+    expect(test.requests[2].system).toContain("Correction guidance:");
+    expect(test.requests[2].system).toContain("value");
+    expect(test.requests[2].system).not.toContain("missing_metric");
+    expect(test.executions.map((e) => e.toolName)).toEqual([
+      "runReadOnlySql",
+      "runMathAnalysis",
+      "runMathAnalysis",
+    ]);
+    expect(result.progressCounters).toEqual({
+      modelCalls: 4,
+      toolsSucceeded: 2,
+      toolsUnsuccessful: 1,
+    });
+    expect(result.text).toContain("fourteen");
+  });
+
+  it("ends unchanged math failures with supported partial incomplete synthesis", async () => {
+    const ports = capabilities();
+    ports.analytics.runReadOnlySql = () => rows(7);
+    const bad = call("runMathAnalysis", {
+      inputResult: "facts",
+      operation: "score",
+      formula: "missing_metric",
+    });
+    const test = scripted(
+      [
+        call("runReadOnlySql", { sql: "select 7 as value" }),
+        bad,
+        bad,
+        completion({
+          kind: "incomplete",
+          answer:
+            "The observed value is seven; adjusted moving time remains unavailable.",
+          claims: [metric(1, "facts", "value", 7)],
+          missingEvidence: ["moving time"],
+        }),
+      ],
+      ports,
+    );
+    const result = await test.run();
+    expect(test.requests.map((r) => r.purpose)).toEqual([
+      "planner",
+      "planner",
+      "planner",
+      "final_synthesis",
+    ]);
+    expect(result.toolSteps.map((s) => s.status)).toEqual([
+      "succeeded",
+      "rejected",
+      "rejected",
+    ]);
+    expect(result.text).toContain("unavailable");
+    expect(result.providerCalls + test.executions.length).toBe(7);
+  });
+
+  it("keeps changed math failures within the shared budget and reserves final synthesis", async () => {
+    const ports = capabilities();
+    ports.analytics.runReadOnlySql = () => rows(7);
+    const results = [
+      call("runReadOnlySql", { sql: "select 7 as value" }),
+      ...Array.from({ length: 14 }, (_, i) =>
+        call("runMathAnalysis", {
+          inputResult: "facts",
+          operation: "score",
+          formula: `missing_${i}`,
+        }),
+      ),
+      incomplete("Missing fields prevent the calculation."),
+    ];
+    const test = scripted(results, ports);
+    const result = await test.run();
+    expect(test.requests.at(-1)?.purpose).toBe("final_synthesis");
+    expect(result.providerCalls + test.executions.length).toBe(30);
+    expect(result.progressCounters.toolsSucceeded).toBe(1);
+    expect(result.progressCounters.toolsUnsuccessful).toBe(13);
+    expect(result.toolSteps.at(-1)?.reason).toBe("tool_budget_exceeded");
+  });
+
   it("validates the whole batch before executing and rejects malformed alias input", async () => {
     for (const bad of [
       { toolName: "unknown", input: {} },
@@ -209,6 +349,56 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
     });
     expect(JSON.stringify(failed)).not.toContain("credential=private");
     context.dispose();
+  });
+
+  it("preserves successful handles on math rejection and never publishes failed or foreign-turn handles", async () => {
+    const { TrainerToolExecutionContext } =
+      await import("../src/lib/ai/tool-execution-context");
+    const { validatedCompletion } =
+      await import("../src/lib/ai/turn-completion");
+    const ports = capabilities();
+    const context = new TrainerToolExecutionContext();
+    context.analysisResults.set("facts", [{ value: 7 }]);
+    const reject = (outputName: string, activeContext = context) =>
+      executeTrainerTool(
+        {
+          context: activeContext,
+          index: 1,
+          toolName: "runMathAnalysis",
+          input: {
+            inputResult: "facts",
+            operation: "score",
+            formula: "missing_metric",
+            outputName,
+            limit: 10,
+          },
+        },
+        ports,
+      );
+    const failed = await reject("failed_output");
+    await reject("facts");
+    expect(context.analysisResults.get("facts")).toEqual([{ value: 7 }]);
+    expect(context.analysisResults.has("failed_output")).toBe(false);
+    const otherTurn = new TrainerToolExecutionContext();
+    expect(await reject("scores", otherTurn)).toMatchObject({
+      reason: "unknown_result",
+      correctionAllowed: undefined,
+    });
+    expect(
+      validatedCompletion(
+        {
+          completion: {
+            kind: "grounded",
+            answer: "Not evidence",
+            claims: [metric(1, "failed_output", "score", 7)],
+            missingEvidence: [],
+          },
+        },
+        [failed],
+      ),
+    ).toBeNull();
+    context.dispose();
+    otherTurn.dispose();
   });
 
   it("keeps full-plan evidence and supplies only a prior-pass snapshot to synchronous save", async () => {

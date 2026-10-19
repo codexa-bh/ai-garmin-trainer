@@ -53,6 +53,19 @@ describe("canonical trainer instruction package", () => {
 
     expect(planner).toContain("Every consequential derived value");
     expect(planner).toContain(
+      "explicitly correction-eligible SQL/math failure",
+    );
+    expect(planner).toContain("A failed result publishes no output handle");
+    expect(planner).toContain("do not replay an unchanged failed request");
+    for (const instructions of [planner, synthesis]) {
+      expect(instructions).toContain("at most 64 claims");
+      expect(instructions).toContain("server Evidence step number");
+      expect(instructions).toContain("displayed row 1 means rowIndex 0");
+      expect(instructions).toContain(
+        "never a rounded or display-converted value",
+      );
+    }
+    expect(planner).toContain(
       "ground today/yesterday from server current-date context",
     );
     expect(planner).toContain("sleep, recovery, HRV, body battery");
@@ -127,6 +140,31 @@ describe("canonical trainer instruction package", () => {
         scenario.forbiddenBehavior.includes("app-authored medical refusal"),
       ),
     ).toBe(true);
+  });
+
+  it("distinguishes reported stops from measured pause/moving-time evidence in both generation paths", () => {
+    for (const instructions of [
+      buildPlannerInstructions(TRAINER_SYSTEM_PROMPT, "bounded evidence"),
+      buildFinalSynthesisInstructions(
+        TRAINER_SYSTEM_PROMPT,
+        "bounded evidence",
+      ),
+    ]) {
+      expect(instructions).toContain("do not establish exact pauses");
+      expect(instructions).toContain(
+        "do not present threshold-based estimates as measured stops",
+      );
+      expect(instructions).toContain("Attribute stops/terrain to user reports");
+    }
+    expect(
+      COACHING_SCENARIOS.find((s) => s.id === "HIKE-STOPS-04"),
+    ).toMatchObject({
+      expectedRoute: "sql-math",
+      severity: "critical",
+      forbiddenBehavior: expect.arrayContaining([
+        "failed math output used as evidence",
+      ]),
+    });
   });
 
   it("keeps diagnosis and treatment content out of durable memory", () => {

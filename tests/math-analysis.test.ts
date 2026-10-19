@@ -115,6 +115,128 @@ describe("bounded Garmin math analysis", () => {
     );
   });
 
+  it.each([
+    {
+      operation: "score",
+      formula: "absent_metric",
+      stage: "formula",
+      fields: "duration_sec",
+    },
+    {
+      operation: "normalize",
+      formula: "absent_metric",
+      stage: "formula",
+      fields: "duration_sec",
+    },
+    {
+      operation: "aggregate",
+      groupBy: ["absent_group"],
+      stage: "grouping",
+      fields: "name",
+    },
+    {
+      operation: "summarize",
+      orderBy: [{ field: "duration_sec", direction: "desc" }],
+      stage: "ordering",
+      fields: "avg, column, count, max, min, sum",
+    },
+    {
+      operation: "aggregate",
+      groupBy: ["name"],
+      orderBy: [{ field: "duration_sec", direction: "desc" }],
+      stage: "ordering",
+      fields: "name, numericColumns, rowCount",
+    },
+    {
+      operation: "normalize",
+      formula: "duration_sec",
+      orderBy: [{ field: "absent_order", direction: "desc" }],
+      stage: "ordering",
+      fields: "normalizedScore",
+    },
+  ] as const)(
+    "offers actual stage-specific columns: $operation/$stage",
+    (scenario) => {
+      const result = runMathAnalysis({
+        inputResult: "activity_rows",
+        rowsByResult: rowsByResult(rows),
+        operation: scenario.operation,
+        formula: scenario.formula,
+        groupBy: scenario.groupBy ? [...scenario.groupBy] : undefined,
+        orderBy: scenario.orderBy ? [...scenario.orderBy] : undefined,
+      });
+      expect(result).toMatchObject({
+        status: "rejected",
+        reason: "unknown_column",
+        correctionAllowed: true,
+        rows: [],
+      });
+      expect(result.correctionHint).toContain(scenario.stage);
+      expect(result.correctionHint).toContain(scenario.fields);
+      expect(result.correctionHint).not.toContain("absent_");
+      expect(result.correctionHint).not.toContain("Hill run");
+      if (scenario.stage === "ordering" && scenario.operation !== "normalize")
+        expect(result.correctionHint).not.toContain("duration_sec");
+    },
+  );
+
+  it("bounds diagnostics and omits unsafe identifiers and values", () => {
+    const wide = Object.fromEntries(
+      Array.from({ length: 100 }, (_, i) => [
+        `field_${String(i).padStart(3, "0")}`,
+        i,
+      ]),
+    );
+    Object.assign(wide, {
+      "/Users/private": "private",
+      secret_token: "private",
+      ["x".repeat(49)]: "private",
+    });
+    const result = runMathAnalysis({
+      inputResult: "activity_rows",
+      operation: "score",
+      formula: "absent",
+      rowsByResult: rowsByResult([wide]),
+    });
+    expect(result.correctionAllowed).toBe(true);
+    expect(result.correctionHint).toContain("field_015");
+    expect(result.correctionHint).not.toContain("field_016");
+    expect(result.correctionHint).not.toMatch(/private|secret|xxx/);
+    expect(new TextEncoder().encode(result.correctionHint).length).toBeLessThan(
+      1100,
+    );
+  });
+
+  it.each([
+    { formula: "absent + (" },
+    { formula: "absent +" },
+    { formula: "absent()" },
+    { formula: "fetch('private')" },
+    { formula: "x".repeat(801) },
+    { formula: "absent", rows: [] },
+    { formula: "absent", rows: [{ secret_token: 1 }] },
+    { formula: "absent", inputResult: "foreign_turn" },
+    {
+      formula: "absent",
+      rows: Array.from({ length: 201 }, () => ({ value: 1 })),
+    },
+    { formula: "name" },
+    { formula: "duration_sec / 0" },
+  ])(
+    "does not admit unsafe, unavailable or non-column failures: %j",
+    (scenario) => {
+      const result = runMathAnalysis({
+        inputResult: scenario.inputResult ?? "activity_rows",
+        operation: "score",
+        formula: scenario.formula,
+        rowsByResult: rowsByResult(scenario.rows ?? rows),
+      });
+      expect(result.status).toBe("rejected");
+      expect(result.correctionAllowed).not.toBe(true);
+      expect(result.correctionHint).toBeUndefined();
+    },
+  );
+
   it("rejects unsafe formulas, unknown columns, missing handles, non-finite math, and removed rubric operations", () => {
     expect(
       runMathAnalysis({

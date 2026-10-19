@@ -19,6 +19,8 @@ export type MathAnalysisResult = {
   truncated: boolean;
   reason?: string;
   message?: string;
+  correctionAllowed?: boolean;
+  correctionHint?: string;
   privacy: string;
 };
 
@@ -131,6 +133,35 @@ function reject(
     message:
       messages[reason] ?? "The math request was rejected by local guardrails.",
     privacy: PRIVACY,
+  };
+}
+
+function columnRejection(
+  inputResult: string,
+  operation: MathAnalysisOperation,
+  resultName: string,
+  stage: "formula" | "grouping" | "ordering",
+  rows: AnalysisRow[],
+): MathAnalysisResult {
+  const result = reject("unknown_column", inputResult, operation, resultName);
+  // Only actual, common fields; never echo rejected arguments or row values.
+  // ASCII identifiers: at most 16 x 48 bytes plus fixed guidance (<1100 bytes).
+  const columns = Object.keys(rows[0] ?? {})
+    .filter(
+      (field) =>
+        /^[A-Za-z_][A-Za-z0-9_]{0,47}$/.test(field) &&
+        !/token|secret|password|credential|cookie|auth|api_?key|path|directory/i.test(
+          field,
+        ) &&
+        rows.every((row) => Object.prototype.hasOwnProperty.call(row, field)),
+    )
+    .sort()
+    .slice(0, 16);
+  if (!columns.length) return result;
+  return {
+    ...result,
+    correctionAllowed: true,
+    correctionHint: `Math ${stage} column mismatch. Available ${stage === "ordering" ? "output" : "input"} fields (bounded): ${columns.join(", ")}. Replan with these fields; a rejected result is not an output handle. Field presence does not guarantee numeric or non-null values.`,
   };
 }
 
@@ -318,6 +349,29 @@ function formulaRows(
 ): AnalysisRow[] | string {
   const tokens = tokenize(formula);
   if (!tokens) return "unsafe_formula";
+  const rpn = toRpn(tokens);
+  if (!rpn) return "unsafe_formula";
+  let operands = 0;
+  for (const token of rpn) {
+    if (token.type === "number" || token.type === "identifier") operands += 1;
+    else if (token.type === "operator") {
+      if (operands < 2) return "unsafe_formula";
+      operands -= 1;
+    }
+  }
+  if (
+    operands !== 1 ||
+    tokens.some(
+      (token, index) =>
+        token.type === "paren" &&
+        token.value === "(" &&
+        (tokens[index - 1]?.type === "identifier" ||
+          tokens[index - 1]?.type === "number" ||
+          (tokens[index - 1]?.type === "paren" &&
+            tokens[index - 1]?.value === ")")),
+    )
+  )
+    return "unsafe_formula";
   const columns = new Set(Object.keys(rows[0] ?? {}));
   for (const token of tokens) {
     if (token.type !== "identifier") continue;
@@ -325,8 +379,6 @@ function formulaRows(
     if (!columns.has(column) && !OPTIONAL_ACTIVITY_METRIC_COLUMNS.has(column))
       return "unknown_column";
   }
-  const rpn = toRpn(tokens);
-  if (!rpn) return "unsafe_formula";
   const output: AnalysisRow[] = [];
   for (const row of rows) {
     const value = evaluateRpn(rpn, row);
@@ -454,8 +506,17 @@ export function runMathAnalysis(input: {
     output = aggregateRows(rows, input.groupBy);
   } else output = "unsupported_operation";
 
-  if (!Array.isArray(output))
+  if (!Array.isArray(output)) {
+    if (output === "unknown_column")
+      return columnRejection(
+        input.inputResult,
+        input.operation,
+        resultName,
+        input.operation === "aggregate" ? "grouping" : "formula",
+        rows,
+      );
     return reject(output, input.inputResult, input.operation, resultName);
+  }
   const defaultOrder =
     input.operation === "score" || input.operation === "customFormula"
       ? [{ field: "score", direction: "desc" } as const]
@@ -464,11 +525,12 @@ export function runMathAnalysis(input: {
         : undefined;
   const ordered = applyOrder(output, input.orderBy ?? defaultOrder);
   if (!ordered)
-    return reject(
-      "unknown_column",
+    return columnRejection(
       input.inputResult,
       input.operation,
       resultName,
+      "ordering",
+      output,
     );
   const capped = capRows(ordered, input.limit ?? 10);
   if (!capped)

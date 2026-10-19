@@ -26,7 +26,7 @@ Sources were selected for public accessibility, recognizable public-health or sp
 - **Recovery:** use multiple contextual signals. Garmin sleep, HRV, stress, body battery, or recent load can inform discussion but never becomes a single deterministic readiness verdict.
 - **Hiking specialization:** consider time-on-feet, ascent, descent, terrain/technicality, progressive route specificity, lower-body/trunk strength, balance, pacing, recovery, and environmental preparation. Pack load, weather, altitude, surface, nutrition, injury status, and route conditions remain unknown unless supplied or evidenced.
 - **Fueling and hydration:** discuss context and options, disclose assumptions, and avoid universal quantities when individual/event evidence is unavailable.
-- **Uncertainty:** label observations, user facts, calculations, general guidance, assumptions, and missing data distinctly.
+- **Uncertainty:** label observations, user facts, calculations, general guidance, assumptions, and missing data distinctly. Elapsed duration or low-speed stream samples do not establish exact pause duration, moving-only pace or the reason for a stop. Without explicit measurements, identify these as unavailable; threshold-based estimates must not be presented as measured stops/moving time. Attribute reported stops and terrain to the user unless independently evidenced.
 
 ## Application policy, not external scientific claims
 
@@ -36,6 +36,7 @@ The following are product and safety boundaries implemented by the app:
 - The model sees normalized, bounded data classes and guarded tools only; it never receives credentials or unrestricted raw data.
 - Consequential Garmin-derived comparisons, scores, trends, and projections require executed SQL and same-turn bounded math when custom calculation is needed. Simple code-owned display conversions are exempt.
 - The configured provider handles medical-domain responses normally without an additional app-authored response rule. Server-side memory filtering still excludes diagnosis and treatment content from durable personalization memory.
+- Keep analytical answers selective; completion claims reference exact successful current-turn cells using server step numbers and zero-based row indexes, not rounded display values. Missing requested evidence belongs in structured incomplete completion with supported partial facts. Correction guidance never makes a failed result an output handle or relaxes tool input schemas.
 - No fixed hiking score, training-load formula, generic calculator, runtime web retrieval, fine-tuning, or RAG is provided.
 
 ## Claims considered but rejected

@@ -99,10 +99,30 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
         lines.push(
           `Math result handle ${evidence.resultName}: ${evidence.operation} over ${evidence.inputResult}, returned ${evidence.returnedRows}/${evidence.rowCount} rows${evidence.truncated ? " with truncation" : ""}.`,
         );
-        for (const [index, row] of evidence.rows.slice(0, 20).entries())
-          lines.push(`${index + 1}. ${JSON.stringify(row).slice(0, 500)}`);
-      } else if (evidence.message)
+        const calculatedFields =
+          evidence.operation === "normalize"
+            ? ["normalizedScore"]
+            : evidence.operation === "aggregate"
+              ? ["rowCount", "numericColumns"]
+              : evidence.operation === "score" ||
+                  evidence.operation === "customFormula"
+                ? ["score"]
+                : [];
+        for (const [index, row] of evidence.rows.slice(0, 20).entries()) {
+          // Preserve row indexes and exact cells, but do not let a long input
+          // label hide the calculated value behind the existing evidence cap.
+          const calculated = Object.fromEntries(
+            calculatedFields.map((field) => [field, row[field]]),
+          );
+          lines.push(
+            `${index + 1}. ${JSON.stringify({ ...calculated, ...row }).slice(0, 500)}`,
+          );
+        }
+      } else if (evidence.message) {
         lines.push(`Bounded math detail: ${evidence.message}`);
+        if (evidence.correctionHint)
+          lines.push(`Correction guidance: ${evidence.correctionHint}`);
+      }
     }
     lines.push(`Privacy: ${step.privacy}`);
   }
