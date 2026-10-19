@@ -485,6 +485,7 @@ async function orchestrateTurn(
     );
   };
 
+  const failedMathCorrections = new Set<string>();
   while (budget().exploratoryRemaining > 0) {
     providerCalls += 1;
     progress(modelWaitMessage(steps));
@@ -720,7 +721,25 @@ async function orchestrateTurn(
       if (step.status === "succeeded") toolsSucceeded += 1;
       else toolsUnsuccessful += 1;
 
+      if (
+        step.status === "succeeded" &&
+        (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis")
+      )
+        failedMathCorrections.clear();
       if (step.status !== "succeeded") {
+        if (
+          step.tool === "runMathAnalysis" &&
+          step.correctionAllowed === true
+        ) {
+          const fingerprint = JSON.stringify(accepted.input);
+          if (!failedMathCorrections.has(fingerprint)) {
+            failedMathCorrections.add(fingerprint);
+            // A correction needs fresh arguments: never run a stale dependent
+            // batch tail, even if a prior successful handle has the same name.
+            skippedForTurnBudget = 0;
+            break;
+          }
+        }
         if (canOfferSqlCorrectionStep(step)) {
           continue;
         }

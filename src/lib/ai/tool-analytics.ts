@@ -1,6 +1,5 @@
 import type { AnalyticsToolPorts } from "./tool-ports";
 import { runMathAnalysis } from "./math-analysis";
-import { boundedText } from "./tool-evidence";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolStep } from "./tool-types";
 
@@ -63,9 +62,13 @@ export function executeAnalyticsTool(
         summary:
           result.status === "succeeded"
             ? `Math ${result.operation} ${result.resultName}; returned ${result.returnedRows}/${result.rowCount} rows${result.truncated ? "; truncated" : ""}.`
-            : `Math analysis rejected: ${result.reason ?? result.status}${args.formula ? ` for formula ${boundedText(args.formula, 180)}` : ""}.`,
+            : `Math analysis rejected: ${result.reason ?? result.status}.`,
         privacy: result.privacy,
         reason: result.status === "succeeded" ? undefined : result.reason,
+        correctionAllowed:
+          result.status === "succeeded" ? undefined : result.correctionAllowed,
+        correctionHint:
+          result.status === "succeeded" ? undefined : result.correctionHint,
         failureMessage:
           result.status === "succeeded" ? undefined : result.message,
         result,

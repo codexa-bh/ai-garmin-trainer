@@ -98,6 +98,40 @@ describe("dependency-light contracts and evidence", () => {
     ).toMatchObject({ input: { limit: 10 } });
   });
 
+  it.each([
+    { operation: "score", score: 14 },
+    { operation: "normalize", normalizedScore: 0.5 },
+    { operation: "aggregate", rowCount: 3, numericColumns: 2 },
+  ])(
+    "keeps computed math cells visible before bounded input labels: $operation",
+    (row) => {
+      const { operation, ...computed } = row;
+      const text = renderToolSteps([
+        {
+          index: 2,
+          tool: "runMathAnalysis",
+          status: "succeeded",
+          summary: "Bounded math",
+          privacy: "bounded",
+          result: {
+            status: "succeeded",
+            operation,
+            inputResult: "facts",
+            resultName: "scores",
+            returnedRows: 1,
+            rowCount: 1,
+            rows: [{ label: "x".repeat(600), ...computed }],
+          },
+        },
+      ]);
+      for (const [column, value] of Object.entries(computed))
+        expect(text).toContain(`"${column}":${value}`);
+      expect(
+        text.split("\n").find((line) => line.startsWith("1. "))!.length,
+      ).toBeLessThanOrEqual(503);
+    },
+  );
+
   it("keeps redaction, row limits and metadata-only grounding independent of execution", () => {
     const text = boundedText(
       "/Users/private/token OPENAI_API_KEY=secret access_token=hidden",
