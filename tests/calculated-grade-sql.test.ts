@@ -50,6 +50,23 @@ it("discovers a parameterized relation without deriving/counting streams; guarde
   const ports = await import("../src/lib/ai/sql-analysis");
   const before = db.prepare("select * from activity_stream_point").all();
   const description = ports.describeGarminDatabase();
+  const { renderToolSteps } = await import("../src/lib/ai/tool-evidence");
+  const rendered = renderToolSteps([
+    {
+      index: 1,
+      tool: "describeGarminDatabase",
+      status: "succeeded",
+      summary: "Schema",
+      privacy: description.privacy,
+      result: description,
+    },
+  ]);
+  expect(rendered).toContain(
+    "Discovery rowCount=0 is registration metadata only",
+  );
+  expect(rendered).toContain("adjacent gaps <=30s");
+  expect(rendered).toContain("count(calculated_grade_pct)/count(*)");
+  expect(rendered).toContain("WHERE garmin_id = 'verified-id'");
   const relation = description.tables.find(
     (table) => table.name === "activity_calculated_grade",
   );
