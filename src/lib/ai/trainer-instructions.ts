@@ -3,6 +3,8 @@ import {
   type TrainerExecutionBudget,
 } from "@/lib/ai/execution-budget";
 
+import type { CompletionRejection } from "./tool-types";
+
 const section = (title: string, rules: readonly string[]): string =>
   `${title}:\n${rules.map((rule) => `- ${rule}`).join("\n")}`;
 
@@ -136,9 +138,19 @@ export function buildFinalSynthesisInstructions(
   baseSystem: string,
   toolEvidence: string,
   budgetStopped = false,
+  rejection?: CompletionRejection,
 ): string {
   const wrapUp = budgetStopped
     ? "\n\nEvidence gathering has stopped to preserve the final-answer reserve. No more tools or retries are available in this turn. Answer now from the evidence already gathered. Separate verified facts, user statements, general coaching and missing evidence. With no usable metric evidence, explicitly say personal Garmin metrics are unverified and give only supported user-context/general guidance. Do not imply full verification from partial results, promise further tool work, or require a narrower follow-up. Report completed side effects truthfully; never replay them."
     : "";
-  return `${baseSystem}\n\n${COMPLETION_POLICY}\n\n${FINAL_SYNTHESIS_POLICY}${wrapUp}\n\nServer-authored tool evidence for this current user turn:\n${toolEvidence}`;
+  const conflictGuidance =
+    " Any nonempty missingEvidence requires kind=incomplete, even with valid partial metric claims. Do not discard known gaps to force kind=grounded. Grounded requires nonempty claims and no gaps; coaching requires both arrays empty.";
+  const toolGuidance =
+    rejection?.reason === "invalid_tool_claim"
+      ? " runReadOnlySql and runMathAnalysis are not valid tool claims: analytical facts require kind=metric with exact stepIndex, resultName, rowIndex, column and original value. Schema/status or other tool success cannot substitute for metric cells. Remove unsupported claims, retaining the missing evidence."
+      : "";
+  const feedback = rejection
+    ? `\n\nThe previous completion declaration was rejected by server validation: ${JSON.stringify(rejection)}.${toolGuidance}${conflictGuidance} claimIndex, when present, is zero-based. Rebuild the declaration from the current-turn evidence below: use exact server step numbers, result handles, zero-based rows, columns and unconverted scalar values, not rounded display values. Do not repeat unsupported claims or invent replacement evidence. Use coaching only for user context/general guidance without verified personal metrics, or incomplete with explicit missingEvidence and individually supported partial claims. No action tools or additional retries are available; finish with one completeTrainerTurn call alone.`
+    : "";
+  return `${baseSystem}\n\n${COMPLETION_POLICY}\n\n${FINAL_SYNTHESIS_POLICY}${wrapUp}${feedback}\n\nServer-authored tool evidence for this current user turn:\n${toolEvidence}`;
 }

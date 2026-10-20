@@ -2,7 +2,7 @@ import { renderWeeklyProposal } from "../weekly/application";
 import {
   COMPLETION_TOOL,
   COMPLETION_LIMITATION,
-  validatedCompletion,
+  assessCompletion,
 } from "./turn-completion";
 import type {
   WeeklyProposal,
@@ -24,6 +24,7 @@ import { groundingForSteps, renderToolSteps } from "./tool-evidence";
 import { canToolRunWithinBudget, selectSafeToolCalls } from "./tool-selection";
 import { failedStep } from "./tool-step-diagnostics";
 import type {
+  CompletionRejection,
   TrainerToolCall,
   TrainerToolName,
   TrainerToolStep,
@@ -184,11 +185,13 @@ function finalAnswerSystem(
   baseSystem: string,
   steps: TrainerToolStep[],
   budgetStopped: boolean,
+  rejection?: CompletionRejection,
 ): string {
   return buildFinalSynthesisInstructions(
     baseSystem,
     synthesisEvidenceForSteps(steps),
     budgetStopped,
+    rejection,
   );
 }
 
@@ -303,6 +306,7 @@ async function synthesizeFinalAnswer(
   recordProviderCall: (call: LlmDebugProviderCall) => void,
   generate: TrainerOrchestrationPorts["generate"],
   budgetStopped = false,
+  rejection?: CompletionRejection,
 ): Promise<string | null> {
   let result: TrainerGenerationResult;
   try {
@@ -312,6 +316,7 @@ async function synthesizeFinalAnswer(
         systemWithTurnContext(input),
         steps,
         budgetStopped,
+        rejection,
       ),
       prompt: input.userRequest,
     });
@@ -335,16 +340,17 @@ async function synthesizeFinalAnswer(
   const toolCalls = (result.toolCalls ?? [])
     .map(extractToolCall)
     .filter((call): call is TrainerToolCall => Boolean(call));
+  const assessment = assessCompletion(
+    toolCalls.find((call) => call.toolName === COMPLETION_TOOL)?.input,
+    steps,
+  );
   recordProviderCall?.(
     debugProviderCall({
       index: 0,
       purpose: "final_synthesis",
       toolCalls,
-      text:
-        validatedCompletion(
-          toolCalls.find((call) => call.toolName === COMPLETION_TOOL)?.input,
-          steps,
-        ) ?? text,
+      text: assessment.answer ?? text,
+      completionRejection: assessment.rejection,
     }),
   );
   if (
@@ -353,7 +359,7 @@ async function synthesizeFinalAnswer(
     toolCalls[0].toolName !== COMPLETION_TOOL
   )
     return null;
-  return validatedCompletion(toolCalls[0].input, steps);
+  return assessment.answer;
 }
 
 export async function orchestrateTrainerChat(
@@ -435,7 +441,10 @@ async function orchestrateTurn(
 
   // Every explicit synthesis attempt uses this admission boundary, including
   // invalid-prose repair and analytical failure paths, not just budget wrap-up.
-  const synthesize = async (budgetStopped = false) => {
+  const synthesize = async (
+    budgetStopped = false,
+    rejection?: CompletionRejection,
+  ) => {
     if (budget().remaining <= 0) return null;
     providerCalls += 1;
     progress(answerPreparationMessage(budgetStopped || toolsUnsuccessful > 0));
@@ -445,6 +454,7 @@ async function orchestrateTurn(
       recordProviderCall,
       ports.generate,
       budgetStopped,
+      rejection,
     );
   };
   const finishAtBudget = async (skipped = 0) => {
@@ -549,6 +559,10 @@ async function orchestrateTurn(
     const toolCalls = (result.toolCalls ?? [])
       .map(extractToolCall)
       .filter((call): call is TrainerToolCall => Boolean(call));
+    const terminal = toolCalls.find(
+      (call) => call.toolName === COMPLETION_TOOL,
+    );
+    const assessment = assessCompletion(terminal?.input, steps);
     recordProviderCall(
       debugProviderCall({
         index: 0,
@@ -558,17 +572,9 @@ async function orchestrateTurn(
             ? "final_synthesis"
             : "direct_answer",
         toolCalls,
-        text:
-          validatedCompletion(
-            toolCalls.find((call) => call.toolName === COMPLETION_TOOL)?.input,
-            steps,
-          ) ??
-          result.text?.trim() ??
-          "",
+        text: assessment.answer ?? result.text?.trim() ?? "",
+        completionRejection: assessment.rejection,
       }),
-    );
-    const terminal = toolCalls.find(
-      (call) => call.toolName === COMPLETION_TOOL,
     );
     const malformedCalls = toolCalls.length !== (result.toolCalls?.length ?? 0);
     if (malformedCalls || (terminal && toolCalls.length !== 1)) {
@@ -583,11 +589,10 @@ async function orchestrateTurn(
       );
     }
     if (terminal || toolCalls.length === 0) {
-      const completed = terminal
-        ? validatedCompletion(terminal.input, steps)
-        : null;
+      const completed = assessment.answer;
       if (completed) progress("Formatting the completed answer…");
-      const answer = completed ?? (await synthesize());
+      const answer =
+        completed ?? (await synthesize(false, assessment.rejection));
       return finish(
         {
           text:
