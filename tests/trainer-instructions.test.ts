@@ -167,6 +167,32 @@ describe("canonical trainer instruction package", () => {
     });
   });
 
+  it("routes missing source grade to calculated SQL evidence without inventing terrain", () => {
+    for (const instructions of [
+      buildPlannerInstructions(TRAINER_SYSTEM_PROMPT, "bounded evidence"),
+      buildFinalSynthesisInstructions(
+        TRAINER_SYSTEM_PROMPT,
+        "bounded evidence",
+      ),
+    ]) {
+      expect(instructions).toContain("activity_calculated_grade(activity_id)");
+      expect(instructions).toContain("valid/total section counts");
+      expect(instructions).toContain("not instantaneous measured gradient");
+      expect(instructions).toContain("terrain, surface or technicality");
+      expect(instructions).toContain("unavailable, not flat zero");
+    }
+    expect(
+      COACHING_SCENARIOS.find((scenario) => scenario.id === "HIKE-GRADE-05"),
+    ).toMatchObject({
+      expectedRoute: "sql",
+      severity: "critical",
+      forbiddenBehavior: expect.arrayContaining([
+        "ascent per km presented as local gradient",
+        "invented terrain or technicality",
+      ]),
+    });
+  });
+
   it("keeps diagnosis and treatment content out of durable memory", () => {
     expect(unsafeMemoryReason("My diagnosis changed after treatment")).toBe(
       "medical_or_sensitive_inference",

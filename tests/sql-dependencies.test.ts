@@ -14,6 +14,7 @@ const options = ts.parseJsonConfigFileContent(
   root,
 ).options;
 const allowed = new Set([
+  "ai/analytics/calculated-grade.ts",
   "ai/analytics/contracts.ts",
   "ai/analytics/schema.ts",
   "ai/analytics/policy.ts",

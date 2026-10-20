@@ -59,7 +59,7 @@ const groups = [
     "analytics",
     "domain",
     "lib/ai/analytics",
-    ["contracts", "policy", "schema"],
+    ["calculated-grade", "contracts", "policy", "schema"],
   ],
   ["analytics", "application", "lib/ai/analytics", ["application"]],
   ["analytics", "adapter", "lib/ai/analytics", ["sqlite-execution"]],

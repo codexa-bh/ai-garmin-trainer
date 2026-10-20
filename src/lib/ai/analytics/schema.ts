@@ -237,7 +237,11 @@ export const ANALYTICAL_SCHEMA: Record<
       { name: "has_gps", type: "integer", note: "0/1 boolean" },
       { name: "has_elevation", type: "integer", note: "0/1 boolean" },
       { name: "has_heart_rate", type: "integer", note: "0/1 boolean" },
-      { name: "has_grade", type: "integer", note: "0/1 boolean" },
+      {
+        name: "has_grade",
+        type: "integer",
+        note: "0/1 source-grade availability; does not describe calculated-grade availability",
+      },
       { name: "has_power", type: "integer", note: "0/1 boolean" },
       { name: "has_recovery", type: "integer", note: "0/1 boolean" },
       { name: "record_count", type: "integer" },
@@ -305,7 +309,13 @@ export const ANALYTICAL_SCHEMA: Record<
       { name: "heart_rate", type: "integer", unit: "bpm", nullable: true },
       { name: "speed_mps", type: "real", unit: "m/s", nullable: true },
       { name: "altitude_meters", type: "real", unit: "meters", nullable: true },
-      { name: "grade_pct", type: "real", unit: "%", nullable: true },
+      {
+        name: "grade_pct",
+        type: "real",
+        unit: "%",
+        nullable: true,
+        note: "Imported source grade only; null does not rule out activity_calculated_grade(activity_id) estimates",
+      },
       {
         name: "lat",
         type: "real",
@@ -325,6 +335,82 @@ export const ANALYTICAL_SCHEMA: Record<
       { name: "temperature_c", type: "real", unit: "°C", nullable: true },
     ],
     joins: ["activity_stream_point.garmin_id = activity.garmin_id"],
+  },
+  activity_calculated_grade: {
+    name: "activity_calculated_grade",
+    description:
+      "Read-time table-valued relation: activity_calculated_grade('verified-id'), or join activity_calculated_grade(a.garmin_id). REQUIRED: pass the activity ID as function argument OR WHERE garmin_id = 'verified-id'. Unconstrained queries fail, never mean unavailable. Discovery rowCount=0 is registration metadata only, NOT activity/window evidence. Approximate signed altitude/distance sections, NOT measured instantaneous gradient, dashboard centered readout, terrain or technicality. Timestamp-only timing (stored elapsed may be sample indexes); timezone-less Garmin calendar timestamps use relative clock arithmetic, never host timezone or absolute-time claims; mixed absolute/relative bases rejected; consecutive sections close at first sample >=180s, share endpoints, final short section allowed. Requires >=60s, >=3 complete samples, >=10m net distance, strictly increasing timestamps, adjacent gaps <=30s, nonnegative nondecreasing cumulative distance. Invalid sections return null with quality_status; no stream returns one unavailable sentinel. Coverage denominator is all returned sections: count(calculated_grade_pct)/count(*), not unique samples or activity distance. Aggregate with method and coverage. Max 100000 points/activity (excess yields input_limit null sentinel); max 32 invocations/query. Filter selected activities before calling; aggregate rather than dump windows.",
+    columns: [
+      {
+        name: "garmin_id",
+        type: "text",
+        note: "Hidden required argument: function('verified-id') or WHERE garmin_id='verified-id'; selectable explicitly (not in SELECT *). Numeric safe integer IDs also accepted. Never infer availability from discovery rowCount.",
+      },
+      {
+        name: "window_index",
+        type: "integer",
+        note: "zero-based consecutive section index",
+      },
+      {
+        name: "start_elapsed_sec",
+        type: "real",
+        unit: "seconds",
+        nullable: true,
+        note: "timestamp-relative to first parseable stream timestamp, not stored sample indexes",
+      },
+      {
+        name: "end_elapsed_sec",
+        type: "real",
+        unit: "seconds",
+        nullable: true,
+      },
+      {
+        name: "calculated_grade_pct",
+        type: "real",
+        unit: "%",
+        nullable: true,
+        note: "100 * altitude change / recorded cumulative-distance change; approximate, smoothed section grade, not peak instantaneous slope",
+      },
+      {
+        name: "grade_method",
+        type: "text",
+        note: "altitude_distance_sections_v1",
+      },
+      { name: "target_window_sec", type: "integer", unit: "seconds" },
+      {
+        name: "support_seconds",
+        type: "real",
+        unit: "seconds",
+        nullable: true,
+      },
+      {
+        name: "support_distance_meters",
+        type: "real",
+        unit: "meters",
+        nullable: true,
+      },
+      {
+        name: "sample_count",
+        type: "integer",
+        note: "shared endpoints counted in both sections; input_limit counts only capped input",
+      },
+      {
+        name: "usable_sample_count",
+        type: "integer",
+        note: "finite timestamp/altitude/nonnegative distance; not a continuity certificate",
+      },
+      {
+        name: "source_grade_sample_count",
+        type: "integer",
+        note: "finite imported grade values, independent of calculated validity",
+      },
+      {
+        name: "quality_status",
+        type: "text",
+        note: "available | no_stream | input_limit | invalid_timing | missing_values | sampling_gap | distance_reset | insufficient_time | insufficient_distance | nonfinite_result",
+      },
+    ],
+    joins: ["activity a join activity_calculated_grade(a.garmin_id) g"],
   },
   activity_hr_zone_time: {
     name: "activity_hr_zone_time",
@@ -462,6 +548,8 @@ export function describeAnalyticalSchema(
     tables,
     forbiddenDataClasses: FORBIDDEN_DATA_CLASSES,
     examples: [
+      "select grade_method, target_window_sec, count(*) as total_sections, count(calculated_grade_pct) as valid_sections, min(calculated_grade_pct) as min_section_grade_pct, max(calculated_grade_pct) as max_section_grade_pct, sum(source_grade_sample_count) as source_grade_samples from activity_calculated_grade('verified-id') group by grade_method, target_window_sec",
+      "with selected as (select garmin_id from activity order by started_at desc limit 5) select a.garmin_id, g.grade_method, g.target_window_sec, count(*) as total_sections, count(g.calculated_grade_pct) as valid_sections, min(g.calculated_grade_pct) as min_section_grade_pct, max(g.calculated_grade_pct) as max_section_grade_pct from selected a join activity_calculated_grade(a.garmin_id) g group by a.garmin_id, g.grade_method, g.target_window_sec limit 5",
       "select garmin_id, name, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec from activity order by duration_sec desc limit 10",
       "select strftime('%Y-%m', started_at / 1000, 'unixepoch') as month, count(*) as activities, coalesce(sum(calories), 0) as activity_calories_kcal from activity where strftime('%Y', started_at / 1000, 'unixepoch') = strftime('%Y', 'now') group by month order by month",
       "select substr(date, 1, 7) as month, sum(steps) as steps, sum(active_calories) as active_calories_kcal, sum(resting_calories) as resting_calories_kcal, sum(total_calories) as total_calories_kcal from daily_health group by month order by month",
