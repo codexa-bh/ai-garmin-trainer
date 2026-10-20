@@ -7,6 +7,7 @@ import {
   TRAINER_SYSTEM_PROMPT,
 } from "../src/lib/ai/trainer-instructions";
 import { unsafeMemoryReason } from "../src/lib/memory/filters";
+import { trainerToolInputSchemas } from "../src/lib/ai/tool-contracts";
 
 describe("canonical trainer instruction package", () => {
   it("composes bounded broad coaching and hiking-specialist base guidance", () => {
@@ -74,6 +75,13 @@ describe("canonical trainer instruction package", () => {
     );
     expect(planner).toContain("the next analytical tool");
     expect(planner).toContain("same-turn SQL result");
+    expect(planner).toContain("integer ratios (3/2, not 1.5)");
+    expect(planner).toContain("do not reread unchanged documents");
+    expect(planner).toContain("propose at most one complete draft");
+    expect(planner).toContain(
+      "Without successful math, leave derived points/total unavailable",
+    );
+    expect(planner).toContain("ISO UTC timestamp ending Z");
     expect(planner).toContain("display conversions");
     expect(planner).toContain("one targeted SQL query for a comparison");
     expect(planner).toContain("hard limit 30 combined provider/tool attempts");
@@ -90,6 +98,26 @@ describe("canonical trainer instruction package", () => {
     expect(synthesis).toContain("Never infer terrain");
     expect(synthesis).toContain("bounded evidence");
     expect(synthesis).not.toContain("Tool budget");
+  });
+
+  it("teaches fractional constants within the unchanged math tool schema", () => {
+    const input = {
+      inputResult: "week_facts",
+      operation: "customFormula",
+      outputName: "points",
+    };
+    expect(
+      trainerToolInputSchemas.runMathAnalysis.safeParse({
+        ...input,
+        formula: "distance_meters * 1.5",
+      }).success,
+    ).toBe(false);
+    expect(
+      trainerToolInputSchemas.runMathAnalysis.safeParse({
+        ...input,
+        formula: "distance_meters * 3 / 2",
+      }).success,
+    ).toBe(true);
   });
 
   it("teaches safe SQL aliases without relaxing validation or terminal rejections", () => {
@@ -191,6 +219,69 @@ describe("canonical trainer instruction package", () => {
         "invented terrain or technicality",
       ]),
     });
+  });
+
+  it("carries transparent original-commitment scoring and no-save policy into both generation paths", () => {
+    for (const instructions of [
+      buildPlannerInstructions(TRAINER_SYSTEM_PROMPT, "bounded evidence"),
+      buildFinalSynthesisInstructions(
+        TRAINER_SYSTEM_PROMPT,
+        "bounded evidence",
+      ),
+    ]) {
+      for (const rule of [
+        "model-selected KPI/target/unit/evidence/points/scoring-rule table",
+        "full achievement=100",
+        "no fixed app rubric",
+        "original.revision baseline",
+        "context, not denominator",
+        "may exceed 100",
+        "no double-counting",
+        "cycling km are not hiking km",
+        "Show unmet KPIs even above 100",
+        "provisional recorded-commitment assumptions",
+        "not prior agreement/latest-added rubric",
+        "Never infer targets from results",
+        "no completion score",
+        "target-week guarded SQL/math",
+        "exact successful current-turn cells",
+        "attribute plan/user constants",
+        "Separate activity/daily calories",
+        "missing is not zero",
+        "No silent weight redistribution/unfinished-week proration",
+        "no unsupported definitive total",
+        "incomplete for missing evidence",
+        "NOT save consent",
+        "immediately preceding pending",
+        "one document-save attempt/turn",
+        "current correction overrides stale Profile",
+      ])
+        expect(instructions).toContain(rule);
+      expect(instructions).not.toContain(
+        "No fixed score or invented completions",
+      );
+    }
+    const weekly = COACHING_SCENARIOS.filter((s) => s.id.startsWith("WEEKLY-"));
+    expect(weekly.map((s) => s.id)).toEqual([
+      "WEEKLY-RUBRIC-01",
+      "WEEKLY-ORIGINAL-02",
+      "WEEKLY-EXTRAS-03",
+      "WEEKLY-LEGACY-04",
+      "WEEKLY-PARTIAL-05",
+      "WEEKLY-NO-PLAN-06",
+    ]);
+    expect(weekly.every((s) => s.severity === "critical")).toBe(true);
+    expect(weekly.flatMap((s) => s.forbiddenBehavior)).toEqual(
+      expect.arrayContaining([
+        "hidden fixed rubric",
+        "implicit save",
+        "model-only Garmin arithmetic",
+        "one-for-one cycling/hiking kilometres",
+        "unknown coerced to measured zero",
+        "target reverse-engineered from actuals",
+        "fabricated numeric completion",
+      ]),
+    );
   });
 
   it("keeps diagnosis and treatment content out of durable memory", () => {
