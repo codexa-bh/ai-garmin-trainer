@@ -185,7 +185,16 @@ verification. Native terminal calls never execute or grant save authority.
 Plain text, missing/malformed declarations and conflicting terminal/action batches
 cannot become completed coaching. A missing/invalid terminal result may consume
 only the existing budget-admitted final synthesis; failure uses truthful limitation
-text. There is no keyword classifier, answer-prose critic, JSON-prefix rejection,
+text. Reserved synthesis receives a bounded server rejection reason and optional
+zero-based claim index, never the rejected answer, arguments or metric values.
+It must rebuild exact references from current evidence or disclose missing evidence.
+Kind/evidence conflicts receive explicit guidance to keep known gaps and use
+incomplete with validated partial claims, never erase gaps to force grounded.
+Invalid analytical tool claims receive exact metric-cell guidance. Native field
+descriptions reinforce these same kind/claims/gap rules without changing acceptance.
+Validation is unchanged and recovery adds no calls or action tools. Existing terminal
+debug metadata records those structural reasons without retaining claim content.
+There is no keyword classifier, answer-prose critic, JSON-prefix rejection,
 date-answer rewrite or prior-failure keyword bypass. General physiology quantities
 and hiking/HR/Z3/action vocabulary do not affect control flow. Tool/SQL/math safety,
 full prior-pass plan snapshots, side-effect guards and the final reserve remain.

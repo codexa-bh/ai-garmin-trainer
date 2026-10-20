@@ -124,23 +124,25 @@ describe("local restart CLI", () => {
     expect(result.calls).not.toContain("npm run start:local");
   });
 
-  it.each(["dev", "production"])(
-    "preserves port and safety handling in %s",
-    (mode) => {
-      for (const args of [[], ["--port", "3211"], ["--port=3211"]]) {
-        const port = args.length ? "3211" : "3210";
-        const result = restart(["--mode", mode, ...args], {
-          AI_GARMIN_RESTART_PORT: "3210",
-        });
-        expect(result.status).toBe(0);
-        expect(result.output).toContain(`ready_url=http://127.0.0.1:${port}/`);
-        expect(result.calls).toContain(`lsof -nP -tiTCP:${port} -sTCP:LISTEN`);
-        expect(result.calls).toContain(
-          mode === "dev" ? `--port ${port}` : `launch PORT=${port}`,
-        );
-        expect(result.calls).toContain("kill 900001\n");
-        expect(result.calls).not.toMatch(/kill[^\n]*900002/);
-      }
+  it.each(
+    ["dev", "production"].flatMap((mode) =>
+      [[], ["--port", "3211"], ["--port=3211"]].map((args) => ({ mode, args })),
+    ),
+  )(
+    "preserves port and safety handling in $mode with $args",
+    ({ mode, args }) => {
+      const port = args.length ? "3211" : "3210";
+      const result = restart(["--mode", mode, ...args], {
+        AI_GARMIN_RESTART_PORT: "3210",
+      });
+      expect(result.status).toBe(0);
+      expect(result.output).toContain(`ready_url=http://127.0.0.1:${port}/`);
+      expect(result.calls).toContain(`lsof -nP -tiTCP:${port} -sTCP:LISTEN`);
+      expect(result.calls).toContain(
+        mode === "dev" ? `--port ${port}` : `launch PORT=${port}`,
+      );
+      expect(result.calls).toContain("kill 900001\n");
+      expect(result.calls).not.toMatch(/kill[^\n]*900002/);
     },
   );
 
@@ -220,18 +222,20 @@ describe("local restart CLI", () => {
     expect(result.calls).not.toContain("npm run start:local");
   });
 
-  it.each(["dev", "production"])(
-    "requires readiness and owned listeners in %s",
-    (mode) => {
-      for (const scenario of ["not-ready", "wrong-owner"]) {
-        const result = restart(["--mode", mode], { SCENARIO: scenario });
-        expect(result.status).toBe(1);
-        expect(result.output).toContain(
-          scenario === "not-ready"
-            ? "Server did not become ready"
-            : "no port-3000 listener belongs to this repo",
-        );
-      }
+  it.each(
+    ["dev", "production"].flatMap((mode) =>
+      ["not-ready", "wrong-owner"].map((scenario) => ({ mode, scenario })),
+    ),
+  )(
+    "requires readiness and owned listeners in $mode: $scenario",
+    ({ mode, scenario }) => {
+      const result = restart(["--mode", mode], { SCENARIO: scenario });
+      expect(result.status).toBe(1);
+      expect(result.output).toContain(
+        scenario === "not-ready"
+          ? "Server did not become ready"
+          : "no port-3000 listener belongs to this repo",
+      );
     },
   );
 

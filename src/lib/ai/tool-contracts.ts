@@ -11,7 +11,11 @@ export const trainerCompletionSchema = z
   .object({
     completion: z
       .object({
-        kind: z.enum(["coaching", "grounded", "incomplete"]),
+        kind: z
+          .enum(["coaching", "grounded", "incomplete"])
+          .describe(
+            "Use incomplete whenever missingEvidence is nonempty, including useful answers with validated partial claims. Grounded requires nonempty claims and empty missingEvidence. Coaching requires both arrays empty; it cannot verify personal measurements.",
+          ),
         answer: z.string().trim().min(1).max(32000),
         claims: z
           .array(
@@ -52,8 +56,16 @@ export const trainerCompletionSchema = z
                 .strict(),
             ]),
           )
-          .max(64),
-        missingEvidence: z.array(z.string().trim().min(1).max(300)).max(32),
+          .max(64)
+          .describe(
+            "Metric claims cite exact successful current-turn SQL/math cells: server stepIndex, resultName, zero-based rowIndex, column and original scalar value (not rounded). Tool claims are ONLY for non-analytical outcomes/schema availability; never use runReadOnlySql or runMathAnalysis as a tool claim. Include only supported consequential claims; incomplete may retain validated partial claims.",
+          ),
+        missingEvidence: z
+          .array(z.string().trim().min(1).max(300))
+          .max(32)
+          .describe(
+            "Known evidence gaps. Any nonempty array requires kind=incomplete, not grounded. Preserve genuine gaps rather than deleting them to satisfy the completion kind.",
+          ),
       })
       .strict()
       .superRefine((completion, ctx) => {
