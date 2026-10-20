@@ -1,6 +1,9 @@
 import { expect, it, vi } from "vitest";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
-import { validatedCompletion } from "../src/lib/ai/turn-completion";
+import {
+  assessCompletion,
+  validatedCompletion,
+} from "../src/lib/ai/turn-completion";
 import type { TrainerGenerationResult } from "../src/lib/ai/orchestration-ports";
 import type { TrainerToolStep } from "../src/lib/ai/tool-types";
 import {
@@ -297,6 +300,244 @@ it("validates non-analytical claims against actual successful tool identity", ()
     checked(claim, [{ ...step, tool: "describeGarminDatabase" }]),
   ).toBeNull();
   expect(checked(claim, [{ ...step, status: "failed" }])).toBeNull();
+});
+
+it("explains a rejected late-step declaration to the existing reserved synthesis without replaying tools", async () => {
+  const steps: TrainerToolStep[] = [
+    {
+      index: 1,
+      tool: "describeGarminDatabase",
+      status: "succeeded",
+      summary: "Schema available",
+      privacy: "bounded",
+      result: { tables: [], examples: [], forbiddenDataClasses: [] },
+    },
+    ...Array.from({ length: 8 }, (_, offset): TrainerToolStep => ({
+      index: offset + 2,
+      tool: offset % 2 === 0 ? "runReadOnlySql" : "runMathAnalysis",
+      status: "succeeded",
+      summary: "Synthetic bounded evidence",
+      privacy: "bounded",
+      result: {
+        status: "succeeded",
+        resultName: `facts_${offset + 2}`,
+        operation: "score",
+        inputResult: `facts_${offset + 1}`,
+        rows: [{ value: offset + 0.123456789 }],
+        returnedRows: 1,
+        rowCount: 1,
+      },
+    })),
+  ];
+  const invalid = grounded("Unverified rounded value", [
+    metric(9, "facts_9", "value", 7.12),
+  ]);
+  expect(checked(invalid, steps)).toBeNull();
+  const executeTool = vi.fn(
+    async ({ index }: { index: number }) => steps[index - 1],
+  );
+  const generate = vi.fn(
+    async ({ purpose, system }: { purpose: string; system: string }) => {
+      const next = steps[executeTool.mock.calls.length];
+      if (next)
+        return {
+          toolCalls: [
+            {
+              toolName: next.tool,
+              input:
+                next.tool === "describeGarminDatabase"
+                  ? {}
+                  : next.tool === "runReadOnlySql"
+                    ? { sql: "select 7 as value" }
+                    : {
+                        inputResult: `facts_${next.index - 1}`,
+                        operation: "score",
+                        formula: "value",
+                        outputName: `facts_${next.index}`,
+                      },
+            },
+          ],
+        };
+      if (purpose === "planner") return invalid;
+      expect(system).toContain('"reason":"cell_mismatch"');
+      expect(system).toContain('"claimIndex":0');
+      expect(system).not.toContain("Unverified rounded value");
+      return grounded(
+        "The exact available value is supported; the correction is acknowledged without asserting identical routes.",
+        [metric(9, "facts_9", "value", 7.123456789)],
+      );
+    },
+  );
+  const result = await orchestrateTrainerChat(
+    {
+      system: "Earlier assistant comparison is not measurement authority.",
+      userRequest:
+        "Just because activity is called Vrh Zakotja, does not mean the route was the same every time",
+    },
+    { generate, executeTool },
+  );
+  expect(result.text).toContain("exact available value is supported");
+  expect(result.toolSteps).toEqual(steps);
+  expect(executeTool).toHaveBeenCalledTimes(9);
+  expect(result.providerCalls).toBe(11);
+  expect(result.progressCounters.toolsUnsuccessful).toBe(0);
+});
+
+it.each([
+  [metric(1, "monthly", "total_km", "84"), "cell_mismatch"],
+  [metric(1, "monthly", "total_km", 84, 2), "cell_mismatch"],
+  [metric(1, "monthly", "absent", 84), "cell_mismatch"],
+  [metric(1, "stale", "total_km", 84), "result_mismatch"],
+  [metric(99, "monthly", "total_km", 84), "step_not_succeeded"],
+  [toolClaim(1, "getSyncStatus"), "tool_mismatch"],
+])(
+  "keeps invalid recovery rejected and reports structural feedback only: %j",
+  async (claim, reason) => {
+    const invalid = grounded(
+      "Private rejected answer must not enter feedback",
+      [claim],
+    );
+    const requests: Array<{ purpose: string; system: string }> = [];
+    const executeTool = vi.fn(async () => sqlStep());
+    const generate = vi.fn(
+      async (request: { purpose: string; system: string }) => {
+        requests.push(request);
+        return requests.length === 1
+          ? {
+              toolCalls: [
+                {
+                  toolName: "runReadOnlySql",
+                  input: { sql: "select 84 as total_km" },
+                },
+              ],
+            }
+          : invalid;
+      },
+    );
+    const result = await orchestrateTrainerChat(
+      {
+        system: "context",
+        userRequest: "Correct the comparison",
+        debug: { enabled: true },
+      },
+      { generate, executeTool },
+    );
+    expect(result.text).toContain("could not validate");
+    expect(result.providerCalls).toBe(3);
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(requests[2].purpose).toBe("final_synthesis");
+    expect(requests[2].system).toContain(
+      JSON.stringify({ reason, claimIndex: 0 }),
+    );
+    expect(requests[2].system).not.toContain("Private rejected answer");
+    const metadata = result.debugTrace?.providerCalls[2].toolCalls?.[0].input;
+    expect(metadata).toMatchObject({
+      rejection: { reason, claimIndex: 0 },
+      answerContent: "omitted",
+    });
+    expect(JSON.stringify(metadata)).not.toContain("Private rejected answer");
+  },
+);
+
+it.each(["kind_evidence_conflict", "invalid_tool_claim"])(
+  "identifies live declaration error %s so synthesis preserves gaps and valid partial claims",
+  async (reason) => {
+    const invalid = completion({
+      kind: "grounded",
+      answer:
+        "July distance is available, but the requested comparison is unverified.",
+      claims:
+        reason === "invalid_tool_claim"
+          ? [
+              { kind: "tool", stepIndex: 1, tool: "runReadOnlySql" },
+              metric(1, "monthly", "total_km", 84),
+            ]
+          : [metric(1, "monthly", "total_km", 84)],
+      missingEvidence: ["comparison evidence"],
+    });
+    const fixed = completion({
+      kind: "incomplete",
+      answer: "July distance is 84 km; the comparison remains unverified.",
+      claims: [metric(1, "monthly", "total_km", 84)],
+      missingEvidence: ["comparison evidence"],
+    });
+    const systems: string[] = [];
+    const executeTool = vi.fn(async () => sqlStep());
+    const generate = vi.fn(
+      async ({ purpose, system }: { purpose: string; system: string }) => {
+        systems.push(system);
+        if (systems.length === 1)
+          return {
+            toolCalls: [
+              {
+                toolName: "runReadOnlySql",
+                input: { sql: "select 84 as total_km" },
+              },
+            ],
+          };
+        if (
+          purpose === "final_synthesis" &&
+          system.includes(`"reason":"${reason}"`)
+        )
+          return fixed;
+        return invalid;
+      },
+    );
+    const result = await orchestrateTrainerChat(
+      { system: "context", userRequest: "Correct the unsupported comparison" },
+      { generate, executeTool },
+    );
+    expect(result.text).toBe(
+      "July distance is 84 km; the comparison remains unverified.",
+    );
+    expect(systems[2]).toContain("Do not discard known gaps");
+    if (reason === "invalid_tool_claim")
+      expect(systems[2]).toContain(
+        "runReadOnlySql and runMathAnalysis are not valid tool claims",
+      );
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(result.providerCalls).toBe(3);
+    expect(checked(invalid, [sqlStep()])).toBeNull();
+    expect(checked(fixed, [])).toBeNull();
+  },
+);
+
+it("provides bounded reasons without changing incomplete partial-claim and failure semantics", () => {
+  const input = (result: TrainerGenerationResult) =>
+    (result.toolCalls?.[0] as { input: unknown }).input;
+  const failed: TrainerToolStep = { ...sqlStep(2), status: "failed" };
+  const valid = grounded("private", [metric(1, "monthly", "total_km", 84)]);
+  expect(assessCompletion({}, [])).toEqual({
+    answer: null,
+    rejection: { reason: "invalid_schema" },
+  });
+  expect(
+    assessCompletion(input(valid), [{ ...sqlStep(), tool: "getSyncStatus" }]),
+  ).toEqual({
+    answer: null,
+    rejection: { reason: "metric_step_required", claimIndex: 0 },
+  });
+  expect(assessCompletion(input(valid), [sqlStep(), failed])).toEqual({
+    answer: null,
+    rejection: { reason: "latest_metric_unsuccessful", claimIndex: 0 },
+  });
+  const partial = completion({
+    kind: "incomplete",
+    answer: "Only July distance is available; calculation failed.",
+    claims: [metric(1, "monthly", "total_km", 84)],
+    missingEvidence: ["calculation"],
+  });
+  expect(
+    assessCompletion(input(partial), [sqlStep(), failed]).answer,
+  ).toContain("calculation failed");
+  const secondBad = grounded("private", [
+    metric(1, "monthly", "total_km", 84),
+    metric(1, "monthly", "total_km", 42),
+  ]);
+  expect(assessCompletion(input(secondBad), [sqlStep()])).toEqual({
+    answer: null,
+    rejection: { reason: "cell_mismatch", claimIndex: 1 },
+  });
 });
 
 it("does not extract authoritative dates from system prose or rewrite an explicit model answer", async () => {

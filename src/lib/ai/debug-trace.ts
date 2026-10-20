@@ -1,5 +1,9 @@
 import { trainerCompletionSchema } from "./tool-contracts";
-import type { TrainerToolCall, TrainerToolStep } from "@/lib/ai/tool-types";
+import type {
+  CompletionRejection,
+  TrainerToolCall,
+  TrainerToolStep,
+} from "@/lib/ai/tool-types";
 
 import type {
   LlmDebugProviderCallPurpose,
@@ -87,6 +91,7 @@ export function debugProviderCall(input: {
   toolCalls?: TrainerToolCall[];
   text?: string;
   error?: string;
+  completionRejection?: CompletionRejection;
 }): LlmDebugProviderCall {
   let truncated = false;
   const text = input.text
@@ -130,6 +135,9 @@ export function debugProviderCall(input: {
         ? declaration.missingEvidence.length
         : 0,
       answerContent: "omitted",
+      ...(input.completionRejection
+        ? { rejection: input.completionRejection }
+        : {}),
     };
     const bounded = boundedDebugValue(
       call.toolName === "completeTrainerTurn"

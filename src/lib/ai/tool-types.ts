@@ -1,3 +1,17 @@
+export type CompletionRejection = {
+  reason:
+    | "invalid_schema"
+    | "invalid_tool_claim"
+    | "kind_evidence_conflict"
+    | "step_not_succeeded"
+    | "tool_mismatch"
+    | "metric_step_required"
+    | "latest_metric_unsuccessful"
+    | "result_mismatch"
+    | "cell_mismatch";
+  claimIndex?: number;
+};
+
 export type TrainerToolName =
   | "runGarminSync"
   | "getSyncStatus"

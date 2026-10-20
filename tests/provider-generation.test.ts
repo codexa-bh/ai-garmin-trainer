@@ -7,7 +7,10 @@ vi.mock("ai", async (original) => ({
 import { createTrainerGeneration } from "../src/lib/ai/provider-generation";
 import { trainerToolDefinitions } from "../src/lib/ai/provider-tool-definitions";
 import { finalToolChoice } from "./completion-fixtures";
-import { trainerToolContracts } from "../src/lib/ai/tool-contracts";
+import {
+  trainerCompletionSchema,
+  trainerToolContracts,
+} from "../src/lib/ai/tool-contracts";
 import { TRAINER_PROVIDER_CALL_TIMEOUT_MS } from "../src/lib/ai/orchestration-ports";
 
 beforeEach(() => {
@@ -74,6 +77,27 @@ it("maps exact planner and synthesis options while retaining selected model and 
     generateText.mock.calls[1][0].abortSignal,
   );
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("exposes native completion field guidance without changing the terminal tool or enabling actions", async () => {
+  generateText.mockResolvedValue({});
+  await createTrainerGeneration("model")({
+    purpose: "final_synthesis",
+    system: "system",
+    prompt: "prompt",
+  });
+  const tools = generateText.mock.calls[0][0].tools;
+  expect(Object.keys(tools)).toEqual(["completeTrainerTurn"]);
+  expect(tools.completeTrainerTurn.inputSchema).toBe(trainerCompletionSchema);
+  const fields = trainerCompletionSchema.shape.completion.shape;
+  expect(fields.kind.description).toContain(
+    "incomplete whenever missingEvidence is nonempty",
+  );
+  expect(fields.claims.description).toContain(
+    "never use runReadOnlySql or runMathAnalysis as a tool claim",
+  );
+  expect(fields.missingEvidence.description).toContain("Preserve genuine gaps");
+  expect(tools.completeTrainerTurn).not.toHaveProperty("execute");
 });
 
 it("wraps exactly the neutral descriptions/schemas without execution callbacks", () => {
