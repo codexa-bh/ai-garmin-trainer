@@ -3,6 +3,9 @@ import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import type { TrainerToolExecutionInput } from "../src/lib/ai/tool-execution-input";
 import { executeWeeklyTool } from "../src/lib/ai/tool-weekly";
 import { TRAINER_SYSTEM_PROMPT } from "../src/lib/ai/trainer-instructions";
+import { createSqlAnalysis } from "../src/lib/ai/analytics/application";
+import type { AnalysisRow } from "../src/lib/ai/analytics/contracts";
+import { executeAnalyticsTool } from "../src/lib/ai/tool-analytics";
 import { GET } from "../src/app/api/weekly/route";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -381,6 +384,220 @@ it.each([
   expect(executeTool).not.toHaveBeenCalled();
   expect(app.read("2026-09-21").record).toBeNull();
 });
+it.each([
+  { hikingMeters: 20000, ascent: 1000, cyclingSeconds: 0, expected: 100 },
+  { hikingMeters: 10000, ascent: 500, cyclingSeconds: 7200, expected: 110 },
+])(
+  "persists an exact original-baseline review from executed SQL/math: $expected points",
+  async ({ hikingMeters, ascent, cyclingSeconds, expected }) => {
+    // Illustrative model-selected commitments, NOT a universal runtime rubric.
+    const originalMarkdown =
+      "| KPI | Target | Points | Rule |\n|---|---|---|---|\n| Hiking | 20000 m | 60 | proportional |\n| Ascent | 1000 m | 40 | proportional |";
+    app.apply(draft([change(originalMarkdown)]).id, turn);
+    const original = app.read("2026-09-21").record!.original!;
+    app.apply(
+      draft([change("Adapted: 10000 m hiking, 500 m ascent")]).id,
+      turn,
+    );
+    const latest = app.read("2026-09-21").record!.latest!;
+    const startedAt = Date.parse("2026-09-24T12:00:00Z");
+    const insert = db.prepare(
+      "insert into activity (id,garmin_id,sport,started_at,distance_meters,elevation_gain_meters,duration_sec) values (?,?,?,?,?,?,?)",
+    );
+    insert.run("hike", "hike", "hiking", startedAt, hikingMeters, ascent, 7200);
+    insert.run("ride", "ride", "cycling", startedAt, 30000, 0, cyclingSeconds);
+    // Outside the stored local-week boundary: must not enter the result.
+    insert.run(
+      "outside",
+      "outside",
+      "hiking",
+      Date.parse("2026-09-20T20:00:00Z"),
+      999999,
+      999999,
+      999999,
+    );
+    const analytics = createSqlAnalysis(
+      {
+        openQuery() {
+          let statement: Database.Statement;
+          return {
+            readRows(sql) {
+              statement = db.prepare(sql);
+              return statement.all() as Array<Record<string, unknown>>;
+            },
+            readColumnNames: () => statement.columns().map((c) => c.name),
+            close() {},
+          };
+        },
+        inspectTables: () => ({}),
+      },
+      () => now.getTime(),
+    );
+    const interval = weekInterval("2026-09-21", "Europe/Zagreb");
+    const sql = `select sum(case when sport='hiking' then distance_meters else 0 end) as hiking_meters, sum(case when sport='hiking' then elevation_gain_meters else 0 end) as ascent_meters, sum(case when sport='cycling' then duration_sec else 0 end) as ride_seconds from activity where started_at >= ${Date.parse(interval.from)} and started_at < ${now.getTime()}`;
+    const formula =
+      "hiking_meters / 20000 * 60 + ascent_meters / 1000 * 40 + ride_seconds / 7200 * 60";
+    let calculated = NaN;
+    let reviewMarkdown = "";
+    let pass = 0;
+    const result = await orchestrateTrainerChat(
+      {
+        system: TRAINER_SYSTEM_PROMPT,
+        userRequest:
+          "Draft an as-of review against my original commitment, not the reduced adaptation. Do not save.",
+        weeklyTurn: turn,
+      },
+      {
+        generate: async ({ system }) => {
+          expect(system).toContain("original.revision baseline");
+          pass += 1;
+          if (pass === 1)
+            return {
+              toolCalls: [
+                {
+                  toolName: "getWeeklyPlan",
+                  input: { weekStart: "2026-09-21" },
+                },
+              ],
+            };
+          if (pass === 2)
+            return {
+              toolCalls: [
+                {
+                  toolName: "runReadOnlySql",
+                  input: { sql, resultName: "week_facts" },
+                },
+              ],
+            };
+          if (pass === 3)
+            return {
+              toolCalls: [
+                {
+                  toolName: "runMathAnalysis",
+                  input: {
+                    inputResult: "week_facts",
+                    operation: "customFormula",
+                    formula,
+                    outputName: "completion_points",
+                  },
+                },
+              ],
+            };
+          if (pass === 4) {
+            reviewMarkdown = `Scored commitment: original revision ${original.revision}. As of ${now.toISOString()}, Europe/Zagreb.\nOriginal: 20000 m hiking / 1000 m ascent; actual ${hikingMeters} m / ${ascent} m.\nFormula: ${formula}; total ${calculated} points. Activity coverage available; Sunday remains partial. No target proration.\n${cyclingSeconds ? "Hiking and ascent each half met (30+20 points); useful extra cycling aerobic contribution 60 points, not hiking distance/ascent, no duplicate allocation. Specific hiking gaps remain even above 100; not a recommendation to maximize activity." : "Both original KPIs fully met (60+40 points)."}\nLatest adaptation ${latest.revision} is context only, not denominator.`;
+            return {
+              toolCalls: [
+                {
+                  toolName: "proposeWeeklyDocuments",
+                  input: {
+                    changes: [
+                      {
+                        ...change(reviewMarkdown),
+                        kind: "review",
+                        asOf: now.toISOString(),
+                      },
+                    ],
+                  },
+                },
+              ],
+            };
+          }
+          return {
+            toolCalls: [
+              {
+                toolName: "completeTrainerTurn",
+                input: {
+                  completion: {
+                    kind: "grounded",
+                    answer: "Review drafted, not saved.",
+                    claims: [
+                      {
+                        kind: "metric",
+                        stepIndex: 3,
+                        resultName: "completion_points",
+                        rowIndex: 0,
+                        column: "score",
+                        value: calculated,
+                      },
+                    ],
+                    missingEvidence: [],
+                  },
+                },
+              },
+            ],
+          };
+        },
+        executeTool: async (input) => {
+          if (
+            input.toolName === "runReadOnlySql" ||
+            input.toolName === "runMathAnalysis" ||
+            input.toolName === "describeGarminDatabase"
+          ) {
+            const step = executeAnalyticsTool(input, analytics);
+            if (input.toolName === "runMathAnalysis")
+              calculated = Number(
+                (step.result as { rows: AnalysisRow[] }).rows[0].score,
+              );
+            return step;
+          }
+          return executeWeeklyTool(input, app);
+        },
+      },
+    );
+    expect(result.toolSteps.map((s) => [s.tool, s.status])).toEqual([
+      ["getWeeklyPlan", "succeeded"],
+      ["runReadOnlySql", "succeeded"],
+      ["runMathAnalysis", "succeeded"],
+      ["proposeWeeklyDocuments", "succeeded"],
+    ]);
+    expect(calculated).toBe(expected);
+    expect(result.text).toContain(reviewMarkdown);
+    expect(app.read("2026-09-21").record?.review).toBeNull();
+    app.bindDisplayed(turn.turnId, turn.conversationId, "a1", result.text);
+    const pending = app.pending(turn)!;
+    app.apply(pending.id, turn);
+    // Reload from persistence with a new application instance, not an in-memory response.
+    const reloaded = createWeekly(
+      weeklyStore,
+      () => now,
+      () => "unused",
+    ).read("2026-09-21").record!;
+    expect(reloaded.original).toEqual(original);
+    expect(reloaded.latest).toEqual(latest);
+    expect(reloaded.review).toMatchObject({
+      contentMarkdown: reviewMarkdown,
+      planRevision: latest.revision,
+    });
+    expect(reloaded.review!.planRevision).not.toBe(original.revision);
+    expect(() => app.apply(pending.id, turn)).toThrow("already_applied");
+  },
+);
+
+it("keeps legacy and missing-plan Markdown unchanged through review/read without automatic rubric adoption", () => {
+  app.apply(
+    draft([change("Walk regularly; no numeric targets agreed")]).id,
+    turn,
+  );
+  const original = app.read("2026-09-21").record!.original;
+  app.apply(draft([change("Later rubric: 20 km, 100 points")]).id, turn);
+  const contentMarkdown =
+    "Original has no agreed numeric rubric. Provisional interpretation only; vague targets unavailable, no target inferred from actuals. Missing ascent and late uploads are unavailable, not zero; no definitive total. User reports an unsynced walk, not verified Garmin evidence.";
+  app.apply(
+    draft([
+      { ...change(contentMarkdown), kind: "review", asOf: now.toISOString() },
+    ]).id,
+    turn,
+  );
+  expect(app.read("2026-09-21").record).toMatchObject({
+    original,
+    review: { contentMarkdown },
+  });
+  expect(app.read("2026-09-14").record).toBeNull();
+  const before = db.prepare("select * from weekly_artifact").all();
+  app.read("2026-09-21");
+  expect(db.prepare("select * from weekly_artifact").all()).toEqual(before);
+});
+
 it("paginates metadata without document content", () => {
   const record = {
     weekStart: "2026-09-21",

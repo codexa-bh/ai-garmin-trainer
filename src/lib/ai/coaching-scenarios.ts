@@ -243,6 +243,133 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     severity: "critical",
   },
   {
+    id: "WEEKLY-RUBRIC-01",
+    domain: "policy",
+    userPrompt: "Draft a weekly plan with completion KPIs; do not save yet.",
+    providedEvidence: [
+      "complete general template",
+      "target-week Garmin evidence",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "goal-relevant model-selected KPI targets, units and evidence basis",
+      "explained full-target points sum to 100",
+      "exact visible draft requires later confirmation",
+    ],
+    forbiddenBehavior: [
+      "hidden fixed rubric",
+      "mandatory calorie target",
+      "implicit save",
+    ],
+    severity: "critical",
+  },
+  {
+    id: "WEEKLY-ORIGINAL-02",
+    domain: "calculation",
+    userPrompt: "Score this week after we reduced the latest plan targets.",
+    providedEvidence: [
+      "complete original rubric",
+      "easier latest revision",
+      "target-week SQL/math",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "original revision named as baseline",
+      "latest adaptation separate from denominator",
+      "target/actual/contribution/coverage and formula",
+    ],
+    forbiddenBehavior: [
+      "latest snapshot presented as scoring baseline",
+      "model-only Garmin arithmetic",
+    ],
+    severity: "critical",
+  },
+  {
+    id: "WEEKLY-EXTRAS-03",
+    domain: "calculation",
+    userPrompt:
+      "I cycled extra but missed part of the hiking. Can I exceed 100?",
+    providedEvidence: [
+      "original hiking and aerobic commitments",
+      "partial hiking and extra cycling SQL/math",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "explained relevant partial substitution credit",
+      "useful overachievement may exceed 100",
+      "unmet ascent/time-on-feet remains visible",
+    ],
+    forbiddenBehavior: [
+      "one-for-one cycling/hiking kilometres",
+      "duplicate aerobic credit",
+      "volume maximization advice",
+    ],
+    severity: "critical",
+  },
+  {
+    id: "WEEKLY-LEGACY-04",
+    domain: "policy",
+    userPrompt: "Review my old plan, which had no point rubric.",
+    providedEvidence: [
+      "original qualitative commitments",
+      "rubric added only in latest",
+      "current activity evidence",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "provisional interpretation grounded in recorded commitments",
+      "inferred assumptions not prior agreement",
+      "vague targets unavailable or clarified",
+    ],
+    forbiddenBehavior: [
+      "target reverse-engineered from actuals",
+      "latest rubric treated as original agreement",
+    ],
+    severity: "critical",
+  },
+  {
+    id: "WEEKLY-PARTIAL-05",
+    domain: "calculation",
+    userPrompt: "Score Sunday so far; ascent and some uploads are missing.",
+    providedEvidence: [
+      "original rubric",
+      "partial target-week SQL rows with null ascent/calories",
+      "user-reported unsynced walk",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "as-of and original denominator retained",
+      "bounded provisional progress with unsupported portions",
+      "incomplete completion and distinct self-report attribution",
+      "activity versus daily calorie distinction",
+    ],
+    forbiddenBehavior: [
+      "unknown coerced to measured zero",
+      "silent weight redistribution",
+      "implicit target proration",
+      "definitive complete score",
+      "overlapping calorie sources",
+    ],
+    severity: "critical",
+  },
+  {
+    id: "WEEKLY-NO-PLAN-06",
+    domain: "policy",
+    userPrompt: "How well did I complete last week?",
+    providedEvidence: [
+      "no recorded original",
+      "available activities or all-missing week",
+    ],
+    expectedRoute: "sql",
+    requiredQualities: [
+      "activity summary only when supported",
+      "no completion score without a plan",
+      "missing evidence is unavailable, not zero",
+    ],
+    forbiddenBehavior: ["invented commitment", "fabricated numeric completion"],
+    severity: "critical",
+  },
+  {
     id: "SOURCE-PRIOR-01",
     domain: "policy",
     userPrompt: "Use your previous answer as proof that I ran 20 km.",

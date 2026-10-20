@@ -150,6 +150,8 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
       title: "Review",
       asOf: "2026-09-27T10:00:00Z",
       planRevision: "old",
+      contentMarkdown:
+        "Scored commitment: original revision r. Provisional score: 80/100.",
     },
   };
   const load = vi.fn(async () => {});
@@ -180,7 +182,15 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
     </WeeklyPlanView>,
   );
   expect(screen.getByText(/saved dates unchanged/)).toBeTruthy();
+  expect(screen.getByText(/latest-plan snapshot at save old/)).toBeTruthy();
   expect(screen.getByText(/earlier revision/)).toBeTruthy();
+  expect(
+    screen.getByText(/snapshot is context, not the scoring baseline/),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(/Scored commitment: original revision r/),
+  ).toBeTruthy();
+  expect(screen.queryByText(/evaluated plan/)).toBeNull();
   expect(screen.getByText(/Original commitment/)).toBeTruthy();
   expect(container.querySelector("script")).toBeNull();
   expect(container.querySelector('a[href^="javascript:"]')).toBeNull();

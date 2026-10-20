@@ -131,12 +131,17 @@ export function WeeklyPlanView({
                         <h3>{record.review.title}</h3>
                         <p>
                           Review as of {record.review.asOf} · saved{" "}
-                          {record.review.savedAt} · evaluated plan{" "}
+                          {record.review.savedAt} · latest-plan snapshot at save{" "}
                           {record.review.planRevision ?? "unavailable"}
                           {record.latest &&
                           record.review.planRevision !== record.latest.revision
                             ? " (earlier revision; not silently refreshed)"
                             : ""}
+                        </p>
+                        <p>
+                          This snapshot is context, not the scoring baseline.
+                          See the review document for its scored commitment and
+                          any provisional assumptions.
                         </p>
                         <AssistantContent
                           content={record.review.contentMarkdown}
