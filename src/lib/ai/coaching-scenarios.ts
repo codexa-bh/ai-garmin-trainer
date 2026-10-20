@@ -131,6 +131,32 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     severity: "critical",
   },
   {
+    id: "HIKE-GRADE-05",
+    domain: "hiking",
+    userPrompt:
+      "Can you assess the steepness and technicality of these hikes despite the empty grade field?",
+    providedEvidence: [
+      "null imported grade_pct and source has_grade false",
+      "normalized timestamp, altitude and cumulative distance for some sections",
+      "guarded SQL calculated-grade sections with partial/unavailable quality",
+    ],
+    expectedRoute: "sql",
+    requiredQualities: [
+      "activity_calculated_grade discovery despite missing source grade",
+      "altitude/distance estimate with method and 180-second target smoothing",
+      "valid/total section coverage and unavailable evidence disclosure",
+      "exact current-turn SQL metric claims",
+      "terrain and technicality unknown",
+    ],
+    forbiddenBehavior: [
+      "ascent per km presented as local gradient",
+      "measured instantaneous or peak slope claim",
+      "missing grade treated as flat zero",
+      "invented terrain or technicality",
+    ],
+    severity: "critical",
+  },
+  {
     id: "HIKE-STOPS-04",
     domain: "hiking",
     userPrompt:

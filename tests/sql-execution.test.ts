@@ -115,18 +115,41 @@ it("inspection reads only fixed allowlisted counts/ranges and closes on failure"
     return prepare.call(this, query);
   });
   const description = describeGarminDatabase();
-  expect(queries).toHaveLength(description.tables.length + 2);
+  expect(queries).toHaveLength(description.tables.length + 1);
   expect(
     queries.filter((query) => query.startsWith("select count(*)")),
   ).toEqual(
-    description.tables.map(
-      (table) => `select count(*) as count from ${table.name}`,
-    ),
+    description.tables
+      .filter((table) => table.name !== "activity_calculated_grade")
+      .map((table) => `select count(*) as count from ${table.name}`),
   );
   expect(opened[0].open).toBe(false);
   primary.exec("drop table daily_health");
   expect(() => describeGarminDatabase()).toThrow(/no such table/);
   expect(opened[1].open).toBe(false);
+});
+
+it("owns a lazy separate readonly grade snapshot and closes both handles on success and callback failure", async () => {
+  const { runReadOnlySql } = await import("../src/lib/ai/sql-analysis");
+  expect(
+    runReadOnlySql({
+      sql: "select * from activity_calculated_grade('missing')",
+    }).status,
+  ).toBe("succeeded");
+  expect(opened).toHaveLength(2);
+  expect(opened.every((db) => db.readonly && !db.open)).toBe(true);
+  const insert = primary.prepare(
+    "insert into activity (id, garmin_id, sport, started_at) values (?, ?, 'hiking', 1)",
+  );
+  for (let i = 0; i < 33; i += 1) insert.run(String(i), String(i));
+  expect(
+    runReadOnlySql({
+      sql: "select count(*) as sections from activity a join activity_calculated_grade(a.garmin_id) g",
+    }).status,
+  ).toBe("failed");
+  expect(opened).toHaveLength(4);
+  expect(opened.every((db) => !db.open)).toBe(true);
+  expect(primary.open).toBe(true);
 });
 
 it("production tool wiring exposes only guarded results and success-only same-turn handles", async () => {

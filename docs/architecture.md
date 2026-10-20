@@ -246,6 +246,39 @@ transitive type-inclusive inner closure, with negative infrastructure/compositio
 fixtures; the runtime graph and existing SQL/math/tool/orchestrator suites remain
 required. SQL/schema/back-sync is a no-op; source revert is sufficient rollback.
 
+### Calculated activity-grade evidence
+
+`analytics/calculated-grade.ts` owns pure mechanical signed altitude-change /
+cumulative-distance-change estimates, not coaching classifications or dashboard
+readouts. `sqlite-execution.ts` registers connection-local
+`activity_calculated_grade(activity_id)` for guarded SQL: explicit activity IDs
+select at most 100,000 normalized samples via the existing primary key, with at
+most 32 function invocations per query. A lazy separate readonly/query-only
+snapshot supplies samples because SQLite callbacks cannot re-enter the executing
+connection; the query session closes both handles on success/failure. Unbound
+schema inspection reports zero static rows as registration metadata, never as
+activity availability, and never computes windows. The hidden `garmin_id`
+parameter supports function arguments, WHERE constraints and constrained joins;
+safe numeric ID literals are accepted. Unconstrained access fails with a bounded
+correction message rather than silently reporting missing data.
+
+Timestamp-only consecutive sections target 180 seconds, share boundary endpoints,
+and require at least 60 seconds, 3 complete samples and 10 meters net distance.
+Adjacent times strictly increase with gaps <=30 seconds; cumulative distance is
+nonnegative/nondecreasing. Invalid sections return null and quality status, not
+zero. Method, actual support and valid/total **section** coverage accompany grades;
+shared endpoints mean summed sample counts are not unique-stream coverage.
+No-stream/over-limit inputs return unavailable sentinels. Stored elapsed can be
+an unmarked sample index and never establishes timing by itself. The descriptor
+and executable single/multi-activity examples own the exact analytical contract.
+
+Source `grade_pct`, source `has_grade`, imports and dashboard calculations remain
+unchanged. No DB objects, migration, re-import or backfill: existing stored
+prerequisites are derived at read time; source revert is sufficient rollback.
+Pure edge fixtures, guarded relation/claim tests, readonly resource lifetime and
+existing dashboard/privacy suites cover this addition. Grade remains an estimate,
+not measured instantaneous slope, terrain or technicality.
+
 ## Local-data application and adapters
 
 `local-data/application.ts` exposes synchronous read use cases and scoped deletion
