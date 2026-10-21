@@ -9,6 +9,41 @@ import {
 import { unsafeMemoryReason } from "../src/lib/memory/filters";
 import { trainerToolInputSchemas } from "../src/lib/ai/tool-contracts";
 
+it("keeps structured stable policy ahead of changing date, memory, budget, evidence and repair feedback", () => {
+  const before = {
+    policy: TRAINER_SYSTEM_PROMPT,
+    context: "date A; memory present; plan A; history A",
+  };
+  const after = {
+    policy: TRAINER_SYSTEM_PROMPT,
+    context: "date B; memory deleted; plan B; history B",
+  };
+  const first = buildPlannerInstructions(before, "evidence A");
+  const second = buildPlannerInstructions(after, "evidence B");
+  expect(first).toHaveProperty(
+    "policy",
+    expect.stringContaining("Structured turn completion"),
+  );
+  if (typeof first === "string" || typeof second === "string")
+    throw new Error("structured policy lost");
+  expect(first.policy).toBe(second.policy);
+  expect(first.context).toContain(before.context);
+  expect(second.context).toContain(after.context);
+  expect(second.context).not.toContain("memory present");
+  expect(first.policy).not.toContain("evidence A");
+  expect(second.context).toContain("evidence B");
+  const cold = buildFinalSynthesisInstructions(before, "evidence A");
+  const repair = buildFinalSynthesisInstructions(after, "evidence B", true, {
+    reason: "invalid_tool_claim",
+  });
+  if (typeof cold === "string" || typeof repair === "string")
+    throw new Error("structured policy lost");
+  expect(cold.policy).toBe(repair.policy);
+  expect(repair.context).toContain("invalid_tool_claim");
+  expect(repair.context).toContain("Evidence gathering has stopped");
+  expect(repair.policy).not.toContain("invalid_tool_claim");
+});
+
 describe("canonical trainer instruction package", () => {
   it("composes bounded broad coaching and hiking-specialist base guidance", () => {
     expect(TRAINER_SYSTEM_PROMPT.length).toBeLessThan(9_000);

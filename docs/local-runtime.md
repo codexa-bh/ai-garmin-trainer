@@ -36,6 +36,77 @@ Each new trainer turn reads and captures the effective model before asynchronous
 
 Saving this preference survives reload/restart but does not hot-reload `.env.local`. Adding/removing credentials still needs a separately authorized normal server reload. Rollback is reset or source revert; no primary restart, data copy-back, public hosting or deployment is implied.
 
+## Trainer prompt caching and token diagnostics
+
+Trainer requests share one policy/context composition across providers. Coaching,
+completion and purpose-specific rules precede freshly rebuilt dates, Profile,
+memory, transcript, weekly status, budgets and current-turn evidence. Context is
+not cached locally; deletion, corrections and date rollover remain immediate.
+Tool definitions/order and planner versus terminal-only synthesis stay unchanged.
+
+Provider contract checked **2026-10-21**, with `ai` 7.0.29,
+`@ai-sdk/openai` 4.0.15 and `@ai-sdk/deepseek` 3.0.11:
+
+| Direct provider           | Cache behavior and application choice                                                                                                                                                                                                                                                                                                                                                          | Reporting and limits                                                                                                                                                                                                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI `gpt-6-luna`       | At least 1,024 visible input tokens; breakpoint-based reuse. The adapter marks the end of stable policy and uses explicit-only, default 30-minute writes, avoiding writes of the changing suffix. This option is capability-allowlisted to current `gpt-6-luna`, `gpt-6-astra`, `gpt-6.1-sol`; custom/older models keep compatible defaults. No routing key or extended retention is selected. | Reads and writes are distinct classes. The guide describes 128-token read reporting; record actual provider counts, not locally rounded estimates. Expiry, routing, model/settings/tool changes and prefix changes can cause misses. A breakpoint never guarantees reuse. |
+| DeepSeek `deepseek-flash` | Automatic best-effort disk caching, persisted complete prefix units, common-prefix detection and fixed intervals for long inputs. No OpenAI caching parameters.                                                                                                                                                                                                                                | Reports `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`, not cache writes. Construction takes seconds; eviction is usually hours to days. Current guide does not promise a universal minimum size or interval.                                                       |
+
+Sources: [OpenAI caching](https://developers.openai.com/api/docs/guides/prompt-caching),
+[OpenAI pricing](https://developers.openai.com/api/docs/pricing),
+[DeepSeek caching](https://api-docs.deepseek.com/guides/kv_cache).
+OpenAI standard USD/million tokens on that date: Luna ordinary input **0.10**,
+read **0.01**, 30-minute write **0.125**, 12-hour write **0.25**, output **0.50**.
+A 12-hour minimum is not a deletion deadline; this app does not opt into it.
+The [DeepSeek pricing URL](https://api-docs.deepseek.com/quick_start/pricing)
+returned first-call documentation during verification, so the measurements below
+make no DeepSeek monetary claim.
+
+With private debug traces enabled, each recorded provider call has optional
+`tokenUsage`: `inputTokens`, `cacheReadTokens`, `cacheWriteTokens`,
+`uncachedInputTokens` (ordinary input excluding reads and reported writes), and
+`outputTokens`. Provider/model identity belongs to the containing turn snapshot.
+Missing is unknown, not zero; writes are never inferred from misses. The adapter
+checks raw field presence because installed SDK adapters fill some absent fields
+with zero, but never retains that raw usage object. Only one SDK call's usage is
+counted, not both steps and aggregates. Historical traces remain readable; no
+turn total is advertised because traces cap calls and may have unknown coverage.
+Existing debug privacy restrictions still apply; token diagnostics add no prompts,
+health data or provider payloads. Cache misses never trigger extra generation.
+
+### Observed local comparison (not a savings guarantee)
+
+Bounded disposable-DB app smoke used the same models and coaching/follow-up
+requests before and after the change:
+
+| Luna coaching + follow-up | Calls |  Input |  Read |  Write | Output | Estimated input USD |
+| ------------------------- | ----: | -----: | ----: | -----: | -----: | ------------------: |
+| Before                    |     2 | 19,219 |     0 | 19,213 |    291 |         0.002402225 |
+| After                     |     2 | 19,248 | 6,379 |  6,379 |    276 |         0.001510165 |
+
+This pair's input estimate is **37.1% lower**, calculated from separate ordinary,
+read and write classes at the rates above; output, discounts and invoice-level
+charges are excluded. The first new request wrote 6,379 stable tokens; the
+follow-up read those tokens despite changing date/history. Across coaching,
+follow-up, SQL/math analytics and unavailable-evidence scenarios, Luna observed
+165,854 reads out of 309,993 input tokens across 27 calls (53.5%), versus zero
+reads before. Variable analytical paths make aggregate cost differences
+observational, not a controlled cache-only effect.
+
+DeepSeek already reused prefixes: the first/second planner reads were 1,536/1,536
+before and 1,536/3,840 after; later analytical calls read 6,784 tokens. Baseline
+follow-up needed an extra synthesis and failed completion validation, while the
+new follow-up completed in one call, so a whole-turn savings percentage is not
+attributable to caching. Both new analytical scenarios produced grounded sport
+counts and an executed-math total after rejected invalid-column attempts; missing
+pack/surface evidence stayed unavailable, not invented. Long/redundant analytical
+paths remain possible under the unchanged execution budget. An independent memory
+extraction request returned HTTP 400 on both revisions; it is excluded from
+trainer cache success and remains an unresolved auxiliary-provider limitation.
+Mocked wire/prefix tests establish deterministic eligibility, not billing savings.
+No database migration, model-selection change, deployment or release is required;
+source revert rolls back this behavior.
+
 ## Opt-in OpenRouter chat
 
 Set `AI_PROVIDER=openrouter`, `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` in ignored `.env.local`. The initial model is `nvidia/nemotron-3.5-lightning:free`. Chat and guarded tools use `https://openrouter.ai/api/v1/chat/completions`; the key stays server-side. Auto selection remains DeepSeek-first/OpenAI-fallback and ignores OpenRouter keys. Missing/placeholder keys fail closed; no paid model or alternate provider is substituted on failure.

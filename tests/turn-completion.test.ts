@@ -4,7 +4,10 @@ import {
   assessCompletion,
   validatedCompletion,
 } from "../src/lib/ai/turn-completion";
-import type { TrainerGenerationResult } from "../src/lib/ai/orchestration-ports";
+import type {
+  TrainerGenerationRequest,
+  TrainerGenerationResult,
+} from "../src/lib/ai/orchestration-ports";
 import type { TrainerToolStep } from "../src/lib/ai/tool-types";
 import {
   completion,
@@ -337,7 +340,7 @@ it("explains a rejected late-step declaration to the existing reserved synthesis
     async ({ index }: { index: number }) => steps[index - 1],
   );
   const generate = vi.fn(
-    async ({ purpose, system }: { purpose: string; system: string }) => {
+    async ({ purpose, system }: TrainerGenerationRequest) => {
       const next = steps[executeTool.mock.calls.length];
       if (next)
         return {
@@ -399,21 +402,23 @@ it.each([
     );
     const requests: Array<{ purpose: string; system: string }> = [];
     const executeTool = vi.fn(async () => sqlStep());
-    const generate = vi.fn(
-      async (request: { purpose: string; system: string }) => {
-        requests.push(request);
-        return requests.length === 1
-          ? {
-              toolCalls: [
-                {
-                  toolName: "runReadOnlySql",
-                  input: { sql: "select 84 as total_km" },
-                },
-              ],
-            }
-          : invalid;
-      },
-    );
+    const generate = vi.fn(async (request: TrainerGenerationRequest) => {
+      expect(typeof request.system).toBe("string");
+      requests.push({
+        purpose: request.purpose,
+        system: request.system as string,
+      });
+      return requests.length === 1
+        ? {
+            toolCalls: [
+              {
+                toolName: "runReadOnlySql",
+                input: { sql: "select 84 as total_km" },
+              },
+            ],
+          }
+        : invalid;
+    });
     const result = await orchestrateTrainerChat(
       {
         system: "context",
@@ -464,8 +469,9 @@ it.each(["kind_evidence_conflict", "invalid_tool_claim"])(
     const systems: string[] = [];
     const executeTool = vi.fn(async () => sqlStep());
     const generate = vi.fn(
-      async ({ purpose, system }: { purpose: string; system: string }) => {
-        systems.push(system);
+      async ({ purpose, system }: TrainerGenerationRequest) => {
+        expect(typeof system).toBe("string");
+        systems.push(system as string);
         if (systems.length === 1)
           return {
             toolCalls: [
@@ -477,6 +483,7 @@ it.each(["kind_evidence_conflict", "invalid_tool_claim"])(
           };
         if (
           purpose === "final_synthesis" &&
+          typeof system === "string" &&
           system.includes(`"reason":"${reason}"`)
         )
           return fixed;

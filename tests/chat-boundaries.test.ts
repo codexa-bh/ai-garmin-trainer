@@ -223,10 +223,14 @@ describe("chat application production wiring", () => {
         timeZone: "Europe/Zagreb",
       },
     });
-    expect(f.orchestrate.mock.calls[0][0].system).toContain("device-local");
+    expect(f.orchestrate.mock.calls[0][0].system).toHaveProperty(
+      "context",
+      expect.stringContaining("device-local"),
+    );
     expect(f.bindWeekly).not.toHaveBeenCalled();
-    expect(f.orchestrate.mock.calls[0][0].system).not.toContain(
-      "exact pending draft",
+    expect(f.orchestrate.mock.calls[0][0].system).toHaveProperty(
+      "context",
+      expect.not.stringContaining("exact pending draft"),
     );
   });
   it("imports composition without selecting providers, reading storage or initializing memory", async () => {
@@ -260,9 +264,11 @@ describe("chat application production wiring", () => {
       expect.objectContaining({
         userRequest: "hello",
         debug: { enabled: true, provider: "deepseek", model: "deepseek-chat" },
-        system: expect.stringContaining(
-          "Imported data counts: 3 activities, 4 daily health records",
-        ),
+        system: expect.objectContaining({
+          context: expect.stringContaining(
+            "Imported data counts: 3 activities, 4 daily health records",
+          ),
+        }),
       }),
     );
     expect(f.context).toHaveBeenCalledWith(

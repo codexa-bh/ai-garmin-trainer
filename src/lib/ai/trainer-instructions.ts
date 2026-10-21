@@ -5,6 +5,31 @@ import {
 
 import type { CompletionRejection } from "./tool-types";
 
+/** Policy is invariant; context is rebuilt for every turn/call, never cached locally. */
+export type TrainerSystemPrompt = string | { policy: string; context: string };
+
+export function appendTrainerContext(
+  system: TrainerSystemPrompt,
+  context: string,
+): TrainerSystemPrompt {
+  return typeof system === "string"
+    ? `${system}\n\n${context}`
+    : { ...system, context: `${system.context}\n\n${context}` };
+}
+
+function composeInstructions(
+  base: TrainerSystemPrompt,
+  policy: string,
+  context: string,
+): TrainerSystemPrompt {
+  return typeof base === "string"
+    ? `${policy}\n\n${base}${context}`
+    : {
+        policy: `${base.policy}\n\n${policy}`,
+        context: `${base.context}${context}`,
+      };
+}
+
 const section = (title: string, rules: readonly string[]): string =>
   `${title}:\n${rules.map((rule) => `- ${rule}`).join("\n")}`;
 
@@ -109,11 +134,11 @@ const FINAL_SYNTHESIS_POLICY = section(
 );
 
 export function buildPlannerInstructions(
-  baseSystem: string,
+  baseSystem: TrainerSystemPrompt,
   priorToolEvidence: string,
   budget?: TrainerExecutionBudget,
   analyticalSuccessCounts: Readonly<Record<string, number>> = {},
-): string {
+): TrainerSystemPrompt {
   const analyticalSuccessRemaining = Object.fromEntries(
     ["describeGarminDatabase", "runReadOnlySql", "runMathAnalysis"].map(
       (name) => [
@@ -134,15 +159,19 @@ export function buildPlannerInstructions(
   const liveBudget = budget
     ? `\n\nLive server execution budget (the current planning call is already counted):\n${JSON.stringify(snapshot)}\nRemaining includes the final-answer reserve; exploratoryRemaining excludes it. Provider attempts include failed requests and explicit synthesis; toolAttempts count admitted executions, including failures/rejections, not skipped selections.`
     : "";
-  return `${baseSystem}\n\n${COMPLETION_POLICY}\n\n${PLANNER_POLICY}${liveBudget}\n\nCurrent-turn server-authored prior tool evidence (fresh-call boundary; provider responses and raw tool results are not replayed):\n${priorToolEvidence}`;
+  return composeInstructions(
+    baseSystem,
+    `${COMPLETION_POLICY}\n\n${PLANNER_POLICY}`,
+    `${liveBudget}\n\nCurrent-turn server-authored prior tool evidence (fresh-call boundary; provider responses and raw tool results are not replayed):\n${priorToolEvidence}`,
+  );
 }
 
 export function buildFinalSynthesisInstructions(
-  baseSystem: string,
+  baseSystem: TrainerSystemPrompt,
   toolEvidence: string,
   budgetStopped = false,
   rejection?: CompletionRejection,
-): string {
+): TrainerSystemPrompt {
   const wrapUp = budgetStopped
     ? "\n\nEvidence gathering has stopped to preserve the final-answer reserve. No more tools or retries are available in this turn. Answer now from the evidence already gathered. Separate verified facts, user statements, general coaching and missing evidence. With no usable metric evidence, explicitly say personal Garmin metrics are unverified and give only supported user-context/general guidance. Do not imply full verification from partial results, promise further tool work, or require a narrower follow-up. Report completed side effects truthfully; never replay them."
     : "";
@@ -155,5 +184,9 @@ export function buildFinalSynthesisInstructions(
   const feedback = rejection
     ? `\n\nThe previous completion declaration was rejected by server validation: ${JSON.stringify(rejection)}.${toolGuidance}${conflictGuidance} claimIndex, when present, is zero-based. Rebuild the declaration from the current-turn evidence below: use exact server step numbers, result handles, zero-based rows, columns and unconverted scalar values, not rounded display values. Do not repeat unsupported claims or invent replacement evidence. Use coaching only for user context/general guidance without verified personal metrics, or incomplete with explicit missingEvidence and individually supported partial claims. No action tools or additional retries are available; finish with one completeTrainerTurn call alone.`
     : "";
-  return `${baseSystem}\n\n${COMPLETION_POLICY}\n\n${FINAL_SYNTHESIS_POLICY}${wrapUp}${feedback}\n\nServer-authored tool evidence for this current user turn:\n${toolEvidence}`;
+  return composeInstructions(
+    baseSystem,
+    `${COMPLETION_POLICY}\n\n${FINAL_SYNTHESIS_POLICY}`,
+    `${wrapUp}${feedback}\n\nServer-authored tool evidence for this current user turn:\n${toolEvidence}`,
+  );
 }
