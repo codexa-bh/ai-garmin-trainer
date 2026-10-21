@@ -25,15 +25,12 @@ export function executeWeeklyTool(
       case "getWeeklyPlan":
         result = weekly.read(input.input.weekStart);
         break;
-      case "proposeWeeklyDocuments":
-        result = weekly.propose(
+      case "saveWeeklyDocuments":
+        result = weekly.save(
           input.input.changes,
           input.weeklyTurn,
           input.weeklySnapshots ?? [],
         );
-        break;
-      case "applyWeeklyProposal":
-        result = weekly.apply(input.input.proposalId, input.weeklyTurn);
         break;
       default:
         throw new Error("invalid_weekly_tool");
@@ -42,11 +39,9 @@ export function executeWeeklyTool(
       ...base,
       status: "succeeded",
       summary:
-        input.toolName === "applyWeeklyProposal"
-          ? "Confirmed weekly proposal saved atomically."
-          : input.toolName === "proposeWeeklyDocuments"
-            ? "Complete weekly proposal prepared; no confirmed artifacts saved."
-            : "Complete selected week read; missing plan means no recorded commitment.",
+        input.toolName === "saveWeeklyDocuments"
+          ? `Weekly documents saved atomically: ${input.input.changes.map(({ weekStart, kind }) => `${kind} ${weekStart}`).join(", ")}.`
+          : "Complete selected week read; missing plan means no recorded commitment.",
       result,
     };
   } catch (error) {
@@ -59,7 +54,7 @@ export function executeWeeklyTool(
       status: reason === "weekly_persistence_uncertain" ? "failed" : "rejected",
       reason,
       summary:
-        "Weekly operation did not return confirmed success. Re-read current state before retrying; stale drafts require new confirmation.",
+        "Weekly operation did not return confirmed success. Re-read current state before a future attempt; no repeated weekly save in this turn.",
     };
   }
 }

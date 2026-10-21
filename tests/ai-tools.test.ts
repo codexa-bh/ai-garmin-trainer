@@ -57,8 +57,7 @@ describe("trainer tool registry schemas", async () => {
     expect(Object.keys(trainerToolDefinitions).sort()).toEqual(
       [
         "getWeeklyPlan",
-        "proposeWeeklyDocuments",
-        "applyWeeklyProposal",
+        "saveWeeklyDocuments",
         "forceRefreshActivityDetail",
         "getActivityDetailAvailability",
         "describeGarminDatabase",

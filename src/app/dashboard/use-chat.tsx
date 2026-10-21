@@ -512,7 +512,10 @@ export function useChatFeature({
               ? ` Memory not proposed: ${event.memoryProposal.reason}`
               : "";
         const savedTrainingPlan =
-          event.assistantMessage.grounding?.tool === "saveTrainingPlan";
+          event.assistantMessage.grounding?.toolSteps?.some(
+            (step) =>
+              step.tool === "saveTrainingPlan" && step.status === "succeeded",
+          ) ?? event.assistantMessage.grounding?.tool === "saveTrainingPlan";
         void event.memoryProposal;
         runInBackground(loadMemories(false));
         runInBackground(loadConversations(false));
@@ -522,8 +525,9 @@ export function useChatFeature({
           loadWeekly &&
           event.assistantMessage.grounding?.toolSteps?.some(
             (step) =>
-              step.tool === "applyWeeklyProposal" &&
-              step.status === "succeeded",
+              ["saveWeeklyDocuments", "applyWeeklyProposal"].includes(
+                step.tool,
+              ) && step.status === "succeeded",
           )
         )
           runInBackground(loadWeekly());
@@ -571,14 +575,21 @@ export function useChatFeature({
         setChatPendingStatus(null);
         setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled === true);
         if (payload.memoryProposal) runInBackground(loadMemories(false));
-        if (payload.toolEvidence?.tool === "saveTrainingPlan")
+        if (
+          payload.toolEvidence?.toolSteps?.some(
+            (step) =>
+              step.tool === "saveTrainingPlan" && step.status === "succeeded",
+          ) ??
+          payload.toolEvidence?.tool === "saveTrainingPlan"
+        )
           runInBackground(loadTrainingPlan("chat-save", false));
         if (
           loadWeekly &&
           payload.toolEvidence?.toolSteps?.some(
             (step) =>
-              step.tool === "applyWeeklyProposal" &&
-              step.status === "succeeded",
+              ["saveWeeklyDocuments", "applyWeeklyProposal"].includes(
+                step.tool,
+              ) && step.status === "succeeded",
           )
         )
           runInBackground(loadWeekly());

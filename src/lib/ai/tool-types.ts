@@ -25,8 +25,7 @@ export type TrainerToolName =
   | "getTrainingPlan"
   | "saveTrainingPlan"
   | "getWeeklyPlan"
-  | "proposeWeeklyDocuments"
-  | "applyWeeklyProposal";
+  | "saveWeeklyDocuments";
 
 export type TrainerToolStepName = TrainerToolName | "providerToolSelection";
 

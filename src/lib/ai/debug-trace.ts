@@ -144,6 +144,7 @@ export function debugProviderCall(input: {
         ? terminalMetadata
         : [
               "saveTrainingPlan",
+              "saveWeeklyDocuments",
               "proposeWeeklyDocuments",
               "applyWeeklyProposal",
             ].includes(call.toolName)
@@ -182,9 +183,12 @@ export function buildLlmDebugTrace(input: {
 }): LlmDebugTrace {
   let truncated = false;
   const weeklyTurn = input.toolSteps.some((step) =>
-    ["getWeeklyPlan", "proposeWeeklyDocuments", "applyWeeklyProposal"].includes(
-      step.tool,
-    ),
+    [
+      "getWeeklyPlan",
+      "saveWeeklyDocuments",
+      "proposeWeeklyDocuments",
+      "applyWeeklyProposal",
+    ].includes(step.tool),
   );
   const userRequest = compactString(
     weeklyTurn ? "Weekly turn content omitted" : input.userRequest,

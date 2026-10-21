@@ -77,7 +77,7 @@ describe("canonical trainer instruction package", () => {
     expect(planner).toContain("same-turn SQL result");
     expect(planner).toContain("integer ratios (3/2, not 1.5)");
     expect(planner).toContain("do not reread unchanged documents");
-    expect(planner).toContain("propose at most one complete draft");
+    expect(planner).toContain("save at most one complete weekly bundle");
     expect(planner).toContain(
       "Without successful math, leave derived points/total unavailable",
     );
@@ -100,14 +100,14 @@ describe("canonical trainer instruction package", () => {
     expect(synthesis).not.toContain("Tool budget");
   });
 
-  it("keeps General Plan age advisory and preserves explicit-write and complete-read safeguards", () => {
+  it("keeps General Plan age advisory and preserves no-save and complete-read safeguards", () => {
     const planner = buildPlannerInstructions("base", "none");
     expect(planner).toContain("more than 60 elapsed days");
     expect(planner).toContain("Exactly 60 days is within the review window");
     expect(planner).toContain("remains usable regardless of age");
     expect(planner).toContain("optional review");
     expect(planner).toContain("unavailable revision date cannot establish age");
-    expect(planner).toContain("Review-only requests");
+    expect(planner).toContain("explicit draft-only/no-save");
     expect(planner).toContain(
       "complete current Markdown in a separate model pass",
     );
@@ -276,9 +276,9 @@ describe("canonical trainer instruction package", () => {
         "No silent weight redistribution/unfinished-week proration",
         "no unsupported definitive total",
         "incomplete for missing evidence",
-        "NOT save consent",
-        "immediately preceding pending",
-        "one document-save attempt/turn",
+        "no prose-consent classification",
+        "draft-only/do-not-save",
+        "One General Plan attempt plus one atomic weekly bundle attempt per turn",
         "current correction overrides stale Profile",
       ])
         expect(instructions).toContain(rule);

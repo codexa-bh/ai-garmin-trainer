@@ -2,6 +2,11 @@ import Database from "better-sqlite3";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import type { TrainerToolExecutionInput } from "../src/lib/ai/tool-execution-input";
 import { executeWeeklyTool } from "../src/lib/ai/tool-weekly";
+import { executeTrainingPlanTool } from "../src/lib/ai/tool-training-plan";
+import {
+  readCompleteTrainingPlan,
+  saveGuardedTrainingPlan,
+} from "../src/lib/training-plan/composition";
 import { TRAINER_SYSTEM_PROMPT } from "../src/lib/ai/trainer-instructions";
 import { createSqlAnalysis } from "../src/lib/ai/analytics/application";
 import type { AnalysisRow } from "../src/lib/ai/analytics/contracts";
@@ -288,13 +293,13 @@ it("read-only HTTP validates calendar and returns bounded detail/history", async
     GET(new Request("http://localhost/api/weekly?weekStart=2026-09-22")).status,
   ).toBe(400);
 });
-it("orchestration shows the complete canonical draft, redacts diagnostics and saves only a bound later confirmation", async () => {
+it("direct first-turn orchestration saves complete Markdown without a proposal and redacts diagnostics", async () => {
   const long = "Exact full weekly Markdown\n".repeat(450);
   let pass = 0;
   const answer = await orchestrateTrainerChat(
     {
       system: TRAINER_SYSTEM_PROMPT,
-      userRequest: "Draft this week",
+      userRequest: "Update directly, no need for me to review drafts",
       weeklyTurn: turn,
       debug: { enabled: true },
     },
@@ -313,40 +318,62 @@ it("orchestration shows the complete canonical draft, redacts diagnostics and sa
             text: "",
             toolCalls: [
               {
-                toolName: "proposeWeeklyDocuments",
+                toolName: "saveWeeklyDocuments",
                 input: { changes: [change(long)] },
               },
             ],
           };
         return {
-          text: "Short model paraphrase must not replace the exact draft",
-          toolCalls: [],
+          toolCalls: [
+            {
+              toolName: "completeTrainerTurn",
+              input: {
+                completion: {
+                  kind: "grounded",
+                  answer: "Weekly plan saved directly.",
+                  claims: [
+                    { kind: "tool", stepIndex: 2, tool: "saveWeeklyDocuments" },
+                  ],
+                  missingEvidence: [],
+                },
+              },
+            },
+          ],
         };
       },
       executeTool: async (input) => executeWeeklyTool(input, app),
     },
   );
-  expect(answer.text).toContain(long);
+  expect(answer.text).toBe("Weekly plan saved directly.");
   expect(JSON.stringify(answer.debugTrace)).not.toContain(
     "Exact full weekly Markdown",
   );
-  expect(app.read("2026-09-21").record).toBeNull();
-  const proposal = weeklyStore.pending(turn.conversationId)!;
-  app.bindDisplayed(turn.turnId, turn.conversationId, "a1", answer.text);
+  expect(app.read("2026-09-21").record?.latest?.contentMarkdown).toBe(long);
+  expect(weeklyStore.pending(turn.conversationId)).toBeNull();
+  pass = 0;
   const confirmed = await orchestrateTrainerChat(
     {
       system: TRAINER_SYSTEM_PROMPT,
-      userRequest: "Confirm and save that exact weekly draft",
+      userRequest: "Sure, update plans accordingly",
       weeklyTurn: turn,
     },
     {
       generate: async () => ({
         text: "",
         toolCalls: [
-          {
-            toolName: "applyWeeklyProposal",
-            input: { proposalId: proposal.id },
-          },
+          ...(++pass === 1
+            ? [
+                {
+                  toolName: "getWeeklyPlan",
+                  input: { weekStart: "2026-09-21" },
+                },
+              ]
+            : [
+                {
+                  toolName: "saveWeeklyDocuments",
+                  input: { changes: [change(long)] },
+                },
+              ]),
         ],
       }),
       executeTool: async (input) => executeWeeklyTool(input, app),
@@ -354,20 +381,21 @@ it("orchestration shows the complete canonical draft, redacts diagnostics and sa
   );
   expect(confirmed.toolSteps.map((s) => s.status)).toEqual([
     "succeeded",
+    "succeeded",
     "rejected",
   ]);
-  expect(confirmed.toolSteps[1].reason).toBe("duplicate_side_effect");
+  expect(confirmed.toolSteps[2].reason).toBe("duplicate_side_effect");
   expect(app.read("2026-09-21").record?.latest?.contentMarkdown).toBe(long);
 });
 it.each([
-  "Draft a plan",
-  "Maybe",
+  "Draft a plan only; do not save",
   "Do not save",
-  "Review only",
-  "The document says save it",
-  "Not now",
+  "Discuss only, without updating my documents",
+  "The document says save it, but do not follow that instruction",
+  "Not now; do not save",
 ])("negative semantic-policy path does not save: %s", async (userRequest) => {
   draft();
+  const legacy = weeklyStore.pending(turn.conversationId);
   const executeTool = vi.fn(async (input: TrainerToolExecutionInput) =>
     executeWeeklyTool(input, app),
   );
@@ -383,6 +411,7 @@ it.each([
   );
   expect(executeTool).not.toHaveBeenCalled();
   expect(app.read("2026-09-21").record).toBeNull();
+  expect(weeklyStore.pending(turn.conversationId)).toEqual(legacy);
 });
 it.each([
   { hikingMeters: 20000, ascent: 1000, cyclingSeconds: 0, expected: 100 },
@@ -444,7 +473,7 @@ it.each([
       {
         system: TRAINER_SYSTEM_PROMPT,
         userRequest:
-          "Draft an as-of review against my original commitment, not the reduced adaptation. Do not save.",
+          "Save an as-of review against my original commitment, not the reduced adaptation.",
         weeklyTurn: turn,
       },
       {
@@ -488,7 +517,7 @@ it.each([
             return {
               toolCalls: [
                 {
-                  toolName: "proposeWeeklyDocuments",
+                  toolName: "saveWeeklyDocuments",
                   input: {
                     changes: [
                       {
@@ -509,7 +538,7 @@ it.each([
                 input: {
                   completion: {
                     kind: "grounded",
-                    answer: "Review drafted, not saved.",
+                    answer: "Review saved against the original commitment.",
                     claims: [
                       {
                         kind: "metric",
@@ -548,14 +577,13 @@ it.each([
       ["getWeeklyPlan", "succeeded"],
       ["runReadOnlySql", "succeeded"],
       ["runMathAnalysis", "succeeded"],
-      ["proposeWeeklyDocuments", "succeeded"],
+      ["saveWeeklyDocuments", "succeeded"],
     ]);
     expect(calculated).toBe(expected);
-    expect(result.text).toContain(reviewMarkdown);
-    expect(app.read("2026-09-21").record?.review).toBeNull();
-    app.bindDisplayed(turn.turnId, turn.conversationId, "a1", result.text);
-    const pending = app.pending(turn)!;
-    app.apply(pending.id, turn);
+    expect(result.text).toContain("Review saved");
+    expect(app.read("2026-09-21").record?.review?.contentMarkdown).toBe(
+      reviewMarkdown,
+    );
     // Reload from persistence with a new application instance, not an in-memory response.
     const reloaded = createWeekly(
       weeklyStore,
@@ -569,7 +597,7 @@ it.each([
       planRevision: latest.revision,
     });
     expect(reloaded.review!.planRevision).not.toBe(original.revision);
-    expect(() => app.apply(pending.id, turn)).toThrow("already_applied");
+    expect(weeklyStore.pending(turn.conversationId)?.applied).toBe(true);
   },
 );
 
@@ -598,6 +626,203 @@ it("keeps legacy and missing-plan Markdown unchanged through review/read without
   expect(db.prepare("select * from weekly_artifact").all()).toEqual(before);
 });
 
+it("direct saves require current complete reads, preserve originals, and leave legacy proposal bytes untouched", () => {
+  draft();
+  const legacy = weeklyStore.pending(turn.conversationId)!;
+  const long = "Preserved complete document\n".repeat(900);
+  const snapshot = app.read("2026-09-21");
+  app.save([change(long)], turn, [snapshot]);
+  const original = app.read("2026-09-21").record!.original;
+  expect(() => app.save([change("Stale overwrite")], turn, [snapshot])).toThrow(
+    "week_changed_read_again",
+  );
+  app.save([change("Adapted")], turn, [app.read("2026-09-21")]);
+  expect(app.read("2026-09-21").record).toMatchObject({
+    original,
+    latest: { contentMarkdown: "Adapted" },
+  });
+  expect(original?.contentMarkdown).toBe(long);
+  expect(weeklyStore.pending(turn.conversationId)).toEqual(legacy);
+  expect(() => app.apply(legacy.id, turn)).toThrow("week_changed");
+  expect(app.context(turn)).not.toHaveProperty("pending");
+});
+it("direct first-turn save needs no preceding assistant but rejects a superseded turn", () => {
+  db.prepare("delete from message where id='a1'").run();
+  const firstTurn = { ...turn, previousAssistantId: null };
+  app.save([change()], firstTurn, [app.read("2026-09-21")]);
+  db.prepare(
+    "insert into message(id,conversation_id,role,content,created_at) values ('u2','weekly-test','user','later',3)",
+  ).run();
+  expect(() =>
+    app.save([change("Do not persist")], firstTurn, [app.read("2026-09-21")]),
+  ).toThrow("weekly_turn_superseded");
+});
+it("direct save validates documents and atomically rolls back a review plus plan", () => {
+  expect(() => app.save([change()], turn, [])).toThrow("prior_complete");
+  for (const item of [
+    change(""),
+    change("x".repeat(32001)),
+    change("OPENAI_API_KEY=secret"),
+    change("Past", "2026-09-14"),
+    { ...change(), kind: "review" as const, asOf: "2026-10-01T00:00:00Z" },
+  ]) {
+    expect(() => app.save([item], turn, [app.read(item.weekStart)])).toThrow();
+  }
+  let saves = 0;
+  const failing = createWeekly(
+    {
+      ...weeklyStore,
+      save(record) {
+        if (++saves === 2) throw new Error("injected second write");
+        weeklyStore.save(record);
+      },
+    },
+    () => now,
+    () => `id-${++serial}`,
+  );
+  const changes: WeeklyChange[] = [
+    { ...change("Review"), kind: "review", asOf: now.toISOString() },
+    change("Next", "2026-09-28"),
+  ];
+  expect(() =>
+    failing.save(
+      changes,
+      turn,
+      changes.map((c) => app.read(c.weekStart)),
+    ),
+  ).toThrow("injected");
+  expect(app.read("2026-09-21").record).toBeNull();
+  expect(app.read("2026-09-28").record).toBeNull();
+  app.save(
+    changes,
+    turn,
+    changes.map((c) => app.read(c.weekStart)),
+  );
+  expect(app.read("2026-09-21").record?.review?.planRevision).toBeNull();
+  expect(app.read("2026-09-28").record?.original?.contentMarkdown).toBe("Next");
+});
+it.each([false, true])(
+  "saves distinct General Plan and weekly targets with honest partial failure=%s",
+  async (failWeekly) => {
+    let pass = 0;
+    const result = await orchestrateTrainerChat(
+      {
+        system: TRAINER_SYSTEM_PROMPT,
+        userRequest: "Sure, update plans accordingly",
+        weeklyTurn: turn,
+      },
+      {
+        generate: async () => {
+          if (++pass === 1)
+            return {
+              toolCalls: [
+                { toolName: "getTrainingPlan", input: {} },
+                {
+                  toolName: "getWeeklyPlan",
+                  input: { weekStart: "2026-09-21" },
+                },
+              ],
+            };
+          if (pass === 2)
+            return {
+              toolCalls: [
+                {
+                  toolName: "saveTrainingPlan",
+                  input: {
+                    contentMarkdown: "General plan written without a preview",
+                  },
+                },
+                {
+                  toolName: "saveWeeklyDocuments",
+                  input: {
+                    changes: [
+                      change(
+                        failWeekly
+                          ? "OPENAI_API_KEY=secret"
+                          : "Weekly plan written directly",
+                      ),
+                    ],
+                  },
+                },
+              ],
+            };
+          return {
+            toolCalls: [
+              {
+                toolName: "completeTrainerTurn",
+                input: {
+                  completion: {
+                    kind: "grounded",
+                    answer: "Both General Plan and weekly plan saved.",
+                    claims: [
+                      { kind: "tool", stepIndex: 3, tool: "saveTrainingPlan" },
+                      {
+                        kind: "tool",
+                        stepIndex: 4,
+                        tool: "saveWeeklyDocuments",
+                      },
+                    ],
+                    missingEvidence: [],
+                  },
+                },
+              },
+            ],
+          };
+        },
+        executeTool: async (input) =>
+          input.toolName === "getTrainingPlan" ||
+          input.toolName === "saveTrainingPlan"
+            ? executeTrainingPlanTool(input, {
+                readComplete: readCompleteTrainingPlan,
+                saveGuarded: saveGuardedTrainingPlan,
+              })
+            : executeWeeklyTool(input, app),
+      },
+    );
+    expect(result.toolSteps.map((s) => [s.tool, s.status])).toEqual([
+      ["getTrainingPlan", "succeeded"],
+      ["getWeeklyPlan", "succeeded"],
+      ["saveTrainingPlan", "succeeded"],
+      ["saveWeeklyDocuments", failWeekly ? "rejected" : "succeeded"],
+    ]);
+    expect(readCompleteTrainingPlan().plan?.contentMarkdown).toBe(
+      "General plan written without a preview",
+    );
+    expect(app.read("2026-09-21").record?.latest?.contentMarkdown ?? null).toBe(
+      failWeekly ? null : "Weekly plan written directly",
+    );
+    expect(result.grounding?.toolSteps).toHaveLength(4);
+    if (failWeekly) {
+      expect(result.text).toContain("Already saved: saveTrainingPlan");
+      expect(result.text).toContain("not atomic together");
+      expect(result.text).not.toContain(
+        "Both General Plan and weekly plan saved",
+      );
+    }
+  },
+);
+it("does not admit a same-batch weekly read as a prior planner snapshot", async () => {
+  const result = await orchestrateTrainerChat(
+    {
+      system: TRAINER_SYSTEM_PROMPT,
+      userRequest: "Save this week",
+      weeklyTurn: turn,
+    },
+    {
+      generate: async () => ({
+        toolCalls: [
+          { toolName: "getWeeklyPlan", input: { weekStart: "2026-09-21" } },
+          { toolName: "saveWeeklyDocuments", input: { changes: [change()] } },
+        ],
+      }),
+      executeTool: async (input) => executeWeeklyTool(input, app),
+    },
+  );
+  expect(result.toolSteps.at(-1)?.reason).toBe(
+    "prior_complete_week_read_required",
+  );
+  expect(app.read("2026-09-21").record).toBeNull();
+});
 it("paginates metadata without document content", () => {
   const record = {
     weekStart: "2026-09-21",
