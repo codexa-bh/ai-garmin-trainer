@@ -4,6 +4,26 @@
 
 After first setup, use these existing local-only runtime options. They do not authorize LAN/public hosting or deployment.
 
+## Direct OpenAI/DeepSeek switching
+
+The defaults are `AI_MODEL=gpt-6-luna` and `DEEPSEEK_MODEL=deepseek-flash`; explicit model overrides remain supported. Keep exactly one provider assignment active in ignored `.env.local`, for example:
+
+```dotenv
+AI_PROVIDER=auto
+# AI_PROVIDER=openai
+# AI_PROVIDER=deepseek
+AI_MODEL=gpt-6-luna
+DEEPSEEK_MODEL=deepseek-flash
+```
+
+Auto remains DeepSeek-first, using OpenAI only when no valid DeepSeek key is configured, not after a remote failure. To select a provider explicitly, comment the active assignment and uncomment its alternative. An explicit provider without its matching key fails closed. Preserve existing credentials/unrelated settings; never copy them into tracked files. Direct OpenAI requires a privately configured `OPENAI_API_KEY` and paid API/model access independently of a Codex subscription; subscription tokens are not supported.
+
+OpenAI uses the existing Responses adapter for Luna function calling, including structured trainer completion. No Chat Completions fallback, model substitution, reasoning override or new orchestration retry is introduced. Explicit OpenAI/DeepSeek also selects the existing memory extractor when enabled; embeddings remain independently configured. Doctor verifies configuration, not account entitlement or live tool reliability. Validate exact-model coaching, grounded SQL/math and missing-evidence responses on loopback before changing a working selection. Leave the working provider active if the new model cannot be validated.
+
+Official references checked 2026-10-21: [OpenAI Luna](https://developers.openai.com/api/docs/models/gpt-6-luna) and [DeepSeek models/pricing](https://api-docs.deepseek.com/quick_start/pricing). DeepSeek recommends `deepseek-flash`, then served by DeepSeek-V4.1-Flash-1017. An alias is not proof of a particular backend revision or future availability.
+
+Saving env settings does **not** update an already-running app. A separately authorized rebuild/restart is needed for production; do not restart an unrelated/primary process merely to smoke a worktree. Use a task-owned alternate loopback process with a disposable populated DB copy for chat/memory writes. Source/config rollback restores only the relevant provider/model lines, preserving current credentials and unrelated settings. No schema migration or data back-sync is needed for these defaults.
+
 ## Opt-in OpenRouter chat
 
 Set `AI_PROVIDER=openrouter`, `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` in ignored `.env.local`. The initial model is `nvidia/nemotron-3.5-lightning:free`. Chat and guarded tools use `https://openrouter.ai/api/v1/chat/completions`; the key stays server-side. Auto selection remains DeepSeek-first/OpenAI-fallback and ignores OpenRouter keys. Missing/placeholder keys fail closed; no paid model or alternate provider is substituted on failure.
