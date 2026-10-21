@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   type Status,
   type TrainingPlan,
@@ -41,14 +41,19 @@ export function useTrainingPlanFeature({
     useState("");
 
   const [trainingPlanSaving, setTrainingPlanSaving] = useState(false);
+  const editing = useRef(false);
+  const saving = useRef(false);
+  const generation = useRef(0);
 
   function applyTrainingPlanPayload(payload: TrainingPlanPayload) {
     setTrainingPlan(payload.plan);
     setTrainingPlanStale(payload.stale);
     setTrainingPlanStaleAfterDays(payload.staleAfterDays);
     setTrainingPlanState("loaded");
-    setTrainingPlanTitleDraft(payload.plan?.title ?? "Training Plan");
-    setTrainingPlanMarkdownDraft(payload.plan?.contentMarkdown ?? "");
+    if (!editing.current) {
+      setTrainingPlanTitleDraft(payload.plan?.title ?? "Training Plan");
+      setTrainingPlanMarkdownDraft(payload.plan?.contentMarkdown ?? "");
+    }
     setTrainingPlanMessage(
       payload.plan
         ? payload.stale
@@ -62,6 +67,8 @@ export function useTrainingPlanFeature({
     trigger: "startup" | "manual" | "chat-save",
     showStatus = true,
   ) {
+    if (saving.current) return;
+    const request = ++generation.current;
     setTrainingPlanState("loading");
     if (showStatus)
       setStatus({ kind: "busy", message: "Training Plan: loading…" });
@@ -69,7 +76,12 @@ export function useTrainingPlanFeature({
       const payload = await readJsonResponse<TrainingPlanPayload>(
         await fetch("/api/training-plan", { method: "GET" }),
       );
+      if (request !== generation.current) return;
       applyTrainingPlanPayload(payload);
+      if (editing.current)
+        setTrainingPlanMessage(
+          "Saved snapshot refreshed; unsaved edits were preserved.",
+        );
       if (showStatus)
         setStatus({
           kind: "ok",
@@ -78,6 +90,7 @@ export function useTrainingPlanFeature({
             : "Training Plan: no saved plan yet.",
         });
     } catch (error) {
+      if (request !== generation.current) return;
       setTrainingPlanState("error");
       setTrainingPlanMessage(
         `Training Plan load failed: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -91,12 +104,14 @@ export function useTrainingPlanFeature({
   }
 
   function startTrainingPlanEdit() {
+    editing.current = true;
     setTrainingPlanTitleDraft(trainingPlan?.title ?? "Training Plan");
     setTrainingPlanMarkdownDraft(trainingPlan?.contentMarkdown ?? "");
     setTrainingPlanEditing(true);
   }
 
   function cancelTrainingPlanEdit() {
+    editing.current = false;
     setTrainingPlanTitleDraft(trainingPlan?.title ?? "Training Plan");
     setTrainingPlanMarkdownDraft(trainingPlan?.contentMarkdown ?? "");
     setTrainingPlanEditing(false);
@@ -106,7 +121,7 @@ export function useTrainingPlanFeature({
   }
 
   async function saveTrainingPlan() {
-    if (trainingPlanSaving) return;
+    if (saving.current) return;
     const contentMarkdown = trainingPlanMarkdownDraft.trim();
     if (!contentMarkdown) {
       setTrainingPlanMessage(
@@ -114,6 +129,8 @@ export function useTrainingPlanFeature({
       );
       return;
     }
+    saving.current = true;
+    ++generation.current;
     setTrainingPlanSaving(true);
     setTrainingPlanMessage("Saving Training Plan to local SQLite…");
     setStatus({ kind: "busy", message: "Training Plan: saving…" });
@@ -132,6 +149,7 @@ export function useTrainingPlanFeature({
       setTrainingPlanStale(false);
       setTrainingPlanTitleDraft(payload.plan.title);
       setTrainingPlanMarkdownDraft(payload.plan.contentMarkdown);
+      editing.current = false;
       setTrainingPlanEditing(false);
       setTrainingPlanState("loaded");
       setTrainingPlanMessage(
@@ -139,6 +157,7 @@ export function useTrainingPlanFeature({
       );
       setStatus({ kind: "ok", message: "Training Plan: saved." });
     } catch (error) {
+      setTrainingPlanState("error");
       setTrainingPlanMessage(
         `Training Plan save failed; edits are still in the form: ${error instanceof Error ? error.message : "unknown error"}`,
       );
@@ -147,12 +166,12 @@ export function useTrainingPlanFeature({
         message: `Training Plan save failed: ${error instanceof Error ? error.message : "unknown error"}`,
       });
     } finally {
+      saving.current = false;
       setTrainingPlanSaving(false);
     }
   }
   return {
     loadTrainingPlan,
-    setTrainingPlanEditing,
     trainingPlan,
     trainingPlanMessage,
     trainingPlanStale,

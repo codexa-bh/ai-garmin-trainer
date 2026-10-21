@@ -5,6 +5,7 @@ import { AssistantContent } from "./markdown";
 
 export function WeeklyPlanView({
   weekly,
+  openGeneral,
   children,
   close,
   closeRef,
@@ -12,6 +13,7 @@ export function WeeklyPlanView({
   run,
 }: {
   weekly: ReturnType<typeof useWeeklyFeature>;
+  openGeneral: () => Promise<void>;
   children: ReactNode;
   close: () => void;
   closeRef: RefObject<HTMLButtonElement | null>;
@@ -38,7 +40,10 @@ export function WeeklyPlanView({
             className="chrome-button"
             key={key}
             aria-pressed={mode === key}
-            onClick={() => run(weekly.load(key))}
+            onClick={() => {
+              run(weekly.load(key));
+              if (key === "general") run(openGeneral());
+            }}
           >
             {label}
           </button>
@@ -73,14 +78,7 @@ export function WeeklyPlanView({
               type="button"
               className="chrome-button"
               disabled={state === "loading"}
-              onClick={() =>
-                run(
-                  weekly.load(
-                    mode,
-                    mode === "history" && week ? week : undefined,
-                  ),
-                )
-              }
+              onClick={() => run(weekly.refresh())}
             >
               Reload weekly plans
             </button>
@@ -116,15 +114,31 @@ export function WeeklyPlanView({
                       </p>
                     )}
                     {record?.original ? (
-                      <details>
-                        <summary>
-                          Original commitment · {record.original.savedAt}
-                        </summary>
-                        <h3>{record.original.title}</h3>
-                        <AssistantContent
-                          content={record.original.contentMarkdown}
-                        />
-                      </details>
+                      <>
+                        <p>
+                          Original commitment is the first saved plan, retained
+                          as the baseline for reviews and scoring. Latest shows
+                          later adaptations; these do not replace that baseline.
+                        </p>
+                        {record.latest?.title === record.original.title &&
+                        record.latest.contentMarkdown ===
+                          record.original.contentMarkdown ? (
+                          <p>
+                            The latest plan is identical to the original
+                            commitment.
+                          </p>
+                        ) : (
+                          <details>
+                            <summary>
+                              Original commitment · {record.original.savedAt}
+                            </summary>
+                            <h3>{record.original.title}</h3>
+                            <AssistantContent
+                              content={record.original.contentMarkdown}
+                            />
+                          </details>
+                        )}
+                      </>
                     ) : null}
                     {record?.review ? (
                       <article className="training-plan-report">

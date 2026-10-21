@@ -99,7 +99,16 @@ Files below are in [`src/app/dashboard`](../src/app/dashboard):
 
 Integration stays explicit: startup schedules conversation/memory/Profile/plan/summary
 loads; persisted conversation changes load history via Effect Events; navigation
-triggers Activity search and plan reload. Successful sync awaits summary refresh,
+triggers Activity search and plan reload. The existing closed-to-open plan effect
+revalidates persistent owners; weekly refresh retains the selected historical civil
+week or rereads list pages through the oldest loaded week with fresh cursors and
+deduplication. General Plan tab entry explicitly refreshes its saved snapshot.
+Read generations reject superseded completions; active editor drafts survive
+hidden views and refreshed snapshots. Cancel restores the current saved snapshot;
+explicit save invalidates older reads. Navigation does not write or remount owners.
+Original/latest disclosure equality compares only exact title and Markdown, not
+revision/timestamp; the original remains the review baseline in storage.
+Successful sync awaits summary refresh,
 then refreshes already-loaded/open Health while preserving its date. Streamed chat
 completion refreshes memories/conversations and conditionally the plan. JSON fallback
 retains its different refresh conditions. These are compatibility contracts, not
