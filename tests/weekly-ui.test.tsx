@@ -165,6 +165,7 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
     next: null,
     state: "loaded" as const,
     load,
+    refresh: load,
   };
   const { container } = render(
     <WeeklyPlanView
@@ -172,6 +173,7 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
       close={vi.fn()}
       closeRef={createRef()}
       startChat={startChat}
+      openGeneral={vi.fn(async () => {})}
       run={(work) => {
         work.catch(() => {
           throw new Error("test action failed");
@@ -192,6 +194,8 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
   ).toBeTruthy();
   expect(screen.queryByText(/evaluated plan/)).toBeNull();
   expect(screen.getByText(/Original commitment/)).toBeTruthy();
+  expect(container.querySelector("details")).toBeNull();
+  expect(screen.getByText(/latest plan is identical/)).toBeTruthy();
   expect(container.querySelector("script")).toBeNull();
   expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
   expect(container.querySelector("textarea")).toBeNull();
@@ -214,6 +218,7 @@ it("keeps general editor separately accessible and history secondary", () => {
     next: null,
     state: "idle" as const,
     load,
+    refresh: load,
   };
   render(
     <WeeklyPlanView
@@ -221,6 +226,7 @@ it("keeps general editor separately accessible and history secondary", () => {
       close={vi.fn()}
       closeRef={createRef()}
       startChat={vi.fn()}
+      openGeneral={vi.fn(async () => {})}
       run={(work) => {
         work.catch(() => {
           throw new Error("test failed");

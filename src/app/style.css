@@ -800,6 +800,14 @@ body::before {
   justify-content: space-between;
 }
 
+.training-plan-toolbar {
+  flex-wrap: wrap;
+}
+
+.training-plan-toolbar button {
+  white-space: nowrap;
+}
+
 .training-plan-actions {
   justify-content: flex-end;
   flex-wrap: wrap;

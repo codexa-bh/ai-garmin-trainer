@@ -104,7 +104,6 @@ export function TrainerDashboard() {
   } = useProfileFeature({ setStatus });
   const {
     loadTrainingPlan,
-    setTrainingPlanEditing,
     trainingPlan,
     trainingPlanMessage,
     trainingPlanStale,
@@ -222,7 +221,7 @@ export function TrainerDashboard() {
     runInBackground,
     loadMemories,
     loadTrainingPlan,
-    loadWeekly: () => weekly.load(),
+    loadWeekly: () => weekly.refresh(),
     messageInputRef,
   });
 
@@ -258,7 +257,7 @@ export function TrainerDashboard() {
   const closeMemoryFromKeyboard = useEffectEvent(() => closeMemoryView());
   const closePlanFromKeyboard = useEffectEvent(() => closeTrainingPlan());
   const reloadOpenedPlan = useEffectEvent(() => {
-    runInBackground(weekly.load());
+    runInBackground(weekly.refresh());
     runInBackground(loadTrainingPlan("manual", false));
   });
   const reloadActivitySearch = useEffectEvent((query: string) => {
@@ -655,7 +654,6 @@ export function TrainerDashboard() {
     trainingPlanReturnFocusRef.current = true;
     restoreTranscriptOnSectionReturnRef.current = true;
     setTrainingPlanOpen(false);
-    setTrainingPlanEditing(false);
   }
 
   function closeSyncView() {
@@ -915,6 +913,7 @@ export function TrainerDashboard() {
       {trainingPlanOpen ? (
         <WeeklyPlanView
           weekly={weekly}
+          openGeneral={() => loadTrainingPlan("manual", false)}
           close={closeTrainingPlan}
           closeRef={trainingPlanCloseRef}
           run={runInBackground}

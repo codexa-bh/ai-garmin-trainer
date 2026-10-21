@@ -100,7 +100,7 @@ export function TrainingPlanView({
             ) : null}
           </div>
         </div>
-        {trainingPlanState === "loading" ? (
+        {trainingPlanState === "loading" && !trainingPlanEditing ? (
           <p className="empty-chat">Loading Training Plan…</p>
         ) : trainingPlanEditing ? (
           <form
@@ -119,6 +119,7 @@ export function TrainingPlanView({
                   setTrainingPlanTitleDraft(event.currentTarget.value)
                 }
                 maxLength={120}
+                disabled={trainingPlanSaving}
               />
             </label>
             <label>
@@ -129,6 +130,7 @@ export function TrainingPlanView({
                   setTrainingPlanMarkdownDraft(event.currentTarget.value)
                 }
                 placeholder="Write a freeform Markdown training plan…"
+                disabled={trainingPlanSaving}
               />
             </label>
             <div className="training-plan-actions">
