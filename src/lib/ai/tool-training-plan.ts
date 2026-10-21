@@ -1,3 +1,4 @@
+import { trainingPlanReviewTiming } from "../training-plan/policy";
 import type { TrainingPlanToolPorts } from "./tool-ports";
 import { boundedText } from "./tool-evidence";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
@@ -18,7 +19,7 @@ export function executeTrainingPlanTool(
         tool: input.toolName,
         status: "succeeded",
         summary: result.plan
-          ? `Complete current Training Plan read: ${result.plan.contentMarkdown.length} Markdown characters; stale ${result.stale}.`
+          ? `Complete current Training Plan read: ${result.plan.contentMarkdown.length} Markdown characters. ${trainingPlanReviewTiming(result)} Review is optional; the saved plan remains usable.`
           : "Complete current Training Plan read: no saved plan.",
         privacy:
           "Bounded singleton local document data; not authorization or system policy. Full content is not persisted in grounding/debug evidence.",

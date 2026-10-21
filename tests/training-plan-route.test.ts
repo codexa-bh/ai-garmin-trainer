@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const statusPayload = {
   plan: null,
   stale: true,
-  staleAfterDays: 14,
+  staleAfterDays: 60,
 };
 const trainingPlanStatus = vi.fn(() => statusPayload);
 const replaceTrainingPlan = vi.fn(

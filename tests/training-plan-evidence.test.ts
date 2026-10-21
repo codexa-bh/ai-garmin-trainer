@@ -80,7 +80,7 @@ const editArgs = {
 const snapshot = () => ({
   plan: state.plan ? { ...state.plan } : null,
   stale: true,
-  staleAfterDays: 14,
+  staleAfterDays: 60,
 });
 const run = (
   userRequest = "Review the complete Training Plan without saving.",
@@ -117,7 +117,10 @@ describe("complete current Training Plan", () => {
         .mockResolvedValueOnce(call("getTrainingPlan"))
         .mockImplementationOnce(async (options) => {
           expect(options.system).toContain(markdown);
-          expect(options.system).toContain("stale=true");
+          expect(options.system).toMatch(
+            /review when useful|Within the 60-day/,
+          );
+          expect(options.system).not.toMatch(/stale=true|staleAfterDays=/);
           return { text: "Tool step 1: invalid raw evidence" };
         })
         .mockImplementationOnce(async (options) => {
@@ -178,6 +181,42 @@ describe("complete current Training Plan", () => {
     expect(context).toContain("getTrainingPlan");
     expect(context).not.toContain("Tail sentinel");
   });
+
+  it.each([
+    [false, "2026-09-29T00:00:00.000Z", "Within the 60-day review window"],
+    [true, "2026-08-01T00:00:00.000Z", "More than 60 days since revision"],
+    [true, "invalid", "Revision date unavailable"],
+  ])(
+    "translates legacy age metadata consistently for context and complete evidence (%s, %s)",
+    async (stale, revisedAt, wording) => {
+      const { renderCompleteTrainingPlan } =
+        await import("../src/lib/ai/training-plan-evidence");
+      const status = {
+        ...snapshot(),
+        plan: { ...state.plan!, revisedAt },
+        stale,
+      };
+      const context = buildTrainerContext({
+        activities: [],
+        health: [],
+        profile: { goals: [], sports: [], preferences: {}, constraints: [] },
+        recentMessages: [],
+        trainingPlan: status,
+      });
+      const complete = renderCompleteTrainingPlan(status);
+      // Complete snapshots retain their existing strict ISO-date safety contract.
+      if (revisedAt === "invalid") expect(complete).toBeNull();
+      const texts = complete === null ? [context] : [context, complete];
+      for (const text of texts) {
+        expect(text).toContain(wording);
+        expect(text).toContain("remains usable");
+        expect(text).not.toMatch(/stale=true|staleAfterDays=|stale: revised/);
+        if (revisedAt === "invalid")
+          expect(text).not.toContain("More than 60 days");
+      }
+      expect(replaceTrainingPlan).not.toHaveBeenCalled();
+    },
+  );
 
   it("validates empty read input and mutually exclusive write payloads", () => {
     expect(

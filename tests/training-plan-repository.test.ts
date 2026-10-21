@@ -17,7 +17,7 @@ describe("training plan repository", () => {
     delete process.env.DATABASE_PATH;
   });
 
-  it("supports no-plan read, save/read, and stale/current status", async () => {
+  it("supports no-plan read, save/read, and advisory review status without writing", async () => {
     const repository = await freshRepository();
 
     expect(repository.getTrainingPlan()).toBeNull();
@@ -26,7 +26,7 @@ describe("training plan repository", () => {
     ).toMatchObject({
       plan: null,
       stale: true,
-      staleAfterDays: 14,
+      staleAfterDays: 60,
     });
 
     const saved = repository.replaceTrainingPlan({
@@ -42,13 +42,15 @@ describe("training plan repository", () => {
     });
     expect(repository.getTrainingPlan()).toEqual(saved);
     expect(
-      repository.trainingPlanStatus(new Date("2026-08-15T09:00:00Z").getTime())
+      repository.trainingPlanStatus(new Date("2026-09-30T09:00:00Z").getTime())
         .stale,
     ).toBe(false);
     expect(
-      repository.trainingPlanStatus(new Date("2026-08-15T09:00:01Z").getTime())
-        .stale,
+      repository.trainingPlanStatus(
+        new Date("2026-09-30T09:00:00.001Z").getTime(),
+      ).stale,
     ).toBe(true);
+    expect(repository.getTrainingPlan()).toEqual(saved);
   });
 
   it("rejects empty and oversized replacement content", async () => {

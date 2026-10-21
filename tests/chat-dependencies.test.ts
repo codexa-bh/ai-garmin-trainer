@@ -77,6 +77,9 @@ const allowed = new Set([
   "memory/legacy-contracts.ts",
   "profile/contracts.ts",
   "training-plan/contracts.ts",
+  // Reviewed pure age/title policy and its numeric bounds; no storage/SDK edges.
+  "training-plan/policy.ts",
+  "training-plan/limits.ts",
   "weekly/contracts.ts",
 ]);
 
@@ -130,6 +133,20 @@ it.each([
   "const opaque = import(moduleName);",
 ])("rejects an outer dependency: %s", (text) => {
   expect(() => checkClosure(turn, new Map([["chat/turn.ts", text]]))).toThrow();
+});
+
+it("rejects infrastructure smuggled through the reviewed plan policy", () => {
+  expect(() =>
+    checkClosure(
+      path.join(root, "src/lib/chat/context.ts"),
+      new Map([
+        [
+          "training-plan/policy.ts",
+          'import { getDatabase } from "@/lib/db/connection";',
+        ],
+      ]),
+    ),
+  ).toThrow("outside reviewed policy/contracts");
 });
 
 it("follows transitive erased imports through existing pure context helpers", () => {

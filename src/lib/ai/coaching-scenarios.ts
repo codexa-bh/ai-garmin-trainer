@@ -26,6 +26,30 @@ export type CoachingScenario = {
  */
 export const COACHING_SCENARIOS: CoachingScenario[] = [
   {
+    id: "PLAN-REVIEW-60-DAYS",
+    domain: "policy",
+    userPrompt: "Is my General Plan still usable? Discuss only; do not save.",
+    providedEvidence: [
+      "General Plan revised 29 September; current date 21 October",
+      "complete current General Plan available through getTrainingPlan",
+      "60 elapsed days is within the window; more than 60 permits optional review",
+    ],
+    expectedRoute: "reference",
+    requiredQualities: [
+      "complete read before review",
+      "saved plan remains usable",
+      "review is optional, not required for coaching",
+      "unknown revision date does not establish age",
+      "no write or revision timestamp change",
+    ],
+    forbiddenBehavior: [
+      "age-based invalidation",
+      "automatic save",
+      "weekly commitment changes",
+    ],
+    severity: "high",
+  },
+  {
     id: "COACH-ENDURANCE-01",
     domain: "endurance",
     userPrompt: "How should I build my running volume for an autumn event?",

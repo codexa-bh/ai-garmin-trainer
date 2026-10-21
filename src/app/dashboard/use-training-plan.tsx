@@ -8,6 +8,10 @@ import {
   type TrainingPlanState,
 } from "./contracts";
 import { readJsonResponse } from "./transport";
+import {
+  TRAINING_PLAN_REVIEW_AFTER_DAYS,
+  trainingPlanReviewTiming,
+} from "../../lib/training-plan/policy";
 
 export function useTrainingPlanFeature({
   setStatus,
@@ -18,8 +22,9 @@ export function useTrainingPlanFeature({
 
   const [trainingPlanStale, setTrainingPlanStale] = useState(true);
 
-  const [trainingPlanStaleAfterDays, setTrainingPlanStaleAfterDays] =
-    useState(14);
+  const [trainingPlanStaleAfterDays, setTrainingPlanStaleAfterDays] = useState(
+    TRAINING_PLAN_REVIEW_AFTER_DAYS,
+  );
 
   const [trainingPlanState, setTrainingPlanState] =
     useState<TrainingPlanState>("idle");
@@ -47,7 +52,7 @@ export function useTrainingPlanFeature({
     setTrainingPlanMessage(
       payload.plan
         ? payload.stale
-          ? `Training Plan is older than ${payload.staleAfterDays} days. Review or revise when useful.`
+          ? trainingPlanReviewTiming(payload)
           : "Training Plan loaded from local SQLite."
         : "No Training Plan saved yet. Ask chat to create one or write it manually.",
     );

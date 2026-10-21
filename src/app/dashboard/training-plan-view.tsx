@@ -3,6 +3,7 @@ import { type RefObject } from "react";
 import { type TrainingPlan, type TrainingPlanState } from "./contracts";
 import { dateLabel } from "./formatting";
 import { AssistantContent } from "./markdown";
+import { trainingPlanReviewTiming } from "../../lib/training-plan/policy";
 
 export function TrainingPlanView({
   trainingPlan,
@@ -71,8 +72,10 @@ export function TrainingPlanView({
               <p className="training-plan-meta">
                 Last revised {dateLabel(trainingPlan.revisedAt)} ·{" "}
                 {trainingPlanStale
-                  ? `Stale after ${trainingPlanStaleAfterDays} days`
-                  : "Current"}
+                  ? Number.isFinite(Date.parse(trainingPlan.revisedAt))
+                    ? "Optional review"
+                    : "Review timing unavailable"
+                  : "Within review window"}
               </p>
             ) : null}
           </div>
@@ -152,9 +155,12 @@ export function TrainingPlanView({
           <article className="training-plan-report">
             {trainingPlanStale ? (
               <p className="training-plan-stale">
-                This plan is older than {trainingPlanStaleAfterDays} days. Ask
-                chat to revise it when your goals or recent training have
-                changed.
+                {trainingPlanReviewTiming({
+                  plan: trainingPlan,
+                  stale: trainingPlanStale,
+                  staleAfterDays: trainingPlanStaleAfterDays,
+                })}{" "}
+                The saved plan remains usable; changes are optional.
               </p>
             ) : null}
             <AssistantContent content={trainingPlan.contentMarkdown} />

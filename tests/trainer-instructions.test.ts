@@ -100,6 +100,31 @@ describe("canonical trainer instruction package", () => {
     expect(synthesis).not.toContain("Tool budget");
   });
 
+  it("keeps General Plan age advisory and preserves explicit-write and complete-read safeguards", () => {
+    const planner = buildPlannerInstructions("base", "none");
+    expect(planner).toContain("more than 60 elapsed days");
+    expect(planner).toContain("Exactly 60 days is within the review window");
+    expect(planner).toContain("remains usable regardless of age");
+    expect(planner).toContain("optional review");
+    expect(planner).toContain("unavailable revision date cannot establish age");
+    expect(planner).toContain("Review-only requests");
+    expect(planner).toContain(
+      "complete current Markdown in a separate model pass",
+    );
+    expect(planner).not.toContain("or it is stale");
+    expect(
+      COACHING_SCENARIOS.find(
+        (scenario) => scenario.id === "PLAN-REVIEW-60-DAYS",
+      ),
+    ).toMatchObject({
+      expectedRoute: "reference",
+      forbiddenBehavior: expect.arrayContaining([
+        "automatic save",
+        "weekly commitment changes",
+      ]),
+    });
+  });
+
   it("teaches fractional constants within the unchanged math tool schema", () => {
     const input = {
       inputResult: "week_facts",
