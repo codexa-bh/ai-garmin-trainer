@@ -111,8 +111,8 @@ export function WeeklyPlanView({
                       </article>
                     ) : (
                       <p>
-                        No weekly commitment saved for this week. Discuss a
-                        draft in chat, then explicitly confirm it.
+                        No weekly commitment saved for this week. Create or
+                        update it directly in chat.
                       </p>
                     )}
                     {record?.original ? (
@@ -159,8 +159,8 @@ export function WeeklyPlanView({
                       onClick={() =>
                         startChat(
                           mode === "history"
-                            ? `Discuss ${record?.review ? "a correction to" : "a review of"} the week starting ${week}. Draft only; do not save without my confirmation.`
-                            : `Discuss a plan or review for the week starting ${week}. Draft only; do not save without my confirmation.`,
+                            ? `Review ${record?.review ? "and correct" : "the evidence for"} the week starting ${week}; save the review directly.`
+                            : `Discuss a plan or review for the week starting ${week}.`,
                         )
                       }
                     >
@@ -173,7 +173,7 @@ export function WeeklyPlanView({
                   <>
                     <p>
                       Past plans and reviews are read-only here. Review
-                      corrections require chat confirmation.
+                      corrections can be saved directly through chat.
                     </p>
                     {weekly.items.length ? (
                       <ul>

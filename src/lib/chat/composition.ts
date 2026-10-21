@@ -46,7 +46,6 @@ export const { prepareChatTurn, generateChatTurn, completeChatTurn } =
   createChatTurns({
     currentDate: () => new Date().toISOString().slice(0, 10),
     weeklyContext: weekly.context,
-    bindWeeklyProposal: weekly.bindDisplayed,
     appendChatMessage,
     ensureConversation,
     listRecentChatMessages,

@@ -144,6 +144,72 @@ export function createWeekly(
       return null;
     return proposal;
   }
+  // Shared transaction body: direct writes never manufacture proposal authority.
+  function saveChanges(changes: WeeklyChange[], timeZone: string) {
+    const reviewedRevisions = new Map(
+      changes.map((change) => [
+        change.weekStart,
+        store.read(change.weekStart)?.latest?.revision ?? null,
+      ]),
+    );
+    const saved: string[] = [];
+    for (const change of changes) {
+      const current = store.read(change.weekStart);
+      const document: WeeklyDocument = {
+        title: change.title,
+        contentMarkdown: change.contentMarkdown,
+        revision: newId(),
+        savedAt: clock().toISOString(),
+      };
+      const record: WeeklyRecord = current ?? {
+        weekStart: change.weekStart,
+        timeZone,
+        revision: newId(),
+        original: null,
+        latest: null,
+        review: null,
+      };
+      if (change.kind === "plan") {
+        record.original ??= document;
+        record.latest = document;
+      } else
+        record.review = {
+          ...document,
+          asOf: change.asOf!,
+          planRevision: reviewedRevisions.get(change.weekStart) ?? null,
+        };
+      record.revision = newId();
+      store.save(record);
+      saved.push(record.weekStart);
+    }
+    return {
+      saved,
+      targets: changes.map(({ weekStart, kind }) => ({ weekStart, kind })),
+      status: "saved" as const,
+    };
+  }
+  function save(
+    changes: WeeklyChange[],
+    turn: WeeklyTurn,
+    snapshots: WeeklyRead[],
+  ) {
+    validateChanges(changes, turn);
+    return store.transaction(() => {
+      if (!store.isCurrentTurn(turn)) throw new Error("weekly_turn_superseded");
+      for (const change of changes) {
+        const snapshot = snapshots.find(
+          (s) => s.weekStart === change.weekStart,
+        );
+        if (!snapshot) throw new Error("prior_complete_week_read_required");
+        if (
+          JSON.stringify(read(change.weekStart).record) !==
+          JSON.stringify(snapshot.record)
+        )
+          throw new Error("week_changed_read_again");
+      }
+      return saveChanges(changes, turn.timeZone);
+    });
+  }
   function apply(id: string, turn: WeeklyTurn) {
     return store.transaction(() => {
       const proposal = pending(turn);
@@ -156,58 +222,30 @@ export function createWeekly(
         if ((store.read(week)?.revision ?? null) !== revision)
           throw new Error("week_changed_reconfirm");
       }
-      const reviewedRevisions = new Map(
-        proposal.changes.map((change) => [
-          change.weekStart,
-          store.read(change.weekStart)?.latest?.revision ?? null,
-        ]),
-      );
-      const saved: string[] = [];
-      for (const change of proposal.changes) {
-        const current = store.read(change.weekStart);
-        const document: WeeklyDocument = {
-          title: change.title,
-          contentMarkdown: change.contentMarkdown,
-          revision: newId(),
-          savedAt: clock().toISOString(),
-        };
-        const record: WeeklyRecord = current ?? {
-          weekStart: change.weekStart,
-          timeZone: proposal.timeZone,
-          revision: newId(),
-          original: null,
-          latest: null,
-          review: null,
-        };
-        if (change.kind === "plan") {
-          record.original ??= document;
-          record.latest = document;
-        } else
-          record.review = {
-            ...document,
-            asOf: change.asOf!,
-            planRevision: reviewedRevisions.get(change.weekStart) ?? null,
-          };
-        record.revision = newId();
-        store.save(record);
-        saved.push(record.weekStart);
-      }
+      const result = saveChanges(proposal.changes, proposal.timeZone);
       store.saveProposal({ ...proposal, applied: true });
-      return { saved, status: "saved" as const };
+      return result;
     });
   }
   function context(turn: WeeklyTurn) {
     const calendar = weeklyCalendar(clock(), turn.timeZone);
     const current = store.read(calendar.weekStart);
     const upcoming = store.read(calendar.upcoming);
-    const proposal = pending(turn);
     return {
       calendar,
       currentPlan: Boolean(current?.latest),
       currentReview: Boolean(current?.review),
       upcomingPlan: Boolean(upcoming?.latest),
-      pending: proposal ? renderWeeklyProposal(proposal) : null,
     };
   }
-  return { read, history, propose, bindDisplayed, pending, apply, context };
+  return {
+    read,
+    history,
+    save,
+    propose,
+    bindDisplayed,
+    pending,
+    apply,
+    context,
+  };
 }

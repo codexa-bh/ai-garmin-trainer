@@ -73,8 +73,10 @@ export const weeklyStore: WeeklyStore = {
     return (
       rows[0]?.id === turn.turnId &&
       rows[0]?.role === "user" &&
-      rows[1]?.id === turn.previousAssistantId &&
-      rows[1]?.role === "assistant"
+      (turn.previousAssistantId === null
+        ? rows[1]?.role !== "assistant"
+        : rows[1]?.id === turn.previousAssistantId &&
+          rows[1]?.role === "assistant")
     );
   },
   messageExists(id, conversationId) {

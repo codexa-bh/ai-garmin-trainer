@@ -30,12 +30,6 @@ export type ChatGenerationResult = {
 export type ChatTurnPorts = {
   currentDate?(): string;
   weeklyContext?(turn: WeeklyTurn): unknown;
-  bindWeeklyProposal?(
-    turnId: string,
-    conversationId: string,
-    assistantId: string,
-    text: string,
-  ): void;
   ensureConversation(id: string, title: string): unknown;
   listRecentChatMessages(id: string, limit: number): StoredChatMessage[];
   appendChatMessage(input: {

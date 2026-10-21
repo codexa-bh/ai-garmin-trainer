@@ -204,7 +204,7 @@ beforeEach(() => {
 });
 
 describe("chat application production wiring", () => {
-  it("transports validated device calendar and binds displayed proposal after assistant persistence", async () => {
+  it("transports validated device calendar without binding assistant proposal authority", async () => {
     expect(
       (await post({ message: "Draft", timeZone: "invalid-zone" })).status,
     ).toBe(400);
@@ -222,11 +222,9 @@ describe("chat application production wiring", () => {
       },
     });
     expect(f.orchestrate.mock.calls[0][0].system).toContain("device-local");
-    expect(f.bindWeekly).toHaveBeenCalledWith(
-      "0",
-      "default",
-      "1",
-      result().text,
+    expect(f.bindWeekly).not.toHaveBeenCalled();
+    expect(f.orchestrate.mock.calls[0][0].system).not.toContain(
+      "exact pending draft",
     );
   });
   it("imports composition without selecting providers, reading storage or initializing memory", async () => {

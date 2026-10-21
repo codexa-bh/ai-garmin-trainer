@@ -20,12 +20,21 @@ afterEach(() => {
 });
 const response = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
-it.each([false, true])(
-  "refreshes weekly state after confirmed save for stream=%s, not just the last tool",
-  async (stream) => {
+it.each(
+  [false, true].flatMap((stream) => [
+    { stream, general: "succeeded", weekly: "succeeded" },
+    { stream, general: "succeeded", weekly: "failed" },
+    { stream, general: "rejected", weekly: "succeeded" },
+  ]),
+)(
+  "refreshes each successful target for $stream / $general / $weekly, not just the last tool",
+  async ({ stream, general, weekly }) => {
     const grounding = {
       tool: "getSyncStatus",
-      toolSteps: [{ tool: "applyWeeklyProposal", status: "succeeded" }],
+      toolSteps: [
+        { tool: "saveTrainingPlan", status: general },
+        { tool: "saveWeeklyDocuments", status: weekly },
+      ],
     };
     const assistantMessage = {
       id: "a",
@@ -59,6 +68,7 @@ it.each([false, true])(
     );
     vi.stubGlobal("fetch", fetch);
     const loadWeekly = vi.fn(async () => {});
+    const loadTrainingPlan = vi.fn(async () => {});
     const { result } = renderHook(() =>
       useChatFeature({
         setStatus: vi.fn(),
@@ -74,13 +84,16 @@ it.each([false, true])(
           });
         },
         loadMemories: vi.fn(async () => {}),
-        loadTrainingPlan: vi.fn(async () => {}),
+        loadTrainingPlan,
         loadWeekly,
         messageInputRef: createRef(),
       }),
     );
-    await act(() => result.current.submitChat("Confirm that exact draft"));
-    expect(loadWeekly).toHaveBeenCalledOnce();
+    await act(() => result.current.submitChat("Update plans directly"));
+    expect(loadWeekly).toHaveBeenCalledTimes(weekly === "succeeded" ? 1 : 0);
+    expect(loadTrainingPlan).toHaveBeenCalledTimes(
+      general === "succeeded" ? 1 : 0,
+    );
     const request = fetch.mock.calls.find(
       ([url]) => String(url) === "/api/chat",
     );
@@ -199,7 +212,7 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
     screen.getByRole("button", { name: "Review / correct via chat" }),
   );
   expect(startChat).toHaveBeenCalledWith(
-    expect.stringContaining("do not save without my confirmation"),
+    expect.stringContaining("save the review directly"),
   );
   expect(load).not.toHaveBeenCalled();
 });

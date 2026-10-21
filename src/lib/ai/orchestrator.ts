@@ -1,14 +1,9 @@
-import { renderWeeklyProposal } from "../weekly/application";
 import {
   COMPLETION_TOOL,
   COMPLETION_LIMITATION,
   assessCompletion,
 } from "./turn-completion";
-import type {
-  WeeklyProposal,
-  WeeklyRead,
-  WeeklyTurn,
-} from "../weekly/contracts";
+import type { WeeklyRead, WeeklyTurn } from "../weekly/contracts";
 import {
   TRAINER_PROVIDER_CALL_TIMEOUT_MS,
   type TrainerGenerationResult,
@@ -150,8 +145,8 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
     .find((step) => step.tool === "getTrainingPlan");
   return steps
     .map((step) => {
-      if (step.status === "succeeded" && step.tool === "proposeWeeklyDocuments")
-        return renderWeeklyProposal(step.result as WeeklyProposal);
+      if (step.status === "succeeded" && step.tool === "saveWeeklyDocuments")
+        return `Evidence step ${step.index}: saveWeeklyDocuments succeeded. ${JSON.stringify(step.result)}`;
       if (step.status === "succeeded" && step.tool === "getWeeklyPlan") {
         const reads = steps
           .filter((s) => s.tool === "getWeeklyPlan" && s.status === "succeeded")
@@ -289,15 +284,26 @@ function toolFailureLimitationText(steps: TrainerToolStep[]): string {
       (step) =>
         step.tool === "providerToolSelection" && step.status !== "succeeded",
     );
-  return (
+  const limitation =
     (providerSelectionFailure
       ? providerSelectionFailureText(providerSelectionFailure)
       : null) ??
     duplicateSideEffectPriorResultText(steps) ??
     sqlLimitationText(steps) ??
     genericToolLimitationText(steps) ??
-    "I couldn't complete that local Garmin tool request within the safety guardrails. Please try a narrower request."
+    "I couldn't complete that local Garmin tool request within the safety guardrails. Please try a narrower request.";
+  return limitation + savedPlanningResultText(steps);
+}
+
+function savedPlanningResultText(steps: TrainerToolStep[]): string {
+  const saved = steps.filter(
+    (step) =>
+      step.status === "succeeded" &&
+      ["saveTrainingPlan", "saveWeeklyDocuments"].includes(step.tool),
   );
+  return saved.length
+    ? ` Already saved: ${saved.map((step) => `${step.tool}: ${step.summary}`).join("; ")}. These successful writes remain saved; separate operations are not atomic together.`
+    : "";
 }
 
 async function synthesizeFinalAnswer(
@@ -405,16 +411,10 @@ async function orchestrateTurn(
     >,
     finalAnswerSource?: LlmDebugTrace["finalAnswerSource"],
   ) => {
-    const proposalStep = [...result.toolSteps]
-      .reverse()
-      .find(
-        (step) =>
-          step.tool === "proposeWeeklyDocuments" && step.status === "succeeded",
-      );
     const completed = {
       ...result,
-      ...(proposalStep
-        ? { text: renderWeeklyProposal(proposalStep.result as WeeklyProposal) }
+      ...(result.text === COMPLETION_LIMITATION
+        ? { text: result.text + savedPlanningResultText(result.toolSteps) }
         : {}),
       progressCounters: {
         modelCalls: providerCalls,
@@ -473,7 +473,7 @@ async function orchestrateTurn(
           step.status === "succeeded" &&
           [
             "saveTrainingPlan",
-            "applyWeeklyProposal",
+            "saveWeeklyDocuments",
             "runGarminSync",
             "forceRefreshActivityDetail",
           ].includes(step.tool),
@@ -674,12 +674,10 @@ async function orchestrateTurn(
         );
       }
       if (
-        ["saveTrainingPlan", "applyWeeklyProposal"].includes(
+        ["saveTrainingPlan", "saveWeeklyDocuments"].includes(
           accepted.toolName,
         ) &&
-        steps.some((step) =>
-          ["saveTrainingPlan", "applyWeeklyProposal"].includes(step.tool),
-        )
+        steps.some((step) => step.tool === accepted.toolName)
       ) {
         const allSteps = [
           ...steps,
@@ -687,7 +685,7 @@ async function orchestrateTurn(
             stepIndex,
             "duplicate_side_effect",
             accepted.toolName,
-            "A plan/document save was already attempted this turn and was not repeated.",
+            "A save for this planning target was already attempted this turn and was not repeated.",
           ),
         ];
         return finish(

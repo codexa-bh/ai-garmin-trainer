@@ -278,12 +278,36 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     requiredQualities: [
       "goal-relevant model-selected KPI targets, units and evidence basis",
       "explained full-target points sum to 100",
-      "exact visible draft requires later confirmation",
+      "explicit draft-only direction means no save tool",
     ],
     forbiddenBehavior: [
       "hidden fixed rubric",
       "mandatory calorie target",
       "implicit save",
+    ],
+    severity: "critical",
+  },
+  {
+    id: "PLAN-DIRECT-01",
+    domain: "policy",
+    userPrompt:
+      "Update directly, no need for me to review drafts; adjust my General Plan and save this week's plan and last week's review.",
+    providedEvidence: [
+      "complete General Plan and weekly reads",
+      "target-week SQL/math",
+      "no pending proposal",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "same-turn direct saves",
+      "distinct General Plan and weekly bundle attempts",
+      "honest partial outcomes",
+    ],
+    forbiddenBehavior: [
+      "consent classifier",
+      "mandatory preview or confirmation",
+      "duplicate same-target write",
+      "cross-feature atomicity claim",
     ],
     severity: "critical",
   },

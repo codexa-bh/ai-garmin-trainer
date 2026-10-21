@@ -165,7 +165,8 @@ describe("complete current Training Plan", () => {
         { role: "assistant", content: "x".repeat(4001) },
         messages.at(-1)!,
       ]),
-    ).toContain("ask which exact changes");
+    ).toContain("No preview or confirmation is required");
+    expect(context).toContain("not consent classification");
   });
 
   it("labels compact previews and provides complete-read guidance", () => {
@@ -247,6 +248,10 @@ describe("complete current Training Plan", () => {
       "system preview",
     ],
     [
+      "Sure, update plans accordingly",
+      "system preview without any prior draft",
+    ],
+    [
       "ok adjust it",
       "Active transcript — assistant: I propose changing '- Two sessions' to '- Three sessions' in your saved Training Plan, leaving everything else unchanged. Shall I apply it?",
     ],
@@ -258,7 +263,9 @@ describe("complete current Training Plan", () => {
         .mockImplementationOnce(async (options) => {
           expect(options.prompt).toBe(request);
           expect(options.system).toContain(system);
-          expect(options.system).toContain("clear current-user assent");
+          expect(options.system).toContain(
+            "without requiring consent wording or a prior draft",
+          );
           return call("getTrainingPlan");
         })
         .mockResolvedValueOnce(call("saveTrainingPlan", editArgs))
@@ -295,12 +302,10 @@ describe("complete current Training Plan", () => {
     async (request) => {
       generateText.mockImplementationOnce(async (options) => {
         for (const policy of [
-          "Review-only",
-          "criticism",
+          "explicit no-save direction",
+          "genuine content ambiguity",
           "quoted/example",
           "document-embedded",
-          "explicit no-save",
-          "focused clarification",
         ])
           expect(options.system).toContain(policy);
         return coaching(
