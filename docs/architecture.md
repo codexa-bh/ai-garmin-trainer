@@ -412,7 +412,7 @@ Weekly KPI rubrics and completion scores are model-authored Markdown, not parsed
 ## Training Plan application and adapters
 
 `training-plan/{contracts,limits,policy,snapshot,edits}.ts` owns the singleton
-plan representation, title/stale policy, complete-evidence validation/privacy
+plan representation, title/advisory review policy, complete-evidence validation/privacy
 and original-document exact edits. `application.ts` consumes a synchronous
 `TrainingPlanStore` (read/persist) and supplied clock. Manual save normalizes,
 persists and reads back; guarded tool save reads/validates/compares the prior
@@ -434,7 +434,7 @@ write failure. `training-plan-dependencies.test.ts` checks type-inclusive inward
 dependencies with negative fixtures. Existing repository, route, evidence,
 orchestrator and chat suites retain compatibility coverage. SQL, schema and
 stored timestamps are unchanged; migration/back-sync is a no-op, source revert
-is sufficient rollback. No UI or release behavior changes.
+is sufficient rollback. The legacy `stale`/`staleAfterDays` transport fields mean optional review timing after more than 60 elapsed days, not invalidity. UI and model-facing consumers translate them to neutral review wording; unknown revision dates cannot establish elapsed age. Saved documents and weekly commitments are unchanged. No release behavior changes.
 
 ## Chat execution and delivery
 

@@ -90,6 +90,38 @@ describe("independent dashboard feature ownership", () => {
     expect(result.current.profileMessage).toContain("edits were preserved");
   });
 
+  it.each([
+    [false, "2026-09-29T00:00:00.000Z", "loaded from local SQLite"],
+    [true, "2026-08-01T00:00:00.000Z", "More than 60 days"],
+    [true, "invalid", "Revision date unavailable"],
+  ])(
+    "uses neutral review status without writes (review=%s, date=%s)",
+    async (stale, revisedAt, message) => {
+      const plan = {
+        title: "Saved",
+        contentMarkdown: "Tuesday strength; Thursday hike",
+        revisedAt,
+      };
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(response({ plan, stale, staleAfterDays: 60 }));
+      vi.stubGlobal("fetch", fetch);
+      const { result } = renderHook(() =>
+        useTrainingPlanFeature({ setStatus: vi.fn() }),
+      );
+      expect(result.current.trainingPlanStaleAfterDays).toBe(60);
+      await act(() => result.current.loadTrainingPlan("startup", false));
+      expect(result.current.trainingPlanMessage).toContain(message);
+      expect(result.current.trainingPlanMessage).not.toMatch(
+        /stale|invalid|expired|older than/,
+      );
+      expect(result.current.trainingPlan).toEqual(plan);
+      expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/training-plan", {
+        method: "GET",
+      });
+    },
+  );
+
   it("keeps Training Plan drafts on failed saves and restores saved text on cancel", async () => {
     vi.stubGlobal(
       "fetch",
@@ -103,7 +135,7 @@ describe("independent dashboard feature ownership", () => {
               revisedAt: null,
             },
             stale: false,
-            staleAfterDays: 14,
+            staleAfterDays: 60,
           }),
         )
         .mockResolvedValueOnce(response({ error: "Unavailable" }, 503)),

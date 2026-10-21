@@ -130,7 +130,7 @@ Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/style.css`, 
 
 ## Weekly plans and reviews
 
-Training Plan opens to **This Week**, using your device's Monday–Sunday calendar. **Upcoming** exposes the following week (including plans prepared on Sunday); **General Plan** retains the existing independent manual editor. **History** loads bounded summaries and individual past documents, not an entire archive.
+Training Plan opens to **This Week**, using your device's Monday–Sunday calendar. **Upcoming** exposes the following week (including plans prepared on Sunday); **General Plan** retains the existing independent manual editor. Saved general plans remain usable; more than 60 elapsed days since revision offers an optional review cue, not an expiry or automatic rewrite. **History** loads bounded summaries and individual past documents, not an entire archive.
 
 Discuss a weekly plan in chat using the general template, current Garmin evidence and your feedback. A displayed **Weekly draft — not saved** is not a commitment until you explicitly confirm it. Confirmation saves the exact proposal; a review and next plan can be confirmed atomically together. Drafts expire after 24 hours and cannot be confirmed after an intervening assistant reply, replacement, deletion of the chat, timezone change or conflicting saved revision—request a fresh draft. Ambiguous assent should prompt clarification, not saving.
 

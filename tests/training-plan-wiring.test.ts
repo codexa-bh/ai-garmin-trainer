@@ -22,6 +22,44 @@ const request = (body: unknown) =>
     body: JSON.stringify(body),
   });
 
+it.each([
+  ["2026-10-13T00:00:00.001Z", false],
+  ["2026-10-21T00:00:00.000Z", false],
+  ["2026-11-28T00:00:00.000Z", false],
+  ["2026-11-28T00:00:00.001Z", true],
+])(
+  "serves computed review timing at %s without changing persisted plan or weekly rows",
+  async (currentDate, review) => {
+    const { replaceTrainingPlan } =
+      await import("../src/lib/training-plan/composition");
+    const route = await import("../src/app/api/training-plan/route");
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const saved = replaceTrainingPlan({
+      title: "General",
+      contentMarkdown: "Tuesday strength; Thursday hike",
+      now: new Date("2026-09-29T00:00:00Z"),
+    });
+    const db = getDatabase();
+    const before = db.prepare("SELECT * FROM training_plan").all();
+    const weeklyBefore = db.prepare("SELECT * FROM weekly_artifact").all();
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(currentDate));
+      expect(await (await route.GET()).json()).toEqual({
+        plan: saved,
+        stale: review,
+        staleAfterDays: 60,
+      });
+      expect(db.prepare("SELECT * FROM training_plan").all()).toEqual(before);
+      expect(db.prepare("SELECT * FROM weekly_artifact").all()).toEqual(
+        weeklyBefore,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
 it("wires manual HTTP and guarded tool operations to the same synchronous SQLite singleton", async () => {
   const route = await import("../src/app/api/training-plan/route");
   const { executeTrainingPlanTool: execute } =
@@ -41,7 +79,7 @@ it("wires manual HTTP and guarded tool operations to the same synchronous SQLite
   expect(await (await route.GET()).json()).toEqual({
     plan: null,
     stale: true,
-    staleAfterDays: 14,
+    staleAfterDays: 60,
   });
   const saved = await route.POST(
     request({

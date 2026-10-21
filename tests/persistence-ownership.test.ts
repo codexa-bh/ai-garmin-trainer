@@ -122,7 +122,7 @@ describe("persistence ownership compatibility", () => {
     expect(conversations.listConversations(0)).toHaveLength(1);
   });
 
-  it("keeps plan singleton/title defaults, limits and exact stale threshold", async () => {
+  it("keeps plan singleton/title defaults, limits and exact advisory 60-day review threshold", async () => {
     const { plans, connection } = await owners();
     const now = new Date("2026-09-01T00:00:00Z");
     expect(
@@ -145,7 +145,7 @@ describe("persistence ownership compatibility", () => {
         .prepare("select count(*) as count from training_plan")
         .get(),
     ).toEqual({ count: 1 });
-    const threshold = now.getTime() + 14 * 86400000;
+    const threshold = now.getTime() + 60 * 86400000;
     expect(plans.trainingPlanStatus(threshold).stale).toBe(false);
     expect(plans.trainingPlanStatus(threshold + 1).stale).toBe(true);
   });

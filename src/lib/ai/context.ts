@@ -7,6 +7,7 @@ import type {
 } from "../garmin/types";
 import type { RetrievedMemory } from "../memory/types";
 import type { TrainingPlanStatus } from "../training-plan/contracts";
+import { trainingPlanReviewTiming } from "../training-plan/policy";
 // Context consumes a preview of the feature-owned document contract.
 export type TrainingPlanContext = TrainingPlanStatus;
 export { TRAINER_SYSTEM_PROMPT } from "./trainer-instructions";
@@ -120,10 +121,8 @@ function formatTrainingPlan(
   if (!status?.plan)
     return `Current Training Plan: none saved. A new chat should suggest creating one; do not persist a plan unless the user explicitly asks to create, save, revise, or update the Training Plan.`;
   const plan = status.plan;
-  const stale = status.stale
-    ? `stale: revised more than ${status.staleAfterDays} days ago`
-    : `current within ${status.staleAfterDays} days`;
-  return `Current Training Plan (${stale}; revised ${plan.revisedAt.slice(0, 10)}; title ${compactText(plan.title, 80)}). Compact preview only (${plan.contentMarkdown.length} saved Markdown characters; whitespace compacted${plan.contentMarkdown.length > 2200 ? "; partial/truncated" : ""}). Call getTrainingPlan for complete current Markdown before review or revision; do not infer missing sections or ask the user to paste locally retrievable content:\n${compactText(plan.contentMarkdown, 2200)}`;
+  const reviewTiming = trainingPlanReviewTiming(status);
+  return `Current Training Plan (${reviewTiming} The saved plan remains usable; review is optional and age alone does not authorize changes. Revised ${plan.revisedAt.slice(0, 10)}; title ${compactText(plan.title, 80)}). Compact preview only (${plan.contentMarkdown.length} saved Markdown characters; whitespace compacted${plan.contentMarkdown.length > 2200 ? "; partial/truncated" : ""}). Call getTrainingPlan for complete current Markdown before review or revision; do not infer missing sections or ask the user to paste locally retrievable content:\n${compactText(plan.contentMarkdown, 2200)}`;
 }
 
 function formatBodyMetrics(

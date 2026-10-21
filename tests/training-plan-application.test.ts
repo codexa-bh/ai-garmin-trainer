@@ -8,6 +8,7 @@ import { applyPlanEdits } from "../src/lib/training-plan/edits";
 import {
   normalizeTrainingPlanTitle,
   planStatus,
+  trainingPlanReviewTiming,
 } from "../src/lib/training-plan/policy";
 import {
   completeTrainingPlanSchema,
@@ -53,8 +54,9 @@ function fixture(initial: TrainingPlan | null = original) {
 }
 
 describe("feature-owned Training Plan rules", () => {
-  it("preserves strict stale threshold, invalid time and null rules", () => {
-    const threshold = Date.parse(original.revisedAt) + 14 * 86400000;
+  it("preserves strict 60-day review threshold, invalid time and null rules", () => {
+    const threshold = Date.parse(original.revisedAt) + 60 * 86400000;
+    expect(planStatus(original, threshold - 1).stale).toBe(false);
     expect(planStatus(original, threshold).stale).toBe(false);
     expect(planStatus(original, threshold + 1).stale).toBe(true);
     expect(
@@ -63,9 +65,47 @@ describe("feature-owned Training Plan rules", () => {
     expect(planStatus(null, threshold)).toEqual({
       plan: null,
       stale: true,
-      staleAfterDays: 14,
+      staleAfterDays: 60,
     });
     expect(planStatus(original, 0).stale).toBe(false);
+  });
+  it.each([14 * 86400000 + 1, 22 * 86400000, 60 * 86400000])(
+    "does not suggest review or mutate the September 29 plan after %i ms",
+    (elapsed) => {
+      const plan = { ...original, revisedAt: "2026-09-29T00:00:00.000Z" };
+      const { app, journal } = fixture(plan);
+      const before = { ...plan };
+      const status = app.status(Date.parse(plan.revisedAt) + elapsed);
+      expect(status).toEqual({
+        plan: before,
+        stale: false,
+        staleAfterDays: 60,
+      });
+      expect(trainingPlanReviewTiming(status)).toContain("Within the 60-day");
+      expect(journal).toEqual(["read"]);
+      expect(plan).toEqual(before);
+    },
+  );
+  it("never invents age for missing/invalid revisions and keeps future dates within the window", () => {
+    expect(trainingPlanReviewTiming(planStatus(null, 0))).toBe(
+      "No General Plan saved.",
+    );
+    expect(
+      trainingPlanReviewTiming(
+        planStatus({ ...original, revisedAt: "invalid" }, now.getTime()),
+      ),
+    ).toBe("Revision date unavailable; review when useful.");
+    expect(trainingPlanReviewTiming(planStatus(original, 0))).toContain(
+      "Within the 60-day",
+    );
+    expect(
+      trainingPlanReviewTiming(
+        planStatus(
+          original,
+          Date.parse(original.revisedAt) + 60 * 86400000 + 1,
+        ),
+      ),
+    ).toBe("More than 60 days since revision; review when useful.");
   });
   it("preserves title fallback, whitespace folding and truncation", () => {
     for (const value of [null, undefined, "", " \n "])
