@@ -16,13 +16,22 @@ export function useWeeklyFeature() {
   );
   const generation = useRef(0);
   const calendarBasis = useRef("");
-  async function load(selected = mode, selectedWeek?: string, cursor?: string) {
+  async function load(
+    selected = mode,
+    selectedWeek?: string,
+    cursor?: string,
+    preserveRange = false,
+  ) {
     const request = ++generation.current;
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const calendar = weeklyCalendar(new Date(), timeZone);
     calendarBasis.current = `${calendar.weekStart}/${timeZone}`;
     setMode(selected);
     setBasis(timeZone);
+    const target =
+      selectedWeek ??
+      (selected === "upcoming" ? calendar.upcoming : calendar.weekStart);
+    setWeek(selected === "history" ? (selectedWeek ?? "") : target);
     if (selected === "general") {
       setState("idle");
       return;
@@ -32,19 +41,29 @@ export function useWeeklyFeature() {
     try {
       const query = new URLSearchParams({ timeZone });
       if (selected === "history" && !selectedWeek) {
-        query.set("before", cursor ?? calendar.weekStart);
-        const page = await readJsonResponse<{
-          items: WeeklySummary[];
-          next: string | null;
-        }>(await fetch(`/api/weekly?${query}`));
-        if (request !== generation.current) return;
-        setItems(cursor ? [...items, ...page.items] : page.items);
-        setNext(page.next);
-        setWeek("");
+        const oldest = preserveRange ? items.at(-1)?.weekStart : undefined;
+        let before = cursor ?? calendar.weekStart;
+        let pageNext: string | null;
+        const refreshed: WeeklySummary[] = [];
+        do {
+          query.set("before", before);
+          const page = await readJsonResponse<{
+            items: WeeklySummary[];
+            next: string | null;
+          }>(await fetch(`/api/weekly?${query}`));
+          if (request !== generation.current) return;
+          refreshed.push(...page.items);
+          pageNext = page.next;
+          if (pageNext && pageNext >= before)
+            throw new Error("Invalid history cursor");
+          before = pageNext ?? before;
+        } while (pageNext && oldest && pageNext > oldest);
+        const merged = cursor ? [...items, ...refreshed] : refreshed;
+        setItems([
+          ...new Map(merged.map((item) => [item.weekStart, item])).values(),
+        ]);
+        setNext(pageNext);
       } else {
-        const target =
-          selectedWeek ??
-          (selected === "upcoming" ? calendar.upcoming : calendar.weekStart);
         query.set("weekStart", target);
         const detail = await readJsonResponse<{ record: WeeklyRecord | null }>(
           await fetch(`/api/weekly?${query}`),
@@ -58,6 +77,14 @@ export function useWeeklyFeature() {
       if (request === generation.current) setState("error");
     }
   }
+  function refresh() {
+    return load(
+      mode,
+      mode === "history" && week ? week : undefined,
+      undefined,
+      true,
+    );
+  }
   const rollover = useEffectEvent(() => {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const calendar = weeklyCalendar(new Date(), zone);
@@ -65,9 +92,8 @@ export function useWeeklyFeature() {
       calendarBasis.current &&
       calendarBasis.current !== `${calendar.weekStart}/${zone}`
     ) {
-      load(mode === "upcoming" ? "current" : mode).catch(() =>
-        setState("error"),
-      );
+      const work = mode === "upcoming" ? load("current") : refresh();
+      work.catch(() => setState("error"));
     }
   });
   useEffect(() => {
@@ -79,5 +105,5 @@ export function useWeeklyFeature() {
       window.clearInterval(timer);
     };
   }, []);
-  return { mode, record, week, basis, items, next, state, load };
+  return { mode, record, week, basis, items, next, state, load, refresh };
 }
