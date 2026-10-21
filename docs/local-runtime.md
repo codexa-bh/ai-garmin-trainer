@@ -24,13 +24,25 @@ Official references checked 2026-10-21: [OpenAI Luna](https://developers.openai.
 
 Saving env settings does **not** update an already-running app. A separately authorized rebuild/restart is needed for production; do not restart an unrelated/primary process merely to smoke a worktree. Use a task-owned alternate loopback process with a disposable populated DB copy for chat/memory writes. Source/config rollback restores only the relevant provider/model lines, preserving current credentials and unrelated settings. No schema migration or data back-sync is needed for these defaults.
 
+## Runtime trainer model preference
+
+Settings → **Trainer model** lists only the configured fixed choices: DeepSeek Flash (`deepseek-flash`, `DEEPSEEK_API_KEY`) and GPT-6 Luna (`gpt-6-luna`, `OPENAI_API_KEY`). One configured key shows one choice; neither shows a disabled control and explanation. Blank/placeholder keys are absent. Loading/saving Settings never probes accounts or makes paid provider requests. Configuration does not certify entitlement, funding or availability.
+
+The single-user app-wide preference is stored in existing `app_metadata` under `ai.chat_model`. No migration/backfill is needed. Absent/empty metadata means the original env selection, including explicit/custom/Ollama/OpenRouter models; the UI reports that inherited identity rather than relabeling it. A saved catalog choice overrides chat provider/model exactly, not env model overrides. **Reset to configured default** clears only this preference (empty metadata sentinel), not credentials or unrelated settings.
+
+Each new trainer turn reads and captures the effective model before asynchronous context construction. Saving affects subsequent turns without restarting; planner/synthesis in an already-running turn keep their captured model. Memory extraction remains env-selected and embeddings independent. Chat/Profile/Garmin deletion does not clear this app-owned preference.
+
+`GET /api/model-settings` returns safe options, saved selection, effective identity/source/availability and a bounded unavailable explanation; `PATCH` accepts `{ modelId: "deepseek-flash" | "gpt-6-luna" | null }`. Unknown IDs, malformed input and missing-key choices are rejected before writes. A corrupt or now-unconfigured saved choice fails closed, never silently falls back; choose an available replacement or reset explicitly. Provider errors do not change the preference. Reads and successful saves return authoritative snapshots; reopen Settings to refresh after failures/credential changes. Keys, raw stored invalid values and upstream/storage errors are not returned.
+
+Saving this preference survives reload/restart but does not hot-reload `.env.local`. Adding/removing credentials still needs a separately authorized normal server reload. Rollback is reset or source revert; no primary restart, data copy-back, public hosting or deployment is implied.
+
 ## Opt-in OpenRouter chat
 
 Set `AI_PROVIDER=openrouter`, `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` in ignored `.env.local`. The initial model is `nvidia/nemotron-3.5-lightning:free`. Chat and guarded tools use `https://openrouter.ai/api/v1/chat/completions`; the key stays server-side. Auto selection remains DeepSeek-first/OpenAI-fallback and ignores OpenRouter keys. Missing/placeholder keys fail closed; no paid model or alternate provider is substituted on failure.
 
 OpenRouter receives the same bounded chat/Garmin context as the selected chat provider. Review its account privacy/routing settings before use. Free-model availability, rate limits and tool support can change; doctor reports configuration presence, not remote readiness. The initial Nemotron free model can repeat otherwise successful read-only tool calls and reach the execution limit instead of answering, especially on explicit tool-directed requests. Existing execution limits remain enforced and return a truthful fallback; a successful smoke is not a reliability guarantee. Validate with a bounded loopback chat/tool request. For temporary tests use task-local ignored configuration, restore the prior provider afterward, and retire temporary credentials.
 
-OpenRouter is **chat/tools only**: extraction continues through configured DeepSeek/OpenAI (or deterministic fallback), and embedding configuration is unchanged. There is no OpenRouter extraction or embedding route, model catalog UI, or cross-provider runtime failover.
+OpenRouter is **chat/tools only**: extraction continues through configured DeepSeek/OpenAI (or deterministic fallback), and embedding configuration is unchanged. There is no OpenRouter extraction or embedding route, selectable OpenRouter catalog entry, or cross-provider runtime failover. A saved runtime catalog preference overrides trainer chat until explicitly reset.
 
 ## Local restart modes
 

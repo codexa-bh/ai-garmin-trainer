@@ -11,7 +11,10 @@ import {
 } from "./contracts";
 import { dateLabel, dayListLabel, valueLabel } from "./formatting";
 import { ProfileCard } from "./profile-card";
+import { ModelSettingsCard } from "./model-settings-card";
+import type { useModelSettings } from "./use-model-settings";
 export function SettingsView({
+  modelSettings,
   closeSettingsSheet,
   settingsCloseRef,
   isProfileDirty,
@@ -40,6 +43,7 @@ export function SettingsView({
   setDiagnosticsOpen,
   status,
 }: {
+  modelSettings: ReturnType<typeof useModelSettings>;
   closeSettingsSheet: () => void;
   settingsCloseRef: RefObject<HTMLButtonElement | null>;
   isProfileDirty: boolean;
@@ -98,6 +102,7 @@ export function SettingsView({
         </header>
 
         <div className="settings-groups">
+          <ModelSettingsCard modelSettings={modelSettings} />
           <ProfileCard
             isProfileDirty={isProfileDirty}
             profileSaveState={profileSaveState}

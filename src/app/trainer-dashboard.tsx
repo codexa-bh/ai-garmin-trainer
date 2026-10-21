@@ -17,6 +17,7 @@ import {
 import { HealthView } from "./dashboard/health-view";
 import { MemoryContent } from "./dashboard/memory-content";
 import { SettingsView } from "./dashboard/settings-view";
+import { useModelSettings } from "./dashboard/use-model-settings";
 import { SyncView } from "./dashboard/sync-view";
 import { WeeklyPlanView } from "./dashboard/weekly-plan-view";
 import { useWeeklyFeature } from "./dashboard/use-weekly";
@@ -53,6 +54,7 @@ export function TrainerDashboard() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [healthDashboardOpen, setHealthDashboardOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const modelSettings = useModelSettings(settingsOpen);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const forceNextScrollRef = useRef(false);
@@ -1049,6 +1051,7 @@ export function TrainerDashboard() {
       !healthDashboardOpen &&
       settingsOpen ? (
         <SettingsView
+          modelSettings={modelSettings}
           closeSettingsSheet={closeSettingsSheet}
           settingsCloseRef={settingsCloseRef}
           isProfileDirty={isProfileDirty}
