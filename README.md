@@ -76,6 +76,8 @@ Edit ignored `.env.local` privately:
 | Local Ollama              | Start your separately installed loopback Ollama daemon, run `ollama pull qwen3.5:4b`, set `AI_PROVIDER=ollama`, and keep `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1`. Bootstrap does not prepare the chat model. |
 | Opt-in OpenRouter         | Set `AI_PROVIDER=openrouter` and `OPENROUTER_API_KEY`; review [model availability, privacy, and tool-reliability limitations](docs/local-runtime.md#opt-in-openrouter-chat) first. Auto ignores OpenRouter keys. |
 
+Direct cloud defaults are `AI_MODEL=gpt-6-luna` (OpenAI Responses API) and `DEEPSEEK_MODEL=deepseek-flash`. Keep exactly one `AI_PROVIDER` assignment uncommented; the example includes explicit OpenAI/DeepSeek alternatives. Model overrides remain independent of that toggle. Direct OpenAI API billing and model availability are separate from Codex subscription access. See [direct provider switching](docs/local-runtime.md#direct-openaideepseek-switching) for validation and reload limitations.
+
 No Google OAuth client, app password, or email allowlist is required. Do not commit `.env.local`, provider keys, SQLite files, backups, or Garmin token directories. Keep secret files owner-private.
 
 ### 3. Check configuration and authenticate Garmin
