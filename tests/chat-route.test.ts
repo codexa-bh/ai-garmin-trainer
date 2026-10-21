@@ -566,8 +566,8 @@ vi.mock("ai", () => ({
 }));
 
 let selectedProvider = "deepseek";
-vi.mock("@/lib/ai/providers", () => ({
-  selectedModel: () => ({
+vi.mock("@/lib/model-settings/composition", () => ({
+  selectedTrainerModel: () => ({
     model: "mock-model",
     provider: selectedProvider,
     modelName:

@@ -25,7 +25,9 @@ vi.mock("@/lib/weekly/composition", () => ({
   weekly: { context: f.weeklyContext, bindDisplayed: f.bindWeekly },
 }));
 vi.mock("@/lib/env", () => ({ isLlmDebugTraceEnabled: () => f.debug }));
-vi.mock("@/lib/ai/providers", () => ({ selectedModel: f.selected }));
+vi.mock("@/lib/model-settings/composition", () => ({
+  selectedTrainerModel: f.selected,
+}));
 vi.mock("@/lib/ai/composition", () => ({
   orchestrateTrainerChat: f.orchestrate,
 }));

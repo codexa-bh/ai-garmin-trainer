@@ -236,8 +236,7 @@ function selectedCloudModel(
   throw new Error("Memory extraction requires a DeepSeek or OpenAI provider.");
 }
 
-export function selectedModel(): SelectedAiModel {
-  const env = getOptionalEnv();
+export function selectedModel(env: AppEnv = getOptionalEnv()): SelectedAiModel {
   const status = aiProviderStatus(env);
   if (!status.selected)
     throw new Error(status.remediation ?? "No configured AI provider key.");

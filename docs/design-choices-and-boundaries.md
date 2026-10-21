@@ -203,7 +203,7 @@ Provider selection and adapter boundary.
 
 Responsibilities:
 
-- choose the configured model provider;
+- construct the configured model provider from an explicit configuration snapshot; runtime preference policy and persistence belong to `model-settings`, which supplies a chat-only exact override;
 - keep provider-specific wiring isolated;
 - offer explicit OpenRouter chat/tools via the OpenAI-compatible chat-completions adapter, without changing DeepSeek-first/OpenAI-fallback auto selection;
 - keep OpenRouter and Ollama chat separate from DeepSeek/OpenAI memory extraction and independently configured embeddings;

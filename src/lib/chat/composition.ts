@@ -1,7 +1,7 @@
 import { weekly } from "../weekly/composition";
 import { fallbackLlmDebugTrace } from "@/lib/ai/debug-trace";
 import { orchestrateTrainerChat } from "@/lib/ai/composition";
-import { selectedModel } from "@/lib/ai/providers";
+import { selectedTrainerModel } from "@/lib/model-settings/composition";
 import {
   appendChatMessage,
   ensureConversation,
@@ -53,7 +53,7 @@ export const { prepareChatTurn, generateChatTurn, completeChatTurn } =
     fallbackDebugTrace: fallbackLlmDebugTrace,
     addCompletedTurn: (input) => trainerMemoryStore().addCompletedTurn(input),
     selectGeneration: () => {
-      const { model, provider, modelName } = selectedModel();
+      const { model, provider, modelName } = selectedTrainerModel();
       return ({
         system,
         userRequest,
