@@ -32,7 +32,7 @@ describe("AI provider selection", () => {
       requested: "auto",
       selected: "deepseek",
       selectionMode: "default",
-      modelName: "deepseek-chat",
+      modelName: "deepseek-flash",
     });
   });
 
@@ -48,10 +48,51 @@ describe("AI provider selection", () => {
       requested: "auto",
       selected: "openai",
       selectionMode: "fallback",
-      modelName: "gpt-4o-mini",
+      modelName: "gpt-6-luna",
       deepseekKeyConfigured: false,
       openaiKeyConfigured: true,
     });
+  });
+
+  it("keeps DeepSeek first with both keys and preserves independent model overrides", () => {
+    const both = {
+      DEEPSEEK_API_KEY: "sentinel-deepseek-key",
+      OPENAI_API_KEY: "sentinel-openai-key",
+      AI_MODEL: "custom-openai-model",
+      DEEPSEEK_MODEL: "custom-deepseek-model",
+    };
+    expect(aiProviderStatus(env(both))).toMatchObject({
+      selected: "deepseek",
+      modelName: "custom-deepseek-model",
+    });
+    const status = aiProviderStatus(env({ ...both, AI_PROVIDER: "openai" }));
+    expect(status).toMatchObject({
+      selected: "openai",
+      modelName: "custom-openai-model",
+      selectionMode: "explicit",
+    });
+    expect(JSON.stringify(status)).not.toContain("sentinel-");
+  });
+
+  it("fails closed for explicit OpenAI and keeps chat/extraction on that selection", () => {
+    vi.stubEnv("AI_PROVIDER", "openai");
+    vi.stubEnv("AI_MODEL", "gpt-6-luna");
+    vi.stubEnv("DEEPSEEK_API_KEY", "sentinel-deepseek-key");
+    vi.stubEnv("OPENAI_API_KEY", "replace-with-openai-key");
+    expect(aiProviderStatus(getOptionalEnv())).toMatchObject({
+      selected: null,
+      failureClass: "provider.missing_openai_key",
+    });
+    expect(() => selectedModel()).toThrow(/OPENAI_API_KEY/);
+    expect(selectedMemoryExtractionModel()).toBeNull();
+    vi.stubEnv("OPENAI_API_KEY", "sentinel-openai-key");
+    for (const selected of [selectedModel(), selectedMemoryExtractionModel()]) {
+      expect(selected).toMatchObject({
+        provider: "openai",
+        modelName: "gpt-6-luna",
+        selectionMode: "explicit",
+      });
+    }
   });
 
   it("honors explicit provider overrides without silently falling through", () => {
@@ -209,7 +250,7 @@ describe("AI provider selection", () => {
     expect(selectedMemoryExtractionModel()).toMatchObject({
       provider: "deepseek",
       selectionMode: "default",
-      modelName: "deepseek-chat",
+      modelName: "deepseek-flash",
     });
   });
 });

@@ -21,10 +21,10 @@ const optionalEnvSchema = z.object({
   AI_PROVIDER: z
     .enum(["auto", "openai", "deepseek", "ollama", "openrouter"])
     .default("auto"),
-  AI_MODEL: z.string().default("gpt-4o-mini"),
+  AI_MODEL: z.string().default("gpt-6-luna"),
   OPENAI_API_KEY: z.string().optional(),
   DEEPSEEK_API_KEY: z.string().optional(),
-  DEEPSEEK_MODEL: z.string().default("deepseek-chat"),
+  DEEPSEEK_MODEL: z.string().default("deepseek-flash"),
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_MODEL: z
     .string()
