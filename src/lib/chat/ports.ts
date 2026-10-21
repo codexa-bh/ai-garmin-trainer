@@ -1,3 +1,4 @@
+import type { TrainerSystemPrompt } from "@/lib/ai/trainer-instructions";
 import type { WeeklyTurn } from "../weekly/contracts";
 import type { LlmDebugTrace } from "@/lib/ai/debug-types";
 import type { TrainerToolStep } from "@/lib/ai/tool-types";
@@ -11,7 +12,7 @@ import type {
 } from "./contracts";
 
 export type ChatGenerationInput = {
-  system: string;
+  system: TrainerSystemPrompt;
   userRequest: string;
   weeklyTurn?: WeeklyTurn;
   turnContext?: ChatTurnContext;
@@ -46,7 +47,7 @@ export type ChatTurnPorts = {
     message: string,
     history: StoredChatMessage[],
     conversationId: string,
-  ): Promise<string>;
+  ): Promise<TrainerSystemPrompt>;
   addCompletedTurn(input: CompletedTurn): Promise<void>;
   fallbackDebugTrace(input: {
     userRequest: string;

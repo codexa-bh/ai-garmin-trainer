@@ -32,8 +32,10 @@ import {
 } from "@/lib/ai/debug-trace";
 import type { ChatGrounding, ChatTurnContext } from "@/lib/chat/contracts";
 import {
+  appendTrainerContext,
   buildFinalSynthesisInstructions,
   buildPlannerInstructions,
+  type TrainerSystemPrompt,
 } from "@/lib/ai/trainer-instructions";
 
 import {
@@ -63,7 +65,7 @@ type OrchestrateTrainerStatus = (
 ) => void;
 
 export type OrchestrateTrainerChatInput = {
-  system: string;
+  system: TrainerSystemPrompt;
   userRequest: string;
   turnContext?: ChatTurnContext;
   weeklyTurn?: WeeklyTurn;
@@ -106,16 +108,21 @@ function extractToolCall(raw: unknown): TrainerToolCall | null {
   return { toolName, input: parsedInput };
 }
 
-function systemWithTurnContext(input: OrchestrateTrainerChatInput): string {
-  return `${input.system}\n\nExplicit server turn context (date basis and recorded prior failures, not current-turn evidence):\n${JSON.stringify(input.turnContext ?? {})}`;
+function systemWithTurnContext(
+  input: OrchestrateTrainerChatInput,
+): TrainerSystemPrompt {
+  return appendTrainerContext(
+    input.system,
+    `Explicit server turn context (date basis and recorded prior failures, not current-turn evidence):\n${JSON.stringify(input.turnContext ?? {})}`,
+  );
 }
 
 function plannerSystem(
-  baseSystem: string,
+  baseSystem: TrainerSystemPrompt,
   priorSteps: TrainerToolStep[],
   budget: TrainerExecutionBudget,
   analysisToolCounts: Map<TrainerToolName, number>,
-): string {
+): TrainerSystemPrompt {
   const prior = priorSteps.length
     ? synthesisEvidenceForSteps(priorSteps)
     : "No prior tool step in this user turn.";
@@ -177,11 +184,11 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
 }
 
 function finalAnswerSystem(
-  baseSystem: string,
+  baseSystem: TrainerSystemPrompt,
   steps: TrainerToolStep[],
   budgetStopped: boolean,
   rejection?: CompletionRejection,
-): string {
+): TrainerSystemPrompt {
   return buildFinalSynthesisInstructions(
     baseSystem,
     synthesisEvidenceForSteps(steps),
@@ -356,6 +363,7 @@ async function synthesizeFinalAnswer(
       purpose: "final_synthesis",
       toolCalls,
       text: assessment.answer ?? text,
+      tokenUsage: result.tokenUsage,
       completionRejection: assessment.rejection,
     }),
   );
@@ -573,6 +581,7 @@ async function orchestrateTurn(
             : "direct_answer",
         toolCalls,
         text: assessment.answer ?? result.text?.trim() ?? "",
+        tokenUsage: result.tokenUsage,
         completionRejection: assessment.rejection,
       }),
     );

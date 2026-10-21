@@ -35,7 +35,7 @@ it("maps exact planner and synthesis options while retaining selected model and 
       system: "system",
       prompt: "prompt",
     }),
-  ).toBe(raw);
+  ).toEqual(raw);
   expect(generateText.mock.calls[0][0]).toEqual({
     model,
     system: "system",
@@ -60,7 +60,7 @@ it("maps exact planner and synthesis options while retaining selected model and 
       system: "final",
       prompt: "prompt",
     }),
-  ).toBe(raw);
+  ).toEqual(raw);
   expect(generateText.mock.calls[1][0]).toEqual({
     model,
     system: "final",
@@ -100,6 +100,30 @@ it("exposes native completion field guidance without changing the terminal tool 
   expect(tools.completeTrainerTurn).not.toHaveProperty("execute");
 });
 
+it.each([
+  { provider: "deepseek.chat", modelId: "deepseek-flash" },
+  { provider: "ollama.chat", modelId: "gpt-6-luna" },
+  { provider: "openrouter.chat", modelId: "gpt-6-luna" },
+  { provider: "openai.responses", modelId: "custom-unverified-model" },
+])(
+  "keeps structured shared policy without unsupported cache options for %j",
+  async (model) => {
+    generateText.mockResolvedValue({});
+    await createTrainerGeneration(model)({
+      purpose: "final_synthesis",
+      system: { policy: "stable policy", context: "fresh context" },
+      prompt: "question",
+    });
+    expect(generateText.mock.calls[0][0].system).toBe(
+      "stable policy\n\nfresh context",
+    );
+    expect(generateText.mock.calls[0][0].providerOptions).toBeUndefined();
+    expect(Object.keys(generateText.mock.calls[0][0].tools)).toEqual([
+      "completeTrainerTurn",
+    ]);
+  },
+);
+
 it("wraps exactly the neutral descriptions/schemas without execution callbacks", () => {
   expect(Object.keys(trainerToolDefinitions)).toEqual(
     Object.keys(trainerToolContracts),
@@ -127,6 +151,126 @@ it("aborts only the timed-out call at the unchanged deadline and never retries",
   expect(generateText.mock.calls[1][0].abortSignal.aborted).toBe(false);
   expect(generateText).toHaveBeenCalledTimes(2);
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each([
+  [undefined, undefined],
+  [
+    { input_tokens: 100, output_tokens: 5 },
+    { inputTokens: 100, outputTokens: 5 },
+  ],
+  [
+    {
+      input_tokens: 100,
+      output_tokens: 5,
+      input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+    },
+    {
+      inputTokens: 100,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      uncachedInputTokens: 100,
+    },
+  ],
+  [
+    {
+      input_tokens: 100,
+      output_tokens: 5,
+      input_tokens_details: { cached_tokens: 40, cache_write_tokens: 30 },
+    },
+    {
+      inputTokens: 100,
+      outputTokens: 5,
+      cacheReadTokens: 40,
+      cacheWriteTokens: 30,
+      uncachedInputTokens: 30,
+    },
+  ],
+  [
+    { input_tokens: 100, input_tokens_details: { cached_tokens: 40 } },
+    { inputTokens: 100, cacheReadTokens: 40 },
+  ],
+  [
+    {
+      prompt_tokens: 100,
+      completion_tokens: 5,
+      prompt_cache_hit_tokens: 40,
+      prompt_cache_miss_tokens: 60,
+    },
+    {
+      inputTokens: 100,
+      outputTokens: 5,
+      cacheReadTokens: 40,
+      uncachedInputTokens: 60,
+    },
+  ],
+  [
+    { prompt_tokens: 100, completion_tokens: 5 },
+    { inputTokens: 100, outputTokens: 5 },
+  ],
+  [
+    { prompt_tokens: 100, prompt_cache_hit_tokens: 0 },
+    { inputTokens: 100, cacheReadTokens: 0, uncachedInputTokens: 100 },
+  ],
+  [
+    {
+      input_tokens: -1,
+      output_tokens: Infinity,
+      input_tokens_details: { cached_tokens: NaN, cache_write_tokens: -1 },
+    },
+    undefined,
+  ],
+  [
+    { prompt_tokens: 10, prompt_cache_hit_tokens: 20 },
+    { inputTokens: 10, cacheReadTokens: 20 },
+  ],
+])(
+  "normalizes reported usage without manufacturing missing counts: %j",
+  async (raw, expected) => {
+    generateText.mockResolvedValue({
+      text: "ok",
+      usage: raw
+        ? { raw, inputTokens: 0, inputTokenDetails: { cacheReadTokens: 0 } }
+        : undefined,
+    });
+    const result = await createTrainerGeneration("model")({
+      purpose: "planner",
+      system: "policy",
+      prompt: "question",
+    });
+    expect(result.tokenUsage).toEqual(expected);
+    expect(result).not.toHaveProperty("usage");
+    expect(generateText).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("uses SDK-only usage for other providers and never adds step and aggregate counts", async () => {
+  generateText.mockResolvedValue({
+    usage: {
+      inputTokens: 100,
+      outputTokens: 20,
+      inputTokenDetails: {
+        cacheReadTokens: 40,
+        cacheWriteTokens: 10,
+        noCacheTokens: 50,
+      },
+    },
+    totalUsage: { inputTokens: 200 },
+    steps: [{ usage: { inputTokens: 100 } }],
+  });
+  const result = await createTrainerGeneration("model")({
+    purpose: "planner",
+    system: "policy",
+    prompt: "question",
+  });
+  expect(result.tokenUsage).toEqual({
+    inputTokens: 100,
+    outputTokens: 20,
+    cacheReadTokens: 40,
+    cacheWriteTokens: 10,
+    uncachedInputTokens: 50,
+  });
 });
 
 it.each(["sync", "async"])(

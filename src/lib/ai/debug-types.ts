@@ -1,9 +1,19 @@
+export type TrainerTokenUsage = {
+  inputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  /** Ordinary input, excluding both reads and reported writes. */
+  uncachedInputTokens?: number;
+  outputTokens?: number;
+};
+
 export type LlmDebugProviderCallPurpose =
   "planner" | "final_synthesis" | "direct_answer" | "failure_fallback";
 
 export type LlmDebugProviderCall = {
   index: number;
   purpose: LlmDebugProviderCallPurpose;
+  tokenUsage?: TrainerTokenUsage;
   toolCalls?: Array<{ toolName: string; input: unknown; truncated?: boolean }>;
   text?: string;
   unavailable?: string[];

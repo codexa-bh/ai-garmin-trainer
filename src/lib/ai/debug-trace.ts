@@ -88,6 +88,7 @@ function boundedDebugValue(
 export function debugProviderCall(input: {
   index: number;
   purpose: LlmDebugProviderCallPurpose;
+  tokenUsage?: LlmDebugProviderCall["tokenUsage"];
   toolCalls?: TrainerToolCall[];
   text?: string;
   error?: string;
@@ -163,6 +164,7 @@ export function debugProviderCall(input: {
   return {
     index: input.index,
     purpose: input.purpose,
+    ...(input.tokenUsage ? { tokenUsage: input.tokenUsage } : {}),
     ...(toolCalls?.length ? { toolCalls } : {}),
     ...(text ? { text: text.value as string } : {}),
     unavailable: ["raw provider request", "raw provider response"],

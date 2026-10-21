@@ -268,6 +268,40 @@ function contextFixture() {
 }
 
 describe("context factory", () => {
+  it("rebuilds date/profile/transcript and deleted memory without changing trusted policy", async () => {
+    const { ports } = contextFixture();
+    vi.mocked(ports.searchMemories).mockResolvedValueOnce([
+      {
+        id: "m",
+        kind: "saved_preference",
+        text: "synthetic remembered preference",
+      },
+    ]);
+    ports.now = () => new Date("2026-10-21T23:59:59Z");
+    let goals: string[] = [];
+    ports.getTrainerProfile = () => ({
+      goals,
+      sports: [],
+      preferences: {},
+      constraints: [],
+    });
+    const context = createChatContext(ports);
+    const before = await context("hello", [], "c");
+    ports.now = () => new Date("2026-10-22T00:00:01Z");
+    goals = ["synthetic revised goal"];
+    const after = await context("changed request", [], "c");
+    if (typeof before === "string" || typeof after === "string")
+      throw new Error("missing explicit policy/context boundary");
+    expect(after.policy).toBe(before.policy);
+    expect(before.context).toContain("2026-10-21T23:59:59.000Z");
+    expect(after.context).toContain("2026-10-22T00:00:01.000Z");
+    expect(before.context).toContain("synthetic remembered preference");
+    expect(after.context).not.toContain("synthetic remembered preference");
+    expect(after.context).toContain("synthetic revised goal");
+    expect(after.policy).not.toContain("synthetic revised goal");
+    expect(after.policy).toContain("Deleted, expired, disabled");
+    expect(ports.searchMemories).toHaveBeenCalledTimes(2);
+  });
   it("keeps bounded retrieval and post-await read/clock order with request-time context", async () => {
     const { ports, order } = contextFixture();
     const gate = deferred();
@@ -283,7 +317,10 @@ describe("context factory", () => {
     expect(ports.searchMemories).toHaveBeenCalledWith("hello", "c", 8);
     expect(ports.listActivityDetailAvailability).toHaveBeenCalledWith(12);
     gate.resolve();
-    expect(await result).toContain("remembered");
+    expect(await result).toHaveProperty(
+      "context",
+      expect.stringContaining("remembered"),
+    );
     expect(order).toEqual([
       "counts",
       "details",
@@ -297,14 +334,21 @@ describe("context factory", () => {
       "clock",
     ]);
     const second = await context("hello", [], "c");
-    expect(second).toContain(now.toISOString());
-    expect(second).toContain("3 activities, 4 daily health records");
+    expect(second).toHaveProperty(
+      "context",
+      expect.stringContaining(now.toISOString()),
+    );
+    expect(second).toHaveProperty(
+      "context",
+      expect.stringContaining("3 activities, 4 daily health records"),
+    );
   });
   it("falls back on memory rejection but propagates local read failures", async () => {
     const { ports } = contextFixture();
     vi.mocked(ports.searchMemories).mockRejectedValueOnce(new Error("offline"));
-    expect(await createChatContext(ports)("hello", [], "c")).toContain(
-      "No relevant semantic memories retrieved",
+    expect(await createChatContext(ports)("hello", [], "c")).toHaveProperty(
+      "context",
+      expect.stringContaining("No relevant semantic memories retrieved"),
     );
     ports.listRecentActivities = () => {
       throw new Error("storage failed");

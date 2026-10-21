@@ -1,9 +1,11 @@
+import type { TrainerTokenUsage } from "./debug-types";
+import type { TrainerSystemPrompt } from "./trainer-instructions";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolStep } from "./tool-types";
 
 export type TrainerGenerationRequest = {
   purpose: "planner" | "final_synthesis";
-  system: string;
+  system: TrainerSystemPrompt;
   prompt: string;
 };
 
@@ -12,6 +14,7 @@ export type TrainerGenerationRequest = {
 export type TrainerGenerationResult = {
   text?: string;
   toolCalls?: unknown[];
+  tokenUsage?: TrainerTokenUsage;
 };
 export type TrainerGeneration = (
   request: TrainerGenerationRequest,
