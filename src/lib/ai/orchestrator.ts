@@ -528,14 +528,17 @@ async function orchestrateTurn(
         }),
       );
       if (steps.length) {
+        // Exploration failed, but the reserved action-disabled completion can
+        // still explain verified facts and gaps. This never retries actions.
+        const synthesized = await synthesize();
         return finish(
           {
-            text: toolFailureLimitationText(steps),
+            text: synthesized ?? toolFailureLimitationText(steps),
             grounding: groundingForSteps(steps),
             toolSteps: steps,
             providerCalls,
           },
-          "deterministic_fallback",
+          synthesized ? "provider" : "deterministic_fallback",
         );
       }
       return finish(
