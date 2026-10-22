@@ -219,7 +219,7 @@ longer emits that bypass. Terminal tool arguments omit answer/document content i
 debug logs; schema diagnostics retain only validation flags and bounded issue
 codes/paths, and validated answer excerpts retain existing bounded/weekly redaction.
 No database, import, HTTP or UI shape changes; back-sync is a no-op and rollback
-is a source revert. Private source delivery does not restart/install/release.
+is a source revert. Source delivery from the public repository does not restart/install/release.
 
 ## Guarded analytical policy and SQLite execution
 

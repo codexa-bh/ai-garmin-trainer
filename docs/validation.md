@@ -1,9 +1,9 @@
 # Local validation and smoke checklist
 
-Blocking local/private-CI gate: `npm ci && npm run validate`. See
+Blocking local/CI gate: `npm ci && npm run validate`. See
 [project guardrails](project-guardrails.md) for selected lint/SonarJS rules,
 typed async rules, transitive architecture/pure-math boundaries, Knip coverage
-and false-positive handling. Both lint and graph checks are blocking in private
+and false-positive handling. Both lint and graph checks are blocking in GitHub
 CI through the same aggregate command.
 
 Automated validation:

@@ -1,6 +1,6 @@
 # Blocking project guardrails
 
-`npm ci && npm run validate` is the reproducible Node 22 local/private-CI path.
+`npm ci && npm run validate` is the reproducible Node 22 local/CI path.
 Validation runs Prettier, ESLint (zero warnings), the runtime architecture graph,
 Knip, Next type generation and
 strict TypeScript, Vitest, then the production build. Checks do not rewrite

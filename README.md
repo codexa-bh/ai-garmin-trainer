@@ -1,6 +1,6 @@
 # AI Garmin Connect Trainer
 
-A private, local-first training companion: import your Garmin Connect history, explore activity and recovery trends, and chat with a coach grounded in your data.
+A local-first training companion with public source: import your Garmin Connect history, explore activity and recovery trends, and chat with a coach grounded in your data.
 
 - **Trainer chat** — streaming answers using normalized Garmin data, guarded read-only SQL/math tools, and conversation context.
 - **Activity Dashboard** — searchable synced activities with summary stats, heart-rate, elevation, speed, and other available detail charts.
@@ -8,7 +8,7 @@ A private, local-first training companion: import your Garmin Connect history, e
 - **Personalization** — an editable Profile and General Plan, chat-confirmed weekly plans/reviews with original commitments and secondary history, and optional inspectable, editable, deletable semantic memory.
 - **Provider choice** — direct DeepSeek/OpenAI, explicit loopback Ollama chat, or opt-in OpenRouter. Cloud providers receive bounded chat/Garmin context; local storage does not mean all AI processing stays on your machine.
 
-**Local-only, single-user, no app sign-in.** Run on loopback only; do not expose it on your LAN, a public host, or a tunnel. Garmin access uses a pinned **unofficial** connector, not Garmin's official Developer Program APIs; undocumented endpoints may change or stop working. This private source repository is not a public release, deployment, or beta invitation.
+**Local-only, single-user, no app sign-in.** Run on loopback only; do not expose it on your LAN, a public host, or a tunnel. Garmin access uses a pinned **unofficial** connector, not Garmin's official Developer Program APIs; undocumented endpoints may change or stop working. The source repository is public; source availability is not a supported packaged release, deployment, or beta invitation.
 
 [Installation](#installation) · [Runtime/restart guide](docs/local-runtime.md) · [Garmin authentication](docs/garmin-auth.md) · [Safety and privacy](#safety-and-privacy)
 
@@ -44,13 +44,13 @@ Captured on 18 September 2026 from the loopback development app at a 1440-pixel 
 
 ## Installation
 
-This is an advanced-user source setup for **authorized readers of the private repository**. macOS Apple Silicon is the primary prepared platform; Ubuntu LTS still requires reproducibility evidence. Windows and other platforms are not claimed supported. These instructions are cross-checked against the repository scripts, not a certification of clean-machine installation.
+This is an advanced-user source setup from the **public repository**. macOS Apple Silicon is the primary prepared platform; Ubuntu LTS still requires reproducibility evidence. Windows and other platforms are not claimed supported. These instructions are cross-checked against the repository scripts, not a certification of clean-machine installation.
 
 ### 1. Install prerequisites and clone
 
 Install **Git, Node.js 22+ with npm, and Python 3.12-capable `uv`/`uvx`**. Native Node dependencies may require your platform's compiler/build tools. Install Ollama separately only if you choose local chat or local embeddings; bootstrap does not install system software.
 
-Authenticate Git with an account authorized for this private repository, then:
+Clone the public source; no GitHub account or private-repository authorization is required to read or clone it. Pushing changes still requires repository authorization.
 
 ```bash
 git clone https://github.com/codexa-bh/ai-garmin-trainer.git
@@ -162,7 +162,7 @@ Run `npm run validate` for formatting, linting, type checking, tests, and produc
 
 ## Safety and privacy
 
-- Source control stays in the private repository `https://github.com/codexa-bh/ai-garmin-trainer` for backup/collaboration only. This does not authorize public hosting, LAN exposure, deployment, release, or beta invitations.
+- Source is publicly available at `https://github.com/codexa-bh/ai-garmin-trainer`. Public source availability does not authorize public hosting, LAN exposure, deployment, release, or beta invitations; local data and credentials must remain private.
 - Local app access has no sign-in gate; loopback/private operation and local secret handling are required.
 - Garmin access is local-only through stdio to a pinned unofficial connector; HTTP transport and connector write operations are not used.
 - The selected cloud AI provider receives bounded chat/Garmin context. Review provider privacy/routing settings; local SQLite storage is not an assurance of fully local processing.
