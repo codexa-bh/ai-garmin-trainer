@@ -236,6 +236,7 @@ Responsibilities:
 - send a live budget snapshot on every planning call, counting that call before rendering remaining capacity; successful schema/SQL/math quotas are separate, and failed queries do not consume those successful quotas;
 - reserve one provider execution for action-disabled final synthesis (only the terminal response tool remains), stopping exploration/batches before they consume it; reuse current-turn evidence and distinguish verified facts, user statements, general coaching and missing evidence;
 - count actual admitted tool attempts separately from synthetic skipped-selection/budget diagnostics; diagnostics remain visible in grounding but do not represent executed tools;
+- on a planner exception after executed evidence, use the existing admitted action-disabled final-answer reserve once to explain supported facts and gaps; first-call failures without evidence still return immediately;
 - route missing/malformed/failed/timed-out terminal synthesis to bounded truthful prose without another call or a mandatory narrower follow-up; wrap-up never replays side effects;
 - pass only server-authored bounded evidence into follow-up planning/synthesis;
 - require a strict `completeTrainerTurn` response declaration; validate declared metric cells and non-analytical outcomes against exact successful current-turn execution, never words in user/model prose;

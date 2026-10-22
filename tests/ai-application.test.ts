@@ -50,7 +50,11 @@ function rows(value: number): AnalysisResult {
 const call = (toolName: string, input: unknown = {}) => ({
   toolCalls: [{ toolName, input }],
 });
-function scripted(results: TrainerGenerationResult[], ports = capabilities()) {
+function scripted(
+  results: (TrainerGenerationResult | Error)[],
+  ports = capabilities(),
+  currentDate = "2026-10-19",
+) {
   const requests: TrainerGenerationRequest[] = [];
   const executions: TrainerToolExecutionInput[] = [];
   const run = () =>
@@ -58,7 +62,7 @@ function scripted(results: TrainerGenerationResult[], ports = capabilities()) {
       {
         system: "system",
         userRequest: "Explain evidence",
-        turnContext: { currentDate: "2026-10-19" },
+        turnContext: { currentDate },
         debug: { enabled: true },
       },
       {
@@ -66,6 +70,7 @@ function scripted(results: TrainerGenerationResult[], ports = capabilities()) {
           requests.push(request);
           const next = results.shift();
           if (!next) throw new Error("unexpected generation");
+          if (next instanceof Error) return Promise.reject(next);
           return Promise.resolve(next);
         },
         executeTool: (input) => {
@@ -221,6 +226,174 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
       toolsUnsuccessful: 1,
     });
     expect(result.text).toContain("fourteen");
+  });
+
+  it.each([false, true])(
+    "completes after rejected math and successful detail (corrected math: %s)",
+    async (corrected) => {
+      const ports = capabilities();
+      ports.analytics.runReadOnlySql = () => rows(7);
+      ports.localData.getActivityByGarminId = () => ({
+        garminId: "synthetic",
+        name: "Synthetic activity",
+        sport: "hiking",
+        startedAt: new Date("2026-10-22T10:00:00Z"),
+        durationSec: 3600,
+        distanceMeters: 6000,
+        calories: null,
+        avgHeartRate: 130,
+        maxHeartRate: null,
+        steps: null,
+        elevationGainMeters: null,
+        elevationLossMeters: null,
+        trainingEffect: null,
+      });
+      ports.localData.getActivityDetailForAnalytics = () => ({
+        activity: null,
+        availability: null,
+        session: null,
+        derived: null,
+        laps: [],
+        stream: [],
+      });
+      const test = scripted(
+        [
+          call("runReadOnlySql", { sql: "select 7 as value" }),
+          call("runMathAnalysis", {
+            inputResult: "facts",
+            operation: "score",
+            formula: "missing_metric",
+          }),
+          call("getActivityDetailSlice", { garminId: "synthetic" }),
+          corrected
+            ? call("runMathAnalysis", {
+                inputResult: "facts",
+                operation: "score",
+                formula: "value * 2",
+                outputName: "scores",
+              })
+            : new Error("synthetic planner failure"),
+          corrected
+            ? grounded("The calculated value is fourteen.", [
+                metric(4, "scores", "score", 14),
+              ])
+            : completion({
+                kind: "incomplete",
+                answer:
+                  "The recorded value is seven; moving-time analysis is unavailable.",
+                claims: [metric(1, "facts", "value", 7)],
+                missingEvidence: ["moving time"],
+              }),
+        ],
+        ports,
+        "2026-10-22",
+      );
+      const result = await test.run();
+      expect(test.requests[0].system).toContain('"currentDate":"2026-10-22"');
+      expect(result.text).toBe(
+        corrected
+          ? "The calculated value is fourteen."
+          : "The recorded value is seven; moving-time analysis is unavailable.",
+      );
+      expect(result.toolSteps.map((s) => [s.tool, s.status])).toEqual([
+        ["runReadOnlySql", "succeeded"],
+        ["runMathAnalysis", "rejected"],
+        ["getActivityDetailSlice", "succeeded"],
+        ...(corrected ? [["runMathAnalysis", "succeeded"]] : []),
+      ]);
+      expect(result.toolSteps[1].correctionAllowed).toBe(true);
+      expect(test.requests.map((r) => r.purpose)).toEqual([
+        "planner",
+        "planner",
+        "planner",
+        "planner",
+        corrected ? "planner" : "final_synthesis",
+      ]);
+      expect(test.requests.at(-1)?.system).toContain("unknown_column");
+      expect(test.requests.at(-1)?.system).toContain('"value":7');
+      expect(result.progressCounters).toEqual({
+        modelCalls: 5,
+        toolsSucceeded: corrected ? 3 : 2,
+        toolsUnsuccessful: 1,
+      });
+      expect(result.debugTrace?.finalAnswerSource).toBe("provider");
+      expect(result.debugTrace?.providerCalls.some((c) => c.error)).toBe(
+        !corrected,
+      );
+      expect(test.executions[0].context.analysisResults.size).toBe(0);
+    },
+  );
+
+  it.each([
+    new Error("synthetic completion timeout"),
+    { text: "unvalidated plain prose" },
+    {
+      toolCalls: [{ toolName: "runReadOnlySql", input: { sql: "select 99" } }],
+    },
+    grounded("Must not certify failed math", [metric(1, "facts", "value", 7)]),
+    completion({
+      kind: "incomplete",
+      answer: "Wrong cell",
+      claims: [metric(1, "facts", "value", 99)],
+      missingEvidence: ["moving time"],
+    }),
+  ])(
+    "keeps planner-error synthesis fail closed and never retries: %j",
+    async (final) => {
+      const ports = capabilities();
+      ports.analytics.runReadOnlySql = () => rows(7);
+      const test = scripted(
+        [
+          call("runReadOnlySql", { sql: "select 7 as value" }),
+          call("runMathAnalysis", {
+            inputResult: "facts",
+            operation: "score",
+            formula: "missing_metric",
+          }),
+          new Error("synthetic planner timeout"),
+          final,
+        ],
+        ports,
+      );
+      const result = await test.run();
+      expect(result.text).toContain("unknown_column");
+      expect(result.debugTrace?.finalAnswerSource).toBe(
+        "deterministic_fallback",
+      );
+      expect(result.providerCalls).toBe(4);
+      expect(test.executions.map((e) => e.toolName)).toEqual([
+        "runReadOnlySql",
+        "runMathAnalysis",
+      ]);
+      expect(test.requests.at(-1)?.purpose).toBe("final_synthesis");
+    },
+  );
+
+  it("uses only the last reserved execution when exploration throws at the hard boundary", async () => {
+    const ports = capabilities();
+    ports.analytics.runReadOnlySql = () => rows(7);
+    const test = scripted(
+      [
+        ...Array.from({ length: 14 }, () =>
+          call("runReadOnlySql", { sql: "select 7 as value" }),
+        ),
+        new Error("synthetic last planner failure"),
+        grounded("The value is seven.", [metric(14, "facts", "value", 7)]),
+      ],
+      ports,
+    );
+    const result = await test.run();
+    expect(result.text).toBe("The value is seven.");
+    expect(result.providerCalls + test.executions.length).toBe(30);
+    expect(test.requests.at(-1)?.purpose).toBe("final_synthesis");
+  });
+
+  it("does not retry a first-call provider failure with no executed evidence", async () => {
+    const test = scripted([new Error("synthetic unavailable provider")]);
+    const result = await test.run();
+    expect(result.providerCalls).toBe(1);
+    expect(test.executions).toEqual([]);
+    expect(result.text).toContain("No Garmin tool was executed");
   });
 
   it("ends unchanged math failures with supported partial incomplete synthesis", async () => {
@@ -567,27 +740,45 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
     expect(JSON.stringify(result)).not.toContain("secret connector failure");
   });
 
-  it("never replays an attempted plan side effect", async () => {
-    const ports = capabilities();
-    let writes = 0;
-    ports.trainingPlan.saveGuarded = () => {
-      writes++;
-      return {
-        ok: true,
-        plan: {
-          title: "Plan",
-          contentMarkdown: "New plan",
-          revisedAt: "2026-09-21T00:00:00Z",
-        },
+  it.each([false, true])(
+    "never replays an attempted plan side effect (planner failure: %s)",
+    async (plannerFailure) => {
+      const ports = capabilities();
+      let writes = 0;
+      ports.trainingPlan.saveGuarded = () => {
+        writes++;
+        return {
+          ok: true,
+          plan: {
+            title: "Plan",
+            contentMarkdown: "New plan",
+            revisedAt: "2026-09-21T00:00:00Z",
+          },
+        };
       };
-    };
-    const save = call("saveTrainingPlan", { contentMarkdown: "New plan" });
-    const test = scripted([save, save], ports);
-    const result = await test.run();
-    expect(writes).toBe(1);
-    expect(result.toolSteps.at(-1)?.reason).toBe("duplicate_side_effect");
-    expect(result.progressCounters.toolsSucceeded).toBe(1);
-  });
+      const save = call("saveTrainingPlan", { contentMarkdown: "New plan" });
+      const test = scripted(
+        plannerFailure
+          ? [save, new Error("synthetic planner failure after save"), save]
+          : [save, save],
+        ports,
+      );
+      const result = await test.run();
+      expect(writes).toBe(1);
+      if (plannerFailure) {
+        expect(test.requests.map((r) => r.purpose)).toEqual([
+          "planner",
+          "planner",
+          "final_synthesis",
+        ]);
+        expect(result.toolSteps).toHaveLength(1);
+        expect(result.text).toContain("Already saved: saveTrainingPlan");
+      } else {
+        expect(result.toolSteps.at(-1)?.reason).toBe("duplicate_side_effect");
+      }
+      expect(result.progressCounters.toolsSucceeded).toBe(1);
+    },
+  );
 
   it("isolates overlapping turns and disposes handles on an injected thrown exit", async () => {
     let release!: () => void;
