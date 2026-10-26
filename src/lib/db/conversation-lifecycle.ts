@@ -8,6 +8,11 @@ export function deleteConversation(id = DEFAULT_CONVERSATION_ID): boolean {
   const conversationId = safeConversationId(id);
   const db = getDatabase();
   const changes = db.transaction(() => {
+    // Keep a small tombstone: clearing/deleting history must not re-admit titles.
+    db.prepare(
+      `insert into conversation_title_attempt (conversation_id) values (?)
+      on conflict(conversation_id) do update set pending = 0, claimed = 1`,
+    ).run(conversationId);
     db.prepare("delete from weekly_proposal where conversation_id = ?").run(
       conversationId,
     );

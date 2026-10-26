@@ -46,6 +46,8 @@ include erased contracts without treating them as runtime execution or cycles.
 
 The `model-settings` feature owns plain catalog/contracts and supplied-port preference application. Its lazy composition binds existing app metadata, placeholder-aware server configuration and exact chat-only provider construction. `/api/model-settings` consumes that composition; `chat/composition` snapshots its selection once before context awaits. No migration, provider probing, env mutation or extraction/embedding change is introduced. Focused `model-settings*` suites cover key/validation/persistence/redaction/UI and overlapping production turn binding.
 
+First-prompt titles use chat-owned application ports, `chat/title-adapter` and the existing memory-extraction model selector, not ingestion or Trainer preferences. A synchronous message transaction reserves the first eligible message in `conversation_title_attempt`; one conditional claim admits generation. Next.js `after()` owns the bounded post-response work for both HTTP modes. Guarded SQL applies only to that surviving message's unchanged automatic excerpt, never a manual title, without changing recency. Clear/delete preserve small admission tombstones. Optional list `titlePending` metadata and the response `x-chat-title-pending` header drive at most four existing-list refetches; settlement/navigation/unmount stop further reads. See [title behavior and migration](memory.md#first-prompt-chat-titles), `conversation-title*` and chat-boundary tests.
+
 All HTTP route families consume feature composition. `chat/delivery` owns
 JSON/NDJSON transport; debug configuration is obtained request-time through the
 existing conversation application port, not directly from env. The DB repository

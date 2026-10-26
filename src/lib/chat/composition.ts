@@ -4,6 +4,8 @@ import { orchestrateTrainerChat } from "@/lib/ai/composition";
 import { selectedTrainerModel } from "@/lib/model-settings/composition";
 import {
   appendChatMessage,
+  claimConversationTitle,
+  finishConversationTitle,
   ensureConversation,
   listRecentChatMessages,
 } from "@/lib/db/conversation-repository";
@@ -21,6 +23,7 @@ import { trainerProfile } from "@/lib/profile/composition";
 import { LOCAL_MEMORY_USER_ID } from "@/lib/memory/types";
 import { createChatContext } from "./context";
 import { createChatTurns } from "./turn";
+import { generateConversationTitle } from "./title-adapter";
 
 // Factories bind capabilities only. DB, memory, environment and provider reads
 // stay at their original request-time boundaries, never at composition/import.
@@ -42,34 +45,41 @@ const buildSystemContext = createChatContext({
     ),
 });
 
-export const { prepareChatTurn, generateChatTurn, completeChatTurn } =
-  createChatTurns({
-    currentDate: () => new Date().toISOString().slice(0, 10),
-    weeklyContext: weekly.context,
-    appendChatMessage,
-    ensureConversation,
-    listRecentChatMessages,
-    buildSystemContext,
-    fallbackDebugTrace: fallbackLlmDebugTrace,
-    addCompletedTurn: (input) => trainerMemoryStore().addCompletedTurn(input),
-    selectGeneration: () => {
-      const { model, provider, modelName } = selectedTrainerModel();
-      return ({
+export const {
+  prepareChatTurn,
+  generateChatTurn,
+  completeChatTurn,
+  completeConversationTitle,
+} = createChatTurns({
+  claimConversationTitle,
+  finishConversationTitle,
+  generateConversationTitle,
+  currentDate: () => new Date().toISOString().slice(0, 10),
+  weeklyContext: weekly.context,
+  appendChatMessage,
+  ensureConversation,
+  listRecentChatMessages,
+  buildSystemContext,
+  fallbackDebugTrace: fallbackLlmDebugTrace,
+  addCompletedTurn: (input) => trainerMemoryStore().addCompletedTurn(input),
+  selectGeneration: () => {
+    const { model, provider, modelName } = selectedTrainerModel();
+    return ({
+      system,
+      userRequest,
+      weeklyTurn,
+      turnContext,
+      onStatus,
+      debugTraceEnabled,
+    }) =>
+      orchestrateTrainerChat({
+        model,
         system,
         userRequest,
         weeklyTurn,
         turnContext,
-        onStatus,
-        debugTraceEnabled,
-      }) =>
-        orchestrateTrainerChat({
-          model,
-          system,
-          userRequest,
-          weeklyTurn,
-          turnContext,
-          ...(onStatus ? { onStatus } : {}),
-          debug: { enabled: debugTraceEnabled, provider, model: modelName },
-        });
-    },
-  });
+        ...(onStatus ? { onStatus } : {}),
+        debug: { enabled: debugTraceEnabled, provider, model: modelName },
+      });
+  },
+});

@@ -76,6 +76,7 @@ const groups = [
     ["contracts", "context-ports", "conversation-policy", "ports"],
   ],
   ["chat", "application", "lib/chat", ["context", "conversations", "turn"]],
+  ["chat", "adapter", "lib/chat", ["title-adapter"]],
   [
     "chat",
     "composition",

@@ -8,6 +8,10 @@ const f = vi.hoisted(() => ({
   messages: [] as StoredChatMessage[],
   order: [] as string[],
   debug: true,
+  titleClaim: vi.fn(),
+  titleGenerate: vi.fn(),
+  titleFinish: vi.fn(),
+  afterCallbacks: [] as (() => Promise<void>)[],
   selected: vi.fn(),
   context: vi.fn(),
   weeklyContext: vi.fn(),
@@ -20,6 +24,13 @@ const f = vi.hoisted(() => ({
     vi.fn<
       (input: ComposedTrainerChatInput) => Promise<OrchestrateTrainerChatResult>
     >(),
+}));
+vi.mock("next/server", async (original) => ({
+  ...(await original<typeof import("next/server")>()),
+  after: (callback: () => Promise<void>) => f.afterCallbacks.push(callback),
+}));
+vi.mock("@/lib/chat/title-adapter", () => ({
+  generateConversationTitle: f.titleGenerate,
 }));
 vi.mock("@/lib/weekly/composition", () => ({
   weekly: { context: f.weeklyContext, bindDisplayed: f.bindWeekly },
@@ -72,6 +83,8 @@ vi.mock("@/lib/db/conversation-lifecycle", () => ({
   clearConversationHistory: vi.fn(),
 }));
 vi.mock("@/lib/db/conversation-repository", () => ({
+  claimConversationTitle: f.titleClaim,
+  finishConversationTitle: f.titleFinish,
   safeConversationId: (value?: string) => value?.trim() || "default",
   ensureConversation: () => {
     f.order.push("ensure");
@@ -165,6 +178,9 @@ beforeEach(() => {
   f.messages = [];
   f.order = [];
   f.debug = true;
+  f.titleClaim.mockReturnValue(false);
+  f.titleGenerate.mockResolvedValue(null);
+  f.afterCallbacks = [];
   f.weeklyContext.mockReturnValue(null);
   f.selected.mockImplementation(() => {
     f.order.push("select");
@@ -338,6 +354,42 @@ describe("chat application production wiring", () => {
 });
 
 describe("chat delivery compatibility (real route/application wiring)", () => {
+  it.each([false, true])(
+    "finishes answer delivery with an unresolved owned title operation (stream=%s)",
+    async (stream) => {
+      const gate = deferred();
+      f.titleClaim.mockReturnValue(true);
+      f.titleGenerate.mockImplementation(async () => {
+        await gate.promise;
+        return "Generated title";
+      });
+      const response = await post({ message: "hello", stream });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-chat-title-pending")).toBe("true");
+      expect(f.afterCallbacks).toHaveLength(1);
+      const completion = f.afterCallbacks[0]();
+      const body = await response.text();
+      expect(body).toContain(stream ? '"type":"done"' : '"assistant"');
+      expect(f.messages.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+      ]);
+      expect(f.titleFinish).not.toHaveBeenCalled();
+      gate.resolve();
+      await completion;
+      expect(f.titleFinish).toHaveBeenCalledWith(
+        f.messages[0],
+        "Generated title",
+      );
+    },
+  );
+
+  it("does not schedule a title for a rejected blank request", async () => {
+    expect((await post({ message: "   " })).status).toBe(400);
+    expect(f.titleClaim).not.toHaveBeenCalled();
+    expect(f.afterCallbacks).toHaveLength(0);
+  });
+
   it("defers context reads until semantic retrieval settles", async () => {
     const gate = deferred();
     const started = deferred();

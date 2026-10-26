@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 16;
+export const LATEST_SCHEMA_VERSION = 17;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -231,6 +231,13 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     version: 16,
     name: "weekly_plans_and_reviews",
     statements: WEEKLY_SCHEMA_SQL,
+  },
+  {
+    version: 17,
+    name: "conversation_title_attempt",
+    statements: [
+      `create table if not exists conversation_title_attempt (conversation_id text primary key, message_id text, claimed integer not null default 1, pending integer not null default 0)`,
+    ],
   },
 ];
 

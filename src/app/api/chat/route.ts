@@ -1,9 +1,12 @@
 import { validTimeZone } from "@/lib/weekly/calendar";
 import type { UIMessage } from "ai";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { activeTranscriptContext } from "@/lib/chat/context";
 import { CHAT_HISTORY_LIMIT } from "@/lib/chat/turn";
-import { prepareChatTurn } from "@/lib/chat/composition";
+import {
+  prepareChatTurn,
+  completeConversationTitle,
+} from "@/lib/chat/composition";
 import { conversations } from "@/lib/chat/conversation-composition";
 import { safeConversationId } from "@/lib/chat/conversation-policy";
 import {
@@ -95,15 +98,30 @@ export async function POST(request: Request) {
     if (body.timeZone !== undefined && !validTimeZone(body.timeZone))
       return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
     const turn = prepareChatTurn(conversationId, latestMessage, body.timeZone);
+    if (turn.titleAdmitted)
+      after(async () => {
+        try {
+          await completeConversationTitle(turn);
+        } catch {
+          console.warn(
+            "Chat title: background completion failed; excerpt retained.",
+          );
+        }
+      });
+    let response: Response;
     if (body.stream === true) {
-      return streamingResponse({
+      response = streamingResponse({
         ...turn,
         memoryProposal: { status: "none" },
         requestSignal: request.signal,
         debugTraceEnabled,
       });
+    } else {
+      response = await jsonResponse(turn, debugTraceEnabled);
     }
-    return await jsonResponse(turn, debugTraceEnabled);
+    if (turn.titleAdmitted)
+      response.headers.set("x-chat-title-pending", "true");
+    return response;
   } catch (error) {
     return NextResponse.json(
       { error: safeChatFailureMessage(error) },

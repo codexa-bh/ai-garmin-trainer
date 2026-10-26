@@ -3,7 +3,7 @@ import {
   type TrainerProgress,
 } from "@/lib/ai/trainer-progress";
 import type { Dispatch, SetStateAction } from "react";
-import { useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   type ChatMessage,
   type ChatPayload,
@@ -88,6 +88,23 @@ export function useChatFeature({
   const chatHistoryRequestRef = useRef(0);
 
   const chatAbortRef = useRef<AbortController | null>(null);
+  const titleRefreshRef = useRef<{
+    timer?: ReturnType<typeof setTimeout>;
+    cancelled: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    const lifetime = { cancelled: false };
+    titleRefreshRef.current = lifetime;
+    return () => {
+      lifetime.cancelled = true;
+      const refresh = titleRefreshRef.current;
+      if (refresh) {
+        refresh.cancelled = true;
+        clearTimeout(refresh.timer);
+      }
+    };
+  }, [conversationId]);
 
   const renameInputRef = useRef<HTMLInputElement>(null);
 
@@ -150,6 +167,7 @@ export function useChatFeature({
           kind: "ok",
           message: `Conversations: loaded ${payload.conversations?.length ?? 0} local conversations.`,
         });
+      return reconciled;
     } catch (error) {
       if (showStatus)
         setStatus({
@@ -157,6 +175,37 @@ export function useChatFeature({
           message: `Conversation list failed: ${error instanceof Error ? error.message : "unknown error"}`,
         });
     }
+  }
+
+  function refreshPendingTitle(id: string) {
+    const previous = titleRefreshRef.current;
+    if (previous) {
+      previous.cancelled = true;
+      clearTimeout(previous.timer);
+    }
+    const refresh = {
+      cancelled: false,
+      timer: undefined as ReturnType<typeof setTimeout> | undefined,
+    };
+    titleRefreshRef.current = refresh;
+    // after() starts after response delivery. Stop on settlement, navigation,
+    // unmount, or four reads over five seconds, even after a server shutdown.
+    const delays = [250, 750, 1500, 2500];
+    function schedule(index: number) {
+      if (refresh.cancelled || index >= delays.length) return;
+      refresh.timer = setTimeout(() => {
+        runInBackground(
+          loadConversations(false).then((items) => {
+            if (
+              !refresh.cancelled &&
+              items?.find((item) => item.id === id)?.titlePending
+            )
+              schedule(index + 1);
+          }),
+        );
+      }, delays[index]);
+    }
+    schedule(0);
   }
 
   async function selectConversation(id: string) {
@@ -450,6 +499,8 @@ export function useChatFeature({
     const pendingAssistantId = `streaming-assistant-${Date.now()}`;
     let assistantDraft = "";
     let acceptsProgress = true;
+    let titlePending = false;
+    const titleRefreshOwner = titleRefreshRef.current;
     chatHistoryRequestRef.current += 1;
     const controller = new AbortController();
     chatAbortRef.current = controller;
@@ -564,6 +615,7 @@ export function useChatFeature({
         }),
         signal: controller.signal,
       });
+      titlePending = response.headers.get("x-chat-title-pending") === "true";
       if (!response.ok || !response.body) {
         const body = await readResponse(response);
         throw new Error(body);
@@ -575,6 +627,7 @@ export function useChatFeature({
         setChatPendingStatus(null);
         setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled === true);
         if (payload.memoryProposal) runInBackground(loadMemories(false));
+        runInBackground(loadConversations(false));
         if (
           payload.toolEvidence?.toolSteps?.some(
             (step) =>
@@ -627,6 +680,8 @@ export function useChatFeature({
           : `Chat failed: ${error instanceof Error ? error.message : "unknown error"}`,
       });
     } finally {
+      if (titlePending && titleRefreshOwner && !titleRefreshOwner.cancelled)
+        refreshPendingTitle(conversationId);
       if (chatAbortRef.current === controller) {
         chatAbortRef.current = null;
         setChatPendingStatus(null);

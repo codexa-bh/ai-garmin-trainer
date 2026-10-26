@@ -53,6 +53,7 @@ type StoredConversationRow = {
   title: string;
   createdAt: number;
   updatedAt: number;
+  titlePending?: number;
 };
 
 function parseGrounding(value: string | null): ChatGrounding | null {
@@ -159,6 +160,9 @@ function mapStoredConversation(row: StoredConversationRow): StoredConversation {
     title: row.title,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),
+    ...(row.titlePending === undefined
+      ? {}
+      : { titlePending: row.titlePending === 1 }),
   };
 }
 
@@ -229,9 +233,10 @@ export function listConversations(limit = 40): ConversationSummary[] {
   const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 80);
   const rows = getDatabase()
     .prepare(
-      `select id, title, created_at as createdAt, updated_at as updatedAt
-       from conversation
-       order by updated_at desc, id desc
+      `select c.id, c.title, c.created_at as createdAt, c.updated_at as updatedAt,
+          coalesce(a.pending, 0) as titlePending
+       from conversation c left join conversation_title_attempt a on a.conversation_id = c.id
+       order by c.updated_at desc, c.id desc
        limit ?`,
     )
     .all(safeLimit) as StoredConversationRow[];
@@ -279,6 +284,51 @@ function retitleInitialConversationIfNeeded(
   getDatabase()
     .prepare("update conversation set title = ?, updated_at = ? where id = ?")
     .run(initialConversationTitle(content), createdAt, conversationId);
+  getDatabase()
+    .prepare(
+      `insert into conversation_title_attempt (conversation_id, message_id, claimed, pending)
+     select ?, id, 0, 0 from message where conversation_id = ?
+     on conflict(conversation_id) do nothing`,
+    )
+    .run(conversationId, conversationId);
+}
+
+// A durable reservation is created only by the first generic-title fallback.
+// Claiming it once prevents retries/overlapping requests from scheduling twice.
+export function claimConversationTitle(message: StoredChatMessage): boolean {
+  return (
+    getDatabase()
+      .prepare(
+        `update conversation_title_attempt set claimed = 1, pending = 1
+     where conversation_id = ? and message_id = ? and claimed = 0`,
+      )
+      .run(message.conversationId, message.id).changes === 1
+  );
+}
+
+export function finishConversationTitle(
+  message: StoredChatMessage,
+  title: string | null,
+): void {
+  const db = getDatabase();
+  db.transaction(() => {
+    if (title)
+      db.prepare(
+        `update conversation set title = ?
+       where id = ? and manual_title = 0 and title = ?
+       and exists (select 1 from conversation_title_attempt a join message m on m.id = a.message_id
+         where a.conversation_id = conversation.id and a.message_id = ? and a.pending = 1
+         and m.conversation_id = conversation.id and m.role = 'user')`,
+      ).run(
+        normalizeConversationTitle(title),
+        message.conversationId,
+        initialConversationTitle(message.content),
+        message.id,
+      );
+    db.prepare(
+      `update conversation_title_attempt set pending = 0 where conversation_id = ? and message_id = ?`,
+    ).run(message.conversationId, message.id);
+  })();
 }
 
 export function appendChatMessage(input: {
@@ -287,40 +337,42 @@ export function appendChatMessage(input: {
   content: string;
   grounding?: ChatGrounding | null;
 }): StoredChatMessage {
-  const conversationId = safeConversationId(input.conversationId);
-  ensureConversation(conversationId, input.content.slice(0, 80));
-  const createdAt = nextChatMessageTimestamp();
-  const id = `${conversationId}-${input.role}-${createdAt}-${Math.random().toString(36).slice(2, 10)}`;
-  getDatabase()
-    .prepare(
-      `insert into message (id, conversation_id, role, content, grounding_json, created_at)
+  return getDatabase().transaction(() => {
+    const conversationId = safeConversationId(input.conversationId);
+    ensureConversation(conversationId, "New chat");
+    const createdAt = nextChatMessageTimestamp();
+    const id = `${conversationId}-${input.role}-${createdAt}-${Math.random().toString(36).slice(2, 10)}`;
+    getDatabase()
+      .prepare(
+        `insert into message (id, conversation_id, role, content, grounding_json, created_at)
        values (?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      id,
+      )
+      .run(
+        id,
+        conversationId,
+        input.role,
+        input.content.slice(0, 12000),
+        groundingJsonForStorage(input.grounding),
+        createdAt,
+      );
+    retitleInitialConversationIfNeeded(
       conversationId,
       input.role,
-      input.content.slice(0, 12000),
-      groundingJsonForStorage(input.grounding),
+      input.content,
       createdAt,
     );
-  retitleInitialConversationIfNeeded(
-    conversationId,
-    input.role,
-    input.content,
-    createdAt,
-  );
-  getDatabase()
-    .prepare("update conversation set updated_at = ? where id = ?")
-    .run(createdAt, conversationId);
-  return {
-    id,
-    conversationId,
-    role: input.role,
-    content: input.content.slice(0, 12000),
-    grounding: input.grounding ?? null,
-    createdAt: new Date(createdAt),
-  };
+    getDatabase()
+      .prepare("update conversation set updated_at = ? where id = ?")
+      .run(createdAt, conversationId);
+    return {
+      id,
+      conversationId,
+      role: input.role,
+      content: input.content.slice(0, 12000),
+      grounding: input.grounding ?? null,
+      createdAt: new Date(createdAt),
+    };
+  })();
 }
 
 export function listRecentChatMessages(

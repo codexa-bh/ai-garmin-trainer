@@ -129,7 +129,10 @@ it("preserves migration data, creates no history, is idempotent and detects week
     "insert into training_plan values ('default','General','Operator template',1,1)",
   ).run();
   const before = db.prepare("select * from training_plan").all();
-  expect(migrateDatabase(db).applied).toEqual(["16:weekly_plans_and_reviews"]);
+  expect(migrateDatabase(db).applied).toEqual([
+    "16:weekly_plans_and_reviews",
+    "17:conversation_title_attempt",
+  ]);
   expect(db.prepare("select * from training_plan").all()).toEqual(before);
   expect(app.history("2026-09-28").items).toEqual([]);
   expect(migrateDatabase(db).applied).toEqual([]);

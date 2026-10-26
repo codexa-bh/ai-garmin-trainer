@@ -6,6 +6,9 @@ function conversationSummary(item: StoredConversation) {
   return {
     id: item.id,
     title: item.title,
+    ...(item.titlePending === undefined
+      ? {}
+      : { titlePending: item.titlePending }),
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),
   };
