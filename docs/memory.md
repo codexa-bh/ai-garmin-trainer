@@ -39,6 +39,14 @@ Memory extraction defaults to `MEMORY_EXTRACTION_MODE=llm`: after a completed tu
 
 `npm run doctor -- --json` reports the selected chat provider, fallback mode, Ollama chat readiness when `AI_PROVIDER=ollama`, and memory readiness, including Ollama daemon/model remediation, without printing keys, base URLs, prompts, raw transcripts, vectors, or local file contents.
 
+## First-prompt chat titles
+
+New chats use the existing DeepSeek/OpenAI extraction selector for one best-effort descriptive title in the first prompt's language, independently of `MEMORY_ENABLED`, extraction mode and the runtime Trainer preference. This is not memory ingestion: only the first prompt's 2000-character prefix is sent with title-only instructions, no tools or retrieved context, no SDK retries and a 3000ms abortable deadline. Missing selection, timeout or invalid output leaves the immediate prompt excerpt.
+
+Title completion is owned by Next.js `after()` outside both JSON and stream answer delivery. A durable first-message reservation prevents retries and clear/delete/recreate from admitting another attempt. Manual/custom names win, stale deleted/cleared messages cannot apply, and late metadata does not change conversation recency. The existing list refreshes a bounded number of times for pending titles without replacing selection or transcript. Shutdown can lose this best-effort work; there is no retry queue or historical retitling.
+
+Schema migration 17 adds only the title-attempt identity/claim table. It needs no data backfill and does not modify historical titles. Apply the normal backed-up migration procedure before running updated source against an existing DB; source delivery does not migrate/restart a running primary app.
+
 ## Privacy and controls
 
 Memory ingestion runs only after a complete assistant answer has been persisted. It stores zero or more concise user-derived candidates for explicit preferences, goals, corrections, recurring constraints, or useful temporary plans; low-value transient turns commonly create no memory. The stored text is capped for inspectability and remains user-authorized: the latest user message is the primary source, and the previous assistant excerpt may only disambiguate an explicit user confirmation/selection/correction. The app does not store assistant prose, assistant-authored coaching conclusions, or Garmin/tool facts as semantic memory. Model-assisted extraction is lower-authority than server rules: deterministic filters reject credential-like text, raw Garmin/FIT/connector payloads, precise stream/location markers, policy/prompt-injection text, assistant/tool prose, model-inferred Garmin facts, and medical/sensitive inferences before storage or embedding. Retrieved memories are labelled as user-derived cross-session context and are lower authority than current user corrections, the active chat transcript, Profile, and Garmin/tool evidence.

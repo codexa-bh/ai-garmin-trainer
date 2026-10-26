@@ -3,6 +3,11 @@ import { getDatabase } from "./connection";
 export function clearChatAndProfile(): string[] {
   const db = getDatabase();
   db.transaction(() => {
+    db.prepare(
+      `insert into conversation_title_attempt (conversation_id)
+      select id from conversation where true
+      on conflict(conversation_id) do update set pending = 0, claimed = 1`,
+    ).run();
     db.prepare("delete from weekly_proposal").run();
     db.prepare("delete from message").run();
     db.prepare("delete from conversation").run();

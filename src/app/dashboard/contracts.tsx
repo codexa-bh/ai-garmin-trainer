@@ -70,6 +70,7 @@ type MemoryProposalResult =
   | { status: "skipped"; reason: string };
 
 export type ConversationSummary = {
+  titlePending?: boolean;
   id: string;
   title: string;
   createdAt: string;

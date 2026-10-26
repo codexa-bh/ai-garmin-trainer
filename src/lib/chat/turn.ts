@@ -16,6 +16,7 @@ export type PreparedChatTurn = {
   timeZone?: string;
   previousMessages: StoredChatMessage[];
   userRecord: StoredChatMessage;
+  titleAdmitted?: boolean;
 };
 
 export type ChatTurnAnswer =
@@ -41,7 +42,7 @@ export function createChatTurns(ports: ChatTurnPorts) {
     latestMessage: string,
     timeZone?: string,
   ): PreparedChatTurn {
-    ensureConversation(conversationId, latestMessage.slice(0, 80));
+    ensureConversation(conversationId, "New chat");
     const previousMessages = listRecentChatMessages(
       conversationId,
       CHAT_HISTORY_LIMIT,
@@ -56,6 +57,9 @@ export function createChatTurns(ports: ChatTurnPorts) {
       latestMessage,
       previousMessages,
       userRecord,
+      ...(ports.claimConversationTitle?.(userRecord)
+        ? { titleAdmitted: true }
+        : {}),
       ...(timeZone ? { timeZone } : {}),
     };
   }
@@ -160,7 +164,26 @@ export function createChatTurns(ports: ChatTurnPorts) {
     return { assistantRecord, messages };
   }
 
-  return { prepareChatTurn, generateChatTurn, completeChatTurn };
+  // Delivery schedules this separately; it is never awaited by answer completion.
+  async function completeConversationTitle(
+    input: PreparedChatTurn,
+  ): Promise<void> {
+    if (!input.titleAdmitted) return;
+    let title: string | null = null;
+    try {
+      title =
+        (await ports.generateConversationTitle?.(input.latestMessage)) ?? null;
+    } finally {
+      ports.finishConversationTitle?.(input.userRecord, title);
+    }
+  }
+
+  return {
+    prepareChatTurn,
+    generateChatTurn,
+    completeChatTurn,
+    completeConversationTitle,
+  };
 }
 
 function latestFailedAssistantMessage(

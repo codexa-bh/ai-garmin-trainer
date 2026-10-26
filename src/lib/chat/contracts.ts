@@ -48,6 +48,7 @@ export type StoredChatMessage = {
 };
 
 export type StoredConversation = {
+  titlePending?: boolean;
   id: string;
   title: string;
   createdAt: Date;

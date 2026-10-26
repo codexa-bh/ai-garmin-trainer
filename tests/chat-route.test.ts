@@ -592,6 +592,8 @@ vi.mock("@/lib/garmin/composition", () => ({
 }));
 
 vi.mock("@/lib/db/conversation-repository", () => ({
+  claimConversationTitle: () => false,
+  finishConversationTitle: vi.fn(),
   DEFAULT_CONVERSATION_ID: "default",
   safeConversationId: (value?: string | null) => value?.trim() || "default",
   ensureConversation: vi.fn(),

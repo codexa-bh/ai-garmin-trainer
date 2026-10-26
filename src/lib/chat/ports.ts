@@ -29,6 +29,12 @@ export type ChatGenerationResult = {
 };
 
 export type ChatTurnPorts = {
+  claimConversationTitle?(message: StoredChatMessage): boolean;
+  generateConversationTitle?(firstPrompt: string): Promise<string | null>;
+  finishConversationTitle?(
+    message: StoredChatMessage,
+    title: string | null,
+  ): void;
   currentDate?(): string;
   weeklyContext?(turn: WeeklyTurn): unknown;
   ensureConversation(id: string, title: string): unknown;
