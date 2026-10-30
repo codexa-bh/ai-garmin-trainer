@@ -61,6 +61,28 @@ describe("pure activity dashboard charts", () => {
     });
   });
 
+  it("preserves nonzero original source keys while deriving a different display clock", () => {
+    const rows = [40, 41, 42].map((source, index) =>
+      row(source, {
+        timestamp: timestamp(600 + index * 180),
+        heartRate: index === 1 ? null : 120,
+      }),
+    );
+    const charts = buildActivityDashboardCharts(rows, 360);
+    expect(charts.timeScaleStatus).toBe("timestamp_derived");
+    expect(charts.points.map((point) => point.elapsedSec)).toEqual([
+      0, 180, 360,
+    ]);
+    expect(charts.points.map((point) => point.sourceElapsedSec)).toEqual([
+      40, 41, 42,
+    ]);
+    expect(charts.points.map((point) => point.heartRate)).toEqual([
+      120,
+      null,
+      120,
+    ]);
+  });
+
   it("keeps single-row gaps, duration rounding and input-only field omission", () => {
     const charts = buildActivityDashboardCharts([row(15)], 100.6);
     expect(charts.domainEndSec).toBe(101);
@@ -74,6 +96,7 @@ describe("pure activity dashboard charts", () => {
     expect(charts.points).toEqual([
       {
         elapsedSec: 15,
+        sourceElapsedSec: 15,
         heartRate: 120,
         altitudeMeters: 101.5,
         speedKmh: null,
@@ -101,6 +124,9 @@ describe("pure activity dashboard charts", () => {
       expect(charts.points[1].elapsedSec).toBe(
         expected === "timestamp_derived" ? end : 1,
       );
+      expect(charts.points.map((point) => point.sourceElapsedSec)).toEqual([
+        0, 1,
+      ]);
     },
   );
 
@@ -288,6 +314,7 @@ describe("pure activity dashboard charts", () => {
         "elapsedSec",
         "gradePct",
         "heartRate",
+        "sourceElapsedSec",
         "speedKmh",
       ]);
     }

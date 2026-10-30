@@ -3,6 +3,7 @@
 
 type ActivityDashboardChartPoint = {
   elapsedSec: number;
+  sourceElapsedSec: number;
   heartRate: number | null;
   altitudeMeters: number | null;
   speedKmh: number | null;
@@ -498,6 +499,8 @@ export function buildActivityDashboardCharts(
       index,
     ) => ({
       ...point,
+      // Display timing may be timestamp-derived; GPS retains the stored key.
+      sourceElapsedSec: rows[index].elapsedSec,
       speedKmh: speedSeries.values[index] ?? null,
       gradePct: smoothedActivityDashboardGradeReadoutPct(
         chartTiming.points,

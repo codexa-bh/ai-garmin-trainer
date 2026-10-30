@@ -440,6 +440,8 @@ export type ActivityDashboardPayload = {
     };
     points: Array<{
       elapsedSec: number;
+      // Original stored coordinate, independent of displayed chart timing.
+      sourceElapsedSec?: number;
       heartRate: number | null;
       altitudeMeters: number | null;
       speedKmh?: number | null;

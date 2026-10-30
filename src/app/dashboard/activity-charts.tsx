@@ -117,6 +117,7 @@ export function averageSpeedLabel(avgSpeedMps: number | null | undefined) {
 
 type ChartSeriesPoint = {
   elapsedSec: number;
+  sourceElapsedSec?: number;
   value: number;
   readoutDetail: string | null;
   x: number;
@@ -276,6 +277,7 @@ function prepareChart({
     )
     .map((point) => ({
       elapsedSec: point.elapsedSec,
+      sourceElapsedSec: point.sourceElapsedSec,
       value: point[valueKey]!,
       readoutDetail: readoutDetail?.(point) ?? null,
     }));
@@ -355,6 +357,7 @@ export function MiniLineChart({
   readoutDetail,
   note,
   selectedInterval,
+  onActiveSample,
 }: {
   title: string;
   unit: string;
@@ -370,6 +373,10 @@ export function MiniLineChart({
   ) => string | null;
   note?: string;
   selectedInterval?: { start: number; end: number } | null;
+  onActiveSample?: (
+    owner: "heartRate" | "altitudeMeters" | "speedKmh",
+    sourceElapsedSec: number | null,
+  ) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const formatChartValue = useMemo(
@@ -446,11 +453,21 @@ export function MiniLineChart({
     };
   }, [averageLabel, averageValue, formatChartValue, preparedChart]);
 
+  const [previousInput, setPreviousInput] = useState({ points, valueKey });
+  const inputChanged =
+    previousInput.points !== points || previousInput.valueKey !== valueKey;
+  if (inputChanged) setPreviousInput({ points, valueKey });
   const boundedActiveIndex =
-    activeIndex === null || preparedChart.chartPoints.length === 0
+    inputChanged || activeIndex === null || preparedChart.chartPoints.length < 2
       ? null
       : Math.min(activeIndex, preparedChart.chartPoints.length - 1);
   if (activeIndex !== boundedActiveIndex) setActiveIndex(boundedActiveIndex);
+
+  // Release this chart's transient ownership on replacement/unavailability/unmount.
+  useEffect(
+    () => () => onActiveSample?.(valueKey, null),
+    [points, valueKey, onActiveSample],
+  );
 
   if (preparedChart.chartPoints.length < 2) {
     return (
@@ -466,6 +483,15 @@ export function MiniLineChart({
   const readoutSuffix = [selectedPoint.readoutDetail, averageLine?.label]
     .filter((part): part is string => Boolean(part))
     .join(" · ");
+  function selectPoint(index: number | null) {
+    setActiveIndex((current) => (current === index ? current : index));
+    const source =
+      index === null ? undefined : chartPoints[index]?.sourceElapsedSec;
+    onActiveSample?.(
+      valueKey,
+      typeof source === "number" && Number.isFinite(source) ? source : null,
+    );
+  }
   function setNearestPoint(x: number) {
     const boundedX = clamp(x, model.plotLeft, model.plotRight);
     const nearestIndex = closestChartPointIndex(
@@ -474,9 +500,7 @@ export function MiniLineChart({
       isXSorted,
     );
     if (nearestIndex < 0) return;
-    setActiveIndex((currentIndex) =>
-      currentIndex === nearestIndex ? currentIndex : nearestIndex,
-    );
+    selectPoint(nearestIndex);
   }
   function handlePointer(event: ReactPointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -489,7 +513,7 @@ export function MiniLineChart({
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     const currentIndex = activeIndex ?? 0;
-    setActiveIndex(
+    selectPoint(
       clamp(
         currentIndex + (event.key === "ArrowRight" ? 1 : -1),
         0,
@@ -516,12 +540,12 @@ export function MiniLineChart({
         aria-label={`${title} over elapsed time`}
         onPointerEnter={handlePointer}
         onPointerMove={handlePointer}
-        onPointerLeave={() => setActiveIndex(null)}
+        onPointerLeave={() => selectPoint(null)}
         onFocus={(event) => {
           updateMarkerGeometry(event.currentTarget.getBoundingClientRect());
-          setActiveIndex(0);
+          selectPoint(0);
         }}
-        onBlur={() => setActiveIndex(null)}
+        onBlur={() => selectPoint(null)}
         onKeyDown={handleKeyDown}
       >
         {averageLine ? (
@@ -808,10 +832,43 @@ function routeSegmentClass(point: RouteMapSvgPoint) {
   return "route-map-segment rolling";
 }
 
+function nearestSupportedRoutePoint(
+  points: RouteMapSvgPoint[],
+  sourceElapsedSec: number | null,
+) {
+  if (sourceElapsedSec === null || !Number.isFinite(sourceElapsedSec))
+    return null;
+  const supported = points.filter(
+    (point) =>
+      Number.isFinite(point.elapsedSec) &&
+      Number.isFinite(point.lat) &&
+      Math.abs(point.lat) <= 90 &&
+      Number.isFinite(point.lon) &&
+      Math.abs(point.lon) <= 180 &&
+      Number.isFinite(point.x) &&
+      Number.isFinite(point.y),
+  );
+  if (supported.length < 2) return null;
+  const minimum = Math.min(...supported.map((point) => point.elapsedSec));
+  const maximum = Math.max(...supported.map((point) => point.elapsedSec));
+  if (sourceElapsedSec < minimum || sourceElapsedSec > maximum) return null;
+  return supported.reduce((nearest, point) => {
+    const distance = Math.abs(point.elapsedSec - sourceElapsedSec);
+    const nearestDistance = Math.abs(nearest.elapsedSec - sourceElapsedSec);
+    // Earlier source key wins equal distances; duplicate keys keep input order.
+    return distance < nearestDistance ||
+      (distance === nearestDistance && point.elapsedSec < nearest.elapsedSec)
+      ? point
+      : nearest;
+  });
+}
+
 export function RouteMap({
   route,
+  selectedSourceElapsedSec = null,
 }: {
   route: ActivityDashboardPayload["route"];
+  selectedSourceElapsedSec?: number | null;
 }) {
   const [mapBackgroundFailed, setMapBackgroundFailed] = useState(false);
   const [zoomOffset, setZoomOffset] = useState(0);
@@ -833,14 +890,22 @@ export function RouteMap({
   );
   const canLoadExternalMap = route.status === "available" && !!externalMapView;
   const externalMapActive = canLoadExternalMap && !mapBackgroundFailed;
-  const localSvgPoints = routeMapCoordinates(
-    route,
-    ROUTE_MAP_WIDTH,
-    ROUTE_MAP_HEIGHT,
-    zoomOffset,
-    panOffset,
+  const localSvgPoints = useMemo(
+    () =>
+      routeMapCoordinates(
+        route,
+        ROUTE_MAP_WIDTH,
+        ROUTE_MAP_HEIGHT,
+        zoomOffset,
+        panOffset,
+      ),
+    [route, zoomOffset, panOffset],
   );
   const svgPoints = externalMapActive ? externalMapView.points : localSvgPoints;
+  const selectedPoint = nearestSupportedRoutePoint(
+    svgPoints,
+    selectedSourceElapsedSec,
+  );
   const first = svgPoints[0];
   const last = svgPoints[svgPoints.length - 1];
   const canPanRoute = route.status === "available" && svgPoints.length >= 2;
@@ -1091,6 +1156,16 @@ export function RouteMap({
                   Finish
                 </text>
               </g>
+            ) : null}
+            {selectedPoint ? (
+              <circle
+                className="route-map-chart-position"
+                cx={selectedPoint.x}
+                cy={selectedPoint.y}
+                r="6"
+                vectorEffect="non-scaling-stroke"
+                aria-label="Chart-selected recorded route position"
+              />
             ) : null}
           </svg>
           <p className="route-map-attribution">

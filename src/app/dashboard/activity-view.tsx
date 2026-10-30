@@ -1,4 +1,9 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { TerrainTable } from "./terrain-table";
 import { type RefObject, type UIEvent } from "react";
 import {
@@ -26,6 +31,12 @@ import { numberLabel, finiteNumberLabel } from "./formatting";
 
 function isFiniteMetric(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function elevationReadout(
+  point: ActivityDashboardPayload["charts"]["points"][number],
+) {
+  return gradeReadoutLabel(point.gradePct);
 }
 
 function activityPresentation(dashboard: ActivityDashboardPayload) {
@@ -260,6 +271,38 @@ export function ActivityView({
   activityDashboard: ActivityDashboardPayload | null;
 }) {
   const activityId = activityDashboard?.activity.garminId ?? null;
+  const [chartSelection, setChartSelection] = useState<{
+    dashboard: ActivityDashboardPayload;
+    owner: "heartRate" | "altitudeMeters" | "speedKmh";
+    sourceElapsedSec: number;
+  } | null>(null);
+  const [previousDashboard, setPreviousDashboard] = useState(activityDashboard);
+  if (previousDashboard !== activityDashboard) {
+    setPreviousDashboard(activityDashboard);
+    setChartSelection(null);
+  }
+  const handleActiveSample = useCallback(
+    (
+      owner: "heartRate" | "altitudeMeters" | "speedKmh",
+      sourceElapsedSec: number | null,
+    ) => {
+      setChartSelection((current) => {
+        if (sourceElapsedSec === null || !Number.isFinite(sourceElapsedSec)) {
+          return current?.owner === owner &&
+            current.dashboard === activityDashboard
+            ? null
+            : current;
+        }
+        if (!activityDashboard) return current;
+        return current?.dashboard === activityDashboard &&
+          current.owner === owner &&
+          current.sourceElapsedSec === sourceElapsedSec
+          ? current
+          : { dashboard: activityDashboard, owner, sourceElapsedSec };
+      });
+    },
+    [activityDashboard],
+  );
   const [selection, setSelection] = useState<{
     activityId: string | null;
     id: string | null;
@@ -463,6 +506,7 @@ export function ActivityView({
                       unit="bpm"
                       points={activityDashboard.charts.points}
                       valueKey="heartRate"
+                      onActiveSample={handleActiveSample}
                       domainStartSec={activityDashboard.charts.domainStartSec}
                       domainEndSec={activityDashboard.charts.domainEndSec}
                       averageValue={finiteHeartRateAverage(
@@ -489,11 +533,10 @@ export function ActivityView({
                       unit="m"
                       points={activityDashboard.charts.points}
                       valueKey="altitudeMeters"
+                      onActiveSample={handleActiveSample}
                       domainStartSec={activityDashboard.charts.domainStartSec}
                       domainEndSec={activityDashboard.charts.domainEndSec}
-                      readoutDetail={(point) =>
-                        gradeReadoutLabel(point.gradePct)
-                      }
+                      readoutDetail={elevationReadout}
                     />
                   ) : (
                     <div className="activity-chart empty-state">
@@ -508,6 +551,7 @@ export function ActivityView({
                       unit="km/h"
                       points={activityDashboard.charts.points}
                       valueKey="speedKmh"
+                      onActiveSample={handleActiveSample}
                       domainStartSec={activityDashboard.charts.domainStartSec}
                       domainEndSec={activityDashboard.charts.domainEndSec}
                       formatValue={speedKmhLabel}
@@ -534,7 +578,25 @@ export function ActivityView({
                 className={`route-zone-grid ${presentation.strength ? "strength-detail-grid" : ""}`}
               >
                 {presentation.showRoute ? (
-                  <RouteMap route={activityDashboard.route} />
+                  <RouteMap
+                    route={activityDashboard.route}
+                    selectedSourceElapsedSec={
+                      chartSelection?.dashboard === activityDashboard &&
+                      activityDashboardState === "loaded" &&
+                      ((chartSelection.owner === "heartRate" &&
+                        presentation.heartRate &&
+                        activityDashboard.detail.hasHeartRate) ||
+                        (chartSelection.owner === "altitudeMeters" &&
+                          presentation.elevation &&
+                          activityDashboard.detail.hasElevation) ||
+                        (chartSelection.owner === "speedKmh" &&
+                          presentation.speed &&
+                          activityDashboard.charts.speed?.status ===
+                            "available"))
+                        ? chartSelection.sourceElapsedSec
+                        : null
+                    }
+                  />
                 ) : null}
                 {presentation.zones ? (
                   <HeartRateZoneTimeChart
