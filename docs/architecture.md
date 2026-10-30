@@ -561,6 +561,17 @@ bounds use every accepted point, including points omitted by the 400-point cap.
 There is no sorting, input mutation, new fallback, formula or schema change.
 The existing repository window-constant exports remain compatible.
 
+Chart points additionally retain `sourceElapsedSec`, the original stored row key,
+independent of displayed timestamp-derived seconds. Metric-filtered chart samples
+report transient pointer/keyboard selection to `ActivityView`, which owns
+payload-scoped selection and owner-aware clearing. `RouteMap` chooses the nearest
+supported retained GPS key (earlier ties, stable duplicates) and draws a distinct
+non-intercepting dot using the active external/offline projection, without moving
+the viewport. Missing metadata or GPS support hides only this dot; no interpolation,
+fetching, persistence, backfill or terrain-section map linkage is introduced.
+`tests/activity-route-position.test.tsx` and dashboard interaction coverage verify
+alignment, clearing, sparse/capped GPS and preservation of map controls.
+
 `tests/activity-dashboard-calculations.test.ts` exercises the pure facades without
 SQLite or environment setup, including original window-boundary/duplicate behavior
 and frozen inputs. `tests/activity-dashboard.test.ts` retains repository/API wiring,

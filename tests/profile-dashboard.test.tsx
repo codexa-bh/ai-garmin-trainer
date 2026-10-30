@@ -17,6 +17,7 @@ import { metadata } from "../src/app/layout";
 import { TrainerDashboard } from "../src/app/trainer-dashboard";
 import { ActivityView } from "../src/app/dashboard/activity-view";
 import { analyzeTerrainSections } from "../src/lib/analytics/terrain-sections";
+import { buildActivityDashboardRoute } from "../src/lib/analytics/activity-dashboard-calculations";
 import type { ActivityDashboardPayload } from "../src/app/dashboard/contracts";
 
 const emptyChat = {
@@ -1714,6 +1715,108 @@ describe("strength activity detail visibility", () => {
       />
     );
   }
+
+  it("links all charts with payload-scoped ownership and ignores stale chart clears", () => {
+    const data = sparseStrength();
+    data.activity.sport = "hiking";
+    data.detail.hasHeartRate = true;
+    data.detail.hasElevation = true;
+    data.charts.timeScaleStatus = "timestamp_derived";
+    data.charts.domainEndSec = 360;
+    data.charts.points = [40, 41, 42].map((sourceElapsedSec, i) => ({
+      elapsedSec: i * 180,
+      sourceElapsedSec,
+      heartRate: i === 1 ? null : 120 + i,
+      altitudeMeters: i * 10,
+      speedKmh: i * 2,
+      gradePct: null,
+    }));
+    data.charts.speed = {
+      status: "available",
+      sourcePointCount: 3,
+      pointCount: 3,
+      message: "",
+    };
+    data.route = buildActivityDashboardRoute(
+      [40, 42].map((elapsedSec) => ({
+        elapsedSec,
+        lat: 40 + elapsedSec / 10000,
+        lon: 10 + elapsedSec / 10000,
+        altitudeMeters: null,
+        gradePct: null,
+      })),
+    );
+    const view = render(detailView(data));
+    const dot = () => document.querySelector(".route-map-chart-position");
+    const charts = ["Heart rate", "Elevation profile", "Speed"].map((name) =>
+      screen.getByRole("img", { name: `${name} over elapsed time` }),
+    );
+    expect(dot()).toBeNull();
+    const routeSegment = () =>
+      document.querySelector(".route-map-route-line line")!;
+    for (const chart of charts) {
+      fireEvent.focus(chart);
+      expect(dot()!.getAttribute("cx")).toBe(routeSegment().getAttribute("x1"));
+      fireEvent.keyDown(chart, { key: "ArrowRight" });
+      // HR skips its missing middle metric, while other charts choose the earlier GPS tie.
+      expect(dot()!.getAttribute("cx")).toBe(
+        routeSegment().getAttribute(chart === charts[0] ? "x2" : "x1"),
+      );
+      fireEvent.blur(chart);
+      expect(dot()).toBeNull();
+    }
+    fireEvent.focus(charts[0]);
+    fireEvent.keyDown(charts[0], { key: "ArrowRight" });
+    fireEvent.focus(charts[1]);
+    fireEvent.pointerLeave(charts[0]);
+    fireEvent.blur(charts[0]);
+    expect(dot()!.getAttribute("cx")).toBe(routeSegment().getAttribute("x1"));
+    fireEvent.focus(charts[2]);
+    fireEvent.blur(charts[1]);
+    expect(dot()).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in route map" }));
+    const map = document.querySelector(".route-map-svg")!;
+    fireEvent.focus(charts[0]);
+    expect(map.getAttribute("data-zoom-offset")).toBe("1");
+    const polyline = charts[1]
+      .querySelector("polyline")!
+      .getAttribute("points");
+    fireEvent.keyDown(charts[0], { key: "ArrowRight" });
+    expect(charts[1].querySelector("polyline")!.getAttribute("points")).toBe(
+      polyline,
+    );
+    view.rerender(detailView({ ...data }));
+    expect(dot()).toBeNull();
+    fireEvent.focus(charts[2]);
+    view.rerender(
+      detailView({
+        ...data,
+        activity: { ...data.activity, garminId: "replacement" },
+      }),
+    );
+    expect(dot()).toBeNull();
+    fireEvent.focus(charts[0]);
+    view.rerender(
+      detailView({ ...data, detail: { ...data.detail, hasHeartRate: false } }),
+    );
+    expect(dot()).toBeNull();
+    const legacy = {
+      ...data,
+      charts: {
+        ...data.charts,
+        points: data.charts.points.map(
+          ({ sourceElapsedSec: _key, ...point }) => point,
+        ),
+      },
+    };
+    view.rerender(detailView(legacy));
+    fireEvent.focus(
+      screen.getByRole("img", { name: "Speed over elapsed time" }),
+    );
+    expect(dot()).toBeNull();
+    expect(document.querySelector(".activity-chart-cursor")).toBeTruthy();
+    view.unmount();
+  });
 
   it("selects terrain elevation intervals without GPS, resets on activity changes and tolerates legacy payloads", () => {
     const data = sparseStrength();

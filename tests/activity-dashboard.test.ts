@@ -904,6 +904,7 @@ describe("activity dashboard repository and routes", () => {
     });
     expect(detailPayload.charts.points[0]).toEqual({
       elapsedSec: 0,
+      sourceElapsedSec: 0,
       heartRate: 130,
       altitudeMeters: 1000,
       speedKmh: null,

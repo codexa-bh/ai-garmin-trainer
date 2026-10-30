@@ -1374,6 +1374,15 @@ body::before {
   stroke: #69e29c;
 }
 
+.route-map-chart-position {
+  fill: #e879f9;
+  stroke: #fff;
+  stroke-width: 3;
+  paint-order: stroke;
+  filter: drop-shadow(0 0 2px #071017);
+  pointer-events: none;
+}
+
 .route-map-marker circle {
   stroke: #071017;
   stroke-width: 2;
