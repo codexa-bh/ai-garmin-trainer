@@ -194,13 +194,13 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     userPrompt:
       "Show the climb and rolling sections of my last walk and how much steep support there is.",
     providedEvidence: [
-      "shared terrain-v1 sections with partial time coverage and truncated rows",
+      "shared terrain-v2 sections with partial time coverage and truncated rows",
     ],
     expectedRoute: "terrain",
     requiredQualities: [
       "analyzeActivityTerrain current-turn metric cells",
       "incomplete completion for partial/truncated coverage",
-      "25m smoothing and 100m classification scale",
+      "25m smoothing; sustained trend boundaries with minimum300m, no distance tiles",
       "signed grade distinct from climbing density",
       "estimated stops not measured; technical terrain unknown",
     ],

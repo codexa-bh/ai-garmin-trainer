@@ -409,7 +409,9 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
             ? null
             : new Date(Date.UTC(2026, 3, 12) + i * 10000).toISOString(),
         distanceMeters: i * 10,
-        altitudeMeters: 100 + (i % 40 <= 20 ? i % 40 : 40 - (i % 40)),
+        // Sustained 600m up/down legs keep the late-row grounding oracle
+        // meaningful with terrain-v2's 300m minimum (200m wiggles are absorbed).
+        altitudeMeters: 100 + (i % 120 <= 60 ? i % 120 : 120 - (i % 120)),
         heartRate: 120,
       }));
       const analysis = analyzeTerrainSections(

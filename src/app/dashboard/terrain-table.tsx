@@ -25,12 +25,19 @@ export function TerrainTable({
         <summary>Method and quality</summary>
         <p>
           {analysis.method}: 25m recorded-distance anchors, isolated spike
-          rejection, 3-anchor triangular altitude smoothing, 100m classification
-          tiles (short residuals disclosed). Climb/descent enter at ±3%, stay at
-          ±2%. Signed grade = net filtered elevation / recorded along-route
-          distance; not ascent density or surveyed horizontal gradient. Steep
-          bands count filtered 25m edges at ≥10% uphill or downhill, not point
-          maxima. Smoothing hides shorter features.
+          rejection and 3-anchor triangular altitude smoothing. Boundaries
+          follow sustained grade/rolling trend changes, not fixed distance
+          tiles. Sliding 100m grade and 300m rolling windows supply evidence;
+          changed trends must persist at least 300m, then boundaries refine to
+          nearby peaks, valleys or plateau edges. Every section is at least
+          300m. Short fluctuations and tails are absorbed; disconnected runs
+          below 300m are excluded, never bridged. Climb/descent enter at ±3%,
+          stay at ±2%, with 6m vertical support for a change. Rolling needs at
+          least 10m up/down relief and range, not small flat noise. Signed grade
+          = net filtered elevation / recorded along-route distance; not ascent
+          density or surveyed horizontal gradient. Steep bands count filtered
+          25m edges at ≥10% uphill or downhill, not point maxima. Smoothing
+          hides shorter features.
         </p>
         <p>
           Supported {finiteNumberLabel(analysis.supportedDistanceMeters, 0)}m of
