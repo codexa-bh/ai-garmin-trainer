@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "platform": "darwin-arm64",
+  "nodeVersion": "22.23.4",
+  "nodeArchive": "node-v22.23.4-darwin-arm64.tar.gz",
+  "nodeSha256": "c9e1dbc748b33ed2d14f42445191ecaf14c56259c7a9a26d0042c49ec2b66428",
+  "nodeSource": "https://nodejs.org/dist/v22.23.4/",
+  "nodeLicense": "MIT and bundled third-party notices (archive LICENSE)",
+  "tauri": "2.12.5",
+  "tauriLicense": "Apache-2.0 OR MIT"
+}

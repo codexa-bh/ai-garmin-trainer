@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { utcDateTimeSchema } from "@/lib/training-plan/snapshot";
 import {
   TRAINING_PLAN_CONTENT_MAX_LENGTH,
   TRAINING_PLAN_TITLE_MAX_LENGTH,
@@ -171,7 +172,7 @@ export const trainerToolInputSchemas = {
                 .string()
                 .min(1)
                 .max(TRAINING_PLAN_CONTENT_MAX_LENGTH),
-              asOf: z.string().datetime().optional(),
+              asOf: utcDateTimeSchema.optional(),
             })
             .strict(),
         )

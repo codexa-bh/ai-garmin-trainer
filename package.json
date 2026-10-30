@@ -1,6 +1,11 @@
 {
+  "name": "ai-garmin-trainer",
   "scripts": {
     "dev": "next dev",
+    "desktop:resources": "npm run build && node scripts/desktop/assemble.mjs",
+    "desktop:build": "npm run desktop:resources && tauri build --target aarch64-apple-darwin --bundles app --no-sign --no-binary-patching --ci",
+    "desktop:dev": "npm run desktop:resources && tauri dev",
+    "desktop:test:native": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
     "bootstrap:local": "node scripts/bootstrap-local.mjs",
     "doctor": "tsx scripts/doctor.ts",
     "garmin:auth": "tsx scripts/garmin-auth.ts",
@@ -24,19 +29,20 @@
   "dependencies": {
     "@ai-sdk/deepseek": "3.0.11",
     "@ai-sdk/openai": "4.0.15",
-    "@next/env": "16.2.10",
+    "@next/env": "16.4.3",
     "ai": "7.0.29",
     "better-sqlite3": "12.11.1",
     "drizzle-orm": "0.45.2",
-    "next": "16.2.10",
+    "next": "16.4.3",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-is": "19.2.7",
     "recharts": "3.10.1",
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",
+    "@tauri-apps/cli": "2.12.4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "16.3.2",
     "@types/better-sqlite3": "7.6.13",
@@ -44,8 +50,9 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "drizzle-kit": "0.31.10",
+    "esbuild": "0.28.2",
     "eslint": "9.39.1",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.4.3",
     "eslint-plugin-sonarjs": "4.2.1",
     "globals": "16.5.0",
     "jsdom": "29.1.1",
@@ -53,7 +60,7 @@
     "prettier": "3.9.5",
     "tsx": "4.23.1",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.46.4",
+    "typescript-eslint": "8.72.1",
     "vitest": "4.1.10"
   },
   "engines": {
@@ -61,6 +68,6 @@
   },
   "private": true,
   "overrides": {
-    "postcss": "8.5.10"
+    "postcss": "8.5.32"
   }
 }

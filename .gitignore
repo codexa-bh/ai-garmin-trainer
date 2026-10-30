@@ -34,3 +34,7 @@ __pycache__/
 dist/
 
 tsconfig.tsbuildinfo
+*.trainer-writer
+/src-tauri/target/
+/src-tauri/gen/
+/src-tauri/resources/

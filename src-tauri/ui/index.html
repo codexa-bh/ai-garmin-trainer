@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Garmin Trainer — local setup</title>
+    <link rel="stylesheet" href="setup.css" />
+    <script src="setup.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <h1>Garmin Trainer</h1>
+      <h2>Private, local desktop runtime</h2>
+      <p>
+        Select your existing owner-private configuration file. The app
+        references its database and token locations in place; it never moves
+        them or automatically upgrades a schema.
+      </p>
+      <p>
+        The selected database will be writable. Quit any source/browser backend
+        using it first. For evaluation, select a configuration pointing to a
+        disposable populated copy.
+      </p>
+      <button id="choose" type="button">Choose configuration</button>
+      <p id="status" role="status">Checking saved configuration…</p>
+      <p>
+        Use the native Configuration menu to change the reference. While a
+        backend is running, a new selection applies only after quit/relaunch,
+        never in place.
+      </p>
+      <p>
+        Garmin requires external uv/uvx and Python. Ollama stays independently
+        managed. No software or models are installed at launch.
+      </p>
+    </main>
+  </body>
+</html>

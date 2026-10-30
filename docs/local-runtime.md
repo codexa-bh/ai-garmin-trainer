@@ -115,6 +115,10 @@ OpenRouter receives the same bounded chat/Garmin context as the selected chat pr
 
 OpenRouter is **chat/tools only**: extraction continues through configured DeepSeek/OpenAI (or deterministic fallback), and embedding configuration is unchanged. There is no OpenRouter extraction or embedding route, selectable OpenRouter catalog entry, or cross-provider runtime failover. A saved runtime catalog preference overrides trainer chat until explicitly reset.
 
+## Local desktop mode
+
+The [macOS ARM64 desktop app](desktop.md) bundles Node and a production Next service, adopts explicit private state references and owns only its backend/connector descendants. It neither calls source bootstrap/restart nor starts/pulls external Ollama/Python. Quit before using the source commands against the same DB. Source and desktop preserve provider preferences, NDJSON/title behavior and separate memory readiness; browser-only active selection is not imported.
+
 ## Local restart modes
 
 ```bash

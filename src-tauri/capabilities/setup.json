@@ -1,0 +1,6 @@
+{
+  "identifier": "setup",
+  "description": "Local setup document only; no remote origins or trainer IPC grants.",
+  "windows": ["setup"],
+  "permissions": ["core:default", "allow-select-configuration"]
+}

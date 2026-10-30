@@ -3,6 +3,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { getOptionalEnv } from "../env";
 import { migrateDatabase } from "./migrations";
+import { acquireDatabaseWriter } from "./writer-ownership";
+import { assertDesktopDatabase } from "./desktop-preflight";
 
 let database: Database.Database | undefined;
 function ensureColumn(
@@ -42,9 +44,19 @@ function ensureActivityDetailColumns(db: Database.Database): void {
 export function getDatabase(): Database.Database {
   if (database) return database;
   const env = getOptionalEnv();
+  if (process.env.TRAINER_DESKTOP === "1")
+    assertDesktopDatabase(env.DATABASE_PATH);
   mkdirSync(dirname(env.DATABASE_PATH), { recursive: true });
-  database = new Database(env.DATABASE_PATH);
-  migrateDatabase(database);
-  ensureActivityDetailColumns(database);
-  return database;
+  const release = acquireDatabaseWriter(env.DATABASE_PATH);
+  try {
+    database = new Database(env.DATABASE_PATH);
+    if (process.env.TRAINER_DESKTOP !== "1") migrateDatabase(database);
+    ensureActivityDetailColumns(database);
+    return database;
+  } catch (error) {
+    database?.close();
+    database = undefined;
+    release();
+    throw error;
+  }
 }

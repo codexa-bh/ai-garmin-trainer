@@ -46,6 +46,8 @@ Captured on 18 September 2026 from the loopback development app at a 1440-pixel 
 
 This is an advanced-user source setup from the **public repository**. macOS Apple Silicon is the primary prepared platform; Ubuntu LTS still requires reproducibility evidence. Windows and other platforms are not claimed supported. These instructions are cross-checked against the repository scripts, not a certification of clean-machine installation.
 
+For a **locally source-built macOS ARM64 desktop app** with bundled Node, follow [desktop build, explicit private-state adoption and recovery](docs/desktop.md). This adds no installer distribution, signing, notarization or release channel; the source/browser path below remains available.
+
 ### 1. Install prerequisites and clone
 
 Install **Git, Node.js 22+ with npm, and Python 3.12-capable `uv`/`uvx`**. Native Node dependencies may require your platform's compiler/build tools. Install Ollama separately only if you choose local chat or local embeddings; bootstrap does not install system software.
@@ -116,7 +118,7 @@ Leave `MEMORY_ENABLED=false` to run without semantic memory. For embedded SQLite
 
 Ollama/OpenRouter chat does **not** select the memory extractor: guarded extraction uses configured DeepSeek/OpenAI when available, otherwise deterministic fallback. Review the memory guide before enabling it if you want processing to remain local.
 
-Keep `LLM_DEBUG_TRACES=false` for normal use. Enable it only for private loopback development; traces visible in Settings may include private normalized Garmin/chat/tool context.
+Local debug traces are currently always enabled by tested application policy, regardless of `LLM_DEBUG_TRACES`. Traces visible in Settings may include private normalized Garmin/chat/tool context; keep them local and out of screenshots/support artifacts.
 
 ## Repository guide
 
@@ -126,6 +128,7 @@ Start with [architecture](docs/architecture.md), then read only the detailed doc
 - [Coaching instructions and sources](docs/coaching-instructions-and-sources.md) — evidence, limitations, and instruction maintenance.
 - [Memory](docs/memory.md) — Profile, semantic memory, extraction, embeddings, and deletion controls.
 - [Validation](docs/validation.md) and [developer process](docs/developer-process.md) — local smoke, same-task data back-sync, and task-created data cleanup.
+- [Local macOS desktop runtime](docs/desktop.md) — bundled resources, native lifecycle, private config references, external integrations and rollback.
 - [Source readiness and data lifecycle](docs/source-beta-readiness.md) — supported boundary, backup/restore, diagnostics, and dependency evidence.
 
 Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/style.css`, `src/app/api/`, `src/lib/ai/`, `src/lib/garmin/`, and `src/lib/memory/`.

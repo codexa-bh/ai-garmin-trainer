@@ -6,6 +6,12 @@ those facts. UI composition does not own coaching policy, persistence or connect
 credentials. See [design choices](design-choices-and-boundaries.md) for the reasoning
 and [project guardrails](project-guardrails.md) for enforced dependency boundaries.
 
+## Desktop runtime boundary
+
+`src-tauri/src/{main,supervisor,pointer}.rs` owns native setup/config references, a single verified local backend/window and bounded owned-process lifecycle. `scripts/desktop/{assemble.mjs,config.ts,http-policy.ts,runtime.ts}` owns locked production resources, private absolute env adoption and loopback HTTP delivery. It uses the existing Next custom-server API, preserving routes/NDJSON/`after()`, not a new domain backend. The setup document is the only native-command caller; the remote trainer has no IPC capability grant. External navigation is refused.
+
+`db/desktop-preflight.ts` is an infrastructure adapter: existing-file/current-schema/integrity admission without migration. `db/writer-ownership.ts` is the shared source/desktop cooperative lease and macOS open-file check; `connection.ts` remains the sole lazy SQL owner. Desktop verifies the adoption overlay survives Next's env reset and its selected DB lease before readiness. Resource assets stay immutable; selected private state stays outside the bundle. Native owns only its process group, not external Ollama/listeners. See [desktop](desktop.md) for failure, interruption, schema/rollback and provenance details; `desktop-runtime.test.ts` and native Rust tests cover the new boundaries.
+
 ## Dependency and data flow
 
 ```text
