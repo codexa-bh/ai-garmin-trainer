@@ -56,6 +56,14 @@ describe("trainer AI", () => {
       "2026-06-30 Imported cycling on 2026-06-30 (Garmin ID 2) [fallback label] cycling",
     );
     expect(context).toContain("half marathon");
+    expect(context).toContain("at most 8 supplied rows");
+    expect(context).toContain(
+      "not complete history or current-turn verification",
+    );
+    expect(context).toContain(
+      "not necessarily the target event's pre-event window",
+    );
+    expect(context).toContain("No recovery data in supplied preview");
   });
 
   it("adds explicit server current-date grounding without treating Garmin freshness as the clock", () => {

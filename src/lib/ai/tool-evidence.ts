@@ -31,6 +31,14 @@ export function sanitizedResultDetail<T extends { detail?: unknown }>(
   return { ...result, detail: boundedText(result.detail, 1200) };
 }
 
+function renderEvidenceRow(row: Record<string, unknown>): string {
+  const text = JSON.stringify(row);
+  const notice = " [Row text truncated; omitted cells unavailable in excerpt.]";
+  return text.length > 500
+    ? `${text.slice(0, 500 - notice.length)}${notice}`
+    : text;
+}
+
 export function renderToolSteps(steps: TrainerToolStep[]): string {
   if (!steps.length)
     return "I could not execute a trusted Garmin tool for that request.";
@@ -44,11 +52,14 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
     if (step.tool === "verifyActivityReference" && step.result) {
       const evidence = step.result as ActivityVerificationEvidence;
       lines.push(
+        `Reference constraints (all supplied fields must match): ${JSON.stringify(evidence.reference)}.`,
+      );
+      lines.push(
         `Imported coverage checked: ${evidence.importedCoverage.activityCount} activities from ${evidence.importedCoverage.earliestDate ?? "n/a"} through ${evidence.importedCoverage.latestDate ?? "n/a"}.`,
       );
       if (evidence.outcome === "not_found") {
         lines.push(
-          "No matching normalized local activity was found in the complete imported corpus. That means it is not present in local imported data; it is not a claim about Garmin outside this app.",
+          "No matching normalized local activity was found in the complete imported corpus under these reference constraints. A combined no-match does not prove the ID alone is absent; recheck the supplied identifier without unsupported extra filters. This is not a claim about Garmin outside this app.",
         );
       } else if (evidence.outcome === "ambiguous") {
         lines.push(
@@ -60,6 +71,23 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
           `Found one local match: ${match.date} ${match.label} (Garmin ID ${match.garminId}, ${match.labelSource} label; sport ${match.sport}, distance ${match.distanceMeters ?? "n/a"} m, duration ${match.durationSec ?? "n/a"} s, elevation gain ${match.elevationGainMeters ?? "n/a"} m, avg HR ${match.avgHeartRate ?? "n/a"} bpm).`,
         );
       }
+    }
+    if (step.tool === "getActivityDetailAvailability" && step.result) {
+      lines.push(
+        `Bounded detail availability (not full-route analysis): ${JSON.stringify(step.result)}`,
+      );
+    }
+    if (step.tool === "getActivityDetailSlice" && step.result) {
+      const { points, laps, ...metadata } = step.result as Record<
+        string,
+        unknown
+      >;
+      // Coverage must precede slice content so a cap cannot hide pagination.
+      lines.push(
+        `Detail slice metadata (bounded slice, not full-route analysis): ${JSON.stringify(metadata)}`,
+      );
+      lines.push(`Returned laps: ${JSON.stringify(laps)}`);
+      lines.push(`Returned points: ${JSON.stringify(points)}`);
     }
     if (step.tool === "describeGarminDatabase" && step.result) {
       const evidence = step.result as GarminDatabaseDescription;
@@ -108,10 +136,10 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
       const evidence = step.result as AnalysisResult;
       if (evidence.status === "succeeded") {
         lines.push(
-          `SQL result handle ${evidence.resultName}: returned ${evidence.returnedRows}/${evidence.rowCount} rows${evidence.truncated ? " with truncation" : ""}.`,
+          `SQL result handle ${evidence.resultName}: returned ${evidence.returnedRows}/${evidence.rowCount} rows${evidence.truncated ? " with truncation" : ""}. Evidence preview: at most 20 rows; omitted rows/cells are not evidence of absence.`,
         );
         for (const [index, row] of evidence.rows.slice(0, 20).entries())
-          lines.push(`${index + 1}. ${JSON.stringify(row).slice(0, 500)}`);
+          lines.push(`${index + 1}. ${renderEvidenceRow(row)}`);
       } else if (evidence.message) {
         lines.push(`Bounded SQL detail: ${evidence.message}`);
         if (evidence.correctionHint)
@@ -122,7 +150,7 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
       const evidence = step.result as MathAnalysisResult;
       if (evidence.status === "succeeded") {
         lines.push(
-          `Math result handle ${evidence.resultName}: ${evidence.operation} over ${evidence.inputResult}, returned ${evidence.returnedRows}/${evidence.rowCount} rows${evidence.truncated ? " with truncation" : ""}.`,
+          `Math result handle ${evidence.resultName}: ${evidence.operation} over ${evidence.inputResult}, returned ${evidence.returnedRows}/${evidence.rowCount} rows${evidence.truncated ? " with truncation" : ""}. Evidence preview: at most 20 rows; omitted rows/cells are not evidence of absence.`,
         );
         const calculatedFields =
           evidence.operation === "normalize"
@@ -140,7 +168,7 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
             calculatedFields.map((field) => [field, row[field]]),
           );
           lines.push(
-            `${index + 1}. ${JSON.stringify({ ...calculated, ...row }).slice(0, 500)}`,
+            `${index + 1}. ${renderEvidenceRow({ ...calculated, ...row })}`,
           );
         }
       } else if (evidence.message) {
