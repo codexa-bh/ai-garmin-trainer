@@ -60,6 +60,75 @@ function renderAnalysis(analysis = analysisWith(), onSelect = vi.fn()) {
 afterEach(cleanup);
 
 describe("terrain section presentation", () => {
+  it.each([
+    ["legacy missing payload", undefined],
+    ["unsupported team sport", analyzeTerrainSections("team", "soccer", [])],
+    [
+      "unsupported strength",
+      analyzeTerrainSections("strength", "strength_training", []),
+    ],
+    ["missing walk stream", analyzeTerrainSections("walk", "walking", [])],
+    [
+      "insufficient hike evidence",
+      analyzeTerrainSections("short", "hiking", [
+        {
+          distanceMeters: 0,
+          altitudeMeters: 0,
+          elapsedSec: 0,
+          timestamp: null,
+          heartRate: null,
+        },
+        {
+          distanceMeters: 100,
+          altitudeMeters: 10,
+          elapsedSec: 10,
+          timestamp: null,
+          heartRate: null,
+        },
+      ]),
+    ],
+    [
+      "missing elevation on a walk",
+      analyzeTerrainSections(
+        "no-elevation",
+        "walk",
+        Array.from({ length: 61 }, (_, i) => ({
+          distanceMeters: i * 10,
+          altitudeMeters: null,
+          elapsedSec: i * 10,
+          timestamp: null,
+          heartRate: null,
+        })),
+      ),
+    ],
+    [
+      "empty rows despite populated summary counts",
+      { ...analysisWith(), sections: [] },
+    ],
+  ])("renders no terrain UI for %s", (_label, analysis) => {
+    const { container } = render(
+      <TerrainTable analysis={analysis} selectedId={null} onSelect={vi.fn()} />,
+    );
+    expect(
+      screen.queryByRole("region", { name: "Terrain sections" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Terrain sections" }),
+    ).toBeNull();
+    expect(screen.queryByText("Method and quality")).toBeNull();
+    expect(screen.queryByText(/No supported terrain sections/)).toBeNull();
+    expect(container.childElementCount).toBe(0);
+  });
+  it("keeps actual rows visible even when summary counts are zero", () => {
+    const analysis = analysisWith();
+    analysis.sectionCount = 0;
+    analysis.returnedSections = 0;
+    renderAnalysis(analysis);
+    expect(
+      screen.getByRole("region", { name: "Terrain sections" }),
+    ).toBeTruthy();
+    expect(within(grid()).getAllByRole("row")).toHaveLength(2);
+  });
   it("labels the section time-weighted average and keeps complete diagnostics out of the grid", () => {
     const analysis = analysisWith();
     const before = JSON.stringify(analysis);
