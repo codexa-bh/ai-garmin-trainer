@@ -1719,7 +1719,7 @@ describe("strength activity detail visibility", () => {
     const data = sparseStrength();
     data.activity.sport = "hiking";
     data.detail.hasElevation = true;
-    const points = Array.from({ length: 21 }, (_, i) => ({
+    const points = Array.from({ length: 61 }, (_, i) => ({
       elapsedSec: i * 10,
       timestamp: new Date(Date.UTC(2026, 0, 1) + i * 10000).toISOString(),
       distanceMeters: i * 10,
@@ -1732,7 +1732,7 @@ describe("strength activity detail visibility", () => {
       points,
     );
     data.charts.points = points.map((p) => ({ ...p, gradePct: null }));
-    data.charts.domainEndSec = 200;
+    data.charts.domainEndSec = 600;
     const view = render(detailView(data));
     const button = screen.getByRole("button", { name: "Section 1" });
     button.focus();

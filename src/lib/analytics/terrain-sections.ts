@@ -3,8 +3,12 @@ export const TERRAIN_PARAMETERS = {
   maxPoints: 100000,
   maxRows: 100,
   anchorMeters: 25,
-  tileMeters: 100,
-  minimumRunMeters: 50,
+  gradeWindowMeters: 100,
+  rollingWindowMeters: 300,
+  minimumSectionMeters: 300,
+  transitionVerticalMeters: 6,
+  rollingVerticalMeters: 10,
+  boundarySearchMeters: 100,
   maxDistanceGapMeters: 100,
   maxTimeGapSec: 30,
   maxRecordedDistanceMeters: 1000000000,
@@ -53,7 +57,7 @@ export type TerrainAnalysis = {
   activityId: string;
   status: "available" | "partial" | "unavailable";
   reason: string | null;
-  method: "terrain-v1";
+  method: "terrain-v2";
   parameters: typeof TERRAIN_PARAMETERS;
   inputPoints: number;
   usableEdges: number;
@@ -179,10 +183,18 @@ function kindFor(
   distance: number,
   up: number,
   down: number,
+  range: number,
   previous?: TerrainSection["kind"],
+  allowRolling = true,
 ): TerrainSection["kind"] {
   const grade = (100 * (up - down)) / distance;
-  if (up >= 2 && down >= 2 && Math.abs(up - down) / (up + down) < 0.6)
+  if (
+    allowRolling &&
+    up >= TERRAIN_PARAMETERS.rollingVerticalMeters &&
+    down >= TERRAIN_PARAMETERS.rollingVerticalMeters &&
+    range >= TERRAIN_PARAMETERS.rollingVerticalMeters &&
+    Math.abs(up - down) / (up + down) < 0.6
+  )
     return "rolling";
   if (
     grade >= TERRAIN_PARAMETERS.enterGradePct ||
@@ -196,26 +208,168 @@ function kindFor(
     return "descent";
   return "flat";
 }
+// Windows slide at every anchor; they are evidence for a change, never output tiles.
+function trendAt(
+  anchors: Anchor[],
+  index: number,
+  previous?: TerrainSection["kind"],
+): TerrainSection["kind"] {
+  const half = TERRAIN_PARAMETERS.rollingWindowMeters / 2;
+  let left = index,
+    right = index;
+  while (left > 0 && anchors[index].d - anchors[left - 1].d <= half) left--;
+  while (
+    right < anchors.length - 1 &&
+    anchors[right + 1].d - anchors[index].d <= half
+  )
+    right++;
+  let up = 0,
+    down = 0,
+    min = anchors[left].z,
+    max = min;
+  for (let i = left + 1; i <= right; i++) {
+    const dz = anchors[i].z - anchors[i - 1].z;
+    up += Math.max(0, dz);
+    down += Math.max(0, -dz);
+    min = Math.min(min, anchors[i].z);
+    max = Math.max(max, anchors[i].z);
+  }
+  if (
+    kindFor(anchors[right].d - anchors[left].d, up, down, max - min) ===
+    "rolling"
+  )
+    return "rolling";
+  const gradeHalf = TERRAIN_PARAMETERS.gradeWindowMeters / 2;
+  left = index;
+  right = index;
+  while (left > 0 && anchors[index].d - anchors[left - 1].d <= gradeHalf)
+    left--;
+  while (
+    right < anchors.length - 1 &&
+    anchors[right + 1].d - anchors[index].d <= gradeHalf
+  )
+    right++;
+  const dz = anchors[right].z - anchors[left].z;
+  return kindFor(
+    anchors[right].d - anchors[left].d,
+    Math.max(0, dz),
+    Math.max(0, -dz),
+    Math.abs(dz),
+    previous,
+  );
+}
+
+function transitionBoundary(
+  anchors: Anchor[],
+  pending: number,
+  start: number,
+  from: TerrainSection["kind"],
+  to: TerrainSection["kind"],
+): number {
+  let left = pending,
+    right = pending;
+  const radius = TERRAIN_PARAMETERS.boundarySearchMeters;
+  while (left > start && anchors[pending].d - anchors[left - 1].d <= radius)
+    left--;
+  while (
+    right < anchors.length - 1 &&
+    anchors[right + 1].d - anchors[pending].d <= radius
+  )
+    right++;
+  const maximum = from === "climb" || to === "descent";
+  const lastTie = to !== "flat";
+  let best = left;
+  for (let i = left + 1; i <= right; i++) {
+    const delta = anchors[i].z - anchors[best].z;
+    if ((maximum ? delta > 0 : delta < 0) || (lastTie && delta === 0)) best = i;
+  }
+  return best;
+}
+
+type TrendBoundary = { index: number; trend: TerrainSection["kind"] };
+function trendBoundaries(anchors: Anchor[]): TrendBoundary[] {
+  let trend = trendAt(anchors, 0);
+  const boundaries: TrendBoundary[] = [{ index: 0, trend }];
+  let pendingKind: TerrainSection["kind"] | null = null;
+  let pendingIndex = 0;
+  for (let i = 1; i < anchors.length; i++) {
+    const next = trendAt(anchors, i, trend);
+    if (next === trend) {
+      pendingKind = null;
+      continue;
+    }
+    if (pendingKind !== next) {
+      pendingKind = next;
+      pendingIndex = i;
+    }
+    if (
+      anchors[i].d - anchors[pendingIndex].d <
+      TERRAIN_PARAMETERS.minimumSectionMeters
+    )
+      continue;
+    const start = boundaries.at(-1)!.index;
+    const boundary = transitionBoundary(
+      anchors,
+      pendingIndex,
+      start,
+      trend,
+      next,
+    );
+    if (
+      anchors[i].d - anchors[boundary].d <
+      TERRAIN_PARAMETERS.minimumSectionMeters
+    )
+      continue;
+    const change = anchors[i].z - anchors[boundary].z;
+    if (
+      (next === "climb" &&
+        change < TERRAIN_PARAMETERS.transitionVerticalMeters) ||
+      (next === "descent" &&
+        -change < TERRAIN_PARAMETERS.transitionVerticalMeters)
+    )
+      continue;
+    if (
+      anchors[boundary].d - anchors[start].d >=
+      TERRAIN_PARAMETERS.minimumSectionMeters
+    )
+      boundaries.push({ index: boundary, trend: next });
+    else boundaries.at(-1)!.trend = next;
+    // A short initial/transient piece is absorbed, never emitted or padded.
+    trend = next;
+    pendingKind = null;
+  }
+  const end = anchors.length - 1;
+  if (
+    boundaries.length > 1 &&
+    anchors[end].d - anchors[boundaries.at(-1)!.index].d <
+      TERRAIN_PARAMETERS.minimumSectionMeters
+  )
+    boundaries.pop();
+  boundaries.push({ index: end, trend });
+  return boundaries;
+}
+
 function geometrySections(run: Run): TerrainSection[] {
   const anchors = anchorsFor(run),
     sections: TerrainSection[] = [];
-  let start = 0;
-  while (start < anchors.length - 1) {
-    let end = start + 1;
-    while (
-      end < anchors.length - 1 &&
-      anchors[end].d - anchors[start].d < TERRAIN_PARAMETERS.tileMeters
-    )
-      end++;
+  const boundaries = trendBoundaries(anchors);
+  for (let part = 1; part < boundaries.length; part++) {
+    const confirmedTrend = boundaries[part - 1].trend;
+    const start = boundaries[part - 1].index,
+      end = boundaries[part].index;
     let up = 0,
       down = 0,
       steepUp = 0,
-      steepDown = 0;
+      steepDown = 0,
+      min = anchors[start].z,
+      max = min;
     for (let i = start + 1; i <= end; i++) {
       const dz = anchors[i].z - anchors[i - 1].z,
         dd = anchors[i].d - anchors[i - 1].d;
       up += Math.max(0, dz);
       down += Math.max(0, -dz);
+      min = Math.min(min, anchors[i].z);
+      max = Math.max(max, anchors[i].z);
       if ((100 * dz) / dd >= TERRAIN_PARAMETERS.steepGradePct - 1e-9)
         steepUp += dd;
       if ((100 * dz) / dd <= -TERRAIN_PARAMETERS.steepGradePct + 1e-9)
@@ -225,7 +379,16 @@ function geometrySections(run: Run): TerrainSection[] {
       b = anchors[end],
       distance = b.d - a.d,
       previous = sections.at(-1);
-    const kind = kindFor(distance, up, down, previous?.kind);
+    // Integrated gain/loss alone cannot turn one absorbed short hill into
+    // a rolling section: rolling must also be the sustained detected trend.
+    const kind = kindFor(
+      distance,
+      up,
+      down,
+      max - min,
+      confirmedTrend,
+      confirmedTrend === "rolling",
+    );
     if (previous?.kind === kind) {
       previous.endDistanceMeters = b.d;
       previous.endTimeSec = b.t;
@@ -264,9 +427,6 @@ function geometrySections(run: Run): TerrainSection[] {
         elapsedPaceSecPerKm: null,
         quality: "estimated_elevation_profile",
       });
-    if (distance < TERRAIN_PARAMETERS.tileMeters)
-      sections.at(-1)!.quality += ";short_final_tile";
-    start = end;
   }
   return sections;
 }
@@ -341,7 +501,7 @@ export function analyzeTerrainSections(
     activityId,
     status: "unavailable",
     reason: null,
-    method: "terrain-v1",
+    method: "terrain-v2",
     parameters: TERRAIN_PARAMETERS,
     inputPoints: points.length,
     usableEdges: 0,
@@ -442,7 +602,7 @@ export function analyzeTerrainSections(
   for (const r of runs) {
     if (
       r.samples.at(-1)!.d - r.samples[0].d <
-      TERRAIN_PARAMETERS.minimumRunMeters
+      TERRAIN_PARAMETERS.minimumSectionMeters
     )
       continue;
     stationaryEdges(r.edges);
