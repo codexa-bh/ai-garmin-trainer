@@ -1782,6 +1782,99 @@ describe("strength activity detail visibility", () => {
     };
   }
 
+  it.each([
+    "running",
+    "hiking",
+    "cycling",
+    "strength_training",
+    "future_sport",
+  ])(
+    "uses source lap count, not metadata, for %s lap visibility across selections",
+    (sport) => {
+      const data = sparseStrength();
+      data.activity.sport = sport;
+      data.activity.durationSec = 600;
+      // Deliberately contradict the empty/single-lap arrays.
+      data.detail.hasLaps = true;
+      data.detail.lapCount = 99;
+      const view = render(detailView(data));
+      const expectNoLaps = () => {
+        expect(screen.queryByRole("table", { name: "Lap details" })).toBeNull();
+        expect(screen.queryByText("Lap details")).toBeNull();
+        expect(view.container.querySelector(".lap-table-wrap")).toBeNull();
+        expect(view.container.querySelector(".lap-table")).toBeNull();
+        expect(screen.queryByText(/No lap rows/)).toBeNull();
+        expect(
+          screen.getByLabelText("Selected activity summary stats"),
+        ).toBeTruthy();
+        expect(
+          screen.getByRole("button", { name: "Back to chat" }),
+        ).toBeTruthy();
+        expect(screen.getByRole("searchbox")).toBeTruthy();
+      };
+      expectNoLaps();
+      for (const row of [
+        lap({ lapNumber: 17 }),
+        lap({ durationSec: 60, distanceMeters: 100, avgSpeedMps: 2 }),
+      ]) {
+        view.rerender(detailView({ ...data, laps: [row] }));
+        expectNoLaps();
+      }
+      const multi = {
+        ...data,
+        activity: { ...data.activity, garminId: "multi-lap-selection" },
+        detail: { ...data.detail, hasLaps: false, lapCount: 0 },
+        laps: [
+          lap({ durationSec: 60, distanceMeters: 100, avgSpeedMps: 2 }),
+          lap({
+            lapNumber: 2,
+            durationSec: 120,
+            distanceMeters: 200,
+            avgSpeedMps: 3,
+          }),
+        ],
+      };
+      view.rerender(detailView(multi));
+      const table = screen.getByRole("table", { name: "Lap details" });
+      expect(table.closest(".lap-table-wrap")).toBeTruthy();
+      expect(table.querySelectorAll("tbody tr")).toHaveLength(2);
+      expect(
+        within(table).getByRole("columnheader", { name: "Avg Speed" }),
+      ).toBeTruthy();
+      expect(within(table).getByText("7.2 km/h")).toBeTruthy();
+      view.rerender(
+        detailView({
+          ...multi,
+          laps: [...multi.laps, lap({ lapNumber: 3, durationSec: 180 })],
+        }),
+      );
+      expect(
+        screen
+          .getByRole("table", { name: "Lap details" })
+          .querySelectorAll("tbody tr"),
+      ).toHaveLength(3);
+      view.rerender(
+        detailView({
+          ...data,
+          activity: { ...data.activity, sport: "running" },
+          laps: [multi.laps[0]],
+        }),
+      );
+      expectNoLaps();
+      view.rerender(detailView(data));
+      expectNoLaps();
+    },
+  );
+
+  it("keeps the lap section absent for multiple empty strength source rows", () => {
+    const data = sparseStrength();
+    data.laps = [lap(), lap({ lapNumber: 2 })];
+    const view = render(detailView(data));
+    expect(view.container.querySelector(".lap-table-wrap")).toBeNull();
+    expect(screen.queryByText("Lap details")).toBeNull();
+    expect(screen.queryByText(/No lap rows/)).toBeNull();
+  });
+
   it("unmounts every empty strength group, including unavailable effort and laps", () => {
     const data = sparseStrength();
     data.activity.calories = NaN;
@@ -3274,15 +3367,12 @@ describe("TrainerDashboard activity charts", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
       ),
     ).toBe(true);
-    const noLapsMessage = screen.getByText(
-      "No lap rows are available for this activity.",
+    expect(screen.queryByText(/No lap rows/)).toBeNull();
+    expect(screen.queryByRole("table", { name: "Lap details" })).toBeNull();
+    expect(document.querySelector(".lap-table-wrap")).toBeNull();
+    expect(effortWidgets.parentElement?.className).toContain(
+      "selected-activity-detail",
     );
-    expect(
-      Boolean(
-        effortWidgets.compareDocumentPosition(noLapsMessage) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      ),
-    ).toBe(true);
   }
 
   it.each([
