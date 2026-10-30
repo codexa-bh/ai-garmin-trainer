@@ -88,7 +88,11 @@ export type OrchestrateTrainerChatResult = {
 
 function bounded(value: string, max = 2200): string {
   const compact = value.replace(/\s+/g, " ").trim();
-  return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
+  const notice =
+    " [Evidence text truncated; omitted rows/cells are unavailable in this excerpt, not absent from local data.]";
+  return compact.length > max
+    ? `${compact.slice(0, max - notice.length)}${notice}`
+    : compact;
 }
 
 function extractToolCall(raw: unknown): TrainerToolCall | null {
@@ -178,14 +182,18 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
           /^Tool step \d+: [^(]+ \([^)]*\)\.\s*/,
           `Evidence step ${step.index}: ${step.tool} ${step.status}. `,
         );
-      return bounded(
-        evidence,
-        step.tool === "analyzeActivityTerrain"
-          ? 24000
-          : step.tool === "runMathAnalysis"
-            ? 3600
-            : 1800,
-      );
+      // Schema is bounded public capability metadata, not activity data. Its
+      // complete current contract is ~8k characters; the ordinary 1800 cap hid
+      // grade binding/quality fields and later tables from every fresh call.
+      const limit =
+        step.tool === "describeGarminDatabase"
+          ? 10_000
+          : step.tool === "analyzeActivityTerrain"
+            ? 24000
+            : step.tool === "runMathAnalysis"
+              ? 3600
+              : 1800;
+      return bounded(evidence, limit);
     })
     .join("\n\n");
 }
