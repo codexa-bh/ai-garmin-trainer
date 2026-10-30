@@ -168,7 +168,12 @@ it("registers successful grade cells as same-turn evidence and validates exact c
       index: 1,
       context,
     },
-    ports,
+    {
+      ...ports,
+      analyzeActivityTerrain: () => {
+        throw new Error("unexpected terrain call");
+      },
+    },
   );
   expect(step.status).toBe("succeeded");
   expect(context.analysisResults.get("grade")?.[0]).toMatchObject({

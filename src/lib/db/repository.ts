@@ -1424,6 +1424,25 @@ export function getActivityDetailForAnalytics(
   };
 }
 
+/** Selected normalized evidence only; cap+1 makes overflow observable. No archives. */
+export function getActivityTerrainInput(garminId: string) {
+  const activity = getActivityByGarminId(garminId);
+  const points =
+    activity &&
+    ["hike", "hiking", "walk", "walking"].includes(activity.sport.toLowerCase())
+      ? (getDatabase()
+          .prepare(
+            `select timestamp, elapsed_sec as elapsedSec,
+        distance_meters as distanceMeters, altitude_meters as altitudeMeters, heart_rate as heartRate
+        from activity_stream_point where garmin_id = ? order by elapsed_sec limit 100001`,
+          )
+          .all(
+            garminId,
+          ) as import("../analytics/terrain-sections").TerrainPoint[])
+      : [];
+  return { sport: activity?.sport ?? null, points };
+}
+
 export function getActivityDashboardDetail(
   garminId: string,
 ): ActivityDashboardDetail | null {

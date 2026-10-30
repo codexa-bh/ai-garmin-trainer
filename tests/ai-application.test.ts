@@ -22,7 +22,11 @@ const unused = () => {
 };
 function capabilities(): TrainerToolPorts {
   return {
-    analytics: { describeGarminDatabase: unused, runReadOnlySql: unused },
+    analytics: {
+      describeGarminDatabase: unused,
+      runReadOnlySql: unused,
+      analyzeActivityTerrain: unused,
+    },
     localData: {
       getActivityByGarminId: unused,
       getActivityDetailForAnalytics: unused,

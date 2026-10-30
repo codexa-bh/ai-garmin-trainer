@@ -84,6 +84,7 @@ export async function GET(_request: Request, context: RouteContext) {
         totalIntensityMinutes: dashboard.activity.totalIntensityMinutes ?? null,
         effortSource: "garmin_mcp_normalized",
       },
+      terrainSections: dashboard.terrainSections,
       detail: dashboard.detail,
       charts: dashboard.charts,
       route: dashboard.route,

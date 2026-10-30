@@ -14,6 +14,9 @@ import type {
 
 /** Only guarded feature use cases are supplied, never SQL execution/storage. */
 export type AnalyticsToolPorts = {
+  analyzeActivityTerrain: ReturnType<
+    typeof import("../local-data/application").createTerrainAnalysis
+  >;
   describeGarminDatabase(): GarminDatabaseDescription;
   runReadOnlySql(input: SqlAnalysisInput): AnalysisResult;
 };

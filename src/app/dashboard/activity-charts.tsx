@@ -354,6 +354,7 @@ export function MiniLineChart({
   averageLabel,
   readoutDetail,
   note,
+  selectedInterval,
 }: {
   title: string;
   unit: string;
@@ -368,6 +369,7 @@ export function MiniLineChart({
     point: ActivityDashboardPayload["charts"]["points"][number],
   ) => string | null;
   note?: string;
+  selectedInterval?: { start: number; end: number } | null;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const formatChartValue = useMemo(
@@ -532,6 +534,40 @@ export function MiniLineChart({
               y2={averageLine.y}
             />
           </g>
+        ) : null}
+        {selectedInterval ? (
+          <rect
+            className="terrain-selection"
+            aria-label="Selected terrain section elevation interval"
+            x={
+              model.plotLeft +
+              ((clamp(
+                selectedInterval.start,
+                model.domainStartSec,
+                model.domainEndSec,
+              ) -
+                model.domainStartSec) /
+                (model.domainEndSec - model.domainStartSec)) *
+                (model.plotRight - model.plotLeft)
+            }
+            y={model.plotTop}
+            width={Math.max(
+              0,
+              ((clamp(
+                selectedInterval.end,
+                model.domainStartSec,
+                model.domainEndSec,
+              ) -
+                clamp(
+                  selectedInterval.start,
+                  model.domainStartSec,
+                  model.domainEndSec,
+                )) /
+                (model.domainEndSec - model.domainStartSec)) *
+                (model.plotRight - model.plotLeft),
+            )}
+            height={model.plotBottom - model.plotTop}
+          />
         ) : null}
         <polyline points={polyline} vectorEffect="non-scaling-stroke" />
         {activeIndex !== null ? (

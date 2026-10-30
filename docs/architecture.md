@@ -567,6 +567,16 @@ and frozen inputs. `tests/activity-dashboard.test.ts` retains repository/API wir
 privacy, lap and HR-zone integration coverage. Source revert is sufficient rollback;
 no stored-data backfill or migration is needed.
 
+## Shared activity terrain-section evidence
+
+`analytics/terrain-sections.ts` is neutral pure elevation-profile analysis, not a coaching score. `local-data/application.ts#createTerrainAnalysis` consumes a single capped normalized selected-read capability; composition binds `repository.ts#getActivityTerrainInput` (100,001 rows detects the 100,000-point limit) and adds the same canonical result to the dashboard DTO. There is no raw archive, connector, persistence/cache or migration dependency. Reimported normalized inputs recompute on the next read; back-sync is a no-op and rollback is a source revert.
+
+Terrain-v1 uses 25m distance anchors, isolated >10m spike rejection when adjacent neighbors agree within 2m, triangular [1,2,1]/4 smoothing, 100m classification tiles (>=50m runs, short residuals disclosed), ±3% enter / ±2% stay and rolling up/down support. Invalid ranges, >30s time gaps and >100m distance gaps split runs. Ascent/descent integrate filtered edges once; signed grade uses net filtered elevation / recorded along-route distance. Steep up/down support counts >=10% filtered anchor-edge distance, not instantaneous maxima. Distance coverage uses all valid positive recorded changes, including unsupported gaps; timestamp coverage uses distance-split adjacent-edge counts. Consistent timezone-less Garmin timestamps establish a relative clock; stored elapsed alone never establishes seconds. Original valid adjacent time edges supply elapsed/estimated stationary (<=0.3m/s for >=30s)/moving, elapsed pace and pairwise time-weighted HR with explicit support. Missing metrics remain null.
+
+`analyzeActivityTerrain` admits one ID and 1–20 result rows, omits raw samples/GPS/paths and preserves whole-analysis coverage/totals before row caps. Successful rows register in the existing turn-owned handle map for bounded math and exact-cell metric claims. Unavailable results register nothing; partial/truncated analysis requires incomplete completion with individually grounded partial cells. Existing SQL/math semantics, budgets, source grade, hover formulas and laps remain unchanged.
+
+The additive Terrain sections grid has keyboard/pointer buttons and an elevation interval overlay independent of hover. Activity changes reset selection. Raw chart timelines use stored coordinates; timestamp-derived charts highlight only with matching source-row origins/counts, otherwise explicitly report unavailable alignment. No map highlight: route points are independently sampled and retain stored elapsed coordinates. Missing old payloads are tolerated. Numerical, API/tool equality, privacy/grounding/isolation and no-GPS UI tests live in `terrain-*` and the existing dashboard suites. Public examples are synthetic; real smoke remains private/local.
+
 ## Raw payload and evidence boundary
 
 The app stores normalized facts **and** a local `garmin_raw_payload` archive where

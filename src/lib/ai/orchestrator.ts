@@ -178,7 +178,14 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
           /^Tool step \d+: [^(]+ \([^)]*\)\.\s*/,
           `Evidence step ${step.index}: ${step.tool} ${step.status}. `,
         );
-      return bounded(evidence, step.tool === "runMathAnalysis" ? 3600 : 1800);
+      return bounded(
+        evidence,
+        step.tool === "analyzeActivityTerrain"
+          ? 24000
+          : step.tool === "runMathAnalysis"
+            ? 3600
+            : 1800,
+      );
     })
     .join("\n\n");
 }
@@ -725,7 +732,8 @@ async function orchestrateTurn(
         step.status === "succeeded" &&
         (accepted.toolName === "describeGarminDatabase" ||
           accepted.toolName === "runReadOnlySql" ||
-          accepted.toolName === "runMathAnalysis")
+          accepted.toolName === "runMathAnalysis" ||
+          accepted.toolName === "analyzeActivityTerrain")
       ) {
         analysisToolCounts.set(
           accepted.toolName,
@@ -738,7 +746,9 @@ async function orchestrateTurn(
 
       if (
         step.status === "succeeded" &&
-        (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis")
+        (step.tool === "runReadOnlySql" ||
+          step.tool === "runMathAnalysis" ||
+          step.tool === "analyzeActivityTerrain")
       )
         failedMathCorrections.clear();
       if (step.status !== "succeeded") {
@@ -758,7 +768,11 @@ async function orchestrateTurn(
         if (canOfferSqlCorrectionStep(step)) {
           continue;
         }
-        if (step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis") {
+        if (
+          step.tool === "runReadOnlySql" ||
+          step.tool === "runMathAnalysis" ||
+          step.tool === "analyzeActivityTerrain"
+        ) {
           const synthesized = await synthesize();
           return finish(
             {
