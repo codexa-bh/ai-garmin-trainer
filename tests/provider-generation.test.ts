@@ -94,7 +94,7 @@ it("exposes native completion field guidance without changing the terminal tool 
     "incomplete whenever missingEvidence is nonempty",
   );
   expect(fields.claims.description).toContain(
-    "never use runReadOnlySql or runMathAnalysis as a tool claim",
+    "never use runReadOnlySql, runMathAnalysis or analyzeActivityTerrain as a tool claim",
   );
   expect(fields.missingEvidence.description).toContain("Preserve genuine gaps");
   expect(tools.completeTrainerTurn).not.toHaveProperty("execute");

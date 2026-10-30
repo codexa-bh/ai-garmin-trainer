@@ -20,6 +20,7 @@ export function canToolRunWithinBudget(
 ): boolean {
   const currentCount = analysisToolCounts.get(toolName) ?? 0;
   if (
+    toolName === "analyzeActivityTerrain" ||
     toolName === "describeGarminDatabase" ||
     toolName === "runReadOnlySql" ||
     toolName === "runMathAnalysis"
@@ -45,6 +46,7 @@ function selectedToolPriority(
   if (!hasSchema && toolName === "describeGarminDatabase") return 0;
   if (hasSchema && !hasSql && toolName === "runReadOnlySql") return 0;
   if (hasSql && !hasMath && toolName === "runMathAnalysis") return 0;
+  if (toolName === "analyzeActivityTerrain") return 1;
   if (toolName === "runReadOnlySql") return 1;
   if (toolName === "runMathAnalysis") return 2;
   if (toolName === "describeGarminDatabase") return 3;

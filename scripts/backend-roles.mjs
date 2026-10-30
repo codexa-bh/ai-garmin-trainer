@@ -67,7 +67,7 @@ const groups = [
     "local-data",
     "domain",
     "lib/analytics",
-    ["activity-dashboard-calculations", "activity-label"],
+    ["activity-dashboard-calculations", "activity-label", "terrain-sections"],
   ],
   [
     "chat",
@@ -276,6 +276,7 @@ export const presentationModules = new Set([
     "transport",
     "memory-presentation",
     "activity-charts",
+    "terrain-table",
     "contracts",
     "profile-fields",
     "chat-presentation",

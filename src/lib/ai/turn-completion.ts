@@ -49,11 +49,26 @@ export function assessCompletion(
   }
   const completion = parsed.data.completion;
   if (completion.kind === "coaching") return { answer: completion.answer };
+  if (
+    completion.kind === "grounded" &&
+    steps.some((step) => {
+      if (step.tool !== "analyzeActivityTerrain" || step.status !== "succeeded")
+        return false;
+      const result = step.result as
+        { analysis?: { status?: string }; truncated?: boolean } | undefined;
+      return (
+        result?.analysis?.status !== "available" || result?.truncated === true
+      );
+    })
+  )
+    return { answer: null, rejection: { reason: "incomplete_analysis" } };
   const latestMetric = [...steps]
     .reverse()
     .find(
       (step) =>
-        step.tool === "runReadOnlySql" || step.tool === "runMathAnalysis",
+        step.tool === "runReadOnlySql" ||
+        step.tool === "runMathAnalysis" ||
+        step.tool === "analyzeActivityTerrain",
     );
   for (const [claimIndex, claim] of completion.claims.entries()) {
     const rejected = (
@@ -69,7 +84,11 @@ export function assessCompletion(
       if (step.tool !== claim.tool) return rejected("tool_mismatch");
       continue;
     }
-    if (step.tool !== "runReadOnlySql" && step.tool !== "runMathAnalysis")
+    if (
+      step.tool !== "runReadOnlySql" &&
+      step.tool !== "runMathAnalysis" &&
+      step.tool !== "analyzeActivityTerrain"
+    )
       return rejected("metric_step_required");
     if (completion.kind === "grounded" && latestMetric?.status !== "succeeded")
       return rejected("latest_metric_unsuccessful");

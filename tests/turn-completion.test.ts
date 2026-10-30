@@ -500,7 +500,7 @@ it.each(["kind_evidence_conflict", "invalid_tool_claim"])(
     expect(systems[2]).toContain("Do not discard known gaps");
     if (reason === "invalid_tool_claim")
       expect(systems[2]).toContain(
-        "runReadOnlySql and runMathAnalysis are not valid tool claims",
+        "runReadOnlySql, runMathAnalysis and analyzeActivityTerrain are not valid tool claims",
       );
     expect(executeTool).toHaveBeenCalledTimes(1);
     expect(result.providerCalls).toBe(3);

@@ -2,6 +2,39 @@
 
 exports[`trainer tool registry schemas > preserves every provider description and input schema 1`] = `
 {
+  "analyzeActivityTerrain": {
+    "description": "Analyze one already-imported hike/walk elevation profile from bounded normalized local samples. Read-only, no refresh. Returns shared terrain-v1 climb/descent/flat/rolling sections, filtered signed grade, ascent/descent, distance in >=10% uphill/downhill mechanical bands, estimated stationary/moving support, time-weighted HR and coverage. Method uses 25m anchors, isolated spike rejection, triangular smoothing and 100m tiles; not measured slope, technical terrain or a difficulty score. Partial/truncated results require incomplete completion with exact supported row cells; successful rows register a same-turn math handle. Whole-analysis totals/coverage precede row limits; missing evidence is not zero. No GPS/raw streams/paths.",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "garminId": {
+          "description": "Garmin activity ID already imported into the local SQLite store.",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string",
+        },
+        "maxRows": {
+          "default": 20,
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "resultName": {
+          "maxLength": 40,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "garminId",
+        "maxRows",
+      ],
+      "type": "object",
+    },
+  },
   "describeGarminDatabase": {
     "description": "Describe the compact analytical SQLite schema available for local Garmin analysis: allowed normalized tables/views, columns, units, date coverage, safe joins, examples, and forbidden private/secret/auth/path surfaces. Does not dump private rows.",
     "schema": {
@@ -136,7 +169,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
     },
   },
   "runMathAnalysis": {
-    "description": "Run bounded TypeScript math over a prior same-turn runReadOnlySql result handle. Supports model-selected scoring/custom formulas over numeric columns, normalization/ranking, simple aggregation/grouping, summaries, ordering, and top-N output. Formulas can contain only column names, numbers, parentheses, and + - * / operators; null/missing numeric values are treated as zero. No demand-specific rubrics, scripts, DB/filesystem/network/process/environment/connector access.",
+    "description": "Run bounded TypeScript math over a prior same-turn successful SQL, terrain-section or math result handle. Supports model-selected scoring/custom formulas over numeric columns, normalization/ranking, simple aggregation/grouping, summaries, ordering, and top-N output. Formulas can contain only column names, numbers, parentheses, and + - * / operators; null/missing numeric values are treated as zero. No demand-specific rubrics, scripts, DB/filesystem/network/process/environment/connector access.",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,

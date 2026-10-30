@@ -157,7 +157,12 @@ it("production tool wiring exposes only guarded results and success-only same-tu
     await import("../src/lib/ai/tool-analytics");
   const ports = await import("../src/lib/ai/sql-analysis");
   const executeAnalyticsTool = (input: Parameters<typeof execute>[0]) =>
-    execute(input, ports);
+    execute(input, {
+      ...ports,
+      analyzeActivityTerrain: () => {
+        throw new Error("unexpected terrain call");
+      },
+    });
   const { TrainerToolExecutionContext } =
     await import("../src/lib/ai/tool-execution-context");
   const context = new TrainerToolExecutionContext();

@@ -102,6 +102,7 @@ const PLANNER_POLICY = section(
     "For relative-date Garmin or daily-health questions, ground today/yesterday from server current-date context and use guarded local data tools when the answer depends on imported activity, sleep, recovery, HRV, body battery, stress, steps, calories, or freshness evidence.",
     "For personal Garmin totals, counts, comparisons, monthly/date-window summaries, and HR-zone/activity/health metric questions, use current-turn local tools before answering; do not answer those quantities directly from transcript, memory, or prior assistant prose.",
     "If the user challenges a prior Garmin number, aggregation, date window, count, or total, treat it as a fresh verification request: inspect local evidence again or state that verification could not be completed.",
+    "For imported hike/walk elevation-profile sections or supported steep stretches, use analyzeActivityTerrain. It shares the Activity grid's terrain-v1: 25m distance anchors, isolated spike rejection and triangular smoothing, 100m tiles, ±3% enter/±2% stay and >=10% steep up/down band distances. Signed grade uses net filtered elevation / recorded along-route distance; ascent density is not uphill gradient. Rolling up/down support matters. Disclose coverage/gaps/smoothing; elevation never establishes surface or technicality. HR is time-weighted with support. Stationary/moving are threshold-derived estimates (<=0.3m/s for >=30s), not measured pauses or their cause; pace uses elapsed time. Partial/truncated results require incomplete completion with exact supported metric cells; successful rows can feed same-turn math. No automatic refresh.",
     "For ad hoc Garmin analytics, use guarded SQL/math by default: call describeGarminDatabase when analytical fields are uncertain, then runReadOnlySql over the safe normalized Garmin analytical schema for bounded retrieval, filtering, sorting, counting, grouping, safe joins, and database-supported aggregation, followed by runMathAnalysis when custom computation is needed.",
     "For a broad ranking or scoring request, use one SQL query to return the bounded candidate rows and all relevant available columns; do not spend the SQL budget on repeated searches. After successful SQL returns a same-turn result handle, the next analytical tool for a custom comparison or score must be runMathAnalysis, not another SQL query.",
     "For a comparison (for example month-by-month calories), run one targeted SQL query for a comparison that directly returns all rows needed, then synthesize the answer from that already-retrieved evidence; do not spend additional SQL calls on exploratory queries once the needed evidence is in hand.",
@@ -140,16 +141,19 @@ export function buildPlannerInstructions(
   analyticalSuccessCounts: Readonly<Record<string, number>> = {},
 ): TrainerSystemPrompt {
   const analyticalSuccessRemaining = Object.fromEntries(
-    ["describeGarminDatabase", "runReadOnlySql", "runMathAnalysis"].map(
-      (name) => [
-        name,
-        Math.max(
-          0,
-          TRAINER_EXECUTION_POLICY.analyticalSuccessLimit -
-            (analyticalSuccessCounts[name] ?? 0),
-        ),
-      ],
-    ),
+    [
+      "describeGarminDatabase",
+      "runReadOnlySql",
+      "runMathAnalysis",
+      "analyzeActivityTerrain",
+    ].map((name) => [
+      name,
+      Math.max(
+        0,
+        TRAINER_EXECUTION_POLICY.analyticalSuccessLimit -
+          (analyticalSuccessCounts[name] ?? 0),
+      ),
+    ]),
   );
   const snapshot = {
     ...budget,
@@ -179,7 +183,7 @@ export function buildFinalSynthesisInstructions(
     " Any nonempty missingEvidence requires kind=incomplete, even with valid partial metric claims. Do not discard known gaps to force kind=grounded. Grounded requires nonempty claims and no gaps; coaching requires both arrays empty.";
   const toolGuidance =
     rejection?.reason === "invalid_tool_claim"
-      ? " runReadOnlySql and runMathAnalysis are not valid tool claims: analytical facts require kind=metric with exact stepIndex, resultName, rowIndex, column and original value. Schema/status or other tool success cannot substitute for metric cells. Remove unsupported claims, retaining the missing evidence."
+      ? " runReadOnlySql, runMathAnalysis and analyzeActivityTerrain are not valid tool claims: analytical facts require kind=metric with exact stepIndex, resultName, rowIndex, column and original value. Schema/status or other tool success cannot substitute for metric cells. Remove unsupported claims, retaining the missing evidence."
       : "";
   const feedback = rejection
     ? `\n\nThe previous completion declaration was rejected by server validation: ${JSON.stringify(rejection)}.${toolGuidance}${conflictGuidance} claimIndex, when present, is zero-based. Rebuild the declaration from the current-turn evidence below: use exact server step numbers, result handles, zero-based rows, columns and unconverted scalar values, not rounded display values. Do not repeat unsupported claims or invent replacement evidence. Use coaching only for user context/general guidance without verified personal metrics, or incomplete with explicit missingEvidence and individually supported partial claims. No action tools or additional retries are available; finish with one completeTrainerTurn call alone.`

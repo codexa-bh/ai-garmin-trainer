@@ -26,6 +26,7 @@ const allowed = new Set([
   "garmin/import-contracts.ts",
   "garmin/normalize.ts",
   "analytics/activity-dashboard-calculations.ts",
+  "analytics/terrain-sections.ts",
 ]);
 
 // Type-inclusive closure complements the production runtime graph. No erased DB
