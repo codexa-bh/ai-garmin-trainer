@@ -1733,6 +1733,10 @@ describe("strength activity detail visibility", () => {
     );
     data.charts.points = points.map((p) => ({ ...p, gradePct: null }));
     data.charts.domainEndSec = 600;
+    data.laps = [
+      lap({ durationSec: 300 }),
+      lap({ lapNumber: 2, durationSec: 300 }),
+    ];
     const view = render(detailView(data));
     const button = screen.getByRole("button", { name: "Section 1" });
     button.focus();
@@ -1758,10 +1762,56 @@ describe("strength activity detail visibility", () => {
     expect(
       screen.queryByLabelText("Selected terrain section elevation interval"),
     ).toBeNull();
-    view.rerender(detailView({ ...data, terrainSections: undefined }));
+    fireEvent.click(screen.getByRole("button", { name: "Section 1" }));
     expect(
-      screen.queryByRole("region", { name: "Terrain sections" }),
-    ).toBeNull();
+      screen.getByLabelText("Selected terrain section elevation interval"),
+    ).toBeTruthy();
+    for (const terrainSections of [
+      analyzeTerrainSections("empty-walk", "walking", []),
+      undefined,
+    ]) {
+      view.rerender(
+        detailView({
+          ...data,
+          activity: {
+            ...data.activity,
+            garminId: terrainSections ? "empty-walk" : "legacy",
+          },
+          terrainSections,
+        }),
+      );
+      expect(
+        screen.queryByRole("region", { name: "Terrain sections" }),
+      ).toBeNull();
+      expect(screen.queryByText("Method and quality")).toBeNull();
+      expect(
+        screen.queryByLabelText("Selected terrain section elevation interval"),
+      ).toBeNull();
+      expect(
+        screen.getByRole("figure", { name: "Elevation profile chart" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("region", { name: "Local GPS route map" }),
+      ).toBeTruthy();
+      expect(screen.getByRole("table", { name: "Lap details" })).toBeTruthy();
+      view.rerender(detailView(data));
+      const restored = screen.getByRole("button", { name: "Section 1" });
+      expect(restored.getAttribute("aria-pressed")).toBe("false");
+      expect(
+        screen.queryByLabelText("Selected terrain section elevation interval"),
+      ).toBeNull();
+      const disclosure = screen
+        .getByText("Method and quality")
+        .closest("details")!;
+      expect(disclosure.open).toBe(false);
+      fireEvent.click(screen.getByText("Method and quality"));
+      expect(disclosure.open).toBe(true);
+      fireEvent.click(restored);
+      expect(restored.getAttribute("aria-pressed")).toBe("true");
+      expect(
+        screen.getByLabelText("Selected terrain section elevation interval"),
+      ).toBeTruthy();
+    }
   });
 
   function lap(
