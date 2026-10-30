@@ -617,7 +617,8 @@ export function ActivityView({
                 timestamp/chart origins differ.
               </p>
             ) : null}
-            {presentation.visibleLaps.length ? (
+            {activityDashboard.laps.length >= 2 &&
+            presentation.visibleLaps.length ? (
               <div className="lap-table-wrap">
                 <table className="lap-table">
                   <caption>Lap details</caption>
@@ -643,11 +644,7 @@ export function ActivityView({
                   </tbody>
                 </table>
               </div>
-            ) : presentation.strength ? null : (
-              <p className="activity-dashboard-status">
-                No lap rows are available for this activity.
-              </p>
-            )}
+            ) : null}
           </>
         ) : activityDashboardState === "error" ? (
           <p className="empty-chat">
