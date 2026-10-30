@@ -273,8 +273,8 @@ export function buildTrainerContext(input: {
     formatAthleteBaseline(input.athleteBaseline),
     formatBodyMetrics(input.bodyMetrics),
     formatTrainingPlan(input.trainingPlan),
-    `Recent activities:\n${recentActivities.join("\n") || "No activities imported"}`,
-    `Recovery:\n${health.join("\n") || "No recovery data imported"}`,
+    `Recent activities (bounded preview: at most 8 supplied rows, not complete history or current-turn verification; retrieve event-relative comparisons when needed):\n${recentActivities.join("\n") || "No activities in supplied preview"}`,
+    `Recovery (bounded preview: at most 10 supplied days, not necessarily the target event's pre-event window; calendar availability is not a measured value):\n${health.join("\n") || "No recovery data in supplied preview"}`,
     `Recent conversation:\n${input.recentMessages.join("\n")}`,
   ]
     .filter((section): section is string => Boolean(section))

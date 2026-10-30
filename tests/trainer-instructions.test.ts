@@ -135,6 +135,52 @@ describe("canonical trainer instruction package", () => {
     expect(synthesis).not.toContain("Tool budget");
   });
 
+  it("requests evidence from the initial difficulty question and finishes correction work without a fixed coaching formula", () => {
+    const planner = buildPlannerInstructions(
+      TRAINER_SYSTEM_PROMPT,
+      "no prior step",
+    );
+    for (const rule of [
+      "even without explicit lookup wording",
+      "Reference fields are conjunctive",
+      "omit unknown optional fields",
+      "recheck the supplied ID without unsupported filters",
+      "same-day all-day stress/body battery is not established pre-start state",
+      "do not combine activity, recovery and grade into wide null-padded UNION rows",
+      "500 characters per row and 1800 per step",
+      "retrieve only the missing support, not the same wide window again",
+      "two preceding outings",
+      "not only the same sport",
+      "Latest recovery may be irrelevant to a historical event",
+      "Nulls and calendar coverage",
+      "fresh verification request",
+      "Finish reachable summary/recovery",
+      "calculated grade despite absent source grade",
+      "without inventing a tool",
+      "no Garmin lookup",
+    ])
+      expect(planner).toContain(rule);
+    for (const instructions of [
+      planner,
+      buildFinalSynthesisInstructions(
+        TRAINER_SYSTEM_PROMPT,
+        "partial evidence",
+        true,
+      ),
+    ]) {
+      expect(instructions).toContain("causal percentages");
+      expect(instructions).toContain("not full-route analysis");
+      expect(instructions).toContain("kind=incomplete");
+      expect(instructions).toContain("body mass");
+    }
+    expect(
+      COACHING_SCENARIOS.find((s) => s.id === "HIKE-DETAIL-02")?.expectedRoute,
+    ).toBe("sql");
+    expect(
+      COACHING_SCENARIOS.find((s) => s.id === "HIKE-CORRECTION-06")?.severity,
+    ).toBe("critical");
+  });
+
   it("keeps General Plan age advisory and preserves no-save and complete-read safeguards", () => {
     const planner = buildPlannerInstructions("base", "none");
     expect(planner).toContain("more than 60 elapsed days");

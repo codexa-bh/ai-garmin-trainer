@@ -15,6 +15,12 @@ import type {
   TrainerGenerationRequest,
 } from "../src/lib/ai/orchestration-ports";
 import type { AnalysisResult } from "../src/lib/ai/analytics/contracts";
+import {
+  ANALYTICAL_SCHEMA,
+  describeAnalyticalSchema,
+} from "../src/lib/ai/analytics/schema";
+import { interpretActivityReference } from "../src/lib/local-data/activity-policy";
+import { TRAINER_SYSTEM_PROMPT } from "../src/lib/ai/trainer-instructions";
 import type { CompleteTrainingPlan } from "../src/lib/training-plan/snapshot";
 
 const unused = () => {
@@ -83,6 +89,310 @@ function scripted(
 }
 
 describe("AI application through supplied capabilities (no infrastructure mocks)", () => {
+  it("hands the complete supported schema to fresh planning and reserved synthesis", async () => {
+    const ports = capabilities();
+    ports.analytics.describeGarminDatabase = () =>
+      describeAnalyticalSchema(
+        Object.fromEntries(
+          Object.keys(ANALYTICAL_SCHEMA).map((name) => [name, { rowCount: 0 }]),
+        ),
+      );
+    const test = scripted(
+      [
+        call("describeGarminDatabase"),
+        new Error("synthetic failure after schema read"),
+        incomplete(
+          "No personal records were retrieved; section availability is not established.",
+        ),
+      ],
+      ports,
+    );
+    const result = await test.run();
+    expect(result.toolSteps.map((s) => s.tool)).toEqual([
+      "describeGarminDatabase",
+    ]);
+    for (const request of test.requests.slice(1)) {
+      expect(request.system).toContain("activity_calculated_grade columns:");
+      expect(request.system).toContain("target_window_sec");
+      expect(request.system).toContain("Parameterized grade relation:");
+      expect(request.system).toContain("daily_health columns:");
+      expect(request.system).toContain("body_battery");
+      expect(request.system).toContain("Safe SQL examples:");
+    }
+    expect(test.requests.at(-1)?.purpose).toBe("final_synthesis");
+  });
+
+  it("keeps bounded detail coverage and omitted evidence explicit on a steepness correction", async () => {
+    const requests: TrainerGenerationRequest[] = [];
+    const result = await orchestrateTrainerChat(
+      {
+        system: TRAINER_SYSTEM_PROMPT,
+        userRequest:
+          "That was climbing density, not slope. Check the available sections rather than promising another analysis.",
+      },
+      {
+        generate: (request) => {
+          requests.push(request);
+          if (requests.length === 1)
+            return Promise.resolve(
+              call("getActivityDetailSlice", {
+                garminId: "synthetic",
+                pointLimit: 3,
+              }),
+            );
+          return Promise.resolve(
+            incomplete(
+              "Only a bounded slice is available; it is not whole-route evidence.",
+            ),
+          );
+        },
+        executeTool: (input) =>
+          Promise.resolve({
+            index: input.index,
+            tool: "getActivityDetailSlice",
+            status: "succeeded",
+            summary:
+              "Returned 3 normalized points and 0 bounded laps for synthetic.",
+            privacy: "bounded",
+            result: {
+              totalPoints: 900,
+              nextPointOffset: 3,
+              availability: { hasGrade: false },
+              laps: [],
+              points: Array.from({ length: 3 }, (_, elapsedSec) => ({
+                elapsedSec,
+                distanceMeters: elapsedSec * 10,
+                altitudeMeters: 100 + elapsedSec,
+                label: "x".repeat(900),
+              })),
+            },
+          }),
+      },
+    );
+    expect(result.toolSteps).toHaveLength(1);
+    expect(requests[1].system).toContain('"totalPoints":900');
+    expect(requests[1].system).toContain('"nextPointOffset":3');
+    expect(requests[1].system).toContain("Evidence text truncated");
+    expect(requests[1].system).toContain("bounded slice");
+  });
+
+  it.each(["initial", "first challenge", "steepness correction"])(
+    "executes event-relative summary/recovery and calculated-section evidence before %s completion",
+    async (turn) => {
+      const ports = capabilities();
+      const evidence = [
+        {
+          resultName: "outings",
+          rows: [
+            {
+              garmin_id: "synthetic-target",
+              date: "2026-04-12",
+              sport: "hiking",
+              duration_sec: 7200,
+            },
+            {
+              garmin_id: "synthetic-prior-1",
+              date: "2026-04-11",
+              sport: "cycling",
+              duration_sec: 1800,
+            },
+            {
+              garmin_id: "synthetic-prior-2",
+              date: "2026-04-09",
+              sport: "walking",
+              duration_sec: 2400,
+            },
+          ],
+        },
+        {
+          resultName: "recovery",
+          rows: [
+            {
+              date: "2026-04-11",
+              sleep_minutes: 410,
+              hrv_ms: null,
+              body_battery_avg: 0,
+              availability: "partial",
+            },
+            {
+              date: "2026-04-12",
+              sleep_minutes: null,
+              hrv_ms: null,
+              body_battery_avg: null,
+              availability: "missing",
+            },
+          ],
+        },
+        {
+          resultName: "sections",
+          rows: [
+            {
+              grade_method: "timestamp_altitude_distance_v1",
+              target_window_sec: 180,
+              valid_sections: 4,
+              total_sections: 6,
+              max_section_grade_pct: 12,
+              source_grade_samples: 0,
+            },
+          ],
+        },
+      ];
+      const queries: string[] = [];
+      ports.analytics.runReadOnlySql = (input) => {
+        queries.push(input.sql);
+        const next = evidence.shift()!;
+        return {
+          status: "succeeded",
+          ...next,
+          columns: Object.keys(next.rows[0]).map((name) => ({ name })),
+          rowCount: next.rows.length,
+          returnedRows: next.rows.length,
+          truncated: false,
+          privacy: "synthetic bounded",
+        };
+      };
+      ports.localData.verifyActivityReference = () => ({
+        tool: "activityVerification",
+        reference: {
+          garminId: "synthetic-target",
+          suppliedName: null,
+          date: null,
+        },
+        outcome: "found",
+        matches: [
+          {
+            garminId: "synthetic-target",
+            label: "Synthetic hill outing",
+            labelSource: "garmin",
+            date: "2026-04-12",
+            sport: "hiking",
+            durationSec: 7200,
+            distanceMeters: 8000,
+            elevationGainMeters: 500,
+            avgHeartRate: 135,
+          },
+        ],
+        importedCoverage: {
+          activityCount: 3,
+          earliestDate: "2026-04-09",
+          latestDate: "2026-04-12",
+        },
+        privacy: "synthetic bounded",
+      });
+      const responses = [
+        call("verifyActivityReference", { garminId: "synthetic-target" }),
+        call("runReadOnlySql", {
+          sql: "select garmin_id, date(started_at/1000, 'unixepoch') as date, sport, duration_sec from activity where started_at <= unixepoch('2026-04-12T23:59:59Z')*1000 order by started_at desc limit 3",
+        }),
+        call("runReadOnlySql", {
+          sql: "select date, sleep_minutes, hrv_ms, body_battery_avg, availability from daily_health where date between '2026-04-09' and '2026-04-12' order by date",
+        }),
+        call("runReadOnlySql", {
+          sql: "select grade_method, target_window_sec, count(calculated_grade_pct) as valid_sections, count(*) as total_sections, max(calculated_grade_pct) as max_section_grade_pct from activity_calculated_grade('synthetic-target') group by grade_method, target_window_sec",
+        }),
+        completion({
+          kind: "incomplete",
+          answer:
+            "The target and two preceding outings were checked across sports. Sleep is partial; estimated sections are not terrain or a measured fatigue/nutrition explanation. Enrichment is unavailable; pacing and recovery remain useful coaching options.",
+          claims: [
+            metric(2, "outings", "duration_sec", 7200),
+            metric(3, "recovery", "sleep_minutes", 410),
+            metric(4, "sections", "valid_sections", 4),
+          ],
+          missingEvidence: [
+            "pre-event HRV",
+            "complete section support",
+            "terrain enrichment",
+            "causation",
+          ],
+        }),
+      ];
+      const requests: TrainerGenerationRequest[] = [];
+      const result = await orchestrateTrainerChat(
+        {
+          system: TRAINER_SYSTEM_PROMPT,
+          userRequest:
+            turn === "initial"
+              ? "Why did synthetic-target feel unusually hard after my two previous outings? I had a small meal beforehand."
+              : `${turn}: check the same event and preceding outings again; density is not slope.`,
+          turnContext: { currentDate: "2026-10-30" },
+        },
+        {
+          generate: (request) => {
+            requests.push(request);
+            return Promise.resolve(responses.shift()!);
+          },
+          executeTool: (input) => executeTrainerTool(input, ports),
+        },
+      );
+      expect(result.toolSteps.map((s) => [s.tool, s.status])).toEqual([
+        ["verifyActivityReference", "succeeded"],
+        ...Array.from({ length: 3 }, () => ["runReadOnlySql", "succeeded"]),
+      ]);
+      expect(queries).toHaveLength(3);
+      expect(queries[1]).toContain("2026-04-09");
+      expect(queries[2]).toContain(
+        "activity_calculated_grade('synthetic-target')",
+      );
+      expect(requests.at(-1)?.system).toContain('"sport":"cycling"');
+      expect(requests.at(-1)?.system).toContain('"hrv_ms":null');
+      expect(requests.at(-1)?.system).toContain('"body_battery_avg":0');
+      expect(requests.at(-1)?.system).toContain('"valid_sections":4');
+      expect(result.text).toContain("Enrichment is unavailable");
+      expect(result.providerCalls).toBe(5);
+    },
+  );
+
+  it("hands mismatched reference constraints back for a fresh ID-only verification", async () => {
+    const ports = capabilities();
+    const activity = {
+      garminId: "synthetic-target",
+      name: "Synthetic outing",
+      sport: "hiking",
+      startedAt: new Date("2026-04-12T10:00:00Z"),
+      durationSec: 7200,
+      distanceMeters: 8000,
+      calories: null,
+      avgHeartRate: null,
+      maxHeartRate: null,
+      steps: null,
+      elevationGainMeters: 500,
+      elevationLossMeters: null,
+      trainingEffect: null,
+    };
+    ports.localData.verifyActivityReference = (input) =>
+      interpretActivityReference([activity], input);
+    const test = scripted(
+      [
+        call("verifyActivityReference", {
+          garminId: activity.garminId,
+          date: "2026-10-30",
+          suppliedName: "Unrelated preview",
+        }),
+        call("verifyActivityReference", { garminId: activity.garminId }),
+        incomplete(
+          "The ID is imported; unsupported extra filters caused the first no-match. Detail/recovery analysis remains incomplete.",
+        ),
+      ],
+      ports,
+    );
+    const result = await test.run();
+    expect(
+      result.toolSteps.map((s) => (s.result as { outcome: string }).outcome),
+    ).toEqual(["not_found", "found"]);
+    expect(test.requests[1].system).toContain(
+      '"suppliedName":"Unrelated preview"',
+    );
+    expect(test.requests[1].system).toContain('"date":"2026-10-30"');
+    expect(test.requests[1].system).toContain(
+      "combined no-match does not prove the ID alone is absent",
+    );
+    expect(test.requests[2].system).toContain(
+      "Found one local match: 2026-04-12",
+    );
+    expect(result.providerCalls).toBe(3);
+  });
+
   it("answers directly with a plain request and never asks for tools", async () => {
     const test = scripted([coaching("A conversational answer.")]);
     expect(await test.run()).toMatchObject({

@@ -162,6 +162,12 @@ describe("dependency-light contracts and evidence", () => {
       .filter((line) => /^\d+\./.test(line));
     expect(lines).toHaveLength(20);
     expect(lines.every((line) => line.length <= 504)).toBe(true);
+    expect(lines.every((line) => line.includes("Row text truncated"))).toBe(
+      true,
+    );
+    expect(renderToolSteps([step])).toContain(
+      "omitted rows/cells are not evidence of absence",
+    );
     const grounding = groundingForSteps([step]);
     expect(grounding?.summary).toHaveLength(500);
     expect(grounding?.toolSteps[0].activityIds).toHaveLength(10);
