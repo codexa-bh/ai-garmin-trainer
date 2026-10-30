@@ -1,4 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignoreBinaries": ["ollama"]
+  "ignoreBinaries": ["ollama"],
+  "entry": ["scripts/desktop/runtime.ts", "src-tauri/ui/setup.js"]
 }

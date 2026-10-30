@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Garmin Trainer",
+  "version": "0.1.0",
+  "identifier": "com.codexa.garmin-trainer.desktop",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "setup",
+        "title": "Garmin Trainer — local setup",
+        "width": 720,
+        "height": 480
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost",
+      "capabilities": ["setup"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.png", "icons/icon.icns"],
+    "resources": { "resources/": "resources/" },
+    "macOS": { "minimumSystemVersion": "12.0" }
+  }
+}

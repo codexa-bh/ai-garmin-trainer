@@ -25,6 +25,12 @@ npm run build
 
 `npm run doctor`, `npm run db:status -- --json`, bootstrap stage output, and dependency evidence output are allowlisted support artifacts. They report versions, schema readiness, current/migration decisions, selected chat provider readiness including loopback Ollama chat when configured, loopback readiness, and whether Garmin MCP args explicitly include the reviewed exact `mcp==1.28.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, provider base URLs, prompts, precise GPS streams, raw connector payloads, vectors, or `.env.local` values.
 
+## macOS desktop validation
+
+On macOS ARM64, also run `npm run desktop:test:native` and `npm run desktop:build` (unsigned app only; no signing/notarization/installer publication). The production app must launch outside the source checkout with bundled Node/SQLite and explicit disposable populated state, not just a browser/development server. Exercise native lifecycle, configuration/ownership/resource failures, repeated launch, persisted feature parity and inspected sanitized local screenshots; disclose unavailable real integrations. See [desktop build and recovery](desktop.md) and the epic live-smoke runbook.
+
+Knip's two explicit additional entrypoints are the assembler-bundled `scripts/desktop/runtime.ts` and the local setup HTML's `src-tauri/ui/setup.js`. Generated `src-tauri/{target,gen,resources}` and `dist` are build output only; no source files are exempted from lint/ownership/Knip.
+
 ## Generated Next.js declarations
 
 `next-env.d.ts` and `.next/` are framework-owned, ignored local output. Do not

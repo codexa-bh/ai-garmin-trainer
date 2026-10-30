@@ -89,6 +89,8 @@ const groups = [
     "lib/db",
     [
       "connection",
+      "desktop-preflight",
+      "writer-ownership",
       "conversation-lifecycle",
       "conversation-repository",
       "legacy-memory-repository",

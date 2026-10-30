@@ -1,13 +1,13 @@
 # Source-beta readiness foundation
 
-This repository is ready only for the next controlled clean-machine validation milestone. It is not a public release, desktop package, beta invitation, provider application, deployment, or commercial implementation.
+This repository supports advanced-user source operation and a locally source-built macOS ARM64 desktop runtime. See [desktop build/adoption/recovery](desktop.md). This is not a distributed installer, clean-machine certification, public release, beta invitation, provider application, deployment or commercial implementation.
 
 ## Supported boundary
 
-- Primary path: local MCP-only advanced-user source beta.
+- Primary paths: local MCP-only advanced-user source setup and local source-built macOS ARM64 Tauri app with bundled Node; external uv/Python and optional Ollama remain operator-managed.
 - Source control: public GitHub repository `https://github.com/codexa-bh/ai-garmin-trainer`. Public source availability is distinct from runtime access and does not establish a supported packaged distribution, deployment, release, or beta channel.
 - Platforms prepared here: macOS Apple Silicon first; Ubuntu LTS after reproducibility evidence.
-- Unsupported: LAN/public exposure, hosted use, desktop packaging, manual FIT/import fallback, alternate Garmin connectors, packaged distribution, deployment, release, telemetry, commercial multi-user operation, and treating local no-auth as a hosted safety boundary.
+- Unsupported: LAN/public exposure, hosted use, desktop platforms other than macOS ARM64, manual FIT/import fallback, alternate Garmin connectors, packaged distribution/signing/notarization, deployment, release, telemetry, commercial multi-user operation, and treating local no-auth as a hosted safety boundary.
 - Garmin connector: `Taxuspt/garmin_mcp` pinned to `3610be6feed93088d85b0f35aba9d7d07c2505a7` with exact `mcp==1.28.1`, launched over local stdio only, with app-side read-operation allowlisting. A local read-only FIT baseline helper may use the same out-of-band Garmin token store to extract only approved `zones_target` max-HR facts from recent activity FIT files. Garmin auth remains out of band through `garmin-mcp-auth`; the app checks auth-state file presence only and never reads token contents.
 
 ## Setup flow for clean-machine validation
@@ -22,6 +22,8 @@ For public-source clone commands and step-by-step installation, start with the [
 6. The supported production-local command binds Next.js to `127.0.0.1:3000` by default. For local port conflicts, repeat restarts may use `npm run restart:local -- --port <port>` or `AI_GARMIN_RESTART_PORT=<port>` while still binding only to `127.0.0.1`. LAN/public host binding is unsupported and flagged by doctor/bootstrap.
 
 ## Local data lifecycle
+
+Desktop adoption references an explicit existing private env/DB; it never invokes bootstrap/migration or creates a default blank DB. It refuses unsupported schema/integrity/ownership before application DB construction. Source and desktop share a process-owned admission lease; quit one before starting the other. Follow [desktop recovery](desktop.md#explicit-private-state-adoption) for stale ownership, WAL-aware copies and source rollback. No data relocation or primary cutover follows source delivery.
 
 | Operation               | Source-beta behavior                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

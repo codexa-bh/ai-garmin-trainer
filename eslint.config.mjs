@@ -17,6 +17,10 @@ const config = [
       ".garmin-token/**",
       ".garmin-mcp/**",
       "next-env.d.ts",
+      "dist/**",
+      "src-tauri/target/**",
+      "src-tauri/gen/**",
+      "src-tauri/resources/**",
     ],
   },
   js.configs.recommended,
@@ -65,7 +69,11 @@ const config = [
     },
   },
   {
-    files: ["src/app/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
+    files: [
+      "src/app/**/*.{ts,tsx}",
+      "tests/**/*.{ts,tsx}",
+      "src-tauri/ui/*.js",
+    ],
     languageOptions: { globals: globals.browser },
   },
   {

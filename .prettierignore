@@ -6,3 +6,6 @@ data
 .garmin-mcp
 package-lock.json
 src/app/icon.svg
+src-tauri/target
+src-tauri/gen
+src-tauri/resources

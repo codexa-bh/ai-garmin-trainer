@@ -565,6 +565,30 @@ vi.mock("ai", () => ({
   tool: (definition: unknown) => definition,
 }));
 
+// This supplied-evidence orchestration suite must not read a checkout DB.
+// Weekly context was the one unmocked composition seam; use its real calendar
+// with empty supplied document presence, matching the intended test boundary.
+vi.mock("@/lib/weekly/composition", async () => {
+  const { weeklyCalendar } = await import("@/lib/weekly/calendar");
+  return {
+    weekly: {
+      context: (turn: { timeZone: string }) => ({
+        calendar: weeklyCalendar(new Date(), turn.timeZone),
+        currentPlan: false,
+        currentReview: false,
+        upcomingPlan: false,
+      }),
+    },
+  };
+});
+vi.mock("@/lib/db/connection", () => ({
+  getDatabase: () => {
+    throw new Error(
+      "Unexpected SQLite access in supplied-evidence route tests.",
+    );
+  },
+}));
+
 let selectedProvider = "deepseek";
 vi.mock("@/lib/model-settings/composition", () => ({
   selectedTrainerModel: () => ({

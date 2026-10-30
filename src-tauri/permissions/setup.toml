@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-select-configuration"
+description = "Read sanitized setup status and show a native file picker; no caller-supplied path, executable, or arguments."
+commands.allow = ["select_configuration", "setup_status"]

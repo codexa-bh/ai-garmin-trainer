@@ -16,6 +16,8 @@ Required planning and close evidence:
 
 Destructive migrations, reset flows, import rewrites, Garmin deletion, and ambiguous DB-target work require a disposable DB copy unless the task explicitly scopes primary-data mutation and the operator approved it.
 
+Desktop runtime work keeps the same DB schema/data shapes: no backfill is required solely for packaging/adoption. Use an online SQLite backup for active-WAL copies and verify integrity; never use normal lazy app DB construction as a read-only migration probe. Desktop refuses unsupported schemas instead of implicitly migrating the primary. See [desktop adoption](desktop.md#explicit-private-state-adoption).
+
 ## Task-created smoke/test/mock data cleanup
 
 A task that creates smoke chats, test conversations, mock profile/memory rows, Garmin test artifacts, or other app-managed local artifacts must clean up those artifacts after evidence capture, or record an explicit deferral before handoff.
