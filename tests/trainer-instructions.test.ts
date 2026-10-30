@@ -142,6 +142,9 @@ describe("canonical trainer instruction package", () => {
     );
     for (const rule of [
       "even without explicit lookup wording",
+      "Complete requested event-relative summary/recovery before optional enrichment",
+      "never select analyzeActivityTerrain for unsupported sports",
+      "A tool rejection still obeys normal terminal guardrails",
       "Reference fields are conjunctive",
       "omit unknown optional fields",
       "recheck the supplied ID without unsupported filters",
