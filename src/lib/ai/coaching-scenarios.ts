@@ -13,7 +13,7 @@ export type CoachingScenario = {
   domain: CoachingScenarioDomain;
   userPrompt: string;
   providedEvidence: string[];
-  expectedRoute: "no-tool" | "reference" | "sql" | "sql-math";
+  expectedRoute: "no-tool" | "reference" | "sql" | "sql-math" | "terrain";
   requiredQualities: string[];
   forbiddenBehavior: string[];
   severity: "critical" | "high" | "medium";
@@ -171,7 +171,7 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
       "synthetic target outside recent context preview",
       "calculated-grade relation available despite absent source grade",
       "partial grade support and paginated bounded detail slice",
-      "terrain-enrichment tool not delivered in current capability registry",
+      "terrain-enrichment capability unavailable in this scenario; use supported calculated-grade fallback",
     ],
     expectedRoute: "sql",
     requiredQualities: [
@@ -185,6 +185,30 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
       "promise of unexecuted tool work after completion",
       "ascent per km presented as local gradient",
       "bounded slice presented as full-route analysis",
+    ],
+    severity: "critical",
+  },
+  {
+    id: "HIKE-TERRAIN-06",
+    domain: "hiking",
+    userPrompt:
+      "Show the climb and rolling sections of my last walk and how much steep support there is.",
+    providedEvidence: [
+      "shared terrain-v1 sections with partial time coverage and truncated rows",
+    ],
+    expectedRoute: "terrain",
+    requiredQualities: [
+      "analyzeActivityTerrain current-turn metric cells",
+      "incomplete completion for partial/truncated coverage",
+      "25m smoothing and 100m classification scale",
+      "signed grade distinct from climbing density",
+      "estimated stops not measured; technical terrain unknown",
+    ],
+    forbiddenBehavior: [
+      "complete route totals from truncated rows",
+      "point maximum slope",
+      "invented technical difficulty",
+      "measured pause claim",
     ],
     severity: "critical",
   },

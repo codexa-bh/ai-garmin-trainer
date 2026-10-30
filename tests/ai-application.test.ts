@@ -19,6 +19,7 @@ import {
   ANALYTICAL_SCHEMA,
   describeAnalyticalSchema,
 } from "../src/lib/ai/analytics/schema";
+import { analyzeTerrainSections } from "../src/lib/analytics/terrain-sections";
 import { interpretActivityReference } from "../src/lib/local-data/activity-policy";
 import { TRAINER_SYSTEM_PROMPT } from "../src/lib/ai/trainer-instructions";
 import type { CompleteTrainingPlan } from "../src/lib/training-plan/snapshot";
@@ -28,7 +29,11 @@ const unused = () => {
 };
 function capabilities(): TrainerToolPorts {
   return {
-    analytics: { describeGarminDatabase: unused, runReadOnlySql: unused },
+    analytics: {
+      describeGarminDatabase: unused,
+      runReadOnlySql: unused,
+      analyzeActivityTerrain: unused,
+    },
     localData: {
       getActivityByGarminId: unused,
       getActivityDetailForAnalytics: unused,
@@ -392,6 +397,86 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
     );
     expect(result.providerCalls).toBe(3);
   });
+
+  it.each(["available", "partial", "unavailable"])(
+    "consumes delivered terrain %s support through fresh planning, reserve and exact cells",
+    async (support) => {
+      const ports = capabilities();
+      const points = Array.from({ length: 401 }, (_, i) => ({
+        elapsedSec: i,
+        timestamp:
+          support === "partial"
+            ? null
+            : new Date(Date.UTC(2026, 3, 12) + i * 10000).toISOString(),
+        distanceMeters: i * 10,
+        altitudeMeters: 100 + (i % 40 <= 20 ? i % 40 : 40 - (i % 40)),
+        heartRate: 120,
+      }));
+      const analysis = analyzeTerrainSections(
+        "synthetic-target",
+        "hiking",
+        support === "unavailable" ? [] : points,
+        20,
+      );
+      ports.analytics.analyzeActivityTerrain = () => analysis;
+      const lastIndex = analysis.sections.length - 1;
+      const claims =
+        support === "unavailable"
+          ? []
+          : [
+              {
+                ...metric(
+                  1,
+                  "terrain_sections",
+                  "meanGradePct",
+                  analysis.sections[lastIndex].meanGradePct!,
+                ),
+                rowIndex: lastIndex,
+              },
+            ];
+      const test = scripted(
+        [
+          call("analyzeActivityTerrain", {
+            garminId: "synthetic-target",
+            maxRows: 20,
+          }),
+          ...(support === "unavailable"
+            ? []
+            : [new Error("synthetic planner failure after terrain evidence")]),
+          completion({
+            kind: "incomplete",
+            answer:
+              "Supported elevation sections are estimates, not surface or technicality; missing support remains unavailable.",
+            claims,
+            missingEvidence: [
+              "surface and technicality",
+              ...(support === "partial" ? ["timing"] : []),
+            ],
+          }),
+        ],
+        ports,
+      );
+      const result = await test.run();
+      expect(result.toolSteps[0]).toMatchObject({
+        tool: "analyzeActivityTerrain",
+        status: support === "unavailable" ? "rejected" : "succeeded",
+      });
+      if (support !== "unavailable") {
+        expect(analysis.sections.length).toBeGreaterThan(3);
+        for (const request of test.requests.slice(1)) {
+          expect(request.system).toContain(`rowIndex ${lastIndex}:`);
+          expect(request.system).toContain(
+            `"meanGradePct":${analysis.sections[lastIndex].meanGradePct}`,
+          );
+          expect(request.system).toContain("Method/whole-analysis coverage");
+          expect(request.system).toContain("not surface/technicality");
+        }
+      }
+      expect(test.requests.at(-1)?.purpose).toBe("final_synthesis");
+      expect(result.text).toContain("Supported elevation sections");
+      expect(result.debugTrace?.finalAnswerSource).toBe("provider");
+    },
+  );
 
   it("answers directly with a plain request and never asks for tools", async () => {
     const test = scripted([coaching("A conversational answer.")]);

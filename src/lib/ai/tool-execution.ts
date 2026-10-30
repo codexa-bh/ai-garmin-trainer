@@ -16,6 +16,7 @@ export async function executeTrainerTool(
       case "getWeeklyPlan":
       case "saveWeeklyDocuments":
         return executeWeeklyTool(input, ports.weekly);
+      case "analyzeActivityTerrain":
       case "describeGarminDatabase":
       case "runReadOnlySql":
       case "runMathAnalysis":

@@ -18,6 +18,24 @@ import type {
   ActivityDetailCoverage,
 } from "../garmin/detail-types";
 import { interpretActivityReference } from "./activity-policy";
+import {
+  analyzeTerrainSections,
+  type TerrainPoint,
+} from "../analytics/terrain-sections";
+
+export function createTerrainAnalysis(
+  read: (id: string) => {
+    sport: string | null;
+    points: readonly TerrainPoint[];
+  },
+) {
+  return (id: string, rowLimit = 100) => {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id))
+      return analyzeTerrainSections(id, null, [], rowLimit);
+    const input = read(id);
+    return analyzeTerrainSections(id, input.sport, input.points, rowLimit);
+  };
+}
 
 /** Consumer-owned synchronous reads and complete atomic lifecycle capabilities. */
 export interface LocalDataReads {

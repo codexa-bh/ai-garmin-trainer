@@ -1,3 +1,7 @@
+import type {
+  TerrainAnalysis,
+  TerrainSection,
+} from "../analytics/terrain-sections";
 import type { ActivityVerificationEvidence } from "@/lib/local-data/contracts";
 import type {
   AnalysisResult,
@@ -112,6 +116,21 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
       lines.push(
         `Forbidden data classes: ${evidence.forbiddenDataClasses.join("; ")}.`,
       );
+    }
+    if (step.tool === "analyzeActivityTerrain" && step.result) {
+      const evidence = step.result as {
+        resultName: string;
+        analysis: Omit<TerrainAnalysis, "sections">;
+        rows: TerrainSection[];
+      };
+      lines.push(
+        `Terrain result handle ${evidence.resultName}. Method/whole-analysis coverage: ${JSON.stringify(evidence.analysis)}`,
+      );
+      lines.push(
+        "Elevation profile only, not surface/technicality. Signed grade uses net filtered change / recorded along-route distance; ascent/descent integrate filtered changes. SteepUp/DownMeters are >=10% 25m grade-band support, not a maximum. Stationary/moving are <=0.3m/s for >=30s estimates, never measured stops or their cause. HR is time-weighted with hrSupportSec; pace uses elapsed seconds. Partial/truncated support requires incomplete completion; returned rows alone are not whole-route totals. Row indexes below are zero-based exact cells.",
+      );
+      for (const [index, row] of evidence.rows.entries())
+        lines.push(`rowIndex ${index}: ${JSON.stringify(row)}`);
     }
     if (step.tool === "runReadOnlySql" && step.result) {
       const evidence = step.result as AnalysisResult;

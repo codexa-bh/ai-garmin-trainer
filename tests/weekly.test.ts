@@ -565,7 +565,12 @@ it.each([
             input.toolName === "runMathAnalysis" ||
             input.toolName === "describeGarminDatabase"
           ) {
-            const step = executeAnalyticsTool(input, analytics);
+            const step = executeAnalyticsTool(input, {
+              ...analytics,
+              analyzeActivityTerrain: () => {
+                throw new Error("unexpected terrain call");
+              },
+            });
             if (input.toolName === "runMathAnalysis")
               calculated = Number(
                 (step.result as { rows: AnalysisRow[] }).rows[0].score,

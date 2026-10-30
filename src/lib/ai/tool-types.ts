@@ -7,6 +7,7 @@ export type CompletionRejection = {
     | "tool_mismatch"
     | "metric_step_required"
     | "latest_metric_unsuccessful"
+    | "incomplete_analysis"
     | "result_mismatch"
     | "cell_mismatch";
   claimIndex?: number;
@@ -22,6 +23,7 @@ export type TrainerToolName =
   | "describeGarminDatabase"
   | "runReadOnlySql"
   | "runMathAnalysis"
+  | "analyzeActivityTerrain"
   | "getTrainingPlan"
   | "saveTrainingPlan"
   | "getWeeklyPlan"

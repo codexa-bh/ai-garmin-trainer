@@ -7,12 +7,50 @@ export function executeAnalyticsTool(
   input: Extract<
     TrainerToolExecutionInput,
     {
-      toolName: "describeGarminDatabase" | "runReadOnlySql" | "runMathAnalysis";
+      toolName:
+        | "describeGarminDatabase"
+        | "runReadOnlySql"
+        | "runMathAnalysis"
+        | "analyzeActivityTerrain";
     }
   >,
   ports: AnalyticsToolPorts,
 ): TrainerToolStep {
   switch (input.toolName) {
+    case "analyzeActivityTerrain": {
+      const analysis = ports.analyzeActivityTerrain(
+        input.input.garminId,
+        input.input.maxRows,
+      );
+      const { sections: rows, ...metadata } = analysis;
+      const resultName = input.input.resultName ?? "terrain_sections";
+      const status =
+        analysis.status === "unavailable" ? "rejected" : "succeeded";
+      const privacy =
+        "Bounded normalized elevation-profile evidence only; no GPS, raw streams, archive, credentials or paths.";
+      const result = {
+        status,
+        resultName,
+        rows,
+        analysis: metadata,
+        rowCount: analysis.sectionCount,
+        returnedRows: rows.length,
+        truncated: analysis.truncated,
+        privacy,
+      };
+      if (status === "succeeded")
+        input.context.analysisResults.set(resultName, rows);
+      return {
+        index: input.index,
+        tool: input.toolName,
+        status,
+        result,
+        activityIds: [input.input.garminId],
+        privacy,
+        reason: analysis.reason ?? undefined,
+        summary: `Terrain ${analysis.status}; ${rows.length}/${analysis.sectionCount} sections; ${analysis.quality.join("; ") || "supported elevation profile"}.`,
+      };
+    }
     case "describeGarminDatabase": {
       const result = ports.describeGarminDatabase();
       return {

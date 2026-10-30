@@ -41,6 +41,7 @@ import type { TrainerToolStep } from "../src/lib/ai/tool-types";
 describe("dependency-light contracts and evidence", () => {
   it("parses all thirteen tools with compatible defaults and strict rejection", () => {
     const inputs = {
+      analyzeActivityTerrain: { garminId: "123" },
       getWeeklyPlan: { weekStart: "2026-09-21" },
       saveWeeklyDocuments: {
         changes: [

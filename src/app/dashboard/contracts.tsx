@@ -399,6 +399,7 @@ export const emptySyncRun: SyncRunState = {
 };
 
 export type ActivityDashboardPayload = {
+  terrainSections?: import("@/lib/analytics/terrain-sections").TerrainAnalysis;
   activity: ActivityListItem & {
     calories: number | null;
     maxHeartRate: number | null;

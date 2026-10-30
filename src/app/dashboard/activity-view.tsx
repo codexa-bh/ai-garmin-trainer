@@ -1,4 +1,5 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
+import { TerrainTable } from "./terrain-table";
 import { type RefObject, type UIEvent } from "react";
 import {
   averageSpeedLabel,
@@ -258,6 +259,36 @@ export function ActivityView({
   activityDashboardState: "error" | "idle" | "loading" | "loaded";
   activityDashboard: ActivityDashboardPayload | null;
 }) {
+  const activityId = activityDashboard?.activity.garminId ?? null;
+  const [selection, setSelection] = useState<{
+    activityId: string | null;
+    id: string | null;
+  }>({ activityId, id: null });
+  if (selection.activityId !== activityId)
+    setSelection({ activityId, id: null });
+  const selectedSection =
+    selection.activityId === activityId
+      ? activityDashboard?.terrainSections?.sections.find(
+          (s) => s.id === selection.id,
+        )
+      : undefined;
+  const derivedTime =
+    activityDashboard?.charts.timeScaleStatus === "timestamp_derived";
+  const aligned =
+    !derivedTime ||
+    activityDashboard?.charts.sourcePointCount ===
+      activityDashboard?.terrainSections?.inputPoints;
+  const interval =
+    selectedSection && aligned
+      ? {
+          start: derivedTime
+            ? selectedSection.startTimeSec
+            : selectedSection.startStoredElapsedSec,
+          end: derivedTime
+            ? selectedSection.endTimeSec
+            : selectedSection.endStoredElapsedSec,
+        }
+      : null;
   const presentation = activityDashboard
     ? activityPresentation(activityDashboard)
     : null;
@@ -448,6 +479,13 @@ export function ActivityView({
                   activityDashboard.detail.hasElevation ? (
                     <MiniLineChart
                       title="Elevation profile"
+                      selectedInterval={
+                        interval &&
+                        interval.start !== null &&
+                        interval.end !== null
+                          ? { start: interval.start, end: interval.end }
+                          : null
+                      }
                       unit="m"
                       points={activityDashboard.charts.points}
                       valueKey="altitudeMeters"
@@ -562,6 +600,22 @@ export function ActivityView({
                   </section>
                 ) : null}
               </div>
+            ) : null}
+            <TerrainTable
+              analysis={activityDashboard.terrainSections}
+              selectedId={selectedSection?.id ?? null}
+              onSelect={(id) =>
+                setSelection({
+                  activityId,
+                  id: selection.id === id ? null : id,
+                })
+              }
+            />
+            {selectedSection && !aligned ? (
+              <p role="status">
+                Section selected; elevation highlight unavailable because
+                timestamp/chart origins differ.
+              </p>
             ) : null}
             {presentation.visibleLaps.length ? (
               <div className="lap-table-wrap">

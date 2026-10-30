@@ -16,6 +16,7 @@ beforeEach(stubNativeDialog);
 import { metadata } from "../src/app/layout";
 import { TrainerDashboard } from "../src/app/trainer-dashboard";
 import { ActivityView } from "../src/app/dashboard/activity-view";
+import { analyzeTerrainSections } from "../src/lib/analytics/terrain-sections";
 import type { ActivityDashboardPayload } from "../src/app/dashboard/contracts";
 
 const emptyChat = {
@@ -1713,6 +1714,55 @@ describe("strength activity detail visibility", () => {
       />
     );
   }
+
+  it("selects terrain elevation intervals without GPS, resets on activity changes and tolerates legacy payloads", () => {
+    const data = sparseStrength();
+    data.activity.sport = "hiking";
+    data.detail.hasElevation = true;
+    const points = Array.from({ length: 21 }, (_, i) => ({
+      elapsedSec: i * 10,
+      timestamp: new Date(Date.UTC(2026, 0, 1) + i * 10000).toISOString(),
+      distanceMeters: i * 10,
+      altitudeMeters: i,
+      heartRate: null,
+    }));
+    data.terrainSections = analyzeTerrainSections(
+      data.activity.garminId,
+      "hiking",
+      points,
+    );
+    data.charts.points = points.map((p) => ({ ...p, gradePct: null }));
+    data.charts.domainEndSec = 200;
+    const view = render(detailView(data));
+    const button = screen.getByRole("button", { name: "Section 1" });
+    button.focus();
+    fireEvent.click(button);
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      screen.getByLabelText("Selected terrain section elevation interval"),
+    ).toBeTruthy();
+    fireEvent.click(button);
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button);
+    view.rerender(
+      detailView({
+        ...data,
+        activity: { ...data.activity, garminId: "other-hike" },
+      }),
+    );
+    expect(
+      screen
+        .getByRole("button", { name: "Section 1" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(
+      screen.queryByLabelText("Selected terrain section elevation interval"),
+    ).toBeNull();
+    view.rerender(detailView({ ...data, terrainSections: undefined }));
+    expect(
+      screen.queryByRole("region", { name: "Terrain sections" }),
+    ).toBeNull();
+  });
 
   function lap(
     overrides: Partial<ActivityDashboardPayload["laps"][number]> = {},
