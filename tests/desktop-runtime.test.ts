@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  chmodSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -14,9 +13,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import {
-  explicitPath,
   desktopNextConfiguration,
-  inspectPrivateConfig,
   resolveExecutable,
 } from "../scripts/desktop/config";
 import { acceptsDesktopRequest } from "../scripts/desktop/http-policy";
@@ -50,47 +47,40 @@ describe("desktop reference boundary", () => {
     expect(original.experimental.isrFlushToDisk).toBe(true);
     expect(original.images.unoptimized).toBe(false);
   });
-  it("normalizes relative paths at the selected original base, including spaces and Unicode", () => {
-    expect(explicitPath("data/тест db.sqlite", "/original checkout")).toBe(
-      "/original checkout/data/тест db.sqlite",
-    );
-    for (const value of ["", "~/db", "$HOME/db", "https://host/db", "db\nfile"])
-      expect(() => explicitPath(value, "/base")).toThrow();
-  });
-  it("accepts only owner-private regular unaliased config and never overwrites it", () => {
-    const path = join(directory(), "config.env");
-    const contents = "DATABASE_PATH=./existing.sqlite\n";
-    writeFileSync(path, contents, { mode: 0o600 });
-    expect(inspectPrivateConfig(path)).toBe(contents);
-    const alias = `${path}.alias`;
-    symlinkSync(path, alias);
-    expect(() => inspectPrivateConfig(alias)).toThrow();
-    chmodSync(path, 0o644);
-    expect(() => inspectPrivateConfig(path)).toThrow();
-    expect(readFileSync(path, "utf8")).toBe(contents);
-  });
   it("retains the absolute private overlay across Next environment resets", () => {
     const base = directory();
-    const config = join(base, "private.env");
+    const database = join(base, "populated.sqlite");
+    writeFileSync(database, "test-only-path-validation");
+    // Stray files are never adopted or imported by the desktop boundary.
+    const stray = join(base, ".env.local");
     writeFileSync(
-      config,
-      "DATABASE_PATH=./populated.sqlite\nGARMIN_MCP_TOKEN_DIR=./token\nAI_PROVIDER=openai\nOPENAI_API_KEY=test-only-placeholder\n",
+      stray,
+      "DATABASE_PATH=/wrong/default.sqlite\nOPENAI_API_KEY=stray-secret\n",
       { mode: 0o600 },
     );
+    const snapshot = JSON.stringify({
+      version: 1,
+      fields: {
+        DATABASE_PATH: database,
+        GARMIN_HISTORY_START_DATE: "2025-01-01",
+        AI_PROVIDER: "openai",
+      },
+      secrets: { OPENAI_API_KEY: "sentinel-private-frame" },
+    });
     const script = `
       const {join}=require('node:path');
       (()=>{
         const {adoptConfiguration}=require(join(process.cwd(),'scripts/desktop/config.ts'));
         const {loadEnvConfig}=require('@next/env');
-        adoptConfiguration(process.argv[1]);
+        adoptConfiguration(JSON.parse(process.argv[1]));
         const expected=process.env.DATABASE_PATH;
         loadEnvConfig(process.cwd(),false,{info(){},error(){}},true);
-        console.log(JSON.stringify({database:process.env.DATABASE_PATH===expected,desktop:process.env.TRAINER_DESKTOP,provider:process.env.AI_PROVIDER,tokenAbsolute:process.env.GARMIN_MCP_TOKEN_DIR.startsWith('/'),pythonBytecode:process.env.PYTHONDONTWRITEBYTECODE}));
+        console.log(JSON.stringify({database:process.env.DATABASE_PATH===expected,desktop:process.env.TRAINER_DESKTOP,provider:process.env.AI_PROVIDER,secretPreserved:process.env.OPENAI_API_KEY==='sentinel-private-frame',pythonBytecode:process.env.PYTHONDONTWRITEBYTECODE}));
       })();
     `;
     const result = execFileSync(
       process.execPath,
-      ["--import", "tsx", "-e", script, config],
+      ["--import", "tsx", "-e", script, snapshot],
       {
         cwd: process.cwd(),
         encoding: "utf8",
@@ -105,7 +95,7 @@ describe("desktop reference boundary", () => {
       database: true,
       desktop: "1",
       provider: "openai",
-      tokenAbsolute: true,
+      secretPreserved: true,
       pythonBytecode: "1",
     });
   });

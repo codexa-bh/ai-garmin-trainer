@@ -27,6 +27,9 @@ it("MCP and all four FIT launchers receive the identical resolved private token 
   vi.stubEnv("GARMINTOKENS", "alternate secret path");
   vi.stubEnv("GARMINTOKENS_BASE64", "alternate companion");
   vi.stubEnv("GARMIN_PASSWORD_FILE", "secret file");
+  vi.stubEnv("OPENAI_API_KEY", "sentinel-provider-key");
+  vi.stubEnv("DEEPSEEK_API_KEY", "sentinel-provider-key");
+  vi.stubEnv("OPENROUTER_API_KEY", "sentinel-provider-key");
   mocks.spawn.mockReturnValue({
     stderr: { setEncoding: vi.fn() },
     stdout: { setEncoding: vi.fn() },
@@ -46,6 +49,18 @@ it("MCP and all four FIT launchers receive the identical resolved private token 
   expect(mocks.execFile).toHaveBeenCalledTimes(4);
   for (const call of mocks.execFile.mock.calls)
     expect(call[2].env).toEqual(garminTokenEnvironment());
+  for (const call of [
+    ...mocks.execFile.mock.calls,
+    ...mocks.spawn.mock.calls,
+  ]) {
+    for (const key of [
+      "OPENAI_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "OPENROUTER_API_KEY",
+      "GARMIN_PASSWORD_FILE",
+    ])
+      expect(call[2].env[key]).toBeUndefined();
+  }
   vi.stubEnv("GARMIN_MCP_TOKEN_DIR", "");
   expect((await verifyConnectorToken()).ok).toBe(false);
   expect(() => spawnGarminMcp()).toThrow("no alternate");

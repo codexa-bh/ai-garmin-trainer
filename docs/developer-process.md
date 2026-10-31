@@ -16,7 +16,7 @@ Required planning and close evidence:
 
 Destructive migrations, reset flows, import rewrites, Garmin deletion, and ambiguous DB-target work require a disposable DB copy unless the task explicitly scopes primary-data mutation and the operator approved it.
 
-Desktop runtime work keeps the same DB schema/data shapes: no backfill is required solely for packaging/adoption. Use an online SQLite backup for active-WAL copies and verify integrity; never use normal lazy app DB construction as a read-only migration probe. Desktop refuses unsupported schemas instead of implicitly migrating the primary. See [desktop adoption](desktop.md#explicit-private-state-adoption).
+Desktop runtime/settings/Keychain/auth work keeps the same DB schema/data shapes: no backfill is required solely for packaging, configuration or token adoption. Desktop uses UI settings and native Keychain, never imports/loads user env files; retained explicit maintenance CLIs remain separate. Use an online SQLite backup for active-WAL copies and verify integrity; never use normal lazy app DB construction as a read-only migration probe. Desktop refuses unsupported schemas instead of implicitly migrating the primary. See [desktop adoption](desktop.md#explicit-private-state-adoption).
 
 ## Task-created smoke/test/mock data cleanup
 

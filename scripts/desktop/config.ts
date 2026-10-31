@@ -1,12 +1,7 @@
-import {
-  constants,
-  accessSync,
-  lstatSync,
-  readFileSync,
-  realpathSync,
-} from "node:fs";
-import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
-import { processEnv, updateInitialEnv } from "@next/env";
+import { constants, accessSync, lstatSync, realpathSync } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
+import { updateInitialEnv } from "@next/env";
+import { activationEnvironment } from "./settings";
 import type { NextConfig } from "next";
 import { getOptionalEnv } from "../../src/lib/env";
 import {
@@ -29,33 +24,6 @@ export function desktopNextConfiguration(
   };
 }
 
-export function explicitPath(value: string, base: string): string {
-  if (
-    !value.trim() ||
-    /[~$]/.test(value) ||
-    [...value].some((char) => char.charCodeAt(0) < 32) ||
-    value.includes("://")
-  )
-    throw new Error("A literal local path is required.");
-  return resolve(base, value);
-}
-
-export function inspectPrivateConfig(path: string): string {
-  if (!isAbsolute(path) || realpathSync(path) !== path)
-    throw new Error("Select an absolute unaliased config file.");
-  const stat = lstatSync(path);
-  if (
-    !stat.isFile() ||
-    stat.uid !== process.getuid?.() ||
-    (stat.mode & 0o077) !== 0 ||
-    stat.size > 128 * 1024
-  )
-    throw new Error(
-      "Configuration must be a small owner-private regular file.",
-    );
-  return readFileSync(path, "utf8");
-}
-
 export function resolveExecutable(command: string): string | undefined {
   const candidates = isAbsolute(command)
     ? [command]
@@ -74,35 +42,14 @@ export function resolveExecutable(command: string): string | undefined {
   });
 }
 
-export function adoptConfiguration(path: string): {
+export function adoptConfiguration(snapshot: unknown): {
   uv: boolean;
   uvx: boolean;
 } {
-  const contents = inspectPrivateConfig(path);
-  // The native child starts with a cleared environment. Load exactly the selected
-  // file with Next's normal dotenv expansion, never adjacent files/fallbacks.
-  processEnv(
-    [{ path, contents, env: {} }],
-    dirname(path),
-    {
-      info() {},
-      error() {
-        throw new Error("Invalid private configuration.");
-      },
-    },
-    true,
-  );
+  // Native sends a bounded private frame, never an env filename. No dotenv
+  // loader is invoked; private state cannot depend on cwd or adjacent files.
+  Object.assign(process.env, activationEnvironment(snapshot));
   const env = getOptionalEnv();
-  const base = dirname(path);
-  // Unlike source first-run setup, desktop adoption never defaults to a blank DB.
-  if (!process.env.DATABASE_PATH)
-    throw new Error("An existing database must be explicitly configured.");
-  process.env.DATABASE_PATH = explicitPath(env.DATABASE_PATH, base);
-  if (env.GARMIN_MCP_TOKEN_DIR)
-    process.env.GARMIN_MCP_TOKEN_DIR = explicitPath(
-      env.GARMIN_MCP_TOKEN_DIR,
-      base,
-    );
   const reviewedArgs =
     JSON.stringify(garminMcpArgs(env.GARMIN_MCP_ARGS)) ===
     JSON.stringify(garminMcpArgs(GARMIN_MCP_DEFAULT_ARGS_STRING));

@@ -62,14 +62,13 @@ fn verify_identity(port: u16, nonce: &str) -> Result<(), &'static str> {
 impl Service {
     pub fn start(
         resources: &Path,
-        config: &Path,
+        snapshot: &mut [u8],
         quitting: &AtomicBool,
     ) -> Result<Self, &'static str> {
         let nonce = uuid::Uuid::new_v4().to_string();
         let mut command = Command::new(resources.join("node"));
         command
             .arg(resources.join("runtime/runtime.cjs"))
-            .arg(config)
             .current_dir(resources.join("runtime"))
             .env_clear()
             .env("TRAINER_DESKTOP_NONCE", &nonce)
@@ -90,6 +89,21 @@ impl Service {
         let mut child = command
             .spawn()
             .map_err(|_| "Bundled Node/resources missing or not executable.")?;
+        // One bounded activation frame, then retain stdin for parent liveness.
+        // Provider keys never enter argv, inherited environment or a disk file.
+        let sent = child
+            .stdin
+            .as_mut()
+            .ok_or("Backend activation unavailable.")?
+            .write_all(snapshot);
+        snapshot.fill(0);
+        if sent.is_err() {
+            unsafe {
+                libc::kill(-(child.id() as i32), libc::SIGKILL);
+            }
+            let _ = child.wait();
+            return Err("Backend activation interrupted.");
+        }
         let stdout = child.stdout.take().ok_or("Backend protocol unavailable.")?;
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
@@ -133,7 +147,7 @@ impl Service {
             };
             if message.kind != "ready" || message.version != 1 {
                 return Err(match message.code.as_deref() {
-                    Some("configuration") => "Configuration refused. Select a regular owner-private env file with explicit existing database paths.",
+                    Some("configuration") => "Settings or Keychain activation refused. Check required provider keys, existing database and private absolute paths; no env file is loaded.",
                     Some("database") => "Database preflight refused. Check existing target, integrity and supported schema with source db:status; never auto-upgrade the primary.",
                     Some("database-ownership") => "Database writer admission refused. Quit the other backend and inspect the exact lease/open-file owner; never steal a live lease.",
                     Some("resources") => "Packaged resources failed. Rebuild the ARM64 desktop resources and verify bundled Node/SQLite; do not install/sign to bypass this error.",

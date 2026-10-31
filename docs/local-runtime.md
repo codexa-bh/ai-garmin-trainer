@@ -2,11 +2,11 @@
 
 ← [Installation guide](../README.md#installation)
 
-After [explicit non-serving setup](../README.md#installation), use the native Tauri app as the sole supported launcher. This does not authorize LAN/public hosting or deployment.
+Use the native Tauri app as the sole supported launcher. Configure it through **Desktop Settings** (native app menu) and native Keychain, never an env file. Field identifiers below also document the internal backend/retained CLI adapter; dotenv examples apply only to deliberately configured non-serving maintenance CLIs, not desktop onboarding. Save desktop changes then explicitly quit/reopen. See [installation](../README.md#installation); no LAN/public hosting or deployment is authorized.
 
 ## Direct OpenAI/DeepSeek switching
 
-The defaults are `AI_MODEL=gpt-6-luna` and `DEEPSEEK_MODEL=deepseek-flash`; explicit model overrides remain supported. Keep exactly one provider assignment active in ignored `.env.local`, for example:
+The defaults are `AI_MODEL=gpt-6-luna` and `DEEPSEEK_MODEL=deepseek-flash`; explicit model overrides remain supported. Choose the provider/models in native Desktop Settings. Equivalent maintenance-CLI configuration (not loaded by desktop):
 
 ```dotenv
 AI_PROVIDER=auto
@@ -16,13 +16,13 @@ AI_MODEL=gpt-6-luna
 DEEPSEEK_MODEL=deepseek-flash
 ```
 
-Auto remains DeepSeek-first, using OpenAI only when no valid DeepSeek key is configured, not after a remote failure. To select a provider explicitly, comment the active assignment and uncomment its alternative. An explicit provider without its matching key fails closed. Preserve existing credentials/unrelated settings; never copy them into tracked files. Direct OpenAI requires a privately configured `OPENAI_API_KEY` and paid API/model access independently of a Codex subscription; subscription tokens are not supported.
+Auto remains DeepSeek-first, using OpenAI only when no valid DeepSeek key is configured, not after a remote failure. Select the provider explicitly in Desktop Settings (or change the single assignment for maintenance CLI use). An explicit provider without its matching key fails closed. Preserve existing credentials/unrelated settings; never copy them into tracked files. Direct OpenAI requires a privately configured `OPENAI_API_KEY` and paid API/model access independently of a Codex subscription; subscription tokens are not supported.
 
 OpenAI uses the existing Responses adapter for Luna function calling, including structured trainer completion. No Chat Completions fallback, model substitution, reasoning override or new orchestration retry is introduced. Explicit OpenAI/DeepSeek also selects the existing memory extractor when enabled; embeddings remain independently configured. Doctor verifies configuration, not account entitlement or live tool reliability. Validate exact-model coaching, grounded SQL/math and missing-evidence responses on loopback before changing a working selection. Leave the working provider active if the new model cannot be validated.
 
 Official references checked 2026-10-21: [OpenAI Luna](https://developers.openai.com/api/docs/models/gpt-6-luna) and [DeepSeek models/pricing](https://api-docs.deepseek.com/quick_start/pricing). DeepSeek recommends `deepseek-flash`, then served by DeepSeek-V4.1-Flash-1017. An alias is not proof of a particular backend revision or future availability.
 
-Saving env settings does **not** update an already-running app. Quit/reopen the native app to reload configuration; rebuild only for source changes. Do not restart an unrelated/primary process merely to smoke a worktree. Use a task-owned native launch with a disposable populated DB/config/token copy for chat/memory writes. Source/config rollback restores only the relevant provider/model lines, preserving current credentials and unrelated settings. No schema migration or data back-sync is needed for these defaults.
+Saving Desktop Settings does **not** update an already-running app; env edits never configure desktop. Quit/reopen the native app to apply saved settings; rebuild only for source changes. Do not restart an unrelated/primary process merely to smoke a worktree. Use a task-owned native launch with a disposable populated DB/config/token copy for chat/memory writes. Source/config rollback restores only the relevant provider/model lines, preserving current credentials and unrelated settings. No schema migration or data back-sync is needed for these defaults.
 
 ## Runtime trainer model preference
 
@@ -34,7 +34,7 @@ Each new trainer turn reads and captures the effective model before asynchronous
 
 `GET /api/model-settings` returns safe options, saved selection, effective identity/source/availability and a bounded unavailable explanation; `PATCH` accepts `{ modelId: "deepseek-flash" | "gpt-6-luna" | null }`. Unknown IDs, malformed input and missing-key choices are rejected before writes. A corrupt or now-unconfigured saved choice fails closed, never silently falls back; choose an available replacement or reset explicitly. Provider errors do not change the preference. Reads and successful saves return authoritative snapshots; reopen Settings to refresh after failures/credential changes. Keys, raw stored invalid values and upstream/storage errors are not returned.
 
-Saving this preference survives reload/restart but does not hot-reload `.env.local`. Adding/removing credentials still needs native quit/reopen on the approved target. Rollback is reset or source revert; no primary restart, data copy-back, public hosting or deployment is implied.
+Saving this preference survives reload/restart but does not hot-reload native Desktop Settings/Keychain. Adding/removing credentials still needs native quit/reopen on the approved target. Rollback is reset or source revert; no primary restart, data copy-back, public hosting or deployment is implied.
 
 ## Trainer prompt caching and token diagnostics
 
@@ -109,7 +109,7 @@ source revert rolls back this behavior.
 
 ## Opt-in OpenRouter chat
 
-Set `AI_PROVIDER=openrouter`, `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` in ignored `.env.local`. The initial model is `nvidia/nemotron-3.5-lightning:free`. Chat and guarded tools use `https://openrouter.ai/api/v1/chat/completions`; the key stays server-side. Auto selection remains DeepSeek-first/OpenAI-fallback and ignores OpenRouter keys. Missing/placeholder keys fail closed; no paid model or alternate provider is substituted on failure.
+Select OpenRouter and its model in native Desktop Settings, and explicitly save its provider key in Keychain. Maintenance CLI equivalents are `AI_PROVIDER=openrouter`, `OPENROUTER_API_KEY` and optional `OPENROUTER_MODEL`; desktop never reads those from env files. The initial model is `nvidia/nemotron-3.5-lightning:free`. Chat and guarded tools use `https://openrouter.ai/api/v1/chat/completions`; the key stays server-side. Auto selection remains DeepSeek-first/OpenAI-fallback and ignores OpenRouter keys. Missing/placeholder keys fail closed; no paid model or alternate provider is substituted on failure.
 
 OpenRouter receives the same bounded chat/Garmin context as the selected chat provider. Review its account privacy/routing settings before use. Free-model availability, rate limits and tool support can change; doctor reports configuration presence, not remote readiness. The initial Nemotron free model can repeat otherwise successful read-only tool calls and reach the execution limit instead of answering, especially on explicit tool-directed requests. Existing execution limits remain enforced and return a truthful fallback; a successful smoke is not a reliability guarantee. Validate with a bounded loopback chat/tool request. For temporary tests use task-local ignored configuration, restore the prior provider afterward, and retire temporary credentials.
 

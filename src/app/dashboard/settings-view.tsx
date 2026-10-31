@@ -119,11 +119,13 @@ export function SettingsView({
           <details className="settings-card" open>
             <summary>Garmin data and sync</summary>
             <p>
-              Set <code>GARMIN_MCP_TOKEN_DIR</code> in local env. Reuse existing
-              credentials; only if needed, run <code>npm run garmin:auth</code>{" "}
-              in a private terminal. Sync uses pinned local stdio reads.
-              Verification checks file presence, not authentication validity.
-              The app never sees your Garmin password.
+              Open Desktop Settings from the native app menu to select an
+              existing private token directory. Reuse existing credentials
+              first; only if needed, explicitly start Garmin sign-in there using
+              an unused store. Save and quit/reopen to apply. Sync uses pinned
+              local stdio reads. Verification checks file presence, not
+              authentication validity. This trainer page and AI never receive
+              passwords or MFA codes.
             </p>
             <div className="button-row">
               <button

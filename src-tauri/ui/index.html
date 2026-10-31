@@ -3,34 +3,109 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Garmin Trainer — local setup</title>
+    <title>Garmin Trainer — Desktop Settings</title>
     <link rel="stylesheet" href="setup.css" />
     <script src="setup.js" defer></script>
   </head>
   <body>
     <main>
-      <h1>Garmin Trainer</h1>
-      <h2>Private, local desktop runtime</h2>
+      <h1>Desktop Settings</h1>
       <p>
-        Select your existing owner-private configuration file. The app
-        references its database and token locations in place; it never moves
-        them or automatically upgrades a schema.
+        Private settings stay on this Mac; provider keys stay in macOS Keychain.
+        Existing env files are not loaded or imported. Enter settings again when
+        upgrading.
       </p>
       <p>
         The selected database will be writable. Quit any other app or older
-        backend using it first. For evaluation, select a configuration pointing
-        to a disposable populated copy.
+        backend using it first. For evaluation, select a disposable populated
+        copy. Missing or old-schema databases are refused, never created or
+        upgraded.
       </p>
-      <button id="choose" type="button">Choose configuration</button>
-      <p id="status" role="status">Checking saved configuration…</p>
+      <p id="status" role="status">Checking saved settings…</p>
+      <form id="settings" autocomplete="off">
+        <fieldset id="normal"><legend>Configuration</legend></fieldset>
+        <fieldset id="keys">
+          <legend>Provider keys — Keychain only</legend>
+          <p>
+            Existing keys are never displayed. Blank inputs keep the existing
+            key. Choose Clear explicitly to remove its reference.
+          </p>
+        </fieldset>
+        <details>
+          <summary>Advanced settings</summary>
+          <fieldset id="advanced">
+            <legend>Memory and external tools</legend>
+          </fieldset>
+        </details>
+        <p>
+          Saved runtime changes apply only after you explicitly quit and reopen.
+          They never switch the current database, account or provider in place.
+          The trainer's saved model preference remains independent. Local debug
+          traces are always enabled and may contain private context.
+        </p>
+        <div class="actions">
+          <button type="submit" id="save">Save for next launch</button
+          ><button type="button" id="cancel">Cancel edits</button>
+        </div>
+      </form>
+      <section aria-labelledby="auth-heading">
+        <h2 id="auth-heading">Garmin sign-in (optional)</h2>
+        <p>
+          Prefer your existing token directory above. No password is needed to
+          reuse tokens. Only this explicit action starts login. This unofficial
+          connector may encounter rate limits or unsupported account challenges;
+          it is not official OAuth.
+        </p>
+        <p>
+          New login requires an unused directory inside an existing
+          owner-private folder. Existing credentials are never replaced. Email,
+          password and MFA are transient: never saved, logged or sent to AI. Do
+          not put credentials in chat.
+        </p>
+        <form id="auth" autocomplete="off">
+          <label
+            >New token directory<input
+              id="destination"
+              type="text"
+              autocomplete="off"
+              required
+          /></label>
+          <button type="button" id="auth-parent">
+            Choose private parent folder…
+          </button>
+          <label
+            >Email<input id="email" type="email" autocomplete="off" required
+          /></label>
+          <label
+            >Password<input
+              id="password"
+              type="password"
+              autocomplete="new-password"
+              required
+          /></label>
+          <button id="sign-in" type="submit">
+            Start private Garmin sign-in
+          </button>
+        </form>
+        <form id="mfa-form" hidden autocomplete="off">
+          <label
+            >MFA code<input
+              id="mfa"
+              type="password"
+              autocomplete="off"
+              maxlength="128" /></label
+          ><button type="submit">Submit code once</button>
+        </form>
+        <button type="button" id="auth-cancel" disabled>Cancel sign-in</button>
+        <button type="button" id="use-tokens" hidden>
+          Use new store in settings (then Save)
+        </button>
+        <p id="auth-status" role="status">Idle. No automatic login attempts.</p>
+      </section>
       <p>
-        Use the native Configuration menu to change the reference. While a
-        backend is running, a new selection applies only after quit/relaunch,
-        never in place.
-      </p>
-      <p>
-        Garmin requires external uv/uvx and Python. Ollama stays independently
-        managed. No software or models are installed at launch.
+        External uv/uvx, Python and optional Ollama remain operator-managed. No
+        software or models are installed at launch. Use the native Desktop
+        Settings menu to return here even when the backend is unavailable.
       </p>
     </main>
   </body>

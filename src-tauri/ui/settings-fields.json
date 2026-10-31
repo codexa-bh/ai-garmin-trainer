@@ -1,0 +1,125 @@
+[
+  {
+    "key": "DATABASE_PATH",
+    "label": "Existing compatible SQLite database",
+    "type": "path"
+  },
+  {
+    "key": "GARMIN_MCP_TOKEN_DIR",
+    "label": "Existing private Garmin token directory (optional)",
+    "type": "directory"
+  },
+  {
+    "key": "GARMIN_HISTORY_START_DATE",
+    "label": "Garmin history start date",
+    "type": "date"
+  },
+  {
+    "key": "AI_PROVIDER",
+    "label": "Configured chat provider",
+    "options": ["auto", "openai", "deepseek", "ollama", "openrouter"]
+  },
+  { "key": "AI_MODEL", "label": "OpenAI model", "default": "gpt-6-luna" },
+  {
+    "key": "DEEPSEEK_MODEL",
+    "label": "DeepSeek model",
+    "default": "deepseek-flash"
+  },
+  {
+    "key": "OPENROUTER_MODEL",
+    "label": "OpenRouter model",
+    "default": "nvidia/nemotron-3.5-lightning:free"
+  },
+  {
+    "key": "OLLAMA_MODEL",
+    "label": "Ollama model",
+    "default": "qwen3.5:4b",
+    "advanced": true
+  },
+  {
+    "key": "OLLAMA_BASE_URL",
+    "label": "Local Ollama chat endpoint",
+    "default": "http://127.0.0.1:11434/v1",
+    "advanced": true
+  },
+  {
+    "key": "MEMORY_ENABLED",
+    "label": "Semantic memory enabled",
+    "options": ["false", "true"],
+    "advanced": true
+  },
+  {
+    "key": "MEMORY_EMBEDDING_PROVIDER",
+    "label": "Embedding provider",
+    "options": ["openai", "deterministic", "ollama"],
+    "advanced": true
+  },
+  {
+    "key": "MEMORY_EMBEDDING_MODEL",
+    "label": "Embedding model",
+    "default": "text-embedding-3-small",
+    "advanced": true
+  },
+  {
+    "key": "MEMORY_EMBEDDING_BASE_URL",
+    "label": "Embedding endpoint (optional; Ollama must be local)",
+    "advanced": true
+  },
+  {
+    "key": "MEMORY_EMBEDDING_DIMS",
+    "label": "Embedding dimensions",
+    "default": "1536",
+    "type": "number",
+    "advanced": true
+  },
+  {
+    "key": "MEMORY_TIMEOUT_MS",
+    "label": "Embedding timeout (milliseconds)",
+    "default": "8000",
+    "type": "number",
+    "advanced": true
+  },
+  {
+    "key": "MEMORY_EXTRACTION_MODE",
+    "label": "Memory extraction",
+    "options": ["llm", "deterministic", "off"],
+    "advanced": true
+  },
+  {
+    "key": "MEMORY_EXTRACTION_TIMEOUT_MS",
+    "label": "Extraction timeout (milliseconds)",
+    "default": "3000",
+    "type": "number",
+    "advanced": true
+  },
+  {
+    "key": "GARMIN_MCP_COMMAND",
+    "label": "Connector uvx executable",
+    "default": "uvx",
+    "advanced": true
+  },
+  {
+    "key": "GARMIN_FIT_BASELINE_COMMAND",
+    "label": "FIT baseline uv executable",
+    "default": "uv",
+    "advanced": true
+  },
+  {
+    "key": "GARMIN_FIT_SPEED_COMMAND",
+    "label": "FIT speed uv executable",
+    "default": "uv",
+    "advanced": true
+  },
+  {
+    "key": "GARMIN_FIT_DISTANCE_COMMAND",
+    "label": "FIT distance uv executable",
+    "default": "uv",
+    "advanced": true
+  },
+  {
+    "key": "GARMIN_FIT_ALTITUDE_COMMAND",
+    "label": "FIT altitude uv executable",
+    "default": "uv",
+    "advanced": true
+  }
+]

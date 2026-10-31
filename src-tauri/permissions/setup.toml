@@ -1,4 +1,4 @@
 [[permission]]
-identifier = "allow-select-configuration"
-description = "Read sanitized setup status and show a native file picker; no caller-supplied path, executable, or arguments."
-commands.allow = ["select_configuration", "setup_status"]
+identifier = "allow-desktop-settings"
+description = "Trusted local settings only: validated allowlisted settings, explicit Keychain updates and private bounded Garmin login. Never granted to trainer/remote origins."
+commands.allow = ["setup_status", "read_settings", "save_settings", "choose_path", "start_auth", "auth_status", "submit_mfa", "cancel_auth"]
