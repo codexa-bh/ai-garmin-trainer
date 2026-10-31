@@ -2,7 +2,7 @@
 
 ← [Installation guide](../README.md#installation)
 
-After first setup, use these existing local-only runtime options. They do not authorize LAN/public hosting or deployment.
+After [explicit non-serving setup](../README.md#installation), use the native Tauri app as the sole supported launcher. This does not authorize LAN/public hosting or deployment.
 
 ## Direct OpenAI/DeepSeek switching
 
@@ -22,7 +22,7 @@ OpenAI uses the existing Responses adapter for Luna function calling, including 
 
 Official references checked 2026-10-21: [OpenAI Luna](https://developers.openai.com/api/docs/models/gpt-6-luna) and [DeepSeek models/pricing](https://api-docs.deepseek.com/quick_start/pricing). DeepSeek recommends `deepseek-flash`, then served by DeepSeek-V4.1-Flash-1017. An alias is not proof of a particular backend revision or future availability.
 
-Saving env settings does **not** update an already-running app. A separately authorized rebuild/restart is needed for production; do not restart an unrelated/primary process merely to smoke a worktree. Use a task-owned alternate loopback process with a disposable populated DB copy for chat/memory writes. Source/config rollback restores only the relevant provider/model lines, preserving current credentials and unrelated settings. No schema migration or data back-sync is needed for these defaults.
+Saving env settings does **not** update an already-running app. Quit/reopen the native app to reload configuration; rebuild only for source changes. Do not restart an unrelated/primary process merely to smoke a worktree. Use a task-owned native launch with a disposable populated DB/config/token copy for chat/memory writes. Source/config rollback restores only the relevant provider/model lines, preserving current credentials and unrelated settings. No schema migration or data back-sync is needed for these defaults.
 
 ## Runtime trainer model preference
 
@@ -34,7 +34,7 @@ Each new trainer turn reads and captures the effective model before asynchronous
 
 `GET /api/model-settings` returns safe options, saved selection, effective identity/source/availability and a bounded unavailable explanation; `PATCH` accepts `{ modelId: "deepseek-flash" | "gpt-6-luna" | null }`. Unknown IDs, malformed input and missing-key choices are rejected before writes. A corrupt or now-unconfigured saved choice fails closed, never silently falls back; choose an available replacement or reset explicitly. Provider errors do not change the preference. Reads and successful saves return authoritative snapshots; reopen Settings to refresh after failures/credential changes. Keys, raw stored invalid values and upstream/storage errors are not returned.
 
-Saving this preference survives reload/restart but does not hot-reload `.env.local`. Adding/removing credentials still needs a separately authorized normal server reload. Rollback is reset or source revert; no primary restart, data copy-back, public hosting or deployment is implied.
+Saving this preference survives reload/restart but does not hot-reload `.env.local`. Adding/removing credentials still needs native quit/reopen on the approved target. Rollback is reset or source revert; no primary restart, data copy-back, public hosting or deployment is implied.
 
 ## Trainer prompt caching and token diagnostics
 
@@ -117,27 +117,20 @@ OpenRouter is **chat/tools only**: extraction continues through configured DeepS
 
 ## Local desktop mode
 
-The [macOS ARM64 desktop app](desktop.md) bundles Node and a production Next service, adopts explicit private state references and owns only its backend/connector descendants. It neither calls source bootstrap/restart nor starts/pulls external Ollama/Python. Quit before using the source commands against the same DB. Source and desktop preserve provider preferences, NDJSON/title behavior and separate memory readiness; browser-only active selection is not imported.
+The [macOS ARM64 desktop app](desktop.md) bundles Node and a production Next service, adopts explicit private state references and owns only its backend/connector descendants. It neither calls source bootstrap/restart nor starts/pulls external Ollama/Python. Quit before explicit source CLI migration against the same DB; status/doctor remain readonly. Source and desktop preserve provider preferences, NDJSON/title behavior and separate memory readiness; browser-only active selection is not imported.
 
-## Local restart modes
+## Native development and restart
 
 ```bash
-# Default: rebuild the production bundle, then start on loopback
-npm run restart:local
-npm run restart:local -- --mode production --port 3000
-
-# Development: skip the production build and automatically reload source changes
-npm run restart:local -- --mode dev --port 3000
+# Supported app development: assembled production backend plus native dev host.
+npm run desktop:dev
+# Production: quit, rebuild, then open the unsigned ARM64 app.
+npm run desktop:build
+open 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
 ```
 
-Production mode requires another rebuild/restart to pick up source edits. Development mode uses Next.js automatic reload; configuration changes may still require a restart. Both modes bind to `127.0.0.1`, stop only matching server processes owned by this repository/worktree, and verify HTTP readiness and listener ownership. Switching modes stops the prior server before starting (and, for production, rebuilding).
+Both use the Tauri-supervised ephemeral loopback service. Development has **no HMR**: quit and rerun to rebuild frontend/backend edits. Config-only edits need native quit/reopen. There is no browser mode, restart port override, listener scanner or service-killing fallback. Native quit stops only its owned descendants; it does not own external Ollama or older source processes.
 
-Before building/launching the app, both restart modes prepare **effective Ollama memory embeddings** using `.env.local` (process environment takes precedence) and the stored memory-disable preference. Disabled memory and non-Ollama embedding providers skip this step. Restart reads existing SQLite status only: it does not install dependencies, create/migrate the database, or run full bootstrap. Complete bootstrap first if the status check reports incomplete setup.
+Prepare optional Ollama separately: use `OLLAMA_HOST=http://127.0.0.1:11434 ollama serve` in your managed terminal, then `OLLAMA_HOST=http://127.0.0.1:11434 ollama pull nomic-embed-text` for embeddings (or your configured model/origin). Chat model preparation is separate. Desktop never starts/stops that daemon or pulls models. Check readonly doctor/memory readiness; unavailable embeddings degrade memory, not offline views. Increase `MEMORY_TIMEOUT_MS` for slow cold loads only when appropriate. Stop external services only after identifying ownership and other consumers.
 
-A reachable loopback daemon is reused. Otherwise the installed `ollama` CLI starts a detached daemon at `MEMORY_EMBEDDING_BASE_URL` (default `http://127.0.0.1:11434`); CLI operations target that same origin, overriding inherited `OLLAMA_HOST`. URLs with credentials, paths, queries or non-loopback hosts are rejected; automatic daemon start requires HTTP. A missing `MEMORY_EMBEDDING_MODEL` (default `nomic-embed-text`) is pulled visibly, potentially using network/disk; already installed models are not downloaded again. Success requires a real, valid embedding response as well as the app's HTTP/listener checks. This does not prepare Ollama chat models.
-
-**Restart-started Ollama persists** after successful preparation, command exit and later app stops/restarts, including a subsequent app build/start failure. Its output appends to this worktree's ignored `logs/ollama.log`; review/rotate that local log as needed. Failed/cancelled preparation stops only the daemon started by that invocation; independently running daemons are never stopped. Bootstrap retains its session-owned daemon cleanup. No login service, desktop window or software installation is added. Raw `npm run dev` and `npm run start:local` remain unchanged.
-
-If preparation fails, restart exits nonzero without launching the app. Install Ollama manually if absent, inspect the local daemon log, verify `MEMORY_EMBEDDING_BASE_URL`/`MEMORY_EMBEDDING_MODEL` and read-only `npm run db:status -- --json`, then retry. For manual daemon/model recovery, use `OLLAMA_HOST=http://127.0.0.1:11434 ollama serve` and `OLLAMA_HOST=http://127.0.0.1:11434 ollama pull nomic-embed-text`, substituting your configured loopback origin/model. Startup waits at least 15 seconds, each embedding probe uses `MEMORY_TIMEOUT_MS` (default 8000 ms), and a model pull is bounded at 15 minutes. Increase the embedding timeout for slow cold loads. Stop a persistent daemon only after identifying its exact PID/ownership and confirming no other app needs it; never use broad process kills.
-
-If port `3000` is occupied by another repo/worktree, choose `--port 3001` or set `AI_GARMIN_RESTART_PORT=3001`; unrelated listeners are never killed. CLI port selection overrides that environment default. Equals-style options (`--mode=dev --port=3001`) also work; `--help` shows usage. Missing or invalid mode/port values fail before any restart actions.
+For recovery use [desktop validation and compatible-revision rollback](desktop.md#validation-and-recovery); never restore standalone browser support or silently migrate/downgrade primary data.

@@ -1,6 +1,7 @@
 # Architecture
 
-The supported product is a private, single-user loopback app, not a hosted service.
+The supported product is a source-built macOS ARM64 Tauri app with a private,
+single-user supervised loopback backend, not a standalone browser app or hosted service.
 The model reasons; server-owned SQL retrieves bounded facts; bounded math transforms
 those facts. UI composition does not own coaching policy, persistence or connector
 credentials. See [design choices](design-choices-and-boundaries.md) for the reasoning
@@ -68,7 +69,7 @@ each guarded SQL invocation owns/closes its readonly session; each AI turn owns
 one disposable tool context; each provider call owns its timeout. HTTP disconnect
 still does not acquire cancellation of provider/connector work. No global DI
 container, ambient setter, eager initialization, schema/data migration or new
-retry is introduced. Operational bootstrap/auth/migrate/doctor scripts remain
+retry is introduced. Explicit operational auth/migrate/status/doctor scripts remain
 outer entrypoints, not domain services.
 
 `tests/backend-composition.test.mjs` checks the complete route mapping and imports
@@ -142,7 +143,7 @@ docs carry the deeper contract rather than duplicating it here.
 | Garmin connector/import  | Pinned stdio, read-operation allowlist, normalization, resumable checkpoints, detail availability and redacted archive; no Garmin write-back/password collection | `src/lib/garmin/client.ts`, `importer.ts`, `mcp-config.ts`, `raw-payload.ts`; `tests/garmin.test.ts`, `tests/detail-sync.test.ts`, `tests/daily-health-sync.test.ts`, `tests/garmin-mcp-config.test.ts`                                     | Undocumented consumer endpoints are an explicit private-MVP risk. [Garmin risk](garmin-risk.md), [out-of-band auth](garmin-auth.md)                                                                                                      |
 | Semantic memory          | Embedded SQLite retrieval, concise user-derived facts, independent embeddings/extraction and inspectable lifecycle; not a transcript/Garmin archive              | `src/lib/memory/*`, `src/lib/ai/profile.ts`; `tests/sqlite-memory-adapter.test.ts`, `tests/memory-contract.test.ts`, `tests/memory-config.test.ts`                                                                                          | Corrections, current transcript, Profile and tool facts outrank memory; diagnosis/treatment is excluded from durable memory. [Memory contract](memory.md)                                                                                |
 | Diagnostics              | Allowlisted readiness/redaction reports, not token-content inspection or destructive repair                                                                      | `src/lib/diagnostics/*`, `scripts/doctor.ts`; `tests/doctor.test.ts`                                                                                                                                                                        | Debug traces may contain private normalized context and stay local. [Source readiness](source-beta-readiness.md)                                                                                                                         |
-| Runtime/validation       | Reproducible Node 22 install, build/doctor/loopback start and blocking checks; not deployment/release authorization                                              | `package.json`, `scripts/bootstrap-local.mjs`, `restart-local.sh`, `migrate.ts`, `architecture-check.mjs`; `tests/bootstrap-local.test.ts`, `tests/restart-local.test.ts`, `tests/guardrails.test.ts`                                       | `npm ci`, `CI=true npm run validate`; [validation](validation.md), E0007 live-smoke runbook and [developer process](developer-process.md)                                                                                                |
+| Runtime/validation       | Locked install, explicit non-serving setup, native launch/build and blocking checks; not deployment/release authorization                                        | `package.json`, `scripts/desktop/*`, `scripts/{migrate,db-status,doctor}.ts`, `architecture-check.mjs`; `tests/desktop-only-product.test.ts`, `tests/desktop-runtime.test.ts`, `tests/guardrails.test.ts`                                   | `npm ci`, `CI=true npm run validate`; [validation](validation.md), E0007 live-smoke runbook and [developer process](developer-process.md)                                                                                                |
 
 ## AI application and provider/tool adapters
 

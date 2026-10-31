@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Return a minimized Garmin athlete-baseline FIT snapshot.
 
-The web app launches this as a local subprocess. It reads Garmin auth only via
+The desktop backend launches this as a local subprocess. It reads Garmin auth only via
 Garmin's existing out-of-band token store and prints only approved normalized
 FIT `zones_target` fields needed by the app; it never prints token contents,
 raw FIT bytes, activity IDs, or broad profile/device payloads.

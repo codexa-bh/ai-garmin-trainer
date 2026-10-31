@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Return true FIT record speed fields for one Garmin activity.
 
-The web app launches this as a local subprocess for activity-detail repair. It
+The desktop backend launches this as a local subprocess for activity-detail repair. It
 reads Garmin auth only through Garmin's existing out-of-band token store and
 prints only per-record timestamps plus true FIT record speed in meters per
 second. It never prints token contents, token paths, raw FIT bytes,

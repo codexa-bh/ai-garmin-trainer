@@ -513,7 +513,7 @@ export function runDoctor(
     `Configured app URL is ${loopback ? "loopback/local" : "not loopback"}; LAN/public exposure is unsupported.`,
     loopback
       ? undefined
-      : "Set NEXT_PUBLIC_APP_URL to http://localhost:3000 and run npm run start:local.",
+      : "Keep NEXT_PUBLIC_APP_URL on loopback for diagnostics; launch the Tauri app using docs/desktop.md, never expose its backend.",
   );
 
   const dbFacts = databaseFacts(env.DATABASE_PATH);
