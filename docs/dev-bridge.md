@@ -27,6 +27,27 @@ The runner:
 
 A read-only Swift observer samples frontmost PID/pointer every 10ms and refuses commands if an owned native process became frontmost. Pointer variation can be normal operator activity and is reported separately; sampling cannot exclude shorter transitions. The app is Accessory/nonfocused/nonactivating and uses incognito WebViews. This is routing/lifecycle isolation, not a sandbox against arbitrary same-user code.
 
+## CI-only synthetic quick scenario
+
+`npm run smoke:quick -- --scratch <canonical-owner-private-task-scratch>` reuses
+the delivered `Run` admission/client/lifecycle and exact keyless settings. It
+creates one fresh UUID synthetic seed through existing migrations and typed Profile
+schema, verifies current schema/integrity and the real settings validator, then
+uses an independent online backup. No operator database/env/token/Keychain is read.
+It drives only Settings/Profile Goals save through the ordinary UI, quits/relaunches
+the same owned state and asserts persistence plus unchanged other Profile fields.
+It retains authenticated source/native/backend/hydrated renderer and shutdown
+receipts. Existing sentinel protocol is reused; no new native command or production
+bypass is added. Seed/copy Goals are CI synthetic and expire with scratch/runner.
+
+One instance, no capture, full navigation matrix, parallel/security/release suite,
+real integrations or trusted native input. Missing/aliased/reused/escaping scratch
+or seed, wrong architecture, readiness/save/restart/cleanup failure is nonzero, with
+no fallback to user state or blind mutation retry. Existing `smoke:native` retains
+two populated private copies, navigation and capture; this command does not narrow it.
+The explicit `--resources-ready` option verifies same-source resource inventory for
+[one-build full nightly reproduction](validation.md#change-gated-native-nightly).
+
 ## Narrow protocol and result semantics
 
 `src-tauri/src/dev_bridge.rs` exists only with Rust debug assertions. Ordinary development has no listener without validated `TRAINER_SMOKE_CONFIG`. Native-installed `src-tauri/debug/smoke.js` is outside packaged UI resources; it works with the production-built Next app. Native build gating, not `NODE_ENV` or an environment flag alone, controls availability.
@@ -55,6 +76,6 @@ This audits every file in the **actual ordinary bundled `.app`** for debug/boots
 
 Keep original failed logs/observations alongside later repairs. Each private run retains provenance, native/readiness/failure/observation/scenario/restart/shutdown records and screenshots; the task receipt records original integrity and focus-sampling limits. Profile sentinels exist only in task-owned populated copies and are intentionally deferred to scratch expiry; never copy back. Schema/back-sync is a verified no-op, not a new fixture system. See [developer process](developer-process.md) and the epic runbook.
 
-Use `npm run smoke:test`, focused DOM tests and `npm run desktop:test:native` for cheap boundary regressions, then the normal aggregate/reliability/build/native gates and current real smoke. Do not repeatedly rebuild/rerun unchanged heavy inputs to wait for hosted CI. No recurring full native smoke CI is added.
+Use `npm run smoke:test`, focused DOM tests and `npm run desktop:test:native` for cheap boundary regressions, then the normal aggregate/reliability/build/native gates and current real smoke. Do not repeatedly rebuild/rerun unchanged heavy inputs to wait for hosted CI. Recurring CI runs only the separately documented synthetic quick scenario, not this full private populated-copy/release suite.
 
 Mouse/native input is a **last resort** for genuine OS-only behavior: trusted keyboard/mouse events, drag-and-drop, native dialogs or operator-entered sign-in/MFA. Arrange an explicitly owned safe instance and direct private input; this bridge cannot drive or certify those operations. Keyless navigation/Profile smoke does not certify provider coaching, Garmin auth, sync, Keychain, native dialogs or platforms not tested.

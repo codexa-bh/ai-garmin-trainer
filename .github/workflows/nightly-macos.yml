@@ -1,0 +1,105 @@
+name: Nightly macOS
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  change-gate:
+    name: Linux change gate
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+      source_sha: ${{ steps.gate.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify gate source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - id: gate
+        name: Bounded changed-main decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/ci/nightly_gate.py
+
+  macos:
+    name: macOS native validation
+    needs: change-gate
+    if: ${{ needs.change-gate.outputs.should_run == 'true' }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: 1.98.0
+      TESTED_SOURCE: ${{ needs.change-gate.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.change-gate.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Verify exact source and actual ARM64 capacity
+        run: |
+          test "$(git rev-parse HEAD)" = "$TESTED_SOURCE"
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          printf 'Source: %s; run: %s; image: %s\n' "$TESTED_SOURCE" "$GITHUB_RUN_ID" "$ImageVersion"
+          node --version
+          python3 --version
+          sw_vers
+          xcodebuild -version
+      - name: Install locked dependencies and fixed Rust
+        run: |
+          npm ci --no-fund
+          rustup toolchain install 1.98.0 --profile minimal
+          rustc --version
+          cargo --version
+      - name: Full quality and production backend (one build)
+        run: CI=true npm run validate
+      - name: Deterministic coaching reliability
+        run: npm run eval:reliability
+      - name: Assemble already-built backend and check native
+        run: |
+          npm run desktop:assemble
+          cargo check --locked --manifest-path src-tauri/Cargo.toml
+          npm run desktop:test:native
+      - name: Create private canonical job scratch
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import tempfile
+          os.umask(0o077)
+          scratch = Path(tempfile.mkdtemp(prefix='trainer-nightly-', dir=os.environ['RUNNER_TEMP'])).resolve(strict=True)
+          assert scratch.stat().st_mode & 0o777 == 0o700
+          assert not scratch.is_relative_to(Path(os.environ['GITHUB_WORKSPACE']).resolve())
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'CI_SMOKE_SCRATCH={scratch}\n')
+          PY
+      - name: One synthetic native Goals save and restart
+        timeout-minutes: 10
+        run: npm run smoke:quick -- --scratch "$CI_SMOKE_SCRATCH" --resources-ready
+      - name: Record actual coverage and outcome (no private uploads)
+        if: ${{ always() }}
+        env:
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          printf '### Native nightly: %s\n\nSource: `%s`\n\nmacOS ARM64; full deterministic/static/build, reliability, resource ABI, locked Rust check/tests, one synthetic Profile save/restart. A failed/cancelled job does not certify these stages. No provider/Garmin/Keychain, capture, full parallel suite or release certification. Job-local state expires with runner; no uploads or build/app-state caches.\n' "$JOB_RESULT" "$TESTED_SOURCE" >> "$GITHUB_STEP_SUMMARY"

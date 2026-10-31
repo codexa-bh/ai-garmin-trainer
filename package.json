@@ -1,12 +1,15 @@
 {
   "name": "ai-garmin-trainer",
   "scripts": {
-    "desktop:resources": "npm run build && node scripts/desktop/assemble.mjs",
+    "desktop:resources": "npm run build && npm run desktop:assemble",
+    "desktop:assemble": "node scripts/desktop/assemble.mjs",
+    "smoke:quick": "python3 scripts/desktop/quick_smoke.py",
     "desktop:build": "npm run desktop:resources && tauri build --target aarch64-apple-darwin --bundles app --no-sign --no-binary-patching --ci",
     "desktop:dev": "npm run desktop:resources && tauri dev",
     "smoke:native": "python3 scripts/desktop/native_smoke.py",
     "smoke:release": "python3 scripts/desktop/release_smoke.py",
-    "smoke:test": "python3 -m unittest discover -s scripts/desktop -p '*_test.py'",
+    "smoke:test": "python3 -m unittest discover -s scripts/desktop -p '*_test.py' && python3 -m unittest discover -s scripts/ci -p '*_test.py'",
+    "ci:seed": "tsx scripts/ci/seed.ts",
     "desktop:test:native": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
     "doctor": "tsx scripts/doctor.ts",
     "garmin:auth": "tsx scripts/garmin-auth.ts",
@@ -22,6 +25,7 @@
     "deps:evidence": "tsx scripts/dependency-evidence.ts",
     "eval:reliability": "tsx scripts/evaluate-coaching.ts",
     "validate": "npm run format && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test && npm run build",
+    "validate:ci": "npm run format && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test",
     "backfill:activity-effort": "tsx scripts/backfill-activity-effort.ts",
     "knip": "knip"
   },

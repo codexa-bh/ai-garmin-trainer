@@ -33,6 +33,14 @@ The E0007 QA test-data cleanup protocol remains authoritative for deletion class
 
 The [programmatic native smoke runner](dev-bridge.md) automates this same populated-copy flow, not a new synthetic dataset/environment: the Goals sentinel is task/run-attributed, other copied Profile fields remain unchanged, originals are fingerprint-verified, and copy-only edits are explicitly deferred to scratch expiry without copy-back. Its keyless scenario does not certify live provider/Garmin/Keychain behavior. Native capture is a sanitized actual Profile subtree; image inspection and textual source/scenario evidence remain separate from file creation.
 
+The explicitly scoped CI exception is `smoke:quick` / `scripts/ci/seed.ts`: one
+fresh job-local synthetic current-schema Profile, created via existing migrations
+and typed schema under canonical private scratch. It reads no operator input and
+adds no application auto-migration or fixture framework. The existing native
+settings/schema/preflight/ownership checks still bind. Synthetic Goals/seed/copy/logs
+are task/run-attributed and deferred to runner/task-scratch expiry, never back-synced.
+No production schema or data-shape change means primary back-sync is a verified no-op.
+
 ## No new isolated fixture environment for this stage
 
 Do not introduce a new isolated test-data or fixture environment just to satisfy these process rules at the current local-only stage. Prefer the existing local live-smoke flow, deterministic tests, task-local artifacts, and disposable SQLite copies for destructive validation. A future fixture framework or durable test-data environment requires its own implementation task and justification.

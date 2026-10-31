@@ -147,7 +147,7 @@ Complete daily-health coverage does not mean final totals. Each sync refreshes t
 
 ## Validation
 
-Run `npm run validate` for formatting, linting, type checking, tests, and production build. Additional evidence commands and live-smoke requirements are documented in [validation](docs/validation.md). A successful build is not proof of working Garmin authentication, remote-provider readiness, or clean-machine setup.
+Run `npm run validate` for all static/deterministic checks and the production build. Routine Ubuntu PR/main CI uses `validate:ci` without production/native builds; a change-gated 02:17 UTC macOS ARM64 nightly adds full validation/reliability/resources/native tests and one synthetic Goals save/restart. Exact reproduction, unchanged-failure skip policy and coverage limits are documented in [validation](docs/validation.md). A successful build is not proof of working Garmin authentication, remote-provider readiness, or clean-machine setup.
 
 ## Safety and privacy
 

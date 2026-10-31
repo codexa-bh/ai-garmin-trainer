@@ -1,10 +1,66 @@
 # Local validation and smoke checklist
 
-Blocking local/CI gate: `npm ci && npm run validate`. See
-[project guardrails](project-guardrails.md) for selected lint/SonarJS rules,
-typed async rules, transitive architecture/pure-math boundaries, Knip coverage
-and false-positive handling. Both lint and graph checks are blocking in GitHub
-CI through the same aggregate command.
+Comprehensive local gate: `npm ci && CI=true npm run validate`. Routine Ubuntu
+PR/main CI uses `npm run validate:ci`: formatting, lint, architecture, Knip,
+fresh `next typegen && tsc --noEmit`, all Vitest tests and cheap Python contracts.
+It deliberately does **not** compile a production backend or native host. The
+existing full `validate` still adds the production Next build. See
+[project guardrails](project-guardrails.md) for blocking lint/graph/Knip ownership;
+none of those gates or deterministic tests is removed by the fast profile.
+
+## Change-gated native nightly
+
+`Nightly macOS` runs daily at **02:17 UTC** or manually on main. A Linux metadata
+job precedes macOS allocation. First source/changed exact main SHA runs; the same
+SHA skips after an allocated native attempt (including failure/cancel/timeout) or
+a carried successful unchanged decision. Cancellation before allocation is not an
+attempt. Skips are cost control, **not green validation or repair**. Manual dispatch
+does not force an unchanged retry. Inspect/repair failures before a new source
+revision; no automatic same-content retries are added.
+
+The gate considers at most 20 workflow runs and 20 jobs per considered run,
+10-second/1-MiB API bounds, and exact job identities. Insufficient/malformed/denied
+history fails cheaply without macOS. Only the gate has Actions-read permission;
+all jobs have Contents-read. Comparison SHA is emitted and used for native checkout
+and verified against HEAD, so moving main cannot change the selected revision.
+
+The `macos-15` ARM64 image (verified against the runner-images catalog, with actual
+Darwin/arm64 checks), Node 22.23.4 and Rust 1.98.0 run full validation, reliability,
+one production Next build/resource assembly, locked Cargo check/tests and one real
+native synthetic Profile Goals save/restart. No optimized desktop packaging, full
+parallel/navigation/capture/release suite, provider/Garmin/Keychain calls or native
+dialog certification. Summary status/source/platform are observations, not promises
+that stages after a failed step ran. Hosted allocation/cron/skip results must be
+observed separately from fixture/local tests.
+
+Reproduce on macOS ARM64 in a dedicated worktree with unchanged inputs between steps:
+
+```bash
+npm ci
+CI=true npm run validate
+npm run eval:reliability
+npm run desktop:assemble
+cargo check --locked --manifest-path src-tauri/Cargo.toml
+npm run desktop:test:native
+npm run smoke:quick -- --scratch '/absolute/canonical/private-task-scratch' --resources-ready
+```
+
+`desktop:assemble` is assembler-only: call it immediately after the same-input
+successful Next build, never against stale `.next` output. `--resources-ready`
+verifies the assembled source fingerprint and every inventoried resource hash
+before building the debug native host; mismatch fails, with no rebuild fallback.
+Without that flag `smoke:quick` builds resources itself. Existing `desktop:resources`,
+`desktop:build`, `smoke:native` and `smoke:release` retain their full meanings.
+
+Routine superseded PR/ref runs cancel; nightly runs serialize without cancelling
+an allocated native attempt. Actions are SHA-pinned, installs locked, and the only
+shared cache is npm download tarballs keyed by lockfile. No node_modules/build/app
+state cache or binary/SQLite/image uploads. Fresh synthetic state is job-private,
+retained only until runner expiry (local reproduction: task-scratch expiry).
+Failures retain bounded receipt/source/owned shutdown facts; never dump private
+config, DOM or database contents. Pivan registers PR/main CI asynchronously;
+no polling loop or skipped/pending-as-green claim. Ordinary checked merge/protection
+and explicit task gates remain independent.
 
 Automated validation:
 
@@ -28,7 +84,7 @@ npm run build
 
 On macOS ARM64, run `npm run desktop:build` then `npm run desktop:test:native` (unsigned app only; no signing/notarization/installer publication). On fresh worktrees the native build/test build-script requires assembled `src-tauri/resources`; build first, or use `desktop:resources` before native tests. The production app must launch outside the source checkout with bundled Node/SQLite and explicit disposable populated state, not just a browser/development server. Exercise native lifecycle, configuration/ownership/resource failures, repeated launch, persisted feature parity and inspected sanitized local screenshots; disclose unavailable real integrations. See [desktop build and recovery](desktop.md) and the epic live-smoke runbook.
 
-Routine native smoke is [programmatic-first](dev-bridge.md), using `smoke:native` for actual isolated navigation/Profile/save/restart/parallel capture and `smoke:release` for actual production-artifact exclusion plus separately labeled launch-only release-mode denial. These do not replace required ordinary outside-checkout production launch or relevant real integration smoke. Actual images must be inspected and sanitized-subtree limits recorded. Native dialogs/trusted input remain explicitly arranged manual fallback only. No recurring heavy native suite is enrolled in CI; `npm test` includes only cheap Python runner/audit unit tests in addition to Vitest.
+Routine native smoke is [programmatic-first](dev-bridge.md), using `smoke:native` for actual isolated navigation/Profile/save/restart/parallel capture and `smoke:release` for actual production-artifact exclusion plus separately labeled launch-only release-mode denial. These do not replace required ordinary outside-checkout production launch or relevant real integration smoke. Actual images must be inspected and sanitized-subtree limits recorded. Native dialogs/trusted input remain explicitly arranged manual fallback only. The recurring nightly enrolls only the minimal synthetic quick scenario described above, not the full private populated-copy/release suite; `npm test` includes only cheap Python gate/runner/audit unit tests in addition to Vitest.
 
 Knip's three explicit additional entrypoints are the assembler-bundled `scripts/desktop/runtime.ts`, the local setup HTML's `src-tauri/ui/setup.js`, and the debug-only Rust `include_str!` bootstrap `src-tauri/debug/smoke.js` (outside production UI resources). Shared settings validation/catalog is reached from these entries; the packaged Python auth worker/uv lock is tested through the focused desktop suite. Actual native smoke must include first-run/advanced settings, metadata-only Keychain save/reload/denial, direct launch, cancellation and next-launch semantics. Real fresh password/MFA entry belongs to the operator in the private local UI; name unavailable live challenge evidence and never equate deterministic simulation with live MFA. Generated `src-tauri/{target,gen,resources}` and `dist` are build output only; no source files are exempted from lint/ownership/Knip.
 
