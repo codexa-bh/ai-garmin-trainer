@@ -64,6 +64,7 @@ impl Service {
         resources: &Path,
         snapshot: &mut [u8],
         quitting: &AtomicBool,
+        cancelled: &AtomicBool,
     ) -> Result<Self, &'static str> {
         let nonce = uuid::Uuid::new_v4().to_string();
         let mut command = Command::new(resources.join("node"));
@@ -133,7 +134,7 @@ impl Service {
         let result = (|| {
             let deadline = Instant::now() + Duration::from_secs(90);
             let message = loop {
-                if quitting.load(Ordering::SeqCst) {
+                if quitting.load(Ordering::SeqCst) || cancelled.load(Ordering::SeqCst) {
                     return Err("Startup cancelled by quit.");
                 }
                 if Instant::now() >= deadline {

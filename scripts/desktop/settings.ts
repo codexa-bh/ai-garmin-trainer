@@ -46,7 +46,10 @@ function endpoint(value: string, local: boolean): void {
 // This is the only desktop editable-field inventory. Application defaults and
 // enums still come from getOptionalEnv; the native host invokes this before any
 // Keychain mutation. Runtime repeats validation before constructing resources.
-export function validateSettings(input: unknown): Record<string, string> {
+export function validateSettings(
+  input: unknown,
+  database: "existing" | "new" = "existing",
+): Record<string, string> {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("Invalid settings.");
   const values = input as Record<string, unknown>;
@@ -66,7 +69,9 @@ export function validateSettings(input: unknown): Record<string, string> {
   const strings = values as Record<string, string>;
   const env = getOptionalEnv(strings);
   if (!strings.DATABASE_PATH) throw new Error("Select an existing database.");
-  literalPath(strings.DATABASE_PATH, false);
+  // Native validates and exclusively publishes the fresh destination. This mode
+  // validates configuration only, never opens or creates a selected database.
+  if (database === "existing") literalPath(strings.DATABASE_PATH, false);
   if (strings.GARMIN_MCP_TOKEN_DIR)
     literalPath(strings.GARMIN_MCP_TOKEN_DIR, true);
   if (!strings.GARMIN_HISTORY_START_DATE)
@@ -121,7 +126,10 @@ export function validateSettings(input: unknown): Record<string, string> {
   return result;
 }
 
-export function activationEnvironment(input: unknown): Record<string, string> {
+export function activationEnvironment(
+  input: unknown,
+  database: "existing" | "new" = "existing",
+): Record<string, string> {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("Invalid activation.");
   const frame = input as {
@@ -136,7 +144,7 @@ export function activationEnvironment(input: unknown): Record<string, string> {
     )
   )
     throw new Error("Unsupported activation.");
-  const result = validateSettings(frame.fields);
+  const result = validateSettings(frame.fields, database);
   if (
     !frame.secrets ||
     typeof frame.secrets !== "object" ||

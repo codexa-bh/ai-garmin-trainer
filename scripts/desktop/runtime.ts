@@ -5,7 +5,12 @@ import next from "next";
 import { adoptConfiguration, desktopNextConfiguration } from "./config";
 import { acceptsDesktopRequest } from "./http-policy";
 import { assertDesktopDatabase } from "../../src/lib/db/desktop-preflight";
-import { validateSettings } from "./settings";
+import {
+  activationEnvironment,
+  SECRET_SLOTS,
+  validateSettings,
+} from "./settings";
+import { freshDatabase } from "./initialize";
 
 const protocol = process.stdout.write.bind(process.stdout);
 const report = (value: object) => protocol(`${JSON.stringify(value)}\n`);
@@ -187,6 +192,41 @@ function readPrivateFrame(): Promise<unknown> {
 }
 
 async function entry(): Promise<void> {
+  if (
+    process.argv[2] === "--initialize-database" &&
+    process.argv.length === 3
+  ) {
+    try {
+      const bytes = freshDatabase(await readPrivateFrame());
+      await new Promise<void>((resolve, reject) => {
+        protocol(bytes, (error) => (error ? reject(error) : resolve()));
+      });
+      process.exit(0);
+    } catch {
+      process.exit(1);
+    }
+  }
+  if (
+    ["--validate-new-activation", "--validate-existing-activation"].includes(
+      process.argv[2],
+    ) &&
+    process.argv.length === 3
+  ) {
+    try {
+      const fresh = process.argv[2] === "--validate-new-activation";
+      const fields = activationEnvironment(
+        await readPrivateFrame(),
+        fresh ? "new" : "existing",
+      );
+      if (!fresh) assertDesktopDatabase(fields.DATABASE_PATH);
+      for (const slot of SECRET_SLOTS) delete fields[slot];
+      report({ ok: true, fields });
+      process.exit(0);
+    } catch {
+      report({ ok: false });
+      process.exit(1);
+    }
+  }
   if (process.argv[2] === "--validate-settings" && process.argv.length === 3) {
     try {
       const fields = validateSettings(await readPrivateFrame());
