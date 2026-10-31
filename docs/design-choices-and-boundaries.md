@@ -10,8 +10,8 @@ Application code must not quietly become the coach by embedding product-level tr
 
 ### Local-first and private by default
 
-- The supported runtime is single-user loopback/local use.
-- Garmin credentials and connector auth state stay outside the web app.
+- The sole supported product launcher is the macOS ARM64 Tauri app supervising its single-user loopback Next.js/Node backend; standalone browser support is retired.
+- Garmin credentials and connector auth state stay outside the renderer.
 - The app stores normalized local data and avoids exposing secrets, filesystem paths, auth/session rows, raw FIT dumps, connector handles, or environment values to the model or UI.
 - Public hosting, LAN exposure, non-loopback Ollama endpoints, multi-user tenancy, Garmin write-back, and production operations are outside the local MVP boundary.
 
@@ -88,7 +88,7 @@ flow, external package purity, privacy or coaching semantics.
 
 ### `src/app`
 
-Next.js routes and local UI shell. The [current component map](architecture.md)
+Next.js routes and local UI shell rendered in the Tauri WebView, not an independently launched browser product. The [current component map](architecture.md)
 provides source/test entry points, dependency flow and operational references for
 all component families. The shell composes persistent feature hooks under
 `src/app/dashboard/` and conditional views; feature state and HTTP lifecycles are

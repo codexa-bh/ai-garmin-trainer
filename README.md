@@ -10,7 +10,7 @@ A local-first training companion with public source: import your Garmin Connect 
 
 **Local-only, single-user, no app sign-in.** Run on loopback only; do not expose it on your LAN, a public host, or a tunnel. Garmin access uses a pinned **unofficial** connector, not Garmin's official Developer Program APIs; undocumented endpoints may change or stop working. The source repository is public; source availability is not a supported packaged release, deployment, or beta invitation.
 
-[Installation](#installation) · [Runtime/restart guide](docs/local-runtime.md) · [Garmin authentication](docs/garmin-auth.md) · [Safety and privacy](#safety-and-privacy)
+[Installation](#installation) · [Desktop runtime guide](docs/local-runtime.md) · [Garmin authentication](docs/garmin-auth.md) · [Safety and privacy](#safety-and-privacy)
 
 ## Screenshots
 
@@ -44,13 +44,13 @@ Captured on 18 September 2026 from the loopback development app at a 1440-pixel 
 
 ## Installation
 
-This is an advanced-user source setup from the **public repository**. macOS Apple Silicon is the primary prepared platform; Ubuntu LTS still requires reproducibility evidence. Windows and other platforms are not claimed supported. These instructions are cross-checked against the repository scripts, not a certification of clean-machine installation.
+The sole supported product is the **locally source-built macOS ARM64 Tauri app** with bundled Node. Standalone browser development/start/restart/bootstrap support has been removed, including its wrappers and automatic Ollama preparation. Next.js remains internal desktop rendering/backend/build technology, not a second product launch path. Other platforms are unsupported.
 
-For a **locally source-built macOS ARM64 desktop app** with bundled Node, follow [desktop build, explicit private-state adoption and recovery](docs/desktop.md). This adds no installer distribution, signing, notarization or release channel; the source/browser path below remains available.
+This advanced-user setup from the **public repository** is cross-checked against scripts, not clean-machine certification. Follow [desktop build, private-state adoption and recovery](docs/desktop.md) too. No installer distribution, signing, notarization or release channel is provided.
 
 ### 1. Install prerequisites and clone
 
-Install **Git, Node.js 22+ with npm, and Python 3.12-capable `uv`/`uvx`**. Native Node dependencies may require your platform's compiler/build tools. Install Ollama separately only if you choose local chat or local embeddings; bootstrap does not install system software.
+Install **Git, Node.js 22+ with npm, Xcode/Command Line Tools, Rust/Cargo, and Python 3.12-capable `uv`/`uvx`**. Install/manage Ollama separately only for local chat or embeddings. Neither setup CLI nor desktop installs system software or starts/downloads external services/models.
 
 Clone the public source; no GitHub account or private-repository authorization is required to read or clone it. Pushing changes still requires repository authorization.
 
@@ -58,7 +58,8 @@ Clone the public source; no GitHub account or private-repository authorization i
 git clone https://github.com/codexa-bh/ai-garmin-trainer.git
 cd ai-garmin-trainer
 npm ci
-cp .env.example .env.local
+# New config only: exclusive creation, private from the outset; never overwrite.
+(umask 077; set -C; cat .env.example > .env.local)
 ```
 
 For an existing checkout, keep your existing `.env.local` rather than overwriting it. Run all subsequent npm commands from the checkout directory. Install dependencies **before** running doctor, Garmin auth, or database commands.
@@ -67,7 +68,7 @@ For an existing checkout, keep your existing `.env.local` rather than overwritin
 
 Edit ignored `.env.local` privately:
 
-- Keep the app URL on localhost/loopback and choose `DATABASE_PATH` for local SQLite. Relative paths resolve from the running checkout; use a durable absolute path when sharing configuration across worktrees.
+- Set an explicit intended `DATABASE_PATH` for local SQLite. Use durable absolute DB/token paths to avoid CLI/native base differences: doctor/status/auth load checkout env but resolve relative paths from their cwd; the native picker resolves them from the selected env file's original parent. The migration CLI uses process environment only (see below), not dotenv. Keep `NEXT_PUBLIC_APP_URL` on loopback for diagnostics; desktop assigns its owned ephemeral URL, not a configured browser port.
 - Keep the example's pinned Garmin MCP command/args, including connector commit `3610be6feed93088d85b0f35aba9d7d07c2505a7` and exact `mcp==1.28.1`. Set one explicit `GARMIN_MCP_TOKEN_DIR`; the example uses the ignored `./.garmin-token` directory. It is a directory path, never token contents.
 - Choose one chat-provider route below. Replace only the keys needed for your choice; placeholder example keys are treated as missing.
 
@@ -75,7 +76,7 @@ Edit ignored `.env.local` privately:
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Automatic cloud selection | Keep `AI_PROVIDER=auto`; configure `DEEPSEEK_API_KEY` or `OPENAI_API_KEY`. Auto is DeepSeek-first and selects OpenAI when no valid DeepSeek key is configured, not a promise of runtime failover.                |
 | Explicit direct provider  | Set `AI_PROVIDER=deepseek` or `AI_PROVIDER=openai` and its matching key; use `DEEPSEEK_MODEL` or `AI_MODEL` as appropriate.                                                                                      |
-| Local Ollama              | Start your separately installed loopback Ollama daemon, run `ollama pull qwen3.5:4b`, set `AI_PROVIDER=ollama`, and keep `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1`. Bootstrap does not prepare the chat model. |
+| Local Ollama              | Start your separately installed loopback Ollama daemon, run `ollama pull qwen3.5:4b`, set `AI_PROVIDER=ollama`, and keep `OLLAMA_BASE_URL=http://127.0.0.1:11434/v1`. Desktop does not prepare the chat model.   |
 | Opt-in OpenRouter         | Set `AI_PROVIDER=openrouter` and `OPENROUTER_API_KEY`; review [model availability, privacy, and tool-reliability limitations](docs/local-runtime.md#opt-in-openrouter-chat) first. Auto ignores OpenRouter keys. |
 
 Direct cloud defaults are `AI_MODEL=gpt-6-luna` (OpenAI Responses API) and `DEEPSEEK_MODEL=deepseek-flash`. Keep exactly one `AI_PROVIDER` assignment uncommented; the example includes explicit OpenAI/DeepSeek alternatives. Model overrides remain independent of that toggle. Direct OpenAI API billing and model availability are separate from Codex subscription access. See [direct provider switching](docs/local-runtime.md#direct-openaideepseek-switching) for validation and reload limitations.
@@ -88,7 +89,7 @@ No Google OAuth client, app password, or email allowlist is required. Do not com
 npm run doctor
 ```
 
-Doctor reports configuration/readiness without printing secret values. On a first setup, missing database/schema or Garmin auth state can be expected; address other configuration failures, complete auth and bootstrap below, and then recheck. Doctor's token-file check proves presence only, not token validity or expiry.
+Doctor reports configuration/readiness without printing secret values. On a first setup, missing database/schema or Garmin auth state can be expected; address other configuration failures, complete explicit DB preparation/auth below, and then recheck. Doctor's token-file check proves presence only, not token validity or expiry.
 
 Reuse existing Garmin credentials where possible. For new authentication, run this **yourself in a private interactive terminal**, only after setting `GARMIN_MCP_TOKEN_DIR`:
 
@@ -98,19 +99,26 @@ npm run garmin:auth
 
 The command uses the pinned connector and refuses unattended invocation or existing-credential overwrite. The app never asks for your Garmin password. Do not paste auth output, passwords, MFA codes, or tokens into chat or issues. Read [Garmin setup/recovery](docs/garmin-auth.md) before migrating or replacing any existing store.
 
-### 4. Bootstrap and open the app
+### 4. Explicitly prepare the selected DB, then build/open Tauri
+
+Quit every app/process using the intended DB before migration. First use readonly `npm run db:status -- --json`. For existing data, preserve a verified SQLite backup (use the online backup API if WAL is active), rehearse any upgrade on a disposable copy, and obtain separate approval before touching primary data. Never auto-downgrade or copy smoke data back.
+
+Only if creation/upgrade is needed, run the existing explicit migration CLI with **your approved absolute target**:
 
 ```bash
-npm run bootstrap:local
+# Replace the example locally; do not paste private paths into issues.
+DATABASE_PATH='/absolute/approved/trainer.sqlite' npm run db:migrate
+npm run db:status -- --json
+npm run doctor -- --json
+npm run desktop:build
+open 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
 ```
 
-Bootstrap prepares locked dependencies when needed, checks SQLite status and migrates only when needed, prepares effective Ollama **memory embeddings** if configured, builds, runs doctor, and starts or reuses the verified loopback app.
+`db:migrate` does not load `.env.local`: the explicit environment target must match the intended config DB. It creates a missing DB or backs up existing populated/old-schema state in a sibling `backups/` directory before upgrade; keep its path-bearing output private. Doctor/status/auth use Next's checkout env loading (process environment wins); run them from that checkout or pass the same explicit `DATABASE_PATH` override. Current-schema status is read-only and does not create a backup. None of these commands serves an application.
 
-Open **<http://127.0.0.1:3000>**. There is no app sign-in screen. Use the app's **Sync** view to import your Garmin history when you are ready; installing/starting the app alone does not populate a fresh database. Then browse Activities/Health or ask the trainer a question.
+In the native file picker, select the existing `0600` config. Desktop adopts references only, refuses missing/old/unsupported DBs, and never creates/migrates them. No app sign-in is required. Sync imports Garmin history only when requested; first launch does not populate a new DB.
 
-For subsequent source updates, run `npm run restart:local` to rebuild/restart. See the [runtime guide](docs/local-runtime.md#local-restart-modes) for development mode, alternate loopback ports, listener ownership, Ollama daemon lifecycle, and recovery. Restart does not install dependencies or migrate the database; use bootstrap when setup/schema preparation is needed.
-
-Manual recovery order is `npm ci`, `npm run db:status -- --json`, `npm run db:migrate` **only when needed**, `npm run build`, then `npm run start:local`. See [source setup and data lifecycle](docs/source-beta-readiness.md) before backup, restore, reset, or uninstall.
+For development, `npm run desktop:dev` assembles the production backend and launches the native development host. Frontend/source edits require quitting and rerunning it; there is **no HMR/browser dev server**. For production source updates, quit and rebuild with `desktop:build`, then reopen. Config-only edits need quit/reopen, not a rebuild. Do not stop an unrelated/primary old source process as part of source delivery; its retirement needs separately approved cutover. See [data lifecycle](docs/source-beta-readiness.md) before backup, restore, reset or uninstall.
 
 ### Optional: semantic memory and developer diagnostics
 
@@ -137,7 +145,7 @@ Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/style.css`, 
 
 Settings → **Trainer model** offers **DeepSeek Flash** and/or **GPT-6 Luna** when their respective server keys are configured. Saving takes effect on subsequent trainer turns without restarting; running turns retain their original model. The app-wide preference persists locally across reloads/restarts. **Reset to configured default** restores environment selection, including custom models and Ollama/OpenRouter. With no saved preference, DeepSeek-first auto selection is unchanged.
 
-Availability means a non-placeholder key, not account funding or remote readiness. Missing keys produce no selectable choices; a saved choice whose key disappears stays unavailable until explicitly replaced/reset, with no silent fallback. Settings never exposes/edits keys or changes memory extraction/embeddings. Credential/env changes still require the normal server reload. See [local runtime](docs/local-runtime.md#runtime-trainer-model-preference).
+Availability means a non-placeholder key, not account funding or remote readiness. Missing keys produce no selectable choices; a saved choice whose key disappears stays unavailable until explicitly replaced/reset, with no silent fallback. Settings never exposes/edits keys or changes memory extraction/embeddings. Credential/env changes still require native quit/reopen. See [local runtime](docs/local-runtime.md#runtime-trainer-model-preference).
 
 ## Weekly plans and reviews
 
@@ -153,7 +161,7 @@ The first saved plan stays available as **Original commitment**; current/upcomin
 
 Historical plans are read-only. Sunday is not automatically a finished week. Late evidence or corrections require fresh evidence and a newly saved review through chat; existing documents are not automatically rescored or rewritten. Saved date ranges/calendar bases never silently shift with a device timezone change. No workouts, background reminders, automatic saves or Garmin write-back are introduced.
 
-Weekly artifacts and the general template survive chat/Profile and Garmin deletion. Chat deletion does not delete saved documents. Legacy pending proposal storage is preserved but is not exposed to the model or automatically applied. Schema upgrade is additive; use the normal backed-up migration procedure below. Source delivery does not upgrade a running database automatically or authorize a restart.
+Weekly artifacts and the general template survive chat/Profile and Garmin deletion. Chat deletion does not delete saved documents. Legacy pending proposal storage is preserved but is not exposed to the model or automatically applied. Schema upgrade is additive; use the explicit backed-up migration procedure above. Source delivery does not upgrade a running database automatically or authorize a restart.
 
 ## Daily-health freshness
 

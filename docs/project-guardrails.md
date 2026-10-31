@@ -172,9 +172,10 @@ with built-in Next, Vitest, ESLint and package-command entrypoint discovery.
 It catches unused files/exports/types/dependencies and missing direct dependencies;
 exports used only by tests are intentionally considered used. It is not a
 production-only reachability proof. Framework page/route exports and CLI scripts
-remain entrypoints, not dead code. `ollama` is the sole ignored binary: the local
-bootstrap launches the independently installed application, not an npm package.
-There are no unused-file/export/dependency debt lists.
+remain entrypoints, not dead code. There are no ignored binaries or unused-file/export/dependency debt lists.
+Ollama is externally managed, not launched by repository setup scripts. The two
+explicit extra entrypoints are the bundled desktop runtime and native setup JS;
+see [validation](validation.md).
 
 Generated `.next`, dependencies, coverage, local `data`, Garmin token/connector
 folders and `next-env.d.ts` are excluded from lint; Prettier retains its existing

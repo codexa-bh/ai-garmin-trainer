@@ -11,7 +11,6 @@ Automated validation:
 ```bash
 npm run doctor -- --json
 npm run db:status -- --json
-npm run bootstrap:local -- --prepare-only
 npm run format
 npm run lint
 npm run architecture
@@ -23,11 +22,11 @@ npm run deps:evidence -- --output ./tmp/dependency-evidence.json
 npm run build
 ```
 
-`npm run doctor`, `npm run db:status -- --json`, bootstrap stage output, and dependency evidence output are allowlisted support artifacts. They report versions, schema readiness, current/migration decisions, selected chat provider readiness including loopback Ollama chat when configured, loopback readiness, and whether Garmin MCP args explicitly include the reviewed exact `mcp==1.28.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, provider base URLs, prompts, precise GPS streams, raw connector payloads, vectors, or `.env.local` values.
+`npm run doctor`, `npm run db:status -- --json`, and dependency evidence output are allowlisted support artifacts. They report versions, schema readiness, current/migration decisions, selected chat provider readiness including loopback Ollama chat when configured, loopback readiness, and whether Garmin MCP args explicitly include the reviewed exact `mcp==1.28.1` compatibility requirement or whether runtime had to inject it for a stale local override. Review before sharing; they must not contain credentials, token contents, provider keys, provider base URLs, prompts, precise GPS streams, raw connector payloads, vectors, or `.env.local` values.
 
 ## macOS desktop validation
 
-On macOS ARM64, also run `npm run desktop:test:native` and `npm run desktop:build` (unsigned app only; no signing/notarization/installer publication). The production app must launch outside the source checkout with bundled Node/SQLite and explicit disposable populated state, not just a browser/development server. Exercise native lifecycle, configuration/ownership/resource failures, repeated launch, persisted feature parity and inspected sanitized local screenshots; disclose unavailable real integrations. See [desktop build and recovery](desktop.md) and the epic live-smoke runbook.
+On macOS ARM64, run `npm run desktop:build` then `npm run desktop:test:native` (unsigned app only; no signing/notarization/installer publication). On fresh worktrees the native build/test build-script requires assembled `src-tauri/resources`; build first, or use `desktop:resources` before native tests. The production app must launch outside the source checkout with bundled Node/SQLite and explicit disposable populated state, not just a browser/development server. Exercise native lifecycle, configuration/ownership/resource failures, repeated launch, persisted feature parity and inspected sanitized local screenshots; disclose unavailable real integrations. See [desktop build and recovery](desktop.md) and the epic live-smoke runbook.
 
 Knip's two explicit additional entrypoints are the assembler-bundled `scripts/desktop/runtime.ts` and the local setup HTML's `src-tauri/ui/setup.js`. Generated `src-tauri/{target,gen,resources}` and `dist` are build output only; no source files are exempted from lint/ownership/Knip.
 
@@ -40,9 +39,9 @@ and both development and production route types through `tsconfig.json`.
 
 On a fresh checkout, run `npm ci` then `npm run typecheck` or `npm run validate`;
 no prior development server or build is needed. Type checking runs `next typegen`
-before `tsc --noEmit` and stops if generation fails. Development startup and
-production builds also regenerate declarations automatically. Switching modes
-should not require restoring generated files or produce Git changes.
+before `tsc --noEmit` and stops if generation fails. Production builds and native resource assembly also regenerate declarations.
+No browser development server is supported; generated output should not require
+restoring tracked files or produce Git changes.
 
 ## Task process guardrails
 
@@ -50,7 +49,7 @@ Before handoff, tasks that make local SQLite data stale or incomplete must compl
 
 Live smoke with local secrets:
 
-1. Start the app on loopback and verify the trainer loads chat/Profile without `/api/dev-login`, Google OAuth, cookies, or an email allowlist.
+1. Launch the actual Tauri app on disposable populated DB/config/token copies and verify the trainer loads chat/Profile without `/api/dev-login`, Google OAuth, cookies, or an email allowlist.
 2. Confirm LAN/public exposure remains unsupported and `npm run doctor` flags non-loopback URLs.
 3. Follow [Garmin authentication setup and recovery](garmin-auth.md): explicitly set `GARMIN_MCP_TOKEN_DIR`, reuse verified existing credentials, and run `npm run garmin:auth` out of band only if needed. Doctor verifies readable/nonempty expected-file metadata only; a separate bounded authenticated read establishes current usability, not expiry. Do not print credentials or raw connector errors. For task smoke use a disposable populated SQLite copy and bounded sync, not a primary-data backfill.
 4. Sync activities to exhaustion and daily health from `GARMIN_HISTORY_START_DATE` through today.
@@ -73,4 +72,4 @@ Privacy checks:
 - Raw connector JSON/detail payloads may be retained only as redacted local SQLite records for generated analysis; they are not logged or written as app-owned FIT/files, and obvious credential/token/auth/cookie/secret fields are redacted before storage/exposure.
 - LLM tools return bounded local SQLite summaries/slices, guarded SQL results, or same-turn bounded math evidence and include privacy notes; they do not expose credentials, token paths, raw FIT bytes, full raw payload dumps, filesystem/network/process/environment access, or unrestricted history.
 - Semantic memory is retrieved only after completed persisted turns, remains inspectable/editable/deletable/clearable/disableable, and deleted/disabled/expired records are inactive.
-- Local production smoke uses `npm run bootstrap:local` for the first/repeat path. Manual fallback remains `npm ci`, `npm run db:status -- --json`, `npm run db:migrate` only when needed, `npm run build`, and `npm run start:local`; loopback access is supported, LAN/public exposure is not.
+- Local production smoke uses the actual unsigned ARM64 `.app` outside checkout; native development uses `npm run desktop:dev` with rebuilt production resources, not HMR. Follow [explicit non-serving setup](../README.md#installation) for dependencies/status/approved backed-up DB preparation, then `desktop:build`. Probe APIs only through the native-owned ephemeral listener, never another browser launcher. Preserve primary state and unrelated services; no release/deploy is implied.

@@ -1,17 +1,13 @@
 {
   "name": "ai-garmin-trainer",
   "scripts": {
-    "dev": "next dev",
     "desktop:resources": "npm run build && node scripts/desktop/assemble.mjs",
     "desktop:build": "npm run desktop:resources && tauri build --target aarch64-apple-darwin --bundles app --no-sign --no-binary-patching --ci",
     "desktop:dev": "npm run desktop:resources && tauri dev",
     "desktop:test:native": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
-    "bootstrap:local": "node scripts/bootstrap-local.mjs",
     "doctor": "tsx scripts/doctor.ts",
     "garmin:auth": "tsx scripts/garmin-auth.ts",
     "db:status": "tsx scripts/db-status.ts",
-    "start:local": "next start --hostname 127.0.0.1 --port ${PORT:-3000}",
-    "restart:local": "bash scripts/restart-local.sh",
     "build": "next build",
     "lint": "eslint . --max-warnings=0",
     "architecture": "node scripts/architecture-check.mjs",

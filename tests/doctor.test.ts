@@ -112,7 +112,16 @@ describe("source-beta doctor and redaction", () => {
     });
     expect(report.ok).toBe(false);
     expect(report.checks).toContainEqual(
-      expect.objectContaining({ className: "network.unsupported_exposure" }),
+      expect.objectContaining({
+        className: "network.unsupported_exposure",
+        remediation: expect.stringContaining("Tauri"),
+      }),
+    );
+    expect(JSON.stringify(report)).not.toContain("start:local");
+    expect(report.checks).not.toContainEqual(
+      expect.objectContaining({
+        remediation: expect.stringContaining("next start"),
+      }),
     );
   });
 
