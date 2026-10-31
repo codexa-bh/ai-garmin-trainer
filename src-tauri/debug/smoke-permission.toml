@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-smoke-result"
+description = "Exact isolated debug trainer can complete one native-correlated pending result; no setup/auth or generic native permission."
+commands.allow = ["smoke_result"]

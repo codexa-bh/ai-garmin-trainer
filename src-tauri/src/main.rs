@@ -1,7 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod auth;
+#[cfg(debug_assertions)]
+mod dev_bridge;
 mod keychain;
 mod settings;
+#[cfg(any(debug_assertions, feature = "release-probe"))]
+mod smoke_config;
 mod supervisor;
 
 use std::path::PathBuf;
@@ -22,6 +26,10 @@ struct Runtime {
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    if let Some(config) = app.try_state::<smoke_config::Config>() {
+        return Ok(config.settings());
+    }
     Ok(app
         .path()
         .app_config_dir()
@@ -63,6 +71,10 @@ fn stop_runtime(app: &tauri::AppHandle) {
 }
 
 fn status(app: &tauri::AppHandle, message: &str) {
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    if app.try_state::<smoke_config::Config>().is_some() {
+        eprintln!("isolated startup: {message}");
+    }
     if let Ok(mut saved) = app.state::<Runtime>().status.lock() {
         *saved = message.to_owned();
     }
@@ -102,10 +114,46 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     } else {
         "Garmin Trainer — connector tooling/config unavailable"
     };
-    WebviewWindowBuilder::new(app, "trainer", WebviewUrl::External(url))
+    #[allow(unused_mut)]
+    let mut window = WebviewWindowBuilder::new(app, "trainer", WebviewUrl::External(url));
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    if let Some(config) = app.try_state::<smoke_config::Config>() {
+        window = window
+            .focused(false)
+            .incognito(true)
+            .data_directory(config.root.join("profile"));
+    }
+    #[cfg(debug_assertions)]
+    if let Some(bridge) = app.try_state::<std::sync::Arc<dev_bridge::Bridge>>() {
+        *bridge
+            .origin
+            .lock()
+            .map_err(|_| "Smoke origin unavailable")? = Some(origin.clone());
+        app.add_capability(serde_json::json!({"identifier":"isolated-debug-result", "windows":["trainer"], "local":false, "remote":{"urls":[format!("{origin}/*")]}, "permissions":["allow-smoke-result"]}).to_string()).map_err(|_| "Debug result capability unavailable")?;
+        window = window.initialization_script(include_str!("../debug/smoke.js"));
+    }
+    #[cfg(all(feature = "release-probe", not(debug_assertions)))]
+    let probe_app = app.clone();
+    window
         .title(title)
         .inner_size(1280.0, 850.0)
-        .on_navigation(move |url| url.origin().ascii_serialization() == expected)
+        .on_navigation(move |url| {
+            #[cfg(all(feature = "release-probe", not(debug_assertions)))]
+            if url.scheme() == "trainer-release-probe" {
+                if let Some(config) = probe_app.try_state::<smoke_config::Config>() {
+                    let denied = matches!(url.host_str(), Some("not-found" | "permission-refused"));
+                    let report = serde_json::json!({"runId":config.run_id,"releaseMode":true,"debugCommandDenied":denied,"denialKind":url.host_str(),"instrumentation":"launch-only; not ordinary artifact launch"});
+                    use std::os::unix::fs::OpenOptionsExt;
+                    use std::io::Write;
+                    if let Ok(mut file) = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(config.root.join("release-denial.json")) {
+                        let _=file.write_all(report.to_string().as_bytes());
+                    }
+                    probe_app.exit(if denied{0}else{1});
+                }
+                return false;
+            }
+            url.origin().ascii_serialization() == expected
+        })
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
         .build()
         .map_err(|_| "Cannot create desktop window.")?;
@@ -301,16 +349,85 @@ fn cancel_auth(
 }
 
 fn main() {
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+    #[allow(unused_mut)]
+    let mut context = tauri::generate_context!();
+    #[allow(unused_mut)]
+    let mut isolated = false;
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    let smoke = match smoke_config::Config::load() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("Smoke admission refused: {error}");
+            std::process::exit(1);
+        }
+    };
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    if let Some(config) = &smoke {
+        if Some(config.source.as_str()) != option_env!("TRAINER_BUILD_SOURCE") {
+            eprintln!("Smoke build/source mismatch");
+            std::process::exit(1);
+        }
+        isolated = true;
+        context.config_mut().identifier = config.identifier();
+        context.config_mut().app.windows.clear();
+    }
+    #[cfg(all(feature = "release-probe", not(debug_assertions)))]
+    if !isolated {
+        eprintln!("Release probe requires explicit isolated config");
+        std::process::exit(1);
+    }
+    let mut builder = tauri::Builder::default();
+    #[cfg(all(feature = "release-probe", not(debug_assertions)))]
+    {
+        builder = builder.on_page_load(|webview, payload| {
+        if payload.event()==tauri::webview::PageLoadEvent::Finished && webview.label()=="trainer" {
+            let _=webview.eval("window.__TAURI_INTERNALS__.invoke('smoke_result',{}).then(()=>{location.href='trainer-release-probe://unexpected'}).catch(error=>{location.href=String(error).includes('not found')?'trainer-release-probe://not-found':String(error).includes('not allowed')?'trainer-release-probe://permission-refused':'trainer-release-probe://unexpected'})");
+        }
+    });
+    }
+    #[cfg(target_os = "macos")]
+    if isolated {
+        builder = builder.activate_ignoring_other_apps(false);
+    }
+    if !isolated {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
             // Never consume second-instance arguments as configuration consent.
-            let window = app.get_webview_window("trainer").or_else(|| app.get_webview_window("setup"));
-            if let Some(window) = window { let _ = window.show(); let _ = window.set_focus(); }
-        }))
+            let window = app
+                .get_webview_window("trainer")
+                .or_else(|| app.get_webview_window("setup"));
+            if let Some(window) = window {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
-        .manage(Runtime::default())
-        .invoke_handler(tauri::generate_handler![setup_status, read_settings, save_settings, choose_path, start_auth, auth_status, submit_mfa, cancel_auth])
-        .on_window_event(|window, event| {
+        .manage(Runtime::default());
+    #[cfg(debug_assertions)]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        setup_status,
+        read_settings,
+        save_settings,
+        choose_path,
+        start_auth,
+        auth_status,
+        submit_mfa,
+        cancel_auth,
+        dev_bridge::smoke_result
+    ]);
+    #[cfg(not(debug_assertions))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        setup_status,
+        read_settings,
+        save_settings,
+        choose_path,
+        start_auth,
+        auth_status,
+        submit_mfa,
+        cancel_auth
+    ]);
+    let app = builder.on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
                 if window.label() == "setup" {
@@ -326,7 +443,15 @@ fn main() {
                 }
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
+            #[cfg(any(debug_assertions, feature = "release-probe"))]
+            if let Some(config) = smoke {
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                #[cfg(debug_assertions)]
+                dev_bridge::start(app.handle(), config.clone())?;
+                app.manage(config);
+            }
             let app_menu = tauri::menu::SubmenuBuilder::new(app, "Garmin Trainer")
                 .text("configuration", "Desktop Settings…").separator().quit().build()?;
             let menu = tauri::menu::MenuBuilder::new(app).item(&app_menu).build()?;
@@ -369,7 +494,7 @@ fn main() {
             });
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Native desktop initialization failed");
     app.run(|handle, event| {
         if let tauri::RunEvent::ExitRequested { api, .. } = event {

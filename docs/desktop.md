@@ -1,6 +1,6 @@
 # Local macOS desktop runtime
 
-The source-built **macOS Apple Silicon** app is a thin Tauri host with an owned loopback Next.js service. React, HTTP/NDJSON, Next `after()`, guarded tools, SQLite and connector policies remain the application, not a remote website wrapper or Rust domain rewrite. Only the local settings document has native commands; trainer/remote pages have no IPC grant.
+The source-built **macOS Apple Silicon** app is a thin Tauri host with an owned loopback Next.js service. React, HTTP/NDJSON, Next `after()`, guarded tools, SQLite and connector policies remain the application, not a remote website wrapper or Rust domain rewrite. In ordinary builds only the local settings document has native commands; trainer/remote pages have no IPC grant. An explicitly admitted isolated debug smoke instance has only its exact-origin correlated-result callback, never settings/auth privileges; see [programmatic smoke](dev-bridge.md).
 
 Local unsigned builds only: no signing/notarization, installer/release channel, auto-update, login item or background service. Public source grants none of these operations. Intel, Windows, Linux and universal bundles are unsupported.
 
@@ -68,6 +68,8 @@ Only local setup has narrow settings/auth IPC. Trainer/remote pages have no nati
 Quit drains HTTP/Next work for at most five seconds; owned-group termination is bounded at eight seconds. Auth is cancelled and only native-owned Node/connector/FIT/auth descendants are stopped, not listeners/Ollama/primary processes. Host death closes the pipe and causes bounded child termination; auth also detects pipe EOF. Cancellation is not DB rollback: saved turns/planning writes/checkpoints remain, generation/import/title work may be incomplete. Force-kill/power loss can leave a lease requiring exact ownership inspection. Relaunch reads persisted state.
 
 ## Validation and recovery
+
+Routine development smoke is [programmatic-first on real isolated native instances](dev-bridge.md): `npm run smoke:native -- --scratch <canonical-task-scratch> --input-file <private-explicit-db-selection.json>`. It uses existing populated-copy practices, no provider/Keychain/login or primary mutation, two simultaneous nonactivating instances and actual Goals save/restart/capture. Read and inspect the sanitized actual Profile-subtree PNGs; capture success alone is not evidence. Mouse/native input is last resort for trusted input, drag-and-drop and native dialogs, not routine navigation.
 
 Run `CI=true npm run validate`, `npm run eval:reliability`, `npm run desktop:build`, then `npm run desktop:test:native`. Fresh native tests require assembled resources; build first or assemble `desktop:resources`. Focused settings/UI/Python/native tests cover validators/defaults, masking/intents/compensation, private protocol, MFA/rejection/cancel/timeout/late events, no-overwrite publication, env retirement, Next reset, DB admission/origin/lease/resource safety and connector stripping. No skipped/weakened guardrails.
 
