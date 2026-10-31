@@ -7,7 +7,7 @@ body {
   margin: 0;
 }
 main {
-  max-width: 640px;
+  max-width: 820px;
   margin: 24px auto;
   padding: 0 24px;
 }
@@ -29,6 +29,49 @@ button {
 button:disabled {
   opacity: 0.5;
 }
-#status {
+#status,
+#auth-status {
   color: #f5d793;
+}
+fieldset,
+section {
+  border: 1px solid #5e7c6a;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 20px 0;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 14px 0;
+}
+input,
+select {
+  font: inherit;
+  padding: 8px;
+  color: #e9f1ed;
+  background: #19382a;
+  border: 1px solid #779986;
+  border-radius: 5px;
+  min-width: 0;
+}
+label span {
+  font-size: 14px;
+  color: #a9c9b6;
+}
+button {
+  margin: 6px 8px 6px 0;
+  cursor: pointer;
+}
+summary {
+  cursor: pointer;
+  padding: 12px 0;
+}
+[hidden] {
+  display: none !important;
+}
+:focus-visible {
+  outline: 3px solid #f5d793;
+  outline-offset: 3px;
 }

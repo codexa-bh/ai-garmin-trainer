@@ -47,8 +47,11 @@ function SyncLoginHelp({
       </p>
       <p>
         Verify and reuse existing credentials first. Only if new authentication
-        is genuinely needed, run this from the selected app checkout in a
-        private interactive terminal:
+        is genuinely needed, open Desktop Settings from the native app menu and
+        explicitly start private Garmin sign-in in an unused token directory.
+        Save the selected store for the next quit/reopen; this trainer page has
+        no credential or native-auth access. Advanced private-terminal
+        maintenance alternative, from an explicitly configured checkout:
       </p>
       <div className="sync-login-command">
         <code>{command}</code>
@@ -74,8 +77,9 @@ function SyncLoginHelp({
         The command refuses to overwrite existing credential artifacts. Before
         genuinely needed replacement, manually preserve existing artifacts
         outside the selected credential directory; never delete your only usable
-        credentials. Keep passwords, MFA codes and auth output private. This app
-        will not run login for you.
+        credentials. Keep passwords, MFA codes and auth output private. This
+        trainer page never starts login automatically; only the local Desktop
+        Settings action handles transient credentials, never AI chat.
       </p>
     </section>
   );

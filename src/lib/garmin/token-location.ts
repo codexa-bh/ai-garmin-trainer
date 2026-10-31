@@ -119,6 +119,9 @@ export function garminTokenEnvironment(
     "GARMIN_EMAIL_FILE",
     "GARMIN_PASSWORD",
     "GARMIN_PASSWORD_FILE",
+    "OPENAI_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "OPENROUTER_API_KEY",
   ])
     delete env[key];
   return env;

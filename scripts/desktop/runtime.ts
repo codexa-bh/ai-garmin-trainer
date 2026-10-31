@@ -5,6 +5,7 @@ import next from "next";
 import { adoptConfiguration, desktopNextConfiguration } from "./config";
 import { acceptsDesktopRequest } from "./http-policy";
 import { assertDesktopDatabase } from "../../src/lib/db/desktop-preflight";
+import { validateSettings } from "./settings";
 
 const protocol = process.stdout.write.bind(process.stdout);
 const report = (value: object) => protocol(`${JSON.stringify(value)}\n`);
@@ -15,8 +16,7 @@ let stage = "configuration";
 
 async function main(): Promise<void> {
   const nonce = process.env.TRAINER_DESKTOP_NONCE;
-  const configPath = process.argv[2];
-  if (!nonce || !/^[a-f0-9-]{36}$/.test(nonce) || !configPath)
+  if (!nonce || !/^[a-f0-9-]{36}$/.test(nonce) || process.argv.length !== 2)
     throw new Error("Missing native launch identity.");
   delete process.env.TRAINER_DESKTOP_NONCE;
   let parentLost = false;
@@ -39,8 +39,8 @@ async function main(): Promise<void> {
     }
     onParentLost();
   });
-  process.stdin.resume();
-  const tooling = adoptConfiguration(configPath);
+  const snapshot = await readPrivateFrame();
+  const tooling = adoptConfiguration(snapshot);
   stage = "database";
   const adoptedDatabase = process.env.DATABASE_PATH!;
   assertDesktopDatabase(adoptedDatabase);
@@ -142,7 +142,65 @@ async function main(): Promise<void> {
   report({ type: "ready", version: 1, port: address.port, tooling });
 }
 
-main().catch(() => {
+// Consume exactly one bounded line; leave stdin open as the ownership pipe.
+function readPrivateFrame(): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let bytes = Buffer.alloc(0);
+    const timer = setTimeout(
+      () => finish(new Error("Activation timeout.")),
+      10000,
+    );
+    function finish(error?: Error, value?: unknown) {
+      clearTimeout(timer);
+      process.stdin.off("data", onData);
+      process.stdin.off("end", onEnd);
+      bytes.fill(0);
+      if (error) reject(error);
+      else resolve(value);
+    }
+    function onEnd() {
+      finish(new Error("Activation pipe closed."));
+    }
+    function onData(chunk: Buffer) {
+      const next = Buffer.concat([bytes, chunk]);
+      bytes.fill(0);
+      bytes = next;
+      if (bytes.length > 128 * 1024)
+        return finish(new Error("Activation too large."));
+      const end = bytes.indexOf(10);
+      if (end < 0) return;
+      try {
+        if (end !== bytes.length - 1)
+          throw new Error("Unexpected activation data.");
+        const value: unknown = JSON.parse(
+          bytes.subarray(0, end).toString("utf8"),
+        );
+        finish(undefined, value);
+      } catch {
+        finish(new Error("Invalid activation."));
+      }
+    }
+    process.stdin.on("data", onData);
+    process.stdin.once("end", onEnd);
+    process.stdin.resume();
+  });
+}
+
+async function entry(): Promise<void> {
+  if (process.argv[2] === "--validate-settings" && process.argv.length === 3) {
+    try {
+      const fields = validateSettings(await readPrivateFrame());
+      assertDesktopDatabase(fields.DATABASE_PATH);
+      report({ ok: true, fields });
+      process.exit(0);
+    } catch {
+      report({ ok: false });
+      process.exit(1);
+    }
+  }
+  await main();
+}
+entry().catch(() => {
   report({ type: "failed", version: 1, code: stage });
   process.exit(1);
 });

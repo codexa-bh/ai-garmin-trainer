@@ -68,6 +68,9 @@ describe("one explicit Garmin token location", () => {
       GARMIN_PASSWORD: "secret",
       GARMIN_EMAIL_FILE: "secret",
       GARMIN_PASSWORD_FILE: "secret",
+      OPENAI_API_KEY: "sentinel-provider-key",
+      DEEPSEEK_API_KEY: "sentinel-provider-key",
+      OPENROUTER_API_KEY: "sentinel-provider-key",
       GARMIN_MCP_TRANSPORT: "sse",
     };
     const env = garminTokenEnvironment(input);
@@ -82,6 +85,9 @@ describe("one explicit Garmin token location", () => {
       "GARMIN_PASSWORD",
       "GARMIN_EMAIL_FILE",
       "GARMIN_PASSWORD_FILE",
+      "OPENAI_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "OPENROUTER_API_KEY",
     ])
       expect(env[key]).toBeUndefined();
     expect(input.GARMINTOKENS).toBe("secret canary");

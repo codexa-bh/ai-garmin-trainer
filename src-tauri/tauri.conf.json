@@ -11,13 +11,13 @@
     "windows": [
       {
         "label": "setup",
-        "title": "Garmin Trainer — local setup",
-        "width": 720,
-        "height": 480
+        "title": "Garmin Trainer — Desktop Settings",
+        "width": 900,
+        "height": 820
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ipc: http://ipc.localhost",
       "capabilities": ["setup"]
     }
   },

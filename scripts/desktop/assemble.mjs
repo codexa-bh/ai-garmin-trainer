@@ -68,6 +68,9 @@ for (const name of [
     join(target, "scripts", `${name}.py`),
   );
 }
+for (const name of ["garmin_auth.py", "garmin_auth.py.lock"]) {
+  await cp(join(root, "scripts/desktop", name), join(target, "scripts", name));
+}
 await cp(
   join(cache, `node-v${inputs.nodeVersion}-darwin-arm64/bin/node`),
   join(resources, "node"),
