@@ -147,6 +147,14 @@ await writeFile(
   JSON.stringify(
     {
       version: 1,
+      sourceFingerprint: execFileSync(
+        "python3",
+        [
+          "-c",
+          "import sys; sys.path.insert(0, 'scripts/desktop'); from native_smoke import source_identity; print(source_identity())",
+        ],
+        { cwd: root, encoding: "utf8" },
+      ).trim(),
       inputs,
       source: execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: root,

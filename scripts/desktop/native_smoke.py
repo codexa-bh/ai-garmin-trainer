@@ -240,6 +240,11 @@ class Run:
             self.wait(lambda o: o['view'] == view, view)
             self.command({'type': 'click', 'target': 'Back to chat'})
             self.wait(lambda o: o['view'] == 'Trainer', 'Trainer return')
+        return self.profile_scenario(capture=True, other_fields=other_fields)
+
+    def profile_scenario(self, capture=False, other_fields=None):
+        if other_fields is None:
+            other_fields = self.other_profile_fields()
         self.command({'type': 'click', 'target': 'Data & settings'})
         self.wait(lambda o: o['view'] == 'Settings' and o['profileReady'], 'Settings/Profile readiness')
         sentinel = 'T0231-smoke-' + self.id
@@ -248,11 +253,11 @@ class Run:
         self.command({'type': 'click', 'target': 'Save Profile'})
         self.wait(lambda o: o['profileSaved'], 'Persisted Profile save')
         self.command({'type': 'assert', 'target': 'Goals', 'value': sentinel})
-        capture = self.command({'type': 'capture'})
+        image = self.command({'type': 'capture'}) if capture else None
         if self.other_profile_fields() != other_fields:
             raise ValueError('Non-Goals copied Profile fields changed')
         self.other_profile_hash = other_fields
-        private_json(self.root / 'scenario.json', {'navigation': 'passed', 'goalsSave': 'passed', 'otherProfileFieldsUnchanged': True, 'sentinel': sentinel, 'capture': capture, 'commands': self.commands, 'cleanup': 'copy-only Profile sentinel retained until scratch expiry; never copied back'})
+        private_json(self.root / 'scenario.json', {'navigation': 'passed' if capture else 'not enrolled: quick Profile only', 'goalsSave': 'passed', 'otherProfileFieldsUnchanged': True, 'sentinel': sentinel, 'capture': image, 'commands': self.commands, 'cleanup': 'copy-only Profile sentinel retained until scratch expiry; never copied back'})
         return sentinel
 
     def verify_restart(self, binary, sentinel):
@@ -289,13 +294,39 @@ class Run:
             raise RuntimeError('Owned shutdown incomplete; no stale-PID cleanup attempted')
 
 
-def build(scratch, source):
+def verify_resources(source):
+    resources = REPO / 'src-tauri/resources'
+    if resources.resolve(strict=True) != resources or resources.is_symlink():
+        raise ValueError('Canonical resource root required')
+    provenance = json.loads((resources / 'provenance.json').read_text())
+    if provenance.get('sourceFingerprint') != source:
+        raise ValueError('Prepared resource source mismatch; assemble after same-input production build')
+    files = provenance['files']
+    expected = {item['path']: item['sha256'] for item in files}
+    if len(expected) != len(files):
+        raise ValueError('Duplicate resource inventory')
+    actual = {}
+    for path in resources.rglob('*'):
+        if path.is_symlink():
+            raise ValueError('Resource aliases refused')
+        relative = path.relative_to(resources).as_posix()
+        if path.is_file() and relative not in ('provenance.json', 'THIRD-PARTY-NOTICES.txt'):
+            actual[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != expected:
+        raise ValueError('Prepared resource inventory mismatch')
+
+
+def build(scratch, source, resources_ready=False):
     (REPO / 'dist').mkdir(exist_ok=True)
     with (REPO / 'dist/native-smoke.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if source_identity() != source:
             raise ValueError('Source changed before preparation')
-        for label, args in [('resources', ['npm', 'run', 'desktop:resources']), ('debug', ['cargo', 'build', '--locked', '--manifest-path', 'src-tauri/Cargo.toml'])]:
+        if resources_ready:
+            verify_resources(source)
+        steps = [] if resources_ready else [('resources', ['npm', 'run', 'desktop:resources'])]
+        steps.append(('debug', ['cargo', 'build', '--locked', '--manifest-path', 'src-tauri/Cargo.toml']))
+        for label, args in steps:
             with (scratch / (label + '-' + str(uuid.uuid4()) + '.log')).open('xb') as log:
                 subprocess.run(args, cwd=REPO, env={**os.environ, 'TRAINER_BUILD_SOURCE': source}, stdout=log, stderr=subprocess.STDOUT, check=True)
         if source_identity() != source:

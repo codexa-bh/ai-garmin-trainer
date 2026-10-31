@@ -19,6 +19,13 @@ The native crate enables `custom-protocol` by default so local settings/error HT
 
 `desktop:build` passes `--no-sign --no-binary-patching`; no codesign/notarization runs. Do not disable Gatekeeper or install/sign to bypass errors. Keep release stripping disabled: Homebrew Rust 1.98 proc-macro metadata failed with release stripping (`E0463`); the supported no-strip build preserves compiler output.
 
+A separate [change-gated nightly profile](validation.md#change-gated-native-nightly)
+uses full validation's single backend build, assembler-only `desktop:assemble`,
+locked Rust checks/tests and one synthetic `smoke:quick` debug run. It does not run
+optimized release packaging or replace ordinary actual-artifact/integration smoke.
+Only use assembler-only immediately after a same-input production build; existing
+`desktop:resources` still builds then assembles.
+
 ### Reproducible resources
 
 `scripts/desktop/runtime-inputs.json` pins Node 22.23.4 ARM64 and its official archive checksum. Assembly verifies it and probes bundled Node/SQLite ABI plus launcher imports. Cargo/npm locks pin their inputs; Tauri direct versions are exact.
