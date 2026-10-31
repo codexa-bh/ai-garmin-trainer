@@ -11,6 +11,7 @@ let firstRun = false;
 let step = 0;
 let busy = false;
 let unknownOutcome = false;
+let legacyRequired = false;
 
 function renderStep() {
   const wizard = firstRun;
@@ -32,7 +33,8 @@ function renderStep() {
   byId("next-launch-guidance").hidden = wizard;
   byId("back").hidden = !wizard || step === 0 || committed;
   byId("next").hidden = !wizard || step === 3 || committed;
-  byId("save").hidden = wizard && step !== 3;
+  byId("save").hidden = legacyRequired || (wizard && step !== 3);
+  byId("migration").hidden = !legacyRequired;
   byId("save").textContent = wizard
     ? onboarding?.settingsCommitted
       ? "Retry opening saved Trainer"
@@ -101,6 +103,10 @@ async function refresh() {
   try {
     const saved = await invoke("read_settings");
     onboarding = await invoke("read_onboarding");
+    legacyRequired = saved.storage === "legacy-required";
+    byId("storage-status").textContent = legacyRequired
+      ? "Storage: legacy settings preserved. Explicit adoption or private re-entry required."
+      : "Storage: owner-private plaintext file; saved values are never returned.";
     firstRun = Boolean(onboarding?.eligible && !saved.running);
     for (const field of fields)
       byId(field.key).value =
@@ -216,9 +222,46 @@ async function initialize() {
   const message = await invoke("setup_status");
   if (message) status.textContent = message;
 }
+async function adoptProviders(readLegacy) {
+  if (busy || !legacyRequired) return;
+  setBusy(true);
+  const values = {};
+  const keys = {};
+  for (const field of fields)
+    if (byId(field.key).value) values[field.key] = byId(field.key).value;
+  for (const slot of slots) {
+    const intent = byId(`${slot}-intent`).value;
+    keys[slot] =
+      intent === "replace" ? { intent, value: byId(slot).value } : { intent };
+    byId(slot).value = "";
+  }
+  status.textContent = readLegacy
+    ? "Explicit adoption in progress; macOS may request access. No automatic retry."
+    : "Validating private re-entry; no Keychain access.";
+  try {
+    const message = await invoke("adopt_provider_settings", {
+      input: { fields: values, keys },
+      readLegacy,
+    });
+    await refresh();
+    status.textContent = message;
+  } catch (error) {
+    // Reconcile commit metadata, never retry the mutation or read legacy again.
+    await refresh();
+    status.textContent =
+      typeof error === "string"
+        ? error
+        : "Adoption outcome unknown. Inspect saved state before retry; originals retained.";
+  } finally {
+    clearSecrets();
+    setBusy(false);
+  }
+}
+byId("adopt-provider").addEventListener("click", () => adoptProviders(true));
+byId("reenter-provider").addEventListener("click", () => adoptProviders(false));
 byId("settings").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (busy) return;
+  if (busy || legacyRequired) return;
   if (firstRun && step !== 3) return;
   setBusy(true);
   status.textContent = firstRun
@@ -267,9 +310,13 @@ byId("settings").addEventListener("submit", async (event) => {
         unknownOutcome = true;
         return;
       }
-    } else
+    } else {
+      await refresh();
       status.textContent =
-        "Save refused. Check existing compatible DB, canonical private paths, calendar date, endpoints, advanced values and Keychain access. Prior settings/live backend are unchanged. If Keychain cleanup was denied, inspect the provider.v1 service in Keychain Access. No plaintext fallback.";
+        typeof error === "string"
+          ? error
+          : "Save outcome unknown. Reload and reconcile private settings before retry; live backend is unchanged. No env or Keychain fallback.";
+    }
   } finally {
     for (const slot of slots) if (keys[slot].value) keys[slot].value = "";
     setBusy(unknownOutcome);

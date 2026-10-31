@@ -1,6 +1,6 @@
 # Isolated programmatic native smoke
 
-The first route for routine smoke is the **real macOS ARM64 Tauri/WebView**, driven through an explicitly admitted debug-only bridge. No browser launcher, Vite/HMR, fake backend, OS mouse/keyboard events, Accessibility, Apple Events, Screen Recording, app activation or focus restoration is used. Ordinary product setup/singleton/Keychain behavior is unchanged.
+The first route for routine smoke is the **real macOS ARM64 Tauri/WebView**, driven through an explicitly admitted debug-only bridge. No browser launcher, Vite/HMR, fake backend, OS mouse/keyboard events, Accessibility, Apple Events, Screen Recording, app activation or focus restoration is used. Ordinary product setup/singleton behavior remains independent. Private provider-file settings and explicit legacy adoption/re-entry are outside this closed bridge.
 
 ## Run the representative scenario
 
@@ -70,7 +70,7 @@ npm run smoke:release -- --scratch "$scratch" --input-file "$scratch/selected-da
 
 This audits every file in the **actual ordinary bundled `.app`** for debug/bootstrap/callback/config/probe markers, then separately builds an explicit `release-probe` executable. The latter changes only run-local paths/app identity/incognito/nonactivation and fixed denial observation. It has no listener/control/capture implementation or result callback. In a copied `.app` with read-only resources it supplies enabling environment, observes no endpoint and a fixed internal WebView request being denied (`command-not-found` or earlier ACL refusal). It reports that reason truthfully, reaps only its live child and verifies the original production artifact inventory unchanged. The unbundled release executable may now be the instrumented variant; ordinary `desktop:build` never enables the feature and its bundled app remains unchanged.
 
-**Static audit plus launch-only-instrumented release denial is not ordinary-artifact launch.** Required real outside-checkout ordinary `.app` smoke remains independent. The normal app intentionally retains focus-taking singleton/window behavior and does not accept smoke isolation controls. Never launch it against an operator singleton, normal config/Keychain or primary data to satisfy this gate. Arrange an explicitly approved safe ordinary-artifact window/disposable configuration when noninterference cannot otherwise be established; record that gate, not an invented pass. Source delivery grants no signing/install/release/primary restart.
+**Static audit plus launch-only-instrumented release denial is not ordinary-artifact launch.** Required real outside-checkout ordinary `.app` smoke remains independent. The normal app intentionally retains focus-taking singleton/window behavior and does not accept smoke isolation controls. Never launch it against an operator singleton, normal private config/legacy Keychain or primary data to satisfy this gate. Arrange an explicitly approved safe ordinary-artifact window/disposable configuration when noninterference cannot otherwise be established; record that gate, not an invented pass. Source delivery grants no signing/install/release/primary restart.
 
 ## Evidence and recovery
 
@@ -78,4 +78,4 @@ Keep original failed logs/observations alongside later repairs. Each private run
 
 Use `npm run smoke:test`, focused DOM tests and `npm run desktop:test:native` for cheap boundary regressions, then the normal aggregate/reliability/build/native gates and current real smoke. Do not repeatedly rebuild/rerun unchanged heavy inputs to wait for hosted CI. Recurring CI runs only the separately documented synthetic quick scenario, not this full private populated-copy/release suite.
 
-Mouse/native input is a **last resort** for genuine OS-only behavior: trusted keyboard/mouse events, drag-and-drop, native dialogs or operator-entered sign-in/MFA. Arrange an explicitly owned safe instance and direct private input; this bridge cannot drive or certify those operations. Keyless navigation/Profile smoke does not certify provider coaching, Garmin auth, sync, Keychain, native dialogs or platforms not tested.
+Mouse/native input is a **last resort** for genuine OS-only behavior: trusted keyboard/mouse events, drag-and-drop, native dialogs or operator-entered sign-in/MFA. Arrange an explicitly owned safe instance and direct private input; this bridge cannot drive or certify those operations. Keyless navigation/Profile smoke does not certify provider coaching, Garmin auth, sync, private provider-file settings/adoption, native dialogs or platforms not tested.

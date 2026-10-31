@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-desktop-settings"
-description = "Trusted local settings only: validated allowlisted settings, explicit Keychain updates and private bounded Garmin login. Never granted to trainer/remote origins."
-commands.allow = ["setup_status", "read_settings", "save_settings", "choose_path", "start_auth", "auth_status", "submit_mfa", "cancel_auth", "read_onboarding", "finish_onboarding", "cancel_onboarding", "prepare_onboarding_auth"]
+description = "Trusted local settings only: validated allowlisted settings, private provider files and explicit legacy adoption and private bounded Garmin login. Never granted to trainer/remote origins."
+commands.allow = ["setup_status", "read_settings", "save_settings", "choose_path", "start_auth", "auth_status", "submit_mfa", "cancel_auth", "read_onboarding", "finish_onboarding", "cancel_onboarding", "prepare_onboarding_auth", "adopt_provider_settings"]

@@ -124,6 +124,78 @@ describe("trusted local desktop settings UI", () => {
     );
     expect(invoke).not.toHaveBeenCalledWith("start_auth", expect.anything());
   });
+  async function legacySettings() {
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      const result = await original(command, args);
+      if (command === "read_settings")
+        return { ...result, storage: "legacy-required", running: false };
+      if (command === "adopt_provider_settings")
+        throw "Legacy access denied; privately re-enter all configured slots. Originals unchanged.";
+      return result;
+    });
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(document.getElementById("migration")?.hidden).toBe(false),
+    );
+  }
+  it("discloses plaintext risk and never auto-adopts legacy settings or retries denial", async () => {
+    await legacySettings();
+    expect(document.body.textContent).toContain("owner-private plaintext");
+    expect(document.getElementById("save")?.hidden).toBe(true);
+    expect(
+      invoke.mock.calls.filter(
+        ([command]) => command === "adopt_provider_settings",
+      ),
+    ).toHaveLength(0);
+    fireEvent.click(document.getElementById("adopt-provider")!);
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "Legacy access denied",
+      ),
+    );
+    const calls = invoke.mock.calls.filter(
+      ([command]) => command === "adopt_provider_settings",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toMatchObject({
+      readLegacy: true,
+      input: { keys: { OPENAI_API_KEY: { intent: "unchanged" } } },
+    });
+    expect(input("OPENAI_API_KEY").value).toBe("");
+  });
+  it("sends private re-entry without legacy access and clears transient values on refusal", async () => {
+    await legacySettings();
+    input("OPENAI_API_KEY-intent").value = "replace";
+    fireEvent.change(input("OPENAI_API_KEY-intent"));
+    input("OPENAI_API_KEY").value = "synthetic-private-reentry";
+    input("OPENROUTER_API_KEY-intent").value = "clear";
+    fireEvent.click(document.getElementById("reenter-provider")!);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "adopt_provider_settings",
+        expect.objectContaining({ readLegacy: false }),
+      ),
+    );
+    const call = invoke.mock.calls.find(
+      ([command]) => command === "adopt_provider_settings",
+    )!;
+    expect(call[1]).toMatchObject({
+      input: {
+        keys: {
+          OPENAI_API_KEY: {
+            intent: "replace",
+            value: "synthetic-private-reentry",
+          },
+          OPENROUTER_API_KEY: { intent: "clear" },
+        },
+      },
+    });
+    await waitFor(() => expect(input("OPENAI_API_KEY").value).toBe(""));
+    expect(document.body.textContent).not.toContain(
+      "synthetic-private-reentry",
+    );
+  });
   it("cancel restores persisted fields without saving or initiating login", async () => {
     input("AI_MODEL").value = "unsaved-model";
     input("OPENAI_API_KEY").value = "unsaved-secret";

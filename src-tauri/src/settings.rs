@@ -1,10 +1,10 @@
-use crate::keychain::Secrets;
+use crate::{keychain::Secrets, private_store};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{Read, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::path::Path;
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -35,10 +35,25 @@ pub struct Snapshot {
     pub keys: BTreeMap<String, &'static str>,
     pub saved: bool,
     pub running: bool,
+    pub storage: &'static str,
 }
-
+const LEGACY: &str = "Legacy provider settings require explicit adoption or private re-entry in Desktop Settings. No automatic Keychain access.";
+/// Presence, not successful parsing, selects v2. Invalid state never falls back.
+pub fn selected(directory: &Path) -> PathBuf {
+    let next = directory.join("settings-v2.json");
+    let legacy = directory.join("settings-v1.json");
+    if !matches!(fs::symlink_metadata(&next), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+        || matches!(fs::symlink_metadata(&legacy), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    {
+        next
+    } else {
+        legacy
+    }
+}
+// Retained metadata contract for independent Garmin/smoke inputs. Provider
+// documents and onboarding identity use descriptor-bound private_store IO.
 pub fn private_file(path: &Path) -> Result<(), &'static str> {
-    let meta = fs::symlink_metadata(path).map_err(|_| "Private settings missing or unreadable.")?;
+    let meta = fs::symlink_metadata(path).map_err(|_| "Private file missing or unreadable.")?;
     if !path.is_absolute()
         || !meta.is_file()
         || meta.nlink() != 1
@@ -47,28 +62,21 @@ pub fn private_file(path: &Path) -> Result<(), &'static str> {
         || meta.len() > 128 * 1024
         || fs::canonicalize(path).ok().as_deref() != Some(path)
     {
-        return Err("Settings must be a bounded owner-private regular file, not an alias.");
+        return Err("Private file must be bounded, owner-private, regular and unaliased.");
     }
     Ok(())
 }
-fn private_directory(path: &Path) -> Result<(), &'static str> {
-    let meta = fs::symlink_metadata(path).map_err(|_| "Private settings directory unavailable.")?;
-    if !meta.is_dir()
-        || meta.uid() != unsafe { libc::getuid() }
-        || meta.mode() & 0o077 != 0
-        || fs::canonicalize(path).ok().as_deref() != Some(path)
-    {
-        return Err("Settings directory must be owner-private and unaliased.");
-    }
-    Ok(())
+fn valid_secret(value: &str) -> bool {
+    !value.trim().is_empty()
+        && value.len() <= 16384
+        && !value.chars().any(char::is_control)
+        && !["your-", "your_", "replace-me", "changeme", "placeholder"]
+            .iter()
+            .any(|prefix| value.to_ascii_lowercase().starts_with(prefix))
 }
-pub fn load(path: &Path) -> Result<Settings, &'static str> {
-    private_file(path)?;
-    private_directory(path.parent().ok_or("Settings directory unavailable.")?)?;
-    let settings: Settings = serde_json::from_slice(
-        &fs::read(path).map_err(|_| "Settings unreadable.")?,
-    )
-    .map_err(|_| "Settings invalid. Re-enter settings; original env files are not imported.")?;
+fn decode(bytes: &[u8]) -> Result<Settings, &'static str> {
+    let settings: Settings = serde_json::from_slice(bytes)
+        .map_err(|_| "Private settings invalid; preserve originals and use a compatible build.")?;
     let catalog: Vec<serde_json::Value> =
         serde_json::from_str(include_str!("../ui/settings-fields.json"))
             .map_err(|_| "Settings catalog unavailable.")?;
@@ -79,27 +87,31 @@ pub fn load(path: &Path) -> Result<Settings, &'static str> {
             || value.len() > 2048
             || value.chars().any(char::is_control)
     }) {
-        return Err("Saved settings contain unsupported fields. No secret values are returned.");
+        return Err("Saved settings contain unsupported fields; no values are returned.");
     }
-    if settings.version != 1
-        || settings.keys.iter().any(|(slot, account)| {
+    if ![1, 2].contains(&settings.version)
+        || settings.keys.iter().any(|(slot, value)| {
             !SLOTS.contains(&slot.as_str())
-                || !account
-                    .strip_prefix(&format!("{slot}/"))
-                    .map(|id| uuid::Uuid::parse_str(id).is_ok())
-                    .unwrap_or(false)
+                || if settings.version == 1 {
+                    !value
+                        .strip_prefix(&format!("{slot}/"))
+                        .map(|id| uuid::Uuid::parse_str(id).is_ok())
+                        .unwrap_or(false)
+                } else {
+                    !valid_secret(value)
+                }
         })
     {
-        return Err("Settings version or Keychain references unsupported.");
+        return Err("Settings version or provider slots unsupported; preserve originals.");
     }
     Ok(settings)
 }
-pub fn snapshot(
-    path: &Path,
-    secrets: &impl Secrets,
-    running: bool,
-) -> Result<Snapshot, &'static str> {
-    let saved = path.try_exists().map_err(|_| "Settings inaccessible.")?;
+pub fn load(path: &Path) -> Result<Settings, &'static str> {
+    decode(&private_store::read(path)?)
+}
+pub fn snapshot(path: &Path, running: bool) -> Result<Snapshot, &'static str> {
+    let saved =
+        !matches!(fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
     let settings = if saved {
         load(path)?
     } else {
@@ -111,10 +123,14 @@ pub fn snapshot(
             .map(|slot| {
                 (
                     slot.to_string(),
-                    match settings.keys.get(*slot) {
-                        None => "not configured",
-                        Some(account) if secrets.present(account) => "configured",
-                        Some(_) => "unavailable",
+                    if settings.keys.contains_key(*slot) {
+                        if settings.version == 1 {
+                            "legacy — adoption or re-entry required"
+                        } else {
+                            "configured"
+                        }
+                    } else {
+                        "not configured"
                     },
                 )
             })
@@ -122,183 +138,154 @@ pub fn snapshot(
         fields: settings.fields,
         saved,
         running,
+        storage: if !saved {
+            "new-private-file"
+        } else if settings.version == 1 {
+            "legacy-required"
+        } else {
+            "private-file"
+        },
     })
 }
-fn persist(path: &Path, settings: &Settings, fresh: bool) -> Result<bool, &'static str> {
-    let parent = path.parent().ok_or("Settings directory unavailable.")?;
-    if !parent.exists() {
-        fs::create_dir_all(parent).map_err(|_| "Cannot create settings directory.")?;
-        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
-            .map_err(|_| "Cannot protect settings directory.")?;
-    }
-    private_directory(parent)?;
-    if path.symlink_metadata().is_ok() {
-        private_file(path)?;
-    }
-    let bytes = serde_json::to_vec(settings).map_err(|_| "Cannot encode settings.")?;
-    if bytes.len() > 128 * 1024 {
-        return Err("Settings too large.");
-    }
-    let tmp = parent.join(format!("settings-{}.tmp", uuid::Uuid::new_v4()));
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)
-            .map_err(|_| "Cannot save settings.")?;
-        file.write_all(&bytes)
-            .and_then(|_| file.sync_all())
-            .map_err(|_| "Cannot persist settings.")?;
-        if fresh {
-            // First-run authority never permits overwriting a concurrently saved
-            // installation, even after the earlier absence check.
-            use std::ffi::CString;
-            use std::os::unix::ffi::OsStrExt;
-            let source =
-                CString::new(tmp.as_os_str().as_bytes()).map_err(|_| "Invalid settings path.")?;
-            let target =
-                CString::new(path.as_os_str().as_bytes()).map_err(|_| "Invalid settings path.")?;
-            if unsafe {
-                libc::renameatx_np(
-                    libc::AT_FDCWD,
-                    source.as_ptr(),
-                    libc::AT_FDCWD,
-                    target.as_ptr(),
-                    libc::RENAME_EXCL,
-                )
-            } != 0
-            {
-                return Err("First-run settings publication refused; existing settings preserved.");
-            }
-        } else {
-            fs::rename(&tmp, path).map_err(|_| "Cannot replace settings.")?;
+fn apply(next: &mut Settings, updates: BTreeMap<String, KeyUpdate>) -> Result<(), &'static str> {
+    for (slot, update) in updates {
+        if !SLOTS.contains(&slot.as_str()) {
+            return Err("Unknown provider slot.");
         }
-        // Once renamed, failure is a committed save with uncertain durability,
-        // not permission to compensate referenced keys or delete old accounts.
-        Ok(fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .is_ok())
-    })();
-    // Only this exact exclusive temporary file is owned by the failed write.
-    if result.is_err() {
-        let _ = fs::remove_file(tmp);
+        match update {
+            KeyUpdate::Unchanged => (),
+            KeyUpdate::Clear => {
+                next.keys.remove(&slot);
+            }
+            KeyUpdate::Replace { value } => {
+                if !valid_secret(&value) {
+                    return Err("Enter a valid replacement key or choose unchanged/clear.");
+                }
+                next.keys.insert(slot, value);
+            }
+        }
     }
-    result
+    Ok(())
 }
-
-// Copy-on-write accounts make the settings rename the commit point. Existing
-// keys are never changed before it. Failed compensation is reported, never
-// silently represented as a successful save or deletion of the old key.
+fn encode(settings: &Settings) -> Result<Vec<u8>, &'static str> {
+    let bytes = serde_json::to_vec(settings).map_err(|_| "Cannot encode private settings.")?;
+    decode(&bytes)?;
+    Ok(bytes)
+}
+fn message(durable: bool, fresh: bool) -> String {
+    let state = if fresh {
+        "First-run settings committed."
+    } else {
+        "Settings committed. Quit and reopen to apply; the running backend is unchanged."
+    };
+    format!(
+        "{state}{}",
+        if durable {
+            ""
+        } else {
+            " Verification/directory durability uncertain; reconcile saved state before any retry. Legacy originals retained."
+        }
+    )
+}
 pub fn save(
     path: &Path,
     fields: BTreeMap<String, String>,
     updates: BTreeMap<String, KeyUpdate>,
-    secrets: &impl Secrets,
 ) -> Result<String, &'static str> {
-    save_inner(path, fields, updates, secrets, false)
+    save_inner(path, fields, updates, false)
 }
 pub fn save_new(
     path: &Path,
     fields: BTreeMap<String, String>,
     updates: BTreeMap<String, KeyUpdate>,
-    secrets: &impl Secrets,
 ) -> Result<String, &'static str> {
-    save_inner(path, fields, updates, secrets, true)
+    save_inner(path, fields, updates, true)
 }
 fn save_inner(
     path: &Path,
     fields: BTreeMap<String, String>,
     updates: BTreeMap<String, KeyUpdate>,
-    secrets: &impl Secrets,
     fresh: bool,
 ) -> Result<String, &'static str> {
-    if fresh && fs::symlink_metadata(path).is_ok() {
+    let exists =
+        !matches!(fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
+    if fresh && exists {
         return Err("Existing settings preserved; this is not a blank installation.");
     }
-    if updates.keys().any(|key| !SLOTS.contains(&key.as_str())) {
-        return Err("Unknown Keychain slot.");
-    }
-    for update in updates.values() {
-        if let KeyUpdate::Replace { value } = update {
-            if value.trim().is_empty() || value.len() > 16384 || value.chars().any(char::is_control)
-            {
-                return Err("Enter a valid replacement key or choose unchanged/clear.");
-            }
-        }
-    }
-    let old = if path.try_exists().map_err(|_| "Settings inaccessible.")? {
-        load(path)?
+    let previous = if exists {
+        Some(private_store::read(path)?)
     } else {
-        Settings::default()
+        None
     };
-    let mut next = Settings {
-        version: 1,
-        fields,
-        keys: old.keys.clone(),
+    let mut next = if let Some(bytes) = &previous {
+        decode(bytes)?
+    } else {
+        Settings {
+            version: 2,
+            ..Default::default()
+        }
     };
-    let mut added = Vec::new();
-    let result = (|| {
-        for (slot, update) in updates {
-            match update {
-                KeyUpdate::Unchanged => {}
-                KeyUpdate::Clear => {
-                    next.keys.remove(&slot);
-                }
-                KeyUpdate::Replace { value } => {
-                    let account = format!("{slot}/{}", uuid::Uuid::new_v4());
-                    secrets.add(&account, &value)?;
-                    added.push(account.clone());
-                    next.keys.insert(slot, account);
-                }
-            }
-        }
-        persist(path, &next, fresh)
-    })();
-    if let Err(error) = result {
-        let mut cleanup_failed = false;
-        for account in added {
-            cleanup_failed |= secrets.delete(&account).is_err();
-        }
-        return Err(if cleanup_failed {
-            "Save failed; prior settings unchanged. Unreferenced new Keychain item cleanup failed; inspect the provider.v1 service in Keychain Access."
-        } else {
-            error
-        });
+    if next.version != 2 {
+        return Err(LEGACY);
     }
-    if result == Ok(false) {
-        return Ok(if fresh {
-            "First-run settings committed; directory durability confirmation unavailable. Prior Keychain accounts retained for recovery."
-        } else {
-            "Settings saved for next launch; directory durability confirmation unavailable. Prior Keychain accounts retained for recovery; live backend unchanged."
-        }.into());
-    }
-    let mut cleanup_failed = false;
-    for (slot, account) in old.keys {
-        if next.keys.get(&slot) != Some(&account) {
-            cleanup_failed |= secrets.delete(&account).is_err();
-        }
-    }
-    Ok(if cleanup_failed {
-        if fresh { "First-run settings committed. Superseded Keychain item cleanup unavailable; inspect the provider.v1 service in Keychain Access." }
-        else { "Settings saved for next launch; live backend unchanged. Superseded Keychain item cleanup unavailable; inspect the provider.v1 service in Keychain Access." }
-    } else if fresh { "First-run settings committed." }
-    else { "Settings saved. Quit and reopen to apply; the running backend is unchanged." }.into())
+    next.fields = fields;
+    apply(&mut next, updates)?;
+    Ok(message(
+        private_store::publish(path, &encode(&next)?, previous.as_deref())?,
+        fresh,
+    ))
 }
-// Resolve update intent for validation only, without creating Keychain items.
-// The caller wipes this private frame after the bounded validator consumes it.
-pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
-    if input.keys.keys().any(|key| !SLOTS.contains(&key.as_str())) {
-        return Err("Unknown Keychain slot.");
+/// Explicit user action only. Never retain a partially retrieved provider set.
+/// Re-entry requires a decision for every legacy slot and makes zero legacy calls.
+pub fn adoption(
+    path: &Path,
+    input: SaveInput,
+    read_legacy: bool,
+    secrets: &impl Secrets,
+) -> Result<(Settings, Vec<u8>), &'static str> {
+    let original = private_store::read(path)?;
+    let old = decode(&original)?;
+    if old.version != 1 {
+        return Err("Already file-backed; reload settings. Adoption was not repeated.");
     }
-    let mut values = BTreeMap::new();
-    for (slot, update) in &input.keys {
-        if let KeyUpdate::Replace { value } = update {
-            values.insert(slot.clone(), value.clone());
+    let mut next = Settings {
+        version: 2,
+        fields: input.fields,
+        keys: BTreeMap::new(),
+    };
+    for (slot, account) in old.keys {
+        if matches!(input.keys.get(&slot), None | Some(KeyUpdate::Unchanged)) {
+            if !read_legacy {
+                return Err("Re-entry required: replace or explicitly clear every legacy configured slot; originals unchanged.");
+            }
+            let value = secrets.get(&account).map_err(|_| "Legacy access denied, locked or missing. Nothing published; privately re-enter all configured slots or explicitly retry adoption. Originals unchanged.")?;
+            if !valid_secret(&value) {
+                return Err(
+                    "Legacy value invalid. Nothing published; privately re-enter configured slots.",
+                );
+            }
+            next.keys.insert(slot, value);
         }
     }
+    apply(&mut next, input.keys)?;
+    encode(&next)?;
+    Ok((next, original))
+}
+pub fn commit_adoption(
+    path: &Path,
+    next: &Settings,
+    original: &[u8],
+) -> Result<String, &'static str> {
+    if next.version != 2 || private_store::read(path)? != original {
+        return Err("Legacy settings changed; reload before adoption. Originals preserved.");
+    }
+    let target = path.with_file_name("settings-v2.json");
+    let durable = private_store::publish(&target, &encode(next)?, None)?;
+    Ok(format!("Private file adoption committed; legacy settings and Keychain items preserved. Quit and reopen explicitly.{}", if durable { "" } else { " Verification/directory durability uncertain; reconcile saved state before retry." }))
+}
+fn frame(settings: &Settings) -> Result<Vec<u8>, &'static str> {
     let mut bytes = serde_json::to_vec(
-        &serde_json::json!({"version":1,"fields":input.fields,"secrets":values}),
+        &serde_json::json!({"version":1,"fields":settings.fields,"secrets":settings.keys}),
     )
     .map_err(|_| "Activation unavailable.")?;
     if bytes.len() >= 128 * 1024 {
@@ -307,21 +294,34 @@ pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
     bytes.push(b'\n');
     Ok(bytes)
 }
-pub fn activation(path: &Path, secrets: &impl Secrets) -> Result<Vec<u8>, &'static str> {
+pub fn adoption_frame(settings: &Settings) -> Result<Vec<u8>, &'static str> {
+    frame(settings)
+}
+pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
+    let mut next = Settings {
+        version: 2,
+        fields: input.fields.clone(),
+        keys: BTreeMap::new(),
+    };
+    for (slot, update) in &input.keys {
+        if !SLOTS.contains(&slot.as_str()) {
+            return Err("Unknown provider slot.");
+        }
+        if let KeyUpdate::Replace { value } = update {
+            if !valid_secret(value) {
+                return Err("Invalid replacement provider key.");
+            }
+            next.keys.insert(slot.clone(), value.clone());
+        }
+    }
+    frame(&next)
+}
+pub fn activation(path: &Path) -> Result<Vec<u8>, &'static str> {
     let settings = load(path)?;
-    let mut values = BTreeMap::new();
-    for (slot, account) in settings.keys {
-        values.insert(slot, secrets.get(&account)?);
+    if settings.version != 2 {
+        return Err(LEGACY);
     }
-    let mut bytes = serde_json::to_vec(
-        &serde_json::json!({"version":1,"fields":settings.fields,"secrets":values}),
-    )
-    .map_err(|_| "Activation unavailable.")?;
-    if bytes.len() > 128 * 1024 - 1 {
-        return Err("Activation too large.");
-    }
-    bytes.push(b'\n');
-    Ok(bytes)
+    frame(&settings)
 }
 
 pub fn validate(
@@ -385,150 +385,317 @@ pub fn validate(
     if bytes.len() > 128 * 1024 {
         return Err("Settings result too large.");
     }
-    {
-        #[derive(Deserialize)]
-        struct Validated {
-            ok: bool,
-            fields: BTreeMap<String, String>,
-        }
-        let result: Validated =
-            serde_json::from_slice(&bytes).map_err(|_| "Settings validation failed.")?;
-        if !result.ok {
-            return Err("Settings invalid.");
-        }
-        Ok(result.fields)
+    #[derive(Deserialize)]
+    struct Validated {
+        ok: bool,
+        fields: BTreeMap<String, String>,
     }
+    let result: Validated =
+        serde_json::from_slice(&bytes).map_err(|_| "Settings validation failed.")?;
+    if !result.ok {
+        return Err("Settings invalid.");
+    }
+    Ok(result.fields)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-    #[derive(Default)]
+    use std::cell::Cell;
+    use std::os::unix::fs::PermissionsExt;
     struct Fake {
-        values: RefCell<BTreeMap<String, String>>,
-        fail: bool,
+        calls: Cell<usize>,
+        deny: bool,
+        deny_after: usize,
     }
     impl Secrets for Fake {
-        fn get(&self, account: &str) -> Result<String, &'static str> {
-            self.values.borrow().get(account).cloned().ok_or("missing")
-        }
-        fn present(&self, account: &str) -> bool {
-            self.values.borrow().contains_key(account)
-        }
-        fn add(&self, account: &str, value: &str) -> Result<(), &'static str> {
-            if self.fail {
-                return Err("denied");
+        fn get(&self, _: &str) -> Result<String, &'static str> {
+            self.calls.set(self.calls.get() + 1);
+            if self.deny && self.calls.get() >= self.deny_after {
+                Err("denied")
+            } else {
+                Ok("synthetic-provider-secret".into())
             }
-            self.values
-                .borrow_mut()
-                .insert(account.into(), value.into());
-            Ok(())
         }
-        fn delete(&self, account: &str) -> Result<(), &'static str> {
-            self.values.borrow_mut().remove(account);
-            Ok(())
-        }
+    }
+    fn root() -> PathBuf {
+        let path = std::env::temp_dir().join(format!("trainer-settings-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::canonicalize(path).unwrap()
+    }
+    fn replacement() -> BTreeMap<String, KeyUpdate> {
+        BTreeMap::from([(
+            "OPENAI_API_KEY".into(),
+            KeyUpdate::Replace {
+                value: "synthetic-provider-secret".into(),
+            },
+        )])
     }
     #[test]
     fn first_save_is_exclusive_and_does_not_return_next_launch_instructions() {
-        let root =
-            std::env::temp_dir().join(format!("trainer-first-save-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        let root = fs::canonicalize(root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
-        let path = root.join("settings.json");
-        let fake = Fake::default();
-        let message = save_new(&path, BTreeMap::new(), BTreeMap::new(), &fake).unwrap();
+        let root = root();
+        let path = selected(&root);
+        let message = save_new(&path, BTreeMap::new(), replacement()).unwrap();
         assert!(message.contains("committed"));
         assert!(!message.contains("Quit"));
-        let original = fs::read(&path).unwrap();
-        assert!(save_new(
-            &path,
-            BTreeMap::new(),
-            BTreeMap::from([(
-                "OPENAI_API_KEY".into(),
-                KeyUpdate::Replace {
-                    value: "sentinel-secret".into()
-                }
-            )]),
-            &fake
-        )
-        .is_err());
-        assert_eq!(fs::read(&path).unwrap(), original);
-        assert!(fake.values.borrow().is_empty());
-        fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
-    fn masked_copy_on_write_save_clear_and_failed_persistence() {
-        let root = std::env::temp_dir().join(format!("trainer-settings-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        let root = fs::canonicalize(root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
-        let path = root.join("settings-v1.json");
-        let fake = Fake::default();
-        let updates = BTreeMap::from([(
-            "OPENAI_API_KEY".into(),
-            KeyUpdate::Replace {
-                value: "sentinel-secret".into(),
-            },
-        )]);
-        save(&path, BTreeMap::new(), updates, &fake).unwrap();
-        let original = fs::read(&path).unwrap();
-        assert!(!String::from_utf8_lossy(&original).contains("sentinel-secret"));
-        let read = serde_json::to_string(&snapshot(&path, &fake, false).unwrap()).unwrap();
+        let original = private_store::read(&path).unwrap();
+        assert!(save_new(&path, BTreeMap::new(), BTreeMap::new()).is_err());
+        assert_eq!(private_store::read(&path).unwrap(), original);
+        assert_eq!(load(&path).unwrap().version, 2);
+        let read = serde_json::to_string(&snapshot(&path, false).unwrap()).unwrap();
+        assert!(!read.contains("synthetic-provider-secret"));
         assert!(read.contains("configured"));
-        assert!(!read.contains("sentinel-secret"));
+        assert!(String::from_utf8(activation(&path).unwrap())
+            .unwrap()
+            .contains("synthetic-provider-secret"));
         save(
             &path,
             BTreeMap::new(),
             BTreeMap::from([("OPENAI_API_KEY".into(), KeyUpdate::Unchanged)]),
-            &fake,
         )
         .unwrap();
-        assert_eq!(original, fs::read(&path).unwrap());
-        let denied = Fake {
-            fail: true,
-            ..Default::default()
-        };
-        assert!(save(
-            &path,
-            BTreeMap::new(),
-            BTreeMap::from([(
-                "OPENAI_API_KEY".into(),
-                KeyUpdate::Replace {
-                    value: "new-secret".into()
-                }
-            )]),
-            &denied
-        )
-        .is_err());
-        assert_eq!(original, fs::read(&path).unwrap());
-        let bad = root.join("not-private");
-        fs::create_dir(&bad).unwrap();
-        fs::set_permissions(&bad, fs::Permissions::from_mode(0o755)).unwrap();
-        let before = fake.values.borrow().len();
-        assert!(save(
-            &bad.join("settings.json"),
-            BTreeMap::new(),
-            BTreeMap::from([(
-                "OPENAI_API_KEY".into(),
-                KeyUpdate::Replace {
-                    value: "new-secret".into()
-                }
-            )]),
-            &fake
-        )
-        .is_err());
-        assert_eq!(before, fake.values.borrow().len());
+        assert_eq!(private_store::read(&path).unwrap(), original);
         save(
             &path,
             BTreeMap::new(),
             BTreeMap::from([("OPENAI_API_KEY".into(), KeyUpdate::Clear)]),
+        )
+        .unwrap();
+        assert!(load(&path).unwrap().keys.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn adoption_is_explicit_complete_preserves_original_and_never_repeats_reads() {
+        let root = root();
+        let path = root.join("settings-v1.json");
+        let legacy = Settings {
+            version: 1,
+            fields: BTreeMap::from([("AI_MODEL".into(), "custom-model".into())]),
+            keys: SLOTS
+                .iter()
+                .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
+                .collect(),
+        };
+        private_store::publish(&path, &encode(&legacy).unwrap(), None).unwrap();
+        let original = private_store::read(&path).unwrap();
+        let fake = Fake {
+            calls: Cell::new(0),
+            deny: false,
+            deny_after: 1,
+        };
+        for _ in 0..3 {
+            snapshot(&path, false).unwrap();
+            assert!(activation(&path).is_err());
+        }
+        assert!(save(&path, legacy.fields.clone(), replacement()).is_err());
+        assert_eq!(fake.calls.get(), 0);
+        assert!(adoption(
+            &path,
+            SaveInput {
+                fields: legacy.fields.clone(),
+                keys: replacement()
+            },
+            false,
+            &fake
+        )
+        .is_err());
+        assert_eq!(fake.calls.get(), 0);
+        let (next, prior) = adoption(
+            &path,
+            SaveInput {
+                fields: legacy.fields.clone(),
+                keys: BTreeMap::new(),
+            },
+            true,
             &fake,
         )
         .unwrap();
-        assert!(fake.values.borrow().is_empty());
+        assert_eq!(fake.calls.get(), 3);
+        assert_eq!(next.keys.len(), 3);
+        assert_eq!(next.fields, legacy.fields);
+        commit_adoption(&path, &next, &prior).unwrap();
+        assert_eq!(private_store::read(&path).unwrap(), original);
+        let active = selected(&root);
+        assert_eq!(active.file_name().unwrap(), "settings-v2.json");
+        for _ in 0..3 {
+            snapshot(&active, false).unwrap();
+            activation(&active).unwrap();
+        }
+        assert!(adoption(
+            &active,
+            SaveInput {
+                fields: BTreeMap::new(),
+                keys: BTreeMap::new()
+            },
+            true,
+            &fake
+        )
+        .is_err());
+        assert!(commit_adoption(&path, &next, &prior).is_err());
+        assert_eq!(fake.calls.get(), 3);
+        fs::write(&active, b"corrupt").unwrap();
+        assert_eq!(selected(&root), active);
+        assert!(activation(&active).is_err());
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn denied_adoption_publishes_nothing_and_reentry_never_reads_legacy() {
+        let root = root();
+        let path = root.join("settings-v1.json");
+        let legacy = Settings {
+            version: 1,
+            fields: BTreeMap::new(),
+            keys: SLOTS
+                .iter()
+                .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
+                .collect(),
+        };
+        private_store::publish(&path, &encode(&legacy).unwrap(), None).unwrap();
+        let fake = Fake {
+            calls: Cell::new(0),
+            deny: true,
+            deny_after: 2,
+        };
+        assert!(adoption(
+            &path,
+            SaveInput {
+                fields: BTreeMap::new(),
+                keys: BTreeMap::new()
+            },
+            true,
+            &fake
+        )
+        .is_err());
+        assert!(!root.join("settings-v2.json").exists());
+        assert_eq!(fake.calls.get(), 2);
+        let keys = SLOTS
+            .iter()
+            .map(|s| {
+                (
+                    s.to_string(),
+                    KeyUpdate::Replace {
+                        value: "private-reentry-value".into(),
+                    },
+                )
+            })
+            .collect();
+        let (next, prior) = adoption(
+            &path,
+            SaveInput {
+                fields: BTreeMap::new(),
+                keys,
+            },
+            false,
+            &fake,
+        )
+        .unwrap();
+        commit_adoption(&path, &next, &prior).unwrap();
+        assert_eq!(fake.calls.get(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn packaged_validation_and_onboarding_identity_accept_complete_private_adoption() {
+        use std::sync::atomic::AtomicBool;
+        let root = root();
+        let database = root.join("populated-compatible.sqlite");
+        let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let cancel = AtomicBool::new(false);
+        let quitting = AtomicBool::new(false);
+        crate::onboarding::initialize(&resources, &database, &root, &mut None, &cancel, &quitting)
+            .unwrap();
+        let fields = BTreeMap::from([
+            (
+                "DATABASE_PATH".into(),
+                database.to_string_lossy().into_owned(),
+            ),
+            ("AI_PROVIDER".into(), "openai".into()),
+            ("AI_MODEL".into(), "custom-retained-model".into()),
+            ("GARMIN_HISTORY_START_DATE".into(), "2024-01-01".into()),
+            ("MEMORY_ENABLED".into(), "false".into()),
+        ]);
+        let fields = validate(&resources, &fields).unwrap();
+        let path = root.join("settings-v1.json");
+        let legacy = Settings {
+            version: 1,
+            fields: fields.clone(),
+            keys: SLOTS
+                .iter()
+                .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
+                .collect(),
+        };
+        private_store::publish(&path, &encode(&legacy).unwrap(), None).unwrap();
+        let fake = Fake {
+            calls: Cell::new(0),
+            deny: false,
+            deny_after: 1,
+        };
+        let (next, prior) = adoption(
+            &path,
+            SaveInput {
+                fields: fields.clone(),
+                keys: BTreeMap::new(),
+            },
+            true,
+            &fake,
+        )
+        .unwrap();
+        let mut frame = adoption_frame(&next).unwrap();
+        crate::onboarding::bundled(
+            &resources,
+            "--validate-existing-activation",
+            &mut frame,
+            128 * 1024,
+            &cancel,
+            &quitting,
+        )
+        .unwrap();
+        frame.fill(0);
+        commit_adoption(&path, &next, &prior).unwrap();
+        let active = selected(&root);
+        let identity = crate::onboarding::OwnedSettings::capture(&active).unwrap();
+        identity.verify(&active).unwrap();
+        assert_eq!(load(&active).unwrap().fields, fields);
+        assert_eq!(private_store::read(&path).unwrap(), prior);
+        let mut frame = activation(&active).unwrap();
+        crate::onboarding::bundled(
+            &resources,
+            "--validate-existing-activation",
+            &mut frame,
+            128 * 1024,
+            &cancel,
+            &quitting,
+        )
+        .unwrap();
+        frame.fill(0);
+        let no_keys = Settings {
+            version: 2,
+            fields,
+            keys: BTreeMap::new(),
+        };
+        let mut invalid = adoption_frame(&no_keys).unwrap();
+        assert!(crate::onboarding::bundled(
+            &resources,
+            "--validate-existing-activation",
+            &mut invalid,
+            128 * 1024,
+            &cancel,
+            &quitting
+        )
+        .is_err());
+        assert_eq!(fake.calls.get(), 3);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn malformed_unknown_and_placeholder_values_are_rejected_without_readback() {
+        for input in [
+            r#"{"version":3,"fields":{},"keys":{}}"#,
+            r#"{"version":2,"fields":{},"keys":{"OTHER":"synthetic"}}"#,
+            r#"{"version":2,"fields":{},"keys":{"OPENAI_API_KEY":"your-api-key"}}"#,
+            r#"{"version":2,"fields":{},"keys":{"OPENAI_API_KEY":"bad\nkey"}}"#,
+            r#"{"version":1,"fields":{},"keys":{"OPENAI_API_KEY":"raw-not-reference"}}"#,
+        ] {
+            assert!(decode(input.as_bytes()).is_err());
+        }
     }
 }

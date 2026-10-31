@@ -91,7 +91,8 @@ impl Service {
             .spawn()
             .map_err(|_| "Bundled Node/resources missing or not executable.")?;
         // One bounded activation frame, then retain stdin for parent liveness.
-        // Provider keys never enter argv, inherited environment or a disk file.
+        // Provider keys never enter argv, inherited environment or an activation file.
+        // The native owner-private settings document is their sole disk authority.
         let sent = child
             .stdin
             .as_mut()
