@@ -14,6 +14,8 @@ let unknownOutcome = false;
 
 function renderStep() {
   const wizard = firstRun;
+  const committed = wizard && onboarding?.settingsCommitted;
+  if (committed) step = 3;
   byId("wizard").hidden = !wizard;
   byId("database-choice").hidden = !wizard;
   byId("step-heading").textContent = [
@@ -28,8 +30,8 @@ function renderStep() {
     wizard && step !== 2;
   byId("review").hidden = !wizard || step !== 3;
   byId("next-launch-guidance").hidden = wizard;
-  byId("back").hidden = !wizard || step === 0;
-  byId("next").hidden = !wizard || step === 3;
+  byId("back").hidden = !wizard || step === 0 || committed;
+  byId("next").hidden = !wizard || step === 3 || committed;
   byId("save").hidden = wizard && step !== 3;
   byId("save").textContent = wizard
     ? onboarding?.settingsCommitted
@@ -42,13 +44,16 @@ function renderStep() {
 function setBusy(value) {
   busy = value;
   byId("settings").setAttribute("aria-busy", String(value));
+  const committed = firstRun && onboarding?.settingsCommitted;
   for (const element of document.querySelectorAll(
     "#settings input, #settings select, #settings button, #auth-section button",
   ))
-    if (element.id !== "cancel") element.disabled = value;
+    if (element.id !== "cancel")
+      element.disabled = value || (committed && element.id !== "save");
   if (!value)
     for (const slot of slots)
-      byId(slot).disabled = byId(`${slot}-intent`).value !== "replace";
+      byId(slot).disabled =
+        committed || byId(`${slot}-intent`).value !== "replace";
 }
 async function reconcileOnboarding() {
   onboarding = await invoke("read_onboarding");

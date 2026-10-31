@@ -319,6 +319,12 @@ describe("trusted local desktop settings UI", () => {
     expect(document.getElementById("review-summary")?.textContent).toContain(
       "Settings committed: true",
     );
+    await waitFor(() => expect(input("save").disabled).toBe(false));
+    expect(input("DATABASE_PATH").disabled).toBe(true);
+    expect(input("AI_PROVIDER").disabled).toBe(true);
+    expect(input("OPENAI_API_KEY").disabled).toBe(true);
+    expect(document.getElementById("back")?.hidden).toBe(true);
+    expect(document.getElementById("next")?.hidden).toBe(true);
     expect(document.getElementById("status")?.textContent).toContain(
       "retained",
     );
