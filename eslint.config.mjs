@@ -73,6 +73,7 @@ const config = [
       "src/app/**/*.{ts,tsx}",
       "tests/**/*.{ts,tsx}",
       "src-tauri/ui/*.js",
+      "src-tauri/debug/*.js",
     ],
     languageOptions: { globals: globals.browser },
   },

@@ -17,6 +17,10 @@ uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
 ctrlc = { version = "3", features = ["termination"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.5"
+block2 = "=0.6.2"
+
 # Preserve proc-macro metadata on the supported Homebrew Rust/macOS toolchain.
 # Release stripping causes E0463; a controlled no-strip build restores loading.
 [profile.release]
@@ -25,3 +29,5 @@ strip = "none"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# Launch-only isolated denial instrumentation; never enabled by desktop:build.
+release-probe = []

@@ -267,6 +267,11 @@ export function TrainerDashboard() {
   });
   useEffect(() => {
     initializeLocalSession();
+    // Rendered HTML alone can precede hydration. Native diagnostics may observe
+    // this DOM-only readiness marker, never feature state or server capabilities.
+    const shell = document.querySelector('[aria-label="AI trainer dashboard"]');
+    shell?.setAttribute("data-renderer-ready", "true");
+    return () => shell?.removeAttribute("data-renderer-ready");
   }, []);
   useEffect(() => {
     loadConversationHistory(conversationId);
