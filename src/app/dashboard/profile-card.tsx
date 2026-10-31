@@ -54,7 +54,7 @@ export function ProfileCard({
           aria-label="Preferred sports"
           value={profileFields.sports}
           onChange={(event) => updateProfileField("sports", event.target.value)}
-          placeholder="hiking\nmountaineering"
+          placeholder={"hiking\nmountaineering"}
           disabled={profileControlsDisabled}
         />
       </label>

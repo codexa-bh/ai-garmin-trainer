@@ -313,6 +313,32 @@ describe("TrainerDashboard Profile hydration", () => {
     );
   });
 
+  it("shows newline-separated sports examples without populating or saving an empty Profile", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/profile")
+        return jsonResponse({ ...profile([]), sports: [] });
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+
+    await screen.findByText("Saved Profile loaded from local SQLite.");
+    const sports = screen.getByLabelText(
+      "Preferred sports",
+    ) as HTMLTextAreaElement;
+    expect(sports.placeholder).toBe("hiking\nmountaineering");
+    expect(sports.placeholder).not.toContain("\\n");
+    expect(sports.value).toBe("");
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/profile",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("loads a saved Profile on no-auth startup but keeps it hidden until Data & settings opens", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
