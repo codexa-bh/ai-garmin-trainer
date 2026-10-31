@@ -138,6 +138,11 @@ function createField(field) {
   } else {
     input.type = ["date", "number"].includes(field.type) ? field.type : "text";
     input.autocomplete = "off";
+    // Paths/model identifiers are literal configuration, not prose. WebKit's
+    // automatic capitalization/correction must not change what the user enters.
+    input.autocapitalize = "off";
+    input.setAttribute("autocorrect", "off");
+    input.spellcheck = false;
   }
   label.append(input);
   const parent = byId(

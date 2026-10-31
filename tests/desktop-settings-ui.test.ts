@@ -84,6 +84,11 @@ describe("trusted local desktop settings UI", () => {
       "configured",
     );
     expect(document.getElementById("LLM_DEBUG_TRACES")).toBeNull();
+    for (const key of ["DATABASE_PATH", "AI_MODEL", "GARMIN_MCP_TOKEN_DIR"]) {
+      expect(input(key).autocapitalize).toBe("off");
+      expect(input(key).getAttribute("autocorrect")).toBe("off");
+      expect(input(key).spellcheck).toBe(false);
+    }
   });
   it("sends unchanged blank keys, explicit replacement/clear and clears transient form values", async () => {
     let submitted: unknown;
