@@ -173,4 +173,149 @@ describe("trusted local desktop settings UI", () => {
     expect(document.body.textContent).not.toContain("sentinel-password");
     listeners["desktop-settings-closed"]({ payload: "" });
   });
+  async function firstRun() {
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "read_settings")
+        return { fields: {}, keys: {}, saved: false, running: false };
+      if (command === "read_onboarding")
+        return {
+          id: "native-first-run",
+          eligible: true,
+          database: "/private/task/new ü.sqlite",
+          tokens: "/private/task/garmin-tokens",
+          databaseCommitted: false,
+          settingsCommitted: false,
+        };
+      return original(command, args);
+    });
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(document.getElementById("wizard")?.hidden).toBe(false),
+    );
+  }
+  it("does not erase provider entry when independent optional authentication settles", async () => {
+    await firstRun();
+    input("OPENAI_API_KEY-intent").value = "replace";
+    fireEvent.change(input("OPENAI_API_KEY-intent"));
+    input("OPENAI_API_KEY").value = "sentinel-provider";
+    input("email").value = "private@example.invalid";
+    input("password").value = "sentinel-password";
+    fireEvent.submit(document.getElementById("auth")!);
+    await waitFor(() =>
+      expect(document.getElementById("mfa-form")?.hidden).toBe(false),
+    );
+    fireEvent.click(document.getElementById("auth-cancel")!);
+    await waitFor(() =>
+      expect(document.getElementById("auth-status")?.textContent).toContain(
+        "cancelled",
+      ),
+    );
+    expect(input("OPENAI_API_KEY").value).toBe("sentinel-provider");
+    expect(input("password").value).toBe("");
+    listeners["desktop-settings-closed"]({ payload: "" });
+    expect(input("OPENAI_API_KEY").value).toBe("");
+  });
+  function review() {
+    for (let index = 0; index < 3; index++)
+      fireEvent.click(document.getElementById("next")!);
+  }
+  it("guides blank data/provider/optional-Garmin/review with private defaults and explicit intents", async () => {
+    await firstRun();
+    expect(input("DATABASE_PATH").value).toBe("/private/task/new ü.sqlite");
+    expect(input("GARMIN_HISTORY_START_DATE").value).toMatch(
+      /^\d{4}-\d{2}-\d{2}$/,
+    );
+    expect(input("database-selection").value).toBe("create-new");
+    expect(document.getElementById("save")?.hidden).toBe(true);
+    review();
+    expect(document.getElementById("review")?.hidden).toBe(false);
+    expect(document.getElementById("review-summary")?.textContent).toContain(
+      "Garmin: skipped",
+    );
+    expect(document.getElementById("save")?.textContent).toBe(
+      "Finish and open Trainer",
+    );
+    expect(
+      invoke.mock.calls.some(([name]) =>
+        ["start_auth", "finish_onboarding", "save_settings"].includes(name),
+      ),
+    ).toBe(false);
+    input("database-selection").value = "use-existing";
+    let submitted: unknown;
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "finish_onboarding") {
+        submitted = JSON.parse(JSON.stringify(args));
+        throw "Existing database refused; original preserved.";
+      }
+      return original(command, args);
+    });
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(submitted).toMatchObject({
+        input: {
+          id: "native-first-run",
+          selection: "use-existing",
+          settings: {
+            fields: { DATABASE_PATH: "/private/task/new ü.sqlite" },
+            keys: { OPENAI_API_KEY: { intent: "unchanged" } },
+          },
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "original preserved",
+      ),
+    );
+    expect(invoke.mock.calls.some(([name]) => name === "save_settings")).toBe(
+      false,
+    );
+  });
+  it("serializes duplicate Finish, allows exact cancellation and exposes committed-state retry", async () => {
+    await firstRun();
+    review();
+    let reject: (reason: string) => void = () => {};
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "finish_onboarding")
+        return new Promise((_, failure) => {
+          reject = failure;
+        });
+      if (command === "read_onboarding")
+        return {
+          id: "native-first-run",
+          eligible: true,
+          database: "/private/task/new ü.sqlite",
+          databaseCommitted: true,
+          settingsCommitted: true,
+        };
+      return original(command, args);
+    });
+    fireEvent.submit(document.getElementById("settings")!);
+    fireEvent.submit(document.getElementById("settings")!);
+    expect(
+      invoke.mock.calls.filter(([name]) => name === "finish_onboarding"),
+    ).toHaveLength(1);
+    expect(input("DATABASE_PATH").disabled).toBe(true);
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("cancel_onboarding", {
+        id: "native-first-run",
+      }),
+    );
+    reject("Startup cancelled after settings commit; retained.");
+    await waitFor(() =>
+      expect(document.getElementById("save")?.textContent).toBe(
+        "Retry opening saved Trainer",
+      ),
+    );
+    expect(document.getElementById("review-summary")?.textContent).toContain(
+      "Settings committed: true",
+    );
+    expect(document.getElementById("status")?.textContent).toContain(
+      "retained",
+    );
+  });
 });

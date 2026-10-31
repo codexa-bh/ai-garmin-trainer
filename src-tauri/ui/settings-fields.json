@@ -1,7 +1,7 @@
 [
   {
     "key": "DATABASE_PATH",
-    "label": "Existing compatible SQLite database",
+    "label": "SQLite database path — new destination or existing compatible file",
     "type": "path"
   },
   {

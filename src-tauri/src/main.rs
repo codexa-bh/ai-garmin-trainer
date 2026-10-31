@@ -3,6 +3,7 @@ mod auth;
 #[cfg(debug_assertions)]
 mod dev_bridge;
 mod keychain;
+mod onboarding;
 mod settings;
 #[cfg(any(debug_assertions, feature = "release-probe"))]
 mod smoke_config;
@@ -23,6 +24,9 @@ struct Runtime {
     status: Mutex<String>,
     settings_write: Mutex<()>,
     auth: Mutex<auth::Auth>,
+    onboarding: Mutex<Option<onboarding::State>>,
+    onboarding_id: Mutex<String>,
+    onboarding_cancel: AtomicBool,
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
@@ -103,7 +107,12 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
         .map_err(|_| "Settings ownership unavailable.")?;
     let mut snapshot = settings::activation(&settings_path(app)?, &keychain::Keychain)?;
     drop(_write); // Saves remain available during backend startup; activation is immutable.
-    let result = supervisor::Service::start(&resources(app)?, &mut snapshot, &runtime.quitting);
+    let result = supervisor::Service::start(
+        &resources(app)?,
+        &mut snapshot,
+        &runtime.quitting,
+        &runtime.onboarding_cancel,
+    );
     snapshot.fill(0);
     let service = result?;
     let origin = format!("http://127.0.0.1:{}", service.port);
@@ -209,6 +218,19 @@ async fn save_settings(
     setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
+        let onboarding = runtime
+            .onboarding
+            .try_lock()
+            .map_err(|_| "Onboarding is busy. Wait or cancel the current operation.")?;
+        if onboarding
+            .as_ref()
+            .map(|state| state.eligible)
+            .unwrap_or(false)
+        {
+            return Err(
+                "Use Finish for this first-run session. Ordinary saves never launch a backend.",
+            );
+        }
         let _write = runtime
             .settings_write
             .lock()
@@ -224,6 +246,112 @@ async fn save_settings(
     .map_err(|_| "Settings save interrupted.".to_string())?
     .map_err(str::to_owned)
 }
+#[tauri::command]
+fn read_onboarding(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<onboarding::Snapshot, String> {
+    setup_only(&window)?;
+    let runtime = app.state::<Runtime>();
+    let state = runtime
+        .onboarding
+        .try_lock()
+        .map_err(|_| "Setup operation is still active; do not retry.")?;
+    Ok(state.as_ref().ok_or("Setup state unavailable.")?.snapshot())
+}
+#[tauri::command]
+fn cancel_onboarding(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    id: String,
+) -> Result<(), String> {
+    setup_only(&window)?;
+    let runtime = app.state::<Runtime>();
+    if *runtime
+        .onboarding_id
+        .lock()
+        .map_err(|_| "Setup identity unavailable.")?
+        != id
+    {
+        return Err("Stale setup operation.".into());
+    }
+    runtime.onboarding_cancel.store(true, Ordering::SeqCst);
+    Ok(())
+}
+#[tauri::command]
+async fn prepare_onboarding_auth(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    id: String,
+) -> Result<(), String> {
+    setup_only(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = app.state::<Runtime>();
+        let state = runtime
+            .onboarding
+            .try_lock()
+            .map_err(|_| "Setup is busy.")?;
+        let state = state.as_ref().ok_or("Setup unavailable.")?;
+        if !state.eligible || state.id != id || runtime.quitting.load(Ordering::SeqCst) {
+            return Err("First-run preparation refused.");
+        }
+        onboarding::prepare_root(&state.root)
+    })
+    .await
+    .map_err(|_| "Preparation interrupted.")?
+    .map_err(str::to_owned)
+}
+#[tauri::command]
+async fn finish_onboarding(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    input: onboarding::FinishInput,
+) -> Result<String, String> {
+    setup_only(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = app.state::<Runtime>();
+        let mut guard = runtime.onboarding.try_lock().map_err(|_| "Setup operation already active; do not retry until it settles.".to_owned())?;
+        let state = guard.as_mut().ok_or("Setup state unavailable.")?;
+        if !state.eligible || state.id != input.id || runtime.quitting.load(Ordering::SeqCst) { return Err("First-run eligibility refused; existing installations are never overwritten.".into()); }
+        if runtime.service.try_lock().map(|service| service.is_some()).unwrap_or(true) { return Err("Runtime already started or starting; no live configuration switch.".into()); }
+        runtime.onboarding_cancel.store(false, Ordering::SeqCst);
+        if runtime.auth.lock().map_err(|_| "Auth state unavailable.")?.status().map(|status| ["authenticating", "needs-mfa", "submitting-mfa", "verifying"].contains(&status.state.as_str())).unwrap_or(false) {
+            return Err("Finish after optional Garmin sign-in settles, or cancel that exact sign-in first.".into());
+        }
+        let result = (|| -> Result<String, &'static str> {
+            let write = runtime.settings_write.try_lock().map_err(|_| "Settings operation already active.")?;
+            let path = settings_path(&app)?;
+            let mut message = String::new();
+            if !state.settings_committed {
+                if !matches!(std::fs::symlink_metadata(&path), Err(e) if e.kind() == std::io::ErrorKind::NotFound) { return Err("Settings appeared during onboarding. Preserve them and reopen explicitly; no overwrite."); }
+                let fresh = matches!(input.selection, onboarding::Selection::CreateNew);
+                let mut frame = settings::preview(&input.settings)?;
+                let validated = onboarding::bundled(&resources(&app)?, if fresh {"--validate-new-activation"} else {"--validate-existing-activation"}, &mut frame, 128 * 1024, &runtime.onboarding_cancel, &runtime.quitting)?;
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Validated { ok: bool, fields: std::collections::BTreeMap<String, String> }
+                let validated: Validated = serde_json::from_slice(&validated).map_err(|_| "Setup validation protocol refused.")?;
+                if !validated.ok { return Err("Setup validation refused."); }
+                let target = PathBuf::from(validated.fields.get("DATABASE_PATH").ok_or("Select a database.")?);
+                if let Some(db) = &state.database { db.verify(&target)?; }
+                if fresh { onboarding::initialize(&resources(&app)?, &target, &state.root, &mut state.database, &runtime.onboarding_cancel, &runtime.quitting)?; }
+                if runtime.onboarding_cancel.load(Ordering::SeqCst) || runtime.quitting.load(Ordering::SeqCst) { return Err("Setup cancelled; committed outputs remain available for explicit retry."); }
+                let fields = onboarding::validate(&resources(&app)?, &validated.fields, &runtime.onboarding_cancel, &runtime.quitting)?;
+                message = settings::save_new(&path, fields, input.settings.keys, &keychain::Keychain)?;
+                state.settings_committed = true;
+                state.saved_settings = Some(onboarding::OwnedSettings::capture(&path)?);
+            }
+            state.saved_settings.as_ref().ok_or("Settings committed but identity unavailable. Preserve state and reopen explicitly.")?.verify(&path)?;
+            drop(write);
+            if runtime.onboarding_cancel.load(Ordering::SeqCst) { return Err("Setup cancelled after settings commit. Retry opens only the saved configuration."); }
+            let ready = launch(&app)?;
+            state.eligible = false;
+            Ok(format!("{ready} {message}"))
+        })();
+        result.map_err(|error| format!("{error} Database committed: {}. Settings committed: {}. Independent successful Garmin tokens are retained. Retry reconciles saved state; no automatic recreation or rollback.", state.database.is_some(), state.settings_committed))
+    }).await.map_err(|_| "Setup result interrupted; inspect commit state before retry.".to_owned())?
+}
+
 #[tauri::command]
 async fn choose_path(
     app: tauri::AppHandle,
@@ -266,6 +394,10 @@ async fn start_auth(
     setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
+        let _setup = runtime
+            .onboarding
+            .try_lock()
+            .map_err(|_| "Setup is active; wait before starting optional sign-in.")?;
         if runtime.quitting.load(Ordering::SeqCst) {
             return Err("App is quitting.");
         }
@@ -407,6 +539,10 @@ fn main() {
     #[cfg(debug_assertions)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         setup_status,
+        read_onboarding,
+        finish_onboarding,
+        cancel_onboarding,
+        prepare_onboarding_auth,
         read_settings,
         save_settings,
         choose_path,
@@ -419,6 +555,10 @@ fn main() {
     #[cfg(not(debug_assertions))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         setup_status,
+        read_onboarding,
+        finish_onboarding,
+        cancel_onboarding,
+        prepare_onboarding_auth,
         read_settings,
         save_settings,
         choose_path,
@@ -452,6 +592,12 @@ fn main() {
                 dev_bridge::start(app.handle(), config.clone())?;
                 app.manage(config);
             }
+            let settings = settings_path(app.handle()).map_err(std::io::Error::other)?;
+            let root = app.path().app_data_dir()?.join("private");
+            let state = onboarding::State::new(&settings, root);
+            let launch_saved = !state.eligible;
+            *app.state::<Runtime>().onboarding_id.lock().map_err(|_| std::io::Error::other("Setup identity unavailable"))? = state.id.clone();
+            *app.state::<Runtime>().onboarding.lock().map_err(|_| std::io::Error::other("Setup state unavailable"))? = Some(state);
             let app_menu = tauri::menu::SubmenuBuilder::new(app, "Garmin Trainer")
                 .text("configuration", "Desktop Settings…").separator().quit().build()?;
             let menu = tauri::menu::MenuBuilder::new(app).item(&app_menu).build()?;
@@ -468,7 +614,7 @@ fn main() {
                 // Only versioned app-owned settings are consulted. Old env
                 // pointers/files remain untouched and are never imported.
                 if let Ok(path) = settings_path(&handle) {
-                    if path.exists() {
+                    if launch_saved && path.exists() {
                         match launch(&handle) {
                             Ok(message) => status(&handle, &message),
                             Err(message) => status(&handle, message),

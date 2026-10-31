@@ -18,12 +18,34 @@
       <p>
         The selected database will be writable. Quit any other app or older
         backend using it first. For evaluation, select a disposable populated
-        copy. Missing or old-schema databases are refused, never created or
-        upgraded.
+        copy. Existing databases are never initialized or upgraded. First-run
+        Create new is a separate, exclusive operation on an unused destination.
       </p>
       <p id="status" role="status">Checking saved settings…</p>
+      <nav id="wizard" hidden aria-label="First-run setup">
+        <p id="step-heading" tabindex="-1"></p>
+        <p>1. Data → 2. Provider → 3. Garmin (optional) → 4. Review</p>
+      </nav>
       <form id="settings" autocomplete="off">
-        <fieldset id="normal"><legend>Configuration</legend></fieldset>
+        <fieldset id="data-step">
+          <legend>Local data</legend>
+          <label id="database-choice" hidden
+            >Database operation
+            <select id="database-selection">
+              <option value="create-new">
+                Create new database — unused destination only
+              </option>
+              <option value="use-existing">
+                Use existing data — no migration
+              </option>
+            </select>
+          </label>
+          <div id="data-fields"></div>
+        </fieldset>
+        <fieldset id="normal"><legend>Provider and models</legend></fieldset>
+        <fieldset id="garmin-fields">
+          <legend>Existing Garmin tokens (optional)</legend>
+        </fieldset>
         <fieldset id="keys">
           <legend>Provider keys — Keychain only</legend>
           <p>
@@ -37,18 +59,36 @@
             <legend>Memory and external tools</legend>
           </fieldset>
         </details>
-        <p>
+        <section id="review" hidden aria-label="Review setup">
+          <h2>Review and open Trainer</h2>
+          <p id="review-summary"></p>
+          <p>
+            Finish validates local configuration and Keychain access, not remote
+            funding, model availability or network access. No automatic provider
+            call, Garmin login/sync or fallback. Optional Garmin tooling may be
+            unavailable without blocking saved views. Ollama requires your
+            separately managed daemon/model; nothing is installed or started.
+          </p>
+          <p>
+            Cancellation retains any database, settings or independently
+            verified tokens already committed. Retry uses the exact committed
+            setup.
+          </p>
+        </section>
+        <p id="next-launch-guidance">
           Saved runtime changes apply only after you explicitly quit and reopen.
           They never switch the current database, account or provider in place.
           The trainer's saved model preference remains independent. Local debug
           traces are always enabled and may contain private context.
         </p>
         <div class="actions">
+          <button type="button" id="back" hidden>Back</button>
+          <button type="button" id="next" hidden>Next</button>
           <button type="submit" id="save">Save for next launch</button
           ><button type="button" id="cancel">Cancel edits</button>
         </div>
       </form>
-      <section aria-labelledby="auth-heading">
+      <section id="auth-section" aria-labelledby="auth-heading">
         <h2 id="auth-heading">Garmin sign-in (optional)</h2>
         <p>
           Prefer your existing token directory above. No password is needed to

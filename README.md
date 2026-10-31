@@ -66,7 +66,9 @@ Source reads/clones need no GitHub account. Pushing requires repository authoriz
 
 First launch opens **Desktop Settings**, also available from the native app menu even without a working backend. Desktop no longer loads/selects/discovers env files or its old configuration pointer. Upgrading users must re-enter settings; original env files, DBs and tokens are not imported, moved, changed or deleted.
 
-Select an **existing compatible SQLite database**, an optional existing owner-private Garmin token directory, history start date and configured chat provider/models. Use canonical absolute paths, not aliases, shell expansion or cwd-relative paths. First evaluate on a WAL-consistent populated disposable backup. Missing/old/corrupt/owned databases fail closed; native startup never creates or migrates them.
+A genuinely blank installation opens a guided **Data → Provider → optional Garmin → Review** wizard. Explicitly choose **Create new database** (unused destination only) or **Use existing data** (compatible SQLite only). Native proposes an owner-private platform app-data destination outside the checkout and an editable history date (today on the UTC sync calendar); selecting a date does not import anything. Create new initializes the authoritative current schema in memory, then exclusively publishes the new file without overwriting files, sidecars or leases. Existing selection and ordinary startup never create, migrate or adopt a missing/old/corrupt/owned database.
+
+Use canonical absolute paths, not aliases, shell expansion or cwd-relative paths. Custom new destinations need an existing owner-private parent. For existing data, first evaluate on a WAL-consistent populated disposable backup. Garmin may be skipped or an existing private token store explicitly selected.
 
 Provider keys are entered only in the local settings window and stored by native code in **macOS Keychain**. Reads show configured/unavailable status, never saved key values. Blank fields keep prior keys; replacement and clearing are explicit. Denied/locked Keychain access has no plaintext fallback. Advanced settings cover memory/extraction/embeddings and external tool paths, not arbitrary environment keys, connector arguments, ports or shell commands.
 
@@ -75,7 +77,9 @@ Provider keys are entered only in the local settings window and stored by native
 - OpenRouter is explicit opt-in; review [privacy and tool-reliability limits](docs/local-runtime.md#opt-in-openrouter-chat). Auto ignores its key.
 - Direct OpenAI API billing/model availability is separate from Codex subscription access.
 
-**Save for next launch**, then explicitly quit/reopen. Even the first save does not start/restart a backend. Cancellation/failed saves preserve prior settings and the current service. Saved edits never switch a live DB/account/provider; the trainer's independently saved model preference is preserved.
+On a genuine first run, **Finish and open Trainer** validates local settings/required keys, saves to Keychain/settings and starts one verified owned backend in the same session. This proves local configuration, not remote funding/model/network availability; there is no provider probe, automatic fallback or automatic Garmin sync/login. Ollama remains separately managed. If setup fails, read the reported commit state: a published DB, saved settings or independently verified tokens are retained, not rolled back. **Retry opening saved Trainer** uses the committed configuration only; after interruption before settings commit, explicitly select the retained DB with Use existing data.
+
+For an existing installation, **Save for next launch**, then explicitly quit/reopen. Ordinary saves never start/restart or switch a live DB/account/provider. Invalid/unsupported saved settings are preserved, never treated as blank-install authority. The trainer's independently saved model preference is preserved.
 
 ### 3. Garmin access
 
@@ -87,7 +91,7 @@ Ordinary sync/FIT remains pinned read-only stdio with credential fallback stripp
 
 The retained `doctor`, `db:status` and private-terminal `garmin:auth` tools still use deliberately authored checkout env/process configuration; **they do not read Desktop Settings or Keychain**. `.env.example` is now a maintenance CLI reference, not desktop onboarding. Do not overwrite existing private env files. Never paste their values or auth output into chat/issues.
 
-For DB creation/upgrade only, quit every owner of the explicitly approved target, preserve a verified WAL-aware backup, rehearse on a disposable copy and obtain separate primary-mutation approval. Then use the existing discrete CLI, not desktop startup:
+For existing-data schema upgrades (or separately chosen CLI creation), quit every owner of the explicitly approved target, preserve a verified WAL-aware backup, rehearse on a disposable copy and obtain separate primary-mutation approval. Then use the existing discrete CLI, not desktop startup:
 
 ```bash
 DATABASE_PATH='/absolute/approved/trainer.sqlite' npm run db:status -- --json

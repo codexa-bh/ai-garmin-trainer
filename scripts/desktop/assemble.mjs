@@ -112,6 +112,24 @@ if (startup.status !== 1 || !startup.stdout.includes('"code":"configuration"'))
   throw new Error(
     "Packaged runtime imports/preflight entrypoint failed; no config or DB was opened.",
   );
+const initialized = spawnSync(
+  join(resources, "node"),
+  [join(target, "runtime.cjs"), "--initialize-database"],
+  {
+    cwd: target,
+    input: '{"version":1}\n',
+    env: { NODE_ENV: "production" },
+    timeout: 15000,
+    maxBuffer: 8 * 1024 * 1024,
+  },
+);
+if (
+  initialized.status !== 0 ||
+  !initialized.stdout?.subarray(0, 16).equals(Buffer.from("SQLite format 3\0"))
+)
+  throw new Error(
+    "Packaged fresh-only initializer failed; no selected file was opened.",
+  );
 const files = [];
 async function inventory(dir, relative = "") {
   for (const item of await readdir(dir, { withFileTypes: true })) {

@@ -124,7 +124,7 @@ pub fn snapshot(
         running,
     })
 }
-fn persist(path: &Path, settings: &Settings) -> Result<bool, &'static str> {
+fn persist(path: &Path, settings: &Settings, fresh: bool) -> Result<bool, &'static str> {
     let parent = path.parent().ok_or("Settings directory unavailable.")?;
     if !parent.exists() {
         fs::create_dir_all(parent).map_err(|_| "Cannot create settings directory.")?;
@@ -150,7 +150,30 @@ fn persist(path: &Path, settings: &Settings) -> Result<bool, &'static str> {
         file.write_all(&bytes)
             .and_then(|_| file.sync_all())
             .map_err(|_| "Cannot persist settings.")?;
-        fs::rename(&tmp, path).map_err(|_| "Cannot replace settings.")?;
+        if fresh {
+            // First-run authority never permits overwriting a concurrently saved
+            // installation, even after the earlier absence check.
+            use std::ffi::CString;
+            use std::os::unix::ffi::OsStrExt;
+            let source =
+                CString::new(tmp.as_os_str().as_bytes()).map_err(|_| "Invalid settings path.")?;
+            let target =
+                CString::new(path.as_os_str().as_bytes()).map_err(|_| "Invalid settings path.")?;
+            if unsafe {
+                libc::renameatx_np(
+                    libc::AT_FDCWD,
+                    source.as_ptr(),
+                    libc::AT_FDCWD,
+                    target.as_ptr(),
+                    libc::RENAME_EXCL,
+                )
+            } != 0
+            {
+                return Err("First-run settings publication refused; existing settings preserved.");
+            }
+        } else {
+            fs::rename(&tmp, path).map_err(|_| "Cannot replace settings.")?;
+        }
         // Once renamed, failure is a committed save with uncertain durability,
         // not permission to compensate referenced keys or delete old accounts.
         Ok(fs::File::open(parent)
@@ -173,6 +196,26 @@ pub fn save(
     updates: BTreeMap<String, KeyUpdate>,
     secrets: &impl Secrets,
 ) -> Result<String, &'static str> {
+    save_inner(path, fields, updates, secrets, false)
+}
+pub fn save_new(
+    path: &Path,
+    fields: BTreeMap<String, String>,
+    updates: BTreeMap<String, KeyUpdate>,
+    secrets: &impl Secrets,
+) -> Result<String, &'static str> {
+    save_inner(path, fields, updates, secrets, true)
+}
+fn save_inner(
+    path: &Path,
+    fields: BTreeMap<String, String>,
+    updates: BTreeMap<String, KeyUpdate>,
+    secrets: &impl Secrets,
+    fresh: bool,
+) -> Result<String, &'static str> {
+    if fresh && fs::symlink_metadata(path).is_ok() {
+        return Err("Existing settings preserved; this is not a blank installation.");
+    }
     if updates.keys().any(|key| !SLOTS.contains(&key.as_str())) {
         return Err("Unknown Keychain slot.");
     }
@@ -210,7 +253,7 @@ pub fn save(
                 }
             }
         }
-        persist(path, &next)
+        persist(path, &next, fresh)
     })();
     if let Err(error) = result {
         let mut cleanup_failed = false;
@@ -224,7 +267,11 @@ pub fn save(
         });
     }
     if result == Ok(false) {
-        return Ok("Settings saved for next launch; directory durability confirmation unavailable. Prior Keychain accounts retained for recovery; live backend unchanged.".into());
+        return Ok(if fresh {
+            "First-run settings committed; directory durability confirmation unavailable. Prior Keychain accounts retained for recovery."
+        } else {
+            "Settings saved for next launch; directory durability confirmation unavailable. Prior Keychain accounts retained for recovery; live backend unchanged."
+        }.into());
     }
     let mut cleanup_failed = false;
     for (slot, account) in old.keys {
@@ -233,8 +280,32 @@ pub fn save(
         }
     }
     Ok(if cleanup_failed {
-        "Settings saved for next launch; live backend unchanged. Superseded Keychain item cleanup unavailable; inspect the provider.v1 service in Keychain Access."
-    } else { "Settings saved. Quit and reopen to apply; the running backend is unchanged." }.into())
+        if fresh { "First-run settings committed. Superseded Keychain item cleanup unavailable; inspect the provider.v1 service in Keychain Access." }
+        else { "Settings saved for next launch; live backend unchanged. Superseded Keychain item cleanup unavailable; inspect the provider.v1 service in Keychain Access." }
+    } else if fresh { "First-run settings committed." }
+    else { "Settings saved. Quit and reopen to apply; the running backend is unchanged." }.into())
+}
+// Resolve update intent for validation only, without creating Keychain items.
+// The caller wipes this private frame after the bounded validator consumes it.
+pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
+    if input.keys.keys().any(|key| !SLOTS.contains(&key.as_str())) {
+        return Err("Unknown Keychain slot.");
+    }
+    let mut values = BTreeMap::new();
+    for (slot, update) in &input.keys {
+        if let KeyUpdate::Replace { value } = update {
+            values.insert(slot.clone(), value.clone());
+        }
+    }
+    let mut bytes = serde_json::to_vec(
+        &serde_json::json!({"version":1,"fields":input.fields,"secrets":values}),
+    )
+    .map_err(|_| "Activation unavailable.")?;
+    if bytes.len() >= 128 * 1024 {
+        return Err("Activation too large.");
+    }
+    bytes.push(b'\n');
+    Ok(bytes)
 }
 pub fn activation(path: &Path, secrets: &impl Secrets) -> Result<Vec<u8>, &'static str> {
     let settings = load(path)?;
@@ -358,6 +429,35 @@ mod tests {
             self.values.borrow_mut().remove(account);
             Ok(())
         }
+    }
+    #[test]
+    fn first_save_is_exclusive_and_does_not_return_next_launch_instructions() {
+        let root =
+            std::env::temp_dir().join(format!("trainer-first-save-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = root.join("settings.json");
+        let fake = Fake::default();
+        let message = save_new(&path, BTreeMap::new(), BTreeMap::new(), &fake).unwrap();
+        assert!(message.contains("committed"));
+        assert!(!message.contains("Quit"));
+        let original = fs::read(&path).unwrap();
+        assert!(save_new(
+            &path,
+            BTreeMap::new(),
+            BTreeMap::from([(
+                "OPENAI_API_KEY".into(),
+                KeyUpdate::Replace {
+                    value: "sentinel-secret".into()
+                }
+            )]),
+            &fake
+        )
+        .is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert!(fake.values.borrow().is_empty());
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn masked_copy_on_write_save_clear_and_failed_persistence() {
