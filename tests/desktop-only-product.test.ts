@@ -101,6 +101,10 @@ describe("Tauri-only product launch contract", () => {
       ignoreBinaries?: string[];
     };
     expect(config.ignoreBinaries ?? []).not.toContain("ollama");
+    const setup = readFileSync(join(root, "src-tauri/ui/index.html"), "utf8");
+    expect(setup).not.toContain("source/browser");
+    expect(setup).toContain("Quit any other app or older");
+    expect(setup).toContain("disposable populated copy");
   });
 });
 
