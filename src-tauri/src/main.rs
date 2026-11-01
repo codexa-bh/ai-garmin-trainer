@@ -2,6 +2,8 @@
 mod auth;
 #[cfg(debug_assertions)]
 mod dev_bridge;
+#[cfg(debug_assertions)]
+mod setup_smoke;
 mod keychain;
 mod memory_status;
 mod onboarding;
@@ -58,6 +60,15 @@ fn setup_only(window: &tauri::WebviewWindow) -> Result<(), String> {
     } else {
         Err("Local settings window only.".into())
     }
+}
+
+fn private_setup_only(window: &tauri::WebviewWindow) -> Result<(), String> {
+    setup_only(window)?;
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    if window.app_handle().try_state::<smoke_config::Config>().is_some() {
+        return Err("Private authentication, adoption, dialogs and first-run mutation are unavailable in admitted smoke.".into());
+    }
+    Ok(())
 }
 
 fn stop_runtime(app: &tauri::AppHandle) {
@@ -225,6 +236,10 @@ async fn save_settings(
     input: settings::SaveInput,
 ) -> Result<String, String> {
     setup_only(&window)?;
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    if let Some(config) = app.try_state::<smoke_config::Config>() {
+        if !config.accepts_save(&input) { return Err("Smoke Save permits only exact keyless run-local settings and catalog defaults.".into()); }
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let onboarding = runtime
@@ -263,7 +278,7 @@ async fn adopt_provider_settings(
     input: settings::SaveInput,
     read_legacy: bool,
 ) -> Result<String, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let _setup = runtime
@@ -341,35 +356,12 @@ fn cancel_onboarding(
     Ok(())
 }
 #[tauri::command]
-async fn prepare_onboarding_auth(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-    id: String,
-) -> Result<(), String> {
-    setup_only(&window)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let runtime = app.state::<Runtime>();
-        let state = runtime
-            .onboarding
-            .try_lock()
-            .map_err(|_| "Setup is busy.")?;
-        let state = state.as_ref().ok_or("Setup unavailable.")?;
-        if !state.eligible || state.id != id || runtime.quitting.load(Ordering::SeqCst) {
-            return Err("First-run preparation refused.");
-        }
-        onboarding::prepare_root(&state.root)
-    })
-    .await
-    .map_err(|_| "Preparation interrupted.")?
-    .map_err(str::to_owned)
-}
-#[tauri::command]
 async fn finish_onboarding(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     input: onboarding::FinishInput,
 ) -> Result<String, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let mut guard = runtime.onboarding.try_lock().map_err(|_| "Setup operation already active; do not retry until it settles.".to_owned())?;
@@ -420,7 +412,7 @@ async fn choose_path(
     window: tauri::WebviewWindow,
     kind: String,
 ) -> Result<Option<String>, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     if !["path", "directory"].contains(&kind.as_str()) {
         return Err("Unsupported selection.".into());
     }
@@ -449,11 +441,10 @@ async fn choose_path(
 async fn start_auth(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
-    destination: String,
     email: String,
     password: String,
 ) -> Result<auth::Status, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let _setup = runtime
@@ -483,10 +474,10 @@ async fn start_auth(
             .auth
             .lock()
             .map_err(|_| "Auth ownership unavailable.")?
-            .start(
+            .start_managed(
                 &resources(&app)?,
                 &executable,
-                PathBuf::from(destination),
+                &app.path().app_data_dir().map_err(|_| "Private app storage unavailable.")?.join("private"),
                 email,
                 password,
             );
@@ -517,7 +508,7 @@ fn submit_mfa(
     id: String,
     code: String,
 ) -> Result<auth::Status, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     let runtime = app.state::<Runtime>();
     let result = runtime
         .auth
@@ -604,7 +595,6 @@ fn main() {
         read_onboarding,
         finish_onboarding,
         cancel_onboarding,
-        prepare_onboarding_auth,
         read_settings,
         save_settings,
         choose_path,
@@ -622,7 +612,6 @@ fn main() {
         read_onboarding,
         finish_onboarding,
         cancel_onboarding,
-        prepare_onboarding_auth,
         read_settings,
         save_settings,
         choose_path,

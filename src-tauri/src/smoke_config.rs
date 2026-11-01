@@ -62,19 +62,10 @@ impl Config {
             return Err("Run owner mismatch".into());
         }
         let settings = crate::settings::load(&self.settings())?;
-        let expected = std::collections::BTreeMap::from([
-            (
-                "DATABASE_PATH".into(),
-                self.root
-                    .join("trainer.sqlite")
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            ("AI_PROVIDER".into(), "ollama".into()),
-            ("MEMORY_ENABLED".into(), "false".into()),
-            ("GARMIN_HISTORY_START_DATE".into(), "2024-01-01".into()),
-        ]);
-        if settings.version != 2 || !settings.keys.is_empty() || settings.fields != expected {
+        if settings.version != 2
+            || !settings.keys.is_empty()
+            || !self.accepts_fields(&settings.fields)
+        {
             return Err(
                 "Smoke requires exact keyless run-local settings; no auth/tool overrides".into(),
             );
@@ -90,6 +81,59 @@ impl Config {
             return Err("Unsafe copy DB".into());
         }
         Ok(())
+    }
+    fn accepts_fields(&self, fields: &std::collections::BTreeMap<String, String>) -> bool {
+        let baseline = std::collections::BTreeMap::from([
+            (
+                "DATABASE_PATH".to_owned(),
+                self.root
+                    .join("trainer.sqlite")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            ("AI_PROVIDER".into(), "ollama".into()),
+            ("MEMORY_ENABLED".into(), "false".into()),
+            ("GARMIN_HISTORY_START_DATE".into(), "2024-01-01".into()),
+        ]);
+        if !baseline
+            .iter()
+            .all(|(key, value)| fields.get(key) == Some(value))
+        {
+            return false;
+        }
+        let Ok(catalog) = serde_json::from_str::<Vec<serde_json::Value>>(include_str!(
+            "../ui/settings-fields.json"
+        )) else {
+            return false;
+        };
+        fields.iter().all(|(key, value)| {
+            if let Some(expected) = baseline.get(key) {
+                return value == expected;
+            }
+            catalog
+                .iter()
+                .find(|field| field["key"].as_str() == Some(key.as_str()))
+                .map(|field| {
+                    let expected = field.get("default").and_then(|v| v.as_str()).or_else(|| {
+                        field
+                            .get("options")
+                            .and_then(|v| v.as_array())
+                            .and_then(|v| v.first())
+                            .and_then(|v| v.as_str())
+                    });
+                    expected
+                        .map(|expected| value == expected)
+                        .unwrap_or_else(|| value.is_empty())
+                })
+                .unwrap_or(false)
+        })
+    }
+    pub fn accepts_save(&self, input: &crate::settings::SaveInput) -> bool {
+        self.accepts_fields(&input.fields)
+            && input
+                .keys
+                .values()
+                .all(|intent| matches!(intent, crate::settings::KeyUpdate::Unchanged))
     }
     pub fn settings(&self) -> PathBuf {
         self.root.join("config/settings-v2.json")
@@ -151,6 +195,40 @@ mod tests {
         let mut settings = serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite"),"AI_PROVIDER":"ollama","MEMORY_ENABLED":"false","GARMIN_HISTORY_START_DATE":"2024-01-01"}});
         write(&config.settings(), settings.to_string().as_bytes());
         assert!(config.validate().is_ok());
+        settings["fields"]["AI_MODEL"] = serde_json::json!("gpt-6-luna");
+        write(&config.settings(), settings.to_string().as_bytes());
+        assert!(config.validate().is_ok());
+        let mut input: crate::settings::SaveInput = serde_json::from_value(serde_json::json!({"fields":settings["fields"],"keys":{"OPENAI_API_KEY":{"intent":"unchanged"}}})).unwrap();
+        assert!(config.accepts_save(&input));
+        input.keys.insert(
+            "OPENAI_API_KEY".into(),
+            crate::settings::KeyUpdate::Replace {
+                value: "synthetic-not-a-key".into(),
+            },
+        );
+        assert!(!config.accepts_save(&input));
+        input.keys.clear();
+        input
+            .fields
+            .insert("GARMIN_MCP_TOKEN_DIR".into(), String::new());
+        input
+            .fields
+            .insert("MEMORY_EMBEDDING_BASE_URL".into(), String::new());
+        assert!(config.accepts_save(&input));
+        for (key, value) in [
+            ("GARMIN_MCP_TOKEN_DIR", "/not-a-run-token-store"),
+            ("GARMIN_MCP_COMMAND", "/unsafe-override"),
+            ("OLLAMA_BASE_URL", "http://external.invalid"),
+            ("AI_MODEL", "other-model"),
+            ("AI_MODEL", ""),
+        ] {
+            let mut changed = crate::settings::SaveInput {
+                fields: input.fields.clone(),
+                keys: Default::default(),
+            };
+            changed.fields.insert(key.into(), value.into());
+            assert!(!config.accepts_save(&changed));
+        }
         settings["keys"]["OPENAI_API_KEY"] =
             serde_json::json!(format!("OPENAI_API_KEY/{}", uuid::Uuid::new_v4()));
         write(&config.settings(), settings.to_string().as_bytes());

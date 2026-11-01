@@ -83,12 +83,12 @@ fn name(value: &std::ffi::OsStr) -> Result<CString, &'static str> {
 fn same(left: &fs::Metadata, right: &fs::Metadata) -> bool {
     left.dev() == right.dev() && left.ino() == right.ino()
 }
-struct Parent {
-    file: File,
+pub(crate) struct Parent {
+    pub(crate) file: File,
     path: PathBuf,
 }
 impl Parent {
-    fn open(path: &Path, create: bool) -> Result<Self, &'static str> {
+    pub(crate) fn open(path: &Path, create: bool) -> Result<Self, &'static str> {
         if !path.is_absolute()
             || path.as_os_str().len() > 4096
             || path
@@ -146,7 +146,7 @@ impl Parent {
         parent.verify()?;
         Ok(parent)
     }
-    fn verify(&self) -> Result<(), &'static str> {
+    pub(crate) fn verify(&self) -> Result<(), &'static str> {
         let meta = self
             .file
             .metadata()
@@ -220,10 +220,6 @@ impl Parent {
         }
     }
 }
-pub fn prepare_root(root: &Path) -> Result<(), &'static str> {
-    Parent::open(root, true).map(|_| ())
-}
-
 pub struct OwnedSettings {
     dev: u64,
     ino: u64,
@@ -662,7 +658,7 @@ mod tests {
     fn aliases_unsafe_parent_and_pinned_parent_swap_fail_closed() {
         let root = root();
         let private = root.join("private");
-        prepare_root(&private).unwrap();
+        Parent::open(&private, true).unwrap();
         symlink(&private, root.join("alias")).unwrap();
         assert!(Parent::open(&root.join("alias"), false).is_err());
         let parent = Parent::open(&private, false).unwrap();

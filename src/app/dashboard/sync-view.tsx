@@ -1,9 +1,4 @@
-import {
-  useState,
-  type Dispatch,
-  type SetStateAction,
-  type RefObject,
-} from "react";
+import { type Dispatch, type SetStateAction, type RefObject } from "react";
 import {
   type ImportSummaryPayload,
   type SyncRunState,
@@ -21,33 +16,12 @@ function SyncLoginHelp({
 }: {
   recovery: NonNullable<SyncRunState["recovery"]>;
 }) {
-  const [copyFeedback, setCopyFeedback] = useState("");
-  const [copying, setCopying] = useState(false);
-  const command = "npm run garmin:auth";
-
-  async function copyCommand() {
-    setCopying(true);
-    setCopyFeedback("");
-    try {
-      if (!navigator.clipboard?.writeText)
-        throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(command);
-      setCopyFeedback("Login command copied.");
-    } catch {
-      setCopyFeedback(
-        "Could not copy automatically. Select the command above and copy it manually.",
-      );
-    } finally {
-      setCopying(false);
-    }
-  }
-
   return (
     <section
       className="sync-login-help"
       aria-labelledby="sync-login-help-heading"
     >
-      <h3 id="sync-login-help-heading">Optional login help</h3>
+      <h3 id="sync-login-help-heading">Garmin connection help</h3>
       <p>
         {syncFailureSummary(recovery)} This does not prove expired credentials.
         {recovery === "network" || recovery === "rate-limit"
@@ -55,40 +29,17 @@ function SyncLoginHelp({
           : " Login may not resolve this failure."}
       </p>
       <p>
-        Verify and reuse existing credentials first. Only if new authentication
-        is genuinely needed, open Settings from the native app menu and
-        explicitly start private Garmin sign-in in an unused token directory.
-        Save the selected store for the next quit/reopen; this trainer page has
-        no credential or native-auth access. Advanced private-terminal
-        maintenance alternative, from an explicitly configured checkout:
-      </p>
-      <div className="sync-login-command">
-        <code>{command}</code>
-        <button
-          type="button"
-          onClick={() => {
-            copyCommand().catch(() =>
-              setCopyFeedback(
-                "Could not copy automatically. Select the command above and copy it manually.",
-              ),
-            );
-          }}
-          disabled={copying}
-          aria-label="Copy login command"
-        >
-          {copying ? "Copying…" : "Copy"}
-        </button>
-      </div>
-      <p className="helper-text" role="status" aria-live="polite">
-        {copyFeedback}
+        Open Settings from the native app menu → Connect Garmin or Reconnect
+        Garmin when new authentication is needed. The app manages private
+        storage and preserves existing connections. Save, then explicitly quit
+        and reopen to activate the new connection; the running account never
+        switches in place.
       </p>
       <p>
-        The command refuses to overwrite existing credential artifacts. Before
-        genuinely needed replacement, manually preserve existing artifacts
-        outside the selected credential directory; never delete your only usable
-        credentials. Keep passwords, MFA codes and auth output private. This
-        trainer page never starts login automatically; only the local native
-        Settings action handles transient credentials, never AI chat.
+        Keep passwords and MFA codes in native Settings only, never chat. This
+        trainer page cannot start login or access native credentials.
+        Configured-provider chat and saved/offline history remain available
+        without Garmin; fresh Garmin data requires a working connection.
       </p>
     </section>
   );
@@ -224,8 +175,9 @@ export function SyncView({
           <p>
             Verification checks connector file presence, not authentication
             validity. Reads use the pinned local stdio connector. Configure
-            tokens or private sign-in in native Settings, then explicitly
-            quit/reopen; this trainer page and AI have no credential access.
+            connection in native Settings using Connect or Reconnect, then
+            explicitly quit/reopen; this trainer page and AI have no credential
+            access.
           </p>
           <div className="button-row">
             <button
