@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import time
 import uuid
 from native_smoke import Observer, Run, canonical, fingerprint, private_json, readonly, source_identity
 from release_smoke import audit
@@ -59,6 +61,82 @@ class OrdinaryRun(Run):
         private_json(self.root / 'artifact.json', {'artifactKind': 'ordinary', 'sourceFingerprint': source,
                      'artifactInventoryHash': self.artifact, 'files': len(inventory),
                      'bundleBytesRewritten': False, 'bundleIdentityRewritten': False})
+
+    def prepare_composer(self):
+        # Run-owned keyless configuration only; original DB/settings are never edited.
+        base = json.loads((self.root / 'config/settings-v2.json').read_text())
+        catalog = {'version': 1, 'defaultEntryId': 'entry_footer_other', 'entries': [
+            {'id': 'entry_footer_long', 'provider': 'ollama', 'modelId': 'T0246/Long-local-model-name:exact-tag',
+             'displayName': 'T0246 long descriptive local model selection for narrow composer footer'},
+            {'id': 'entry_footer_other', 'provider': 'ollama', 'modelId': 'T0246/Alternate:Tag', 'displayName': 'T0246 alternate'}]}
+        private_json(self.root / 'config/settings-v3.json', {**base, 'version': 3, 'chatCatalog': catalog})
+
+    def composer_wait(self, predicate, label):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            observed = self.command({'type': 'composer', 'action': 'observe'})
+            if predicate(observed):
+                return observed
+            time.sleep(.1)  # Bounded read-only rendered readiness, never mutation retry.
+        private_json(self.root / ('composer-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': observed})
+        raise TimeoutError('Composer assertion deadline: ' + label)
+
+    def model_choice(self):
+        if not self.origin:
+            raise ValueError('Verified owned backend required')
+        client = http.client.HTTPConnection('127.0.0.1', int(self.origin.rsplit(':', 1)[1]), timeout=5)
+        try:
+            client.request('GET', '/api/model-settings')
+            response = client.getresponse()
+            raw = response.read(32 * 1024 + 1)
+            if response.status != 200 or len(raw) > 32 * 1024:
+                raise ValueError('Owned model metadata read failed/bounded')
+            value = json.loads(raw)
+            return value.get('selected'), value.get('effective', {}).get('source')
+        finally:
+            client.close()
+
+    def chat_hash(self):
+        with contextlib.closing(readonly(self.database)) as database:
+            digest = hashlib.sha256()
+            for table in ['conversation', 'message']:
+                for row in sorted(repr(row) for row in database.execute('select * from ' + table)):
+                    digest.update(row.encode())
+            return digest.hexdigest()
+
+    def composer_scenario(self):
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Close Profile & data'})
+        self.wait(lambda value: value['view'] == 'Trainer', 'Trainer composer')
+        self.composer_wait(lambda value: value['modelReady'], 'catalog ready')
+        before = self.chat_hash()
+        self.command({'type': 'composer', 'action': 'draft'})
+        self.command({'type': 'composer', 'action': 'keys'})
+        self.command({'type': 'composer', 'action': 'choose'})
+        self.composer_wait(lambda value: value['modelReady'] and value['savedChoice'], 'saved long entry')
+        if self.model_choice() != ('entry_footer_long', 'saved'):
+            raise ValueError('UI model choice did not persist')
+        images = []
+        for state in ['saved', 'default']:
+            if state == 'default':
+                self.command({'type': 'composer', 'action': 'reset'})
+                self.composer_wait(lambda value: value['modelReady'] and value['defaultChoice'], 'configured default reset')
+                if self.model_choice() != (None, 'env'):
+                    raise ValueError('UI model reset did not persist')
+            for preset in ['wide', 'narrow']:
+                self.command({'type': 'setViewport', 'preset': preset})
+                observed = self.command({'type': 'composer', 'action': 'observe'})
+                image = self.command({'type': 'captureView', 'view': 'composer', 'preset': preset})
+                images.append({'state': state, 'preset': preset, **image, 'observation': observed})
+                private_json(self.root / ('composer-capture-' + state + '-' + preset + '.json'), images[-1])
+                if not all(observed[key] for key in ['singleControl', 'footerOrder', 'fitsViewport', 'draftMatches', 'textareaStable', 'keysNoSend']):
+                    raise ValueError('Composer geometry/draft/key gate failed; inspect capture/boolean receipt')
+        if self.chat_hash() != before:
+            raise ValueError('Selector/draft actions changed saved chat data')
+        private_json(self.root / 'composer-scenario.json', {'passed': True, 'captures': images,
+                     'modelChoiceAndResetPersisted': True, 'chatDataUnchanged': True,
+                     'keyboard': 'synthetic DOM Enter/Space on owned selector; not trusted/native/hardware input',
+                     'providerSend': 'not invoked', 'cleanup': 'copy-only preference/draft/Goals deferred to task-scratch expiry'})
 
     def renew_capability(self):
         # Pin our original private root and hold its lifetime namespace lease while
@@ -266,6 +344,7 @@ def main():
     parser.add_argument('--input-file', required=True, help='Private database-only explicit input selection; no settings/env discovery')
     parser.add_argument('--bundle', required=True, help='Actual unmodified desktop:build .app; copied outside checkout per run')
     parser.add_argument('--prepare-only', action='store_true')
+    parser.add_argument('--composer-footer', action='store_true', help='Finite keyless composer selection/reset/draft and wide/narrow masked capture; no provider send')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = private_directory(args.scratch)
@@ -285,7 +364,7 @@ def main():
     runs = []
     observer = None
     receipt = {'source': source, 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
-               'scenarioPassed': False, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
+               'scenarioPassed': False, 'composerFooterRequested': args.composer_footer, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
                'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
                'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
                'cleanup': 'copy-only Goals and fixtures deferred to private task-scratch expiry; no copy-back'}
@@ -293,6 +372,8 @@ def main():
     try:
         for _ in range(2):
             runs.append(OrdinaryRun(scratch, database, source, bundle, inventory))
+            if args.composer_footer:
+                runs[-1].prepare_composer()
         if args.prepare_only:
             receipt['preparedOnly'] = True
             return
@@ -311,6 +392,11 @@ def main():
             run.http('/identity', extra={'Authorization': 'Bearer ' + run.previous_token}, expected=403)
             run.http('/command', {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedBoot': old_boot}, expected=400)
             run.captures()
+            if args.composer_footer:
+                run.composer_scenario()
+                run.command({'type': 'setViewport', 'preset': 'wide'})
+                run.command({'type': 'click', 'target': 'Profile & data'})
+                run.wait(lambda value: value['profileReady'], 'Profile after composer')
             run.verify_parent_death(sentinel)
         if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
             raise ValueError('Source/artifact changed during execution')

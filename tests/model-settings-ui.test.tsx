@@ -7,8 +7,10 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { TrainerDashboard } from "@/app/trainer-dashboard";
 import { ModelSettingsCard } from "@/app/dashboard/model-settings-card";
 import { useModelSettings } from "@/app/dashboard/use-model-settings";
 import type {
@@ -273,6 +275,132 @@ it("recovers initial failure directly without reopening another view", async () 
   await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
+it("keeps one model control below Message immediately before Send without remounting or sending on selection/reset/keys", async () => {
+  const chatPosts: unknown[] = [];
+  const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/model-settings") {
+      return Promise.resolve(
+        response(
+          init?.method === "PATCH" && init.body === '{"modelId":"entry_two"}'
+            ? saved()
+            : snapshot(),
+        ),
+      );
+    }
+    if (url === "/api/chat" && init?.method === "POST") {
+      chatPosts.push(JSON.parse(String(init.body)));
+    }
+    return Promise.resolve(
+      response({ messages: [], memories: [], conversations: [] }),
+    );
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<TrainerDashboard />);
+
+  const message = screen.getByRole("textbox", { name: "Message" });
+  const composer = message.closest(".composer-dock")! as HTMLElement;
+  const selector = within(composer).getByRole("combobox", {
+    name: "Trainer model",
+  }) as HTMLSelectElement;
+  const send = within(composer).getByRole("button", { name: "Send" });
+  expect(
+    screen.getAllByRole("combobox", { name: "Trainer model" }),
+  ).toHaveLength(1);
+  expect(document.querySelector(".trainer-heading-row select")).toBeNull();
+  expect(
+    screen.getByRole("heading", { name: "Chat with your private coach" }),
+  ).toBeTruthy();
+  expect(
+    message.compareDocumentPosition(selector) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(selector.closest(".chat-model-control")?.nextElementSibling).toBe(
+    send,
+  );
+  expect(selector.labels?.[0].textContent).toBe("Model");
+  expect(
+    document.getElementById(selector.getAttribute("aria-describedby")!),
+  ).toBeTruthy();
+  await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
+  fireEvent.change(message, { target: { value: "Keep this draft" } });
+  selector.focus();
+  for (const key of ["Enter", " "]) {
+    expect(fireEvent.keyDown(selector, { key })).toBe(true);
+    fireEvent.keyUp(selector, { key });
+  }
+  fireEvent.change(selector, { target: { value: "entry_two" } });
+  await screen.findByText(/Saved preference: openai \/ Custom\/Second:Tag/);
+  expect(document.activeElement).toBe(selector);
+  expect(screen.getByRole("textbox", { name: "Message" })).toBe(message);
+  expect((message as HTMLTextAreaElement).value).toBe("Keep this draft");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Reset to configured default" }),
+  );
+  await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
+  expect((message as HTMLTextAreaElement).value).toBe("Keep this draft");
+  expect(screen.getByRole("textbox", { name: "Message" })).toBe(message);
+  expect(chatPosts).toHaveLength(0);
+  expect(
+    fetcher.mock.calls.filter(
+      ([url, init]) => String(url) === "/api/model-settings" && !init?.method,
+    ),
+  ).toHaveLength(1);
+  expect(
+    fetcher.mock.calls
+      .filter(
+        ([url, init]) =>
+          String(url) === "/api/model-settings" && init?.method === "PATCH",
+      )
+      .map(([, init]) => init?.body),
+  ).toEqual(['{"modelId":"entry_two"}', '{"modelId":null}']);
+});
+
+it("keeps failed availability and its direct recovery inside the footer without disabling Send or losing the draft", async () => {
+  let failing = true;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/model-settings") {
+        if (failing) return Promise.reject(new Error("private-network-detail"));
+        return Promise.resolve(response(snapshot()));
+      }
+      return Promise.resolve(
+        response({ messages: [], memories: [], conversations: [] }),
+      );
+    }),
+  );
+  render(<TrainerDashboard />);
+  const message = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
+  fireEvent.change(message, { target: { value: "Draft through recovery" } });
+  const composer = message.closest(".composer-dock")! as HTMLElement;
+  const retry = await within(composer).findByRole("button", {
+    name: "Retry model availability",
+  });
+  const selector = within(composer).getByRole("combobox") as HTMLSelectElement;
+  expect(selector.disabled).toBe(true);
+  expect(within(composer).getByRole("alert").textContent).toContain(
+    "could not be loaded",
+  );
+  expect(
+    (
+      within(composer).getByRole("button", {
+        name: "Send",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+  failing = false;
+  fireEvent.click(retry);
+  await within(composer).findByRole("option", {
+    name: `Default · ${entries[0].label}`,
+  });
+  expect(selector.disabled).toBe(false);
+  expect(message.value).toBe("Draft through recovery");
+  expect(within(composer).queryByRole("alert")).toBeNull();
+});
+
 it("ignores superseded loads while preserving shell-owned state", async () => {
   let finish!: (response: Response) => void;
   const fetcher = vi
