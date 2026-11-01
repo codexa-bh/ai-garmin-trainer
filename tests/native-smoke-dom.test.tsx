@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { useState } from "react";
+import { HealthDashboardView } from "../src/app/dashboard/health-metrics";
+import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
 
 declare global {
   interface Window {
@@ -49,6 +51,134 @@ afterEach(() => {
 });
 
 describe("native-installed rendered smoke boundary", () => {
+  it("drives only finite rendered Health actions, keeps dates private, and masks without replacing layout", async () => {
+    const record = (date: string) =>
+      ({
+        date,
+        sleepMinutes: 444,
+        sleepScore: 86,
+        sleepDeepMinutes: 74,
+        sleepLightMinutes: 244,
+        sleepRemMinutes: 96,
+        sleepAwakeMinutes: 30,
+        sleepNapMinutes: 0,
+        restingHeartRate: 52,
+        hrvStatus: "synthetic-status",
+        hrvMs: 41.2,
+        stressAvg: 38,
+        steps: 8412,
+        calories: 2310,
+        activeCalories: 710,
+        restingCalories: 1600,
+        totalCalories: 2310,
+        intensityMinutes: 38,
+        bodyBatteryAvg: null,
+        bodyBatteryMorning: null,
+        bodyBatteryEvening: null,
+        availability: "complete",
+      }) as HealthDashboardDay;
+    function Health() {
+      const [end, setEnd] = useState<string | null>(null);
+      return (
+        <>
+          <p data-testid="outside">private outside transcript</p>
+          <section className="health-dashboard-panel">
+            <HealthDashboardView
+              days={[record("2026-07-21"), record("2026-06-01")]}
+              rangeEnd={end}
+              onSelectRange={setEnd}
+              notice=""
+            />
+          </section>
+        </>
+      );
+    }
+    render(<Health />);
+    expect(
+      (await command({ type: "health", action: "assert-range" })).result.ok,
+    ).toBe(false);
+    expect((await command({ type: "health", action: "next" })).result.ok).toBe(
+      false,
+    );
+    expect(
+      (await command({ type: "health", action: "previous" })).result.ok,
+    ).toBe(true);
+    expect(
+      (await command({ type: "health", action: "remember-range" })).result.ok,
+    ).toBe(true);
+    for (const action of ["weekly", "monthly", "daily"]) {
+      expect((await command({ type: "health", action })).result.ok).toBe(true);
+      expect((await command({ type: "observe" })).result.healthMode).toBe(
+        action,
+      );
+    }
+    expect(
+      (await command({ type: "health", action: "assert-range" })).result.ok,
+    ).toBe(true);
+    for (const action of ["capture-narrow", "capture-wide"]) {
+      const table = screen.getByRole("table");
+      const before = table.textContent;
+      expect((await command({ type: "health", action })).result.ok).toBe(true);
+      expect(table.textContent).toBe(before);
+      expect(getComputedStyle(table.querySelector("td")!).visibility).toBe(
+        "hidden",
+      );
+      expect(getComputedStyle(table.querySelector("time")!).visibility).toBe(
+        "hidden",
+      );
+      expect(getComputedStyle(screen.getByTestId("outside")).visibility).toBe(
+        "hidden",
+      );
+      smoke.__trainerSmokeRestore();
+    }
+    expect(
+      (await command({ type: "health", action: "latest" })).result.ok,
+    ).toBe(true);
+    expect(
+      (await command({ type: "health", action: "assert-range" })).result.ok,
+    ).toBe(false);
+    const observed = JSON.stringify(await command({ type: "observe" }));
+    expect(observed).not.toMatch(
+      /2026-|8,412|synthetic-status|private outside transcript/,
+    );
+    for (const unknown of [
+      { type: "health", action: "eval" },
+      { type: "health", action: "capture-wide", selector: "body" },
+      { type: "health", action: "remember-range", date: "2026-01-01" },
+    ])
+      expect((await command(unknown)).result.ok).toBe(false);
+  });
+
+  it("refuses Health actions outside the visible Health owner", async () => {
+    const click = vi.fn();
+    render(
+      <>
+        <button onClick={click}>Daily</button>
+        <div hidden>
+          <table className="health-daily-matrix">
+            <thead>
+              <tr>
+                {Array.from({ length: 7 }, (_, i) => (
+                  <th key={i}>
+                    <time dateTime="2026-01-01">private</time>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          </table>
+        </div>
+      </>,
+    );
+    for (const action of [
+      "daily",
+      "capture-wide",
+      "remember-range",
+      "assert-range",
+    ])
+      expect((await command({ type: "health", action })).result.ok).toBe(false);
+    expect(click).not.toHaveBeenCalled();
+  });
+
   it("refuses mutation against server HTML before React hydration", async () => {
     document
       .querySelector("[data-renderer-ready]")

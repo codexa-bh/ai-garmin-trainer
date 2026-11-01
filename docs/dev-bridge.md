@@ -27,6 +27,31 @@ The runner:
 
 A read-only Swift observer samples frontmost PID/pointer every 10ms and refuses commands if an owned native process became frontmost. Pointer variation can be normal operator activity and is reported separately; sampling cannot exclude shorter transitions. The app is Accessory/nonfocused/nonactivating and uses incognito WebViews. This is routing/lifecycle isolation, not a sandbox against arbitrary same-user code.
 
+### Finite Daily Health comparison scenario
+
+Add `--health-comparison` to the same populated-copy `smoke:native` command to
+exercise Previous/Next/Latest seven-date pages, Daily/Weekly/Monthly switching,
+range preservation through away/back, and fixed narrow (420×900) and wide
+(1280×900) own-window captures. The selected input must include older eligible
+Health history; missing history refuses this scenario rather than claiming range
+coverage. No new seed/input environment or primary discovery is introduced.
+
+The closed `health` command accepts only these actions: `daily`, `weekly`,
+`monthly`, `previous`, `next`, `latest`, `remember-range`, `assert-range`,
+`capture-wide`, `capture-narrow`. Range identity stays inside the renderer;
+observations expose only fixed mode and readiness/navigation booleans. Both
+native and renderer reject unknown action/field/selector/date/viewport inputs.
+Fixed capture cases resize only the admitted owned window, never activate it.
+
+Health captures hide all non-Health surfaces and mask dates, values and coverage
+in place with a fixed CSS overlay, retaining actual geometry and scroll layout.
+They do not reposition/reconstruct the comparison or prove masked exact values;
+synthetic DOM associations cover those. Inspect actual PNGs and record privacy,
+layout/overflow, source/hash and these limits. `health-scenario.json` records real
+scenario/capture outcomes, not image inspection or ordinary-artifact evidence.
+Existing Profile scenario, production exclusion, unknown-effect/no-retry and
+owned-handle shutdown constraints are unchanged.
+
 ## CI-only synthetic quick scenario
 
 `npm run smoke:quick -- --scratch <canonical-owner-private-task-scratch>` reuses
@@ -54,7 +79,7 @@ The explicit `--resources-ready` option verifies same-source resource inventory 
 
 - `GET /identity`: authenticated schema/run/source/native PID/app/copy/origin plus fixed renderer-diagnostic booleans. Does not imply readiness.
 - `POST /command`: `{requestId,expectedRunId,command}`. UUID request/run identities, exact `Host: 127.0.0.1:<port>`, bearer capability and `X-Smoke-Run` are mandatory. Capability stays in private config/client memory/header, never argv/URL/logs/receipts. Every browser Origin/Sec-Fetch-Site is refused; no CORS grant.
-- Closed commands: `observe`; `click` for exact main navigation/back/Profile-&-data-close/Profile-save/reload names; `input`/`assert` for **Goals synthetic sentinel only**; `capture` with no arbitrary selector/path. Missing, hidden, disabled, readonly, ambiguous, private or prehydration targets refuse before dispatch. No credential/login/setup form, general select/scroll, eval/invoke, state injection, HTTP proxy, filesystem/process or shutdown command.
+- Closed commands: finite `health` cases above; `observe`; `click` for exact main navigation/back/Profile-&-data-close/Profile-save/reload names; `input`/`assert` for **Goals synthetic sentinel only**; `capture` with no arbitrary selector/path (Profile only; fixed Health captures are separate above). Missing, hidden, disabled, readonly, ambiguous, private or prehydration targets refuse before dispatch. No credential/login/setup form, general select/scroll, eval/invoke, state injection, HTTP proxy, filesystem/process or shutdown command.
 - Observations return allowlisted view/navigation/headings and readiness/saved booleans, never copied values, chat/transcript/diagnostic text or private credentials. Assertions return match booleans. Rendered actions are synthetic events, not trusted native input.
 - Only the exact admitted debug trainer origin/window receives the result-only custom permission. Existing setup/auth privileges remain local-only. The callback validates run/window/origin, bound and exact pending request. Debug permission metadata is also absent from ordinary release manifests.
 - One request at a time; 16 KiB total request; two-second total read deadline; no duplicate/chunked framing; 4096 unique request IDs/run; five-second renderer deadline; 2 MiB result; four-second/4 MiB PNG bound. Unknown fields/commands refuse. Late/duplicate/unknown results cannot complete newer requests. Complete PNG framing and dimensions are checked; native publishes an exclusive 0600 temporary atomically without replacing an existing capture, confined to the run's `screenshots/`.

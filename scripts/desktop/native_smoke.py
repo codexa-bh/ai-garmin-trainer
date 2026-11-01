@@ -232,12 +232,40 @@ class Run:
         finally:
             client.close()
 
-    def scenario(self):
+    def health_scenario(self):
+        self.wait(lambda o: o['healthReady'], 'Daily seven-date matrix readiness')
+        # Fail honestly if the selected input cannot exercise real range browsing.
+        if not self.command({'type': 'observe'})['healthPreviousEnabled']:
+            raise ValueError('Selected input lacks older eligible Daily history for range smoke')
+        self.command({'type': 'health', 'action': 'previous'})
+        self.wait(lambda o: o['healthNextEnabled'], 'Previous calendar page')
+        self.command({'type': 'health', 'action': 'next'})
+        self.wait(lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Next returns to latest page')
+        self.command({'type': 'health', 'action': 'previous'})
+        self.wait(lambda o: o['healthLatestEnabled'], 'Historical calendar page')
+        self.command({'type': 'health', 'action': 'remember-range'})
+        for mode in ['weekly', 'monthly', 'daily']:
+            self.command({'type': 'health', 'action': mode})
+            self.wait(lambda o: o['healthMode'] == mode and o['healthReady'] == (mode == 'daily'), 'Health tab ' + mode)
+        self.command({'type': 'health', 'action': 'assert-range'})
+        self.command({'type': 'click', 'target': 'Back to chat'})
+        self.wait(lambda o: o['view'] == 'Trainer', 'Health away')
+        self.command({'type': 'click', 'target': 'Health'})
+        self.wait(lambda o: o['healthReady'], 'Health return')
+        self.command({'type': 'health', 'action': 'assert-range'})
+        images = {size: self.command({'type': 'health', 'action': 'capture-' + size}) for size in ['narrow', 'wide']}
+        self.command({'type': 'health', 'action': 'latest'})
+        self.wait(lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Explicit Latest reset')
+        private_json(self.root / 'health-scenario.json', {'passed': True, 'rangeTabsAwayBack': True, 'captures': images, 'limit': 'Masked actual geometry only; exact values proven with synthetic DOM tests. Image inspection remains required.'})
+
+    def scenario(self, health_comparison=False):
         other_fields = self.other_profile_fields()
         self.wait(lambda o: o['view'] == 'Trainer', 'Trainer')
         for view in ['Activities', 'Health', 'Training Plan', 'Sync']:
             self.command({'type': 'click', 'target': view})
             self.wait(lambda o: o['view'] == view, view)
+            if view == 'Health' and health_comparison:
+                self.health_scenario()
             self.command({'type': 'click', 'target': 'Back to chat'})
             self.wait(lambda o: o['view'] == 'Trainer', 'Trainer return')
         return self.profile_scenario(capture=True, other_fields=other_fields)
@@ -342,6 +370,7 @@ def main():
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--input-file', required=True, help='Private JSON with explicitly selected canonical database; no env/settings discovery')
     parser.add_argument('--prepare-only', action='store_true')
+    parser.add_argument('--health-comparison', action='store_true', help='Finite Daily range/tab/away-back and masked wide/narrow capture scenario; selected input must include older Health history')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
@@ -370,7 +399,7 @@ def main():
             # Admission failures are real transport observations, not successful commands.
             for extra in [{'Authorization': 'Bearer wrong'}, {'Origin': 'null'}, {'X-Smoke-Run': str(uuid.uuid4())}, {'Host': 'localhost'}]:
                 run.http('/identity', extra=extra, expected=403)
-            sentinel = run.scenario()
+            sentinel = run.scenario(health_comparison=args.health_comparison)
             run.verify_restart(binary, sentinel)
         if source_identity() != source:
             raise ValueError('Source changed during execution')
