@@ -16,6 +16,20 @@ pub(crate) mod capture;
 mod input;
 const LIMIT: usize = 16 * 1024;
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HealthAction {
+    Daily,
+    Weekly,
+    Monthly,
+    Previous,
+    Next,
+    Latest,
+    RememberRange,
+    AssertRange,
+    CaptureWide,
+    CaptureNarrow,
+}
+#[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Command {
     Observe {},
@@ -24,15 +38,18 @@ pub enum Command {
     Assert { target: String, value: String },
     Capture {},
     Settings { action: crate::setup_smoke::Action },
+    Health { action: HealthAction },
     CaptureDebug {},
     DebugKey { key: String },
 }
 impl Command {
     fn valid(&self) -> bool {
         match self {
-            Self::Observe {} | Self::Capture {} | Self::CaptureDebug {} | Self::Settings { .. } => {
-                true
-            }
+            Self::Observe {}
+            | Self::Capture {}
+            | Self::CaptureDebug {}
+            | Self::Settings { .. }
+            | Self::Health { .. } => true,
             Self::DebugKey { key } => ["Enter", "Space"].contains(&key.as_str()),
             Self::Click { target } => [
                 "Activities",
@@ -321,6 +338,26 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
     let Some(window) = app.get_webview_window("trainer") else {
         return (503, json!({"ok":false,"error":"Renderer unavailable"}));
     };
+    let viewport = match &request.command {
+        Command::Health {
+            action: HealthAction::CaptureWide,
+        } => Some((1280.0, 900.0)),
+        Command::Health {
+            action: HealthAction::CaptureNarrow,
+        } => Some((420.0, 900.0)),
+        _ => None,
+    };
+    if let Some((width, height)) = viewport {
+        if window
+            .set_size(tauri::LogicalSize::new(width, height))
+            .is_err()
+        {
+            return (
+                409,
+                json!({"ok":false,"error":"Owned viewport resize failed; effect unknown"}),
+            );
+        }
+    }
     let (tx, rx) = mpsc::sync_channel(1);
     *state.pending.lock().unwrap() = Some((request.request_id.clone(), tx));
     // The only evaluated code is this fixed call and a serialized closed DTO.
@@ -351,17 +388,17 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
                     json!({"ok":false,"error":"Disclosure focus refused; no key dispatched"})
                 };
             }
-            if result["ok"] == true
-                && matches!(
-                    request.command,
-                    Command::Capture {} | Command::CaptureDebug {}
-                )
-            {
-                let boundary = if matches!(request.command, Command::CaptureDebug {}) {
-                    "sanitized actual synthetic LLM disclosure subtree"
-                } else {
-                    "sanitized actual Profile Goals subtree"
-                };
+            let boundary = match &request.command {
+                Command::Capture {} => Some("sanitized actual Profile Goals subtree"),
+                Command::CaptureDebug {} => {
+                    Some("sanitized actual synthetic LLM disclosure subtree")
+                }
+                Command::Health {
+                    action: HealthAction::CaptureWide | HealthAction::CaptureNarrow,
+                } => Some("geometry-preserving masked actual Daily Health comparison"),
+                _ => None,
+            };
+            if result["ok"] == true && boundary.is_some() {
                 result = match capture::png(&window).and_then(|bytes| {
                     capture::publish(
                         &state.config.root.join("screenshots"),
@@ -370,7 +407,7 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
                     )
                 }) {
                     Ok(path) => {
-                        json!({"ok":true,"capture":path,"boundary":boundary})
+                        json!({"ok":true,"capture":path,"boundary":boundary.unwrap()})
                     }
                     Err(error) => json!({"ok":false,"error":error}),
                 };
@@ -395,6 +432,9 @@ mod tests {
             json!({"type":"observe","selector":"body"}),
             json!({"type":"settings","action":"auth"}),
             json!({"type":"settings","action":"connect","value":"secret"}),
+            json!({"type":"health","action":"eval"}),
+            json!({"type":"health","action":"capture-wide","width":800}),
+            json!({"type":"health","action":"remember-range","date":"2026-01-01"}),
         ] {
             assert!(serde_json::from_value::<Command>(value).is_err())
         }
@@ -413,6 +453,24 @@ mod tests {
                 target: target.into()
             }
             .valid())
+        }
+        for action in [
+            "daily",
+            "weekly",
+            "monthly",
+            "previous",
+            "next",
+            "latest",
+            "remember-range",
+            "assert-range",
+            "capture-wide",
+            "capture-narrow",
+        ] {
+            assert!(
+                serde_json::from_value::<Command>(json!({"type":"health", "action":action}))
+                    .unwrap()
+                    .valid()
+            );
         }
         for target in [
             "Profile & data",

@@ -81,10 +81,62 @@
           </button>
         </section>
         <p id="storage-status" role="status"></p>
-        <details>
-          <summary>Advanced settings</summary>
+        <fieldset id="memory-section" aria-describedby="memory-help">
+          <legend>Memory</legend>
+          <p id="memory-help">
+            Remember useful preferences, corrections and temporary plans in
+            local SQLite, not an unrestricted transcript or Garmin archive. Off
+            stops memory use after activation; it does not delete or reset
+            remembered details, Profile, chats, training plans or Garmin data.
+            Chat and automatic chat titles may still use cloud AI independently.
+          </p>
+          <div id="memory-control"></div>
+          <p id="memory-draft" role="status"></p>
+          <p>
+            The Memory panel in Trainer has a separate immediate enable/disable
+            preference and inspect, edit, delete and clear controls. Saving On
+            here does not clear that preference.
+          </p>
+          <p id="memory-processing" role="status"></p>
+          <details id="memory-configuration">
+            <summary>Memory configuration</summary>
+            <p>
+              Finding related details (embeddings) and selecting useful facts
+              (extraction) are separate steps. Changing providers does not
+              convert existing vectors. Keep compatible model/dimensions; no
+              re-embedding or reset is performed.
+            </p>
+            <div id="memory-fields"></div>
+          </details>
+          <p id="memory-active" role="status">
+            Active memory: unknown — no current observation. Saved settings are
+            not proof of readiness.
+          </p>
+          <button type="button" id="memory-check">
+            Read active memory status
+          </button>
+          <p class="helper">
+            Reads local configuration and a recent existing embedding/storage
+            observation only. No provider request, paid extraction check or
+            memory-content read. Remote availability is not certified.
+          </p>
+        </fieldset>
+        <details id="advanced-settings">
+          <summary>Troubleshooting / technical controls</summary>
+          <p>
+            Normally leave these unchanged. Dimensions must match stored
+            vectors; timeouts and executable paths retain their validators.
+            External tools remain operator-managed; nothing is installed or
+            started here.
+          </p>
+          <fieldset id="memory-technical">
+            <legend>Memory dimensions and timeouts</legend>
+          </fieldset>
+          <fieldset id="external-tools">
+            <legend>External tool executables</legend>
+          </fieldset>
           <fieldset id="advanced">
-            <legend>Memory and external tools</legend>
+            <legend>Local chat connection</legend>
           </fieldset>
         </details>
         <section id="review" hidden aria-label="Review setup">

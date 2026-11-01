@@ -325,7 +325,7 @@ export type HealthDashboardPayload = {
 };
 
 export const SLEEP_DETAIL_SOURCE_LIMITED =
-  "Sleep score or stage details are unavailable from the Garmin sleep source for this day.";
+  "Unavailable sleep score or stage details may be source-limited; they are not inferred from other metrics.";
 
 export const SLEEP_STAGE_FIELDS = [
   ["Deep", "sleepDeepMinutes"],

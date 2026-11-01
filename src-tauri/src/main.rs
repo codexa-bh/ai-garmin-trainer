@@ -5,6 +5,7 @@ mod dev_bridge;
 #[cfg(debug_assertions)]
 mod setup_smoke;
 mod keychain;
+mod memory_status;
 mod onboarding;
 mod private_store;
 mod settings;
@@ -218,6 +219,15 @@ async fn read_settings(
     .await
     .map_err(|_| "Settings read interrupted.".to_string())?
     .map_err(str::to_owned)
+}
+#[tauri::command]
+async fn read_memory_status(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<memory_status::Status, String> {
+    setup_only(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = app.state::<Runtime>();
+        let mut guard = runtime.service.try_lock().map_err(|_| "Owned runtime busy; status unknown.")?;
+        guard.as_mut().ok_or("Owned backend not running.")?.memory_status()
+    }).await.map_err(|_| "Status read interrupted.".to_string())?.map_err(str::to_owned)
 }
 #[tauri::command]
 async fn save_settings(
@@ -593,6 +603,7 @@ fn main() {
         submit_mfa,
         cancel_auth,
         adopt_provider_settings,
+        read_memory_status,
         dev_bridge::smoke_result
     ]);
     #[cfg(not(debug_assertions))]
@@ -608,7 +619,8 @@ fn main() {
         auth_status,
         submit_mfa,
         cancel_auth,
-        adopt_provider_settings
+        adopt_provider_settings,
+        read_memory_status
     ]);
     let app = builder.on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

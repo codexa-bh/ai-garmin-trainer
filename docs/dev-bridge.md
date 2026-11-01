@@ -37,6 +37,31 @@ Admitted runs permit only the exact keyless online-backup DB, Ollama, disabled m
 
 Captures contain sanitized **actual Garmin Settings subtrees**, repositioned for bounded visibility, with all copied state and credential input values hidden. They are not full-window layout/trusted-input evidence. Native restores sanitization after capture success/failure. Read/inspect images and record local helper evidence; never upload. Online copies/settings/logs/images are task-attributed and expiry-deferred, originals fingerprint-verified, with no primary mutation/copy-back. Real login/MFA remains privately operator-entered only in a separately arranged safe native window; this controller cannot exercise it.
 
+## Finite Daily Health comparison scenario
+
+Add `--health-comparison` to the same populated-copy `smoke:native` command to
+exercise Previous/Next/Latest seven-date pages, Daily/Weekly/Monthly switching,
+range preservation through away/back, and fixed narrow (420×900) and wide
+(1280×900) own-window captures. The selected input must include older eligible
+Health history; missing history refuses this scenario rather than claiming range
+coverage. No new seed/input environment or primary discovery is introduced.
+
+The closed `health` command accepts only these actions: `daily`, `weekly`,
+`monthly`, `previous`, `next`, `latest`, `remember-range`, `assert-range`,
+`capture-wide`, `capture-narrow`. Range identity stays inside the renderer;
+observations expose only fixed mode and readiness/navigation booleans. Both
+native and renderer reject unknown action/field/selector/date/viewport inputs.
+Fixed capture cases resize only the admitted owned window, never activate it.
+
+Health captures hide all non-Health surfaces and mask dates, values and coverage
+in place with a fixed CSS overlay, retaining actual geometry and scroll layout.
+They do not reposition/reconstruct the comparison or prove masked exact values;
+synthetic DOM associations cover those. Inspect actual PNGs and record privacy,
+layout/overflow, source/hash and these limits. `health-scenario.json` records real
+scenario/capture outcomes, not image inspection or ordinary-artifact evidence.
+Existing Profile scenario, production exclusion, unknown-effect/no-retry and
+owned-handle shutdown constraints are unchanged.
+
 ## CI-only synthetic quick scenario
 
 `npm run smoke:quick -- --scratch <canonical-owner-private-task-scratch>` reuses
@@ -95,8 +120,8 @@ remain independent; this path grants no settings, secret or general eval control
 
 - `GET /identity`: authenticated schema/run/source/native PID/app/copy/origin plus fixed renderer-diagnostic booleans. Does not imply readiness.
 - `POST /command`: `{requestId,expectedRunId,command}`. UUID request/run identities, exact `Host: 127.0.0.1:<port>`, bearer capability and `X-Smoke-Run` are mandatory. Capability stays in private config/client memory/header, never argv/URL/logs/receipts. Every browser Origin/Sec-Fetch-Site is refused; no CORS grant.
-- Closed trainer commands: `observe`; `click` for exact main navigation/back/Profile-&-data-close/Profile-save/reload names plus outer **LLM debug traces** and **First LLM trace** summaries; `input`/`assert` for **Goals synthetic sentinel only**; `capture` (Profile Goals) and `captureDebug` (strict synthetic disclosure) with no arbitrary selector/path; `debugKey` with only **Enter**/**Space** for the fixed outer disclosure. Missing, hidden, disabled, readonly, ambiguous, private or prehydration targets refuse before dispatch. No credential/login input, arbitrary target/key, general select/scroll, eval/invoke, feature-state injection, HTTP proxy, filesystem/process or shutdown command. The separate closed keyless Settings actions above use native local-document completion, not the trainer callback.
-- Observations return allowlisted view/navigation/headings and readiness/saved booleans, never copied values, chat/transcript/diagnostic text or private credentials. Assertions return match booleans. Clicks/Goals input are synthetic DOM events; the separately labeled fixed disclosure keys are native-generated WebView-local events, never hardware/global input.
+- Closed trainer commands: finite `health` cases above; `observe`; `click` for exact main navigation/back/Profile-&-data-close/Profile-save/reload names plus outer **LLM debug traces** and **First LLM trace** summaries; `input`/`assert` for **Goals synthetic sentinel only**; `capture` (Profile Goals) and `captureDebug` (strict synthetic disclosure) with no arbitrary selector/path (fixed Health captures are separate above); `debugKey` with only **Enter**/**Space** for the fixed outer disclosure. Missing, hidden, disabled, readonly, ambiguous, private or prehydration targets refuse before dispatch. No credential/login input, arbitrary target/key, general select/scroll, eval/invoke, feature-state injection, HTTP proxy, filesystem/process or shutdown command. The separate closed keyless Settings actions above use native local-document completion, not the trainer callback.
+- Observations return allowlisted view/navigation/headings and readiness/saved booleans, never copied values, chat/transcript/diagnostic text or private credentials. Assertions return match booleans. Clicks/Goals/Health actions are synthetic DOM events; the separately labeled fixed disclosure keys are native-generated WebView-local events, never hardware/global input.
 - Only the exact admitted debug trainer origin/window receives the result-only custom permission. Existing setup/auth privileges remain local-only. The callback validates run/window/origin, bound and exact pending request. Debug permission metadata is also absent from ordinary release manifests.
 - One request at a time; 16 KiB total request; two-second total read deadline; no duplicate/chunked framing; 4096 unique request IDs/run; five-second renderer deadline; 2 MiB result; four-second/4 MiB PNG bound. Unknown fields/commands refuse. Late/duplicate/unknown results cannot complete newer requests. Complete PNG framing and dimensions are checked; native publishes an exclusive 0600 temporary atomically without replacing an existing capture, confined to the run's `screenshots/`.
 - Correlated `{requestId,result:{ok:true,...}}` means actual renderer completion. Failed assertions/actions return HTTP 409, malformed commands 400, access/framing denial 403, deadline 504. **Timeout means effect unknown, not rollback.** The client exits nonzero and never blindly retries mutation. Only bounded read-only readiness/observation may poll. Inspect retained state before any fresh explicit action.

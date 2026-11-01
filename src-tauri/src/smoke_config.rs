@@ -113,16 +113,19 @@ impl Config {
             catalog
                 .iter()
                 .find(|field| field["key"].as_str() == Some(key.as_str()))
-                .and_then(|field| {
-                    field.get("default").and_then(|v| v.as_str()).or_else(|| {
+                .map(|field| {
+                    let expected = field.get("default").and_then(|v| v.as_str()).or_else(|| {
                         field
                             .get("options")
                             .and_then(|v| v.as_array())
                             .and_then(|v| v.first())
                             .and_then(|v| v.as_str())
-                    })
+                    });
+                    expected
+                        .map(|expected| value == expected)
+                        .unwrap_or_else(|| value.is_empty())
                 })
-                == Some(value.as_str())
+                .unwrap_or(false)
         })
     }
     pub fn accepts_save(&self, input: &crate::settings::SaveInput) -> bool {
@@ -205,11 +208,19 @@ mod tests {
         );
         assert!(!config.accepts_save(&input));
         input.keys.clear();
+        input
+            .fields
+            .insert("GARMIN_MCP_TOKEN_DIR".into(), String::new());
+        input
+            .fields
+            .insert("MEMORY_EMBEDDING_BASE_URL".into(), String::new());
+        assert!(config.accepts_save(&input));
         for (key, value) in [
             ("GARMIN_MCP_TOKEN_DIR", "/not-a-run-token-store"),
             ("GARMIN_MCP_COMMAND", "/unsafe-override"),
             ("OLLAMA_BASE_URL", "http://external.invalid"),
             ("AI_MODEL", "other-model"),
+            ("AI_MODEL", ""),
         ] {
             let mut changed = crate::settings::SaveInput {
                 fields: input.fields.clone(),

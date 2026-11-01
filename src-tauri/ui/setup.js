@@ -16,6 +16,134 @@ let step = 0;
 let busy = false;
 let unknownOutcome = false;
 let legacyRequired = false;
+let savedMemoryEnabled = "false";
+let memoryRead = 0;
+let memoryExpiry = null;
+
+function invalidateMemoryStatus() {
+  memoryRead++;
+  clearTimeout(memoryExpiry);
+  byId("memory-check").disabled =
+    busy || Boolean(firstRun && onboarding?.settingsCommitted);
+  byId("memory-active").textContent =
+    "Active memory: unknown — read status again. Saved/draft settings do not prove runtime readiness.";
+}
+function renderMemory() {
+  const on = byId("MEMORY_ENABLED").value === "true";
+  byId("memory-draft").textContent =
+    `Draft: ${on ? "On" : "Off"}. Saved startup setting: ${savedMemoryEnabled === "true" ? "On" : "Off"}. ` +
+    (firstRun
+      ? "Finish applies the committed startup configuration."
+      : "Save applies only after explicit quit/reopen; the active runtime is unchanged.");
+  const provider = byId("MEMORY_EMBEDDING_PROVIDER").value;
+  const embedding =
+    {
+      ollama:
+        "Embedding step: local Ollama daemon/model; availability not checked.",
+      openai:
+        "Embedding step: OpenAI-compatible processing using the OpenAI key, potentially external and paid. A custom endpoint changes who receives data; its address is not included in status.",
+      deterministic:
+        "Embedding step: deterministic local test vectors, not semantic-provider embeddings.",
+    }[provider] ||
+    "Embedding step: unsupported configuration; choose a supported provider.";
+  const mode = byId("MEMORY_EXTRACTION_MODE").value;
+  const extraction =
+    {
+      off: "Extraction: Off — no new candidate ingestion; existing retrieval/list/delete behavior remains.",
+      deterministic:
+        "Extraction: local rule-based candidate selection; no extraction LLM call.",
+      llm: "Fact selection: configured DeepSeek/OpenAI cloud AI, otherwise local rules; timeout/invalid output also falls back. Local embeddings do not make extraction local. Trainer model preference is independent. Availability is not checked.",
+    }[mode] ||
+    "Extraction: unsupported configuration; choose a supported mode.";
+  byId("memory-processing").textContent = `${embedding} ${extraction}`;
+}
+async function readMemoryStatus() {
+  const generation = ++memoryRead;
+  clearTimeout(memoryExpiry);
+  byId("memory-check").disabled = true;
+  byId("memory-active").textContent = "Reading active local memory status…";
+  try {
+    const value = await invoke("read_memory_status");
+    if (generation !== memoryRead) return;
+    const embeddings = {
+      ollama: "local Ollama",
+      openai: "OpenAI-compatible (may be external/paid)",
+      deterministic: "local test vectors (not semantic)",
+    };
+    const extractors = {
+      deepseek: "DeepSeek cloud (not remotely checked)",
+      openai: "OpenAI cloud (not remotely checked)",
+      deterministic: "local rule-based selection",
+      off: "Off — no new ingestion",
+    };
+    const health = {
+      "not-checked":
+        "Embedding/storage readiness unknown or stale; open Memory in Trainer for an existing health check.",
+      attention:
+        "Embedding/storage needs attention. Check configuration, key, daemon/model and compatible dimensions in Memory; no reset is performed.",
+      "local-observed":
+        "Local Ollama embedding/storage check observed recently; this does not certify extraction.",
+      "test-only":
+        "Local deterministic storage check observed; not semantic-provider readiness.",
+      disabled:
+        "Embedding/storage check not applicable while memory is disabled.",
+    };
+    if (
+      !embeddings[value.embeddingProvider] ||
+      !extractors[value.extractionProvider] ||
+      !health[value.health]
+    )
+      throw new Error("Invalid status");
+    byId("memory-active").textContent =
+      `Active runtime configuration: ${value.configuredEnabled ? "On" : "Off"}. ` +
+      (value.userDisabled
+        ? "Disabled by the separate Memory panel preference; enable there deliberately. "
+        : "No separate runtime disable preference. ") +
+      `Memory use: ${value.effectiveEnabled ? "On" : "Off"}. Embeddings: ${embeddings[value.embeddingProvider]}. Extraction: ${extractors[value.extractionProvider]}. ${health[value.health]} ` +
+      "This is an observation of the active backend, not this draft or a saved next-launch setting.";
+    const remaining = Math.max(1, 60000 - (value.ageMs ?? 0));
+    memoryExpiry = setTimeout(invalidateMemoryStatus, remaining);
+  } catch {
+    if (generation === memoryRead)
+      byId("memory-active").textContent =
+        "Active memory: unavailable or not running; readiness and runtime preference are unknown. Open Trainer's Memory panel after explicit launch/restart. No provider or content check was made.";
+  } finally {
+    if (generation === memoryRead)
+      byId("memory-check").disabled =
+        busy || Boolean(firstRun && onboarding?.settingsCommitted);
+  }
+}
+
+function fieldValues() {
+  // Visibility and disabled state never decide persistence. Empty explicit values
+  // reach the validator instead of silently resetting a custom model to default.
+  return Object.fromEntries(
+    fields.map((field) => [
+      field.key,
+      field.key === "GARMIN_MCP_TOKEN_DIR"
+        ? tokenSelection
+        : byId(field.key).value,
+    ]),
+  );
+}
+function retainDraft(values) {
+  tokenSelection = values.GARMIN_MCP_TOKEN_DIR ?? "";
+  for (const field of fields)
+    if (field.key !== "GARMIN_MCP_TOKEN_DIR")
+      byId(field.key).value = values[field.key];
+  renderConnection();
+  byId("memory-configuration").open = true;
+  byId("advanced-settings").open = true;
+  renderMemory();
+}
+function revealInvalid(event) {
+  for (
+    let parent = event.target.parentElement;
+    parent;
+    parent = parent.parentElement
+  )
+    if (parent.tagName === "DETAILS") parent.open = true;
+}
 
 function renderStep() {
   const wizard = firstRun;
@@ -44,6 +172,9 @@ function renderStep() {
       ? "Retry opening saved Trainer"
       : "Finish and open Trainer"
     : "Save for next launch";
+  byId("memory-section").hidden = wizard && step !== 3;
+  byId("advanced-settings").hidden = wizard && step !== 3;
+  renderMemory();
   byId("review-summary").textContent =
     `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Provider: ${byId("AI_PROVIDER")?.value || "auto"}. Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("MEMORY_ENABLED")?.value || "false"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
 }
@@ -62,17 +193,6 @@ function renderConnection() {
       ? "Continue with selected connection"
       : "Continue without Garmin"
     : "Connect later — keep current selection";
-}
-function fieldValues() {
-  const values = {};
-  for (const field of fields) {
-    const value =
-      field.key === "GARMIN_MCP_TOKEN_DIR"
-        ? tokenSelection
-        : byId(field.key).value;
-    if (value) values[field.key] = value;
-  }
-  return values;
 }
 function setBusy(value) {
   busy = value;
@@ -156,6 +276,7 @@ function showAuth(value) {
 }
 async function refresh() {
   clearSecrets();
+  invalidateMemoryStatus();
   try {
     const saved = await invoke("read_settings");
     onboarding = await invoke("read_onboarding");
@@ -166,10 +287,20 @@ async function refresh() {
     firstRun = Boolean(onboarding?.eligible && !saved.running);
     savedTokenSelection = tokenSelection =
       saved.fields.GARMIN_MCP_TOKEN_DIR ?? "";
-    for (const field of fields)
-      if (field.key !== "GARMIN_MCP_TOKEN_DIR")
-        byId(field.key).value =
-          saved.fields[field.key] ?? field.default ?? field.options?.[0] ?? "";
+    for (const field of fields) {
+      if (field.key === "GARMIN_MCP_TOKEN_DIR") continue;
+      const input = byId(field.key);
+      const value =
+        saved.fields[field.key] ?? field.default ?? field.options?.[0] ?? "";
+      if (field.options && !field.options.includes(value)) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = "Unsupported saved value — change explicitly";
+        input.append(option);
+      }
+      input.value = value;
+    }
+    savedMemoryEnabled = byId("MEMORY_ENABLED").value;
     for (const slot of slots) {
       byId(`${slot}-intent`).value = "unchanged";
       byId(slot).disabled = true;
@@ -188,9 +319,11 @@ async function refresh() {
       : saved.saved
         ? "Saved settings loaded; keys are masked. Changes require explicit quit/reopen."
         : "Existing installation recovery: settings are inaccessible or unsupported. Preserve them and reopen with a compatible build; no blank-install overwrite.";
+    return true;
   } catch {
     status.textContent =
       "Saved settings are invalid or inaccessible. Check private settings permissions/version; no env fallback or key readback. Original data is unchanged.";
+    return false;
   }
 }
 function createField(field) {
@@ -204,11 +337,31 @@ function createField(field) {
     for (const value of field.options) {
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = value;
+      option.textContent =
+        {
+          MEMORY_ENABLED: { true: "On", false: "Off" },
+          MEMORY_EMBEDDING_PROVIDER: {
+            openai: "OpenAI-compatible",
+            ollama: "Local Ollama",
+            deterministic: "Deterministic (test only)",
+          },
+          MEMORY_EXTRACTION_MODE: {
+            llm: "Cloud AI with rule-based fallback",
+            deterministic: "Local rules only",
+            off: "Off — no new ingestion",
+          },
+        }[field.key]?.[value] ?? value;
       input.append(option);
     }
   } else {
     input.type = ["date", "number"].includes(field.type) ? field.type : "text";
+    if (field.type === "number") {
+      input.required = true;
+      input.min = field.key === "MEMORY_EMBEDDING_DIMS" ? "8" : "1";
+      input.max = field.key === "MEMORY_EMBEDDING_DIMS" ? "65536" : "300000";
+      input.step = "1";
+    }
+    if (field.key.endsWith("_MODEL")) input.required = true;
     input.autocomplete = "off";
     // Paths/model identifiers are literal configuration, not prose. WebKit's
     // automatic capitalization/correction must not change what the user enters.
@@ -217,12 +370,29 @@ function createField(field) {
     input.spellcheck = false;
   }
   label.append(input);
+  if (field.key.startsWith("MEMORY_"))
+    input.addEventListener("change", renderMemory);
+  const memoryGroup =
+    field.key === "MEMORY_ENABLED"
+      ? "memory-control"
+      : [
+            "MEMORY_EMBEDDING_DIMS",
+            "MEMORY_TIMEOUT_MS",
+            "MEMORY_EXTRACTION_TIMEOUT_MS",
+          ].includes(field.key)
+        ? "memory-technical"
+        : field.key.startsWith("MEMORY_")
+          ? "memory-fields"
+          : null;
   const parent = byId(
-    field.advanced
-      ? "advanced"
-      : ["DATABASE_PATH", "GARMIN_HISTORY_START_DATE"].includes(field.key)
-        ? "data-fields"
-        : "normal",
+    memoryGroup ||
+      (field.key.endsWith("_COMMAND")
+        ? "external-tools"
+        : field.advanced
+          ? "advanced"
+          : ["DATABASE_PATH", "GARMIN_HISTORY_START_DATE"].includes(field.key)
+            ? "data-fields"
+            : "normal"),
   );
   parent.append(label);
   if (["path", "directory"].includes(field.type)) {
@@ -280,6 +450,7 @@ async function initialize() {
     successfulDestination = "";
     clearSecrets();
     byId("auth").hidden = true;
+    invalidateMemoryStatus();
     showAuth(null);
   });
   const message = await invoke("setup_status");
@@ -287,6 +458,7 @@ async function initialize() {
 }
 async function adoptProviders(readLegacy) {
   if (busy || !legacyRequired || authPending || authActive()) return;
+  invalidateMemoryStatus();
   setBusy(true);
   const values = fieldValues();
   const keys = {};
@@ -308,22 +480,31 @@ async function adoptProviders(readLegacy) {
     status.textContent = message;
   } catch (error) {
     // Reconcile commit metadata, never retry the mutation or read legacy again.
-    await refresh();
+    unknownOutcome = !(await refresh());
+    retainDraft(values);
     status.textContent =
-      typeof error === "string"
+      (typeof error === "string"
         ? error
-        : "Adoption outcome unknown. Inspect saved state before retry; originals retained.";
+        : "Adoption outcome unknown; originals retained.") +
+      " Non-secret draft retained; check expanded controls. Keys were cleared from the form. " +
+      (unknownOutcome
+        ? "Reload failed: quit/reopen to reconcile before another write."
+        : "Saved metadata reloaded; no automatic retry.");
   } finally {
+    for (const slot of slots) if (keys[slot].value) keys[slot].value = "";
     clearSecrets();
-    setBusy(false);
+    setBusy(unknownOutcome);
   }
 }
+byId("memory-check").addEventListener("click", readMemoryStatus);
+byId("settings").addEventListener("invalid", revealInvalid, true);
 byId("adopt-provider").addEventListener("click", () => adoptProviders(true));
 byId("reenter-provider").addEventListener("click", () => adoptProviders(false));
 byId("settings").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (busy || legacyRequired || authPending || authActive()) return;
   if (firstRun && step !== 3) return;
+  invalidateMemoryStatus();
   setBusy(true);
   status.textContent = firstRun
     ? "Preparing setup and checking local configuration… Cancel retains already committed outputs."
@@ -370,11 +551,16 @@ byId("settings").addEventListener("submit", async (event) => {
         return;
       }
     } else {
-      await refresh();
+      unknownOutcome = !(await refresh());
+      retainDraft(values);
       status.textContent =
-        typeof error === "string"
+        (typeof error === "string"
           ? error
-          : "Save outcome unknown. Reload and reconcile private settings before retry; live backend is unchanged. No env or Keychain fallback.";
+          : "Save outcome unknown; live backend unchanged.") +
+        " Non-secret draft retained; check expanded controls. Keys were cleared from the form. " +
+        (unknownOutcome
+          ? "Reload failed: quit/reopen to reconcile before another write."
+          : "Saved metadata reloaded; no automatic retry.");
     }
   } finally {
     for (const slot of slots) if (keys[slot].value) keys[slot].value = "";
@@ -425,7 +611,10 @@ byId("cancel").addEventListener("click", async () => {
   byId("auth").hidden = true;
   successfulDestination = "";
   showAuth(null);
-  await refresh();
+  const reconciled = await refresh();
+  if (!reconciled) return;
+  unknownOutcome = false;
+  setBusy(false);
   step = 0;
   renderStep();
   status.textContent =
