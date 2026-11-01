@@ -31,7 +31,15 @@ Required cleanup evidence:
 
 The E0007 QA test-data cleanup protocol remains authoritative for deletion classification, evidence-first ordering, approval stops, and disposable-copy safeguards.
 
-The [programmatic native smoke runner](dev-bridge.md) automates this same populated-copy flow, not a new synthetic dataset/environment: the Goals sentinel is task/run-attributed, other copied Profile fields remain unchanged, originals are fingerprint-verified, and copy-only edits are explicitly deferred to scratch expiry without copy-back. Its keyless scenario does not certify live provider/Garmin behavior or private settings/adoption. Safe task-needed bridge/runner evolution is expected within the authorized task; use the [single before-use extension recipe](dev-bridge.md#task-needed-bridge-and-runner-extensions) for finite contract/regression/evidence changes, not a categorical ban or automatic separate ticket. Existing data/cleanup/fixture safeguards and independent safety gates remain unchanged. Debug capture is a sanitized actual Profile subtree; supported ordinary-artifact capture instead preserves real geometry under fixed hide-by-default masks at wide/narrow Trainer/Sync/Profile views. Neither reveals copied facts/transcripts or certifies trusted native input. Image inspection and textual source/scenario evidence remain separate from file creation.
+The [programmatic native smoke runner](dev-bridge.md) now defaults to the separately scoped [finite authored local input recipe](smoke-inputs.md), while retaining the same isolated populated-copy flow, not a durable fixture environment: the Goals sentinel is task/run-attributed, other copied Profile fields remain unchanged, originals are fingerprint-verified, and copy-only edits are explicitly deferred to scratch expiry without copy-back. Its keyless scenario does not certify live provider/Garmin behavior or private settings/adoption. Safe task-needed bridge/runner evolution is expected within the authorized task; use the [single before-use extension recipe](dev-bridge.md#task-needed-bridge-and-runner-extensions) for finite contract/regression/evidence changes, not a categorical ban or automatic separate ticket. Existing data/cleanup/fixture safeguards and independent safety gates remain unchanged. Debug capture is a sanitized actual Profile subtree; supported ordinary-artifact capture instead preserves real geometry under fixed hide-by-default masks at wide/narrow Trainer/Sync/Profile views. Neither reveals copied facts/transcripts or certifies trusted native input. Image inspection and textual source/scenario evidence remain separate from file creation.
+
+For presentation-only Markdown-table smoke, `smoke:tables` also uses this existing
+seed mechanism with fixed synthetic plan/review/chat documents and one Profile,
+then the ordinary isolated artifact/copy/ownership owners. No personal facts or
+cross-task private-fixture reuse consent is needed because no private input is read.
+This finite scenario is not a new fixture environment or real provider/integration
+certificate; its seed/copy/documents/Goals/captures remain task-attributed and
+scratch-expiry deferred. See the exact [table scenario](dev-bridge.md#finite-synthetic-markdown-table-scenario).
 
 The explicitly scoped CI exception is `smoke:quick` / `scripts/ci/seed.ts`: one
 fresh job-local synthetic current-schema Profile, created via existing migrations
@@ -41,6 +49,8 @@ settings/schema/preflight/ownership checks still bind. Synthetic Goals/seed/copy
 are task/run-attributed and deferred to runner/task-scratch expiry, never back-synced.
 No production schema or data-shape change means primary back-sync is a verified no-op.
 
+The separately approved finite representative-smoke strategy is the additional bounded exception: `smoke:prepare` and native/ordinary defaults use authored synthetic Profile/chat/activity/Health inputs, or an explicitly applicable current private grant. It reads no personal inputs by default, retains native ownership/mode exclusions and adds no production migration, global fixture deployment or recurring nightly expansion. Standing reuse changes no owner retention or original-preservation duties. See [input contract](smoke-inputs.md).
+
 ## No new isolated fixture environment for this stage
 
-Do not introduce a new isolated test-data or fixture environment just to satisfy these process rules at the current local-only stage. Prefer the existing local live-smoke flow, deterministic tests, task-local artifacts, and disposable SQLite copies for destructive validation. A future fixture framework or durable test-data environment requires its own implementation task and justification.
+Outside those finite local recipe exceptions, do not introduce a new isolated test-data or fixture environment just to satisfy these process rules at the current local-only stage. Prefer the existing local live-smoke flow, deterministic tests, task-local artifacts, and disposable SQLite copies for destructive validation. A future fixture framework or durable test-data environment requires its own implementation task and justification.

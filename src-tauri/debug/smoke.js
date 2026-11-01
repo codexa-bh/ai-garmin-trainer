@@ -206,7 +206,11 @@
           ].includes(s),
         ),
       ...(globalThis.__trainerOrdinaryIsolated
-        ? {}
+        ? {
+            tablesReady: [
+              ...document.querySelectorAll(".assistant-table"),
+            ].some(visible),
+          }
         : { ...healthObservation(), llmDebug: debugObservation() }),
       profileReady: Boolean(goals && visible(goals) && !goals.disabled),
       profileSaved:
@@ -709,6 +713,190 @@
       )
         el.setAttribute("data-smoke-reveal", "");
   }
+  // Fixed synthetic table scenario: never return/reveal arbitrary saved documents.
+  const tableProse =
+    "Synthetic evidence describes duration and partial credit with explicit limitations; descriptive prose should wrap at word boundaries.";
+  const tableToken = `https://example.test/${"unbroken".repeat(50)}`;
+  function expectedTable(surface) {
+    if (surface === "chat-simple")
+      return [
+        ["Metric", "Average", "Reference"],
+        ["Duration", "42 min", "Synthetic reference"],
+        ["Distance", "5 km", "Synthetic reference"],
+      ];
+    const reordered = surface !== "plan";
+    const headers = [
+      "KPI",
+      "Target",
+      "Unit",
+      "Evidence",
+      reordered ? "Crédit" : "Points",
+      "Calculation",
+    ];
+    const order = reordered ? [4, 3, 5, 0, 2, 1] : [0, 1, 2, 3, 4, 5];
+    return [
+      headers,
+      ...["30 / 30", "25 / 25", "15 / 15", "0 / 10"].map((score) => [
+        "Easy work",
+        "150",
+        "min",
+        reordered ? tableToken : tableProse,
+        score,
+        tableProse,
+      ]),
+    ].map((row) => order.map((index) => row[index]));
+  }
+  function syntheticTable(surface) {
+    if (
+      !globalThis.__trainerOrdinaryIsolated ||
+      !["plan", "review", "chat", "chat-simple"].includes(surface)
+    )
+      throw Error("Ordinary synthetic tables only");
+    const inChat = surface.startsWith("chat");
+    if (observe().view !== (inChat ? "Trainer" : "Training Plan"))
+      throw Error("Wrong table view");
+    const roots = inChat
+      ? [...document.querySelectorAll(".transcript")]
+      : [...document.querySelectorAll(".training-plan-report")].filter(
+          (el) =>
+            el.querySelector("h3")?.textContent ===
+            `T0249 synthetic ${surface}`,
+        );
+    const expected = expectedTable(surface);
+    const tables = roots
+      .flatMap((root) => [...root.querySelectorAll(".assistant-table")])
+      .filter((table) => {
+        const rows = [...table.rows].map((row) =>
+          [...row.cells].map((cell) => cell.textContent),
+        );
+        return JSON.stringify(rows) === JSON.stringify(expected);
+      });
+    if (
+      tables.length !== 1 ||
+      !visible(tables[0]) ||
+      tables[0].querySelectorAll("td *, th *").length !==
+        (surface === "chat-simple" ? 2 : 4) ||
+      [...tables[0].querySelectorAll("td *, th *")].some(
+        (el) => !["STRONG", "CODE"].includes(el.tagName),
+      )
+    )
+      throw Error("Missing/ambiguous/noncanonical synthetic table");
+    return tables[0];
+  }
+  let selectedTable;
+  let selectedSurface;
+  function lineCount(cell) {
+    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+    const tops = [];
+    while (walker.nextNode()) {
+      const range = document.createRange();
+      range.selectNodeContents(walker.currentNode);
+      for (const rect of range.getClientRects())
+        if (rect.width > 0 && !tops.some((top) => Math.abs(top - rect.top) < 1))
+          tops.push(rect.top);
+    }
+    return tops.length;
+  }
+  function tableHeaderVisible(table) {
+    const header = table.tHead.getBoundingClientRect();
+    let top = 0,
+      bottom = innerHeight;
+    for (let node = table.parentElement; node; node = node.parentElement) {
+      if (node.clientHeight && getComputedStyle(node).overflowY !== "visible") {
+        const rect = node.getBoundingClientRect();
+        top = Math.max(top, rect.top);
+        bottom = Math.min(bottom, rect.bottom);
+      }
+    }
+    return (
+      header.width > 0 && header.top >= top - 1 && header.bottom <= bottom + 1
+    );
+  }
+  async function tablesAction(command) {
+    if (
+      Object.keys(command).sort().join(",") !== "edge,surface,type" ||
+      !["start", "end"].includes(command.edge)
+    )
+      throw Error("Unsupported table action/fields");
+    const table = syntheticTable(command.surface);
+    const wrapper = table.closest(".assistant-table-wrapper");
+    if (!wrapper) throw Error("Contained table required");
+    restore();
+    // scrollIntoView also scrolls overflow:hidden ancestors, which can conceal
+    // the real panel on desktop. Scroll only user-scrollable table ancestors.
+    for (let node = wrapper; node; node = node.parentElement) {
+      if (
+        ["auto", "scroll"].includes(getComputedStyle(node).overflowY) &&
+        node.scrollHeight > node.clientHeight
+      )
+        node.scrollTop +=
+          table.getBoundingClientRect().top -
+          node.getBoundingClientRect().top -
+          8;
+    }
+    wrapper.scrollLeft = command.edge === "end" ? wrapper.scrollWidth : 0;
+    selectedTable = table;
+    selectedSurface = command.surface;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const compact = [...table.querySelectorAll(".assistant-table-compact")];
+    const prose = [...table.querySelectorAll("td")].filter(
+      (cell) => cell.textContent === tableProse,
+    );
+    const rect = wrapper.getBoundingClientRect();
+    return {
+      ok: true,
+      surface: command.surface,
+      edge: command.edge,
+      trustedInput: false,
+      compact:
+        compact.length > 0 && compact.every((cell) => lineCount(cell) === 1),
+      proseWrapped:
+        command.surface === "chat-simple" ||
+        prose.some((cell) => lineCount(cell) > 1),
+      contained:
+        document.documentElement.scrollWidth <= innerWidth &&
+        rect.left >= 0 &&
+        rect.right <= innerWidth &&
+        getComputedStyle(wrapper).overflowX === "auto" &&
+        table.getBoundingClientRect().width <= wrapper.scrollWidth + 1,
+      scrollable: wrapper.scrollWidth > wrapper.clientWidth,
+      edgeReached:
+        command.edge === "start"
+          ? wrapper.scrollLeft === 0
+          : Math.abs(
+              wrapper.scrollLeft + wrapper.clientWidth - wrapper.scrollWidth,
+            ) <= 1,
+      allCells: true,
+      headerVisible: tableHeaderVisible(table),
+    };
+  }
+  function revealTables() {
+    if (
+      !selectedTable ||
+      syntheticTable(selectedSurface) !== selectedTable ||
+      !tableHeaderVisible(selectedTable)
+    )
+      throw Error("Canonical selected table with visible header required");
+    // WebKit can omit a visible descendant's scrolled compositing layer when
+    // its ancestor is visibility:hidden. Reveal only empty-text containers on
+    // the selected path; every sibling/child remains independently masked.
+    for (
+      let node = selectedTable.parentElement;
+      node && node !== document.body;
+      node = node.parentElement
+    ) {
+      if (
+        [...node.childNodes].some(
+          (child) =>
+            child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+        )
+      )
+        throw Error("Capture refuses private direct ancestor text");
+      node.setAttribute("data-smoke-reveal", "");
+    }
+    for (const el of [selectedTable, ...selectedTable.querySelectorAll("*")])
+      el.setAttribute("data-smoke-reveal", "");
+  }
   let maskExpiry;
   function restore() {
     clearTimeout(maskExpiry);
@@ -730,7 +918,10 @@
       sync: "Sync",
       profile: "Profile & data",
     }[command.view];
-    if (!expected || observe().view !== expected)
+    if (command.view === "tables") {
+      if (!selectedTable || syntheticTable(selectedSurface) !== selectedTable)
+        throw Error("Unsafe table capture");
+    } else if (!expected || observe().view !== expected)
       throw Error("Unsafe capture view");
     if (command.view === "profile") {
       const goals = target("Goals", "textarea");
@@ -773,6 +964,7 @@
     }
     if (command.view === "composer") revealComposer();
     if (command.view === "conversation") revealConversations();
+    if (command.view === "tables") revealTables();
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";
     style.textContent =
@@ -808,6 +1000,8 @@
         return composerAction(command);
       case "conversation":
         return conversationAction(command);
+      case "tables":
+        return tablesAction(command);
       case "click": {
         if (["LLM debug traces", "First LLM trace"].includes(command.target)) {
           debugSummary(command.target === "First LLM trace").click();

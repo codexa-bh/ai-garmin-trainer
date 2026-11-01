@@ -51,7 +51,8 @@ impl Config {
             Command::SetViewport { .. }
             | Command::CaptureView { .. }
             | Command::Composer { .. }
-            | Command::Conversation { .. } => self.ordinary.is_some(),
+            | Command::Conversation { .. }
+            | Command::Tables { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
                 if self.ordinary.is_some() =>
             {
@@ -118,6 +119,10 @@ pub enum Command {
     Conversation {
         action: String,
     },
+    Tables {
+        surface: String,
+        edge: String,
+    },
     #[cfg(debug_assertions)]
     Settings {
         action: crate::setup_smoke::Action,
@@ -175,7 +180,15 @@ impl Command {
             Self::Observe {} | Self::Capture {} => true,
             Self::SetViewport { preset } => ["wide", "narrow"].contains(&preset.as_str()),
             Self::CaptureView { view, preset } => {
-                ["trainer", "sync", "profile", "composer", "conversation"].contains(&view.as_str())
+                [
+                    "trainer",
+                    "sync",
+                    "profile",
+                    "composer",
+                    "conversation",
+                    "tables",
+                ]
+                .contains(&view.as_str())
                     && ["wide", "narrow"].contains(&preset.as_str())
             }
             Self::Composer { action } => {
@@ -200,6 +213,10 @@ impl Command {
                 "delete-second",
             ]
             .contains(&action.as_str()),
+            Self::Tables { surface, edge } => {
+                ["plan", "review", "chat", "chat-simple"].contains(&surface.as_str())
+                    && ["start", "end"].contains(&edge.as_str())
+            }
             #[cfg(debug_assertions)]
             Self::CaptureDebug {} | Self::Settings { .. } | Self::Health { .. } => true,
             #[cfg(debug_assertions)]
@@ -594,6 +611,12 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 "profileSaved",
                 "view",
             ];
+            if let Some(ready) = value.get("tablesReady") {
+                if !ordinary || !ready.is_boolean() {
+                    return false;
+                }
+                keys.push("tablesReady");
+            }
             if let Some(debug) = value.get("llmDebug") {
                 if ordinary || !safe_debug_observation(debug) {
                     return false;
@@ -751,6 +774,25 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                         .map(|n| (-4096.0..=4096.0).contains(&n))
                         .unwrap_or(false)
                 })
+        }
+        Command::Tables { surface, edge } => {
+            let booleans = [
+                "compact",
+                "proseWrapped",
+                "contained",
+                "scrollable",
+                "edgeReached",
+                "allCells",
+                "headerVisible",
+            ];
+            let mut keys = vec!["ok", "surface", "edge", "trustedInput"];
+            keys.extend(booleans);
+            ordinary
+                && exact_keys(value, &keys)
+                && value["surface"].as_str() == Some(surface)
+                && value["edge"].as_str() == Some(edge)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
         }
         Command::Composer { action } => {
             let booleans = [
@@ -1259,6 +1301,45 @@ mod tests {
             preset: "narrow".into()
         }
         .valid());
+    }
+    #[test]
+    fn synthetic_tables_are_finite_ordinary_only_and_boolean_results() {
+        for surface in ["plan", "review", "chat", "chat-simple"] {
+            for edge in ["start", "end"] {
+                let command = Command::Tables {
+                    surface: surface.into(),
+                    edge: edge.into(),
+                };
+                assert!(command.valid());
+                assert!(!config().permits(&command));
+                let value = json!({"ok":true,"surface":surface,"edge":edge,"trustedInput":false,
+                    "compact":true,"proseWrapped":true,"contained":true,"scrollable":true,"edgeReached":true,"allCells":true,"headerVisible":true});
+                assert!(super::safe_result(&command, &value, true));
+                assert!(!safe_result(&command, &value));
+                for (key, changed) in [
+                    ("private", json!("copied document")),
+                    ("compact", json!("secret")),
+                    ("surface", json!("settings")),
+                    ("edge", json!("arbitrary")),
+                    ("trustedInput", json!(true)),
+                ] {
+                    let mut invalid = value.clone();
+                    invalid[key] = changed;
+                    assert!(!super::safe_result(&command, &invalid, true));
+                }
+            }
+        }
+        for (surface, edge) in [("settings", "start"), ("plan", "arbitrary")] {
+            assert!(!Command::Tables {
+                surface: surface.into(),
+                edge: edge.into()
+            }
+            .valid());
+        }
+        assert!(serde_json::from_value::<Command>(
+            json!({"type":"tables","surface":"plan","edge":"start","selector":"body"})
+        )
+        .is_err());
     }
     fn config() -> Config {
         Config {
