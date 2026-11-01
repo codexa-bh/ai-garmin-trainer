@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod auth;
+mod chat_catalog;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
 mod dev_bridge;
 mod isolated_run;
@@ -328,8 +329,10 @@ async fn save_settings(
         if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
             run.confine(&fields)?;
         }
-        let updates = input.keys;
-        settings::save(&settings_path(&app)?, fields, updates)
+        settings::save(
+            &settings_path(&app)?,
+            settings::SaveInput { fields, ..input },
+        )
     })
     .await
     .map_err(|_| "Settings save interrupted.".to_string())?
@@ -361,10 +364,7 @@ async fn adopt_provider_settings(
         let fields = settings::validate(&resources(&app)?, &input.fields)?;
         let (next, original) = settings::adoption(
             &path,
-            settings::SaveInput {
-                fields,
-                keys: input.keys,
-            },
+            settings::SaveInput { fields, ..input },
             read_legacy,
             &keychain::Keychain,
         )?;
@@ -456,7 +456,7 @@ async fn finish_onboarding(
                 if fresh { onboarding::initialize(&resources(&app)?, &target, &state.root, &mut state.database, &runtime.onboarding_cancel, &runtime.quitting)?; }
                 if runtime.onboarding_cancel.load(Ordering::SeqCst) || runtime.quitting.load(Ordering::SeqCst) { return Err("Setup cancelled; committed outputs remain available for explicit retry."); }
                 let fields = onboarding::validate(&resources(&app)?, &validated.fields, &runtime.onboarding_cancel, &runtime.quitting)?;
-                message = settings::save_new(&path, fields, input.settings.keys)?;
+                message = settings::save_new(&path, settings::SaveInput { fields, ..input.settings })?;
                 state.settings_committed = true;
                 state.saved_settings = Some(onboarding::OwnedSettings::capture(&path)?);
             }

@@ -1,20 +1,36 @@
-export type ChatModelId = "deepseek-flash" | "gpt-6-luna";
-
-type ModelOption = { id: ChatModelId; label: string };
-type EffectiveChatModel = {
-  provider: string | null;
-  modelName: string | null;
-  source: "saved" | "env";
+export type ChatProvider = "openai" | "deepseek" | "ollama" | "openrouter";
+export type ChatEntry = {
+  id: string;
+  provider: ChatProvider;
+  modelId: string;
+  displayName?: string;
+};
+export type ChatCatalog = {
+  version: 1;
+  entries: ChatEntry[];
+  defaultEntryId: string | null;
+};
+export type ChatModelId = string;
+export type ModelOption = ChatEntry & {
+  label: string;
   available: boolean;
+  unavailableReason?: string;
 };
 export type ModelSettingsSnapshot = {
+  version: 2;
   options: ModelOption[];
   selected: ChatModelId | null;
-  effective: EffectiveChatModel;
+  defaultEntryId: ChatModelId | null;
+  effective: {
+    entryId: ChatModelId | null;
+    provider: ChatProvider | null;
+    modelName: string | null;
+    source: "saved" | "env";
+    available: boolean;
+  };
   unavailableReason?: string;
 };
 export type ModelConfiguration = {
-  deepseekConfigured: boolean;
-  openaiConfigured: boolean;
-  inherited: Omit<EffectiveChatModel, "source">;
+  catalog: ChatCatalog;
+  configured: Record<ChatProvider, boolean>;
 };

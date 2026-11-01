@@ -13,8 +13,15 @@ export function ModelSettingsCard({
   )
     ? snapshot.selected!
     : "";
+  const defaultEntry = snapshot?.options.find(
+    (entry) => entry.id === snapshot.defaultEntryId,
+  );
   const inheritedLabel = snapshot
-    ? `${snapshot.effective.source === "env" ? "Default" : "Unavailable"} · ${snapshot.effective.modelName ?? "unknown model"}`
+    ? snapshot.effective.source === "env"
+      ? defaultEntry
+        ? `Default · ${defaultEntry.label}`
+        : "Selection required — no default"
+      : "Unavailable saved entry"
     : state === "error"
       ? "Model unavailable"
       : "Loading…";
@@ -25,7 +32,7 @@ export function ModelSettingsCard({
         id="trainer-model"
         aria-label="Trainer model"
         aria-describedby="trainer-model-status"
-        title={`${snapshot?.effective.provider ?? "Model"} / ${snapshot?.effective.modelName ?? "unavailable"}. Applies to subsequent turns; running turns, memory extraction and embeddings are unchanged. Configure keys in native Settings.`}
+        title={`${snapshot?.effective.provider ?? "Model"} / ${snapshot?.effective.modelName ?? "unavailable"}. Default: ${defaultEntry?.label ?? "none"}. Applies to subsequent turns; running turns, memory extraction and embeddings are unchanged. Native catalog/key edits need quit/reopen.`}
         value={selected}
         disabled={busy || !snapshot?.options.length || state === "error"}
         onChange={(event) => choose(event.target.value as ChatModelId)}
@@ -36,8 +43,13 @@ export function ModelSettingsCard({
           </option>
         ) : null}
         {snapshot?.options.map((option) => (
-          <option key={option.id} value={option.id}>
+          <option
+            key={option.id}
+            value={option.id}
+            disabled={!option.available}
+          >
             {option.label}
+            {!option.available ? " — key not configured" : ""}
           </option>
         ))}
       </select>
@@ -82,8 +94,8 @@ export function ModelSettingsCard({
       ) : null}
       {snapshot && !snapshot.options.length ? (
         <p>
-          No selectable models. Configure a DeepSeek or OpenAI key in native
-          Settings, then quit/reopen.
+          No configured entries. Add chat models in native Settings, then
+          quit/reopen.
         </p>
       ) : null}
       {state === "error" ? (

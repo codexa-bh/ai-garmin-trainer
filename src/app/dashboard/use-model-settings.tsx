@@ -1,4 +1,9 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  isChatEntryId,
+  containsControlCharacters,
+  validateChatCatalog,
+} from "@/lib/model-settings/catalog";
 import type {
   ChatModelId,
   ModelSettingsSnapshot,
@@ -11,26 +16,59 @@ async function readSettings(
   const body: unknown = await response.json();
   if (!body || typeof body !== "object") throw new Error("invalid settings");
   const value = body as Partial<ModelSettingsSnapshot>;
-  const modelId = (id: unknown) =>
-    id === "deepseek-flash" || id === "gpt-6-luna";
-  const nullableString = (text: unknown) =>
-    text === null || typeof text === "string";
+  const modelId = isChatEntryId;
+  const bounded = (text: unknown, max: number) =>
+    typeof text === "string" &&
+    text.length <= max &&
+    !containsControlCharacters(text);
+  const nullableString = (text: unknown) => text === null || bounded(text, 256);
   if (
+    value.version !== 2 ||
     !Array.isArray(value.options) ||
+    value.options.length > 32 ||
     !value.options.every(
       (option) =>
-        option && modelId(option.id) && typeof option.label === "string",
+        option &&
+        modelId(option.id) &&
+        bounded(option.label, 450) &&
+        typeof option.available === "boolean" &&
+        (option.unavailableReason === undefined ||
+          bounded(option.unavailableReason, 400)),
     ) ||
     !(value.selected === null || modelId(value.selected)) ||
     !value.effective ||
     !["saved", "env"].includes(value.effective.source) ||
     typeof value.effective.available !== "boolean" ||
-    !nullableString(value.effective.provider) ||
+    !(value.effective.entryId === null || modelId(value.effective.entryId)) ||
+    ![null, "openai", "deepseek", "ollama", "openrouter"].includes(
+      value.effective.provider,
+    ) ||
     !nullableString(value.effective.modelName) ||
     (value.unavailableReason !== undefined &&
-      typeof value.unavailableReason !== "string")
+      !bounded(value.unavailableReason, 400))
   )
     throw new Error("invalid settings");
+  validateChatCatalog({
+    version: 1,
+    defaultEntryId: value.defaultEntryId,
+    entries: value.options.map(({ id, provider, modelId, displayName }) => ({
+      id,
+      provider,
+      modelId,
+      ...(displayName !== undefined ? { displayName } : {}),
+    })),
+  });
+  if (
+    value.effective.available &&
+    !value.options.some(
+      (entry) =>
+        entry.id === value.effective?.entryId &&
+        entry.available &&
+        entry.provider === value.effective.provider &&
+        entry.modelId === value.effective.modelName,
+    )
+  )
+    throw new Error("inconsistent settings");
   return value as ModelSettingsSnapshot;
 }
 

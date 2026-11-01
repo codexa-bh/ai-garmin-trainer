@@ -16,6 +16,106 @@ let step = 0;
 let busy = false;
 let unknownOutcome = false;
 let legacyRequired = false;
+let catalog = { version: 1, entries: [], defaultEntryId: null };
+let loadedRevision = null;
+
+function updateDefaultOptions() {
+  const select = byId("catalog-default");
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "No default — select a model in chat";
+  select.append(empty);
+  for (const entry of catalog.entries) {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = `${entry.displayName ? `${entry.displayName} — ` : ""}${entry.provider} / ${entry.modelId || "(enter model ID)"}`;
+    select.append(option);
+  }
+  select.value = catalog.defaultEntryId ?? "";
+}
+function renderCatalog() {
+  const rows = byId("catalog-entries");
+  rows.replaceChildren();
+  catalog.entries.forEach((entry, index) => {
+    const row = document.createElement("fieldset");
+    const legend = document.createElement("legend");
+    legend.textContent = `Chat model ${index + 1}`;
+    row.append(legend);
+    for (const [key, label] of [
+      ["provider", "Provider"],
+      ["modelId", "Exact model ID"],
+      ["displayName", "Friendly name (optional)"],
+    ]) {
+      const wrapper = document.createElement("label");
+      wrapper.textContent = `${label} — chat model ${index + 1}`;
+      const input = document.createElement(
+        key === "provider" ? "select" : "input",
+      );
+      if (key === "provider") {
+        for (const provider of ["openai", "deepseek", "ollama", "openrouter"]) {
+          const option = document.createElement("option");
+          option.value = option.textContent = provider;
+          input.append(option);
+        }
+      } else {
+        input.type = "text";
+        input.autocomplete = "off";
+        input.autocapitalize = "off";
+        input.setAttribute("autocorrect", "off");
+        input.spellcheck = false;
+        input.maxLength = key === "modelId" ? 256 : 80;
+      }
+      input.value = entry[key] ?? "";
+      input.addEventListener("input", () => {
+        if (key === "displayName" && !input.value) delete entry.displayName;
+        else entry[key] = input.value;
+        updateDefaultOptions();
+      });
+      input.addEventListener("change", () => {
+        entry[key] = input.value;
+        if (key === "displayName" && !input.value) delete entry.displayName;
+        updateDefaultOptions();
+      });
+      wrapper.append(input);
+      row.append(wrapper);
+    }
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = `Remove chat model ${index + 1}`;
+    remove.addEventListener("click", () => {
+      if (catalog.defaultEntryId === entry.id) {
+        status.textContent =
+          "Choose another default or explicitly clear the default before removing this entry.";
+        byId("catalog-default").focus();
+        return;
+      }
+      catalog.entries = catalog.entries.filter(
+        (value) => value.id !== entry.id,
+      );
+      renderCatalog();
+      byId("catalog-add").focus();
+    });
+    row.append(remove);
+    rows.append(row);
+  });
+  updateDefaultOptions();
+  byId("catalog-add").disabled = catalog.entries.length >= 32;
+}
+byId("catalog-default").addEventListener("change", (event) => {
+  catalog.defaultEntryId = event.target.value || null;
+});
+byId("catalog-add").addEventListener("click", () => {
+  if (busy || catalog.entries.length >= 32) return;
+  catalog.entries.push({
+    id: `entry_${crypto.randomUUID()}`,
+    provider: "openai",
+    modelId: "",
+  });
+  renderCatalog();
+  byId("catalog-entries").lastElementChild.querySelector("input").focus();
+});
+
 let savedMemoryEnabled = "false";
 let memoryRead = 0;
 let memoryExpiry = null;
@@ -176,7 +276,7 @@ function renderStep() {
   byId("advanced-settings").hidden = wizard && step !== 3;
   renderMemory();
   byId("review-summary").textContent =
-    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Provider: ${byId("AI_PROVIDER")?.value || "auto"}. Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("MEMORY_ENABLED")?.value || "false"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
+    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Chat catalog: ${catalog.entries.length} entries, ${catalog.defaultEntryId ? "explicit default selected" : "no default (choose in chat)"}. Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("MEMORY_ENABLED")?.value || "false"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
 }
 function renderConnection() {
   const verified = tokenSelection && tokenSelection === successfulDestination;
@@ -207,6 +307,8 @@ function setBusy(value) {
     for (const slot of slots)
       byId(slot).disabled =
         committed || byId(`${slot}-intent`).value !== "replace";
+  byId("catalog-add").disabled =
+    value || committed || catalog.entries.length >= 32;
 }
 async function reconcileOnboarding() {
   onboarding = await invoke("read_onboarding");
@@ -279,6 +381,11 @@ async function refresh() {
   invalidateMemoryStatus();
   try {
     const saved = await invoke("read_settings");
+    if (!saved.chatCatalog || typeof saved.revision !== "string")
+      throw new Error("Unsupported settings snapshot");
+    catalog = structuredClone(saved.chatCatalog);
+    loadedRevision = saved.revision;
+    renderCatalog();
     onboarding = await invoke("read_onboarding");
     legacyRequired = saved.storage === "legacy-required";
     byId("storage-status").textContent = legacyRequired
@@ -312,6 +419,12 @@ async function refresh() {
         .toISOString()
         .slice(0, 10);
     }
+    byId("catalog-migration").hidden = ![
+      "catalog-migration-required",
+      "legacy-required",
+    ].includes(saved.storage);
+    byId("extraction-compatibility").textContent =
+      `Extraction and automatic titles retain the independent legacy policy ${byId("AI_PROVIDER").value}; OpenAI ${byId("AI_MODEL").value}, DeepSeek ${byId("DEEPSEEK_MODEL").value}. Catalog edits do not change these inputs or embeddings.`;
     renderStep();
     renderConnection();
     status.textContent = firstRun
@@ -321,6 +434,7 @@ async function refresh() {
         : "Existing installation recovery: settings are inaccessible or unsupported. Preserve them and reopen with a compatible build; no blank-install overwrite.";
     return true;
   } catch {
+    loadedRevision = null;
     status.textContent =
       "Saved settings are invalid or inaccessible. Check private settings permissions/version; no env fallback or key readback. Original data is unchanged.";
     return false;
@@ -368,6 +482,10 @@ function createField(field) {
     input.autocapitalize = "off";
     input.setAttribute("autocorrect", "off");
     input.spellcheck = false;
+  }
+  if (field.legacy) {
+    if (!field.options) input.type = "hidden";
+    label.hidden = true;
   }
   label.append(input);
   if (field.key.startsWith("MEMORY_"))
@@ -457,7 +575,14 @@ async function initialize() {
   if (message) status.textContent = message;
 }
 async function adoptProviders(readLegacy) {
-  if (busy || !legacyRequired || authPending || authActive()) return;
+  if (
+    busy ||
+    !legacyRequired ||
+    loadedRevision === null ||
+    authPending ||
+    authActive()
+  )
+    return;
   invalidateMemoryStatus();
   setBusy(true);
   const values = fieldValues();
@@ -473,7 +598,12 @@ async function adoptProviders(readLegacy) {
     : "Validating private re-entry; no Keychain access.";
   try {
     const message = await invoke("adopt_provider_settings", {
-      input: { fields: values, keys },
+      input: {
+        fields: values,
+        keys,
+        chatCatalog: catalog,
+        expectedRevision: loadedRevision,
+      },
       readLegacy,
     });
     await refresh();
@@ -502,7 +632,14 @@ byId("adopt-provider").addEventListener("click", () => adoptProviders(true));
 byId("reenter-provider").addEventListener("click", () => adoptProviders(false));
 byId("settings").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (busy || legacyRequired || authPending || authActive()) return;
+  if (
+    busy ||
+    legacyRequired ||
+    loadedRevision === null ||
+    authPending ||
+    authActive()
+  )
+    return;
   if (firstRun && step !== 3) return;
   invalidateMemoryStatus();
   setBusy(true);
@@ -515,7 +652,7 @@ byId("settings").addEventListener("submit", async (event) => {
     const intent = byId(`${slot}-intent`).value;
     const value = byId(slot).value;
     keys[slot] =
-      intent === "replace" && value
+      intent === "replace"
         ? { intent, value }
         : { intent: intent === "clear" ? "clear" : "unchanged" };
     byId(slot).value = "";
@@ -528,9 +665,19 @@ byId("settings").addEventListener("submit", async (event) => {
           ? {
               id: onboarding.id,
               selection: byId("database-selection").value,
-              settings: { fields: values, keys },
+              settings: {
+                fields: values,
+                keys,
+                chatCatalog: catalog,
+                expectedRevision: loadedRevision,
+              },
             }
-          : { fields: values, keys },
+          : {
+              fields: values,
+              keys,
+              chatCatalog: catalog,
+              expectedRevision: loadedRevision,
+            },
       },
     );
     await refresh();

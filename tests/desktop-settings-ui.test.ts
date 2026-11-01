@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { fireEvent, waitFor } from "@testing-library/dom";
+import { fireEvent, waitFor, within } from "@testing-library/dom";
 import fields from "../src-tauri/ui/settings-fields.json";
 
 const invoke = vi.fn();
@@ -31,6 +31,18 @@ beforeEach(async () => {
   invoke.mockImplementation(async (command) => {
     if (command === "read_settings")
       return {
+        chatCatalog: {
+          version: 1,
+          entries: [
+            {
+              id: "entry_existing",
+              provider: "openai",
+              modelId: "custom/Exact:Tag",
+            },
+          ],
+          defaultEntryId: "entry_existing",
+        },
+        revision: "revision-one",
         fields: {
           DATABASE_PATH: "/private/test-only.sqlite",
           AI_PROVIDER: "openai",
@@ -96,6 +108,92 @@ describe("trusted local desktop settings UI", () => {
       expect(input(key).getAttribute("autocorrect")).toBe("off");
       expect(input(key).spellcheck).toBe(false);
     }
+  });
+  it("manages normal catalog rows with durable identities and explicit default removal; preserves separate extraction inputs", async () => {
+    const screen = within(document.body);
+    expect(input("AI_PROVIDER").closest("label")?.hidden).toBe(true);
+    expect(input("AI_MODEL").closest("label")?.hidden).toBe(true);
+    expect(
+      document.getElementById("extraction-compatibility")?.textContent,
+    ).toContain("independent legacy policy openai");
+    fireEvent.input(screen.getByLabelText("Exact model ID — chat model 1"), {
+      target: { value: "Vendor/Edited:Tag" },
+    });
+    fireEvent.input(
+      screen.getByLabelText("Friendly name (optional) — chat model 1"),
+      { target: { value: "Fast" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove chat model 1" }),
+    );
+    expect(document.getElementById("status")?.textContent).toContain(
+      "explicitly clear",
+    );
+    expect(screen.getByLabelText("Exact model ID — chat model 1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add chat model" }));
+    fireEvent.change(screen.getByLabelText("Provider — chat model 2"), {
+      target: { value: "ollama" },
+    });
+    fireEvent.input(screen.getByLabelText("Exact model ID — chat model 2"), {
+      target: { value: "local:Exact" },
+    });
+    fireEvent.change(screen.getByLabelText("Default chat model (optional)"), {
+      target: { value: "" },
+    });
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("save_settings", expect.anything()),
+    );
+    const sent = invoke.mock.calls.find(
+      ([name]) => name === "save_settings",
+    )![1].input;
+    expect(sent.expectedRevision).toBe("revision-one");
+    expect(sent.chatCatalog).toMatchObject({
+      version: 1,
+      defaultEntryId: null,
+      entries: [
+        {
+          id: "entry_existing",
+          provider: "openai",
+          modelId: "Vendor/Edited:Tag",
+          displayName: "Fast",
+        },
+        { provider: "ollama", modelId: "local:Exact" },
+      ],
+    });
+    expect(sent.chatCatalog.entries[1].id).toMatch(/^entry_[a-f0-9-]+$/);
+    expect(sent.fields.AI_PROVIDER).toBe("openai");
+    expect(sent.fields.AI_MODEL).toBe("gpt-6-luna");
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "backend unchanged",
+      ),
+    );
+    fireEvent.change(screen.getByLabelText("Default chat model (optional)"), {
+      target: { value: "" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove chat model 1" }),
+    );
+    expect(screen.queryByLabelText("Exact model ID — chat model 1")).toBeNull();
+  });
+  it("passes blank explicit replacement for native rejection rather than silently keeping a key", async () => {
+    fireEvent.change(input("OPENAI_API_KEY-intent"), {
+      target: { value: "replace" },
+    });
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "save_settings",
+        expect.objectContaining({
+          input: expect.objectContaining({
+            keys: expect.objectContaining({
+              OPENAI_API_KEY: { intent: "replace", value: "" },
+            }),
+          }),
+        }),
+      ),
+    );
   });
   it("sends unchanged blank keys, explicit replacement/clear and clears transient form values", async () => {
     let submitted: unknown;
@@ -500,7 +598,14 @@ describe("trusted local desktop settings UI", () => {
     const original = invoke.getMockImplementation()!;
     invoke.mockImplementation(async (command, args) => {
       if (command === "read_settings")
-        return { fields: {}, keys: {}, saved: false, running: false };
+        return {
+          fields: {},
+          keys: {},
+          saved: false,
+          running: false,
+          chatCatalog: { version: 1, entries: [], defaultEntryId: null },
+          revision: "absent",
+        };
       if (command === "read_onboarding")
         return {
           id: "native-first-run",

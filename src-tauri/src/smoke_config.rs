@@ -62,9 +62,15 @@ impl Config {
             return Err("Run owner mismatch".into());
         }
         let settings = crate::settings::load(&self.settings())?;
-        if settings.version != 2
+        if ![2, 3].contains(&settings.version)
             || !settings.keys.is_empty()
             || !self.accepts_fields(&settings.fields)
+            || (settings.version == 3
+                && !settings
+                    .chat_catalog
+                    .as_ref()
+                    .map(|catalog| self.accepts_catalog(catalog, &settings.fields))
+                    .unwrap_or(false))
         {
             return Err(
                 "Smoke requires exact keyless run-local settings; no auth/tool overrides".into(),
@@ -128,15 +134,31 @@ impl Config {
                 .unwrap_or(false)
         })
     }
+    fn accepts_catalog(
+        &self,
+        catalog: &crate::chat_catalog::Catalog,
+        fields: &std::collections::BTreeMap<String, String>,
+    ) -> bool {
+        // Same fixed keyless legacy defaults only; no arbitrary catalog, model,
+        // provider/default changes or additional setup controller authority.
+        *catalog == crate::chat_catalog::legacy(fields, &Default::default())
+    }
     pub fn accepts_save(&self, input: &crate::settings::SaveInput) -> bool {
         self.accepts_fields(&input.fields)
+            && self.accepts_catalog(&input.chat_catalog, &input.fields)
             && input
                 .keys
                 .values()
                 .all(|intent| matches!(intent, crate::settings::KeyUpdate::Unchanged))
     }
     pub fn settings(&self) -> PathBuf {
-        self.root.join("config/settings-v2.json")
+        let next = self.root.join("config/settings-v3.json");
+        if !matches!(fs::symlink_metadata(&next), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+        {
+            next
+        } else {
+            self.root.join("config/settings-v2.json")
+        }
     }
     pub fn identifier(&self) -> String {
         format!(
@@ -198,7 +220,8 @@ mod tests {
         settings["fields"]["AI_MODEL"] = serde_json::json!("gpt-6-luna");
         write(&config.settings(), settings.to_string().as_bytes());
         assert!(config.validate().is_ok());
-        let mut input: crate::settings::SaveInput = serde_json::from_value(serde_json::json!({"fields":settings["fields"],"keys":{"OPENAI_API_KEY":{"intent":"unchanged"}}})).unwrap();
+        let snapshot = crate::settings::snapshot(&config.settings(), false).unwrap();
+        let mut input: crate::settings::SaveInput = serde_json::from_value(serde_json::json!({"fields":settings["fields"],"keys":{"OPENAI_API_KEY":{"intent":"unchanged"}},"chatCatalog":snapshot.chat_catalog,"expectedRevision":snapshot.revision})).unwrap();
         assert!(config.accepts_save(&input));
         input.keys.insert(
             "OPENAI_API_KEY".into(),
@@ -225,10 +248,32 @@ mod tests {
             let mut changed = crate::settings::SaveInput {
                 fields: input.fields.clone(),
                 keys: Default::default(),
+                chat_catalog: input.chat_catalog.clone(),
+                expected_revision: input.expected_revision.clone(),
             };
             changed.fields.insert(key.into(), value.into());
             assert!(!config.accepts_save(&changed));
         }
+        let mut changed_catalog = crate::settings::SaveInput {
+            fields: input.fields.clone(),
+            keys: Default::default(),
+            chat_catalog: input.chat_catalog.clone(),
+            expected_revision: input.expected_revision.clone(),
+        };
+        changed_catalog.chat_catalog.default_entry_id = None;
+        assert!(!config.accepts_save(&changed_catalog));
+        changed_catalog.chat_catalog = input.chat_catalog.clone();
+        changed_catalog.chat_catalog.entries[2].model_id = "nondefault-local-model".into();
+        assert!(!config.accepts_save(&changed_catalog));
+        let next = root.join("config/settings-v3.json");
+        let projected = crate::chat_catalog::legacy(&input.fields, &Default::default());
+        let version3 = serde_json::json!({"version":3,"keys":{},"fields":input.fields,"chatCatalog":projected});
+        write(&next, version3.to_string().as_bytes());
+        assert_eq!(config.settings(), next);
+        assert!(config.validate().is_ok());
+        write(&next, b"corrupt newest authority");
+        assert!(config.validate().is_err());
+        fs::remove_file(&next).unwrap();
         settings["keys"]["OPENAI_API_KEY"] =
             serde_json::json!(format!("OPENAI_API_KEY/{}", uuid::Uuid::new_v4()));
         write(&config.settings(), settings.to_string().as_bytes());

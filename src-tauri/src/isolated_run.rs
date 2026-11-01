@@ -275,7 +275,14 @@ impl Admission {
         Ok(admission)
     }
     pub fn settings(&self) -> PathBuf {
-        self.descriptor.root.join("config/settings-v2.json")
+        // Newest presence is authority, even if invalid; never select legacy v1.
+        let next = self.descriptor.root.join("config/settings-v3.json");
+        if !matches!(fs::symlink_metadata(&next), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+        {
+            next
+        } else {
+            self.descriptor.root.join("config/settings-v2.json")
+        }
     }
     pub fn identifier(&self) -> String {
         format!(
@@ -332,8 +339,9 @@ impl Admission {
         Ok(())
     }
     pub fn verify_settings(&self) -> Result<(), &'static str> {
+        self.verify()?;
         let saved = settings::load(&self.settings())?;
-        if saved.version != 2 {
+        if ![2, 3].contains(&saved.version) {
             return Err(DENIED);
         }
         self.confine(&saved.fields)
@@ -407,6 +415,42 @@ mod tests {
         let second = Admission::admit(&path, |_| Ok(())).unwrap();
         assert_ne!(boot, second.boot);
         drop(second);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn newest_file_backed_authority_stays_confined_without_invalid_or_legacy_fallback() {
+        let (root, path) = fixture();
+        let prior = fs::read(root.join("config/settings-v2.json")).unwrap();
+        let admission = Admission::admit(&path, |_| Ok(())).unwrap();
+        let next = root.join("config/settings-v3.json");
+        let mut value = serde_json::json!({"version":3,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")},"chatCatalog":crate::chat_catalog::Catalog::default()});
+        fs::write(&next, serde_json::to_vec(&value).unwrap()).unwrap();
+        fs::set_permissions(&next, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(admission.settings(), next);
+        assert!(admission.verify_settings().is_ok());
+        assert_eq!(
+            fs::read(root.join("config/settings-v2.json")).unwrap(),
+            prior
+        );
+        value["fields"]["DATABASE_PATH"] = serde_json::json!("/normal/trainer.sqlite");
+        fs::write(&next, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(admission.verify_settings().is_err());
+        fs::write(&next, b"corrupt newest authority").unwrap();
+        assert_eq!(admission.settings(), next);
+        assert!(admission.verify_settings().is_err());
+        drop(admission);
+        assert!(Admission::admit(&path, |_| Ok(())).is_err());
+        assert_eq!(
+            fs::read(root.join("config/settings-v2.json")).unwrap(),
+            prior
+        );
+        fs::remove_file(next).unwrap();
+        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        let legacy = root.join("config/settings-v1.json");
+        fs::write(&legacy, serde_json::to_vec(&serde_json::json!({"version":1,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")}})).unwrap()).unwrap();
+        fs::set_permissions(&legacy, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(Admission::admit(&path, |_| Ok(())).is_err());
+        assert!(legacy.exists());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
