@@ -77,14 +77,21 @@ function input(id: string): HTMLInputElement {
 describe("trusted local desktop settings UI", () => {
   it("renders every normal/advanced setting with masked status and no secret readback", () => {
     for (const field of fields)
-      expect(document.getElementById(field.key)).not.toBeNull();
+      if (field.key !== "GARMIN_MCP_TOKEN_DIR")
+        expect(document.getElementById(field.key)).not.toBeNull();
+    for (const id of ["GARMIN_MCP_TOKEN_DIR", "destination", "auth-parent"])
+      expect(document.getElementById(id)).toBeNull();
+    expect(document.getElementById("auth")?.hidden).toBe(true);
+    expect(document.getElementById("connection-status")?.textContent).toContain(
+      "Not connected",
+    );
     expect(input("OPENAI_API_KEY").value).toBe("");
     expect(input("OPENAI_API_KEY").disabled).toBe(true);
     expect(document.getElementById("OPENAI_API_KEY-status")?.textContent).toBe(
       "configured",
     );
     expect(document.getElementById("LLM_DEBUG_TRACES")).toBeNull();
-    for (const key of ["DATABASE_PATH", "AI_MODEL", "GARMIN_MCP_TOKEN_DIR"]) {
+    for (const key of ["DATABASE_PATH", "AI_MODEL"]) {
       expect(input(key).autocapitalize).toBe("off");
       expect(input(key).getAttribute("autocorrect")).toBe("off");
       expect(input(key).spellcheck).toBe(false);
@@ -223,7 +230,7 @@ describe("trusted local desktop settings UI", () => {
         return { id: "session-one", state: "cancelled" };
       return null;
     });
-    input("destination").value = "/private/new-store";
+    fireEvent.click(document.getElementById("connect")!);
     input("email").value = "private@example.invalid";
     input("password").value = "sentinel-password";
     fireEvent.submit(document.getElementById("auth")!);
@@ -231,7 +238,6 @@ describe("trusted local desktop settings UI", () => {
       expect(document.getElementById("mfa-form")?.hidden).toBe(false),
     );
     expect(captured).toEqual({
-      destination: "/private/new-store",
       email: "private@example.invalid",
       password: "sentinel-password",
     });
@@ -239,7 +245,11 @@ describe("trusted local desktop settings UI", () => {
     expect(input("email").value).toBe("");
     input("mfa").value = "sentinel-mfa";
     fireEvent.submit(document.getElementById("mfa-form")!);
+    fireEvent.submit(document.getElementById("mfa-form")!);
     await waitFor(() => expect(input("mfa").value).toBe(""));
+    expect(
+      invoke.mock.calls.filter(([name]) => name === "submit_mfa"),
+    ).toHaveLength(1);
     fireEvent.click(document.getElementById("auth-cancel")!);
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("cancel_auth", { id: "session-one" }),
@@ -250,6 +260,239 @@ describe("trusted local desktop settings UI", () => {
     expect(document.body.textContent).not.toContain("sentinel-password");
     listeners["desktop-settings-closed"]({ payload: "" });
   });
+  it("preserves an exact saved connection through connect-later, provider edits, Save and legacy re-entry", async () => {
+    const original = invoke.getMockImplementation()!;
+    let legacy = false;
+    let submitted: { input: { fields: Record<string, string> } } | undefined;
+    invoke.mockImplementation(async (command, args) => {
+      const result = await original(command, args);
+      if (command === "read_settings")
+        return {
+          ...result,
+          fields: {
+            ...result.fields,
+            GARMIN_MCP_TOKEN_DIR: "/private/legacy store ü",
+          },
+          storage: legacy ? "legacy-required" : "private-file",
+        };
+      if (["save_settings", "adopt_provider_settings"].includes(command))
+        submitted = JSON.parse(JSON.stringify(args));
+      return result;
+    });
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(
+        document.getElementById("connection-status")?.textContent,
+      ).toContain("Configured — not verified"),
+    );
+    expect(document.getElementById("connect")?.textContent).toBe(
+      "Reconnect Garmin",
+    );
+    fireEvent.click(document.getElementById("connect-later")!);
+    input("AI_MODEL").value = "draft-model";
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(submitted?.input.fields).toMatchObject({
+        GARMIN_MCP_TOKEN_DIR: "/private/legacy store ü",
+        AI_MODEL: "draft-model",
+      }),
+    );
+    await waitFor(() => expect(input("save").disabled).toBe(false));
+    legacy = true;
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(document.getElementById("migration")?.hidden).toBe(false),
+    );
+    submitted = undefined;
+    fireEvent.click(document.getElementById("reenter-provider")!);
+    await waitFor(() =>
+      expect(submitted?.input.fields.GARMIN_MCP_TOKEN_DIR).toBe(
+        "/private/legacy store ü",
+      ),
+    );
+    expect(invoke.mock.calls.some(([name]) => name === "start_auth")).toBe(
+      false,
+    );
+  });
+  it("selects only a matching session's verified native destination in draft without a live switch", async () => {
+    const original = invoke.getMockImplementation()!;
+    let submitted: { input: { fields: Record<string, string> } } | undefined;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "auth_status")
+        return {
+          id: "session-one",
+          state: "succeeded",
+          destination: "/private/native-owned/garmin-uuid",
+        };
+      if (command === "save_settings")
+        submitted = JSON.parse(JSON.stringify(args));
+      return command === "auth_status" ? null : original(command, args);
+    });
+    input("OPENAI_API_KEY-intent").value = "replace";
+    fireEvent.change(input("OPENAI_API_KEY-intent"));
+    input("OPENAI_API_KEY").value = "synthetic-provider-draft";
+    fireEvent.click(document.getElementById("connect")!);
+    input("email").value = "synthetic@example.invalid";
+    input("password").value = "synthetic-password";
+    fireEvent.submit(document.getElementById("auth")!);
+    fireEvent.submit(document.getElementById("auth")!);
+    await waitFor(
+      () => expect(document.getElementById("use-tokens")?.hidden).toBe(false),
+      { timeout: 2000 },
+    );
+    expect(
+      invoke.mock.calls.filter(([name]) => name === "start_auth"),
+    ).toHaveLength(1);
+    expect(input("OPENAI_API_KEY").value).toBe("synthetic-provider-draft");
+    expect(submitted).toBeUndefined();
+    fireEvent.click(document.getElementById("use-tokens")!);
+    expect(document.getElementById("connection-status")?.textContent).toContain(
+      "Pending Save and next explicit launch",
+    );
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(submitted?.input.fields.GARMIN_MCP_TOKEN_DIR).toBe(
+        "/private/native-owned/garmin-uuid",
+      ),
+    );
+    expect(
+      invoke.mock.calls.some(([name]) =>
+        ["finish_onboarding", "launch"].includes(name),
+      ),
+    ).toBe(false);
+    listeners["desktop-settings-closed"]({ payload: "" });
+  });
+  it("ignores late verified polling after exact cancellation", async () => {
+    const original = invoke.getMockImplementation()!;
+    let resolvePoll: (value: unknown) => void = () => {};
+    invoke.mockImplementation(async (command, args) =>
+      command === "auth_status"
+        ? new Promise((resolve) => {
+            resolvePoll = resolve;
+          })
+        : original(command, args),
+    );
+    fireEvent.submit(document.getElementById("auth")!);
+    await waitFor(
+      () =>
+        expect(invoke.mock.calls.some(([name]) => name === "auth_status")).toBe(
+          true,
+        ),
+      { timeout: 2000 },
+    );
+    fireEvent.click(document.getElementById("auth-cancel")!);
+    await waitFor(() =>
+      expect(document.getElementById("auth-status")?.textContent).toContain(
+        "cancelled",
+      ),
+    );
+    resolvePoll({
+      id: "session-one",
+      state: "succeeded",
+      destination: "/private/stale",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.getElementById("use-tokens")?.hidden).toBe(true);
+    expect(document.getElementById("connection-status")?.textContent).toContain(
+      "Not connected",
+    );
+    listeners["desktop-settings-closed"]({ payload: "" });
+  });
+  it("keeps a published session available for explicit draft re-selection after Save fails", async () => {
+    const original = invoke.getMockImplementation()!;
+    let fieldsSent: Record<string, string> | undefined;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "start_auth")
+        return {
+          id: "session-one",
+          state: "succeeded",
+          destination: "/private/new-published",
+        };
+      if (command === "save_settings") {
+        fieldsSent = { ...args.input.fields };
+        throw "Save refused; prior settings preserved.";
+      }
+      return original(command, args);
+    });
+    fireEvent.submit(document.getElementById("auth")!);
+    await waitFor(() =>
+      expect(document.getElementById("use-tokens")?.hidden).toBe(false),
+    );
+    fireEvent.click(document.getElementById("use-tokens")!);
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "Save refused",
+      ),
+    );
+    expect(fieldsSent?.GARMIN_MCP_TOKEN_DIR).toBe("/private/new-published");
+    expect(document.getElementById("connection-status")?.textContent).toContain(
+      "Not connected",
+    );
+    expect(document.getElementById("use-tokens")?.hidden).toBe(false);
+    fireEvent.click(document.getElementById("use-tokens")!);
+    expect(document.getElementById("connection-status")?.textContent).toContain(
+      "Pending Save",
+    );
+  });
+  it("refuses an unmatched polled session without selecting its destination", async () => {
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) =>
+      command === "auth_status"
+        ? {
+            id: "foreign-session",
+            state: "succeeded",
+            destination: "/private/foreign",
+          }
+        : original(command, args),
+    );
+    fireEvent.submit(document.getElementById("auth")!);
+    await waitFor(
+      () =>
+        expect(invoke.mock.calls.some(([name]) => name === "auth_status")).toBe(
+          true,
+        ),
+      { timeout: 2000 },
+    );
+    expect(document.getElementById("use-tokens")?.hidden).toBe(true);
+    expect(document.getElementById("connection-status")?.textContent).toContain(
+      "Not connected",
+    );
+    listeners["desktop-settings-closed"]({ payload: "" });
+  });
+  it.each([
+    ["credentials-rejected", "Reconnect needed"],
+    ["mfa-rejected", "rejected the MFA"],
+    ["unsupported-challenge", "unsupported or repeated"],
+    ["network-service", "does not establish credential expiry"],
+    ["rate-limited", "does not establish credential expiry"],
+    ["auth-unavailable", "tooling unavailable"],
+    ["timeout", "timed out"],
+    ["publication-refused", "Original stores preserved"],
+  ])(
+    "reports %s without automatic retry or a false connection",
+    async (code, message) => {
+      const original = invoke.getMockImplementation()!;
+      invoke.mockImplementation(async (command, args) =>
+        command === "start_auth"
+          ? { id: "session-one", state: "failed", code }
+          : original(command, args),
+      );
+      fireEvent.submit(document.getElementById("auth")!);
+      await waitFor(() =>
+        expect(document.getElementById("auth-status")?.textContent).toContain(
+          message,
+        ),
+      );
+      expect(document.getElementById("use-tokens")?.hidden).toBe(true);
+      expect(
+        document.getElementById("connection-status")?.textContent,
+      ).toContain("Not connected");
+      expect(
+        invoke.mock.calls.filter(([name]) => name === "start_auth"),
+      ).toHaveLength(1);
+    },
+  );
   async function firstRun() {
     const original = invoke.getMockImplementation()!;
     invoke.mockImplementation(async (command, args) => {
@@ -293,6 +536,56 @@ describe("trusted local desktop settings UI", () => {
     listeners["desktop-settings-closed"]({ payload: "" });
     expect(input("OPENAI_API_KEY").value).toBe("");
   });
+  it("continues without Garmin while retaining provider draft and starting no login", async () => {
+    await firstRun();
+    input("OPENAI_API_KEY-intent").value = "replace";
+    fireEvent.change(input("OPENAI_API_KEY-intent"));
+    input("OPENAI_API_KEY").value = "synthetic-provider";
+    fireEvent.click(document.getElementById("next")!);
+    fireEvent.click(document.getElementById("next")!);
+    expect(document.getElementById("connect-later")?.textContent).toBe(
+      "Continue without Garmin",
+    );
+    fireEvent.click(document.getElementById("connect-later")!);
+    expect(document.getElementById("review")?.hidden).toBe(false);
+    expect(document.getElementById("review-summary")?.textContent).toContain(
+      "Garmin: not connected",
+    );
+    expect(input("OPENAI_API_KEY").value).toBe("synthetic-provider");
+    expect(invoke.mock.calls.some(([name]) => name === "start_auth")).toBe(
+      false,
+    );
+  });
+  it("cancels a late start after Settings closes instead of selecting it", async () => {
+    const original = invoke.getMockImplementation()!;
+    let resolveStart: (value: unknown) => void = () => {};
+    invoke.mockImplementation(async (command, args) =>
+      command === "start_auth"
+        ? new Promise((resolve) => {
+            resolveStart = resolve;
+          })
+        : original(command, args),
+    );
+    fireEvent.submit(document.getElementById("auth")!);
+    await waitFor(() =>
+      expect(invoke.mock.calls.some(([name]) => name === "start_auth")).toBe(
+        true,
+      ),
+    );
+    listeners["desktop-settings-closed"]({ payload: "" });
+    resolveStart({
+      id: "session-one",
+      state: "succeeded",
+      destination: "/private/late",
+    });
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("cancel_auth", { id: "session-one" }),
+    );
+    expect(document.getElementById("use-tokens")?.hidden).toBe(true);
+    expect(document.getElementById("connection-status")?.textContent).toContain(
+      "Not connected",
+    );
+  });
   function review() {
     for (let index = 0; index < 3; index++)
       fireEvent.click(document.getElementById("next")!);
@@ -308,7 +601,7 @@ describe("trusted local desktop settings UI", () => {
     review();
     expect(document.getElementById("review")?.hidden).toBe(false);
     expect(document.getElementById("review-summary")?.textContent).toContain(
-      "Garmin: skipped",
+      "Garmin: not connected",
     );
     expect(document.getElementById("save")?.textContent).toBe(
       "Finish and open Trainer",

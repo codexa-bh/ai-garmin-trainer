@@ -331,29 +331,6 @@ fn cancel_onboarding(
     Ok(())
 }
 #[tauri::command]
-async fn prepare_onboarding_auth(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-    id: String,
-) -> Result<(), String> {
-    setup_only(&window)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let runtime = app.state::<Runtime>();
-        let state = runtime
-            .onboarding
-            .try_lock()
-            .map_err(|_| "Setup is busy.")?;
-        let state = state.as_ref().ok_or("Setup unavailable.")?;
-        if !state.eligible || state.id != id || runtime.quitting.load(Ordering::SeqCst) {
-            return Err("First-run preparation refused.");
-        }
-        onboarding::prepare_root(&state.root)
-    })
-    .await
-    .map_err(|_| "Preparation interrupted.")?
-    .map_err(str::to_owned)
-}
-#[tauri::command]
 async fn finish_onboarding(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
@@ -439,7 +416,6 @@ async fn choose_path(
 async fn start_auth(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
-    destination: String,
     email: String,
     password: String,
 ) -> Result<auth::Status, String> {
@@ -473,10 +449,10 @@ async fn start_auth(
             .auth
             .lock()
             .map_err(|_| "Auth ownership unavailable.")?
-            .start(
+            .start_managed(
                 &resources(&app)?,
                 &executable,
-                PathBuf::from(destination),
+                &app.path().app_data_dir().map_err(|_| "Private app storage unavailable.")?.join("private"),
                 email,
                 password,
             );
@@ -594,7 +570,6 @@ fn main() {
         read_onboarding,
         finish_onboarding,
         cancel_onboarding,
-        prepare_onboarding_auth,
         read_settings,
         save_settings,
         choose_path,
@@ -611,7 +586,6 @@ fn main() {
         read_onboarding,
         finish_onboarding,
         cancel_onboarding,
-        prepare_onboarding_auth,
         read_settings,
         save_settings,
         choose_path,

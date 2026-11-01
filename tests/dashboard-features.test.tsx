@@ -214,7 +214,7 @@ describe("independent dashboard feature ownership", () => {
       "auth",
     ],
     [
-      "Set a literal GARMIN_MCP_TOKEN_DIR in .env.local; no alternate location is searched.",
+      "Open native Settings → Connect Garmin; no alternate connection is searched.",
       "auth",
     ],
     ["Configured token location must be a directory, not a symlink.", "auth"],
@@ -223,11 +223,11 @@ describe("independent dashboard feature ownership", () => {
       "auth",
     ],
     [
-      "Expected Garmin token file is empty; repair the selected store before live verification.",
+      "Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login.",
       "auth",
     ],
     [
-      "Configured Garmin token directory or expected file is missing; repair this location, then perform a separate live verification.",
+      "Configured Garmin connection is missing. Open native Settings → Reconnect Garmin, Save and explicitly quit/reopen.",
       "auth",
     ],
     [
@@ -277,7 +277,7 @@ describe("independent dashboard feature ownership", () => {
     },
     {
       name: "unrelated HTTP",
-      body: '{"status":"blocked","detail":"Expected Garmin token file is empty; repair the selected store before live verification."}',
+      body: '{"status":"blocked","detail":"Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login."}',
       http: 500,
       recovery: null,
     },
