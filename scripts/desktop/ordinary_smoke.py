@@ -341,20 +341,16 @@ def security(run, other):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
-    parser.add_argument('--input-file', required=True, help='Private database-only explicit input selection; no settings/env discovery')
+    from smoke_input import arguments, prepare
+    arguments(parser)
     parser.add_argument('--bundle', required=True, help='Actual unmodified desktop:build .app; copied outside checkout per run')
     parser.add_argument('--prepare-only', action='store_true')
     parser.add_argument('--composer-footer', action='store_true', help='Finite keyless composer selection/reset/draft and wide/narrow masked capture; no provider send')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = private_directory(args.scratch)
-    selection = canonical(args.input_file)
-    if selection.stat().st_mode & 0o777 != 0o600 or selection.stat().st_nlink != 1 or selection.stat().st_uid != os.getuid() or selection.stat().st_size > 8192:
-        raise ValueError('Private bounded single-link selection required')
-    selected = json.loads(selection.read_text())
-    if set(selected) != {'database'}:
-        raise ValueError('Database-only selection required; no credential discovery')
-    database = canonical(selected['database'])
+    prepared = prepare(scratch, args, 'ordinary')
+    database = prepared.database
     bundle = canonical(args.bundle)
     source = source_identity()
     inventory = audit(bundle)
@@ -363,7 +359,7 @@ def main():
         raise ValueError('Ordinary bundle/source mismatch; build current final inputs first')
     runs = []
     observer = None
-    receipt = {'source': source, 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
+    receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
                'scenarioPassed': False, 'composerFooterRequested': args.composer_footer, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
                'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
                'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
@@ -371,7 +367,9 @@ def main():
     errors = []
     try:
         for _ in range(2):
+            prepared.verify_current()
             runs.append(OrdinaryRun(scratch, database, source, bundle, inventory))
+            runs[-1].before_start = prepared.verify_current
             if args.composer_footer:
                 runs[-1].prepare_composer()
         if args.prepare_only:
@@ -379,11 +377,13 @@ def main():
             return
         observer = Observer(scratch)
         for run in runs:
+            prepared.verify_current()
             run.observer = observer
             run.start(run.binary)
         if runs[0].origin == runs[1].origin or runs[0].boot == runs[1].boot:
             raise ValueError('Parallel native/backend namespace collision')
         for run, other in [(runs[0], runs[1]), (runs[1], runs[0])]:
+            prepared.verify_current()
             security(run, other)
             run.verify_admission_denials()
             sentinel = run.scenario()
