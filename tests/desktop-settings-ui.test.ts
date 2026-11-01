@@ -350,6 +350,281 @@ describe("trusted local desktop settings UI", () => {
       false,
     );
   });
+  it("groups normal Memory separately from collapsed maintenance controls with human options", () => {
+    expect(input("MEMORY_ENABLED").closest("#memory-control")).not.toBeNull();
+    expect(
+      input("MEMORY_ENABLED").querySelector('option[value="true"]')
+        ?.textContent,
+    ).toBe("On");
+    expect(
+      input("MEMORY_EMBEDDING_PROVIDER").closest("#memory-configuration"),
+    ).not.toBeNull();
+    for (const key of [
+      "MEMORY_EMBEDDING_DIMS",
+      "MEMORY_TIMEOUT_MS",
+      "MEMORY_EXTRACTION_TIMEOUT_MS",
+      ...fields.filter((f) => f.key.endsWith("_COMMAND")).map((f) => f.key),
+    ])
+      expect(input(key).closest("#advanced-settings")).not.toBeNull();
+    expect(
+      (document.getElementById("advanced-settings") as HTMLDetailsElement).open,
+    ).toBe(false);
+    expect(
+      document.getElementById("memory-processing")?.closest("details"),
+    ).toBeNull();
+    expect(
+      invoke.mock.calls.some(([command]) => command === "read_memory_status"),
+    ).toBe(false);
+  });
+  it.each(["save", "legacy"])(
+    "preserves collapsed/off/disabled custom scalar values through %s without clearing keys",
+    async (action) => {
+      if (action === "legacy") await legacySettings();
+      const custom = {
+        MEMORY_ENABLED: "false",
+        MEMORY_EMBEDDING_PROVIDER: "ollama",
+        MEMORY_EMBEDDING_MODEL: "custom-embedding",
+        MEMORY_EMBEDDING_BASE_URL: "http://127.0.0.1:11435",
+        MEMORY_EMBEDDING_DIMS: "768",
+        MEMORY_TIMEOUT_MS: "15432",
+        MEMORY_EXTRACTION_MODE: "off",
+        MEMORY_EXTRACTION_TIMEOUT_MS: "5432",
+        ...Object.fromEntries(
+          fields
+            .filter((f) => f.key.endsWith("_COMMAND"))
+            .map((f) => [f.key, `/private/synthetic-tools/${f.key}`]),
+        ),
+      };
+      for (const [key, value] of Object.entries(custom))
+        input(key).value = value;
+      input("MEMORY_EMBEDDING_MODEL").disabled = true;
+      fireEvent.change(input("MEMORY_ENABLED"));
+      let captured: unknown;
+      const original = invoke.getMockImplementation()!;
+      invoke.mockImplementation(async (command, args) => {
+        if (
+          command ===
+          (action === "legacy" ? "adopt_provider_settings" : "save_settings")
+        )
+          captured = JSON.parse(JSON.stringify(args));
+        return original(command, args);
+      });
+      if (action === "legacy")
+        fireEvent.click(document.getElementById("reenter-provider")!);
+      else fireEvent.submit(document.getElementById("settings")!);
+      await waitFor(() =>
+        expect(captured).toMatchObject({
+          input: {
+            fields: custom,
+            keys: { OPENAI_API_KEY: { intent: "unchanged" } },
+          },
+        }),
+      );
+      expect(
+        Object.keys((captured as { input: { fields: object } }).input.fields),
+      ).toHaveLength(fields.length);
+      await waitFor(() =>
+        expect(input("MEMORY_EMBEDDING_MODEL").disabled).toBe(false),
+      );
+    },
+  );
+  it("preserves an explicit blank model for validation and reveals invalid collapsed controls", async () => {
+    input("MEMORY_EMBEDDING_MODEL").value = "";
+    let captured: unknown;
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "save_settings")
+        captured = JSON.parse(JSON.stringify(args));
+      return original(command, args);
+    });
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(captured).toMatchObject({
+        input: { fields: { MEMORY_EMBEDDING_MODEL: "" } },
+      }),
+    );
+    const disclosure = document.getElementById(
+      "advanced-settings",
+    ) as HTMLDetailsElement;
+    fireEvent.invalid(input("MEMORY_TIMEOUT_MS"));
+    expect(disclosure.open).toBe(true);
+  });
+  it("retains non-secret failed-write drafts but cancel restores persisted custom values without another write", async () => {
+    const original = invoke.getMockImplementation()!;
+    let writes = 0;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "save_settings") {
+        writes++;
+        throw "Invalid configuration; precommit unchanged";
+      }
+      const result = await original(command, args);
+      if (command === "read_settings")
+        return {
+          ...result,
+          fields: {
+            ...result.fields,
+            MEMORY_EMBEDDING_MODEL: "persisted-custom",
+            MEMORY_TIMEOUT_MS: "15432",
+          },
+        };
+      return result;
+    });
+    input("MEMORY_EMBEDDING_MODEL").value = "draft-custom";
+    input("MEMORY_TIMEOUT_MS").value = "23456";
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "Non-secret draft retained",
+      ),
+    );
+    expect(input("MEMORY_EMBEDDING_MODEL").value).toBe("draft-custom");
+    expect(input("MEMORY_TIMEOUT_MS").value).toBe("23456");
+    expect(
+      (document.getElementById("memory-configuration") as HTMLDetailsElement)
+        .open,
+    ).toBe(true);
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(input("MEMORY_EMBEDDING_MODEL").value).toBe("persisted-custom"),
+    );
+    expect(input("MEMORY_TIMEOUT_MS").value).toBe("15432");
+    expect(writes).toBe(1);
+  });
+  it("distinguishes draft/next-launch from active user-disabled state and never echoes private errors", async () => {
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) =>
+      command === "read_memory_status"
+        ? {
+            configuredEnabled: true,
+            userDisabled: true,
+            effectiveEnabled: false,
+            embeddingProvider: "ollama",
+            extractionMode: "llm",
+            extractionProvider: "deepseek",
+            health: "disabled",
+            ageMs: null,
+          }
+        : original(command, args),
+    );
+    fireEvent.click(document.getElementById("memory-check")!);
+    await waitFor(() =>
+      expect(document.getElementById("memory-active")?.textContent).toContain(
+        "Disabled by the separate Memory panel",
+      ),
+    );
+    expect(input("MEMORY_ENABLED").value).toBe("false");
+    expect(document.getElementById("memory-active")?.textContent).toContain(
+      "DeepSeek cloud",
+    );
+    expect(document.getElementById("memory-draft")?.textContent).toContain(
+      "Draft: Off",
+    );
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(document.getElementById("memory-active")?.textContent).toContain(
+        "unknown",
+      ),
+    );
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "read_memory_status")
+        throw "private-path-key-error-sentinel";
+      return original(command, args);
+    });
+    fireEvent.click(document.getElementById("memory-check")!);
+    await waitFor(() =>
+      expect(document.getElementById("memory-active")?.textContent).toContain(
+        "unavailable or not running",
+      ),
+    );
+    expect(document.body.textContent).not.toContain(
+      "private-path-key-error-sentinel",
+    );
+  });
+  it("expires observations and ignores a delayed status after reload/close", async () => {
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) =>
+      command === "read_memory_status"
+        ? {
+            configuredEnabled: true,
+            userDisabled: false,
+            effectiveEnabled: true,
+            embeddingProvider: "ollama",
+            extractionMode: "off",
+            extractionProvider: "off",
+            health: "local-observed",
+            ageMs: 59999,
+          }
+        : original(command, args),
+    );
+    vi.useFakeTimers();
+    fireEvent.click(document.getElementById("memory-check")!);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.getElementById("memory-active")?.textContent).toContain(
+      "observed recently",
+    );
+    await vi.advanceTimersByTimeAsync(2);
+    expect(document.getElementById("memory-active")?.textContent).toContain(
+      "unknown",
+    );
+    vi.useRealTimers();
+    let resolve: (value: unknown) => void = () => {};
+    invoke.mockImplementation(async (command, args) =>
+      command === "read_memory_status"
+        ? new Promise((done) => {
+            resolve = done;
+          })
+        : original(command, args),
+    );
+    fireEvent.click(document.getElementById("memory-check")!);
+    listeners["desktop-settings-closed"]({ payload: "" });
+    resolve({
+      embeddingProvider: "ollama",
+      extractionProvider: "deepseek",
+      health: "local-observed",
+    });
+    await Promise.resolve();
+    expect(document.getElementById("memory-active")?.textContent).toContain(
+      "unknown",
+    );
+  });
+  it("keeps Memory/custom maintenance draft through first-run navigation and Finish", async () => {
+    await firstRun();
+    review();
+    input("MEMORY_ENABLED").value = "true";
+    input("MEMORY_EMBEDDING_MODEL").value = "custom-first-run";
+    input("GARMIN_FIT_SPEED_COMMAND").value = "/private/synthetic/uv";
+    fireEvent.click(document.getElementById("back")!);
+    fireEvent.click(document.getElementById("next")!);
+    let captured: unknown;
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "finish_onboarding") {
+        captured = JSON.parse(JSON.stringify(args));
+        throw "precommit failure; unchanged";
+      }
+      return original(command, args);
+    });
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(captured).toMatchObject({
+        input: {
+          settings: {
+            fields: {
+              MEMORY_ENABLED: "true",
+              MEMORY_EMBEDDING_MODEL: "custom-first-run",
+              GARMIN_FIT_SPEED_COMMAND: "/private/synthetic/uv",
+            },
+          },
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "precommit failure",
+      ),
+    );
+    expect(input("MEMORY_EMBEDDING_MODEL").value).toBe("custom-first-run");
+  });
   it("serializes duplicate Finish, allows exact cancellation and exposes committed-state retry", async () => {
     await firstRun();
     review();
