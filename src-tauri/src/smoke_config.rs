@@ -72,7 +72,6 @@ impl Config {
             ),
             ("AI_PROVIDER".into(), "ollama".into()),
             ("MEMORY_ENABLED".into(), "false".into()),
-            ("GARMIN_HISTORY_START_DATE".into(), "2024-01-01".into()),
         ]);
         if settings.version != 2 || !settings.keys.is_empty() || settings.fields != expected {
             return Err(
@@ -148,7 +147,7 @@ mod tests {
             &root.join("trainer.sqlite"),
             b"DB preflight remains the real backend owner",
         );
-        let mut settings = serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite"),"AI_PROVIDER":"ollama","MEMORY_ENABLED":"false","GARMIN_HISTORY_START_DATE":"2024-01-01"}});
+        let mut settings = serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite"),"AI_PROVIDER":"ollama","MEMORY_ENABLED":"false"}});
         write(&config.settings(), settings.to_string().as_bytes());
         assert!(config.validate().is_ok());
         settings["keys"]["OPENAI_API_KEY"] =

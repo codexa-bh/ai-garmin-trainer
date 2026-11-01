@@ -422,19 +422,13 @@ pub fn initialize(
         stage = Some(file);
         written.map_err(|_| "Cannot persist fresh database. No destination was replaced.")?;
         // Readonly compatibility verification of exact new output, never migration.
-        let fields = BTreeMap::from([
-            (
-                "DATABASE_PATH".to_owned(),
-                parent_path
-                    .join(stage_name.to_str().map_err(|_| "Invalid staging.")?)
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            (
-                "GARMIN_HISTORY_START_DATE".to_owned(),
-                "2000-01-01".to_owned(),
-            ),
-        ]);
+        let fields = BTreeMap::from([(
+            "DATABASE_PATH".to_owned(),
+            parent_path
+                .join(stage_name.to_str().map_err(|_| "Invalid staging.")?)
+                .to_string_lossy()
+                .into_owned(),
+        )]);
         validate(resources, &fields, cancel, quitting)?;
         parent.verify()?;
         if cancel.load(Ordering::SeqCst) || quitting.load(Ordering::SeqCst) {

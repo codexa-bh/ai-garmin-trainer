@@ -177,6 +177,7 @@ export function TrainerDashboard() {
     syncPillKind,
     syncPillLabel,
     syncNow,
+    cancelSync,
     importSummary,
     refreshSummary,
     athleteBaselineMessage,
@@ -894,6 +895,7 @@ export function TrainerDashboard() {
           syncPillLabel={syncPillLabel}
           runInBackground={runInBackground}
           syncNow={syncNow}
+          cancelSync={cancelSync}
           isSyncing={isSyncing}
           syncRun={syncRun}
           syncLogRef={syncLogRef}

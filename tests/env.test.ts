@@ -22,12 +22,23 @@ describe("environment", () => {
     ).toBe(true);
   });
 
-  it("requires Garmin history start date for runtime", () => {
-    expect(() =>
-      requireRuntimeEnv({
-        DATABASE_PATH: "./x.sqlite",
-        NEXT_PUBLIC_APP_URL: "http://localhost:3000",
-      }),
-    ).toThrow(/GARMIN_HISTORY_START_DATE/);
+  it("accepts missing/blank history limits without supplying a sentinel date", () => {
+    for (const date of [undefined, ""])
+      expect(
+        requireRuntimeEnv({
+          DATABASE_PATH: "./x.sqlite",
+          GARMIN_HISTORY_START_DATE: date,
+        }).GARMIN_HISTORY_START_DATE,
+      ).toBeUndefined();
+  });
+  it("preserves valid legacy limits and rejects malformed/future calendar dates", () => {
+    expect(
+      requireRuntimeEnv({ GARMIN_HISTORY_START_DATE: "2020-02-29" })
+        .GARMIN_HISTORY_START_DATE,
+    ).toBe("2020-02-29");
+    for (const date of ["2020-02-30", "garbage", "9999-01-01"])
+      expect(() =>
+        requireRuntimeEnv({ GARMIN_HISTORY_START_DATE: date }),
+      ).toThrow();
   });
 });

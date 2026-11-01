@@ -80,7 +80,7 @@ describe("concrete Garmin wire/FIT/archive adapter", () => {
   it("archives an activity page before normalization can fail and retains page size/continuation", async () => {
     const f = fixture();
     vi.mocked(f.ports.connector.callTool).mockResolvedValueOnce(
-      '{"activities":[null]}',
+      '{"activities":[null],"has_more":false}',
     );
     await expect(
       f.reader.activityPage("2026-09-19", "2026-09-21", 3),
@@ -187,12 +187,14 @@ describe("concrete Garmin wire/FIT/archive adapter", () => {
     expect(f.ports.fit.baseline).not.toHaveBeenCalled();
   });
 
-  it("retains non-JSON text as a message object and treats array detail as unrecognized", async () => {
+  it("rejects unrecognized text without reflecting it and treats array detail as unrecognized", async () => {
     const f = fixture();
     vi.mocked(f.ports.connector.callTool).mockResolvedValueOnce(
       "  not supported  ",
     );
-    expect(await f.reader.profile()).toEqual({ message: "not supported" });
+    await expect(f.reader.profile()).rejects.toThrow(
+      "upstream details are withheld",
+    );
     vi.mocked(f.ports.connector.callTool).mockResolvedValueOnce("[]");
     expect(await f.reader.activityDetail("1")).toMatchObject({
       recognized: false,

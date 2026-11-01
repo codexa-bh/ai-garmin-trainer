@@ -118,6 +118,7 @@ export function mergeFitDistanceRecords(
 
 export async function fetchFitDistanceWithLocalWrapper(
   garminId: string,
+  options?: { signal: AbortSignal; timeout: number },
 ): Promise<unknown> {
   const scriptPath = join(
     process.cwd(),
@@ -140,7 +141,9 @@ export async function fetchFitDistanceWithLocalWrapper(
   ];
   try {
     const { stdout } = await execFileAsync(command, args, {
-      timeout: 120_000,
+      timeout: options?.timeout ?? 120_000,
+      signal: options?.signal,
+      killSignal: "SIGTERM",
       maxBuffer: 8 * 1024 * 1024,
       env: garminTokenEnvironment(),
     });

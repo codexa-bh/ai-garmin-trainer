@@ -60,7 +60,6 @@ export function seed(scratch: string, name: string): string {
       DATABASE_PATH: path,
       AI_PROVIDER: "ollama",
       MEMORY_ENABLED: "false",
-      GARMIN_HISTORY_START_DATE: "2024-01-01",
     });
   } finally {
     db.close();

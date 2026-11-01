@@ -119,9 +119,6 @@ async function refresh() {
     if (firstRun && !saved.saved) {
       byId("DATABASE_PATH").value = onboarding.database;
       byId("destination").value = onboarding.tokens;
-      byId("GARMIN_HISTORY_START_DATE").value = new Date()
-        .toISOString()
-        .slice(0, 10);
     }
     renderStep();
     status.textContent = firstRun
@@ -161,7 +158,7 @@ function createField(field) {
       ? "advanced"
       : field.key === "GARMIN_MCP_TOKEN_DIR"
         ? "garmin-fields"
-        : ["DATABASE_PATH", "GARMIN_HISTORY_START_DATE"].includes(field.key)
+        : field.key === "DATABASE_PATH"
           ? "data-fields"
           : "normal",
   );

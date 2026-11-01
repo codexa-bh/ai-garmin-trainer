@@ -157,8 +157,16 @@ describe("HTTP through real production composition, reader and SQLite", () => {
         storedActivities: 1,
         storedHealthRows: 1,
       });
-      expect(repo.getCheckpoint("activity_page")).toBe("0");
-      expect(repo.getCheckpoint("health_next_date")).toBe("2026-09-22");
+      expect(repo.getCheckpoint("activity_page")).toBeNull();
+      expect(repo.getCheckpoint("health_next_date")).toBeNull();
+      expect(
+        JSON.parse(repo.getCheckpoint("garmin_history_v1")!),
+      ).toMatchObject({
+        version: 1,
+        limit: "2026-09-21",
+        remoteLowerBound: null,
+        outcome: "settled",
+      });
     }
     expect(state.starts).toBe(2);
     expect(state.closes).toBe(2);
@@ -246,7 +254,7 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     expect(events.at(-1)).toMatchObject({
       type: "result",
       status: "failed",
-      detail: "startup failed",
+      detail: expect.stringContaining("connector or storage failure"),
     });
     expect(state.closes).toBe(1);
   });

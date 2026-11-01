@@ -130,7 +130,7 @@ class Run:
         self.config = {'runId': self.id, 'token': os.urandom(32).hex(), 'root': str(self.root), 'source': source, 'port': port()}
         private_json(self.root / 'config.json', self.config)
         private_json(self.root / 'config/settings-v2.json', {'version': 2, 'keys': {}, 'fields': {
-            'DATABASE_PATH': str(self.database), 'AI_PROVIDER': 'ollama', 'MEMORY_ENABLED': 'false', 'GARMIN_HISTORY_START_DATE': '2024-01-01'}})
+            'DATABASE_PATH': str(self.database), 'AI_PROVIDER': 'ollama', 'MEMORY_ENABLED': 'false'}})
         private_json(self.root / 'provenance.json', {'source': source, 'original': self.original, 'copy': 'SQLite online backup', 'primaryWriteRequested': False})
         self.child = None
         self.origin = None

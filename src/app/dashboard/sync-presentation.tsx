@@ -117,12 +117,16 @@ export function formatSyncResultLine(event: SyncProgressEvent): string {
     );
   }
   if (status !== "completed" && event.detail) {
-    parts.push(`failure detail ${event.detail}`);
+    parts.push(
+      `${status === "failed" ? "failure detail" : "history status"} ${event.detail}`,
+    );
   }
   return `Result: ${status} — ${parts.join("; ")}.`;
 }
 
 export function formatSyncFinalMessage(event: SyncProgressEvent): string {
+  if (event.status === "cancelled" || event.status === "budget-limited")
+    return `Sync paused. ${event.detail ?? "Continue explicitly; history remains incomplete."}`;
   if (event.status !== "completed") {
     return `Sync failed. ${event.detail ?? "See the current-run log for details."}`;
   }
@@ -139,7 +143,7 @@ export function formatSyncFinalMessage(event: SyncProgressEvent): string {
   ]
     .filter(Boolean)
     .join("; ");
-  return `Sync complete. Summary refreshed for ${event.storedActivities ?? "unknown"} stored activities and ${event.storedHealthRows ?? "unknown"} health rows.${healthCoverage}${profileStatus ? ` ${profileStatus}.` : ""}`;
+  return `Sync complete. Summary refreshed for ${event.storedActivities ?? "unknown"} stored activities and ${event.storedHealthRows ?? "unknown"} health rows.${healthCoverage}${profileStatus ? ` ${profileStatus}.` : ""}${event.continuationAvailable ? " History remains incomplete; continue explicitly. Remote earliest history is unknown." : ""}`;
 }
 
 export function formatHealthCoverageSummary(

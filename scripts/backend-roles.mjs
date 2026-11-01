@@ -117,6 +117,7 @@ const groups = [
       "detail-types",
       "import-contracts",
       "import-policy",
+      "history-policy",
       "import-ports",
       "normalize",
       "sync",

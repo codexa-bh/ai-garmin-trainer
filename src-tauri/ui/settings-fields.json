@@ -11,8 +11,9 @@
   },
   {
     "key": "GARMIN_HISTORY_START_DATE",
-    "label": "Garmin history start date",
-    "type": "date"
+    "label": "Optional history exploration limit — blank for automatic discovery (not remote coverage)",
+    "type": "date",
+    "advanced": true
   },
   {
     "key": "AI_PROVIDER",
