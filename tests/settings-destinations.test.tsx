@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
+import { readFileSync } from "node:fs";
 import {
   act,
   cleanup,
@@ -74,6 +75,28 @@ beforeEach(stubNativeDialog);
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+it("bounds expanded chat model content above shared card overflow rules", () => {
+  const css = readFileSync("src/app/style.css", "utf8");
+  // The compound selector must outrank the later shared .settings-card rule.
+  // Otherwise actual WebKit paints the bounded card's children over chat.
+  expect(css).toMatch(
+    /\.settings-card\.chat-model-control\s*\{[^}]*max-height:\s*35vh;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;/,
+  );
+  expect(css).toMatch(
+    /\.settings-card\.chat-model-control\s*>\s*label\s*\{[^}]*margin:\s*12px 16px;/,
+  );
+});
+
+it("keeps relocated Sync groups content-sized inside the outer scroll region", () => {
+  const css = readFileSync("src/app/style.css", "utf8");
+  expect(css).toMatch(
+    /\.sync-view-content\s*\{[^}]*grid-auto-rows:\s*max-content;[^}]*align-content:\s*start;/,
+  );
+  expect(css).toMatch(
+    /\.sync-metrics-card\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/,
+  );
 });
 
 it("loads the model on initial chat without Profile, retains drafts and returns Profile focus on Escape/backdrop", async () => {
@@ -185,7 +208,7 @@ it("keeps maintenance requests, blank rejection, failures and late feedback in S
     ),
   ).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Force refresh detail" }));
-  await screen.findByRole("alert");
+  await screen.findByRole("alert", { name: "Garmin maintenance feedback" });
   expect(
     screen.getByText("Enter an imported Garmin activity ID first."),
   ).toBeTruthy();

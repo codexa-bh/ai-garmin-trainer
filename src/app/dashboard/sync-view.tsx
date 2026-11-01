@@ -279,6 +279,7 @@ export function SyncView({
           ) : (
             <pre
               className={`status ${status.kind}`}
+              aria-label="Garmin maintenance feedback"
               aria-live="polite"
               role={status.kind === "error" ? "alert" : "status"}
             >
