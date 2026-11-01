@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { HealthDashboardView } from "../src/app/dashboard/health-metrics";
+import { ModelSettingsCard } from "../src/app/dashboard/model-settings-card";
+import { useModelSettings } from "../src/app/dashboard/use-model-settings";
+import type { ModelSettingsSnapshot } from "../src/lib/model-settings/contracts";
 import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
 
 declare global {
@@ -94,7 +97,234 @@ function DebugFixture() {
   );
 }
 
+const footerOptions = [
+  {
+    id: "entry_footer_long",
+    provider: "ollama" as const,
+    modelId: "T0246/Long-local-model-name:exact-tag",
+    displayName:
+      "T0246 long descriptive local model selection for narrow composer footer",
+    label:
+      "T0246 long descriptive local model selection for narrow composer footer — ollama / T0246/Long-local-model-name:exact-tag",
+    available: true,
+  },
+  {
+    id: "entry_footer_other",
+    provider: "ollama" as const,
+    modelId: "T0246/Alternate:Tag",
+    displayName: "T0246 alternate",
+    label: "T0246 alternate — ollama / T0246/Alternate:Tag",
+    available: true,
+  },
+];
+function composerFixture() {
+  const posts = vi.fn();
+  const fetcher = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method && init.method !== "PATCH") posts();
+    const saved = init?.body === '{"modelId":"entry_footer_long"}';
+    const selected = footerOptions[saved ? 0 : 1];
+    const body: ModelSettingsSnapshot = {
+      version: 2,
+      options: footerOptions,
+      selected: saved ? selected.id : null,
+      defaultEntryId: footerOptions[1].id,
+      effective: {
+        entryId: selected.id,
+        provider: selected.provider,
+        modelName: selected.modelId,
+        source: saved ? "saved" : "env",
+        available: true,
+      },
+    };
+    return Promise.resolve(new Response(JSON.stringify(body)));
+  });
+  vi.stubGlobal("fetch", fetcher);
+  function Fixture() {
+    const model = useModelSettings(true);
+    const [draft, setDraft] = useState("");
+    return (
+      <>
+        <div className="trainer-heading-row">
+          <p className="section-kicker">Daily trainer</p>
+          <h2>Chat with your private coach</h2>
+        </div>
+        <div className="transcript">private copied transcript</div>
+        <div className="composer-dock">
+          <textarea
+            aria-label="Message"
+            value={draft}
+            onInput={(event) => setDraft(event.currentTarget.value)}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+          />
+          <div className="composer-submit-group">
+            <ModelSettingsCard modelSettings={model} />
+            <button disabled={!draft} onClick={posts}>
+              Send
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+  render(<Fixture />);
+  return { fetcher, posts };
+}
+
 describe("native-installed rendered smoke boundary", () => {
+  it("drives fixed actual model owner selection/reset and synthetic draft/keys, returning only booleans and masking all copied content", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 850);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const isText = this.tagName === "TEXTAREA";
+        const left = isText ? 100 : this.tagName === "SELECT" ? 500 : 730;
+        const width = isText ? 800 : this.tagName === "SELECT" ? 220 : 80;
+        const top = isText ? 500 : 610;
+        return {
+          left,
+          right: left + width,
+          top,
+          bottom: top + 40,
+          width,
+          height: 40,
+        } as DOMRect;
+      },
+    );
+    const { fetcher, posts } = composerFixture();
+    await waitFor(() =>
+      expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(
+      (await command({ type: "composer", action: "draft" })).result
+        .draftMatches,
+    ).toBe(true);
+    expect(
+      (await command({ type: "composer", action: "keys" })).result.keysNoSend,
+    ).toBe(true);
+    await command({ type: "composer", action: "choose" });
+    await screen.findByRole("button", { name: "Reset to configured default" });
+    const observed = (await command({ type: "composer", action: "observe" }))
+      .result;
+    for (const key of [
+      "modelReady",
+      "singleControl",
+      "footerOrder",
+      "fitsViewport",
+      "draftMatches",
+      "textareaStable",
+      "savedChoice",
+      "keysNoSend",
+    ])
+      expect(observed[key]).toBe(true);
+    expect(JSON.stringify(observed)).not.toMatch(
+      /private|exact-tag|T0246-composer-unit/,
+    );
+    expect(
+      (await command({ type: "captureView", view: "composer", preset: "wide" }))
+        .result.ok,
+    ).toBe(true);
+    expect(
+      getComputedStyle(screen.getByText("private copied transcript"))
+        .visibility,
+    ).toBe("hidden");
+    expect(getComputedStyle(screen.getByRole("combobox")).visibility).toBe(
+      "visible",
+    );
+    expect(
+      getComputedStyle(screen.getByRole("textbox", { name: "Message" }))
+        .visibility,
+    ).toBe("visible");
+    expect(
+      document.getElementById("trainer-smoke-sanitizer")?.textContent,
+    ).not.toMatch(/position|display|width|height/);
+    smoke.__trainerSmokeRestore();
+    await command({ type: "composer", action: "reset" });
+    await screen.findByRole("option", {
+      name: `Default · ${footerOptions[1].label}`,
+    });
+    expect(
+      (await command({ type: "composer", action: "observe" })).result
+        .defaultChoice,
+    ).toBe(true);
+    expect(
+      fetcher.mock.calls
+        .filter(([, init]) => init?.method === "PATCH")
+        .map(([, init]) => init?.body),
+    ).toEqual(['{"modelId":"entry_footer_long"}', '{"modelId":null}']);
+    expect(posts).not.toHaveBeenCalled();
+  });
+  it("refuses composer privileges, unknown/extra/private values, copied drafts/catalog captures and non-Trainer surfaces", async () => {
+    expect(
+      (await command({ type: "composer", action: "draft" })).result.ok,
+    ).toBe(false);
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 850);
+    const { posts, fetcher } = composerFixture();
+    await waitFor(() =>
+      expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
+        false,
+      ),
+    );
+    for (const action of [
+      "send",
+      "cancel",
+      "login",
+      "select",
+      "capture",
+      "eval",
+    ])
+      expect((await command({ type: "composer", action })).result.ok).toBe(
+        false,
+      );
+    for (const extra of [
+      { value: "private" },
+      { selector: "textarea" },
+      { modelId: "entry_private" },
+      { key: "Enter" },
+    ])
+      expect(
+        (await command({ type: "composer", action: "choose", ...extra })).result
+          .ok,
+      ).toBe(false);
+    const textarea = screen.getByRole("textbox", {
+      name: "Message",
+    }) as HTMLTextAreaElement;
+    textarea.value = "private preexisting draft";
+    expect(
+      (await command({ type: "composer", action: "draft" })).result.ok,
+    ).toBe(false);
+    expect(
+      (await command({ type: "captureView", view: "composer", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    textarea.value = "";
+    await command({ type: "composer", action: "draft" });
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    select.options[1].textContent = "private unexpected model label";
+    expect(
+      (await command({ type: "composer", action: "choose" })).result.ok,
+    ).toBe(false);
+    expect(
+      (await command({ type: "captureView", view: "composer", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+    const aside = document.createElement("aside");
+    aside.className = "settings-sheet";
+    document.body.append(aside);
+    expect(
+      (await command({ type: "composer", action: "observe" })).result.ok,
+    ).toBe(false);
+    expect(posts).not.toHaveBeenCalled();
+    expect(
+      fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+    ).toHaveLength(0);
+  });
   it("ordinary mode rejects debug disclosure, Health and Settings controls and observations", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     const click = vi.fn();

@@ -227,6 +227,186 @@
       // No copied text, control values, transcripts or diagnostics leave the renderer.
     };
   }
+  const footerEntries = [
+    [
+      "entry_footer_long",
+      "T0246 long descriptive local model selection for narrow composer footer — ollama / T0246/Long-local-model-name:exact-tag",
+    ],
+    ["entry_footer_other", "T0246 alternate — ollama / T0246/Alternate:Tag"],
+  ];
+  let composerTextarea;
+  let keysNoSend = false;
+  const composerDraft = () =>
+    `T0246-composer-${globalThis.__trainerOrdinaryIsolated?.runId}`;
+  function composerElements() {
+    if (!globalThis.__trainerOrdinaryIsolated || observe().view !== "Trainer")
+      throw Error("Ordinary isolated Trainer only");
+    const textareas = [
+      ...document.querySelectorAll(
+        '.composer-dock textarea[aria-label="Message"]',
+      ),
+    ].filter(visible);
+    const selects = [
+      ...document.querySelectorAll('select[aria-label="Trainer model"]'),
+    ].filter(visible);
+    const sends = [
+      ...document.querySelectorAll(".composer-dock button"),
+    ].filter((el) => visible(el) && name(el) === "Send");
+    if (textareas.length !== 1 || selects.length !== 1 || sends.length !== 1)
+      throw Error("Composer unavailable/ambiguous");
+    return { textarea: textareas[0], select: selects[0], send: sends[0] };
+  }
+  function knownFooterCatalog(select) {
+    const options = [...select.options];
+    return (
+      options.length >= 2 &&
+      options.length <= 3 &&
+      footerEntries.every(([id, label]) =>
+        options.some(
+          (option) =>
+            option.value === id &&
+            option.textContent === label &&
+            !option.disabled,
+        ),
+      ) &&
+      options.every(
+        (option) =>
+          footerEntries.some(
+            ([id, label]) =>
+              option.value === id && option.textContent === label,
+          ) ||
+          (option.value === "" &&
+            option.disabled &&
+            [
+              `Default · ${footerEntries[1][1]}`,
+              "Unavailable saved entry",
+            ].includes(option.textContent)),
+      )
+    );
+  }
+  function composerObservation(action) {
+    const { textarea, select, send } = composerElements();
+    const rects = [textarea, select, send].map((el) =>
+      el.getBoundingClientRect(),
+    );
+    const [field, model, submit] = rects;
+    return {
+      ok: true,
+      action,
+      trustedInput: false,
+      modelReady: !select.disabled && knownFooterCatalog(select),
+      singleControl:
+        document.querySelectorAll('select[aria-label="Trainer model"]')
+          .length === 1 &&
+        !document.querySelector(".trainer-heading-row select"),
+      footerOrder:
+        textarea.compareDocumentPosition(select) ===
+          Node.DOCUMENT_POSITION_FOLLOWING &&
+        select.closest(".chat-model-control")?.nextElementSibling === send,
+      fitsViewport:
+        rects.every(
+          (rect) =>
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.left >= 0 &&
+            rect.right <= innerWidth &&
+            rect.top >= 0 &&
+            rect.bottom <= innerHeight,
+        ) &&
+        model.top >= field.bottom &&
+        model.right <= submit.left &&
+        document.documentElement.scrollWidth <= innerWidth,
+      draftMatches: textarea.value === composerDraft(),
+      textareaStable: textarea === composerTextarea,
+      savedChoice:
+        select.value === footerEntries[0][0] &&
+        Boolean(
+          document.querySelector(
+            '.chat-model-control button[aria-label="Reset to configured default"]',
+          ),
+        ),
+      defaultChoice:
+        select.value === "" &&
+        select.selectedOptions[0]?.textContent ===
+          `Default · ${footerEntries[1][1]}`,
+      keysNoSend,
+    };
+  }
+  function composerAction(command) {
+    if (
+      Object.keys(command).sort().join(",") !== "action,type" ||
+      !["observe", "draft", "choose", "reset", "keys"].includes(command.action)
+    )
+      throw Error("Unsupported composer action/fields");
+    const { textarea, select } = composerElements();
+    if (
+      command.action !== "observe" &&
+      (select.disabled || !knownFooterCatalog(select) || textarea.disabled)
+    )
+      throw Error("Composer not ready or catalog private");
+    if (command.action === "draft") {
+      if (textarea.value && textarea.value !== composerDraft())
+        throw Error("Existing draft is private");
+      composerTextarea = textarea;
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      ).set.call(textarea, composerDraft());
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (command.action === "choose") {
+      Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      ).set.call(select, footerEntries[0][0]);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (command.action === "reset") {
+      target("Reset to configured default").click();
+    } else if (command.action === "keys") {
+      if (textarea.value !== composerDraft() || textarea !== composerTextarea)
+        throw Error("Synthetic draft required");
+      const transcript = document.querySelector(".transcript")?.textContent;
+      select.focus();
+      for (const key of ["Enter", " "]) {
+        for (const type of ["keydown", "keypress", "keyup"])
+          select.dispatchEvent(
+            new KeyboardEvent(type, { key, bubbles: true, cancelable: true }),
+          );
+      }
+      keysNoSend =
+        textarea.value === composerDraft() &&
+        textarea === composerTextarea &&
+        transcript === document.querySelector(".transcript")?.textContent;
+      if (!keysNoSend) throw Error("Selector keys changed composer/transcript");
+    }
+    return composerObservation(command.action);
+  }
+  function revealComposer() {
+    const { textarea, select, send } = composerElements();
+    const observation = composerObservation("observe");
+    if (
+      !observation.modelReady ||
+      !observation.draftMatches ||
+      !observation.textareaStable
+    )
+      throw Error("Capture requires canonical synthetic composer");
+    const reveal = (el) => el.setAttribute("data-smoke-reveal", "");
+    [textarea, select, ...select.options, send].forEach(reveal);
+    for (const el of document.querySelectorAll(
+      ".trainer-heading-row h2, .trainer-heading-row .section-kicker, .chat-model-control label, .chat-model-control button, .chat-model-save-state",
+    )) {
+      if (
+        [
+          "Chat with your private coach",
+          "Daily trainer",
+          "Model",
+          "Default",
+          "Saved",
+        ].includes(el.textContent.trim())
+      )
+        reveal(el);
+    }
+  }
   let maskExpiry;
   function restore() {
     clearTimeout(maskExpiry);
@@ -243,6 +423,7 @@
       throw Error("Unsupported viewport/mode");
     const expected = {
       trainer: "Trainer",
+      composer: "Trainer",
       sync: "Sync",
       profile: "Profile & data",
     }[command.view];
@@ -287,6 +468,7 @@
       if (pill?.textContent.trim() === "Profile saved")
         pill.setAttribute("data-smoke-reveal", "");
     }
+    if (command.view === "composer") revealComposer();
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";
     style.textContent =
@@ -318,6 +500,8 @@
     switch (command.type) {
       case "observe":
         return observe();
+      case "composer":
+        return composerAction(command);
       case "click": {
         if (["LLM debug traces", "First LLM trace"].includes(command.target)) {
           debugSummary(command.target === "First LLM trace").click();

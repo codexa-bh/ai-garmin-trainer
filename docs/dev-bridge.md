@@ -22,6 +22,32 @@ Two authenticated release-native/source/artifact/boot/selected-copy identities a
 
 The baseline is keyless. No real provider/Garmin success is implied; separately provisioned run-native settings and explicit token copies are required for available real integration checks through the verified owned backend. Never read back keys, copy normal settings, generate env files or automate sign-in/MFA. Existing debug, quick and release-probe regressions remain independent. Focus is sampled every 10ms without activation/restoration; absence of a live operator instance must be disclosed, not manufactured. Only live child handles authorize shutdown; verify native reaping, backend/control endpoints and DB/run lease settlement. Copies/Goals stay task-attributed until scratch expiry; no primary mutation/copy-back or worktree disposal.
 
+### Opt-in composer-footer evidence
+
+Add `--composer-footer` to `smoke:ordinary` for the finite keyless footer scenario. It
+prepares only run-native v3 settings with two fixed synthetic Ollama catalog entries
+(one long friendly/provider/exact-ID label), leaving originals and the existing v2
+run configuration intact. No new DB seed, provider/daemon request or live credentials.
+The ordinary-only `composer` command accepts only `observe`, `draft`, `choose`,
+`reset`, `keys`, with no caller input/ID/key/selector. It uses a fixed run-ID draft,
+actual React selection and Default handlers, and synthetic DOM Enter/Space on the
+selector. Boolean-only results describe readiness, single-control/DOM order, real
+viewport fit, draft/node identity, saved/default choice and key-no-send observation;
+no copied text or model identity is returned. These keys are **not native-generated,
+trusted or hardware input**; active-window routing/focus styling remains uncertified.
+
+The runner verifies saved/reset metadata through its verified owned backend and
+unchanged saved chat data, then captures saved-long-label and reset-default states
+at the existing wide/narrow presets using `captureView` with fixed `view:composer`.
+The mask reveals only validated known synthetic catalog/draft, static heading/Model/
+Send/Default and fixed Saved text at their real geometry. All copied conversations,
+transcripts, facts, diagnostics and unknown values remain hidden. Capture requires the
+canonical synthetic state, with normal restoration/expiry on every outcome. Inspect
+actual images separately. Error/loading layout remains deterministic coverage when
+not exercised natively; no provider send/streaming or trusted keyboard claim follows.
+Copies/preferences/draft/Goals/images are task-attributed and scratch-expiry deferred.
+Default ordinary/debug/quick scenarios gain no extra workload or privileges.
+
 ## Run the representative scenario
 
 This existing **debug-only** populated-copy command remains unchanged:
@@ -171,7 +197,7 @@ Safe, bounded task-needed smoke-bridge/runner evolution is **expected and wanted
 
 - `GET /identity`: authenticated schema/run/source/native PID/app/copy/origin plus fixed renderer-diagnostic booleans. Does not imply readiness.
 - `POST /command`: `{requestId,expectedRunId,command}`. UUID request/run identities, exact `Host: 127.0.0.1:<port>`, bearer capability and `X-Smoke-Run` are mandatory. Ordinary requests also require exact `expectedBoot`; result callbacks bind that same native boot. Capability stays in private config/client memory/header, never argv/URL/logs/receipts. Every browser Origin/Sec-Fetch-Site is refused; no CORS grant.
-- Shared closed actions: `observe`; exact main navigation/back/Profile-close/save/reload clicks; **synthetic Goals only** input/assert. Ordinary adds only fixed `setViewport`/`captureView` presets. Debug alone retains Profile `capture`, finite `health` actions above, synthetic `captureDebug`, outer **LLM debug traces**/**First LLM trace** clicks and fixed **Enter**/**Space** `debugKey`. Debug-only `settings` dispatch uses its exact admitted legacy Config and native local-document completion, never the trainer callback. All Settings/Health/disclosure variants and native input/setup modules compile out of ordinary release; ordinary native/renderer guards reject those debug controls. No arbitrary selector/path/key, credential/login, general scroll/select/eval/invoke, state injection, HTTP/filesystem/process proxy or shutdown. Hidden/disabled/ambiguous/private/prehydration targets refuse before dispatch.
+- Shared closed actions: `observe`; exact main navigation/back/Profile-close/save/reload clicks; **synthetic Goals only** input/assert. Ordinary adds fixed `setViewport`/`captureView` presets plus the finite opt-in composer actions above (composer captures require its canonical synthetic state). Debug alone retains Profile `capture`, finite `health` actions above, synthetic `captureDebug`, outer **LLM debug traces**/**First LLM trace** clicks and fixed **Enter**/**Space** `debugKey`. Debug-only `settings` dispatch uses its exact admitted legacy Config and native local-document completion, never the trainer callback. All Settings/Health/disclosure variants and native input/setup modules compile out of ordinary release; ordinary native/renderer guards reject those debug controls. No arbitrary selector/path/key, credential/login, general scroll/select/eval/invoke, state injection, HTTP/filesystem/process proxy or shutdown. Hidden/disabled/ambiguous/private/prehydration targets refuse before dispatch.
 - Ordinary observations retain only fixed view/navigation/headings/readiness/saved booleans. Debug alone adds fixed Health mode/availability booleans and optional disclosure booleans/three same-length boolean arrays (at most 128 entries); unknown keys/text, inconsistent shapes/bounds and action-mismatched results refuse natively. Remembered Health dates remain inside the debug bootstrap, never results. No copied values/transcripts/trace text/private credentials leave the renderer. Clicks/Goals/Health are synthetic DOM events; opt-in debug keys are native-generated WebView-local events, never hardware/global input. Ordinary uses neither those keys nor debug Health/Settings actions.
 - Only the exact admitted trainer origin/window receives its result-only permission (`allow-isolated-result` for ordinary; legacy debug permission remains debug-only). No remote settings/auth grant is added. Callback validates run/boot/window/origin, bound and exact pending request; native validates closed result keys, enums/booleans and command correspondence, never arbitrary renderer JSON/text. Ordinary Goals equal this run's sentinel. Capture selectors/geometry/paths are never caller supplied; debug subtree captures do not certify ordinary layout. Keyless debug Settings has independently typed bounded native completion and adds no renderer result permission.
 - One request at a time; 16 KiB total request; two-second total read deadline; no duplicate/chunked framing; 4096 unique request IDs/run; five-second renderer deadline; 16 KiB callback result; four-second/4 MiB PNG bound. Unknown fields/commands refuse. Late/duplicate/unknown results cannot complete newer requests. Complete PNG framing and dimensions are checked; native publishes an exclusive 0600 temporary atomically without replacing an existing capture, confined to the run's `screenshots/`.
