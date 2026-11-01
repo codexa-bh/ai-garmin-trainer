@@ -32,7 +32,7 @@ Only use assembler-only immediately after a same-input production build; existin
 
 Resources include production standalone output/static assets, the complete pinned production Next custom-server package, native SQLite, bundled launcher/Zod, four FIT Python helpers/token-location module, and the first-party `garmin_auth.py` plus its uv script lock. Auth uses reviewed `garminconnect==0.3.2` directly, not the upstream CLI. External uv/Python remain operator-owned. Private env/data/tokens/logs are never packaged. `provenance.json`, Node license and third-party notices accompany local builds; metadata is not redistribution authorization.
 
-Resources are immutable: desktop disables ISR disk flushing/image optimization, bounds memory cache and disables Python bytecode writes. Private state/WebView storage stays outside the bundle. The supervisor drains and discards incidental output, accepting only bounded allowlisted startup messages; vendor/framework stdout/stderr are not diagnostics.
+Resources are immutable: desktop disables ISR disk flushing/image optimization, bounds memory cache and disables Python bytecode writes. The trusted build configuration is installed through Next's standalone configuration path and retained across framework env reset; the custom-server wrapper does not forward its direct `conf` option to the router. Provider values never enter that serialized build configuration. Private state/WebView storage stays outside the bundle. The supervisor drains and discards incidental output, accepting only bounded allowlisted startup messages; vendor/framework stdout/stderr are not diagnostics.
 
 ## Explicit private-state adoption
 

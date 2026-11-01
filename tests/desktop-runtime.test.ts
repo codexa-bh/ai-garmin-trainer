@@ -47,6 +47,52 @@ describe("desktop reference boundary", () => {
     expect(original.experimental.isrFlushToDisk).toBe(true);
     expect(original.images.unoptimized).toBe(false);
   });
+  it.each([false, true])(
+    "applies immutable desktop config through the actual router loader (initial env captured: %s)",
+    (captured) => {
+      const base = directory();
+      const script = `
+      const {join}=require('node:path');
+      const {configureDesktopNext}=require(join(process.cwd(),'scripts/desktop/config.ts'));
+      const {loadEnvConfig}=require('@next/env');
+      const loadConfig=require('next/dist/server/config').default;
+      const {PHASE_PRODUCTION_SERVER}=require('next/constants');
+      (async()=>{
+        const captured=process.argv[2]==='true';
+        if(captured) loadEnvConfig(process.argv[1],false,{info(){},error(){}},true);
+        process.env.OPENAI_API_KEY='T0235-synthetic-private-overlay';
+        configureDesktopNext({experimental:{isrFlushToDisk:true},images:{unoptimized:false}});
+        if(captured){
+          delete process.env.__NEXT_PRIVATE_STANDALONE_CONFIG;
+          loadEnvConfig(process.argv[1],false,{info(){},error(){}},true);
+        }
+        // NextCustomServer's router loads config WITHOUT the direct conf option.
+        const config=await loadConfig(PHASE_PRODUCTION_SERVER,process.argv[1],{silent:true});
+        console.log(JSON.stringify({diskFlush:config.experimental.isrFlushToDisk,unoptimized:config.images.unoptimized,memoryBytes:config.cacheMaxMemorySize,overlayRetained:process.env.OPENAI_API_KEY==='T0235-synthetic-private-overlay',noProviderInConfig:!process.env.__NEXT_PRIVATE_STANDALONE_CONFIG.includes('T0235-synthetic-private-overlay')}));
+      })().catch(()=>{console.error('Desktop config loader regression failed');process.exit(1)});
+    `;
+      const result = execFileSync(
+        process.execPath,
+        ["--import", "tsx", "-e", script, base, String(captured)],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          env: {
+            PATH: process.env.PATH,
+            HOME: process.env.HOME,
+            NODE_ENV: "production",
+          },
+        },
+      );
+      expect(JSON.parse(result)).toEqual({
+        diskFlush: false,
+        unoptimized: true,
+        memoryBytes: 50 * 1024 * 1024,
+        overlayRetained: true,
+        noProviderInConfig: true,
+      });
+    },
+  );
   it("retains the absolute private overlay across Next environment resets", () => {
     const base = directory();
     const database = join(base, "populated.sqlite");
