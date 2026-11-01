@@ -4,7 +4,7 @@ import {
   act,
   cleanup,
   fireEvent,
-  render as renderView,
+  render,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -36,23 +36,6 @@ function Harness({ open = true }: { open?: boolean }) {
   const modelSettings = useModelSettings(open);
   return open ? <ModelSettingsCard modelSettings={modelSettings} /> : null;
 }
-function render(ui: React.ReactElement) {
-  const view = renderView(ui);
-  function openControl() {
-    const summary = screen.queryByText("Trainer model", {
-      selector: "summary",
-    });
-    if (summary && !summary.closest("details")?.open) fireEvent.click(summary);
-  }
-  openControl();
-  return {
-    ...view,
-    rerender(next: React.ReactElement) {
-      view.rerender(next);
-      openControl();
-    },
-  };
-}
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -79,10 +62,40 @@ it.each([2, 1, 0])(
     expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
       count === 0,
     );
+    expect(
+      screen.getByRole("option", { name: "Default · custom-local" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("combobox").closest("details")).toBeNull();
     if (!count) expect(screen.getByText(/No selectable models/)).toBeTruthy();
     expect(fetcher).toHaveBeenCalledTimes(1);
   },
 );
+
+it("shows the actual custom configured model inline instead of an empty choice prompt", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      response({
+        ...snapshot(),
+        effective: {
+          provider: "openai",
+          modelName: "gpt-6.1-sol",
+          source: "env",
+          available: true,
+        },
+      }),
+    ),
+  );
+  render(<Harness />);
+  expect(
+    await screen.findByRole("option", { name: "Default · gpt-6.1-sol" }),
+  ).toBeTruthy();
+  const control = screen.getByRole("combobox", { name: "Trainer model" });
+  expect(control.closest("details, .settings-card")).toBeNull();
+  expect(control.getAttribute("title")).toContain("openai / gpt-6.1-sol");
+  expect(screen.queryByText("Choose a configured model")).toBeNull();
+  expect(screen.getByText("Model", { selector: "label" })).toBeTruthy();
+});
 
 it("waits for authoritative save, survives reopen/reload, and resets separately from options", async () => {
   const saved: ModelSettingsSnapshot = {
