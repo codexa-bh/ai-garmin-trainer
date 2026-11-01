@@ -266,6 +266,7 @@ export const presentationModules = new Set([
     "use-model-settings",
     "use-memory",
     "health-metrics",
+    "health-daily-range",
     "memory-content",
     "health-view",
     "use-profile",
