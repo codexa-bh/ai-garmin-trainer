@@ -174,6 +174,7 @@ const groups = [
       "legacy-contracts",
       "ports",
       "retrieval-policy",
+      "status",
       "types",
     ],
   ],

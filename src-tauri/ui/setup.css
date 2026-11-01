@@ -64,6 +64,20 @@ button {
   margin: 6px 8px 6px 0;
   cursor: pointer;
 }
+.helper {
+  color: #a9c9b6;
+  font-size: 14px;
+}
+#memory-section p {
+  overflow-wrap: anywhere;
+}
+#memory-section details {
+  border-top: 1px solid #5e7c6a;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+}
 summary {
   cursor: pointer;
   padding: 12px 0;
