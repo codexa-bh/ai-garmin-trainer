@@ -6,9 +6,9 @@ SQLite remains the canonical store for transcript, Profile, Garmin facts, and de
 
 ## Configuration
 
-For desktop use **Settings → Advanced**, with provider keys in the native owner-private plaintext file (same-user/privileged processes and backups can read it); Save then explicitly quit/reopen. Desktop never loads env files. Field identifiers/examples below describe the internal adapter and retained maintenance CLI equivalents, not a desktop env-file setup recipe. CLI doctor does not read private native settings/legacy Keychain. See [storage/adoption/recovery](desktop.md#explicit-private-state-adoption).
+For desktop use **Settings → Memory → Remember useful details — On/Off**, with deliberately expandable **Memory configuration** for provider/model/endpoint and fact-selection mode. **Troubleshooting / technical controls** retains dimensions, timeouts and executable overrides. Collapsing or switching Off never resets these values. Off is not deletion or re-embedding, and does not stop independent chat/title processing. The separate immediate Trainer Memory-panel preference remains unchanged by a native Save, even when saving On. Configure with provider keys in the native owner-private plaintext file (same-user/privileged processes and backups can read it); Save then explicitly quit/reopen. Desktop never loads env files. Field identifiers/examples below describe the internal adapter and retained maintenance CLI equivalents, not a desktop env-file setup recipe. CLI doctor does not read private native settings/legacy Keychain. See [storage/adoption/recovery](desktop.md#explicit-private-state-adoption).
 
-Set `MEMORY_ENABLED=true` to enable retrieval and post-completion ingestion. For no-paid local semantic memory, use Ollama with a small purpose-built embedding model:
+Set `MEMORY_ENABLED=true` to enable retrieval and post-completion ingestion. For the local, no-paid **embedding step**, use Ollama with a small purpose-built embedding model (LLM fact extraction can still use cloud AI):
 
 ```bash
 ollama pull nomic-embed-text
@@ -40,6 +40,12 @@ Memory extraction defaults to `MEMORY_EXTRACTION_MODE=llm`: after a completed tu
 Launch only through [Tauri](desktop.md). Ollama is independently operator-managed: start `OLLAMA_HOST=http://127.0.0.1:11434 ollama serve` and pull the configured embedding model using that same loopback origin. Desktop neither starts/stops the daemon nor installs software/downloads models. Memory readiness still requires a real valid embedding response; absent/slow services degrade memory while offline views/chat remain available. See [native lifecycle and external tools](local-runtime.md#native-development-and-restart).
 
 `npm run doctor -- --json` reports the selected chat provider, fallback mode, Ollama chat readiness when `AI_PROVIDER=ollama`, and memory readiness, including Ollama daemon/model remediation, without printing keys, base URLs, prompts, raw transcripts, vectors, or local file contents.
+
+### Configuration versus observed readiness
+
+Native **Save for next launch** does not switch the current backend. Draft, saved startup configuration and active runtime are distinct. Explicit **Read active memory status** reports the owned backend's configured On/Off, separate user-disable preference, embedding provider and actual extraction selection. It reads existing metadata and cached health only: no memory list/legacy migration, storage probe, provider call or paid extraction check. Unavailable/stopped/no observation is unknown, never Ready. Existing observations expire after 60 seconds and are cleared on configuration/preference reset. A recent valid Ollama vector/storage check is scoped to that local step; deterministic vectors are test-only. OpenAI-compatible configuration and extraction provider selection are not remote readiness proofs. Errors use fixed safe categories rather than vendor text, paths, URLs or memory content. Use the existing Memory panel to check its configured service; never change dimensions/reset records just to clear a status.
+
+This presentation/status change requires no SQLite schema/index/vector/data migration or back-sync. It neither converts stored vectors nor changes selection, processing, retention or deletion policy.
 
 ## First-prompt chat titles
 

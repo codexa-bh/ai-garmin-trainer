@@ -70,9 +70,13 @@ export function MemoryContent({
         Embedded SQLite memory stores concise user-derived cross-session facts,
         preferences, corrections, and temporary plans after complete persisted
         answers; it is not a transcript archive. Current chats carry bounded
-        same-chat continuity. Ready memory needs Ollama, deterministic local
-        embeddings, or a valid OpenAI embedding key; DeepSeek chat alone does
-        not provide embeddings.
+        same-chat continuity. Local Ollama embeddings do not make extraction
+        local: selecting useful facts may use configured DeepSeek/OpenAI cloud
+        AI. A configured OpenAI key is not proof of remote readiness;
+        deterministic embeddings are local test vectors, not semantic-provider
+        readiness. This immediate Memory preference is separate from native
+        Settings saved for next launch. Off is not deletion and does not stop
+        independent chat or title processing.
       </p>
       <p className="helper-text" role="status" aria-live="polite">
         {memoryMessage}

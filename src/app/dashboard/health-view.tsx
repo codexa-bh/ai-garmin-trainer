@@ -1,4 +1,3 @@
-import type { Dispatch, SetStateAction } from "react";
 import { type RefObject } from "react";
 import {
   type HealthDashboardLoadState,
@@ -12,16 +11,18 @@ export function HealthView({
   healthDashboardState,
   healthDashboardError,
   healthDashboardData,
-  selectedHealthDayIndex,
-  setSelectedHealthDayIndex,
+  healthRangeEnd,
+  healthRangeNotice,
+  setHealthRangeEnd,
 }: {
   closeHealthDashboard: () => void;
   healthDashboardCloseRef: RefObject<HTMLButtonElement | null>;
   healthDashboardState: HealthDashboardLoadState;
   healthDashboardError: string;
   healthDashboardData: HealthDashboardPayload | null;
-  selectedHealthDayIndex: number;
-  setSelectedHealthDayIndex: Dispatch<SetStateAction<number>>;
+  healthRangeEnd: string | null;
+  healthRangeNotice: string;
+  setHealthRangeEnd: (end: string) => void;
 }) {
   return (
     <section
@@ -72,8 +73,9 @@ export function HealthView({
         healthDashboardData.days.length > 0 ? (
           <HealthDashboardView
             days={healthDashboardData.days}
-            selectedIndex={selectedHealthDayIndex}
-            onSelectIndex={setSelectedHealthDayIndex}
+            rangeEnd={healthRangeEnd}
+            onSelectRange={setHealthRangeEnd}
+            notice={healthRangeNotice}
           />
         ) : null}
       </div>

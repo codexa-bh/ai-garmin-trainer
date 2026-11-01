@@ -89,6 +89,39 @@ async function main(): Promise<void> {
         .end("ready");
       return;
     }
+    if (request.url === "/__desktop/memory-status") {
+      if (
+        !ready ||
+        request.method !== "GET" ||
+        request.headers["x-trainer-identity"] !== nonce
+      ) {
+        response.writeHead(404).end();
+        return;
+      }
+      // Fixed metadata-only route in the same production composition. No caller
+      // URL, private list, probe or generic native HTTP bridge.
+      fetch(`${origin}/api/memory?view=status`, {
+        signal: AbortSignal.timeout(2000),
+      })
+        .then(async (result) => {
+          const body = Buffer.from(await result.arrayBuffer());
+          if (!result.ok || body.length > 2048)
+            throw new Error("Status unavailable");
+          response
+            .writeHead(200, {
+              "x-trainer-identity": nonce,
+              "cache-control": "no-store",
+              "content-type": "application/json",
+              "content-length": body.length,
+            })
+            .end(body);
+        })
+        .catch(() => {
+          if (!response.headersSent) response.writeHead(503);
+          response.end();
+        });
+      return;
+    }
     handler(request, response).catch(() => {
       if (!response.headersSent) response.writeHead(500);
       response.end("Local request failed.");

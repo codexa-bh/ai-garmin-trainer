@@ -5,6 +5,7 @@ import {
   aiProviderStatus,
   isLoopbackAiBaseUrl,
   selectedMemoryExtractionModel,
+  memoryExtractionSelection,
   selectedModel,
 } from "../src/lib/ai/providers";
 import { getOptionalEnv, hasConfiguredSecret } from "../src/lib/env";
@@ -178,6 +179,27 @@ describe("AI provider selection", () => {
     ).toBe("openai");
   });
 
+  it.each(["auto", "openai", "deepseek", "ollama", "openrouter"])(
+    "shares metadata extraction selection with actual construction for %s",
+    (provider) => {
+      vi.stubEnv("AI_PROVIDER", provider);
+      for (const [openai, deepseek] of [
+        ["", ""],
+        ["sk-synthetic", ""],
+        ["", "ds-synthetic"],
+        ["sk-synthetic", "ds-synthetic"],
+      ]) {
+        vi.stubEnv("OPENAI_API_KEY", openai);
+        vi.stubEnv("DEEPSEEK_API_KEY", deepseek);
+        const metadata = memoryExtractionSelection();
+        const actual = selectedMemoryExtractionModel();
+        expect(metadata.selected).toBe(actual?.provider ?? null);
+        expect(metadata.modelName).toBe(actual?.modelName ?? null);
+        expect(metadata).not.toHaveProperty("model");
+        expect(JSON.stringify(metadata)).not.toContain("synthetic");
+      }
+    },
+  );
   it("keeps OpenRouter out of extraction with and without cloud keys", () => {
     vi.stubEnv("AI_PROVIDER", "openrouter");
     vi.stubEnv("OPENROUTER_API_KEY", "sentinel-router-key");
