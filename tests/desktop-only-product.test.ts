@@ -106,8 +106,13 @@ describe("Tauri-only product launch contract", () => {
       "utf8",
     ).replace(/\s+/g, " ");
     expect(setup).not.toContain("source/browser");
-    expect(setup).toContain("Quit any other app or older");
-    expect(setup).toContain("disposable populated copy");
+    expect(setup).toContain("Close other apps using it first.");
+    expect(setup).toContain(
+      "Existing databases won’t be upgraded automatically.",
+    );
+    const desktop = readFileSync(join(root, "docs/desktop.md"), "utf8");
+    expect(desktop).toContain("first quit other owners");
+    expect(desktop).toContain("evaluate on a disposable populated backup");
   });
 });
 

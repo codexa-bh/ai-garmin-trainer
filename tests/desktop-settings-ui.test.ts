@@ -87,6 +87,75 @@ function input(id: string): HTMLInputElement {
 }
 
 describe("trusted local desktop settings UI", () => {
+  it.each(["existing installation", "first run"])(
+    "keeps concise notices visible in introductory reading order for %s",
+    async (context) => {
+      if (context === "first run") await firstRun();
+      const main = within(document.body).getByRole("main");
+      const heading = within(main).getByRole("heading", {
+        level: 1,
+        name: "Settings",
+      });
+      const notices = Array.from(main.querySelectorAll(":scope > p")).slice(
+        0,
+        2,
+      );
+      expect(
+        notices.map((notice) =>
+          notice.textContent?.replace(/\s+/g, " ").trim(),
+        ),
+      ).toEqual([
+        "Settings and API keys are saved locally without encryption. Saved keys are hidden.",
+        "The app can update the selected database. Close other apps using it first. Existing databases won’t be upgraded automatically.",
+      ]);
+      expect(heading.nextElementSibling).toBe(notices[0]);
+      expect(notices[0].nextElementSibling).toBe(notices[1]);
+      expect(notices[1].nextElementSibling).toBe(
+        document.getElementById("status"),
+      );
+      for (const notice of notices) {
+        expect(
+          notice.closest("[hidden], [aria-hidden='true'], details"),
+        ).toBeNull();
+      }
+      const status = document.getElementById("status")!;
+      expect(within(main).getAllByRole("status")).toContain(status);
+      expect(status.closest("[hidden], [aria-hidden='true']")).toBeNull();
+      const normalCopy = [
+        ...notices,
+        status,
+        document.getElementById("storage-status")!,
+      ]
+        .map((element) => element.textContent)
+        .join(" ");
+      expect(normalCopy).not.toMatch(
+        /0700|0600|owner-private|plaintext file|same user|privileged|backups|env|exclusive|evaluation|disposable|unused destination/i,
+      );
+      expect(document.getElementById("storage-status")?.textContent).toBe("");
+      expect(document.getElementById("wizard")?.hidden).toBe(
+        context !== "first run",
+      );
+      expect(document.getElementById("next-launch-guidance")?.hidden).toBe(
+        context === "first run",
+      );
+    },
+  );
+  it("does not reintroduce duplicate storage narration after Save and reload", async () => {
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "backend unchanged",
+      ),
+    );
+    expect(document.getElementById("storage-status")?.textContent).toBe("");
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "Changes require explicit quit/reopen",
+      ),
+    );
+    expect(document.getElementById("storage-status")?.textContent).toBe("");
+  });
   it("renders every normal/advanced setting with masked status and no secret readback", () => {
     for (const field of fields)
       if (field.key !== "GARMIN_MCP_TOKEN_DIR")
@@ -246,7 +315,29 @@ describe("trusted local desktop settings UI", () => {
   }
   it("discloses plaintext risk and never auto-adopts legacy settings or retries denial", async () => {
     await legacySettings();
-    expect(document.body.textContent).toContain("owner-private plaintext");
+    expect(document.body.textContent).toContain("without encryption");
+    expect(document.getElementById("storage-status")?.textContent).toBe(
+      "Storage: legacy settings preserved. Explicit adoption or private re-entry required.",
+    );
+    const recovery = within(document.getElementById("migration")!);
+    expect(
+      recovery.getByRole("heading", {
+        name: "Legacy settings need one-time adoption",
+      }),
+    ).toBeTruthy();
+    expect(
+      recovery.getByRole("button", {
+        name: "Adopt referenced Keychain keys once",
+      }),
+    ).toBeTruthy();
+    expect(
+      recovery.getByRole("button", {
+        name: "Save private re-entry without Keychain",
+      }),
+    ).toBeTruthy();
+    expect(document.getElementById("migration")?.textContent).toContain(
+      "Refusal never retries automatically",
+    );
     expect(document.getElementById("save")?.hidden).toBe(true);
     expect(
       invoke.mock.calls.filter(

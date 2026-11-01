@@ -390,7 +390,7 @@ async function refresh() {
     legacyRequired = saved.storage === "legacy-required";
     byId("storage-status").textContent = legacyRequired
       ? "Storage: legacy settings preserved. Explicit adoption or private re-entry required."
-      : "Storage: owner-private plaintext file; saved values are never returned.";
+      : "";
     firstRun = Boolean(onboarding?.eligible && !saved.running);
     savedTokenSelection = tokenSelection =
       saved.fields.GARMIN_MCP_TOKEN_DIR ?? "";
@@ -428,7 +428,7 @@ async function refresh() {
     renderStep();
     renderConnection();
     status.textContent = firstRun
-      ? "First run: choose new or existing data, configure a provider, connect Garmin now or later, then Finish and open Trainer. Old env files are never imported."
+      ? "First run: choose new or existing data, configure a provider, connect Garmin now or later, then Finish and open Trainer."
       : saved.saved
         ? "Saved settings loaded; keys are masked. Changes require explicit quit/reopen."
         : "Existing installation recovery: settings are inaccessible or unsupported. Preserve them and reopen with a compatible build; no blank-install overwrite.";
