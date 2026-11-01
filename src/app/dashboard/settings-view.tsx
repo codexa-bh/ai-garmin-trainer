@@ -273,7 +273,7 @@ export function SettingsView({
             ) : null}
           </details>
 
-          <details className="settings-card danger-card" open>
+          <details className="settings-card danger-card">
             <summary>Safety, privacy, and deletion</summary>
             <p>
               <strong>Private AI coaching.</strong> Responses may use the
