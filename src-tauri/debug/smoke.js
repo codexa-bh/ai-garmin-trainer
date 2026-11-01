@@ -56,6 +56,18 @@
       throw Error("Disabled/readonly target");
     return el;
   }
+  let rememberedHealthRange = null;
+  const healthTable = () => {
+    const tables = [
+      ...document.querySelectorAll(".health-daily-matrix"),
+    ].filter(visible);
+    if (
+      tables.length !== 1 ||
+      tables[0].querySelectorAll("thead time").length !== 7
+    )
+      throw Error("Daily Health comparison not ready");
+    return tables[0];
+  };
   function debugCard() {
     const cards = [
       ...document.querySelectorAll(".settings-sheet .llm-debug-card"),
@@ -130,6 +142,39 @@
       throw Error("Capture refuses noncanonical/private diagnostic contents");
     return card;
   }
+  function healthObservation() {
+    const comparison = document.querySelector(".health-daily-matrix");
+    const healthButtons = document.querySelectorAll(
+      ".health-daily-actions button",
+    );
+    const mode = document
+      .querySelector('.health-mode-controls [aria-selected="true"]')
+      ?.textContent.trim()
+      .toLowerCase();
+    return {
+      healthMode: ["daily", "weekly", "monthly"].includes(mode) ? mode : null,
+      healthReady: Boolean(
+        comparison &&
+        visible(comparison) &&
+        comparison.querySelectorAll("thead time").length === 7,
+      ),
+      healthPreviousEnabled: Boolean(
+        healthButtons[0] &&
+        visible(healthButtons[0]) &&
+        !healthButtons[0].disabled,
+      ),
+      healthNextEnabled: Boolean(
+        healthButtons[1] &&
+        visible(healthButtons[1]) &&
+        !healthButtons[1].disabled,
+      ),
+      healthLatestEnabled: Boolean(
+        healthButtons[2] &&
+        visible(healthButtons[2]) &&
+        !healthButtons[2].disabled,
+      ),
+    };
+  }
   function observe() {
     const goals = document.querySelector('textarea[aria-label="Goals"]');
     return {
@@ -162,7 +207,7 @@
         ),
       ...(globalThis.__trainerOrdinaryIsolated
         ? {}
-        : { llmDebug: debugObservation() }),
+        : { ...healthObservation(), llmDebug: debugObservation() }),
       profileReady: Boolean(goals && visible(goals) && !goals.disabled),
       profileSaved:
         document
@@ -261,7 +306,9 @@
     if (!command || typeof command !== "object") throw Error("Invalid command");
     if (
       globalThis.__trainerOrdinaryIsolated &&
-      (["debugKey", "captureDebug"].includes(command.type) ||
+      (["debugKey", "captureDebug", "health", "settings"].includes(
+        command.type,
+      ) ||
         (command.type === "click" &&
           ["LLM debug traces", "First LLM trace"].includes(command.target)))
     )
@@ -320,6 +367,56 @@
       }
       case "captureView":
         return maskedView(command);
+      case "health": {
+        if (Object.keys(command).sort().join(",") !== "action,type")
+          throw Error("Unknown Health fields");
+        const labels = {
+          daily: "Daily",
+          weekly: "Weekly",
+          monthly: "Monthly",
+          previous: "← Previous 7 days",
+          next: "Next 7 days →",
+          latest: "Latest 7 days",
+        };
+        if (Object.hasOwn(labels, command.action)) {
+          const panel = document.querySelector(".health-dashboard-panel");
+          const el = target(labels[command.action]);
+          if (!panel || !panel.contains(el))
+            throw Error("Health-only target required");
+          el.click();
+          return { ok: true, action: command.action, trustedInput: false };
+        }
+        const table = healthTable();
+        if (
+          command.action === "remember-range" ||
+          command.action === "assert-range"
+        ) {
+          const dates = [...table.querySelectorAll("thead time")]
+            .map((el) => el.dateTime)
+            .join(",");
+          if (command.action === "remember-range") {
+            rememberedHealthRange = dates;
+            return { ok: true, remembered: true };
+          }
+          const matches =
+            rememberedHealthRange !== null && rememberedHealthRange === dates;
+          return { ok: matches, matches };
+        }
+        if (!["capture-wide", "capture-narrow"].includes(command.action))
+          throw Error("Unsupported Health action");
+        restore();
+        const style = document.createElement("style");
+        style.id = "trainer-smoke-sanitizer";
+        // Hide copied dates, values and coverage without changing their layout/width.
+        // Nothing is repositioned; no private text/DOM is returned by this command.
+        style.textContent = `body * {visibility:hidden !important} .health-dashboard-panel, .health-dashboard-panel * {visibility:visible !important} .health-dashboard-panel .health-daily-matrix td, .health-dashboard-panel .health-daily-matrix time, .health-dashboard-panel .health-daily-matrix caption, .health-dashboard-panel #health-daily-range, .health-dashboard-panel [role="status"] {visibility:hidden !important; position:relative} .health-dashboard-panel .health-daily-matrix td::after, .health-dashboard-panel .health-daily-matrix time::after, .health-dashboard-panel .health-daily-matrix caption::after, .health-dashboard-panel #health-daily-range::after, .health-dashboard-panel [role="status"]::after {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}`;
+        document.head.append(style);
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        return {
+          ok: true,
+          boundary: "geometry-preserving masked actual Daily Health comparison",
+        };
+      }
       case "debugKey": {
         if (!["Enter", "Space"].includes(command.key))
           throw Error("Unsupported disclosure key");

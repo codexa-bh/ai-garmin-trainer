@@ -11,7 +11,7 @@ use std::{
 };
 use tauri::Manager;
 #[path = "dev_capture.rs"]
-mod capture;
+pub(crate) mod capture;
 #[cfg(debug_assertions)]
 #[path = "dev_input.rs"]
 mod input;
@@ -39,7 +39,10 @@ impl Config {
         match command {
             Command::Capture {} => self.ordinary.is_none(),
             #[cfg(debug_assertions)]
-            Command::CaptureDebug {} | Command::DebugKey { .. } => self.ordinary.is_none(),
+            Command::CaptureDebug {}
+            | Command::DebugKey { .. }
+            | Command::Settings { .. }
+            | Command::Health { .. } => self.ordinary.is_none(),
             Command::Click { target }
                 if ["LLM debug traces", "First LLM trace"].contains(&target.as_str()) =>
             {
@@ -68,6 +71,21 @@ impl From<crate::smoke_config::Config> for Config {
         }
     }
 }
+#[cfg(debug_assertions)]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HealthAction {
+    Daily,
+    Weekly,
+    Monthly,
+    Previous,
+    Next,
+    Latest,
+    RememberRange,
+    AssertRange,
+    CaptureWide,
+    CaptureNarrow,
+}
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Command {
@@ -92,6 +110,14 @@ pub enum Command {
         preset: String,
     },
     #[cfg(debug_assertions)]
+    Settings {
+        action: crate::setup_smoke::Action,
+    },
+    #[cfg(debug_assertions)]
+    Health {
+        action: HealthAction,
+    },
+    #[cfg(debug_assertions)]
     CaptureDebug {},
     #[cfg(debug_assertions)]
     DebugKey {
@@ -103,14 +129,31 @@ impl Command {
         match self {
             Self::Capture {} | Self::CaptureView { .. } => true,
             #[cfg(debug_assertions)]
-            Self::CaptureDebug {} => true,
+            Self::CaptureDebug {}
+            | Self::Health {
+                action: HealthAction::CaptureWide | HealthAction::CaptureNarrow,
+            } => true,
+            _ => false,
+        }
+    }
+    fn is_assertion(&self) -> bool {
+        match self {
+            Self::Assert { .. } => true,
+            #[cfg(debug_assertions)]
+            Self::Health {
+                action: HealthAction::AssertRange,
+            } => true,
             _ => false,
         }
     }
     fn boundary(&self, ordinary: bool) -> &'static str {
         #[cfg(debug_assertions)]
-        if matches!(self, Self::CaptureDebug {}) {
-            return "sanitized actual synthetic LLM disclosure subtree";
+        match self {
+            Self::CaptureDebug {} => return "sanitized actual synthetic LLM disclosure subtree",
+            Self::Health {
+                action: HealthAction::CaptureWide | HealthAction::CaptureNarrow,
+            } => return "geometry-preserving masked actual Daily Health comparison",
+            _ => (),
         }
         if ordinary {
             "geometry-preserving redacted own-WebView"
@@ -127,7 +170,7 @@ impl Command {
                     && ["wide", "narrow"].contains(&preset.as_str())
             }
             #[cfg(debug_assertions)]
-            Self::CaptureDebug {} => true,
+            Self::CaptureDebug {} | Self::Settings { .. } | Self::Health { .. } => true,
             #[cfg(debug_assertions)]
             Self::DebugKey { key } => ["Enter", "Space"].contains(&key.as_str()),
             Self::Click { target } => {
@@ -476,7 +519,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
     if value["ok"] == false {
         return (exact_keys(value, &["ok", "error"])
             && value["error"] == "Rendered command refused or failed")
-            || (matches!(command, Command::Assert { .. })
+            || (command.is_assertion()
                 && exact_keys(value, &["ok", "matches"])
                 && value["matches"] == false);
     }
@@ -510,6 +553,26 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                     return false;
                 }
                 keys.push("llmDebug");
+            }
+            if let Some(mode) = value.get("healthMode") {
+                let health = [
+                    "healthMode",
+                    "healthReady",
+                    "healthPreviousEnabled",
+                    "healthNextEnabled",
+                    "healthLatestEnabled",
+                ];
+                if ordinary
+                    || !(mode.is_null()
+                        || mode
+                            .as_str()
+                            .map(|s| ["daily", "weekly", "monthly"].contains(&s))
+                            .unwrap_or(false))
+                    || !health[1..].iter().all(|key| value[*key].is_boolean())
+                {
+                    return false;
+                }
+                keys.extend(health);
             }
             exact_keys(value, &keys)
                 && ["dashboard", "hydrated", "profileReady", "profileSaved"]
@@ -582,6 +645,32 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 && exact_keys(value, &["ok", "readyForNativeKey"])
                 && value["readyForNativeKey"] == true
         }
+        #[cfg(debug_assertions)]
+        Command::Settings { .. } => false, // Native-only local completion, never the trainer callback.
+        #[cfg(debug_assertions)]
+        Command::Health { action } => {
+            !ordinary
+                && match action {
+                    HealthAction::RememberRange => {
+                        exact_keys(value, &["ok", "remembered"]) && value["remembered"] == true
+                    }
+                    HealthAction::AssertRange => {
+                        exact_keys(value, &["ok", "matches"]) && value["matches"] == true
+                    }
+                    HealthAction::CaptureWide | HealthAction::CaptureNarrow => {
+                        exact_keys(value, &["ok", "boundary"])
+                            && value["boundary"]
+                                == "geometry-preserving masked actual Daily Health comparison"
+                    }
+                    _ => {
+                        exact_keys(value, &["ok", "action", "trustedInput"])
+                            && value["trustedInput"] == false
+                            && serde_json::to_value(action)
+                                .map(|expected| value["action"] == expected)
+                                .unwrap_or(false)
+                    }
+                }
+        }
         Command::SetViewport { preset } => {
             exact_keys(value, &["ok", "preset"]) && value["preset"].as_str() == Some(preset)
         }
@@ -626,6 +715,33 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
         );
     }
     drop(seen);
+    #[cfg(debug_assertions)]
+    if let Command::Settings { action } = request.command {
+        let Some(config) = app.try_state::<crate::smoke_config::Config>() else {
+            return (
+                403,
+                json!({"ok":false,"error":"No admitted debug Settings owner"}),
+            );
+        };
+        if state.config.ordinary.is_some()
+            || config.run_id != state.config.run_id
+            || config.root != state.config.root
+        {
+            return (
+                403,
+                json!({"ok":false,"error":"Wrong debug Settings owner"}),
+            );
+        }
+        let result = crate::setup_smoke::execute(app, &config, action);
+        let (status, result) = match result {
+            Ok(value) => (if value["ok"] == true { 200 } else { 409 }, value),
+            Err(error) => (409, json!({"ok":false,"error":error})),
+        };
+        return (
+            status,
+            json!({"requestId":request.request_id,"result":result}),
+        );
+    }
     let Some(window) = app.get_webview_window("trainer") else {
         return (503, json!({"ok":false,"error":"Renderer unavailable"}));
     };
@@ -639,6 +755,31 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
         };
         if window.set_size(size).is_err() {
             return (409, json!({"ok":false,"error":"Viewport unavailable"}));
+        }
+    }
+    #[cfg(debug_assertions)]
+    if let Command::Health {
+        action: HealthAction::CaptureWide | HealthAction::CaptureNarrow,
+    } = &request.command
+    {
+        let width = if matches!(
+            request.command,
+            Command::Health {
+                action: HealthAction::CaptureWide
+            }
+        ) {
+            1280.0
+        } else {
+            420.0
+        };
+        if window
+            .set_size(tauri::LogicalSize::new(width, 900.0))
+            .is_err()
+        {
+            return (
+                409,
+                json!({"ok":false,"error":"Owned viewport resize failed; effect unknown"}),
+            );
         }
     }
     let (tx, rx) = mpsc::sync_channel(1);
@@ -719,6 +860,11 @@ mod tests {
             json!({"type":"eval","code":"1"}),
             json!({"type":"capture","path":"/tmp/x"}),
             json!({"type":"observe","selector":"body"}),
+            json!({"type":"settings","action":"auth"}),
+            json!({"type":"settings","action":"connect","value":"secret"}),
+            json!({"type":"health","action":"eval"}),
+            json!({"type":"health","action":"capture-wide","width":800}),
+            json!({"type":"health","action":"remember-range","date":"2026-01-01"}),
         ] {
             assert!(serde_json::from_value::<Command>(value).is_err())
         }
@@ -737,6 +883,24 @@ mod tests {
                 target: target.into()
             }
             .valid())
+        }
+        for action in [
+            "daily",
+            "weekly",
+            "monthly",
+            "previous",
+            "next",
+            "latest",
+            "remember-range",
+            "assert-range",
+            "capture-wide",
+            "capture-narrow",
+        ] {
+            assert!(
+                serde_json::from_value::<Command>(json!({"type":"health", "action":action}))
+                    .unwrap()
+                    .valid()
+            );
         }
         for target in [
             "Profile & data",
@@ -802,6 +966,55 @@ mod tests {
             },
             &json!({"ok":true,"readyForNativeKey":true}),
             true
+        ));
+    }
+    #[test]
+    fn debug_health_shapes_stay_closed_and_never_expand_ordinary_results() {
+        let capture = Command::Health {
+            action: HealthAction::CaptureWide,
+        };
+        assert!(capture.is_capture());
+        assert!(super::safe_result(
+            &capture,
+            &json!({"ok":true,"boundary":"geometry-preserving masked actual Daily Health comparison"}),
+            false
+        ));
+        assert!(!super::safe_result(
+            &capture,
+            &json!({"ok":true,"boundary":"geometry-preserving masked actual Daily Health comparison"}),
+            true
+        ));
+        assert!(super::safe_result(
+            &Command::Health {
+                action: HealthAction::AssertRange
+            },
+            &json!({"ok":false,"matches":false}),
+            false
+        ));
+        assert!(!safe_result(
+            &Command::Health {
+                action: HealthAction::RememberRange
+            },
+            &json!({"ok":true,"remembered":true,"dates":"private"})
+        ));
+        let mut observation = json!({"ok":true,"dashboard":true,"hydrated":true,"navigation":[],"headings":[],"profileReady":false,"profileSaved":false,"view":"Health","healthMode":"daily","healthReady":true,"healthPreviousEnabled":true,"healthNextEnabled":false,"healthLatestEnabled":false});
+        assert!(super::safe_result(
+            &Command::Observe {},
+            &observation,
+            false
+        ));
+        assert!(!super::safe_result(
+            &Command::Observe {},
+            &observation,
+            true
+        ));
+        observation["healthReady"] = json!("private");
+        assert!(!safe_result(&Command::Observe {}, &observation));
+        assert!(!safe_result(
+            &Command::Settings {
+                action: crate::setup_smoke::Action::Observe
+            },
+            &json!({"ok":true,"ready":true})
         ));
     }
     #[test]

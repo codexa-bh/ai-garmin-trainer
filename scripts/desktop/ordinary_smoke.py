@@ -245,14 +245,17 @@ def security(run, other):
         run.request({'type': 'captureView', 'view': 'setup', 'preset': 'wide'}, str(uuid.uuid4())),
         run.request({'type': 'debugKey', 'key': 'Enter'}, str(uuid.uuid4())),
         run.request({'type': 'captureDebug'}, str(uuid.uuid4())),
+        run.request({'type': 'health', 'action': 'daily'}, str(uuid.uuid4())),
+        run.request({'type': 'health', 'action': 'capture-wide'}, str(uuid.uuid4())),
+        run.request({'type': 'settings', 'action': 'open'}, str(uuid.uuid4())),
         run.request({'type': 'click', 'target': 'LLM debug traces'}, str(uuid.uuid4())),
         run.request({'type': 'click', 'target': 'First LLM trace'}, str(uuid.uuid4())),
     ]:
         run.http('/command', request, expected=400)
     request = run.request({'type': 'observe'}, str(uuid.uuid4()))
     observation = run.http('/command', request)
-    if 'llmDebug' in observation.get('result', {}):
-        raise ValueError('Ordinary mode exposed debug disclosure observations')
+    if set(observation.get('result', {})) & {'llmDebug', 'healthMode', 'healthReady', 'healthPreviousEnabled', 'healthNextEnabled', 'healthLatestEnabled'}:
+        raise ValueError('Ordinary mode exposed debug-only observations')
     run.http('/command', request, expected=409)
     private_json(run.root / 'security.json', {'browserCrossRunPrivateControlAndStaleBootDenied': True, 'duplicatesDenied': True})
 

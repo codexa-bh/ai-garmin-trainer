@@ -7,6 +7,7 @@
     "desktop:build": "npm run desktop:resources && tauri build --target aarch64-apple-darwin --bundles app --no-sign --no-binary-patching --ci",
     "desktop:dev": "npm run desktop:resources && tauri dev",
     "smoke:native": "python3 scripts/desktop/native_smoke.py",
+    "smoke:settings": "python3 scripts/desktop/settings_smoke.py",
     "smoke:release": "python3 scripts/desktop/release_smoke.py",
     "smoke:ordinary": "python3 scripts/desktop/ordinary_smoke.py",
     "smoke:test": "python3 -m unittest discover -s scripts/desktop -p '*_test.py' && python3 -m unittest discover -s scripts/ci -p '*_test.py'",

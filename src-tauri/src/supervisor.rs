@@ -15,6 +15,7 @@ pub struct Service {
     pub port: u16,
     pub tooling_available: bool,
     stopped: bool,
+    nonce: String,
 }
 #[derive(Deserialize)]
 struct Ready {
@@ -131,6 +132,7 @@ impl Service {
             port: 0,
             tooling_available: false,
             stopped: false,
+            nonce: nonce.clone(),
         };
         let result = (|| {
             let deadline = Instant::now() + Duration::from_secs(90);
@@ -168,6 +170,45 @@ impl Service {
             return Err(error);
         }
         Ok(service)
+    }
+    pub fn memory_status(&mut self) -> Result<crate::memory_status::Status, &'static str> {
+        if self.stopped || self.exited() {
+            return Err("Owned backend not running.");
+        }
+        let address: SocketAddr = format!("127.0.0.1:{}", self.port)
+            .parse()
+            .map_err(|_| "Invalid owned port.")?;
+        let mut socket = TcpStream::connect_timeout(&address, Duration::from_secs(1))
+            .map_err(|_| "Owned backend unavailable.")?;
+        socket
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .map_err(|_| "Status timeout unavailable.")?;
+        socket
+            .set_write_timeout(Some(Duration::from_secs(1)))
+            .map_err(|_| "Status timeout unavailable.")?;
+        write!(socket, "GET /__desktop/memory-status HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nx-trainer-identity: {}\r\nConnection: close\r\n\r\n", self.port, self.nonce).map_err(|_| "Status request unavailable.")?;
+        let mut response = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .ok_or("Status deadline exceeded.")?;
+            socket
+                .set_read_timeout(Some(remaining))
+                .map_err(|_| "Status timeout unavailable.")?;
+            let mut buffer = [0u8; 512];
+            let count = socket
+                .read(&mut buffer)
+                .map_err(|_| "Status response unavailable.")?;
+            if count == 0 {
+                break;
+            }
+            response.extend_from_slice(&buffer[..count]);
+            if response.len() > 4096 {
+                return Err("Status response exceeded bound.");
+            }
+        }
+        crate::memory_status::decode(&response, &self.nonce)
     }
     pub fn exited(&mut self) -> bool {
         self.child
@@ -222,6 +263,7 @@ mod tests {
             port: 0,
             tooling_available: false,
             stopped: false,
+            nonce: String::new(),
         };
         service.stop();
         assert!(service.child.try_wait().unwrap().is_some());
@@ -229,6 +271,46 @@ mod tests {
         assert!(unrelated.try_wait().unwrap().is_none());
         unrelated.kill().unwrap();
         unrelated.wait().unwrap();
+    }
+    #[test]
+    fn status_uses_only_the_owned_fixed_authenticated_resource() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut connection, _) = listener.accept().unwrap();
+            connection
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut input = Vec::new();
+            while !input.ends_with(b"\r\n\r\n") {
+                assert!(input.len() < 1024 && Instant::now() < deadline);
+                let mut byte = [0u8; 1];
+                assert_eq!(connection.read(&mut byte).unwrap(), 1);
+                input.push(byte[0]);
+            }
+            let request = std::str::from_utf8(&input).unwrap();
+            assert!(request.starts_with("GET /__desktop/memory-status HTTP/1.1\r\n"));
+            assert!(request.contains("x-trainer-identity: owned-test\r\n"));
+            let body = r#"{"configuredEnabled":false,"userDisabled":true,"effectiveEnabled":false,"embeddingProvider":"openai","extractionMode":"off","extractionProvider":"off","health":"disabled","ageMs":null}"#;
+            write!(connection, "HTTP/1.1 200 OK\r\nx-trainer-identity: owned-test\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+        });
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let mut service = Service {
+            child,
+            port,
+            tooling_available: false,
+            stopped: false,
+            nonce: "owned-test".into(),
+        };
+        assert!(service.memory_status().is_ok());
+        server.join().unwrap();
+        service.stop();
+        assert!(service.memory_status().is_err());
     }
     #[test]
     fn refuses_foreign_readiness() {

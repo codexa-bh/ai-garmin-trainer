@@ -173,8 +173,8 @@ It catches unused files/exports/types/dependencies and missing direct dependenci
 exports used only by tests are intentionally considered used. It is not a
 production-only reachability proof. Framework page/route exports and CLI scripts
 remain entrypoints, not dead code. There are no ignored binaries or unused-file/export/dependency debt lists.
-Ollama is externally managed, not launched by repository setup scripts. The three
-explicit extra entrypoints are the bundled desktop runtime, native setup JS and fixed debug-only Rust-included smoke bootstrap;
+Ollama is externally managed, not launched by repository setup scripts. The four
+explicit extra entrypoints are the bundled desktop runtime, native setup JS and the fixed debug-only Rust-included trainer/closed keyless Settings smoke bootstraps;
 see [validation](validation.md).
 
 Generated `.next`, dependencies, coverage, local `data`, Garmin token/connector

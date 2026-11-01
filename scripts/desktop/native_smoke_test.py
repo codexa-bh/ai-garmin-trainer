@@ -71,6 +71,29 @@ class OwnershipTests(unittest.TestCase):
                 run.command({'type': 'click', 'target': 'Save Profile'})
             self.assertEqual(run.http.call_count, 1)
 
+    def test_health_scenario_is_finite_and_never_retries_failed_actions(self):
+        from unittest.mock import Mock
+        run = Run.__new__(Run)
+        run.root = Path('/unused')
+        run.wait = Mock()
+        run.command = Mock(return_value={'ok': True, 'healthPreviousEnabled': True})
+        with patch('native_smoke.private_json') as receipt:
+            run.health_scenario()
+            self.assertTrue(receipt.call_args.args[1]['rangeTabsAwayBack'])
+        actions = [call.args[0] for call in run.command.call_args_list]
+        self.assertEqual([action['action'] for action in actions if action['type'] == 'health'], [
+            'previous', 'next', 'previous', 'remember-range', 'weekly', 'monthly', 'daily',
+            'assert-range', 'assert-range', 'capture-narrow', 'capture-wide', 'latest'])
+        self.assertFalse(any(action['type'] in ['input', 'assert'] for action in actions))
+        run.command = Mock(side_effect=[{'healthPreviousEnabled': True}, ValueError('effect unknown')])
+        with self.assertRaises(ValueError):
+            run.health_scenario()
+        self.assertEqual(run.command.call_count, 2)
+        run.command = Mock(return_value={'healthPreviousEnabled': False})
+        with self.assertRaisesRegex(ValueError, 'lacks older'):
+            run.health_scenario()
+        self.assertEqual(run.command.call_count, 1)
+
     def test_readonly_resources_preserve_executable_node(self):
         from release_smoke import protect_resources
         with tempfile.TemporaryDirectory() as directory:

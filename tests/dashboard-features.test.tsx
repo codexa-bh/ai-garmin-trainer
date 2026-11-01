@@ -51,13 +51,65 @@ describe("independent dashboard feature ownership", () => {
     vi.stubGlobal("fetch", fetch);
     const { result } = renderHook(useHealthFeature);
     await act(() => result.current.loadHealthDashboard());
-    act(() => result.current.setSelectedHealthDayIndex(1));
-    await act(() =>
-      result.current.loadHealthDashboard({ preserveSelectedDate: true }),
-    );
-    expect(result.current.selectedHealthDayIndex).toBe(2);
+    act(() => result.current.setHealthRangeEnd("2026-09-17"));
+    await act(() => result.current.loadHealthDashboard());
+    expect(result.current.healthRangeEnd).toBe("2026-09-17");
     expect(result.current.healthDashboardState).toBe("loaded");
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps range selection made during refresh, rejects superseded reads, and announces lost-window reanchoring", async () => {
+    const pending: Array<(value: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve))),
+    );
+    const { result } = renderHook(useHealthFeature);
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    act(() => {
+      first = result.current.loadHealthDashboard();
+    });
+    act(() => {
+      second = result.current.loadHealthDashboard();
+    });
+    act(() => result.current.setHealthRangeEnd("2026-09-10"));
+    await act(async () => {
+      pending[1](
+        response({ days: [{ date: "2026-09-19" }, { date: "2026-09-01" }] }),
+      );
+      await second;
+    });
+    expect(result.current.healthRangeEnd).toBe("2026-09-10");
+    await act(async () => {
+      pending[0](response({ days: [] }));
+      await first;
+    });
+    expect(result.current.healthDashboardData?.days).toHaveLength(2);
+    expect(result.current.healthRangeEnd).toBe("2026-09-10");
+    act(() => {
+      first = result.current.loadHealthDashboard();
+    });
+    await act(async () => {
+      pending[2](response({ days: [{ date: "2026-10-01" }] }));
+      await first;
+    });
+    expect(result.current.healthRangeEnd).toBe("2026-10-01");
+    expect(result.current.healthRangeNotice).toContain("no longer available");
+  });
+
+  it("retains Health range after failed refresh without presenting old data as loaded", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ days: [{ date: "2026-09-19" }] }))
+      .mockRejectedValueOnce(new Error("offline"));
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(useHealthFeature);
+    await act(() => result.current.loadHealthDashboard());
+    await act(() => result.current.loadHealthDashboard());
+    expect(result.current.healthRangeEnd).toBe("2026-09-19");
+    expect(result.current.healthDashboardState).toBe("error");
+    expect(result.current.healthDashboardError).toContain("offline");
   });
 
   it("keeps Profile edits made while a reload is in flight", async () => {
@@ -214,7 +266,7 @@ describe("independent dashboard feature ownership", () => {
       "auth",
     ],
     [
-      "Set a literal GARMIN_MCP_TOKEN_DIR in .env.local; no alternate location is searched.",
+      "Open native Settings → Connect Garmin; no alternate connection is searched.",
       "auth",
     ],
     ["Configured token location must be a directory, not a symlink.", "auth"],
@@ -223,11 +275,11 @@ describe("independent dashboard feature ownership", () => {
       "auth",
     ],
     [
-      "Expected Garmin token file is empty; repair the selected store before live verification.",
+      "Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login.",
       "auth",
     ],
     [
-      "Configured Garmin token directory or expected file is missing; repair this location, then perform a separate live verification.",
+      "Configured Garmin connection is missing. Open native Settings → Reconnect Garmin, Save and explicitly quit/reopen.",
       "auth",
     ],
     [
@@ -277,7 +329,7 @@ describe("independent dashboard feature ownership", () => {
     },
     {
       name: "unrelated HTTP",
-      body: '{"status":"blocked","detail":"Expected Garmin token file is empty; repair the selected store before live verification."}',
+      body: '{"status":"blocked","detail":"Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login."}',
       http: 500,
       recovery: null,
     },

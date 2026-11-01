@@ -25,7 +25,7 @@
       <p id="status" role="status">Checking saved settings…</p>
       <nav id="wizard" hidden aria-label="First-run setup">
         <p id="step-heading" tabindex="-1"></p>
-        <p>1. Data → 2. Provider → 3. Garmin (optional) → 4. Review</p>
+        <p>1. Data → 2. Provider → 3. Connect Garmin or continue → 4. Review</p>
       </nav>
       <form id="settings" autocomplete="off">
         <fieldset id="data-step">
@@ -45,7 +45,15 @@
         </fieldset>
         <fieldset id="normal"><legend>Provider and models</legend></fieldset>
         <fieldset id="garmin-fields">
-          <legend>Existing Garmin tokens (optional)</legend>
+          <legend>Garmin connection</legend>
+          <p id="connection-status" role="status">Not connected</p>
+          <p>
+            Connect for fresh Garmin data and coaching grounded in it.
+            Configured-provider chat and saved/offline history remain available
+            without Garmin.
+          </p>
+          <button type="button" id="connect">Connect Garmin</button>
+          <button type="button" id="connect-later">Connect later</button>
         </fieldset>
         <fieldset id="keys">
           <legend>Provider keys — private file</legend>
@@ -73,10 +81,62 @@
           </button>
         </section>
         <p id="storage-status" role="status"></p>
-        <details>
-          <summary>Advanced settings</summary>
+        <fieldset id="memory-section" aria-describedby="memory-help">
+          <legend>Memory</legend>
+          <p id="memory-help">
+            Remember useful preferences, corrections and temporary plans in
+            local SQLite, not an unrestricted transcript or Garmin archive. Off
+            stops memory use after activation; it does not delete or reset
+            remembered details, Profile, chats, training plans or Garmin data.
+            Chat and automatic chat titles may still use cloud AI independently.
+          </p>
+          <div id="memory-control"></div>
+          <p id="memory-draft" role="status"></p>
+          <p>
+            The Memory panel in Trainer has a separate immediate enable/disable
+            preference and inspect, edit, delete and clear controls. Saving On
+            here does not clear that preference.
+          </p>
+          <p id="memory-processing" role="status"></p>
+          <details id="memory-configuration">
+            <summary>Memory configuration</summary>
+            <p>
+              Finding related details (embeddings) and selecting useful facts
+              (extraction) are separate steps. Changing providers does not
+              convert existing vectors. Keep compatible model/dimensions; no
+              re-embedding or reset is performed.
+            </p>
+            <div id="memory-fields"></div>
+          </details>
+          <p id="memory-active" role="status">
+            Active memory: unknown — no current observation. Saved settings are
+            not proof of readiness.
+          </p>
+          <button type="button" id="memory-check">
+            Read active memory status
+          </button>
+          <p class="helper">
+            Reads local configuration and a recent existing embedding/storage
+            observation only. No provider request, paid extraction check or
+            memory-content read. Remote availability is not certified.
+          </p>
+        </fieldset>
+        <details id="advanced-settings">
+          <summary>Troubleshooting / technical controls</summary>
+          <p>
+            Normally leave these unchanged. Dimensions must match stored
+            vectors; timeouts and executable paths retain their validators.
+            External tools remain operator-managed; nothing is installed or
+            started here.
+          </p>
+          <fieldset id="memory-technical">
+            <legend>Memory dimensions and timeouts</legend>
+          </fieldset>
+          <fieldset id="external-tools">
+            <legend>External tool executables</legend>
+          </fieldset>
           <fieldset id="advanced">
-            <legend>Memory and external tools</legend>
+            <legend>Local chat connection</legend>
           </fieldset>
         </details>
         <section id="review" hidden aria-label="Review setup">
@@ -110,30 +170,29 @@
         </div>
       </form>
       <section id="auth-section" aria-labelledby="auth-heading">
-        <h2 id="auth-heading">Garmin sign-in (optional)</h2>
-        <p>
-          Prefer your existing token directory above. No password is needed to
-          reuse tokens. Only this explicit action starts login. This unofficial
-          connector may encounter rate limits or unsupported account challenges;
-          it is not official OAuth.
-        </p>
-        <p>
-          New login requires an unused directory inside an existing
-          owner-private folder. Existing credentials are never replaced. Email,
-          password and MFA are transient: never saved, logged or sent to AI. Do
-          not put credentials in chat.
-        </p>
-        <form id="auth" autocomplete="off">
-          <label
-            >New token directory<input
-              id="destination"
-              type="text"
-              autocomplete="off"
-              required
-          /></label>
-          <button type="button" id="auth-parent">
-            Choose private parent folder…
-          </button>
+        <h2 id="auth-heading">Connect Garmin privately</h2>
+        <details>
+          <summary>Sign-in and private storage details</summary>
+          <p>
+            This unofficial connector is not official OAuth. Account challenges
+            and rate limits may prevent sign-in. Only your explicit action
+            starts login; no automatic retries.
+          </p>
+          <p>
+            The app chooses a fresh private location on this Mac (folder 0700,
+            files 0600). Tokens are plaintext, not encrypted; the same user,
+            privileged processes and backups can read them. Existing connections
+            are preserved. Verified tokens remain saved even if you later cancel
+            settings.
+          </p>
+          <p>
+            Email, password and one supported MFA code stay transient in native
+            sign-in, never saved, logged or sent to AI. Do not enter credentials
+            in chat. Cancellation and the 180-second deadline stop owned
+            authentication; perfect memory zeroization is not guaranteed.
+          </p>
+        </details>
+        <form id="auth" hidden autocomplete="off">
           <label
             >Email<input id="email" type="email" autocomplete="off" required
           /></label>
@@ -144,9 +203,7 @@
               autocomplete="new-password"
               required
           /></label>
-          <button id="sign-in" type="submit">
-            Start private Garmin sign-in
-          </button>
+          <button id="sign-in" type="submit">Sign in and verify</button>
         </form>
         <form id="mfa-form" hidden autocomplete="off">
           <label
@@ -159,7 +216,7 @@
         </form>
         <button type="button" id="auth-cancel" disabled>Cancel sign-in</button>
         <button type="button" id="use-tokens" hidden>
-          Use new store in settings (then Save)
+          Use this verified connection
         </button>
         <p id="auth-status" role="status">Idle. No automatic login attempts.</p>
       </section>

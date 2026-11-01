@@ -1,6 +1,6 @@
 # Isolated programmatic native smoke
 
-Routine smoke uses the **real macOS ARM64 Tauri/WebView** through explicit native admission. Prefer the ordinary-artifact isolated scenario below when ordinary artifact/layout evidence is required; debug and default CI quick retain their narrower contracts. No browser launcher, Vite/HMR, fake backend, global OS mouse/keyboard events, Accessibility, Apple Events, Screen Recording, activation or focus restoration is used. Only the separately opt-in debug disclosure scenario forwards fixed Enter/Space NSEvents directly to its owned non-key WebView, never the OS queue; ordinary mode rejects those controls. Ordinary product setup/singleton behavior remains independent. Private settings/auth and legacy adoption remain outside this closed bridge.
+Routine smoke uses the **real macOS ARM64 Tauri/WebView** through explicit native admission. Prefer the ordinary-artifact isolated scenario below when ordinary artifact/layout evidence is required; debug and default CI quick retain their narrower contracts. No browser launcher, Vite/HMR, fake backend, global OS mouse/keyboard events, Accessibility, Apple Events, Screen Recording, activation or focus restoration is used. Only the separately opt-in debug disclosure scenario forwards fixed Enter/Space NSEvents directly to its owned non-key WebView, never the OS queue; ordinary mode rejects those controls. Ordinary product setup/singleton behavior remains independent. Ordinary control excludes setup/settings/auth; private credentials/auth and legacy adoption remain forbidden in every admitted scenario. The separate keyless debug Settings route below uses native local-document completion, not a trainer grant.
 
 ## Ordinary-artifact isolated scenario
 
@@ -48,6 +48,41 @@ The runner:
 5. Retains live child handles, stops/reaps only owned processes on success/error/interruption, and verifies backend/bridge endpoints and the copy writer lease settle. Receipts/PIDs never authorize later kills. No broad name-based process kill, operator restart, primary cutover, Keychain reset or worktree disposal.
 
 A read-only Swift observer samples frontmost PID/pointer every 10ms and refuses commands if an owned native process became frontmost. Pointer variation can be normal operator activity and is reported separately; sampling cannot exclude shorter transitions. The app is Accessory/nonfocused/nonactivating and uses incognito WebViews. This is routing/lifecycle isolation, not a sandbox against arbitrary same-user code.
+
+## Closed keyless native Settings smoke
+
+`npm run smoke:settings -- --scratch <canonical-task-scratch> --input-file <private-explicit-db-selection.json>` reuses the same online-backup, source/build, nonactivation observer and live-handle shutdown owners. `--resources-ready` verifies exact same-source assembled resources rather than rebuilding the backend. This is a debug-only changed-surface scenario, not ordinary-artifact or live-login certification.
+
+The authenticated closed `settings` command has only `open`, `observe`, `connect`, `later`, `save`, `cancel`, `capture`, `close` actions. Native creates its own nonfocused incognito local setup document. A fixed bootstrap drives actual semantic controls; native WKWebView completion returns a strict bounded boolean DTO directly, with no new renderer IPC/result grant. The trainer still has no settings/auth privileges. No arbitrary input/value, selector, script, path or invoke is accepted. Observations exclude copied text/control values/secrets/paths.
+
+Admitted runs permit only the exact keyless online-backup DB, Ollama, disabled memory and fixed history plus unchanged catalog defaults filled by the real form. Native Save rejects keys, token selections and nondefault path/tool/model/endpoint changes. Authentication/MFA, Keychain adoption, native pickers and first-run Finish are explicitly refused for admitted smoke even in local setup. Connect only reveals the form; no credentials are entered or login/sync started. The scenario verifies Connect/later/cancel, manual-control absence, real Save-next-launch with the current backend unchanged and exact-scope restart.
+
+Captures contain sanitized **actual Garmin Settings subtrees**, repositioned for bounded visibility, with all copied state and credential input values hidden. They are not full-window layout/trusted-input evidence. Native restores sanitization after capture success/failure. Read/inspect images and record local helper evidence; never upload. Online copies/settings/logs/images are task-attributed and expiry-deferred, originals fingerprint-verified, with no primary mutation/copy-back. Real login/MFA remains privately operator-entered only in a separately arranged safe native window; this controller cannot exercise it.
+
+## Finite Daily Health comparison scenario
+
+Add `--health-comparison` to the same populated-copy `smoke:native` command to
+exercise Previous/Next/Latest seven-date pages, Daily/Weekly/Monthly switching,
+range preservation through away/back, and fixed narrow (420×900) and wide
+(1280×900) own-window captures. The selected input must include older eligible
+Health history; missing history refuses this scenario rather than claiming range
+coverage. No new seed/input environment or primary discovery is introduced.
+
+The closed `health` command accepts only these actions: `daily`, `weekly`,
+`monthly`, `previous`, `next`, `latest`, `remember-range`, `assert-range`,
+`capture-wide`, `capture-narrow`. Range identity stays inside the renderer;
+observations expose only fixed mode and readiness/navigation booleans. Both
+native and renderer reject unknown action/field/selector/date/viewport inputs.
+Fixed capture cases resize only the admitted owned window, never activate it.
+
+Health captures hide all non-Health surfaces and mask dates, values and coverage
+in place with a fixed CSS overlay, retaining actual geometry and scroll layout.
+They do not reposition/reconstruct the comparison or prove masked exact values;
+synthetic DOM associations cover those. Inspect actual PNGs and record privacy,
+layout/overflow, source/hash and these limits. `health-scenario.json` records real
+scenario/capture outcomes, not image inspection or ordinary-artifact evidence.
+Existing Profile scenario, production exclusion, unknown-effect/no-retry and
+owned-handle shutdown constraints are unchanged.
 
 ## CI-only synthetic quick scenario
 
@@ -107,9 +142,9 @@ remain independent; this path grants no settings, secret or general eval control
 
 - `GET /identity`: authenticated schema/run/source/native PID/app/copy/origin plus fixed renderer-diagnostic booleans. Does not imply readiness.
 - `POST /command`: `{requestId,expectedRunId,command}`. UUID request/run identities, exact `Host: 127.0.0.1:<port>`, bearer capability and `X-Smoke-Run` are mandatory. Ordinary requests also require exact `expectedBoot`; result callbacks bind that same native boot. Capability stays in private config/client memory/header, never argv/URL/logs/receipts. Every browser Origin/Sec-Fetch-Site is refused; no CORS grant.
-- Shared closed actions: `observe`; exact main navigation/back/Profile-close/save/reload clicks; **synthetic Goals only** input/assert. Ordinary adds only fixed `setViewport`/`captureView` presets. Debug alone retains Profile `capture`, synthetic `captureDebug`, outer **LLM debug traces**/**First LLM trace** summary clicks and fixed **Enter**/**Space** `debugKey`. Native input module/variants are compiled out of ordinary release; ordinary native and renderer guards reject those debug actions. No arbitrary selector/path/key, credential/login/setup, general scroll/select/eval/invoke, state injection, HTTP/filesystem/process proxy or shutdown command. Hidden/disabled/ambiguous/private/prehydration targets refuse before dispatch.
-- Ordinary observations retain only fixed view/navigation/headings/readiness/saved booleans. Debug alone may add closed metadata-only disclosure booleans and three same-length boolean arrays (at most 128 entries); unknown keys, text, inconsistent shapes and bounds refuse natively. No copied values/transcripts/trace text/private credentials leave the renderer. Clicks/Goals are synthetic DOM events. Opt-in debug keys are native-generated WebView-local events, never hardware/global input; ordinary never uses them.
-- Only the exact admitted trainer origin/window receives its result-only permission (`allow-isolated-result` for ordinary; legacy debug permission remains debug-only). No remote settings/auth grant is added. Callback validates run/boot/window/origin, bound and exact pending request; native validates closed result keys, allowlisted enums/booleans and command correspondence, never arbitrary renderer JSON/text. Ordinary Goals must equal this run's sentinel. Capture selectors/geometry/paths are never caller supplied; debug subtree captures do not certify ordinary layout.
+- Shared closed actions: `observe`; exact main navigation/back/Profile-close/save/reload clicks; **synthetic Goals only** input/assert. Ordinary adds only fixed `setViewport`/`captureView` presets. Debug alone retains Profile `capture`, finite `health` actions above, synthetic `captureDebug`, outer **LLM debug traces**/**First LLM trace** clicks and fixed **Enter**/**Space** `debugKey`. Debug-only `settings` dispatch uses its exact admitted legacy Config and native local-document completion, never the trainer callback. All Settings/Health/disclosure variants and native input/setup modules compile out of ordinary release; ordinary native/renderer guards reject those debug controls. No arbitrary selector/path/key, credential/login, general scroll/select/eval/invoke, state injection, HTTP/filesystem/process proxy or shutdown. Hidden/disabled/ambiguous/private/prehydration targets refuse before dispatch.
+- Ordinary observations retain only fixed view/navigation/headings/readiness/saved booleans. Debug alone adds fixed Health mode/availability booleans and optional disclosure booleans/three same-length boolean arrays (at most 128 entries); unknown keys/text, inconsistent shapes/bounds and action-mismatched results refuse natively. Remembered Health dates remain inside the debug bootstrap, never results. No copied values/transcripts/trace text/private credentials leave the renderer. Clicks/Goals/Health are synthetic DOM events; opt-in debug keys are native-generated WebView-local events, never hardware/global input. Ordinary uses neither those keys nor debug Health/Settings actions.
+- Only the exact admitted trainer origin/window receives its result-only permission (`allow-isolated-result` for ordinary; legacy debug permission remains debug-only). No remote settings/auth grant is added. Callback validates run/boot/window/origin, bound and exact pending request; native validates closed result keys, enums/booleans and command correspondence, never arbitrary renderer JSON/text. Ordinary Goals equal this run's sentinel. Capture selectors/geometry/paths are never caller supplied; debug subtree captures do not certify ordinary layout. Keyless debug Settings has independently typed bounded native completion and adds no renderer result permission.
 - One request at a time; 16 KiB total request; two-second total read deadline; no duplicate/chunked framing; 4096 unique request IDs/run; five-second renderer deadline; 16 KiB callback result; four-second/4 MiB PNG bound. Unknown fields/commands refuse. Late/duplicate/unknown results cannot complete newer requests. Complete PNG framing and dimensions are checked; native publishes an exclusive 0600 temporary atomically without replacing an existing capture, confined to the run's `screenshots/`.
 - Correlated `{requestId,result:{ok:true,...}}` means actual renderer completion. Failed assertions/actions return HTTP 409, malformed commands 400, access/framing denial 403, deadline 504. **Timeout means effect unknown, not rollback.** The client exits nonzero and never blindly retries mutation. Only bounded read-only readiness/observation may poll. Inspect retained state before any fresh explicit action.
 
