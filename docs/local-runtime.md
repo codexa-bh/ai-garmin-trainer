@@ -2,7 +2,7 @@
 
 ← [Installation guide](../README.md#installation)
 
-Use the native Tauri app as the sole supported launcher. Configure it through **Settings** (native app menu) and native Keychain, never an env file. Field identifiers below also document the internal backend/retained CLI adapter; dotenv examples apply only to deliberately configured non-serving maintenance CLIs, not desktop onboarding. Save desktop changes then explicitly quit/reopen. See [installation](../README.md#installation); no LAN/public hosting or deployment is authorized.
+Use the native Tauri app as the sole supported launcher. Configure it through **Settings** (native app menu) and native owner-private plaintext provider storage, never an env file. Same-user/privileged processes and backups can read the file; see [private storage/adoption/recovery](desktop.md#explicit-private-state-adoption). Field identifiers below also document the internal backend/retained CLI adapter; dotenv examples apply only to deliberately configured non-serving maintenance CLIs, not desktop onboarding. Save desktop changes then explicitly quit/reopen. See [installation](../README.md#installation); no LAN/public hosting or deployment is authorized.
 
 ## Direct OpenAI/DeepSeek switching
 
@@ -34,7 +34,7 @@ Each new trainer turn reads and captures the effective model before asynchronous
 
 `GET /api/model-settings` returns safe options, saved selection, effective identity/source/availability and a bounded unavailable explanation; `PATCH` accepts `{ modelId: "deepseek-flash" | "gpt-6-luna" | null }`. Unknown IDs, malformed input and missing-key choices are rejected before writes. A corrupt or now-unconfigured saved choice fails closed, never silently falls back; choose an available replacement or reset explicitly. Provider errors do not change the preference. Reads and successful saves return authoritative snapshots; use **Retry model availability** in chat to refresh after failures, or return to chat to revalidate. Keys, raw stored invalid values and upstream/storage errors are not returned.
 
-Saving this preference survives reload/restart but does not hot-reload native Settings/Keychain. Adding/removing credentials still needs native quit/reopen on the approved target. Rollback is reset or source revert; no primary restart, data copy-back, public hosting or deployment is implied.
+Saving this preference survives reload/restart but does not hot-reload native Settings/private provider storage. Adding/removing credentials still needs native quit/reopen on the approved target. Rollback is reset or source revert; no primary restart, data copy-back, public hosting or deployment is implied.
 
 ## Trainer prompt caching and token diagnostics
 
@@ -109,7 +109,7 @@ source revert rolls back this behavior.
 
 ## Opt-in OpenRouter chat
 
-Select OpenRouter and its model in native Settings, and explicitly save its provider key in Keychain. Maintenance CLI equivalents are `AI_PROVIDER=openrouter`, `OPENROUTER_API_KEY` and optional `OPENROUTER_MODEL`; desktop never reads those from env files. The initial model is `nvidia/nemotron-3.5-lightning:free`. Chat and guarded tools use `https://openrouter.ai/api/v1/chat/completions`; the key stays server-side. Auto selection remains DeepSeek-first/OpenAI-fallback and ignores OpenRouter keys. Missing/placeholder keys fail closed; no paid model or alternate provider is substituted on failure.
+Select OpenRouter and its model in native Settings, and explicitly save its provider key in the native private settings file. Maintenance CLI equivalents are `AI_PROVIDER=openrouter`, `OPENROUTER_API_KEY` and optional `OPENROUTER_MODEL`; desktop never reads those from env files. The initial model is `nvidia/nemotron-3.5-lightning:free`. Chat and guarded tools use `https://openrouter.ai/api/v1/chat/completions`; the key stays server-side. Auto selection remains DeepSeek-first/OpenAI-fallback and ignores OpenRouter keys. Missing/placeholder keys fail closed; no paid model or alternate provider is substituted on failure.
 
 OpenRouter receives the same bounded chat/Garmin context as the selected chat provider. Review its account privacy/routing settings before use. Free-model availability, rate limits and tool support can change; doctor reports configuration presence, not remote readiness. The initial Nemotron free model can repeat otherwise successful read-only tool calls and reach the execution limit instead of answering, especially on explicit tool-directed requests. Existing execution limits remain enforced and return a truthful fallback; a successful smoke is not a reliability guarantee. Validate with a bounded loopback chat/tool request. For temporary tests use task-local ignored configuration, restore the prior provider afterward, and retire temporary credentials.
 

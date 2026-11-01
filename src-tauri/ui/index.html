@@ -11,9 +11,10 @@
     <main>
       <h1>Settings</h1>
       <p>
-        Private settings stay on this Mac; provider keys stay in macOS Keychain.
-        Existing env files are not loaded or imported. Enter settings again when
-        upgrading.
+        Settings and provider keys are stored in an owner-private plaintext file
+        on this Mac (folder 0700, file 0600), not encrypted. The same user,
+        privileged processes and backups can read them. Saved keys are never
+        displayed. Existing env files are not loaded or imported.
       </p>
       <p>
         The selected database will be writable. Quit any other app or older
@@ -47,12 +48,31 @@
           <legend>Existing Garmin tokens (optional)</legend>
         </fieldset>
         <fieldset id="keys">
-          <legend>Provider keys — Keychain only</legend>
+          <legend>Provider keys — private file</legend>
           <p>
             Existing keys are never displayed. Blank inputs keep the existing
             key. Choose Clear explicitly to remove its reference.
           </p>
         </fieldset>
+        <section id="migration" hidden aria-labelledby="migration-heading">
+          <h2 id="migration-heading">Legacy settings need one-time adoption</h2>
+          <p>
+            Startup and ordinary reads never access Keychain. Choose adoption
+            below to read only the referenced provider items once; macOS may ask
+            permission. Refusal never retries automatically. Alternatively,
+            privately replace or explicitly clear every legacy configured slot
+            above, then choose re-entry. All configured slots must resolve
+            before publishing; partial retrieval is discarded. Originals remain
+            unchanged.
+          </p>
+          <button type="button" id="adopt-provider">
+            Adopt referenced Keychain keys once
+          </button>
+          <button type="button" id="reenter-provider">
+            Save private re-entry without Keychain
+          </button>
+        </section>
+        <p id="storage-status" role="status"></p>
         <details>
           <summary>Advanced settings</summary>
           <fieldset id="advanced">
@@ -63,11 +83,12 @@
           <h2>Review and open Trainer</h2>
           <p id="review-summary"></p>
           <p>
-            Finish validates local configuration and Keychain access, not remote
-            funding, model availability or network access. No automatic provider
-            call, Garmin login/sync or fallback. Optional Garmin tooling may be
-            unavailable without blocking saved views. Ollama requires your
-            separately managed daemon/model; nothing is installed or started.
+            Finish validates local configuration and private provider keys, not
+            remote funding, model availability or network access. No automatic
+            provider call, Garmin login/sync or fallback. Optional Garmin
+            tooling may be unavailable without blocking saved views. Ollama
+            requires your separately managed daemon/model; nothing is installed
+            or started.
           </p>
           <p>
             Cancellation retains any database, settings or independently

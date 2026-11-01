@@ -176,7 +176,7 @@ export function activationEnvironment(
       !result.OPENAI_API_KEY)
   )
     throw new Error(
-      "Required Keychain key unavailable. Update settings; no provider fallback.",
+      "Required provider key unavailable. Update private settings; no provider fallback.",
     );
   return result;
 }

@@ -231,15 +231,8 @@ pub struct OwnedSettings {
 }
 impl OwnedSettings {
     pub fn capture(path: &Path) -> Result<Self, &'static str> {
-        crate::settings::private_file(path)?;
-        let meta =
-            fs::symlink_metadata(path).map_err(|_| "Committed settings identity unavailable.")?;
-        let bytes = fs::read(path).map_err(|_| "Committed settings unreadable.")?;
-        Ok(Self {
-            dev: meta.dev(),
-            ino: meta.ino(),
-            bytes,
-        })
+        let (dev, ino, bytes) = crate::private_store::capture(path)?;
+        Ok(Self { dev, ino, bytes })
     }
     pub fn verify(&self, path: &Path) -> Result<(), &'static str> {
         let current = Self::capture(path)?;

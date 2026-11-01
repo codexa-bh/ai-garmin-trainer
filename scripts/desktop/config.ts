@@ -24,6 +24,19 @@ export function desktopNextConfiguration(
   };
 }
 
+// Next's custom-server prepare() does not forward its direct conf option to
+// the router server. Install only the trusted build configuration through the
+// standalone path, and retain it with the already-private activation overlay
+// across Next's environment reset. No provider values enter this JSON.
+export function configureDesktopNext(
+  base: Record<string, unknown>,
+): NextConfig {
+  const configuration = desktopNextConfiguration(base);
+  process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(configuration);
+  updateInitialEnv(process.env);
+  return configuration;
+}
+
 export function resolveExecutable(command: string): string | undefined {
   const candidates = isAbsolute(command)
     ? [command]

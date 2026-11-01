@@ -70,14 +70,14 @@ A genuinely blank installation opens a guided **Data → Provider → optional G
 
 Use canonical absolute paths, not aliases, shell expansion or cwd-relative paths. Custom new destinations need an existing owner-private parent. For existing data, first evaluate on a WAL-consistent populated disposable backup. Garmin may be skipped or an existing private token store explicitly selected.
 
-Provider keys are entered only in the local settings window and stored by native code in **macOS Keychain**. Reads show configured/unavailable status, never saved key values. Blank fields keep prior keys; replacement and clearing are explicit. Denied/locked Keychain access has no plaintext fallback. Advanced settings cover memory/extraction/embeddings and external tool paths, not arbitrary environment keys, connector arguments, ports or shell commands.
+Provider keys are entered only in the local settings window and stored by native code in an **owner-private plaintext settings file** (folder `0700`, file `0600`). This is not encryption: the same user, privileged processes and backups can read it. Reads show masked status, never saved values. Blank fields keep prior keys; replacement and clearing are explicit. Legacy Keychain settings require explicit one-time **Adopt referenced Keychain keys once**, or private re-entry of every configured slot. Startup/reads/saves never access Keychain; denied adoption does not auto-retry. Original settings and Keychain items remain unchanged. See [storage and recovery](docs/desktop.md#explicit-private-state-adoption). Advanced settings cover memory/extraction/embeddings and external tool paths, not arbitrary environment keys, connector arguments, ports or shell commands.
 
 - `auto` is DeepSeek-first when its key is configured, otherwise OpenAI; it is not runtime failover. Defaults: OpenAI `gpt-6-luna`, DeepSeek `deepseek-flash`.
 - Local Ollama defaults to `qwen3.5:4b` at loopback `/v1`; manage its daemon/models separately.
 - OpenRouter is explicit opt-in; review [privacy and tool-reliability limits](docs/local-runtime.md#opt-in-openrouter-chat). Auto ignores its key.
 - Direct OpenAI API billing/model availability is separate from Codex subscription access.
 
-On a genuine first run, **Finish and open Trainer** validates local settings/required keys, saves to Keychain/settings and starts one verified owned backend in the same session. This proves local configuration, not remote funding/model/network availability; there is no provider probe, automatic fallback or automatic Garmin sync/login. Ollama remains separately managed. If setup fails, read the reported commit state: a published DB, saved settings or independently verified tokens are retained, not rolled back. **Retry opening saved Trainer** uses the committed configuration only; after interruption before settings commit, explicitly select the retained DB with Use existing data.
+On a genuine first run, **Finish and open Trainer** validates local settings/required keys, saves private file settings and starts one verified owned backend in the same session. This proves local configuration, not remote funding/model/network availability; there is no provider probe, automatic fallback or automatic Garmin sync/login. Ollama remains separately managed. If setup fails, read the reported commit state: a published DB, saved settings or independently verified tokens are retained, not rolled back. **Retry opening saved Trainer** uses the committed configuration only; after interruption before settings commit, explicitly select the retained DB with Use existing data.
 
 For an existing installation, **Save for next launch**, then explicitly quit/reopen. Ordinary saves never start/restart or switch a live DB/account/provider. Invalid/unsupported saved settings are preserved, never treated as blank-install authority. The trainer's independently saved model preference is preserved.
 
@@ -89,7 +89,7 @@ Ordinary sync/FIT remains pinned read-only stdio with credential fallback stripp
 
 ### 4. Explicit non-serving maintenance only when needed
 
-The retained `doctor`, `db:status` and private-terminal `garmin:auth` tools still use deliberately authored checkout env/process configuration; **they do not read native Settings or Keychain**. `.env.example` is now a maintenance CLI reference, not desktop onboarding. Do not overwrite existing private env files. Never paste their values or auth output into chat/issues.
+The retained `doctor`, `db:status` and private-terminal `garmin:auth` tools still use deliberately authored checkout env/process configuration; **they do not read private native Settings or legacy Keychain**. `.env.example` is now a maintenance CLI reference, not desktop onboarding. Do not overwrite existing private env files. Never paste their values or auth output into chat/issues.
 
 For existing-data schema upgrades (or separately chosen CLI creation), quit every owner of the explicitly approved target, preserve a verified WAL-aware backup, rehearse on a disposable copy and obtain separate primary-mutation approval. Then use the existing discrete CLI, not desktop startup:
 
@@ -117,7 +117,7 @@ Start with [architecture](docs/architecture.md), then read only the detailed doc
 - [Coaching instructions and sources](docs/coaching-instructions-and-sources.md) — evidence, limitations, and instruction maintenance.
 - [Memory](docs/memory.md) — Profile, semantic memory, extraction, embeddings, and deletion controls.
 - [Validation](docs/validation.md) and [developer process](docs/developer-process.md) — local smoke, same-task data back-sync, and task-created data cleanup.
-- [Local macOS desktop runtime](docs/desktop.md) — bundled resources, native lifecycle, UI settings/Keychain, private sign-in, external integrations and rollback.
+- [Local macOS desktop runtime](docs/desktop.md) — bundled resources, native lifecycle, private file settings/adoption, private sign-in, external integrations and rollback.
 - [Programmatic native smoke](docs/dev-bridge.md) — default debug-only isolated real-WebView navigation/Profile/save/restart/capture, owned shutdown, production-exclusion evidence and explicit native-input fallback.
 - [Source readiness and data lifecycle](docs/source-beta-readiness.md) — supported boundary, backup/restore, diagnostics, and dependency evidence.
 
@@ -129,7 +129,7 @@ Trainer navigation uses **Profile & data** for editable Profile, imported athlet
 
 Chat → **Trainer model** offers **DeepSeek Flash** and/or **GPT-6 Luna** when their respective server keys are configured. Saving takes effect on subsequent trainer turns without restarting; running turns retain their original model. The app-wide preference persists locally across reloads/restarts. **Reset to configured default** restores environment selection, including custom models and Ollama/OpenRouter. With no saved preference, DeepSeek-first auto selection is unchanged.
 
-Availability means a non-placeholder key, not account funding or remote readiness. Missing keys produce no selectable choices; a saved choice whose key disappears stays unavailable until explicitly replaced/reset, with no silent fallback. The chat control never exposes/edits keys or changes memory extraction/embeddings. Native Settings owns configuration and Keychain updates, applied after explicit quit/reopen. See [local runtime](docs/local-runtime.md#runtime-trainer-model-preference).
+Availability means a non-placeholder key, not account funding or remote readiness. Missing keys produce no selectable choices; a saved choice whose key disappears stays unavailable until explicitly replaced/reset, with no silent fallback. The chat control never exposes/edits keys or changes memory extraction/embeddings. Native Settings owns configuration and private provider-file updates, applied after explicit quit/reopen. See [local runtime](docs/local-runtime.md#runtime-trainer-model-preference).
 
 ## Weekly plans and reviews
 
