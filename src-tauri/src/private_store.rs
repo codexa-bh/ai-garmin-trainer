@@ -145,6 +145,25 @@ impl Drop for Parent {
         }
     }
 }
+/// A run keeps these descriptors alive, so path replacement cannot transfer authority.
+/// Directory locks are additional run ownership, never a replacement DB writer lease.
+pub struct PinnedDirectory(Parent);
+impl PinnedDirectory {
+    pub fn open(path: &Path) -> Result<Self, &'static str> {
+        Parent::open(path, false).map(Self)
+    }
+    pub fn verify(&self) -> Result<(), &'static str> {
+        self.0.verify()
+    }
+    pub fn lock_exclusive(&self) -> Result<(), &'static str> {
+        self.verify()?;
+        if unsafe { libc::flock(self.0.file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err("Isolated run already owned; no lease stealing or fallback.");
+        }
+        Ok(())
+    }
+}
+
 pub fn capture(path: &Path) -> Result<(u64, u64, Vec<u8>), &'static str> {
     let parent = Parent::open(path.parent().ok_or(UNSAFE)?, false)?;
     let part = name(path.file_name().ok_or(UNSAFE)?)?;

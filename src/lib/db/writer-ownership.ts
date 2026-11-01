@@ -25,9 +25,7 @@ function processLeases(): Map<string, string> {
   if (!shared[registryKey]) {
     const registry = new Map<string, string>();
     shared[registryKey] = registry;
-    process.once("exit", () => {
-      for (const [path, identity] of registry) removeOwnedLease(path, identity);
-    });
+    process.once("exit", releaseDatabaseWritersForProcessExit);
   }
   return shared[registryKey];
 }
@@ -35,6 +33,16 @@ function processLeases(): Map<string, string> {
 function removeOwnedLease(path: string, identity: string): void {
   if (existsSync(path) && readFileSync(path, "utf8") === identity)
     unlinkSync(path);
+}
+
+/** Only at process exit or synchronously immediately before killing our own group.
+ * Never use this to switch a live database or to recover another/stale owner.
+ * Exact identities stay authoritative; replacement/foreign leases are preserved.
+ */
+export function releaseDatabaseWritersForProcessExit(): void {
+  const leases = processLeases();
+  for (const [path, identity] of leases) removeOwnedLease(path, identity);
+  leases.clear();
 }
 
 export function acquireDatabaseWriter(databasePath: string): () => void {
@@ -77,7 +85,7 @@ export function acquireDatabaseWriter(databasePath: string): () => void {
   }
   const release = () => {
     removeOwnedLease(path, identity);
-    leases.delete(path);
+    if (leases.get(path) === identity) leases.delete(path);
   };
   try {
     if (process.platform === "darwin" && existsSync(database)) {

@@ -5,6 +5,7 @@ import next from "next";
 import { adoptConfiguration, configureDesktopNext } from "./config";
 import { acceptsDesktopRequest } from "./http-policy";
 import { assertDesktopDatabase } from "../../src/lib/db/desktop-preflight";
+import { releaseDatabaseWritersForProcessExit } from "../../src/lib/db/writer-ownership";
 import {
   activationEnvironment,
   SECRET_SLOTS,
@@ -31,10 +32,18 @@ async function main(): Promise<void> {
   process.stdin.once("end", () => {
     parentLost = true;
     setTimeout(() => {
+      // SIGKILL cannot run Node exit hooks. Settle only this live process's exact
+      // leases synchronously, then stop the owned group in the same callback.
+      // No JS work can resume between release and kill; macOS open-file admission
+      // independently prevents a competing writer during the bounded transition.
       try {
-        process.kill(-process.pid, "SIGKILL");
-      } catch {
-        process.exit(1);
+        releaseDatabaseWritersForProcessExit();
+      } finally {
+        try {
+          process.kill(-process.pid, "SIGKILL");
+        } catch {
+          process.exit(1);
+        }
       }
     }, 6000);
     try {

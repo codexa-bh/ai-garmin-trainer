@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-isolated-result"
+description = "Only an admitted ordinary-run trainer origin may return a correlated closed result; no settings, auth or action authority."
+commands.allow = ["smoke_result"]

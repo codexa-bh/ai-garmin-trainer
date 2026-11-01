@@ -1,4 +1,4 @@
-//! Only this instance's actual WKWebView, after the fixed sanitized Profile layout.
+//! Only this instance's actual WKWebView, after an admitted fixed privacy mask.
 use std::{
     fs::{self, OpenOptions},
     io::Write,
@@ -7,7 +7,7 @@ use std::{
 };
 use tauri::WebviewWindow;
 pub fn publish(parent: &Path, id: &str, bytes: &[u8]) -> Result<PathBuf, String> {
-    crate::smoke_config::private_dir(parent)?;
+    crate::isolated_run::private_directory(parent)?;
     if uuid::Uuid::parse_str(id).is_err()
         || bytes.len() < 45
         || bytes.len() > 4 * 1024 * 1024
