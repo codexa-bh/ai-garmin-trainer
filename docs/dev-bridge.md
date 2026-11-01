@@ -50,6 +50,52 @@ not exercised natively; no provider send/streaming or trusted keyboard claim fol
 Copies/preferences/draft/Goals/images are task-attributed and scratch-expiry deferred.
 Default ordinary/debug/quick scenarios gain no extra workload or privileges.
 
+## Finite synthetic Markdown-table scenario
+
+For presentation-only table work, use the existing fresh current-schema synthetic
+seed rather than requesting personal populated fixtures:
+
+```bash
+npm run smoke:tables -- --scratch '/absolute/canonical/private-task-scratch' \
+  --bundle '/absolute/checkout/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
+```
+
+Build the final same-input ordinary artifact first. This finite runner extends the
+existing `ci:seed --markdown-tables` mechanism with one synthetic Profile, one
+assistant message containing reordered six-column and ordinary three-column tables,
+and current-week plan/review documents. No private input, environment discovery,
+provider/Garmin call or new fixture environment. Default CI/quick/ordinary workloads
+are unchanged. One unmodified outside-checkout ordinary bundle uses the existing
+source/resource/artifact/run/boot/renderer admission, online-copy, private storage,
+nonactivation observer, Goals save/restart and live-handle shutdown owners.
+
+Ordinary-only `tables` accepts exactly `surface: plan|review|chat|chat-simple` and
+`edge: start|end`. It verifies exact canonical synthetic cell matrices and bounded
+inline structure, scrolls only that real table into view/to its contained edge,
+and returns fixed enums plus booleans for compact line layout, prose wrapping,
+containment, scrolling, cell presence, reached edge and header visibility inside
+the actual ancestor/viewport clipping bounds. Navigation scrolls only user-scrollable
+table ancestors, never overflow-hidden panel ancestors via scrollIntoView. Ordinary `observe` adds a
+boolean `tablesReady`, never document text. `captureView` adds only `view: tables`:
+a previously selected, still-canonical table is revealed through the existing
+hide-by-default geometry-preserving mask. Its ancestor containers are revealed only
+when all direct text nodes are whitespace, preventing WebKit hidden-scroller
+compositing omission while every sibling/other child remains independently hidden;
+non-whitespace direct ancestor text refuses rather than exposing it. Unexpected/private/ambiguous content,
+wrong view/mode/fields or missing selection refuse; existing run/boot/origin/request,
+timeout/unknown-effect, restoration/expiry and capture bounds remain unchanged.
+No arbitrary text/selector/script/path, settings/auth grant or private readback.
+
+Twelve actual native PNGs cover each surface at wide, narrow-start and narrow-end.
+Inspect each separately. Capture files and original boolean observations survive
+geometry failures; no mutation is blindly retried. Canonical copies are under
+task scratch `screenshots/`. Synthetic seeds/copies/documents/Goals/images/logs are
+attributed and deferred to scratch expiry, never copied back/uploaded. This proves
+ordinary isolated native rendering on synthetic documents, not provider generation,
+private-data integration, default singleton/settings or trusted hardware input.
+Use focused seed/DOM/native/runner contracts before this scenario; do not substitute
+a quick Profile pass or offscreen WebKit probe for changed-path native evidence.
+
 ## Run the representative scenario
 
 This existing **debug-only** populated-copy command remains unchanged:
@@ -211,7 +257,7 @@ Safe, bounded task-needed smoke-bridge/runner evolution is **expected and wanted
 
 - `GET /identity`: authenticated schema/run/source/native PID/app/copy/origin plus fixed renderer-diagnostic booleans. Does not imply readiness.
 - `POST /command`: `{requestId,expectedRunId,command}`. UUID request/run identities, exact `Host: 127.0.0.1:<port>`, bearer capability and `X-Smoke-Run` are mandatory. Ordinary requests also require exact `expectedBoot`; result callbacks bind that same native boot. Capability stays in private config/client memory/header, never argv/URL/logs/receipts. Every browser Origin/Sec-Fetch-Site is refused; no CORS grant.
-- Shared closed actions: `observe`; exact main navigation/back/Profile-close/save/reload clicks; **synthetic Goals only** input/assert. Ordinary adds fixed `setViewport`/`captureView` presets plus the finite opt-in composer actions above (composer captures require its canonical synthetic state). Debug alone retains Profile `capture`, finite `health` actions above, synthetic `captureDebug`, outer **LLM debug traces**/**First LLM trace** clicks and fixed **Enter**/**Space** `debugKey`. Debug-only `settings` dispatch uses its exact admitted legacy Config and native local-document completion, never the trainer callback. All Settings/Health/disclosure variants and native input/setup modules compile out of ordinary release; ordinary native/renderer guards reject those debug controls. No arbitrary selector/path/key, credential/login, general scroll/select/eval/invoke, state injection, HTTP/filesystem/process proxy or shutdown. Hidden/disabled/ambiguous/private/prehydration targets refuse before dispatch.
+- Shared closed actions: `observe`; exact main navigation/back/Profile-close/save/reload clicks; **synthetic Goals only** input/assert. Ordinary adds fixed `setViewport`/`captureView` presets plus the finite synthetic table and opt-in composer actions above (composer captures require its canonical synthetic state). Debug alone retains Profile `capture`, finite `health` actions above, synthetic `captureDebug`, outer **LLM debug traces**/**First LLM trace** clicks and fixed **Enter**/**Space** `debugKey`. Debug-only `settings` dispatch uses its exact admitted legacy Config and native local-document completion, never the trainer callback. All Settings/Health/disclosure variants and native input/setup modules compile out of ordinary release; ordinary native/renderer guards reject those debug controls. No arbitrary selector/path/key, credential/login, general scroll/select/eval/invoke, state injection, HTTP/filesystem/process proxy or shutdown. Hidden/disabled/ambiguous/private/prehydration targets refuse before dispatch.
 - Ordinary observations retain only fixed view/navigation/headings/readiness/saved booleans. Debug alone adds fixed Health mode/readiness/navigation/missing-record/partial-record booleans and optional disclosure booleans/three same-length boolean arrays (at most 128 entries); unknown keys/text, inconsistent shapes/bounds and action-mismatched results refuse natively. Remembered Health dates remain inside the debug bootstrap, never results. No copied values/transcripts/trace text/private credentials leave the renderer. Clicks/Goals/Health are synthetic DOM events; opt-in debug keys are native-generated WebView-local events, never hardware/global input. Ordinary uses neither those keys nor debug Health/Settings actions.
 - Only the exact admitted trainer origin/window receives its result-only permission (`allow-isolated-result` for ordinary; legacy debug permission remains debug-only). No remote settings/auth grant is added. Callback validates run/boot/window/origin, bound and exact pending request; native validates closed result keys, enums/booleans and command correspondence, never arbitrary renderer JSON/text. Ordinary Goals equal this run's sentinel. Capture selectors/geometry/paths are never caller supplied; debug subtree captures do not certify ordinary layout. Keyless debug Settings has independently typed bounded native completion and adds no renderer result permission.
 - One request at a time; 16 KiB total request; two-second total read deadline; no duplicate/chunked framing; 4096 unique request IDs/run; five-second renderer deadline; 16 KiB callback result; four-second/4 MiB PNG bound. Unknown fields/commands refuse. Late/duplicate/unknown results cannot complete newer requests. Native snapshots explicitly request screen updates before capture so current privacy masks/navigation/resize are flushed instead of accepting a cached prior-view frame. Background animation frames can be throttled, so the bounded renderer compositor delay is retained rather than requiring foreground activation. Complete PNG framing and dimensions are checked; native publishes an exclusive 0600 temporary atomically without replacing an existing capture, confined to the run's `screenshots/`.

@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
+import { AssistantContent } from "../src/app/dashboard/markdown";
+import {
+  simpleTableFixture,
+  tableFixture,
+  tableProse,
+} from "../scripts/ci/table-fixture";
 import { HealthDashboardView } from "../src/app/dashboard/health-metrics";
 import { ModelSettingsCard } from "../src/app/dashboard/model-settings-card";
 import { useModelSettings } from "../src/app/dashboard/use-model-settings";
@@ -862,5 +868,182 @@ describe("native-installed rendered smoke boundary", () => {
       ).result.ok,
     ).toBe(false);
     expect((await command({ type: "capture" })).result.ok).toBe(false);
+  });
+});
+
+function tableSmokeFixture(surface: string) {
+  smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+  vi.stubGlobal("innerWidth", 420);
+  vi.stubGlobal("innerHeight", 850);
+  const inChat = surface.startsWith("chat");
+  render(
+    <>
+      <p>private outside content</p>
+      <section className={inChat ? "transcript" : "training-plan-active"}>
+        <article className="training-plan-report">
+          <h3>{`T0249 synthetic ${surface}`}</h3>
+          <AssistantContent
+            content={
+              surface === "chat-simple"
+                ? simpleTableFixture
+                : tableFixture(surface !== "plan")
+            }
+          />
+        </article>
+      </section>
+    </>,
+  );
+  const table = document.querySelector("table")!;
+  const wrapper = table.parentElement!;
+  table.scrollIntoView = vi.fn(() => {
+    throw Error("Must not scroll hidden ancestors");
+  });
+  vi.spyOn(table.tHead!, "getBoundingClientRect").mockReturnValue({
+    width: 520,
+    top: 10,
+    bottom: 50,
+  } as DOMRect);
+  Object.defineProperty(wrapper, "scrollWidth", { value: 520 });
+  Object.defineProperty(wrapper, "clientWidth", { value: 350 });
+  wrapper.style.overflowX = "auto";
+  vi.spyOn(table, "getBoundingClientRect").mockReturnValue({
+    width: 520,
+  } as DOMRect);
+  vi.spyOn(wrapper, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    right: 350,
+  } as DOMRect);
+  Object.defineProperty(Range.prototype, "getClientRects", {
+    configurable: true,
+    value: function (this: Range) {
+      const rect = { width: 10, top: 0 };
+      return this.toString() === tableProse
+        ? [rect, { width: 10, top: 20 }]
+        : [rect];
+    },
+  });
+  return { table, wrapper };
+}
+
+describe("finite ordinary synthetic table smoke", () => {
+  it.each(["plan", "review", "chat", "chat-simple"])(
+    "verifies only seeded %s, returns booleans and masks canonical tables without geometry changes",
+    async (surface) => {
+      const { table } = tableSmokeFixture(surface);
+      const result = (await command({ type: "tables", surface, edge: "start" }))
+        .result;
+      expect(result).toMatchObject({
+        ok: true,
+        compact: true,
+        proseWrapped: true,
+        contained: true,
+        allCells: true,
+        scrollable: true,
+        headerVisible: true,
+      });
+      expect(
+        Object.values(result).filter((value) => typeof value === "string"),
+      ).toEqual([surface, "start"]);
+      expect(
+        (
+          await command({
+            type: "captureView",
+            view: "tables",
+            preset: "narrow",
+          })
+        ).result.ok,
+      ).toBe(true);
+      expect(table.getAttribute("data-smoke-reveal")).toBe("");
+      expect(
+        screen
+          .getByText("private outside content")
+          .hasAttribute("data-smoke-reveal"),
+      ).toBe(false);
+      expect(table.getAttribute("style")).toBeNull();
+      expect(
+        document.querySelector("#trainer-smoke-sanitizer")?.textContent,
+      ).not.toMatch(/position|width|height|display/);
+      smoke.__trainerSmokeRestore();
+      expect(document.querySelector("#trainer-smoke-sanitizer")).toBeNull();
+      expect(table.hasAttribute("data-smoke-reveal")).toBe(false);
+    },
+  );
+
+  it("refuses private direct ancestor text rather than revealing a scroller indiscriminately", async () => {
+    const { table } = tableSmokeFixture("plan");
+    table.parentElement!.parentElement!.append(
+      document.createTextNode("private direct content"),
+    );
+    await command({ type: "tables", surface: "plan", edge: "start" });
+    expect(
+      (await command({ type: "captureView", view: "tables", preset: "narrow" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("#trainer-smoke-sanitizer")).toBeNull();
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  });
+
+  it("refuses captures when a canonical table header is clipped/offscreen", async () => {
+    const { table } = tableSmokeFixture("plan");
+    vi.mocked(table.tHead!.getBoundingClientRect).mockReturnValue({
+      width: 520,
+      top: -100,
+      bottom: -60,
+    } as DOMRect);
+    expect(
+      (await command({ type: "tables", surface: "plan", edge: "start" })).result
+        .headerVisible,
+    ).toBe(false);
+    expect(
+      (await command({ type: "captureView", view: "tables", preset: "narrow" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("#trainer-smoke-sanitizer")).toBeNull();
+  });
+
+  it("refuses private/mutated or ambiguous content and restores masks on failure", async () => {
+    const { table } = tableSmokeFixture("plan");
+    await command({ type: "tables", surface: "plan", edge: "start" });
+    await command({ type: "captureView", view: "tables", preset: "narrow" });
+    table.querySelector("td")!.textContent = "private document";
+    expect(
+      (await command({ type: "captureView", view: "tables", preset: "narrow" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("#trainer-smoke-sanitizer")).toBeNull();
+    expect(
+      (await command({ type: "tables", surface: "plan", edge: "start" })).result
+        .ok,
+    ).toBe(false);
+    expect(
+      (
+        await command({
+          type: "tables",
+          surface: "plan",
+          edge: "start",
+          selector: "body",
+        })
+      ).result.ok,
+    ).toBe(false);
+  });
+
+  it("rejects debug/default mode, unknown surfaces/edges and preselection captures", async () => {
+    tableSmokeFixture("plan");
+    expect(
+      (await command({ type: "captureView", view: "tables", preset: "narrow" }))
+        .result.ok,
+    ).toBe(false);
+    for (const value of [
+      { surface: "settings", edge: "start" },
+      { surface: "plan", edge: "arbitrary" },
+    ])
+      expect((await command({ type: "tables", ...value })).result.ok).toBe(
+        false,
+      );
+    delete smoke.__trainerOrdinaryIsolated;
+    expect(
+      (await command({ type: "tables", surface: "plan", edge: "start" })).result
+        .ok,
+    ).toBe(false);
   });
 });
