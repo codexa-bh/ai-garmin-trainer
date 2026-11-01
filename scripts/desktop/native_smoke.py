@@ -111,11 +111,11 @@ class Observer:
 
 
 class Run:
-    def __init__(self, scratch, database, source):
+    def __init__(self, scratch, database, source, *, ordinary=False):
         self.id = str(uuid.uuid4())
-        self.root = scratch / ('native-' + self.id)
+        self.root = scratch / (('ordinary-' if ordinary else 'native-') + self.id)
         self.root.mkdir(mode=0o700)
-        for name in ['home', 'tmp', 'profile', 'config', 'screenshots']:
+        for name in (['app-data', 'setup-profile'] if ordinary else ['home']) + ['tmp', 'profile', 'config', 'screenshots']:
             (self.root / name).mkdir(mode=0o700)
         (self.root / 'owner').write_text(self.id)
         (self.root / 'owner').chmod(0o600)
@@ -128,26 +128,36 @@ class Run:
                     raise ValueError('Online backup mismatch')
         self.database.chmod(0o600)
         self.config = {'runId': self.id, 'token': os.urandom(32).hex(), 'root': str(self.root), 'source': source, 'port': port()}
-        private_json(self.root / 'config.json', self.config)
+        if not ordinary:
+            private_json(self.root / 'config.json', self.config)
         private_json(self.root / 'config/settings-v2.json', {'version': 2, 'keys': {}, 'fields': {
             'DATABASE_PATH': str(self.database), 'AI_PROVIDER': 'ollama', 'MEMORY_ENABLED': 'false', 'GARMIN_HISTORY_START_DATE': '2024-01-01'}})
         private_json(self.root / 'provenance.json', {'source': source, 'original': self.original, 'copy': 'SQLite online backup', 'primaryWriteRequested': False})
         self.child = None
+        self.shutdown_failure = None
         self.origin = None
         self.launches = 0
         self.pids = []
         self.commands = []
         self.observer = None
 
+    def spawn(self, binary, log):
+        env = {'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin', 'HOME': str(self.root / 'home'),
+               'TMPDIR': str(self.root / 'tmp'), 'TRAINER_SMOKE_CONFIG': str(self.root / 'config.json')}
+        with open(log, 'xb', opener=lambda p, flags: os.open(p, flags, 0o600)) as output:
+            return subprocess.Popen([str(binary)], cwd=self.root, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+
+    def accept_identity(self, identity):
+        return (identity['runId'] == self.id and identity['source'] == self.config['source']
+                and identity['pid'] == self.child.pid and identity['database'] == str(self.database)
+                and identity['appIdentity'] == 'com.codexa.garmin-trainer.smoke.r' + self.id.replace('-', ''))
+
     def start(self, binary, timeout=100):
         if self.child is not None or listening(self.config['port']):
             raise ValueError('Run live/endpoint occupied; no fallback or occupant kill')
         self.launches += 1
-        env = {'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin', 'HOME': str(self.root / 'home'),
-               'TMPDIR': str(self.root / 'tmp'), 'TRAINER_SMOKE_CONFIG': str(self.root / 'config.json')}
         log = self.root / f'native-{self.launches}.log'
-        with open(log, 'xb', opener=lambda p, flags: os.open(p, flags, 0o600)) as output:
-            self.child = subprocess.Popen([str(binary)], cwd=self.root, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+        self.child = self.spawn(binary, log)
         self.pids.append(self.child.pid)
         deadline = time.monotonic() + timeout
         failures = set()
@@ -156,7 +166,7 @@ class Run:
                 raise RuntimeError(f'Owned native exited: {log}')
             try:
                 identity = self.http('/identity')
-                if identity['runId'] != self.id or identity['source'] != self.config['source'] or identity['pid'] != self.child.pid or identity['database'] != str(self.database) or identity['appIdentity'] != 'com.codexa.garmin-trainer.smoke.r' + self.id.replace('-', ''):
+                if not self.accept_identity(identity):
                     raise ValueError('Native source/run/app/PID/database mismatch')
                 if identity['origin']:
                     evidence = self.root / f'native-identity-{self.launches}.json'
@@ -197,11 +207,14 @@ class Run:
         finally:
             client.close()
 
+    def request(self, command, request_id):
+        return {'requestId': request_id, 'expectedRunId': self.id, 'command': command}
+
     def command(self, command):
         if self.observer:
             self.observer.check(self.pids)
         request_id = str(uuid.uuid4())
-        result = self.http('/command', {'requestId': request_id, 'expectedRunId': self.id, 'command': command})
+        result = self.http('/command', self.request(command, request_id))
         if result.get('requestId') != request_id or result.get('result', {}).get('ok') is not True:
             raise ValueError('Uncorrelated/failed command; effect unknown, no replay')
         self.commands.append({'type': command['type'], 'target': command.get('target'), 'ok': True})
@@ -273,6 +286,8 @@ class Run:
     def stop(self):
         child = self.child
         if child is None:
+            if getattr(self, 'shutdown_failure', None):
+                raise RuntimeError(self.shutdown_failure)
             return
         # Only this live child handle authorizes signaling, never a stored PID/receipt.
         if child.poll() is None:
@@ -291,7 +306,9 @@ class Run:
         settled = not listening(self.config['port']) and not listening(backend_port) and not Path(str(self.database) + '.trainer-writer').exists()
         private_json(self.root / f'shutdown-{self.launches}.json', {'nativeReaped': True, 'endpointsAndLeaseSettled': settled, 'exitCode': child.returncode})
         if not settled:
-            raise RuntimeError('Owned shutdown incomplete; no stale-PID cleanup attempted')
+            self.shutdown_failure = 'Owned shutdown incomplete; no stale-PID cleanup attempted'
+            raise RuntimeError(self.shutdown_failure)
+        self.shutdown_failure = None
 
 
 def verify_resources(source):

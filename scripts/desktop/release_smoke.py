@@ -15,12 +15,20 @@ import time
 import uuid
 from native_smoke import REPO, Observer, Run, canonical, fingerprint, listening, private_json, readonly, source_identity
 
-MARKERS = [b'__trainerSmoke', b'smoke_result', b'TRAINER_SMOKE_CONFIG', b'trainer-release-probe']
+# Ordinary binaries now contain supported opt-in control, not legacy debug admission.
+# These precise legacy admission/probe/grant markers must remain excluded.
+MARKERS = [b'Smoke must use its exact private config/HOME/temp', b'com.codexa.garmin-trainer.smoke.r',
+           b'isolated-debug-result', b'allow-smoke-result', b'trainer-release-probe']
+# Optimizers may encode CLI comparisons as instructions rather than contiguous strings.
+# Require the versioned identity contract actually serialized by the live endpoint instead.
+REQUIRED = [b'trainer-ordinary-isolated/v1', b'allow-isolated-result', b'__trainerOrdinaryIsolated',
+            b'Isolated ordinary-run admission refused']
 APP = REPO / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
 
 
 def audit(app):
     inventory = {}
+    admitted = set()
     for file in sorted(app.rglob('*')):
         if file.is_symlink():
             raise ValueError('Unexpected alias in production artifact')
@@ -29,9 +37,10 @@ def audit(app):
         data = file.read_bytes()
         if any(marker in data for marker in MARKERS):
             raise ValueError('Debug/probe surface marker in ordinary production artifact: ' + str(file.relative_to(app)))
+        admitted.update(marker for marker in REQUIRED if marker in data)
         inventory[str(file.relative_to(app))] = hashlib.sha256(data).hexdigest()
-    if not inventory:
-        raise ValueError('Missing ordinary production artifact')
+    if not inventory or admitted != set(REQUIRED):
+        raise ValueError('Missing ordinary artifact or supported admission/control markers; static audit is not launch evidence')
     return inventory
 
 
@@ -56,7 +65,7 @@ def main():
     artifact = hashlib.sha256(json.dumps(inventory, sort_keys=True).encode()).hexdigest()
     database = canonical(json.loads(selected.read_text())['database'])
     run = Run(scratch, database, source)
-    private_json(run.root / 'ordinary-artifact-audit.json', {'source': source, 'artifactHash': artifact, 'files': len(inventory), 'excludedMarkers': [m.decode() for m in MARKERS], 'ordinaryArtifactLaunched': False})
+    private_json(run.root / 'ordinary-artifact-audit.json', {'source': source, 'artifactHash': artifact, 'files': len(inventory), 'excludedMarkers': [m.decode() for m in MARKERS], 'requiredSupportedMarkers': [m.decode() for m in REQUIRED], 'ordinaryArtifactLaunched': False})
     with (scratch / ('release-probe-build-' + str(uuid.uuid4()) + '.log')).open('xb') as log:
         subprocess.run(['cargo', 'build', '--locked', '--release', '--target', 'aarch64-apple-darwin', '--features', 'release-probe', '--manifest-path', 'src-tauri/Cargo.toml'], cwd=REPO, env={**os.environ, 'TRAINER_BUILD_SOURCE': source}, stdout=log, stderr=subprocess.STDOUT, check=True)
     if source_identity() != source:

@@ -40,6 +40,26 @@ class OwnershipTests(unittest.TestCase):
                     run.stop()
                     kill.assert_not_called()
 
+    def test_failed_settlement_remains_failed_after_native_handle_is_reaped(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / 'populated.sqlite'
+            with contextlib.closing(sqlite3.connect(source)) as db:
+                db.execute('create table example(id integer)')
+            run = Run(root, source, 'a' * 64)
+            run.child = Mock(returncode=-9)
+            run.child.poll.return_value = -9
+            run.launches = 1
+            Path(str(run.database) + '.trainer-writer').write_text('unknown owner')
+            with patch('native_smoke.time.monotonic', side_effect=[0, 20]), patch('native_smoke.listening', return_value=False), patch('native_smoke.os.killpg') as kill:
+                with self.assertRaisesRegex(RuntimeError, 'shutdown incomplete'):
+                    run.stop()
+                self.assertIsNone(run.child)
+                with self.assertRaisesRegex(RuntimeError, 'shutdown incomplete'):
+                    run.stop()
+                kill.assert_not_called()
+
     def test_client_never_retries_a_mismatched_or_failed_mutation(self):
         from unittest.mock import Mock
         for response in [{'requestId': 'wrong', 'result': {'ok': True}}, {'result': {'ok': False}}]:
@@ -65,15 +85,20 @@ class OwnershipTests(unittest.TestCase):
             self.assertEqual(executable.stat().st_mode & 0o777, 0o500)
             self.assertEqual(data.stat().st_mode & 0o777, 0o400)
 
-    def test_ordinary_artifact_audit_refuses_debug_and_probe_markers(self):
-        from release_smoke import audit
+    def test_ordinary_audit_requires_supported_contract_and_excludes_legacy_admission(self):
+        from release_smoke import audit, MARKERS, REQUIRED
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             file = root / 'ordinary-fixture'
-            file.write_bytes(b'unit fixture not an actual application')
+            supported = b' '.join(REQUIRED) + b' smoke_result __trainerSmoke'
+            file.write_bytes(supported)
             self.assertEqual(len(audit(root)), 1)
-            for marker in [b'__trainerSmoke', b'smoke_result', b'TRAINER_SMOKE_CONFIG', b'trainer-release-probe']:
-                file.write_bytes(marker)
+            for marker in MARKERS:
+                file.write_bytes(supported + b' ' + marker)
+                with self.assertRaises(ValueError):
+                    audit(root)
+            for required in REQUIRED:
+                file.write_bytes(b' '.join(marker for marker in REQUIRED if marker != required))
                 with self.assertRaises(ValueError):
                     audit(root)
 

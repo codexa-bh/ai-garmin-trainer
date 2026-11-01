@@ -1,7 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod auth;
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, not(feature = "release-probe")))]
 mod dev_bridge;
+mod isolated_run;
 mod keychain;
 mod onboarding;
 mod private_store;
@@ -31,6 +32,10 @@ struct Runtime {
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
+    if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+        run.verify()?;
+        return Ok(run.settings());
+    }
     #[cfg(any(debug_assertions, feature = "release-probe"))]
     if let Some(config) = app.try_state::<smoke_config::Config>() {
         return Ok(config.settings());
@@ -104,6 +109,9 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
         .settings_write
         .lock()
         .map_err(|_| "Settings ownership unavailable.")?;
+    if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+        run.verify_settings()?;
+    }
     let mut snapshot = settings::activation(&settings_path(app)?)?;
     drop(_write); // Saves remain available during backend startup; activation is immutable.
     let result = supervisor::Service::start(
@@ -131,13 +139,39 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
             .incognito(true)
             .data_directory(config.root.join("profile"));
     }
-    #[cfg(debug_assertions)]
+    if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+        run.verify()?;
+        window = window
+            .focused(false)
+            .incognito(true)
+            .data_directory(run.descriptor.root.join("profile"));
+    }
+    #[cfg(any(debug_assertions, not(feature = "release-probe")))]
     if let Some(bridge) = app.try_state::<std::sync::Arc<dev_bridge::Bridge>>() {
         *bridge
             .origin
             .lock()
             .map_err(|_| "Smoke origin unavailable")? = Some(origin.clone());
-        app.add_capability(serde_json::json!({"identifier":"isolated-debug-result", "windows":["trainer"], "local":false, "remote":{"urls":[format!("{origin}/*")]}, "permissions":["allow-smoke-result"]}).to_string()).map_err(|_| "Debug result capability unavailable")?;
+        let (identifier, permission) = if bridge.config.ordinary.is_some() {
+            ("isolated-ordinary-result", "allow-isolated-result")
+        } else {
+            #[cfg(debug_assertions)]
+            {
+                ("isolated-debug-result", "allow-smoke-result")
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                return Err("Ordinary controller requires native isolated admission");
+            }
+        };
+        app.add_capability(serde_json::json!({"identifier":identifier, "windows":["trainer"], "local":false, "remote":{"urls":[format!("{origin}/*")]}, "permissions":[permission]}).to_string()).map_err(|_| "Isolated result capability unavailable")?;
+        if bridge.config.ordinary.is_some() {
+            window = window.initialization_script(format!(
+                "globalThis.__trainerOrdinaryIsolated = {{runId:{}}};",
+                serde_json::to_string(&bridge.config.run_id)
+                    .map_err(|_| "Run identity unavailable")?
+            ));
+        }
         window = window.initialization_script(include_str!("../debug/smoke.js"));
     }
     #[cfg(all(feature = "release-probe", not(debug_assertions)))]
@@ -238,6 +272,9 @@ async fn save_settings(
             return Err("App is quitting.");
         }
         let fields = settings::validate(&resources(&app)?, &input.fields)?;
+        if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+            run.confine(&fields)?;
+        }
         let updates = input.keys;
         settings::save(&settings_path(&app)?, fields, updates)
     })
@@ -254,6 +291,12 @@ async fn adopt_provider_settings(
     read_legacy: bool,
 ) -> Result<String, String> {
     setup_only(&window)?;
+    if app
+        .try_state::<std::sync::Arc<isolated_run::Admission>>()
+        .is_some()
+    {
+        return Err("Isolated runs require preprepared v2 settings; no legacy adoption.".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let _setup = runtime
@@ -444,6 +487,15 @@ async fn start_auth(
     password: String,
 ) -> Result<auth::Status, String> {
     setup_only(&window)?;
+    if app
+        .try_state::<std::sync::Arc<isolated_run::Admission>>()
+        .is_some()
+    {
+        return Err(
+            "Isolated runs accept explicitly prepared token copies only; no login automation."
+                .into(),
+        );
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let _setup = runtime
@@ -533,10 +585,31 @@ fn cancel_auth(
 }
 
 fn main() {
+    let intent = isolated_run::intent(&std::env::args_os().skip(1).collect::<Vec<_>>());
+    let ordinary = match intent.and_then(|path| {
+        path.map(|path| isolated_run::Admission::load(&path).map(std::sync::Arc::new))
+            .transpose()
+    }) {
+        Ok(run) => run,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+    };
+    if let Some(run) = &ordinary {
+        unsafe {
+            libc::umask(0o077);
+        }
+        std::env::set_var("TMPDIR", run.descriptor.root.join("tmp"));
+    }
     #[allow(unused_mut)]
     let mut context = tauri::generate_context!();
     #[allow(unused_mut)]
-    let mut isolated = false;
+    let mut isolated = ordinary.is_some();
+    if let Some(run) = &ordinary {
+        context.config_mut().identifier = run.identifier();
+        context.config_mut().app.windows.clear();
+    }
     #[cfg(any(debug_assertions, feature = "release-probe"))]
     let smoke = match smoke_config::Config::load() {
         Ok(config) => config,
@@ -588,7 +661,7 @@ fn main() {
     let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .manage(Runtime::default());
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, not(feature = "release-probe")))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         setup_status,
         read_onboarding,
@@ -605,7 +678,7 @@ fn main() {
         adopt_provider_settings,
         dev_bridge::smoke_result
     ]);
-    #[cfg(not(debug_assertions))]
+    #[cfg(all(not(debug_assertions), feature = "release-probe"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         setup_status,
         read_onboarding,
@@ -643,11 +716,28 @@ fn main() {
                 #[cfg(target_os = "macos")]
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 #[cfg(debug_assertions)]
-                dev_bridge::start(app.handle(), config.clone())?;
+                dev_bridge::start(app.handle(), config.clone().into())?;
                 app.manage(config);
             }
+            if let Some(run) = ordinary {
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                #[cfg(not(feature = "release-probe"))]
+                dev_bridge::start(app.handle(), dev_bridge::Config {
+                    run_id: run.descriptor.run_id.clone(), token: run.descriptor.capability.clone(), root: run.descriptor.root.clone(),
+                    source: run.descriptor.source_fingerprint.clone(), port: run.descriptor.control_port, ordinary: Some(run.clone()),
+                })?;
+                app.manage(run.clone());
+                WebviewWindowBuilder::new(app, "setup", WebviewUrl::App("index.html".into()))
+                    .title("Garmin Trainer — isolated Settings").inner_size(900.0, 820.0)
+                    .visible(false).focused(false).incognito(true).data_directory(run.descriptor.root.join("setup-profile"))
+                    .on_navigation(|url| (url.scheme() == "tauri" && url.host_str() == Some("localhost")) || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost")))
+                    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny).build()?;
+            }
             let settings = settings_path(app.handle()).map_err(std::io::Error::other)?;
-            let root = app.path().app_data_dir()?.join("private");
+            let root = if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+                run.descriptor.root.join("app-data")
+            } else { app.path().app_data_dir()?.join("private") };
             let state = onboarding::State::new(&settings, root);
             let launch_saved = !state.eligible;
             *app.state::<Runtime>().onboarding_id.lock().map_err(|_| std::io::Error::other("Setup identity unavailable"))? = state.id.clone();
@@ -671,7 +761,10 @@ fn main() {
                     if launch_saved && path.exists() {
                         match launch(&handle) {
                             Ok(message) => status(&handle, &message),
-                            Err(message) => status(&handle, message),
+                            Err(message) => {
+                                status(&handle, message);
+                                if handle.try_state::<std::sync::Arc<isolated_run::Admission>>().is_some() { stop_runtime(&handle); handle.exit(1); }
+                            }
                         }
                     }
                 }

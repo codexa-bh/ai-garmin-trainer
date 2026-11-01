@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""Unmodified outside-checkout ordinary bundles; closed keyless rendered/capture smoke only."""
+import argparse
+import contextlib
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import uuid
+from native_smoke import Observer, Run, canonical, fingerprint, private_json, readonly, source_identity
+from release_smoke import audit
+
+
+def inventory_hash(inventory):
+    digest = hashlib.sha256()
+    for path, content in sorted(inventory.items()):
+        if any(char in path for char in '\x00\r\n'):
+            raise ValueError('Unrepresentable inventory path')
+        digest.update((path + '\x00' + content + '\n').encode())
+    return digest.hexdigest()
+
+
+def private_directory(path):
+    path = canonical(path)
+    info = path.stat()
+    if not path.is_dir() or info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o700:
+        raise ValueError('Canonical owner-private scratch required; never adopt or chmod inputs')
+    return path
+
+
+class OrdinaryRun(Run):
+    def __init__(self, scratch, database, source, bundle, inventory):
+        super().__init__(scratch, database, source, ordinary=True)
+        self.artifact = inventory_hash(inventory)
+        self.boot = None
+        self.previous_boot = None
+        self.rejected_pids = []
+        self.bundle = self.root / 'Garmin Trainer.app'
+        shutil.copytree(bundle, self.bundle)
+        if audit(self.bundle) != inventory:
+            raise ValueError('Ordinary bundle copy changed inventory')
+        self.binary = self.bundle / 'Contents/MacOS/garmin-trainer-desktop'
+        self.descriptor = {
+            'schemaVersion': 1, 'runId': self.id, 'root': str(self.root),
+            'sourceFingerprint': source, 'artifactInventoryHash': self.artifact,
+            'controlPort': self.config['port'], 'capability': self.config['token'],
+        }
+        private_json(self.root / 'launch.json', self.descriptor)
+        private_json(self.root / 'artifact.json', {'artifactKind': 'ordinary', 'sourceFingerprint': source,
+                     'artifactInventoryHash': self.artifact, 'files': len(inventory),
+                     'bundleBytesRewritten': False, 'bundleIdentityRewritten': False})
+
+    def spawn(self, binary, log):
+        if Path(binary) != self.binary:
+            raise ValueError('Exact owned ordinary bundle required')
+        self.previous_boot = self.boot
+        self.boot = None
+        env = {'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin', 'TMPDIR': str(self.root / 'tmp')}
+        if 'HOME' in os.environ:
+            env['HOME'] = os.environ['HOME']  # Retain, never replace or inspect normal HOME contents.
+        with open(log, 'xb', opener=lambda p, flags: os.open(p, flags, 0o600)) as output:
+            return subprocess.Popen([str(binary), '--isolated-smoke-run', str(self.root / 'launch.json')],
+                                    cwd=self.root, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+
+    def accept_identity(self, identity):
+        boot = identity.get('boot')
+        valid = (identity.get('runId') == self.id and identity.get('source') == self.config['source']
+                 and identity.get('pid') == self.child.pid and identity.get('database') == str(self.database)
+                 and identity.get('appIdentity') == 'com.codexa.garmin-trainer.ordinary.r' + self.id.replace('-', '')
+                 and identity.get('artifactKind') == 'ordinary' and identity.get('buildMode') == 'release'
+                 and identity.get('launchMode') == 'isolated' and identity.get('controlContract') == 'trainer-ordinary-isolated/v1'
+                 and identity.get('artifactInventoryHash') == self.artifact
+                 and isinstance(boot, str) and str(uuid.UUID(boot)) == boot and boot != self.previous_boot)
+        if valid:
+            if self.boot is not None and self.boot != boot:
+                raise ValueError('Boot changed within a live child')
+            self.boot = boot
+        return valid
+
+    def request(self, command, request_id):
+        if self.boot is None:
+            raise ValueError('Verified native boot required')
+        return {**super().request(command, request_id), 'expectedBoot': self.boot}
+
+    def scenario(self):
+        self.wait(lambda value: value['view'] == 'Trainer', 'Trainer')
+        for view in ['Activities', 'Health', 'Training Plan', 'Sync']:
+            self.command({'type': 'click', 'target': view})
+            self.wait(lambda value: value['view'] == view, view)
+            self.command({'type': 'click', 'target': 'Back to chat'})
+            self.wait(lambda value: value['view'] == 'Trainer', 'Trainer return')
+        sentinel = self.profile_scenario(capture=False)
+        private_json(self.root / 'ordinary-scenario.json', {'navigation': 'passed', 'goalsSave': 'passed',
+                     'inputFidelity': 'synthetic React DOM events, not trusted native input',
+                     'otherProfileFieldsUnchanged': True, 'boot': self.boot})
+        return sentinel
+
+    def captures(self):
+        self.command({'type': 'click', 'target': 'Close Profile & data'})
+        self.wait(lambda value: value['view'] == 'Trainer', 'Trainer before capture')
+        images = []
+        for view, rendered in [('trainer', 'Trainer'), ('sync', 'Sync'), ('profile', 'Profile & data')]:
+            # Choose destinations using their real visible desktop navigation; never click hidden mobile controls.
+            self.command({'type': 'setViewport', 'preset': 'wide'})
+            if view == 'sync':
+                self.command({'type': 'click', 'target': 'Sync'})
+            elif view == 'profile':
+                self.command({'type': 'click', 'target': 'Back to chat'})
+                self.wait(lambda value: value['view'] == 'Trainer', 'Trainer before Profile')
+                self.command({'type': 'click', 'target': 'Profile & data'})
+            self.wait(lambda value: value['view'] == rendered, 'capture view ' + view)
+            for preset in ['wide', 'narrow']:
+                try:
+                    if preset == 'narrow':
+                        self.command({'type': 'setViewport', 'preset': preset})
+                except Exception:
+                    # Fixed schema-validated non-secret geometry diagnostics; never DOM/field dumps.
+                    identity = self.http('/identity')
+                    private_json(self.root / ('viewport-failure-' + str(uuid.uuid4()) + '.json'),
+                                 {'view': view, 'preset': preset, 'rendererDiagnostic': identity.get('rendererDiagnostic')})
+                    raise
+                result = self.command({'type': 'captureView', 'view': view, 'preset': preset})
+                images.append({'view': view, 'preset': preset, **result, 'inspection': 'required separately; not certified by runner'})
+        private_json(self.root / 'captures.json', images)
+        return images
+
+    def verify_admission_denials(self):
+        for label, descriptor in [('same-live-root', self.root / 'launch.json'), ('missing-descriptor', self.root / 'missing.json')]:
+            env = {'PATH': '/usr/bin:/bin', 'TMPDIR': str(self.root / 'tmp')}
+            if 'HOME' in os.environ:
+                env['HOME'] = os.environ['HOME']
+            with (self.root / ('denial-' + label + '.log')).open('xb') as output:
+                child = subprocess.Popen([str(self.binary), '--isolated-smoke-run', str(descriptor)], cwd=self.root,
+                                         env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+                self.rejected_pids.append(child.pid)
+                try:
+                    status = child.wait(timeout=15)
+                finally:
+                    if child.poll() is None:
+                        child.terminate()
+                        try:
+                            child.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            child.kill()
+                            child.wait(timeout=5)
+            if self.observer:
+                self.observer.check(self.pids + self.rejected_pids)
+            if status == 0:
+                raise ValueError('Invalid ordinary admission unexpectedly succeeded')
+        private_json(self.root / 'admission-denials.json', {'sameLiveRootDenied': True, 'missingDescriptorDenied': True, 'normalFallbackRequested': False})
+
+    def verify_parent_death(self, sentinel):
+        child = self.child
+        if child is None or child.poll() is not None:
+            raise ValueError('Live owned native required for parent-death scenario')
+        boot = self.boot
+        child.kill()  # Deliberate abrupt failure of this retained live child only, never an occupant PID.
+        child.wait(timeout=5)
+        self.stop()  # Existing bounded endpoint/DB/run-lease settlement must pass without stale-PID cleanup.
+        self.start(self.binary)
+        if self.boot == boot:
+            raise ValueError('Parent-death restart reused native boot')
+        self.command({'type': 'click', 'target': 'Profile & data'})
+        self.wait(lambda value: value['profileReady'] and value['profileSaved'], 'parent-death persisted Profile')
+        self.command({'type': 'assert', 'target': 'Goals', 'value': sentinel})
+        if self.other_profile_fields() != self.other_profile_hash:
+            raise ValueError('Parent-death restart changed non-Goals Profile')
+        private_json(self.root / 'parent-death.json', {'abruptNativeExit': -signal.SIGKILL,
+                     'endpointsDatabaseAndRunLeaseSettled': True, 'restartedWithFreshBoot': True,
+                     'persistedGoalsAndOtherProfileFields': True, 'rollbackClaimed': False})
+
+    def verify_run_lease_settled(self):
+        # Read-only verification, never unlink/steal a lease or signal a recorded PID.
+        fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    def stop(self):
+        super().stop()
+        self.verify_run_lease_settled()
+
+
+def security(run, other):
+    for extra in [{'Authorization': 'Bearer wrong'}, {'Origin': 'null'}, {'Sec-Fetch-Site': 'same-origin'}, {'X-Smoke-Run': other.id}, {'Host': 'localhost'}]:
+        run.http('/identity', extra=extra, expected=403)
+    for request in [
+        {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedRunId': other.id},
+        {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedBoot': str(uuid.uuid4())},
+        run.request({'type': 'click', 'target': 'Garmin sign-in'}, str(uuid.uuid4())),
+        run.request({'type': 'captureView', 'view': 'setup', 'preset': 'wide'}, str(uuid.uuid4())),
+    ]:
+        run.http('/command', request, expected=400)
+    request = run.request({'type': 'observe'}, str(uuid.uuid4()))
+    run.http('/command', request)
+    run.http('/command', request, expected=409)
+    private_json(run.root / 'security.json', {'browserCrossRunPrivateControlAndStaleBootDenied': True, 'duplicatesDenied': True})
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--scratch', required=True)
+    parser.add_argument('--input-file', required=True, help='Private database-only explicit input selection; no settings/env discovery')
+    parser.add_argument('--bundle', required=True, help='Actual unmodified desktop:build .app; copied outside checkout per run')
+    parser.add_argument('--prepare-only', action='store_true')
+    args = parser.parse_args()
+    os.umask(0o077)
+    scratch = private_directory(args.scratch)
+    selection = canonical(args.input_file)
+    if selection.stat().st_mode & 0o777 != 0o600 or selection.stat().st_nlink != 1 or selection.stat().st_uid != os.getuid() or selection.stat().st_size > 8192:
+        raise ValueError('Private bounded single-link selection required')
+    selected = json.loads(selection.read_text())
+    if set(selected) != {'database'}:
+        raise ValueError('Database-only selection required; no credential discovery')
+    database = canonical(selected['database'])
+    bundle = canonical(args.bundle)
+    source = source_identity()
+    inventory = audit(bundle)
+    provenance = json.loads((bundle / 'Contents/Resources/resources/provenance.json').read_text())
+    if provenance.get('sourceFingerprint') != source:
+        raise ValueError('Ordinary bundle/source mismatch; build current final inputs first')
+    runs = []
+    observer = None
+    receipt = {'source': source, 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
+               'scenarioPassed': False, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
+               'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
+               'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
+               'cleanup': 'copy-only Goals and fixtures deferred to private task-scratch expiry; no copy-back'}
+    errors = []
+    try:
+        for _ in range(2):
+            runs.append(OrdinaryRun(scratch, database, source, bundle, inventory))
+        if args.prepare_only:
+            receipt['preparedOnly'] = True
+            return
+        observer = Observer(scratch)
+        for run in runs:
+            run.observer = observer
+            run.start(run.binary)
+        if runs[0].origin == runs[1].origin or runs[0].boot == runs[1].boot:
+            raise ValueError('Parallel native/backend namespace collision')
+        for run, other in [(runs[0], runs[1]), (runs[1], runs[0])]:
+            security(run, other)
+            run.verify_admission_denials()
+            sentinel = run.scenario()
+            old_boot = run.boot
+            run.verify_restart(run.binary, sentinel)
+            run.http('/command', {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedBoot': old_boot}, expected=400)
+            run.captures()
+            run.verify_parent_death(sentinel)
+        if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
+            raise ValueError('Source/artifact changed during execution')
+        receipt['scenarioPassed'] = True
+    finally:
+        for run in runs:
+            try:
+                run.stop()
+            except Exception as error:
+                errors.append(type(error).__name__ + ': owned shutdown failed; inspect private run evidence')
+        if observer:
+            try:
+                receipt['noninterference'] = observer.stop([pid for run in runs for pid in run.pids + run.rejected_pids])
+            except Exception as error:
+                errors.append(type(error).__name__ + ': observer failed')
+        with contextlib.closing(readonly(database)) as original:
+            receipt['inputUnchanged'] = all(fingerprint(original) == run.original for run in runs)
+        receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors})
+        private_json(scratch / ('ordinary-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
+        if errors or not receipt['inputUnchanged']:
+            raise RuntimeError('Original preservation/owned shutdown gate failed; retained private evidence')
+        if args.prepare_only:
+            print(json.dumps(receipt))
+    print(json.dumps(receipt))
+
+
+if __name__ == '__main__':
+    def interrupted(_signal, _frame):
+        raise KeyboardInterrupt('Owned ordinary smoke interrupted')
+    signal.signal(signal.SIGTERM, interrupted)
+    main()

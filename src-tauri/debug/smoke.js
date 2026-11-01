@@ -1,4 +1,4 @@
-// Fixed native-installed debug bootstrap. Not shipped/installed in ordinary release.
+// Fixed native-installed controller. Dormant on default launches; never accepts caller code/selectors.
 (() => {
   const allowedClicks = new Set([
     "Activities",
@@ -12,7 +12,10 @@
     "Reload saved Profile",
   ]);
   const sentinel = (value) =>
-    typeof value === "string" && /^T0231-smoke-[a-zA-Z0-9-]{1,87}$/.test(value);
+    typeof value === "string" &&
+    /^T0231-smoke-[a-zA-Z0-9-]{1,87}$/.test(value) &&
+    (!globalThis.__trainerOrdinaryIsolated ||
+      value === `T0231-smoke-${globalThis.__trainerOrdinaryIsolated.runId}`);
   const visible = (el) => {
     if (
       !(el instanceof HTMLElement) ||
@@ -97,8 +100,79 @@
       // No copied text, control values, transcripts or diagnostics leave the renderer.
     };
   }
+  let maskExpiry;
   function restore() {
+    clearTimeout(maskExpiry);
     document.getElementById("trainer-smoke-sanitizer")?.remove();
+    for (const el of document.querySelectorAll("[data-smoke-reveal]"))
+      el.removeAttribute("data-smoke-reveal");
+  }
+  const viewport = (preset) => {
+    const width = preset === "wide" ? 1280 : preset === "narrow" ? 420 : 0;
+    return width && innerWidth === width && innerHeight === 850;
+  };
+  async function maskedView(command) {
+    if (!globalThis.__trainerOrdinaryIsolated || !viewport(command.preset))
+      throw Error("Unsupported viewport/mode");
+    const expected = {
+      trainer: "Trainer",
+      sync: "Sync",
+      profile: "Profile & data",
+    }[command.view];
+    if (!expected || observe().view !== expected)
+      throw Error("Unsafe capture view");
+    if (command.view === "profile") {
+      const goals = target("Goals", "textarea");
+      if (!sentinel(goals.value) || !observe().profileSaved)
+        throw Error("Capture requires saved synthetic Goals");
+    }
+    restore();
+    const labels = new Set([
+      "Garmin AI Trainer",
+      "Activities",
+      "Health",
+      "Training Plan",
+      "Sync",
+      "Profile & data",
+      "Back to chat",
+      "Close Profile & data",
+      "Save Profile",
+      "Reload saved Profile",
+      "Menu",
+      "Run Garmin sync",
+      "Verify connector",
+      "Refresh summary",
+      "Activity detail maintenance",
+    ]);
+    // Hide by default; reveal only reviewed exact static text at its real geometry.
+    // No top/left/width/position/display/reparenting overrides or copied facts.
+    for (const el of document.querySelectorAll(
+      ".app-brand .app-title, .app-mobile-menu .app-menu-toggle, nav button, .sync-view-header h1, .sync-view-header button, .sync-view-panel h2, .sheet-header h2, .sheet-header button, .profile-settings-card .button-row button",
+    )) {
+      if (visible(el) && labels.has(el.textContent.trim()))
+        el.setAttribute("data-smoke-reveal", "");
+    }
+    if (command.view === "profile") {
+      const goals = target("Goals", "textarea");
+      goals.setAttribute("data-smoke-reveal", "");
+      goals.closest("label").setAttribute("data-smoke-reveal", "");
+      const pill = document.querySelector(".profile-settings-card .pill");
+      if (pill?.textContent.trim() === "Profile saved")
+        pill.setAttribute("data-smoke-reveal", "");
+    }
+    const style = document.createElement("style");
+    style.id = "trainer-smoke-sanitizer";
+    style.textContent =
+      "body * {visibility:hidden !important} [data-smoke-reveal] {visibility:visible !important}";
+    document.head.append(style);
+    maskExpiry = setTimeout(restore, 10000);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    return {
+      ok: true,
+      view: command.view,
+      preset: command.preset,
+      boundary: "geometry-preserving redacted own-WebView",
+    };
   }
   globalThis.__trainerSmokeRestore = restore;
   async function execute(command) {
@@ -144,7 +218,18 @@
         el.dispatchEvent(new Event("change", { bubbles: true }));
         return { ok: true, action: "Goals input", trustedInput: false };
       }
+      case "setViewport": {
+        if (!globalThis.__trainerOrdinaryIsolated)
+          throw Error("Ordinary isolated mode only");
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        if (!viewport(command.preset)) throw Error("Viewport not settled");
+        return { ok: true, preset: command.preset };
+      }
+      case "captureView":
+        return maskedView(command);
       case "capture": {
+        if (globalThis.__trainerOrdinaryIsolated)
+          throw Error("Legacy capture unavailable");
         const el = target("Goals", "textarea");
         if (!sentinel(el.value) || !observe().profileSaved)
           throw Error("Capture requires saved synthetic Goals");
@@ -166,12 +251,14 @@
     try {
       result = await execute(request.command);
     } catch {
+      restore();
       result = { ok: false, error: "Rendered command refused or failed" };
     }
     try {
       await globalThis.__TAURI_INTERNALS__.invoke("smoke_result", {
         runId: request.expectedRunId,
         requestId: request.requestId,
+        boot: request.expectedBoot ?? null,
         result,
       });
       globalThis.__trainerSmokeResultStatus = "completed";
