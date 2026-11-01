@@ -3990,8 +3990,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
       function (this: HTMLElement) {
         return (this.textContent ?? "").length;
@@ -4034,25 +4033,22 @@ describe("TrainerDashboard dedicated Sync view", () => {
     expect(log.querySelectorAll(".error")).toHaveLength(2);
     expect(log.textContent).toContain("processed activity records 0");
     expect(log.textContent).toContain("stored totals 247 activities");
-    const help = screen.getByRole("region", { name: "Optional login help" });
+    const help = screen.getByRole("region", { name: "Garmin connection help" });
     expect(help.textContent).toContain(
       "This does not prove expired credentials",
     );
-    expect(help.textContent).toContain(
-      "Verify and reuse existing credentials first",
-    );
-    expect(help.textContent).toContain("refuses to overwrite");
-    expect(help.textContent).toContain(
-      "manually preserve existing artifacts outside",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Copy login command" }));
-    await screen.findByText("Login command copied.");
-    expect(writeText).toHaveBeenCalledExactlyOnceWith("npm run garmin:auth");
+    expect(help.textContent).toContain("Connect Garmin or Reconnect");
+    expect(help.textContent).toContain("preserves existing connections");
+    expect(help.textContent).toContain("running account never");
+    expect(
+      screen.queryByRole("button", { name: "Copy login command" }),
+    ).toBeNull();
+    expect(screen.queryByText("npm run garmin:auth")).toBeNull();
     expect(screen.getByRole("heading", { name: "Sync failed" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     fireEvent.click(screen.getByRole("button", { name: "Sync" }));
     expect(
-      screen.getByRole("region", { name: "Optional login help" }),
+      screen.getByRole("region", { name: "Garmin connection help" }),
     ).toBeTruthy();
     expect(
       screen.getByLabelText("Current sync progress log").textContent,
@@ -4064,7 +4060,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
       }),
     );
     expect(
-      screen.queryByRole("region", { name: "Optional login help" }),
+      screen.queryByRole("region", { name: "Garmin connection help" }),
     ).toBeNull();
     expect(screen.queryByRole("heading", { name: "Sync failed" })).toBeNull();
     expect(screen.queryByText("Login command copied.")).toBeNull();
@@ -4077,7 +4073,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
     stream.close();
     await screen.findByText(/Sync complete\. Summary refreshed/);
     expect(
-      screen.queryByRole("region", { name: "Optional login help" }),
+      screen.queryByRole("region", { name: "Garmin connection help" }),
     ).toBeNull();
     expect(
       screen
@@ -4090,7 +4086,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
   });
 
   it.each(["unavailable", "rejected"] as const)(
-    "offers manual copy when clipboard is %s without false success",
+    "keeps native connection recovery usable when clipboard is %s",
     async (clipboard) => {
       const writeText = vi.fn().mockRejectedValue(new Error("denied"));
       vi.stubGlobal("navigator", {
@@ -4105,7 +4101,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
               {
                 status: "blocked",
                 detail:
-                  "Expected Garmin token file is empty; repair the selected store before live verification.",
+                  "Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login.",
               },
               { status: 409 },
             );
@@ -4122,14 +4118,20 @@ describe("TrainerDashboard dedicated Sync view", () => {
           name: "Sync now — import latest Garmin data",
         }),
       );
-      fireEvent.click(
-        await screen.findByRole("button", { name: "Copy login command" }),
+      const help = await screen.findByRole("region", {
+        name: "Garmin connection help",
+      });
+      expect(help.textContent).toContain(
+        "Open Settings from the native app menu",
       );
-      await screen.findByText(
-        /Could not copy automatically\. Select the command above/,
+      expect(help.textContent).toContain(
+        "saved/offline history remain available",
       );
-      expect(screen.queryByText("Login command copied.")).toBeNull();
-      expect(screen.getByText("npm run garmin:auth").tagName).toBe("CODE");
+      expect(
+        screen.queryByRole("button", { name: "Copy login command" }),
+      ).toBeNull();
+      expect(screen.queryByText("npm run garmin:auth")).toBeNull();
+      expect(writeText).not.toHaveBeenCalled();
       expect(screen.getByRole("heading", { name: "Sync failed" })).toBeTruthy();
       expect(
         screen.getByLabelText("Current sync progress log").textContent,

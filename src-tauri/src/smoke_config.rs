@@ -62,19 +62,16 @@ impl Config {
             return Err("Run owner mismatch".into());
         }
         let settings = crate::settings::load(&self.settings())?;
-        let expected = std::collections::BTreeMap::from([
-            (
-                "DATABASE_PATH".into(),
-                self.root
-                    .join("trainer.sqlite")
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            ("AI_PROVIDER".into(), "ollama".into()),
-            ("MEMORY_ENABLED".into(), "false".into()),
-            ("GARMIN_HISTORY_START_DATE".into(), "2024-01-01".into()),
-        ]);
-        if settings.version != 2 || !settings.keys.is_empty() || settings.fields != expected {
+        if ![2, 3].contains(&settings.version)
+            || !settings.keys.is_empty()
+            || !self.accepts_fields(&settings.fields)
+            || (settings.version == 3
+                && !settings
+                    .chat_catalog
+                    .as_ref()
+                    .map(|catalog| self.accepts_catalog(catalog, &settings.fields))
+                    .unwrap_or(false))
+        {
             return Err(
                 "Smoke requires exact keyless run-local settings; no auth/tool overrides".into(),
             );
@@ -91,8 +88,77 @@ impl Config {
         }
         Ok(())
     }
+    fn accepts_fields(&self, fields: &std::collections::BTreeMap<String, String>) -> bool {
+        let baseline = std::collections::BTreeMap::from([
+            (
+                "DATABASE_PATH".to_owned(),
+                self.root
+                    .join("trainer.sqlite")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            ("AI_PROVIDER".into(), "ollama".into()),
+            ("MEMORY_ENABLED".into(), "false".into()),
+            ("GARMIN_HISTORY_START_DATE".into(), "2024-01-01".into()),
+        ]);
+        if !baseline
+            .iter()
+            .all(|(key, value)| fields.get(key) == Some(value))
+        {
+            return false;
+        }
+        let Ok(catalog) = serde_json::from_str::<Vec<serde_json::Value>>(include_str!(
+            "../ui/settings-fields.json"
+        )) else {
+            return false;
+        };
+        fields.iter().all(|(key, value)| {
+            if let Some(expected) = baseline.get(key) {
+                return value == expected;
+            }
+            catalog
+                .iter()
+                .find(|field| field["key"].as_str() == Some(key.as_str()))
+                .map(|field| {
+                    let expected = field.get("default").and_then(|v| v.as_str()).or_else(|| {
+                        field
+                            .get("options")
+                            .and_then(|v| v.as_array())
+                            .and_then(|v| v.first())
+                            .and_then(|v| v.as_str())
+                    });
+                    expected
+                        .map(|expected| value == expected)
+                        .unwrap_or_else(|| value.is_empty())
+                })
+                .unwrap_or(false)
+        })
+    }
+    fn accepts_catalog(
+        &self,
+        catalog: &crate::chat_catalog::Catalog,
+        fields: &std::collections::BTreeMap<String, String>,
+    ) -> bool {
+        // Same fixed keyless legacy defaults only; no arbitrary catalog, model,
+        // provider/default changes or additional setup controller authority.
+        *catalog == crate::chat_catalog::legacy(fields, &Default::default())
+    }
+    pub fn accepts_save(&self, input: &crate::settings::SaveInput) -> bool {
+        self.accepts_fields(&input.fields)
+            && self.accepts_catalog(&input.chat_catalog, &input.fields)
+            && input
+                .keys
+                .values()
+                .all(|intent| matches!(intent, crate::settings::KeyUpdate::Unchanged))
+    }
     pub fn settings(&self) -> PathBuf {
-        self.root.join("config/settings-v2.json")
+        let next = self.root.join("config/settings-v3.json");
+        if !matches!(fs::symlink_metadata(&next), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+        {
+            next
+        } else {
+            self.root.join("config/settings-v2.json")
+        }
     }
     pub fn identifier(&self) -> String {
         format!(
@@ -151,6 +217,63 @@ mod tests {
         let mut settings = serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite"),"AI_PROVIDER":"ollama","MEMORY_ENABLED":"false","GARMIN_HISTORY_START_DATE":"2024-01-01"}});
         write(&config.settings(), settings.to_string().as_bytes());
         assert!(config.validate().is_ok());
+        settings["fields"]["AI_MODEL"] = serde_json::json!("gpt-6-luna");
+        write(&config.settings(), settings.to_string().as_bytes());
+        assert!(config.validate().is_ok());
+        let snapshot = crate::settings::snapshot(&config.settings(), false).unwrap();
+        let mut input: crate::settings::SaveInput = serde_json::from_value(serde_json::json!({"fields":settings["fields"],"keys":{"OPENAI_API_KEY":{"intent":"unchanged"}},"chatCatalog":snapshot.chat_catalog,"expectedRevision":snapshot.revision})).unwrap();
+        assert!(config.accepts_save(&input));
+        input.keys.insert(
+            "OPENAI_API_KEY".into(),
+            crate::settings::KeyUpdate::Replace {
+                value: "synthetic-not-a-key".into(),
+            },
+        );
+        assert!(!config.accepts_save(&input));
+        input.keys.clear();
+        input
+            .fields
+            .insert("GARMIN_MCP_TOKEN_DIR".into(), String::new());
+        input
+            .fields
+            .insert("MEMORY_EMBEDDING_BASE_URL".into(), String::new());
+        assert!(config.accepts_save(&input));
+        for (key, value) in [
+            ("GARMIN_MCP_TOKEN_DIR", "/not-a-run-token-store"),
+            ("GARMIN_MCP_COMMAND", "/unsafe-override"),
+            ("OLLAMA_BASE_URL", "http://external.invalid"),
+            ("AI_MODEL", "other-model"),
+            ("AI_MODEL", ""),
+        ] {
+            let mut changed = crate::settings::SaveInput {
+                fields: input.fields.clone(),
+                keys: Default::default(),
+                chat_catalog: input.chat_catalog.clone(),
+                expected_revision: input.expected_revision.clone(),
+            };
+            changed.fields.insert(key.into(), value.into());
+            assert!(!config.accepts_save(&changed));
+        }
+        let mut changed_catalog = crate::settings::SaveInput {
+            fields: input.fields.clone(),
+            keys: Default::default(),
+            chat_catalog: input.chat_catalog.clone(),
+            expected_revision: input.expected_revision.clone(),
+        };
+        changed_catalog.chat_catalog.default_entry_id = None;
+        assert!(!config.accepts_save(&changed_catalog));
+        changed_catalog.chat_catalog = input.chat_catalog.clone();
+        changed_catalog.chat_catalog.entries[2].model_id = "nondefault-local-model".into();
+        assert!(!config.accepts_save(&changed_catalog));
+        let next = root.join("config/settings-v3.json");
+        let projected = crate::chat_catalog::legacy(&input.fields, &Default::default());
+        let version3 = serde_json::json!({"version":3,"keys":{},"fields":input.fields,"chatCatalog":projected});
+        write(&next, version3.to_string().as_bytes());
+        assert_eq!(config.settings(), next);
+        assert!(config.validate().is_ok());
+        write(&next, b"corrupt newest authority");
+        assert!(config.validate().is_err());
+        fs::remove_file(&next).unwrap();
         settings["keys"]["OPENAI_API_KEY"] =
             serde_json::json!(format!("OPENAI_API_KEY/{}", uuid::Uuid::new_v4()));
         write(&config.settings(), settings.to_string().as_bytes());
