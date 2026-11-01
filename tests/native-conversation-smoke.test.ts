@@ -364,6 +364,19 @@ it("reveals only run-synthetic history labels, masks copied dates/transcript wit
   invoke.mockRejectedValueOnce(new Error("result refused"));
   await command({ type: "captureView", view: "conversation", preset: "wide" });
   expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  const direct = document.createTextNode("private direct ancestor text");
+  document.querySelector(".conversation-list")!.append(direct);
+  expect(
+    (
+      await command({
+        type: "captureView",
+        view: "conversation",
+        preset: "wide",
+      })
+    ).ok,
+  ).toBe(false);
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  direct.remove();
   document
     .querySelector(".conversation-list")!
     .append(row("private operator title"));

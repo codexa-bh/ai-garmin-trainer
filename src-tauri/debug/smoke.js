@@ -691,6 +691,23 @@
     if (!conversationHistoryVisible())
       throw Error("Capture requires visibly open history");
     conversationRows(); // Refuse unknown/copied labels before revealing anything.
+    // Preserve WebKit's real scrolled compositing layer, as for table captures.
+    // Only empty-text containers are revealed; every child remains masked.
+    const sidebar = document.querySelector(".conversation-sidebar");
+    for (
+      let node = sidebar.querySelector(".conversation-list");
+      node && node !== document.body;
+      node = node.parentElement
+    ) {
+      if (
+        [...node.childNodes].some(
+          (child) =>
+            child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+        )
+      )
+        throw Error("Private direct ancestor text refused");
+      node.setAttribute("data-smoke-reveal", "");
+    }
     for (const row of conversationRows()) {
       for (const el of [
         row,
