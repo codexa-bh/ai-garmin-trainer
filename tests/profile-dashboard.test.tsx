@@ -1279,9 +1279,15 @@ describe("TrainerDashboard Profile hydration", () => {
     ).toBeNull();
     expect(within(dialog).queryByLabelText("Garmin activity ID")).toBeNull();
     expect(screen.getByText(/Current operation/)).toBeTruthy();
-    expect(screen.getByText(/Private AI coaching/)).toBeTruthy();
+    const safetySummary = within(dialog).getByText(
+      "Safety, privacy, and deletion",
+    );
+    expect(safetySummary.closest("details")?.open).toBe(false);
+    fireEvent.click(safetySummary);
+    expect(safetySummary.closest("details")?.open).toBe(true);
+    expect(within(dialog).getByText(/Private AI coaching/)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Clear chat/profile" }),
+      within(dialog).getByRole("button", { name: "Clear chat/profile" }),
     ).toBeTruthy();
   });
 
