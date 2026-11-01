@@ -2392,6 +2392,11 @@ label {
   border-color: rgba(125, 211, 252, 0.35);
 }
 
+.llm-debug-card > summary {
+  display: list-item;
+  list-style-position: inside;
+}
+
 .debug-trace-item {
   padding: 10px;
 }

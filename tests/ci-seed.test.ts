@@ -40,6 +40,48 @@ describe("narrow CI-only synthetic seed", () => {
     expect(() => seed(root, name)).toThrow();
   });
 
+  it("adds only the explicit synthetic disclosure conversation when opted in", async () => {
+    const { realpathSync } = await import("node:fs");
+    const path = seed(realpathSync(scratch()), `ci-seed-${randomUUID()}`, true);
+    const db = new Database(path, { readonly: true, fileMustExist: true });
+    try {
+      expect(db.prepare("select id, title from conversation").all()).toEqual([
+        { id: "default", title: "T0243 synthetic disclosure" },
+      ]);
+      expect(
+        db
+          .prepare(
+            "select role, content, grounding_json from message order by created_at desc",
+          )
+          .all(),
+      ).toEqual([
+        {
+          role: "assistant",
+          content: "T0243 synthetic trace",
+          grounding_json: JSON.stringify({
+            debugTrace: {
+              schemaVersion: 1,
+              finalAnswer: "T0243 synthetic diagnostic only",
+            },
+          }),
+        },
+        {
+          role: "assistant",
+          content: "T0243 synthetic missing trace",
+          grounding_json: null,
+        },
+      ]);
+      expect(
+        db
+          .prepare("select created_at from message order by created_at desc")
+          .all(),
+      ).toEqual([{ created_at: 1000 }, { created_at: 0 }]);
+      expect(runIntegrityCheck(db)).toBe("ok");
+    } finally {
+      db.close();
+    }
+  });
+
   it("refuses aliases, reused/escaping names, relative and public scratch", async () => {
     const { realpathSync } = await import("node:fs");
     const root = realpathSync(scratch());
