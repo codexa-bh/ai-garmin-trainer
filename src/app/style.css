@@ -230,7 +230,6 @@ body::before {
   }
 }
 
-.trainer-heading-row,
 .card-title-row,
 .button-row,
 .chat-meta,
@@ -1603,8 +1602,7 @@ button:not(.conversation-select):not(.drawer-backdrop):not(
   background: rgba(73, 214, 200, 0.1);
 }
 
-.primary-action,
-.composer-actions button:last-child {
+.primary-action {
   border-color: rgba(73, 214, 200, 0.8);
   border-radius: 999px;
   background: linear-gradient(135deg, var(--accent), var(--accent-blue));
@@ -1695,13 +1693,9 @@ p {
 }
 
 .trainer-heading-row {
-  justify-content: space-between;
   max-width: var(--measure);
   width: 100%;
   margin: 0 auto 10px;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 10px;
 }
 
 .chat-model-control {
@@ -2064,8 +2058,30 @@ input::placeholder {
   padding: 0 8px;
 }
 
-.composer-actions button {
+.composer-actions > button {
   border-radius: 999px;
+}
+
+.composer-submit-group {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.composer-submit-group > .chat-model-control {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+}
+
+.composer-submit-group select {
+  flex: 1 1 160px;
+}
+
+.composer-submit-group > button {
+  flex-shrink: 0;
 }
 
 .button-row {
@@ -2466,11 +2482,6 @@ label {
 
   .drawer-close {
     display: inline-flex;
-  }
-
-  .trainer-heading-row {
-    align-items: flex-start;
-    flex-direction: column;
   }
 }
 
