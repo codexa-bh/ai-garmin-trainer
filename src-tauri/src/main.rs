@@ -2,6 +2,8 @@
 mod auth;
 #[cfg(debug_assertions)]
 mod dev_bridge;
+#[cfg(debug_assertions)]
+mod setup_smoke;
 mod keychain;
 mod onboarding;
 mod private_store;
@@ -57,6 +59,15 @@ fn setup_only(window: &tauri::WebviewWindow) -> Result<(), String> {
     } else {
         Err("Local settings window only.".into())
     }
+}
+
+fn private_setup_only(window: &tauri::WebviewWindow) -> Result<(), String> {
+    setup_only(window)?;
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    if window.app_handle().try_state::<smoke_config::Config>().is_some() {
+        return Err("Private authentication, adoption, dialogs and first-run mutation are unavailable in admitted smoke.".into());
+    }
+    Ok(())
 }
 
 fn stop_runtime(app: &tauri::AppHandle) {
@@ -215,6 +226,10 @@ async fn save_settings(
     input: settings::SaveInput,
 ) -> Result<String, String> {
     setup_only(&window)?;
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    if let Some(config) = app.try_state::<smoke_config::Config>() {
+        if !config.accepts_save(&input) { return Err("Smoke Save permits only exact keyless run-local settings and catalog defaults.".into()); }
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let onboarding = runtime
@@ -253,7 +268,7 @@ async fn adopt_provider_settings(
     input: settings::SaveInput,
     read_legacy: bool,
 ) -> Result<String, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let _setup = runtime
@@ -336,7 +351,7 @@ async fn finish_onboarding(
     window: tauri::WebviewWindow,
     input: onboarding::FinishInput,
 ) -> Result<String, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let mut guard = runtime.onboarding.try_lock().map_err(|_| "Setup operation already active; do not retry until it settles.".to_owned())?;
@@ -387,7 +402,7 @@ async fn choose_path(
     window: tauri::WebviewWindow,
     kind: String,
 ) -> Result<Option<String>, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     if !["path", "directory"].contains(&kind.as_str()) {
         return Err("Unsupported selection.".into());
     }
@@ -419,7 +434,7 @@ async fn start_auth(
     email: String,
     password: String,
 ) -> Result<auth::Status, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let _setup = runtime
@@ -483,7 +498,7 @@ fn submit_mfa(
     id: String,
     code: String,
 ) -> Result<auth::Status, String> {
-    setup_only(&window)?;
+    private_setup_only(&window)?;
     let runtime = app.state::<Runtime>();
     let result = runtime
         .auth

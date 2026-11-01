@@ -11,7 +11,7 @@ use std::{
 };
 use tauri::Manager;
 #[path = "dev_capture.rs"]
-mod capture;
+pub(crate) mod capture;
 const LIMIT: usize = 16 * 1024;
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
@@ -21,11 +21,12 @@ pub enum Command {
     Input { target: String, value: String },
     Assert { target: String, value: String },
     Capture {},
+    Settings { action: crate::setup_smoke::Action },
 }
 impl Command {
     fn valid(&self) -> bool {
         match self {
-            Self::Observe {} | Self::Capture {} => true,
+            Self::Observe {} | Self::Capture {} | Self::Settings { .. } => true,
             Self::Click { target } => [
                 "Activities",
                 "Health",
@@ -297,6 +298,17 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
         );
     }
     drop(seen);
+    if let Command::Settings { action } = request.command {
+        let result = crate::setup_smoke::execute(app, &state.config, action);
+        let (status, result) = match result {
+            Ok(value) => (if value["ok"] == true { 200 } else { 409 }, value),
+            Err(error) => (409, json!({"ok":false,"error":error})),
+        };
+        return (
+            status,
+            json!({"requestId":request.request_id,"result":result}),
+        );
+    }
     let Some(window) = app.get_webview_window("trainer") else {
         return (503, json!({"ok":false,"error":"Renderer unavailable"}));
     };
@@ -352,6 +364,8 @@ mod tests {
             json!({"type":"eval","code":"1"}),
             json!({"type":"capture","path":"/tmp/x"}),
             json!({"type":"observe","selector":"body"}),
+            json!({"type":"settings","action":"auth"}),
+            json!({"type":"settings","action":"connect","value":"secret"}),
         ] {
             assert!(serde_json::from_value::<Command>(value).is_err())
         }
@@ -372,7 +386,10 @@ mod tests {
             .valid())
         }
         for target in ["Profile & data", "Close Profile & data"] {
-            assert!(Command::Click { target: target.into() }.valid());
+            assert!(Command::Click {
+                target: target.into()
+            }
+            .valid());
         }
         assert!(!Command::Input {
             target: "Goals".into(),
