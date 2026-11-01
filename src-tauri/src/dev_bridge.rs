@@ -31,9 +31,9 @@ impl Command {
                 "Health",
                 "Training Plan",
                 "Sync",
-                "Data & settings",
+                "Profile & data",
                 "Back to chat",
-                "Close settings",
+                "Close Profile & data",
                 "Save Profile",
                 "Reload saved Profile",
             ]
@@ -361,11 +361,18 @@ mod tests {
             "Garmin sign-in",
             "Delete Garmin",
             "Verify connector",
+            "Force refresh detail",
+            "Trainer model",
+            "Data & settings",
+            "Close settings",
         ] {
             assert!(!Command::Click {
                 target: target.into()
             }
             .valid())
+        }
+        for target in ["Profile & data", "Close Profile & data"] {
+            assert!(Command::Click { target: target.into() }.valid());
         }
         assert!(!Command::Input {
             target: "Goals".into(),

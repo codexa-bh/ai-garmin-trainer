@@ -4,7 +4,7 @@ import {
   act,
   cleanup,
   fireEvent,
-  render,
+  render as renderView,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -35,6 +35,23 @@ function response(body: unknown, status = 200) {
 function Harness({ open = true }: { open?: boolean }) {
   const modelSettings = useModelSettings(open);
   return open ? <ModelSettingsCard modelSettings={modelSettings} /> : null;
+}
+function render(ui: React.ReactElement) {
+  const view = renderView(ui);
+  function openControl() {
+    const summary = screen.queryByText("Trainer model", {
+      selector: "summary",
+    });
+    if (summary && !summary.closest("details")?.open) fireEvent.click(summary);
+  }
+  openControl();
+  return {
+    ...view,
+    rerender(next: React.ReactElement) {
+      view.rerender(next);
+      openControl();
+    },
+  };
 }
 afterEach(() => {
   cleanup();
@@ -157,8 +174,9 @@ it("does not claim failed saves, exposes load failures safely and refreshes afte
   await screen.findByText(/could not be confirmed/);
   expect(screen.queryByText(/Saved preference:/)).toBeNull();
   expect(screen.queryByText(/secret-upstream/)).toBeNull();
-  view.rerender(<Harness open={false} />);
-  view.rerender(<Harness />);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retry model availability" }),
+  );
   await screen.findByText("Saved provider unavailable");
   expect(
     screen.getByText(/Saved preference: openai \/ gpt-6-luna — unavailable/),
@@ -167,6 +185,7 @@ it("does not claim failed saves, exposes load failures safely and refreshes afte
   view.rerender(<Harness open={false} />);
   view.rerender(<Harness />);
   await screen.findByText(/could not be loaded/);
+  expect(screen.queryByText(/Reopen Settings/)).toBeNull();
   expect(screen.queryByText(/secret-network/)).toBeNull();
   expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
     true,
@@ -174,7 +193,7 @@ it("does not claim failed saves, exposes load failures safely and refreshes afte
 });
 
 it.each([null, { ok: true }, { options: [], selected: null, effective: {} }])(
-  "contains malformed successful responses without breaking adjacent Settings: %j",
+  "contains malformed successful responses without breaking chat: %j",
   async (body) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(body)));
     render(<Harness />);
@@ -185,7 +204,26 @@ it.each([null, { ok: true }, { options: [], selected: null, effective: {} }])(
   },
 );
 
-it("ignores a superseded Settings load", async () => {
+it("recovers a failed initial chat load via direct retry without reopening another view", async () => {
+  const fetcher = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("private-network-detail"))
+    .mockResolvedValueOnce(response(snapshot(1)));
+  vi.stubGlobal("fetch", fetcher);
+  render(<Harness />);
+  await screen.findByText(/could not be loaded/);
+  expect(screen.queryByText(/private-network-detail/)).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retry model availability" }),
+  );
+  await screen.findByText(/Configured default \(environment\)/);
+  expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
+    false,
+  );
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it("ignores a superseded chat model load", async () => {
   let finish!: (response: Response) => void;
   const fetcher = vi
     .fn()

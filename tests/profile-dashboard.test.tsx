@@ -194,7 +194,7 @@ function activityListItem(
 }
 
 function openSettings() {
-  fireEvent.click(screen.getByRole("button", { name: "Data & settings" }));
+  fireEvent.click(screen.getByRole("button", { name: "Profile & data" }));
 }
 
 function stubViewport(matches: boolean) {
@@ -339,7 +339,7 @@ describe("TrainerDashboard Profile hydration", () => {
     );
   });
 
-  it("loads a saved Profile on no-auth startup but keeps it hidden until Data & settings opens", async () => {
+  it("loads a saved Profile on no-auth startup but keeps it hidden until Profile & data opens", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -1018,7 +1018,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Training Plan",
       "Sync",
       "Memory",
-      "Data & settings",
+      "Profile & data",
     ];
     for (const name of expectedTopbarButtons) {
       expect(
@@ -1038,7 +1038,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Training Plan",
       "Sync",
       "Memory",
-      "Settings",
+      "Profile & data",
     ]);
     expect(
       within(topbar)
@@ -1096,7 +1096,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Training Plan",
       "Sync",
       "Memory",
-      "Data & settings",
+      "Profile & data",
     ];
     for (const name of menuItems) {
       expect(menu.contains(within(menu).getByRole("button", { name }))).toBe(
@@ -1114,7 +1114,7 @@ describe("TrainerDashboard Profile hydration", () => {
       "Training Plan",
       "Sync",
       "Memory",
-      "Settings",
+      "Profile & data",
     ]);
 
     fireEvent.keyDown(within(menu).getByRole("button", { name: "Close" }), {
@@ -1183,20 +1183,16 @@ describe("TrainerDashboard Profile hydration", () => {
     fireEvent.click(
       within(screen.getByRole("dialog", { name: "Main menu" })).getByRole(
         "button",
-        { name: "Data & settings" },
+        { name: "Profile & data" },
       ),
     );
 
     expect(screen.queryByRole("dialog", { name: "Main menu" })).toBeNull();
-    expect(
-      screen.getByRole("dialog", { name: "Data & settings" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Profile & data" })).toBeTruthy();
 
     fireEvent.keyDown(window, { key: "Escape" });
 
-    expect(
-      screen.queryByRole("dialog", { name: "Data & settings" }),
-    ).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Profile & data" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
     fireEvent.click(
@@ -1260,7 +1256,7 @@ describe("TrainerDashboard Profile hydration", () => {
 
     openSettings();
 
-    const dialog = screen.getByRole("dialog", { name: "Data & settings" });
+    const dialog = screen.getByRole("dialog", { name: "Profile & data" });
     expect(dialog).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Memory" })).toBeNull();
     const profileSummary = screen.getByText(/Profile \/ trainer grounding/);
@@ -1276,9 +1272,12 @@ describe("TrainerDashboard Profile hydration", () => {
       within(dialog).queryByRole("button", { name: "Clear all memory" }),
     ).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Verify connector" }),
-    ).toBeTruthy();
-    expect(screen.getByLabelText("Garmin activity ID")).toBeTruthy();
+      within(dialog).queryByRole("combobox", { name: "Trainer model" }),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByRole("button", { name: "Verify connector" }),
+    ).toBeNull();
+    expect(within(dialog).queryByLabelText("Garmin activity ID")).toBeNull();
     expect(screen.getByText(/Current operation/)).toBeTruthy();
     expect(screen.getByText(/Private AI coaching/)).toBeTruthy();
     expect(
@@ -1603,8 +1602,14 @@ describe("TrainerDashboard athlete baseline summary", () => {
       ),
     ).toBeNull();
 
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Profile & data" })).getByRole(
+        "button",
+        { name: "Close Profile & data" },
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Sync" }));
     fireEvent.click(screen.getByText("Refresh import summary"));
-    fireEvent.click(screen.getByText(/Current operation/));
 
     await waitFor(() => {
       const statusText = screen.getByText(/Import summary:/).textContent ?? "";
@@ -4083,7 +4088,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
     ).toBe(false);
   });
 
-  it("discloses weigh-in source and history source in Data & settings body-metrics rows", async () => {
+  it("discloses weigh-in source and history source in Profile & data body-metrics rows", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
@@ -4099,11 +4104,11 @@ describe("TrainerDashboard dedicated Sync view", () => {
     fireEvent.click(
       within(screen.getByRole("dialog", { name: "Main menu" })).getByRole(
         "button",
-        { name: "Data & settings" },
+        { name: "Profile & data" },
       ),
     );
 
-    const dialog = screen.getByRole("dialog", { name: "Data & settings" });
+    const dialog = screen.getByRole("dialog", { name: "Profile & data" });
     expect(dialog.textContent).toContain(
       "current weight imported (75 kg, source: weigh-in)",
     );
@@ -4386,9 +4391,7 @@ describe("TrainerDashboard memory and new chat", () => {
       name: "Close",
     });
     await waitFor(() => expect(document.activeElement).toBe(closeButton));
-    expect(
-      screen.queryByRole("dialog", { name: "Data & settings" }),
-    ).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Profile & data" })).toBeNull();
     expect(screen.getAllByText("4 of 4 shown").length).toBeGreaterThan(0);
     expect(screen.getByText("Prefers morning hikes")).toBeTruthy();
     expect(screen.getByText("Temporary plan for taper week")).toBeTruthy();

@@ -1767,6 +1767,26 @@ p {
   max-width: var(--measure);
   width: 100%;
   margin: 0 auto 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.chat-model-control {
+  flex: 0 1 300px;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 35vh;
+  overflow-y: auto;
+}
+
+.chat-model-control select {
+  width: 100%;
+  min-width: 0;
+}
+
+.chat-model-control p {
+  overflow-wrap: anywhere;
 }
 
 .section-kicker {

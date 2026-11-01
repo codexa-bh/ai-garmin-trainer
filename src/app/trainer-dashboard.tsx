@@ -54,7 +54,14 @@ export function TrainerDashboard() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [healthDashboardOpen, setHealthDashboardOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const modelSettings = useModelSettings(settingsOpen);
+  const chatVisible =
+    !activityDashboardOpen &&
+    !trainingPlanOpen &&
+    !syncOpen &&
+    !healthDashboardOpen &&
+    !settingsOpen &&
+    !memoryOpen;
+  const modelSettings = useModelSettings(chatVisible);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const forceNextScrollRef = useRef(false);
@@ -791,9 +798,9 @@ export function TrainerDashboard() {
               className="chrome-button"
               onClick={openSettingsFromNavigation}
               ref={settingsButtonRef}
-              aria-label="Data & settings"
+              aria-label="Profile & data"
             >
-              Settings
+              Profile &amp; data
             </button>
           </nav>
           <div className="app-mobile-menu">
@@ -870,9 +877,9 @@ export function TrainerDashboard() {
                 type="button"
                 className="app-menu-item"
                 onClick={openSettingsFromNavigation}
-                aria-label="Data & settings"
+                aria-label="Profile & data"
               >
-                Settings
+                Profile &amp; data
               </button>
             </MobileNavigationSheet>
           </div>
@@ -891,6 +898,13 @@ export function TrainerDashboard() {
           syncRun={syncRun}
           syncLogRef={syncLogRef}
           importSummary={importSummary}
+          runAction={runAction}
+          refreshSummary={refreshSummary}
+          detailGarminId={detailGarminId}
+          setDetailGarminId={setDetailGarminId}
+          backfillDetail={backfillDetail}
+          refreshDetailCoverage={refreshDetailCoverage}
+          status={status}
         />
       ) : null}
 
@@ -1004,6 +1018,7 @@ export function TrainerDashboard() {
       !syncOpen &&
       !healthDashboardOpen ? (
         <ChatView
+          modelSettings={modelSettings}
           conversationDrawerCloseRef={conversationDrawerCloseRef}
           isConversationDrawerOpen={isConversationDrawerOpen}
           closeConversationDrawer={closeConversationDrawer}
@@ -1056,7 +1071,6 @@ export function TrainerDashboard() {
       !healthDashboardOpen &&
       settingsOpen ? (
         <SettingsView
-          modelSettings={modelSettings}
           closeSettingsSheet={closeSettingsSheet}
           settingsCloseRef={settingsCloseRef}
           isProfileDirty={isProfileDirty}
@@ -1070,15 +1084,10 @@ export function TrainerDashboard() {
           saveProfile={saveProfile}
           loadProfile={loadProfile}
           runAction={runAction}
-          refreshSummary={refreshSummary}
           athleteBaselineMessage={athleteBaselineMessage}
           athleteBaseline={athleteBaseline}
           bodyMetricsMessage={bodyMetricsMessage}
           bodyMetrics={bodyMetrics}
-          detailGarminId={detailGarminId}
-          setDetailGarminId={setDetailGarminId}
-          backfillDetail={backfillDetail}
-          refreshDetailCoverage={refreshDetailCoverage}
           llmDebugTracesEnabled={llmDebugTracesEnabled}
           debugTraceMessages={debugTraceMessages}
           diagnosticsOpen={diagnosticsOpen}

@@ -10,8 +10,11 @@ import {
 } from "./contracts";
 import { dateLabel } from "./formatting";
 import { AssistantContent } from "./markdown";
+import { ModelSettingsCard } from "./model-settings-card";
+import type { useModelSettings } from "./use-model-settings";
 
 export function ChatView({
+  modelSettings,
   conversationDrawerCloseRef,
   isConversationDrawerOpen,
   closeConversationDrawer,
@@ -56,6 +59,7 @@ export function ChatView({
   submitChat,
   cancelChat,
 }: {
+  modelSettings: ReturnType<typeof useModelSettings>;
   conversationDrawerCloseRef: RefObject<HTMLButtonElement | null>;
   isConversationDrawerOpen: boolean;
   closeConversationDrawer: () => void;
@@ -314,6 +318,7 @@ export function ChatView({
             <p className="section-kicker">Daily trainer</p>
             <h2 id="trainer-heading">Chat with your private coach</h2>
           </div>
+          <ModelSettingsCard modelSettings={modelSettings} />
         </div>
 
         <div
@@ -338,8 +343,8 @@ export function ChatView({
             <div className="empty-chat empty-chat-hero">
               <p>
                 Start with the latest training question. Profile, Garmin data,
-                diagnostics, and privacy controls are in Settings; learned
-                memory has its own Memory sheet.
+                diagnostics, and privacy controls are in Profile &amp; data;
+                learned memory has its own Memory sheet.
               </p>
               {trainingPlanState === "loaded" &&
               (!trainingPlan || trainingPlanStale) ? (

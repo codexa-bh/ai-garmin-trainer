@@ -6,7 +6,7 @@ export function ModelSettingsCard({
 }: {
   modelSettings: ReturnType<typeof useModelSettings>;
 }) {
-  const { snapshot, state, message, choose } = modelSettings;
+  const { snapshot, state, message, choose, retry } = modelSettings;
   const busy = state === "loading" || state === "saving";
   const selected = snapshot?.options.some(
     (option) => option.id === snapshot.selected,
@@ -14,7 +14,7 @@ export function ModelSettingsCard({
     ? snapshot.selected!
     : "";
   return (
-    <details className="settings-card" open>
+    <details className="settings-card chat-model-control">
       <summary>Trainer model</summary>
       <p>
         Choose the model for subsequent trainer turns without restarting. Only
@@ -57,8 +57,8 @@ export function ModelSettingsCard({
           ) : null}
           {!snapshot.options.length ? (
             <p>
-              No selectable models. Configure a DeepSeek or OpenAI key on the
-              server. Credential changes require the normal server reload.
+              No selectable models. Configure a DeepSeek or OpenAI key in native
+              Settings, then explicitly quit/reopen the app.
             </p>
           ) : null}
           {snapshot.effective.source === "saved" ? (
@@ -84,9 +84,14 @@ export function ModelSettingsCard({
             ? "Saving model setting…"
             : message}
       </p>
+      {state === "error" ? (
+        <button type="button" className="secondary-button" onClick={retry}>
+          Retry model availability
+        </button>
+      ) : null}
       <p className="helper-text">
-        This setting does not change memory extraction or embeddings. Settings
-        never edits or exposes provider keys.
+        This control does not change memory extraction or embeddings and never
+        edits or exposes provider keys. Native Settings owns configuration.
       </p>
     </details>
   );

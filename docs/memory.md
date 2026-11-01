@@ -6,7 +6,7 @@ SQLite remains the canonical store for transcript, Profile, Garmin facts, and de
 
 ## Configuration
 
-For desktop use **Desktop Settings → Advanced**, with provider keys in native Keychain; Save then explicitly quit/reopen. Desktop never loads env files. Field identifiers/examples below describe the internal adapter and retained maintenance CLI equivalents, not a desktop env-file setup recipe. CLI doctor does not read native settings/Keychain.
+For desktop use **Settings → Advanced**, with provider keys in native Keychain; Save then explicitly quit/reopen. Desktop never loads env files. Field identifiers/examples below describe the internal adapter and retained maintenance CLI equivalents, not a desktop env-file setup recipe. CLI doctor does not read native settings/Keychain.
 
 Set `MEMORY_ENABLED=true` to enable retrieval and post-completion ingestion. For no-paid local semantic memory, use Ollama with a small purpose-built embedding model:
 
