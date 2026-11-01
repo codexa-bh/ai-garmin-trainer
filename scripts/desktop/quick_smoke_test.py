@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from native_smoke import Run, verify_resources
-from quick_smoke import require_platform
+from quick_smoke import debug_scenario, require_platform
 
 
 class QuickTests(unittest.TestCase):
@@ -37,6 +37,26 @@ class QuickTests(unittest.TestCase):
         run.command.side_effect = RuntimeError('save failed')
         with self.assertRaises(RuntimeError):
             run.profile_scenario()
+
+    def test_debug_scenario_enrolls_only_closed_actions_and_preserves_failure(self):
+        run = Mock()
+        run.root = Path('/not-written')
+        run.wait.return_value = {'llmDebug': {'available': True}}
+        run.command.return_value = {'ok': True}
+        with patch('quick_smoke.private_json') as receipt:
+            evidence = debug_scenario(run)
+            self.assertEqual(len(evidence['captures']), 4)
+            self.assertEqual(len(evidence['states']), 7)
+            self.assertEqual(receipt.call_count, 1)
+        commands = [call.args[0] for call in run.command.call_args_list]
+        self.assertEqual([c for c in commands if c['type'] == 'debugKey'], [
+            {'type': 'debugKey', 'key': 'Enter'}, {'type': 'debugKey', 'key': 'Space'}])
+        self.assertTrue(all(c['type'] in ['click', 'debugKey', 'captureDebug'] for c in commands))
+        run.command.reset_mock()
+        run.command.side_effect = RuntimeError('original capture failure')
+        with self.assertRaisesRegex(RuntimeError, 'original capture failure'):
+            debug_scenario(run)
+        self.assertEqual(run.command.call_count, 1)
 
     def test_prepared_resource_source_inventory_and_alias_refuse(self):
         with tempfile.TemporaryDirectory() as directory:

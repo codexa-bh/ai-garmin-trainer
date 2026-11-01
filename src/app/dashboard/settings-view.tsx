@@ -222,7 +222,7 @@ export function SettingsView({
           </details>
 
           {llmDebugTracesEnabled ? (
-            <details className="settings-card llm-debug-card" open>
+            <details className="settings-card llm-debug-card">
               <summary>
                 LLM debug traces{" "}
                 <span className="pill">
@@ -273,7 +273,7 @@ export function SettingsView({
             ) : null}
           </details>
 
-          <details className="settings-card danger-card" open>
+          <details className="settings-card danger-card">
             <summary>Safety, privacy, and deletion</summary>
             <p>
               <strong>Private AI coaching.</strong> Responses may use the

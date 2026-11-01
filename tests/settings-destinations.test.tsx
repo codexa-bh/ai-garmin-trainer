@@ -242,12 +242,85 @@ it("keeps maintenance requests, blank rejection, failures and late feedback in S
   ).toHaveLength(1);
 });
 
+it.each([
+  ["pointer", 1],
+  ["keyboard-equivalent", 0],
+])(
+  "keeps the whole Safety disclosure closed until %s activation without deletion",
+  async (_, detail) => {
+    const fetcher = setup();
+    const dialog = openProfile();
+    const summary = within(dialog).getByText("Safety, privacy, and deletion");
+    const disclosure = summary.closest("details")!;
+    expect(summary.tagName).toBe("SUMMARY");
+    expect(disclosure.firstElementChild).toBe(summary);
+    expect(disclosure.open).toBe(false);
+    const paragraphs = disclosure.querySelectorAll(":scope > p");
+    expect(paragraphs).toHaveLength(2);
+    expect(paragraphs[0].textContent).toContain("Private AI coaching.");
+    expect(paragraphs[1].textContent).toContain("Provider disclosure:");
+    expect(paragraphs[1].textContent).toContain(
+      "localhost/private loopback only",
+    );
+    expect(paragraphs[1].textContent).toContain("Garmin credential safety:");
+    const actions = within(disclosure).getAllByRole("button");
+    expect(actions.map((button) => button.textContent?.trim())).toEqual([
+      "Clear chat/profile",
+      "Disconnect Garmin/delete data",
+    ]);
+    // jsdom does not model closed-details layout, tab order or trusted key defaults.
+    // Assert the native hiding boundary for every body node, not DOM text absence.
+    for (const element of [...paragraphs, ...actions]) {
+      expect(element.closest("details:not([open])")).toBe(disclosure);
+      expect(summary.contains(element)).toBe(false);
+    }
+    summary.focus();
+    expect(document.activeElement).toBe(summary);
+    // A zero-detail click is the activation-equivalent seam, not native keyboard proof.
+    fireEvent.click(summary, { detail });
+    expect(disclosure.open).toBe(true);
+    for (const element of [...paragraphs, ...actions]) {
+      expect(element.closest("details:not([open])")).toBeNull();
+    }
+    const goals = within(dialog).getByLabelText("Goals") as HTMLTextAreaElement;
+    await waitFor(() => expect(goals.disabled).toBe(false));
+    fireEvent.change(goals, { target: { value: "Unrelated Profile draft" } });
+    expect(summary.closest("details")).toBe(disclosure);
+    expect(disclosure.open).toBe(true);
+    fireEvent.click(summary, { detail });
+    expect(disclosure.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
+    fireEvent.click(summary, { detail });
+    expect(disclosure.open).toBe(true);
+    closeProfile();
+    const reopened = openProfile();
+    expect(
+      within(reopened)
+        .getByText("Safety, privacy, and deletion")
+        .closest("details")?.open,
+    ).toBe(false);
+    expect(
+      (within(reopened).getByLabelText("Goals") as HTMLTextAreaElement).value,
+    ).toBe("Unrelated Profile draft");
+    closeProfile();
+    expect(
+      fetcher.mock.calls.filter(([url]) => url === "/api/delete"),
+    ).toHaveLength(0);
+    expect(
+      fetcher.mock.calls.every(
+        ([, init]) => !init?.method || init.method === "GET",
+      ),
+    ).toBe(true);
+  },
+);
+
 it("preserves both existing deletion scopes only under Profile & data", async () => {
   const fetcher = setup();
   expect(
     screen.queryByRole("button", { name: "Clear chat/profile" }),
   ).toBeNull();
   const dialog = openProfile();
+  fireEvent.click(within(dialog).getByText("Safety, privacy, and deletion"));
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Clear chat/profile" }),
   );
@@ -269,10 +342,14 @@ it("preserves both existing deletion scopes only under Profile & data", async ()
   expect(
     fetcher.mock.calls
       .filter(([url]) => url === "/api/delete")
-      .map(([, init]) => [init?.method, init?.body]),
+      .map(([, init]) => [init?.method, init?.headers, init?.body]),
   ).toEqual([
-    ["POST", '{"scope":"chat-profile"}'],
-    ["POST", '{"scope":"garmin-all"}'],
+    [
+      "POST",
+      { "content-type": "application/json" },
+      '{"scope":"chat-profile"}',
+    ],
+    ["POST", { "content-type": "application/json" }, '{"scope":"garmin-all"}'],
   ]);
   closeProfile();
 });
