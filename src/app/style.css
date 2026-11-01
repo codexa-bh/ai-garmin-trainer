@@ -1779,25 +1779,54 @@ p {
   gap: 10px;
 }
 
-.settings-card.chat-model-control {
-  flex: 0 1 300px;
+.chat-model-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   max-width: 100%;
-  max-height: 35vh;
-  overflow-x: hidden;
-  overflow-y: auto;
 }
 
-.settings-card.chat-model-control > label {
-  margin: 12px 16px;
+.chat-model-control label {
+  display: inline;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .chat-model-control select {
-  width: 100%;
+  width: auto;
+  max-width: min(220px, 100%);
   min-width: 0;
+  height: 32px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chat-model-control button {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.chat-model-save-state,
+.chat-model-control p {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .chat-model-control p {
+  flex-basis: 100%;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 

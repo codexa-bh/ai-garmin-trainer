@@ -13,86 +13,91 @@ export function ModelSettingsCard({
   )
     ? snapshot.selected!
     : "";
+  const inheritedLabel = snapshot
+    ? `${snapshot.effective.source === "env" ? "Default" : "Unavailable"} · ${snapshot.effective.modelName ?? "unknown model"}`
+    : state === "error"
+      ? "Model unavailable"
+      : "Loading…";
   return (
-    <details className="settings-card chat-model-control">
-      <summary>Trainer model</summary>
-      <p>
-        Choose the model for subsequent trainer turns without restarting. Only
-        providers with configured keys are offered; account access and funding
-        are not checked.
-      </p>
-      <label>
-        Trainer model
-        <select
-          aria-label="Trainer model"
-          aria-describedby="trainer-model-status"
-          value={selected}
-          disabled={busy || !snapshot?.options.length || state === "error"}
-          onChange={(event) => choose(event.target.value as ChatModelId)}
+    <div className="chat-model-control">
+      <label htmlFor="trainer-model">Model</label>
+      <select
+        id="trainer-model"
+        aria-label="Trainer model"
+        aria-describedby="trainer-model-status"
+        title={`${snapshot?.effective.provider ?? "Model"} / ${snapshot?.effective.modelName ?? "unavailable"}. Applies to subsequent turns; running turns, memory extraction and embeddings are unchanged. Configure keys in native Settings.`}
+        value={selected}
+        disabled={busy || !snapshot?.options.length || state === "error"}
+        onChange={(event) => choose(event.target.value as ChatModelId)}
+      >
+        {!selected ? (
+          <option value="" disabled>
+            {inheritedLabel}
+          </option>
+        ) : null}
+        {snapshot?.options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {snapshot?.effective.source === "saved" ? (
+        <button
+          type="button"
+          aria-label="Reset to configured default"
+          title="Reset to configured default"
+          disabled={busy || state === "error"}
+          onClick={() => choose(null)}
         >
-          {!selected ? (
-            <option value="" disabled>
-              Choose a configured model
-            </option>
-          ) : null}
-          {snapshot?.options.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {snapshot ? (
-        <>
-          <p id="trainer-model-status" role="status">
+          Default
+        </button>
+      ) : null}
+      <span id="trainer-model-status" className="visually-hidden" role="status">
+        {snapshot ? (
+          <>
             {snapshot.effective.source === "env"
               ? "Configured default (environment)"
               : "Saved preference"}
             : {snapshot.effective.provider ?? "unavailable"} /{" "}
             {snapshot.effective.modelName ?? "unavailable"}
             {!snapshot.effective.available ? " — unavailable" : ""}
-          </p>
-          {snapshot.unavailableReason ? (
-            <p role="alert">{snapshot.unavailableReason}</p>
-          ) : null}
-          {!snapshot.options.length ? (
-            <p>
-              No selectable models. Configure a DeepSeek or OpenAI key in native
-              Settings, then explicitly quit/reopen the app.
-            </p>
-          ) : null}
-          {snapshot.effective.source === "saved" ? (
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={busy || state === "error"}
-              onClick={() => choose(null)}
-            >
-              Reset to configured default
-            </button>
-          ) : null}
-        </>
+          </>
+        ) : null}
+      </span>
+      {busy || (state === "ready" && message) ? (
+        <span
+          className="chat-model-save-state"
+          role="status"
+          aria-live="polite"
+        >
+          {state === "loading"
+            ? "Loading model settings…"
+            : state === "saving"
+              ? "Saving model setting…"
+              : "Saved"}
+        </span>
       ) : null}
-      <p
-        className="helper-text"
-        role={state === "error" ? "alert" : "status"}
-        aria-live="polite"
-      >
-        {state === "loading"
-          ? "Loading model settings…"
-          : state === "saving"
-            ? "Saving model setting…"
-            : message}
-      </p>
+      {snapshot?.unavailableReason ? (
+        <p role="alert">{snapshot.unavailableReason}</p>
+      ) : null}
+      {snapshot && !snapshot.options.length ? (
+        <p>
+          No selectable models. Configure a DeepSeek or OpenAI key in native
+          Settings, then quit/reopen.
+        </p>
+      ) : null}
       {state === "error" ? (
-        <button type="button" className="secondary-button" onClick={retry}>
-          Retry model availability
-        </button>
+        <p role="alert">
+          {message}{" "}
+          <button
+            type="button"
+            aria-label="Retry model availability"
+            onClick={retry}
+          >
+            Retry
+          </button>
+        </p>
       ) : null}
-      <p className="helper-text">
-        This control does not change memory extraction or embeddings and never
-        edits or exposes provider keys. Native Settings owns configuration.
-      </p>
-    </details>
+    </div>
   );
 }
