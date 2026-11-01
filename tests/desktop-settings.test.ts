@@ -247,6 +247,15 @@ describe("desktop editable settings", () => {
     expect(legacy).not.toMatch(/SecKeychain(?:Add|ItemDelete)|fn present/);
     const setup = readFileSync("src-tauri/permissions/setup.toml", "utf8");
     expect(setup).toContain('"adopt_provider_settings"');
+    expect(setup).toContain('"read_memory_status"');
+    const memoryRead = main.slice(
+      main.indexOf("async fn read_memory_status"),
+      main.indexOf("async fn save_settings"),
+    );
+    expect(memoryRead).toContain("setup_only(&window)");
+    expect(memoryRead).toContain("runtime.service.try_lock()");
+    expect(memoryRead).not.toContain("settings_path");
+    expect(memoryRead).not.toContain("keychain");
     const settings = readFileSync("src-tauri/src/settings.rs", "utf8");
     const snapshot = settings.slice(
       settings.indexOf("pub struct Snapshot"),

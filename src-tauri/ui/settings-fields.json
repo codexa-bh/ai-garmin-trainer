@@ -53,7 +53,7 @@
   },
   {
     "key": "MEMORY_ENABLED",
-    "label": "Semantic memory enabled",
+    "label": "Remember useful details",
     "options": ["false", "true"],
     "advanced": true
   },

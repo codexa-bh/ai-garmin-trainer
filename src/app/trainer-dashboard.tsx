@@ -97,8 +97,9 @@ export function TrainerDashboard() {
     healthDashboardState,
     loadHealthDashboard,
     healthDashboardError,
-    selectedHealthDayIndex,
-    setSelectedHealthDayIndex,
+    healthRangeEnd,
+    healthRangeNotice,
+    setHealthRangeEnd,
   } = useHealthFeature();
   const {
     loadProfile,
@@ -654,7 +655,7 @@ export function TrainerDashboard() {
 
   async function refreshHealthAfterSync() {
     if (healthDashboardOpen || healthDashboardData) {
-      await loadHealthDashboard({ preserveSelectedDate: true });
+      await loadHealthDashboard();
     }
   }
 
@@ -973,8 +974,9 @@ export function TrainerDashboard() {
           healthDashboardState={healthDashboardState}
           healthDashboardError={healthDashboardError}
           healthDashboardData={healthDashboardData}
-          selectedHealthDayIndex={selectedHealthDayIndex}
-          setSelectedHealthDayIndex={setSelectedHealthDayIndex}
+          healthRangeEnd={healthRangeEnd}
+          healthRangeNotice={healthRangeNotice}
+          setHealthRangeEnd={setHealthRangeEnd}
         />
       ) : null}
 

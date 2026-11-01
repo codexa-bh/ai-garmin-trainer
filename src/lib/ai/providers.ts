@@ -276,13 +276,23 @@ export function selectedModel(env: AppEnv = getOptionalEnv()): SelectedAiModel {
   return selectedCloudModel(env, status);
 }
 
+export function memoryExtractionSelection(env: AppEnv = getOptionalEnv()) {
+  // Metadata only. Share selection with construction; never initialize an SDK
+  // merely to disclose the active extraction boundary.
+  const extractionEnv: AppEnv =
+    env.AI_PROVIDER === "ollama" || env.AI_PROVIDER === "openrouter"
+      ? { ...env, AI_PROVIDER: "auto" }
+      : env;
+  return cloudProviderStatus(extractionEnv);
+}
+
 export function selectedMemoryExtractionModel(): SelectedAiModel | null {
   const env = getOptionalEnv();
   const extractionEnv: AppEnv =
     env.AI_PROVIDER === "ollama" || env.AI_PROVIDER === "openrouter"
       ? { ...env, AI_PROVIDER: "auto" }
       : env;
-  const status = cloudProviderStatus(extractionEnv);
+  const status = memoryExtractionSelection(env);
   if (!status.selected) return null;
   return selectedCloudModel(extractionEnv, status);
 }

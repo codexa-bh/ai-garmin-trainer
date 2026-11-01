@@ -14,6 +14,8 @@ import { stubNativeDialog } from "./native-dialog-stub";
 
 beforeEach(stubNativeDialog);
 import { TrainerDashboard } from "../src/app/trainer-dashboard";
+import { HealthDashboardView } from "../src/app/dashboard/health-metrics";
+import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
 
 const emptyChat = {
   conversationId: "default",
@@ -40,7 +42,10 @@ function profile() {
   };
 }
 
-function day(date: string, overrides: Record<string, unknown> = {}) {
+function day(
+  date: string,
+  overrides: Partial<HealthDashboardDay> = {},
+): HealthDashboardDay {
   return {
     date,
     sleepMinutes: 444,
@@ -256,7 +261,7 @@ async function openHealthDashboard() {
   fireEvent.click(await screen.findByRole("button", { name: "Health" }));
   const panel = screen.getByRole("region", { name: "Health" });
   await waitFor(() =>
-    expect(panel.querySelector('[role="status"]')).toBeNull(),
+    expect(within(panel).queryByText("Loading health data…")).toBeNull(),
   );
   return panel;
 }
@@ -300,7 +305,111 @@ describe("TrainerDashboard Health dashboard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens from desktop navigation, renders widgets, and never POSTs to /api/sync", async () => {
+  it("associates exact per-day values, including zero/unavailable/source-only semantics, without aggregation", () => {
+    render(
+      <HealthDashboardView
+        days={[
+          day("2026-07-21", {
+            sleepMinutes: 0,
+            sleepScore: null,
+            sleepDeepMinutes: 0,
+            sleepNapMinutes: null,
+            activeCalories: 0,
+            restingCalories: 1200,
+            totalCalories: 999,
+            intensityMinutes: 0,
+          }),
+          day("2026-07-20", {
+            sleepMinutes: Number.NaN,
+            hrvMs: Number.POSITIVE_INFINITY,
+            hrvStatus: "Low",
+            activeCalories: null,
+            restingCalories: null,
+            totalCalories: null,
+            calories: 1500,
+            stressAvg: Number.NaN,
+          }),
+        ]}
+        rangeEnd={null}
+        onSelectRange={vi.fn()}
+        notice=""
+      />,
+    );
+    const table = screen.getByRole("table");
+    const values = (name: string) =>
+      within(within(table).getByRole("rowheader", { name }).parentElement!)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent);
+    expect(values("Sleep duration").slice(-2)).toEqual(["Unavailable", "0 m"]);
+    expect(values("Sleep score").slice(-2)).toEqual(["86", "Unavailable"]);
+    expect(values("Deep sleep").slice(-2)).toEqual(["1 h 14 m", "0 m"]);
+    expect(values("Light sleep").slice(-2)).toEqual(["4 h 4 m", "4 h 4 m"]);
+    expect(values("Awake sleep").slice(-2)).toEqual(["30 m", "30 m"]);
+    expect(values("Nap sleep").slice(-2)).toEqual(["0 m", "Unavailable"]);
+    expect(values("Total calories · kcal").slice(-2)).toEqual(["1,500", "999"]);
+    expect(values("Active calories · kcal").slice(-2)).toEqual([
+      "Unavailable",
+      "0",
+    ]);
+    expect(values("Resting calories · kcal").slice(-2)).toEqual([
+      "Unavailable",
+      "1,200",
+    ]);
+    expect(values("HRV · ms / status").slice(-2)).toEqual([
+      "Low",
+      "41.2 ms · Balanced",
+    ]);
+    expect(values("Stress avg").slice(-2)).toEqual(["Unavailable", "38"]);
+    expect(values("Intensity minutes · min").slice(-2)).toEqual(["38", "0"]);
+    expect(within(table).queryByText(/16,824|2,200/)).toBeNull();
+    expect(screen.queryByText("Complete daily health record")).toBeNull();
+  });
+
+  it("marks today's values not final even with complete source coverage and supports roving keyboard tabs", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    render(
+      <HealthDashboardView
+        days={[day(today)]}
+        rangeEnd={null}
+        onSelectRange={vi.fn()}
+        notice=""
+      />,
+    );
+    expect(screen.getByText("Today · in progress, not final")).toBeTruthy();
+    const daily = screen.getByRole("tab", { name: "Daily" });
+    const weekly = screen.getByRole("tab", { name: "Weekly" });
+    const monthly = screen.getByRole("tab", { name: "Monthly" });
+    expect(daily.tabIndex).toBe(0);
+    expect(weekly.tabIndex).toBe(-1);
+    fireEvent.keyDown(daily, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(weekly);
+    expect(weekly.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
+      weekly.id,
+    );
+    fireEvent.keyDown(weekly, { key: "End" });
+    expect(document.activeElement).toBe(monthly);
+    fireEvent.keyDown(monthly, { key: "Home" });
+    expect(document.activeElement).toBe(daily);
+    expect(screen.getByRole("table")).toBeTruthy();
+  });
+
+  it("shows a Daily-only empty state for future/invalid rows without hiding rollup tabs", () => {
+    render(
+      <HealthDashboardView
+        days={[day("9999-01-01"), day("2026-02-30")]}
+        rangeEnd={null}
+        onSelectRange={vi.fn()}
+        notice=""
+      />,
+    );
+    expect(screen.getByText(/No eligible Daily records/)).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Next 7 days/ })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Weekly" })).toBeTruthy();
+  });
+
+  it("opens from desktop navigation, renders the matrix, and never POSTs to /api/sync", async () => {
     const fetchMock = renderDashboard(baseFetchMock());
 
     const panel = await openHealthDashboard();
@@ -319,29 +428,35 @@ describe("TrainerDashboard Health dashboard", () => {
       method: "GET",
     });
 
-    const labels = Array.from(
-      panel.querySelectorAll(".health-widget-label"),
-      (node) => node.textContent,
-    );
-    expect(labels).toEqual([
-      "Sleep",
-      "Calories",
-      "Resting HR",
-      "HRV",
-      "Stress avg",
-      "Steps",
-      "Intensity minutes",
+    const table = within(panel).getByRole("table", {
+      name: /Daily Health — individual source values/,
+    });
+    expect(within(table).getAllByRole("columnheader")).toHaveLength(8);
+    expect(within(table).getAllByRole("rowheader")).toHaveLength(16);
+    expect(
+      within(table)
+        .getByRole("rowheader", { name: "Sleep duration" })
+        .getAttribute("scope"),
+    ).toBe("row");
+    expect(table.querySelectorAll('th[scope="col"]')).toHaveLength(8);
+    expect(
+      Array.from(table.querySelectorAll("time"), (node) => node.dateTime),
+    ).toEqual([
+      "2026-07-15",
+      "2026-07-16",
+      "2026-07-17",
+      "2026-07-18",
+      "2026-07-19",
+      "2026-07-20",
+      "2026-07-21",
     ]);
-    const richMetrics = within(
-      panel.querySelector(".health-widget-rich-grid") as HTMLElement,
-    );
-    const compactMetrics = within(
-      panel.querySelector(".health-widget-compact-grid") as HTMLElement,
-    );
-    expect(richMetrics.getByText("Sleep")).toBeTruthy();
-    expect(richMetrics.getByText("Calories")).toBeTruthy();
-    expect(compactMetrics.getByText("Resting HR")).toBeTruthy();
-    expect(compactMetrics.getByText("Intensity minutes")).toBeTruthy();
+    expect(
+      within(panel).getByRole("region", { name: /scroll horizontally/ })
+        .tabIndex,
+    ).toBe(0);
+    expect(
+      within(table).getByRole("rowheader", { name: "Intensity minutes · min" }),
+    ).toBeTruthy();
     expect(within(panel).queryByText("Body battery morning")).toBeNull();
     expect(within(panel).queryByText("Body battery evening")).toBeNull();
     expect(
@@ -379,73 +494,108 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
 
     expect(within(panel).getByText("7 h 24 m")).toBeTruthy();
-    expect(within(panel).getByText("Score")).toBeTruthy();
-    expect(within(panel).getByText("Deep")).toBeTruthy();
+    expect(within(panel).getByText("Sleep score")).toBeTruthy();
+    expect(within(panel).getByText("Deep sleep")).toBeTruthy();
     expect(within(panel).getByText("1 h 14 m")).toBeTruthy();
-    expect(within(panel).getByText("REM")).toBeTruthy();
+    expect(within(panel).getByText("REM sleep")).toBeTruthy();
     expect(within(panel).getByText("1 h 36 m")).toBeTruthy();
     expect(within(panel).getAllByText("86").length).toBeGreaterThanOrEqual(1);
     expect(within(panel).getByText("52")).toBeTruthy();
-    expect(within(panel).getByText("bpm")).toBeTruthy();
-    expect(within(panel).getByText("41.2")).toBeTruthy();
-    expect(within(panel).getByText("ms")).toBeTruthy();
-    expect(within(panel).getByText("Balanced")).toBeTruthy();
+    expect(within(panel).getByText("Resting HR · bpm")).toBeTruthy();
+    expect(within(panel).getByText("41.2 ms · Balanced")).toBeTruthy();
     expect(within(panel).getAllByText("38").length).toBeGreaterThanOrEqual(1);
-    expect(within(panel).getAllByText("avg").length).toBeGreaterThanOrEqual(1);
+    expect(within(panel).getByText("Stress avg")).toBeTruthy();
     expect(within(panel).getByText("8,412")).toBeTruthy();
-    expect(within(panel).getByText("steps")).toBeTruthy();
+    expect(within(panel).getByText("Steps")).toBeTruthy();
     expect(within(panel).getByText("2,310")).toBeTruthy();
     expect(
-      within(panel).getByRole("group", { name: "Calories source split" }),
+      within(panel).getByRole("rowheader", { name: "Total calories · kcal" }),
     ).toBeTruthy();
     expect(within(panel).getByText("710")).toBeTruthy();
-    expect(within(panel).getByText("1,600")).toBeTruthy();
+    expect(within(panel).getAllByText("1,600")).toHaveLength(2);
     expect(within(panel).queryByText("Body battery morning")).toBeNull();
     expect(within(panel).queryByText("Body battery evening")).toBeNull();
-    expect(within(panel).getByText(/2026/)).toBeTruthy();
+    expect(
+      within(panel).getByRole("heading", {
+        name: "July 15, 2026 – July 21, 2026",
+      }),
+    ).toBeTruthy();
   });
 
-  it("browses previous/next days and disables browse boundaries truthfully", async () => {
-    renderDashboard(baseFetchMock());
-
-    const panel = await openHealthDashboard();
+  it("browses calendar pages including gaps, preserves range through tabs and away/back, and resets explicitly", async () => {
+    const fetch = baseFetchMock();
+    fetch.mockImplementation((input) =>
+      String(input) === "/api/health-dashboard"
+        ? jsonResponse(healthDashboardWithSparseRollups())
+        : String(input).startsWith("/api/chat")
+          ? jsonResponse(emptyChat)
+          : jsonResponse(profile()),
+    );
+    renderDashboard(fetch);
+    let panel = await openHealthDashboard();
     const previous = within(panel).getByRole("button", {
-      name: "Previous day",
+      name: /Previous 7 days/,
     });
-    const next = within(panel).getByRole("button", { name: "Next day" });
-
+    const next = within(panel).getByRole("button", { name: /Next 7 days/ });
     expect(next.hasAttribute("disabled")).toBe(true);
-    expect(previous.hasAttribute("disabled")).toBe(false);
-
     fireEvent.click(previous);
-    expect(within(panel).getByText("6 h 30 m")).toBeTruthy();
-    expect(within(panel).getByText("7,900")).toBeTruthy();
+    expect(
+      within(panel).getByText(/No imported records in this range/),
+    ).toBeTruthy();
+    expect(panel.querySelectorAll("time")).toHaveLength(7);
+    expect(panel.querySelector("time")?.dateTime).toBe("2026-07-08");
     expect(next.hasAttribute("disabled")).toBe(false);
-
-    fireEvent.click(previous);
-    expect(previous.hasAttribute("disabled")).toBe(true);
-    expect(within(panel).getByText("10,200")).toBeTruthy();
-
-    fireEvent.click(next);
-    expect(within(panel).getByText("7,900")).toBeTruthy();
-    expect(previous.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
+    fireEvent.click(within(panel).getByRole("tab", { name: "Daily" }));
+    expect(panel.querySelector("time")?.dateTime).toBe("2026-07-08");
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "Back to chat" }),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Health" }),
+      ),
+    );
+    panel = await openHealthDashboard();
+    expect(panel.querySelector("time")?.dateTime).toBe("2026-07-08");
+    fireEvent.click(
+      within(panel).getByRole("button", { name: /Latest 7 days/ }),
+    );
+    expect(panel.querySelector("time")?.dateTime).toBe("2026-07-15");
+    expect(
+      fetch.mock.calls.filter(
+        ([url]) => String(url) === "/api/health-dashboard",
+      ),
+    ).toHaveLength(1);
+    expect(fetch.mock.calls.some(([url]) => String(url) === "/api/sync")).toBe(
+      false,
+    );
   });
 
   it("renders truthful unavailable copy for null fields and missing days without estimating", async () => {
     renderDashboard(baseFetchMock());
 
     const panel = await openHealthDashboard();
-    const previous = within(panel).getByRole("button", {
-      name: "Previous day",
-    });
-    fireEvent.click(previous);
-    fireEvent.click(previous);
-
+    expect(
+      within(panel)
+        .getByRole("button", { name: /Previous 7 days/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
     const unavailable = within(panel).getAllByText("Unavailable");
     expect(unavailable.length).toBeGreaterThanOrEqual(2);
-    expect(within(panel).getByText(/Source-unavailable day/)).toBeTruthy();
+    expect(within(panel).getByText("Source marked missing")).toBeTruthy();
+    expect(within(panel).getByText("Partial source coverage")).toBeTruthy();
+    expect(within(panel).getByText("Recorded coverage")).toBeTruthy();
+    expect(within(panel).getAllByText("Outside loaded history")).toHaveLength(
+      4,
+    );
     expect(
-      within(panel).getByText(/Sleep score or stage details are unavailable/),
+      within(panel).queryByText("Complete daily health record"),
+    ).toBeNull();
+    expect(
+      within(panel).getByText(
+        /Unavailable sleep score or stage details may be source-limited/,
+      ),
     ).toBeTruthy();
     expect(
       within(panel).queryByText(/Numeric morning\/evening readings/),
@@ -489,12 +639,6 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(within(panel).queryByText("No trend — not enough data")).toBeNull();
     expect(within(panel).getByText("7 h 24 m")).toBeTruthy();
     expect(within(panel).getByText("8,412")).toBeTruthy();
-
-    const previous = within(panel).getByRole("button", {
-      name: "Previous day",
-    });
-    fireEvent.click(previous);
-    fireEvent.click(previous);
 
     expect(within(panel).queryAllByRole("img")).toHaveLength(0);
     expect(within(panel).queryByText("No trend — not enough data")).toBeNull();
@@ -627,18 +771,14 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(newerMonthly.hasAttribute("disabled")).toBe(true);
   });
 
-  it("keeps daily rich and compact widget grids responsive", () => {
-    const layoutRule = appStyleRule(".health-widget-layout");
-    const richRule = appStyleRule(".health-widget-rich-grid");
-    const compactRule = appStyleRule(".health-widget-compact-grid");
-    const richCardRule = appStyleRule(
-      ".health-widget-rich-grid .health-widget",
+  it("contains Daily matrix overflow without shrinking exact values", () => {
+    const scroll = appStyleRule(".health-daily-scroller");
+    expect(scroll).toContain("min-width: 0;");
+    expect(scroll).toContain("max-width: 100%;");
+    expect(scroll).toContain("overflow-x: auto;");
+    expect(appStyleRule(".health-daily-matrix")).toContain(
+      "min-width: 1050px;",
     );
-
-    expect(layoutRule).toContain("min-width: 0;");
-    expect(richRule).toContain("minmax(min(280px, 100%), 1fr)");
-    expect(compactRule).toContain("minmax(min(180px, 100%), 1fr)");
-    expect(richCardRule).toContain("min-height: 168px;");
   });
 
   it("keeps weekly and monthly rollup chart CSS contained at responsive card widths", () => {

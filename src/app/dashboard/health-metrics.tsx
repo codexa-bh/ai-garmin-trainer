@@ -9,8 +9,9 @@ import {
   type HealthDashboardMode,
 } from "./contracts";
 import { numberLabel } from "./formatting";
+import { dailyHealthRange, shiftHealthDate } from "./health-daily-range";
 function formatSleepMinutes(value: number | null): string {
-  if (value == null) return "Unavailable";
+  if (value == null || !Number.isFinite(value)) return "Unavailable";
   const hours = Math.floor(value / 60);
   const minutes = value % 60;
   if (hours > 0) return minutes > 0 ? `${hours} h ${minutes} m` : `${hours} h`;
@@ -44,10 +45,9 @@ function formatCalendarDate(dateValue: string): string {
 function healthAvailabilityLabel(
   availability: "complete" | "partial" | "missing",
 ): string {
-  if (availability === "complete") return "Complete daily health record";
-  if (availability === "partial")
-    return "Partial day — some metrics unavailable";
-  return "Source-unavailable day — no metrics available";
+  if (availability === "complete") return "Recorded coverage";
+  if (availability === "partial") return "Partial source coverage";
+  return "Source marked missing";
 }
 
 function sumNumbers(values: Array<number | null>): number | null {
@@ -163,164 +163,220 @@ function hasFiniteRollupMetric(
   });
 }
 
-function sleepStageEntries(day: HealthDashboardDay) {
-  return SLEEP_STAGE_FIELDS.flatMap(([label, field]) => {
-    const minutes = day[field];
-    return typeof minutes === "number" && Number.isFinite(minutes)
-      ? [{ label, minutes }]
-      : [];
-  });
-}
-
 function hasSleepStageRollup(rollups: HealthRollup[]): boolean {
   return SLEEP_STAGE_FIELDS.some(([, field]) =>
     hasFiniteRollupMetric(rollups, (rollup) => rollup[field]),
   );
 }
 
-function SleepWidget({ day }: { day: HealthDashboardDay }) {
-  const stages = sleepStageEntries(day);
-  const hasScore = typeof day.sleepScore === "number";
-  const totalLabel =
-    day.sleepMinutes == null
-      ? "Unavailable"
-      : formatSleepMinutes(day.sleepMinutes);
-  return (
-    <div
-      className="health-widget health-sleep-widget"
-      role="group"
-      aria-label={`Sleep: ${totalLabel.toLowerCase()}`}
-    >
-      <p className="health-widget-label">Sleep</p>
-      <p className="health-widget-value">
-        {day.sleepMinutes == null ? (
-          <span className="health-widget-unavailable">Unavailable</span>
-        ) : (
-          totalLabel
-        )}
-      </p>
-      <div className="health-sleep-details" aria-label="Sleep source details">
-        <span>
-          Score{" "}
-          <strong>
-            {hasScore ? numberLabel(day.sleepScore) : "Unavailable"}
-          </strong>
-        </span>
-        {stages.map((stage) => (
-          <span key={stage.label}>
-            {stage.label} <strong>{formatSleepMinutes(stage.minutes)}</strong>
-          </span>
-        ))}
-      </div>
-      {!hasScore || stages.length === 0 ? (
-        <p className="health-widget-detail">{SLEEP_DETAIL_SOURCE_LIMITED}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function HealthWidget({
-  label,
-  value,
-  unit,
-  detail,
-}: {
+const DAILY_METRICS: Array<{
   label: string;
-  value: string | null;
-  unit?: string;
-  detail?: string | null;
-}) {
-  const hasValue = value !== null;
-  const accessibleValue = hasValue
-    ? unit
-      ? `${value} ${unit}`
-      : value
-    : "unavailable";
-  return (
-    <div
-      className="health-widget"
-      role="group"
-      aria-label={`${label}: ${accessibleValue}`}
-    >
-      <p className="health-widget-label">{label}</p>
-      <p className="health-widget-value">
-        {hasValue ? (
-          <>
-            {value}
-            {unit ? <span className="health-widget-unit">{unit}</span> : null}
-          </>
-        ) : (
-          <span className="health-widget-unavailable">Unavailable</span>
-        )}
-      </p>
-      {detail ? <p className="health-widget-detail">{detail}</p> : null}
-    </div>
-  );
-}
+  value: (day: HealthDashboardDay) => string;
+}> = [
+  {
+    label: "Sleep duration",
+    value: (day) => formatSleepMinutes(day.sleepMinutes),
+  },
+  { label: "Sleep score", value: (day) => finiteNumberLabel(day.sleepScore) },
+  ...SLEEP_STAGE_FIELDS.map(([label, field]) => ({
+    label: `${label} sleep`,
+    value: (day: HealthDashboardDay) => formatSleepMinutes(day[field]),
+  })),
+  {
+    label: "Active calories · kcal",
+    value: (day) => finiteNumberLabel(day.activeCalories),
+  },
+  {
+    label: "Resting calories · kcal",
+    value: (day) => finiteNumberLabel(day.restingCalories),
+  },
+  {
+    label: "Total calories · kcal",
+    value: (day) => finiteNumberLabel(day.totalCalories ?? day.calories),
+  },
+  {
+    label: "Resting HR · bpm",
+    value: (day) => finiteNumberLabel(day.restingHeartRate),
+  },
+  {
+    label: "HRV · ms / status",
+    value: (day) => {
+      const numeric = day.hrvMs != null && Number.isFinite(day.hrvMs);
+      return numeric
+        ? `${numberLabel(day.hrvMs, 1)} ms${day.hrvStatus ? ` · ${day.hrvStatus}` : ""}`
+        : day.hrvStatus || "Unavailable";
+    },
+  },
+  { label: "Stress avg", value: (day) => finiteNumberLabel(day.stressAvg) },
+  { label: "Steps", value: (day) => finiteNumberLabel(day.steps) },
+  {
+    label: "Intensity minutes · min",
+    value: (day) => finiteNumberLabel(day.intensityMinutes),
+  },
+];
 
-function CaloriesWidget({ day }: { day: HealthDashboardDay }) {
-  const total = day.totalCalories ?? day.calories;
-  const splitTotal =
-    day.activeCalories !== null && day.restingCalories !== null
-      ? day.activeCalories + day.restingCalories
-      : null;
-  const showSplit =
-    splitTotal !== null &&
-    splitTotal > 0 &&
-    day.activeCalories !== null &&
-    day.restingCalories !== null;
+function DailyComparison({
+  days,
+  rangeEnd,
+  onSelectRange,
+  notice,
+}: {
+  days: HealthDashboardDay[];
+  rangeEnd: string | null;
+  onSelectRange: (end: string) => void;
+  notice: string;
+}) {
+  const range = dailyHealthRange(
+    days,
+    rangeEnd,
+    new Date().toISOString().slice(0, 10),
+  );
+  if (!range)
+    return (
+      <p className="health-empty-state">
+        No eligible Daily records at or before today (UTC). Weekly and Monthly
+        retain their imported rows.
+      </p>
+    );
+  const label = (date: string) =>
+    new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  const rangeLabel = `${label(range.start)} – ${label(range.end)}`;
   return (
-    <div
-      className="health-widget health-calories-widget"
-      role="group"
-      aria-label="Calories source split"
-    >
-      <p className="health-widget-label">Calories</p>
-      <div className="health-split-values">
-        <span>
-          Active <strong>{finiteNumberLabel(day.activeCalories)}</strong>
-        </span>
-        <span>
-          Resting <strong>{finiteNumberLabel(day.restingCalories)}</strong>
-        </span>
-        <span>
-          Total <strong>{finiteNumberLabel(total)}</strong>
-        </span>
-      </div>
-      {showSplit ? (
-        <div
-          className="health-calorie-split"
-          aria-label="Active and resting calorie split"
-        >
-          <span style={{ flexGrow: day.activeCalories ?? 0 }} />
-          <span style={{ flexGrow: day.restingCalories ?? 0 }} />
+    <>
+      <div
+        className="health-daily-browser"
+        aria-label="Browse seven-day comparisons"
+      >
+        <div>
+          <p className="section-kicker">Seven individual calendar days</p>
+          <h2 id="health-daily-range">{rangeLabel}</h2>
         </div>
-      ) : (
-        <p className="health-widget-trend-note">
-          Split unavailable from source.
-        </p>
-      )}
-    </div>
+        <div className="health-daily-actions">
+          <button
+            type="button"
+            className="chrome-button"
+            disabled={!range.canPrevious}
+            onClick={() => onSelectRange(shiftHealthDate(range.end, -7))}
+          >
+            ← Previous 7 days
+          </button>
+          <button
+            type="button"
+            className="chrome-button"
+            disabled={!range.canNext}
+            onClick={() => onSelectRange(shiftHealthDate(range.end, 7))}
+          >
+            Next 7 days →
+          </button>
+          <button
+            type="button"
+            className="chrome-button"
+            disabled={range.end === range.latest}
+            onClick={() => onSelectRange(range.latest)}
+          >
+            Latest 7 days
+          </button>
+        </div>
+      </div>
+      <p className="helper-text" role="status" aria-live="polite">
+        {notice ? `${notice} ` : ""}Showing {rangeLabel}.
+      </p>
+      {range.slots.every((slot) => !slot.record) ? (
+        <p>No imported records in this range. Date gaps are not zero values.</p>
+      ) : null}
+      <p id="health-daily-help" className="helper-text">
+        Scroll horizontally to compare dates. Recorded coverage is not full
+        metric availability or finality. Today is in progress on the UTC sync
+        calendar. Unavailable fields are not estimated.
+      </p>
+      <div
+        className="health-daily-scroller"
+        role="region"
+        aria-label="Daily health comparison, scroll horizontally"
+        aria-describedby="health-daily-help"
+        tabIndex={0}
+      >
+        <table className="health-daily-matrix">
+          <caption>
+            Daily Health — individual source values · {rangeLabel}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Metric / unit</th>
+              {range.slots.map((slot) => (
+                <th scope="col" key={slot.date}>
+                  <time dateTime={slot.date}>
+                    {new Date(`${slot.date}T00:00:00Z`).toLocaleDateString(
+                      undefined,
+                      {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                        timeZone: "UTC",
+                      },
+                    )}
+                  </time>
+                  {slot.isCurrentDay ? (
+                    <span className="health-daily-detail">
+                      Today · in progress, not final
+                    </span>
+                  ) : null}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="health-daily-coverage">
+              <th scope="row">Source coverage</th>
+              {range.slots.map((slot) => (
+                <td key={slot.date}>
+                  {slot.record
+                    ? healthAvailabilityLabel(slot.record.availability)
+                    : slot.outsideLoaded
+                      ? "Outside loaded history"
+                      : "No imported record"}
+                </td>
+              ))}
+            </tr>
+            {DAILY_METRICS.map((metric) => (
+              <tr key={metric.label}>
+                <th scope="row">{metric.label}</th>
+                {range.slots.map((slot) => (
+                  <td key={slot.date}>
+                    {slot.record ? metric.value(slot.record) : "Unavailable"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="helper-text">
+        Sleep stages and recorded duration are independent.{" "}
+        {SLEEP_DETAIL_SOURCE_LIMITED} Intensity minutes: Daily Garmin health
+        source only. Loaded history is bounded; older archive may exist.
+      </p>
+    </>
   );
 }
 
 export function HealthDashboardView({
   days,
-  selectedIndex,
-  onSelectIndex,
+  rangeEnd,
+  onSelectRange,
+  notice,
 }: {
   days: HealthDashboardDay[];
-  selectedIndex: number;
-  onSelectIndex: (index: number) => void;
+  rangeEnd: string | null;
+  onSelectRange: (end: string) => void;
+  notice: string;
 }) {
   const [mode, setMode] = useState<HealthDashboardMode>("daily");
-  const clampedIndex = Math.min(Math.max(selectedIndex, 0), days.length - 1);
-  const day = days[clampedIndex];
-  const isNewest = clampedIndex <= 0;
-  const isOldest = clampedIndex >= days.length - 1;
-  const hrvValue =
-    day.hrvMs != null ? numberLabel(day.hrvMs, 1) : (day.hrvStatus ?? null);
-  const hrvDetail = day.hrvMs != null && day.hrvStatus ? day.hrvStatus : null;
   const [rollupPage, setRollupPage] = useState(0);
   const rollupMode = mode === "daily" ? null : mode;
   const allRollups = rollupMode ? healthRollups(days, rollupMode) : [];
@@ -368,187 +424,148 @@ export function HealthDashboardView({
               setMode(item);
             }}
             role="tab"
+            id={`health-tab-${item}`}
+            aria-controls="health-time-panel"
+            tabIndex={mode === item ? 0 : -1}
             aria-selected={mode === item}
+            onKeyDown={(event) => {
+              const modes = ["daily", "weekly", "monthly"] as const;
+              const offset =
+                event.key === "ArrowRight"
+                  ? 1
+                  : event.key === "ArrowLeft"
+                    ? -1
+                    : 0;
+              if (!offset && event.key !== "Home" && event.key !== "End")
+                return;
+              event.preventDefault();
+              const next =
+                event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? 2
+                    : (modes.indexOf(item) + offset + 3) % 3;
+              setMode(modes[next]);
+              setRollupPage(0);
+              const tabs =
+                event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                  '[role="tab"]',
+                );
+              tabs?.[next].focus();
+            }}
           >
             {item[0].toUpperCase() + item.slice(1)}
           </button>
         ))}
       </div>
 
-      {mode === "daily" ? (
-        <>
-          <div className="health-day-browser" aria-label="Browse health days">
-            <button
-              type="button"
-              className="chrome-button"
-              onClick={() => onSelectIndex(clampedIndex + 1)}
-              disabled={isOldest}
-              aria-label="Previous day"
-            >
-              ← Previous day
-            </button>
-            <div className="health-day-label">
-              <p className="section-kicker">Selected day</p>
-              <h2>{formatCalendarDate(day.date)}</h2>
-              <p className="health-day-availability">
-                {healthAvailabilityLabel(day.availability)}
-              </p>
-            </div>
-            <button
-              type="button"
-              className="chrome-button"
-              onClick={() => onSelectIndex(clampedIndex - 1)}
-              disabled={isNewest}
-              aria-label="Next day"
-            >
-              Next day →
-            </button>
-          </div>
-
-          <div className="health-widget-layout">
-            <div
-              className="health-widget-rich-grid"
-              aria-label="Rich daily health metrics"
-            >
-              <SleepWidget day={day} />
-              <CaloriesWidget day={day} />
-            </div>
-            <div
-              className="health-widget-compact-grid"
-              aria-label="Compact daily health metrics"
-            >
-              <HealthWidget
-                label="Resting HR"
-                value={
-                  day.restingHeartRate == null
-                    ? null
-                    : numberLabel(day.restingHeartRate)
-                }
-                unit="bpm"
-              />
-              <HealthWidget
-                label="HRV"
-                value={hrvValue}
-                unit={day.hrvMs != null ? "ms" : undefined}
-                detail={hrvDetail}
-              />
-              <HealthWidget
-                label="Stress avg"
-                value={
-                  day.stressAvg == null ? null : numberLabel(day.stressAvg)
-                }
-                unit="avg"
-              />
-              <HealthWidget
-                label="Steps"
-                value={day.steps == null ? null : numberLabel(day.steps)}
-                unit="steps"
-              />
-              <HealthWidget
-                label="Intensity minutes"
-                value={
-                  day.intensityMinutes == null
-                    ? null
-                    : numberLabel(day.intensityMinutes)
-                }
-                unit="min"
-                detail="Daily Garmin health source only"
-              />
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="health-rollup-view">
-          <div className="health-rollup-summary">
-            <div>
-              <h2>
-                {mode === "weekly"
-                  ? "Weekly Health rollups"
-                  : "Monthly Health rollups"}
-              </h2>
-              <p className="health-rollup-range">Showing {rollupRangeLabel}</p>
-            </div>
-            <div
-              className="health-rollup-browser"
-              aria-label={`${mode} rollup period browser`}
-            >
-              <button
-                type="button"
-                className="chrome-button"
-                onClick={() => setRollupPage(clampedRollupPage + 1)}
-                disabled={!canBrowseOlder}
-              >
-                ← Older periods
-              </button>
-              <button
-                type="button"
-                className="chrome-button"
-                onClick={() => setRollupPage(clampedRollupPage - 1)}
-                disabled={!canBrowseNewer}
-              >
-                Newer periods →
-              </button>
-            </div>
-          </div>
-          <div className="health-rollup-grid">
-            <HealthRollupChart
-              rollups={rollups}
-              title="Sleep duration daily avg"
-              kind="line"
-              unit="min"
-              metric={(rollup) => rollup.sleepMinutes}
-              formatValue={formatSleepRollupMinutesPerDay}
-            />
-            <HealthRollupChart
-              rollups={rollups}
-              title="Sleep score avg"
-              kind="line"
-              unit="avg"
-              metric={(rollup) => rollup.sleepScore}
-              emptyMessage="Source sleep scores are unavailable for these periods."
-            />
-            {hasAnySleepStageRollup ? (
-              SLEEP_STAGE_FIELDS.map(([label, field]) => (
-                <HealthRollupChart
-                  key={field}
-                  rollups={rollups}
-                  title={`${label} sleep daily avg`}
-                  kind="line"
-                  unit="min"
-                  metric={(rollup) => rollup[field]}
-                  formatValue={formatSleepRollupMinutesPerDay}
-                />
-              ))
-            ) : (
-              <div className="health-rollup-chart empty-state">
-                <strong>Sleep stages</strong>
-                <p>
-                  Source sleep-stage durations are unavailable for these
-                  periods.
+      <div
+        id="health-time-panel"
+        role="tabpanel"
+        aria-labelledby={`health-tab-${mode}`}
+      >
+        {mode === "daily" ? (
+          <DailyComparison
+            days={days}
+            rangeEnd={rangeEnd}
+            onSelectRange={onSelectRange}
+            notice={notice}
+          />
+        ) : (
+          <div className="health-rollup-view">
+            <div className="health-rollup-summary">
+              <div>
+                <h2>
+                  {mode === "weekly"
+                    ? "Weekly Health rollups"
+                    : "Monthly Health rollups"}
+                </h2>
+                <p className="health-rollup-range">
+                  Showing {rollupRangeLabel}
                 </p>
               </div>
-            )}
-            <HealthRollupChart
-              rollups={rollups}
-              title="Steps"
-              unit="steps"
-              metric={(rollup) => rollup.steps}
-            />
-            <HealthRollupChart
-              rollups={rollups}
-              title="Total calories"
-              unit="kcal"
-              metric={(rollup) => rollup.totalCalories}
-            />
-            <HealthRollupChart
-              rollups={rollups}
-              title="Intensity minutes"
-              unit="min"
-              metric={(rollup) => rollup.intensityMinutes}
-            />
+              <div
+                className="health-rollup-browser"
+                aria-label={`${mode} rollup period browser`}
+              >
+                <button
+                  type="button"
+                  className="chrome-button"
+                  onClick={() => setRollupPage(clampedRollupPage + 1)}
+                  disabled={!canBrowseOlder}
+                >
+                  ← Older periods
+                </button>
+                <button
+                  type="button"
+                  className="chrome-button"
+                  onClick={() => setRollupPage(clampedRollupPage - 1)}
+                  disabled={!canBrowseNewer}
+                >
+                  Newer periods →
+                </button>
+              </div>
+            </div>
+            <div className="health-rollup-grid">
+              <HealthRollupChart
+                rollups={rollups}
+                title="Sleep duration daily avg"
+                kind="line"
+                unit="min"
+                metric={(rollup) => rollup.sleepMinutes}
+                formatValue={formatSleepRollupMinutesPerDay}
+              />
+              <HealthRollupChart
+                rollups={rollups}
+                title="Sleep score avg"
+                kind="line"
+                unit="avg"
+                metric={(rollup) => rollup.sleepScore}
+                emptyMessage="Source sleep scores are unavailable for these periods."
+              />
+              {hasAnySleepStageRollup ? (
+                SLEEP_STAGE_FIELDS.map(([label, field]) => (
+                  <HealthRollupChart
+                    key={field}
+                    rollups={rollups}
+                    title={`${label} sleep daily avg`}
+                    kind="line"
+                    unit="min"
+                    metric={(rollup) => rollup[field]}
+                    formatValue={formatSleepRollupMinutesPerDay}
+                  />
+                ))
+              ) : (
+                <div className="health-rollup-chart empty-state">
+                  <strong>Sleep stages</strong>
+                  <p>
+                    Source sleep-stage durations are unavailable for these
+                    periods.
+                  </p>
+                </div>
+              )}
+              <HealthRollupChart
+                rollups={rollups}
+                title="Steps"
+                unit="steps"
+                metric={(rollup) => rollup.steps}
+              />
+              <HealthRollupChart
+                rollups={rollups}
+                title="Total calories"
+                unit="kcal"
+                metric={(rollup) => rollup.totalCalories}
+              />
+              <HealthRollupChart
+                rollups={rollups}
+                title="Intensity minutes"
+                unit="min"
+                metric={(rollup) => rollup.intensityMinutes}
+              />
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

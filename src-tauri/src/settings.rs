@@ -595,6 +595,53 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn memory_off_on_retains_complete_custom_configuration_and_private_key() {
+        let root = root();
+        let path = selected(&root);
+        let mut fields = BTreeMap::from([
+            ("MEMORY_ENABLED".into(), "true".into()),
+            ("MEMORY_EMBEDDING_PROVIDER".into(), "ollama".into()),
+            ("MEMORY_EMBEDDING_MODEL".into(), "custom-embedding".into()),
+            (
+                "MEMORY_EMBEDDING_BASE_URL".into(),
+                "http://127.0.0.1:11435".into(),
+            ),
+            ("MEMORY_EMBEDDING_DIMS".into(), "768".into()),
+            ("MEMORY_TIMEOUT_MS".into(), "15432".into()),
+            ("MEMORY_EXTRACTION_MODE".into(), "off".into()),
+            ("MEMORY_EXTRACTION_TIMEOUT_MS".into(), "5432".into()),
+        ]);
+        for key in [
+            "GARMIN_MCP_COMMAND",
+            "GARMIN_FIT_BASELINE_COMMAND",
+            "GARMIN_FIT_SPEED_COMMAND",
+            "GARMIN_FIT_DISTANCE_COMMAND",
+            "GARMIN_FIT_ALTITUDE_COMMAND",
+        ] {
+            fields.insert(key.into(), "/private/synthetic/custom-executable".into());
+        }
+        save_new(&path, input(&path, fields.clone(), replacement())).unwrap();
+        for enabled in ["false", "true"] {
+            fields.insert("MEMORY_ENABLED".into(), enabled.into());
+            save(
+                &path,
+                input(
+                    &path,
+                    fields.clone(),
+                    BTreeMap::from([("OPENAI_API_KEY".into(), KeyUpdate::Unchanged)]),
+                ),
+            )
+            .unwrap();
+            assert_eq!(load(&path).unwrap().fields, fields);
+            assert_eq!(snapshot(&path, true).unwrap().fields, fields);
+            assert_eq!(
+                load(&path).unwrap().keys["OPENAI_API_KEY"],
+                "synthetic-provider-secret"
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn adoption_is_explicit_complete_preserves_original_and_never_repeats_reads() {
         let root = root();
         let path = root.join("settings-v1.json");
