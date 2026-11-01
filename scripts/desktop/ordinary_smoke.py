@@ -332,7 +332,7 @@ def security(run, other):
         run.http('/command', request, expected=400)
     request = run.request({'type': 'observe'}, str(uuid.uuid4()))
     observation = run.http('/command', request)
-    if set(observation.get('result', {})) & {'llmDebug', 'healthMode', 'healthReady', 'healthPreviousEnabled', 'healthNextEnabled', 'healthLatestEnabled'}:
+    if set(observation.get('result', {})) & {'llmDebug', 'healthMode', 'healthReady', 'healthMissingRecord', 'healthPartialRecord', 'healthPreviousEnabled', 'healthNextEnabled', 'healthLatestEnabled'}:
         raise ValueError('Ordinary mode exposed debug-only observations')
     run.http('/command', request, expected=409)
     private_json(run.root / 'security.json', {'browserCrossRunPrivateControlAndStaleBootDenied': True, 'duplicatesDenied': True})

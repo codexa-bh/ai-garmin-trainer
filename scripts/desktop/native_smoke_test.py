@@ -40,6 +40,42 @@ class OwnershipTests(unittest.TestCase):
                     run.stop()
                     kill.assert_not_called()
 
+    def test_health_preparation_is_bounded_copy_only_prelaunch_and_never_repeated(self):
+        from datetime import date, timedelta
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / 'populated.sqlite'
+            with contextlib.closing(sqlite3.connect(source)) as db:
+                db.execute('create table daily_health(date text primary key, availability text, steps real)')
+                db.executemany('insert into daily_health values (?, ?, ?)', [
+                    ((date(2026, 1, 31) - timedelta(days=index)).isoformat(), 'partial', index)
+                    for index in range(30)])
+                db.commit()
+                baseline = fingerprint(db)
+                run = Run(root, source, 'a' * 64)
+                run.prepare_health_comparison()
+                self.assertEqual(fingerprint(db), baseline)
+            with contextlib.closing(readonly(run.database)) as copy:
+                self.assertEqual(fingerprint(copy)['counts']['daily_health'], 29)
+                self.assertIsNone(copy.execute("select date from daily_health where date='2026-01-21'").fetchone())
+                self.assertEqual(copy.execute('select count(*) from daily_health where availability=\'partial\'').fetchone()[0], 29)
+            receipt = json.loads((run.root / 'health-preparation.json').read_text())
+            self.assertTrue(receipt['copyOnly'])
+            self.assertEqual(receipt['removedDailyRowCount'], 1)
+            with self.assertRaisesRegex(ValueError, 'unlaunched owned copy'):
+                run.prepare_health_comparison()
+            fresh = Run(root, source, 'a' * 64)
+            fresh.launches = 1
+            with self.assertRaisesRegex(ValueError, 'unlaunched owned copy'):
+                fresh.prepare_health_comparison()
+            empty = Run(root, source, 'a' * 64)
+            with sqlite3.connect(empty.database) as copy:
+                copy.execute("update daily_health set availability='complete'")
+            with self.assertRaisesRegex(ValueError, 'lacks a partial'):
+                empty.prepare_health_comparison()
+            with contextlib.closing(readonly(empty.database)) as copy:
+                self.assertEqual(fingerprint(copy)['counts']['daily_health'], 30)
+
     def test_failed_settlement_remains_failed_after_native_handle_is_reaped(self):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as directory:

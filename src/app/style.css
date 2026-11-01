@@ -479,66 +479,38 @@ body::before {
   font-size: clamp(18px, 2.4vw, 24px);
 }
 
-.health-daily-scroller {
+.health-daily-comparison {
   min-width: 0;
   max-width: 100%;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
+}
+
+.health-daily-coverage {
+  margin-top: 16px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
-}
-
-.health-daily-scroller:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.health-daily-matrix {
-  width: 100%;
-  min-width: 1050px;
-  border-collapse: separate;
-  border-spacing: 0;
-  table-layout: fixed;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-}
-
-.health-daily-matrix caption {
-  padding: 12px;
-  text-align: left;
-  color: var(--muted);
-}
-
-.health-daily-matrix th,
-.health-daily-matrix td {
-  padding: 12px 10px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-
-.health-daily-matrix th:first-child {
-  width: 170px;
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  background: var(--panel);
-}
-
-.health-daily-matrix thead th {
-  background: var(--panel-strong);
-}
-
-.health-daily-coverage td,
-.health-daily-detail {
   color: var(--muted);
   font-size: 12px;
 }
 
-.health-daily-detail {
-  display: block;
-  margin-top: 6px;
+.health-daily-coverage summary {
+  cursor: pointer;
+}
+
+.health-daily-coverage ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.health-daily-coverage li {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  overflow-wrap: anywhere;
 }
 
 .health-rollup-view,

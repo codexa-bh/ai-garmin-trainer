@@ -93,6 +93,62 @@ describe("Health rollup presentation", () => {
     ).toBe("Period 1: 6 h 57 m/day");
   });
 
+  it("keeps seven raw Daily dates, isolated zero points and line gaps without rollup wording", () => {
+    const values = [1, 2, null, 3, 4, null, 0];
+    const dates = values.map((value, index) => ({
+      key: `2026-03-${String(index + 1).padStart(2, "0")}`,
+      label: `March ${index + 1}, 2026`,
+      value,
+    }));
+    render(
+      <HealthRollupChart
+        rollups={dates}
+        metric={metric}
+        title="Raw"
+        unit="ms"
+        kind="line"
+        presentation="daily"
+      />,
+    );
+    const card = screen.getByRole("group", { name: "Raw daily chart" });
+    expect(screen.queryByText(/Period average|Period total|\/day/)).toBeNull();
+    expect(screen.getByText("Daily source values · ms")).toBeTruthy();
+    const buttons = within(
+      screen.getByLabelText("Raw daily values"),
+    ).getAllByRole("button");
+    expect(buttons.map((button) => button.dataset.sourceDate)).toEqual(
+      dates.map((date) => date.key),
+    );
+    expect(card.querySelectorAll(".recharts-line-dot")).toHaveLength(5);
+    const curve = card.querySelector(".recharts-line-curve")?.getAttribute("d");
+    expect(curve?.match(/M/g)).toHaveLength(3);
+    for (const index of [2, 5])
+      expect(buttons[index].dataset.chartState).toBe("unavailable");
+    fireEvent.focus(buttons[6]);
+    expect(card.querySelector(".health-rollup-readout")?.textContent).toBe(
+      "March 7, 2026: 0 ms",
+    );
+  });
+
+  it("keeps categorical Daily context accessible without treating it as a numeric value", () => {
+    render(
+      <HealthRollupChart
+        rollups={[{ key: "2026-03-01", label: "March 1, 2026", value: null }]}
+        metric={metric}
+        title="HRV"
+        unit="ms"
+        presentation="daily"
+        pointDetail={() => "Low"}
+        emptyMessage="No recorded values for these dates."
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "March 1, 2026: unavailable · low" })
+        .dataset.chartState,
+    ).toBe("unavailable");
+    expect(document.querySelector(".health-rollup-plot")).toBeNull();
+  });
+
   it("drops stale selections on paging and recalculates selected values after refresh", () => {
     const { rerender } = render(chart([10, 20]));
     fireEvent.focus(screen.getByRole("button", { name: "Period 1: 10 steps" }));

@@ -66,7 +66,14 @@ pub fn png(window: &WebviewWindow) -> Result<Vec<u8>, String> {
         });
         // SAFETY: Tauri supplies this live owned WKWebView on the main thread.
         // WebKit copies the completion block for its asynchronous snapshot.
-        unsafe{let view=webview.inner().cast::<AnyObject>();let _:()=msg_send![view,takeSnapshotWithConfiguration:std::ptr::null::<AnyObject>(),completionHandler:&*completion];}
+        unsafe {
+            let view = webview.inner().cast::<AnyObject>();
+            // Flush the current masked document, not a cached prior-view/resize frame.
+            let configuration: *mut AnyObject = msg_send![class!(WKSnapshotConfiguration), new];
+            let _: () = msg_send![configuration, setAfterScreenUpdates: true];
+            let _: () = msg_send![view, takeSnapshotWithConfiguration: configuration, completionHandler: &*completion];
+            let _: () = msg_send![configuration, release];
+        }
     }).map_err(|_|"Own WebView unavailable")?;
     rx.recv_timeout(Duration::from_secs(4))
         .map_err(|_| "Capture deadline")?
