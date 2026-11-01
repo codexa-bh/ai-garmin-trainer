@@ -140,7 +140,7 @@ class PreparedInput:
 
     def verify_current(self):
         self._recheck()
-        private_file(self.database, 16 * 1024 * 1024)
+        database_state(self.database)
         with contextlib.closing(readonly(self.database)) as db:
             if fingerprint(db) != self.original:
                 raise ValueError('Prepared input changed; preserve and reconcile')
