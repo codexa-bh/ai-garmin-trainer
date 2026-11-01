@@ -311,7 +311,9 @@ export function useSyncFeature({
       ? "Complete"
       : syncRun.kind === "failed"
         ? "Failed"
-        : "Ready";
+        : syncRun.kind === "paused"
+          ? "Paused"
+          : "Ready";
   return {
     loadImportSummary,
     syncRun,

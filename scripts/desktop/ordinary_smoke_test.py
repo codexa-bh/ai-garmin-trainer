@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -63,6 +64,7 @@ class OrdinaryContracts(unittest.TestCase):
         self.assertEqual(keywords['env']['HOME'], '/operator-home')
         self.assertEqual(keywords['env']['TMPDIR'], str(run.root / 'tmp'))
         self.assertNotIn('OPENAI_API_KEY', keywords['env'])
+        self.assertEqual(keywords['stdin'], subprocess.PIPE)
         self.assertNotIn(run.config['token'], repr(spawn.call_args))
         self.assertEqual((run.root / 'unit.log').read_bytes(), b'')
 

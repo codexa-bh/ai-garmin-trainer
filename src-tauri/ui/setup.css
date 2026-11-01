@@ -56,6 +56,20 @@ select {
   border-radius: 5px;
   min-width: 0;
 }
+.history-mode {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.history-mode input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+#history-options input:disabled {
+  opacity: 0.6;
+}
 label span {
   font-size: 14px;
   color: #a9c9b6;

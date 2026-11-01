@@ -128,6 +128,16 @@ function invalidateMemoryStatus() {
   byId("memory-active").textContent =
     "Active memory: unknown — read status again. Saved/draft settings do not prove runtime readiness.";
 }
+function renderHistory() {
+  const choice = byId("history-limited");
+  const date = byId("GARMIN_HISTORY_START_DATE");
+  if (!choice || !date) return;
+  const unavailable =
+    busy || Boolean(firstRun && onboarding?.settingsCommitted);
+  choice.disabled = unavailable;
+  date.disabled = unavailable || !choice.checked;
+  date.required = choice.checked;
+}
 function renderMemory() {
   const on = byId("MEMORY_ENABLED").value === "true";
   byId("memory-draft").textContent =
@@ -217,12 +227,16 @@ async function readMemoryStatus() {
 function fieldValues() {
   // Visibility and disabled state never decide persistence. Empty explicit values
   // reach the validator instead of silently resetting a custom model to default.
+  // Only the explicit history-mode choice decides whether its date is active.
   return Object.fromEntries(
     fields.map((field) => [
       field.key,
       field.key === "GARMIN_MCP_TOKEN_DIR"
         ? tokenSelection
-        : byId(field.key).value,
+        : field.key === "GARMIN_HISTORY_START_DATE" &&
+            !byId("history-limited").checked
+          ? ""
+          : byId(field.key).value,
     ]),
   );
 }
@@ -231,6 +245,8 @@ function retainDraft(values) {
   for (const field of fields)
     if (field.key !== "GARMIN_MCP_TOKEN_DIR")
       byId(field.key).value = values[field.key];
+  byId("history-limited").checked = Boolean(values.GARMIN_HISTORY_START_DATE);
+  renderHistory();
   renderConnection();
   byId("memory-configuration").open = true;
   byId("advanced-settings").open = true;
@@ -275,6 +291,7 @@ function renderStep() {
   byId("memory-section").hidden = wizard && step !== 3;
   byId("advanced-settings").hidden = wizard && step !== 3;
   renderMemory();
+  renderHistory();
   byId("review-summary").textContent =
     `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Chat catalog: ${catalog.entries.length} entries, ${catalog.defaultEntryId ? "explicit default selected" : "no default (choose in chat)"}. Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("MEMORY_ENABLED")?.value || "false"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
 }
@@ -309,6 +326,7 @@ function setBusy(value) {
         committed || byId(`${slot}-intent`).value !== "replace";
   byId("catalog-add").disabled =
     value || committed || catalog.entries.length >= 32;
+  renderHistory();
 }
 async function reconcileOnboarding() {
   onboarding = await invoke("read_onboarding");
@@ -407,6 +425,11 @@ async function refresh() {
       }
       input.value = value;
     }
+    // Nonempty invalid saved dates stay in Limited mode and require correction.
+    byId("history-limited").checked = Boolean(
+      saved.fields.GARMIN_HISTORY_START_DATE,
+    );
+    renderHistory();
     savedMemoryEnabled = byId("MEMORY_ENABLED").value;
     for (const slot of slots) {
       byId(`${slot}-intent`).value = "unchanged";
@@ -625,6 +648,11 @@ async function adoptProviders(readLegacy) {
     setBusy(unknownOutcome);
   }
 }
+byId("history-limited").addEventListener("change", () => {
+  if (!byId("history-limited").checked)
+    byId("GARMIN_HISTORY_START_DATE").value = "";
+  renderHistory();
+});
 byId("memory-check").addEventListener("click", readMemoryStatus);
 byId("settings").addEventListener("invalid", revealInvalid, true);
 byId("adopt-provider").addEventListener("click", () => adoptProviders(true));

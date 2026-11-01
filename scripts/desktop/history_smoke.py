@@ -1,0 +1,339 @@
+#!/usr/bin/env python3
+"""Finite ordinary-artifact no-date setup and explicitly copied-token Sync evidence."""
+import argparse
+import contextlib
+import hashlib
+import http.client
+import json
+import os
+from pathlib import Path
+import signal
+import stat
+import time
+import urllib.request
+import uuid
+from native_smoke import Observer, canonical, fingerprint, private_json, readonly, source_identity, listening
+from ordinary_smoke import OrdinaryRun, private_directory
+from release_smoke import audit
+
+
+def selected_tokens(selection):
+    selection = canonical(selection)
+    info = selection.stat()
+    if info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or info.st_nlink != 1 or info.st_size > 8192:
+        raise ValueError('Private explicit bounded token selection required')
+    value = json.loads(selection.read_text())
+    if set(value) != {'tokenDirectory', 'tokenFiles', 'purpose'} or value['purpose'] != 'T0238 private copied-token smoke only':
+        raise ValueError('Explicit copied-token purpose required')
+    directory = private_directory(value['tokenDirectory'])
+    names = value['tokenFiles']
+    if not isinstance(names, list) or len(names) != len(set(names)) or 'garmin_tokens.json' not in names or not set(names) <= {'garmin_tokens.json', 'garmin_tokens.base64'}:
+        raise ValueError('Only known explicitly selected token files are admitted')
+    return directory, names
+
+
+def token_bytes(directory, name):
+    if name not in ('garmin_tokens.json', 'garmin_tokens.base64'):
+        raise ValueError('Known token file required')
+    directory = private_directory(directory)
+    parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        pinned = os.fstat(parent)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        with os.fdopen(fd, 'rb') as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or not 0 < info.st_size <= 1048576:
+                raise ValueError('Token source metadata refused; originals unchanged')
+            data = source.read(1048577)
+            def stable(item):
+                return (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns, item.st_nlink, item.st_mode, item.st_uid)
+            current_parent = os.stat(directory, follow_symlinks=False)
+            if len(data) != info.st_size or stable(os.fstat(source.fileno())) != stable(info) or stable(os.stat(name, dir_fd=parent, follow_symlinks=False)) != stable(info) or (current_parent.st_dev, current_parent.st_ino) != (pinned.st_dev, pinned.st_ino):
+                raise ValueError('Token source changed; no ambiguous copy')
+            return data
+    finally:
+        os.close(parent)
+
+
+def copy_tokens(selection, root):
+    directory, names = selected_tokens(selection)
+    destination = private_directory(root) / 'tokens'
+    destination.mkdir(mode=0o700)
+    hashes = {}
+    for name in names:
+        data = token_bytes(directory, name)
+        hashes[name] = hashlib.sha256(data).hexdigest()
+        with open(destination / name, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as output:
+            output.write(data)
+    return directory, hashes
+
+
+def tokens_unchanged(directory, hashes):
+    return all(hashlib.sha256(token_bytes(directory, name)).hexdigest() == expected for name, expected in hashes.items())
+
+
+class HistoryRun(OrdinaryRun):
+    def settings_action(self, action):
+        return self.command({'type': 'historySettings', 'action': action})
+
+    def wait_settings(self, predicate, label):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            value = self.settings_action('observe')
+            if predicate(value):
+                return value
+            failure = value.get('setupFailure')
+            if failure:
+                if not isinstance(failure, str) or len(failure) > 512:
+                    raise ValueError('Native settings failure schema refused')
+                private_json(self.root / ('setup-failure-' + str(uuid.uuid4()) + '.json'), {'assertion':label,'observation':value})
+                raise RuntimeError('Native settings operation failed: ' + failure)
+            time.sleep(.1)
+        private_json(self.root / ('setup-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': value})
+        raise TimeoutError('History setup readiness assertion failed')
+
+    def setup_start(self):
+        if self.child is not None or listening(self.config['port']):
+            raise ValueError('Owned root/endpoint must be stopped')
+        self.launches += 1
+        self.child = self.spawn(self.binary, self.root / f'native-{self.launches}.log')
+        self.pids.append(self.child.pid)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if self.child.poll() is not None:
+                raise RuntimeError('Owned native exited during first-run admission; inspect private log')
+            try:
+                identity = self.http('/identity')
+            except (OSError, http.client.HTTPException):
+                time.sleep(.1)
+                continue
+            if not self.accept_identity(identity) or identity['origin'] is not None:
+                raise ValueError('First-run native identity or missing-settings state refused')
+            self.wait_settings(lambda value: value.get('windowReady') is True, 'owned local Settings document')
+            self.settings_action('open')
+            self.wait_settings(lambda value: value['ready'] and value['dataStep'] and value['automaticHistory'], 'no-date first run')
+            return
+        raise TimeoutError('First-run native identity deadline')
+
+    def wait_backend(self):
+        deadline = time.monotonic() + 100
+        while time.monotonic() < deadline:
+            if self.child.poll() is not None:
+                raise RuntimeError('Owned native exited during Finish')
+            identity = self.http('/identity')
+            if not self.accept_identity(identity):
+                raise ValueError('Owned native identity changed')
+            if identity['origin']:
+                self.origin = identity['origin']
+                if not self.origin.startswith('http://127.0.0.1:') or int(self.origin.rsplit(':', 1)[1]) == self.config['port']:
+                    raise ValueError('Owned backend origin refused')
+                if identity.get('runtimeReady') is not True:
+                    time.sleep(.1)
+                    continue
+                diagnostic = identity.get('rendererDiagnostic') or {}
+                if all(diagnostic.get(key) is True for key in ('dashboard', 'bootstrap', 'ipc')):
+                    value = self.command({'type': 'observe'})
+                    if value['dashboard'] and value['hydrated']:
+                        private_json(self.root / f'readiness-{self.launches}.json', {**identity, 'rendererRoundTrip': True})
+                        return
+            else:
+                setup = self.settings_action('observe')
+                failure = setup.get('setupFailure')
+                if failure:
+                    if not isinstance(failure, str) or len(failure) > 512:
+                        raise ValueError('Native setup failure schema refused')
+                    private_json(self.root / 'native-setup-failure.json', {'nativeStaticFailure':failure,'observation':setup})
+                    raise RuntimeError('Native Finish failed: ' + failure)
+            time.sleep(.1)
+        raise TimeoutError('Finish/backend deadline; inspect commit state, no Finish replay')
+
+    def onboarding(self):
+        self.setup_start()
+        self.settings_action('createNew' if self.descriptor['historySetup'] == 'create-new' else 'useExisting')
+        images = [{'scenario': 'first-run-no-date-data', **self.settings_action('capture')}]
+        for _ in range(3):
+            self.settings_action('next')
+        self.wait_settings(lambda value: value['reviewStep'] and value['automaticHistory'], 'no-date review')
+        images.append({'scenario': 'first-run-no-date-review', **self.settings_action('capture')})
+        private_json(self.root / 'onboarding-captures.json', {'captures':images, 'source':self.config['source'], 'boot':self.boot})
+        self.settings_action('finish')  # Exactly once. Unknown effect must be reconciled, never retried.
+        self.wait_backend()
+        self.stop()
+        self.start(self.binary)
+        self.settings_action('open')
+        self.wait_settings(lambda value: value['ready'] and not value['firstRun'] and value['automaticHistory'], 'saved automatic direct launch')
+        return images
+
+    def optional_limit(self):
+        original_origin = self.origin
+        self.settings_action('legacyLimit')
+        self.settings_action('save')
+        self.wait_settings(lambda value: value['ready'] and value['savedForNextLaunch'] and value['legacyLimit'], 'legacy optional-limit Save')
+        if self.http('/identity')['origin'] != original_origin:
+            raise ValueError('Save unexpectedly changed running backend')
+        image = {'scenario': 'saved-optional-limit', **self.settings_action('capture')}
+        self.stop()
+        self.start(self.binary)
+        self.settings_action('open')
+        self.wait_settings(lambda value: value['ready'] and value['legacyLimit'], 'limit persisted after explicit restart')
+        self.settings_action('automatic')
+        self.settings_action('save')
+        self.wait_settings(lambda value: value['ready'] and value['savedForNextLaunch'] and value['automaticHistory'], 'clear limit Save')
+        self.stop()
+        self.start(self.binary)
+        return image
+
+    def summary(self):
+        # Fixed read from the verified owned backend; retain only bounded safe aggregates.
+        with urllib.request.urlopen(self.origin + '/api/summary', timeout=12) as response:
+            data = response.read(2 * 1024 * 1024 + 1)
+            if len(data) > 2 * 1024 * 1024:
+                raise ValueError('Summary bound')
+            value = json.loads(data)
+        history = value.get('history') or {}
+        health = history.get('health') or {}
+        outcome = history.get('outcome')
+        if outcome is not None and outcome not in ('settled', 'failed', 'budget-limited', 'cancelled', 'running'):
+            raise ValueError('Unexpected safe history outcome')
+        return {'outcome': outcome, 'active': value.get('syncActive') is True,
+                'healthChecks': health.get('checks'), 'healthChecksWithMetrics': health.get('checksWithMetrics'),
+                'nextHealthDate': health.get('nextDate'), 'remoteLowerBound': history.get('remoteLowerBound'),
+                'operations': history.get('operations'), 'failureClass': history.get('failureClass')}
+
+    def wait_sync(self, predicate, seconds=195):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            value = self.command({'type': 'sync', 'action': 'observe'})
+            if predicate(value):
+                return value
+            time.sleep(.25)
+        raise TimeoutError('Finite Sync observation deadline; no mutation replay')
+
+    def settle_claim(self):
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline:
+            if not self.summary()['active']:
+                self.command({'type': 'sync', 'action': 'refresh'})
+                return
+            time.sleep(.25)
+        raise TimeoutError('Owned Sync claim did not settle; no duplicate continuation')
+
+    def real_sync(self):
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'Sync')
+        before = self.summary()
+        images = []
+        self.command({'type': 'sync', 'action': 'start'})
+        self.wait_sync(lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'], 15)
+        images.append({'scenario': 'real-sync-progress', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
+        self.command({'type': 'sync', 'action': 'cancel'})
+        cancelled = self.wait_sync(lambda value: not value['running'] and (value['paused'] or value['completed'] or value['failed']), 40)
+        if cancelled['failed']:
+            raise ValueError('Real copied-token Sync failed; no automatic login or retry')
+        self.settle_claim()
+        images.append({'scenario': 'real-sync-cancelled', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
+        settled = []
+        for _ in range(2):  # Two explicit finite continuations, never automatic background work.
+            self.wait_sync(lambda value: value['startEnabled'], 40)
+            self.command({'type': 'sync', 'action': 'continue'})
+            started = self.wait_sync(lambda value: value['running'] or value['failed'], 15)
+            if started['failed']:
+                private_json(self.root / 'real-sync-failure.json', {'before': before, 'summary': self.summary(), 'rendered': started})
+                raise ValueError('Real copied-token continuation failed during start; no login/retry')
+            result = self.wait_sync(lambda value: not value['running'] and (value['paused'] or value['completed'] or value['failed']))
+            self.settle_claim()
+            settled.append({'rendered': result, 'summary': self.summary()})
+            if result['failed']:
+                private_json(self.root / 'real-sync-failure.json', {'before': before, 'settled': settled})
+                raise ValueError('Real copied-token continuation failed; preserve error, no login/retry')
+        images.append({'scenario': 'real-sync-continued', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
+        private_json(self.root / 'real-sync.json', {'before': before, 'cancelled': cancelled, 'settled': settled,
+                     'maxInvocations': 3, 'maxRemoteAttempts': 288, 'maxSeconds': 540, 'remoteLowerBoundProven': False})
+        return images
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--scratch', required=True)
+    parser.add_argument('--input-file', required=True)
+    parser.add_argument('--bundle', required=True)
+    parser.add_argument('--token-input', help='Explicit private selector; never normal-settings discovery')
+    args = parser.parse_args()
+    os.umask(0o077)
+    scratch = private_directory(args.scratch)
+    selection = canonical(args.input_file)
+    info = selection.stat()
+    if info.st_mode & 0o777 != 0o600 or info.st_nlink != 1 or info.st_uid != os.getuid() or info.st_size > 8192:
+        raise ValueError('Private bounded database selection required')
+    value = json.loads(selection.read_text())
+    if set(value) != {'database'}:
+        raise ValueError('Explicit database-only input required')
+    database = canonical(value['database'])
+    bundle = canonical(args.bundle)
+    source = source_identity()
+    inventory = audit(bundle)
+    if json.loads((bundle / 'Contents/Resources/resources/provenance.json').read_text()).get('sourceFingerprint') != source:
+        raise ValueError('Build current final source before history evidence')
+    runs = []
+    observer = None
+    token_source = None
+    receipt = {'scenarioPassed': False, 'source': source, 'artifactKind': 'ordinary',
+               'syntheticDomInput': True, 'normalDefaultModeCertified': False,
+               'captures': [], 'cleanup': 'private copy-only state/captures retained to task-scratch expiry; no copy-back'}
+    try:
+        observer = Observer(scratch)
+        for mode in ['create-new', 'use-existing']:
+            run = HistoryRun(scratch, database, source, bundle, inventory, history_setup=mode)
+            runs.append(run)
+            run.observer = observer
+            receipt['captures'].extend(run.onboarding())
+            receipt['captures'].append(run.optional_limit())
+            run.stop()
+        run = runs[1]
+        if args.token_input:
+            token_source, token_hashes = copy_tokens(args.token_input, run.root)
+            # This is our own keyless settings, not operator/native settings or provider discovery.
+            path = run.root / 'config/settings-v3.json'
+            saved = json.loads(path.read_text())
+            if saved['keys']:
+                raise ValueError('History runner never copies provider keys')
+            saved['fields']['GARMIN_MCP_TOKEN_DIR'] = str(run.root / 'tokens')
+            staged = run.root / 'config/copied-token-settings.json'
+            private_json(staged, saved)
+            os.replace(staged, path)
+            run.start(run.binary)
+            receipt['captures'].extend(run.real_sync())
+            receipt['realGarmin'] = 'copied-token native-owned Sync/cancel/two explicit continuations passed'
+        else:
+            receipt['realGarmin'] = 'unavailable: no explicit private copied-token input'
+        if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
+            raise ValueError('Source/artifact changed during evidence')
+        receipt['scenarioPassed'] = True
+    finally:
+        errors = []
+        for run in runs:
+            try:
+                run.stop()
+            except Exception:
+                errors.append('Owned shutdown failed; inspect private run evidence')
+        if observer:
+            try:
+                receipt['noninterference'] = observer.stop([pid for run in runs for pid in run.pids])
+            except Exception:
+                errors.append('Noninterference observer failed; inspect private evidence')
+        with contextlib.closing(readonly(database)) as original:
+            receipt['originalDatabaseUnchanged'] = all(fingerprint(original) == run.original for run in runs)
+        receipt['originalTokensUnchanged'] = tokens_unchanged(token_source, token_hashes) if token_source else (None if args.token_input else True)
+        receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors})
+        private_json(scratch / ('history-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
+        if errors or not receipt['originalDatabaseUnchanged'] or not receipt['originalTokensUnchanged']:
+            raise RuntimeError('Original preservation/owned shutdown gate failed; private evidence retained')
+    print(json.dumps(receipt))
+
+
+if __name__ == '__main__':
+    def interrupted(_signal, _frame):
+        raise KeyboardInterrupt('Owned history smoke interrupted')
+    signal.signal(signal.SIGTERM, interrupted)
+    main()

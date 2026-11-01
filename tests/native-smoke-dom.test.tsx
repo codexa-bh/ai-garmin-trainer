@@ -95,6 +95,82 @@ function DebugFixture() {
 }
 
 describe("native-installed rendered smoke boundary", () => {
+  it("drives only visible Sync semantics, rejects duplicate/private inputs and returns booleans", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    function Fixture() {
+      const [running, setRunning] = useState(false);
+      const [paused, setPaused] = useState(false);
+      return (
+        <div className="sync-view-content">
+          <section
+            aria-labelledby="sync-action-heading"
+            data-sync-running={running}
+            data-sync-kind={paused ? "paused" : "idle"}
+          >
+            <button
+              aria-label="Sync now — import latest Garmin data"
+              disabled={running}
+              onClick={() => {
+                setRunning(true);
+                setPaused(false);
+              }}
+            >
+              Sync now
+            </button>
+            {running && (
+              <button
+                onClick={() => {
+                  setRunning(false);
+                  setPaused(true);
+                }}
+              >
+                Cancel sync
+              </button>
+            )}
+            <pre className="sync-log">
+              <span className="sync-log-entry">Synthetic progress only</span>
+            </pre>
+          </section>
+          <button>Refresh import summary</button>
+        </div>
+      );
+    }
+    render(<Fixture />);
+    expect((await command({ type: "sync", action: "start" })).result.ok).toBe(
+      true,
+    );
+    expect(
+      (await command({ type: "sync", action: "observe" })).result,
+    ).toMatchObject({
+      running: true,
+      cancelEnabled: true,
+      startEnabled: false,
+      progressStarted: true,
+    });
+    expect((await command({ type: "sync", action: "start" })).result.ok).toBe(
+      false,
+    );
+    expect((await command({ type: "sync", action: "cancel" })).result.ok).toBe(
+      true,
+    );
+    expect(
+      (await command({ type: "sync", action: "observe" })).result,
+    ).toMatchObject({ paused: true, running: false, startEnabled: true });
+    expect(
+      (await command({ type: "sync", action: "continue", value: "secret" }))
+        .result.ok,
+    ).toBe(false);
+    expect((await command({ type: "sync", action: "auth" })).result.ok).toBe(
+      false,
+    );
+    expect(
+      (await command({ type: "sync", action: "continue" })).result.ok,
+    ).toBe(true);
+    for (const value of Object.values(
+      (await command({ type: "sync", action: "observe" })).result,
+    ))
+      expect(typeof value).toBe("boolean");
+  });
   it("ordinary mode rejects debug disclosure, Health and Settings controls and observations", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     const click = vi.fn();

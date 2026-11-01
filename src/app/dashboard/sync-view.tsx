@@ -105,6 +105,8 @@ export function SyncView({
       <div className="sync-view-content">
         <section
           className="sync-action-card"
+          data-sync-kind={syncRun.kind}
+          data-sync-running={isSyncing}
           aria-labelledby="sync-action-heading"
         >
           <div className="card-title-row">
