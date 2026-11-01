@@ -140,6 +140,7 @@ class Run:
         self.pids = []
         self.commands = []
         self.observer = None
+        self.before_start = lambda: None  # Prepared-input authority may be rechecked for every boot.
 
     def spawn(self, binary, log):
         env = {'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin', 'HOME': str(self.root / 'home'),
@@ -153,6 +154,7 @@ class Run:
                 and identity['appIdentity'] == 'com.codexa.garmin-trainer.smoke.r' + self.id.replace('-', ''))
 
     def start(self, binary, timeout=100):
+        self.before_start()
         if self.child is not None or listening(self.config['port']):
             raise ValueError('Run live/endpoint occupied; no fallback or occupant kill')
         self.launches += 1
@@ -385,34 +387,37 @@ def build(scratch, source, resources_ready=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
-    parser.add_argument('--input-file', required=True, help='Private JSON with explicitly selected canonical database; no env/settings discovery')
+    from smoke_input import arguments, prepare
+    arguments(parser)
     parser.add_argument('--prepare-only', action='store_true')
     parser.add_argument('--health-comparison', action='store_true', help='Finite Daily range/tab/away-back and masked wide/narrow capture scenario; selected input must include older Health history')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
-    input_file = canonical(args.input_file)
-    if input_file.stat().st_mode & 0o077:
-        raise ValueError('Input selection must be private')
-    database = canonical(json.loads(input_file.read_text())['database'])
+    prepared = prepare(scratch, args, 'health-comparison' if args.health_comparison else 'native')
+    database = prepared.database
     source = source_identity()
     runs = []
     observer = None
     noninterference = None
     try:
         for _ in range(2):
+            prepared.verify_current()
             runs.append(Run(scratch, database, source))
+            runs[-1].before_start = prepared.verify_current
         if args.prepare_only:
             print(json.dumps({'prepared': [str(run.root) for run in runs], 'integrity': 'ok', 'launches': 0}))
             return
         binary = build(scratch, source)
         observer = Observer(scratch)
         for run in runs:
+            prepared.verify_current()
             run.observer = observer
             run.start(binary)
         if runs[0].origin == runs[1].origin:
             raise ValueError('Parallel backend collision')
         for run in runs:
+            prepared.verify_current()
             # Admission failures are real transport observations, not successful commands.
             for extra in [{'Authorization': 'Bearer wrong'}, {'Origin': 'null'}, {'X-Smoke-Run': str(uuid.uuid4())}, {'Host': 'localhost'}]:
                 run.http('/identity', extra=extra, expected=403)
@@ -437,7 +442,7 @@ def main():
                 if observer.child.poll() is None:
                     observer.child.terminate()
                     observer.child.wait(timeout=5)
-        receipt = {'source': source, 'runs': [str(run.root) for run in runs], 'primaryUnchanged': unchanged, 'shutdownErrors': errors, 'noninterference': noninterference, 'providerAndGarmin': 'not exercised; keyless offline representative flow'}
+        receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'runs': [str(run.root) for run in runs], 'primaryUnchanged': unchanged, 'shutdownErrors': errors, 'noninterference': noninterference, 'providerAndGarmin': 'not exercised; keyless offline representative flow'}
         private_json(scratch / ('native-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
         if not unchanged or errors:
             raise RuntimeError('Original integrity/shutdown gate failed; retained evidence')
