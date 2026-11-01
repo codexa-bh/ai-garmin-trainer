@@ -15,7 +15,7 @@ import time
 import uuid
 from native_smoke import REPO, Observer, Run, canonical, fingerprint, listening, private_json, readonly, source_identity
 
-MARKERS = [b'__trainerSmoke', b'smoke_result', b'TRAINER_SMOKE_CONFIG', b'trainer-release-probe']
+MARKERS = [b'__trainerSmoke', b'__trainerSetupSmoke', b'smoke_result', b'TRAINER_SMOKE_CONFIG', b'trainer-release-probe']
 APP = REPO / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
 
 

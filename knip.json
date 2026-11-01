@@ -3,6 +3,7 @@
   "entry": [
     "scripts/desktop/runtime.ts",
     "src-tauri/ui/setup.js",
-    "src-tauri/debug/smoke.js"
+    "src-tauri/debug/smoke.js",
+    "src-tauri/debug/setup-smoke.js"
   ]
 }

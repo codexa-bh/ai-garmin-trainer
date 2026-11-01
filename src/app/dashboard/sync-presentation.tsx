@@ -25,11 +25,11 @@ export function syncFailureRecovery(
     case "Garmin connector request failed; upstream details are withheld to protect credentials and local paths.":
       return "connector";
     case "Garmin authentication could not be verified; check the configured store and perform a separate live verification before requesting reauthentication.":
-    case "Set a literal GARMIN_MCP_TOKEN_DIR in .env.local; no alternate location is searched.":
+    case "Open native Settings → Connect Garmin; no alternate connection is searched.":
     case "Configured token location must be a directory, not a symlink.":
     case "Expected Garmin token file must be a regular file, not a symlink.":
-    case "Expected Garmin token file is empty; repair the selected store before live verification.":
-    case "Configured Garmin token directory or expected file is missing; repair this location, then perform a separate live verification.":
+    case "Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login.":
+    case "Configured Garmin connection is missing. Open native Settings → Reconnect Garmin, Save and explicitly quit/reopen.":
     case "Configured Garmin auth state is inaccessible; check file types and private permissions. No token contents were read.":
       return "auth";
     default:
@@ -44,7 +44,7 @@ export function syncFailureSummary(recovery: SyncRunState["recovery"]): string {
     case "network":
       return "Garmin connection or service is unavailable. Check connectivity and retry later.";
     case "auth":
-      return "Garmin authentication could not be verified. Check the selected credential store first.";
+      return "Garmin authentication could not be verified. Open native Settings for connection status; no automatic login.";
     case "connector":
       return "The Garmin connector failed. The cause is not established.";
     default:

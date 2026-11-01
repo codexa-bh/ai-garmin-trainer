@@ -6,12 +6,116 @@ let fields = [];
 let session = null;
 let authTimer = null;
 let successfulDestination = "";
+let tokenSelection = "";
+let savedTokenSelection = "";
+let authEpoch = 0;
+let authPending = false;
 let onboarding = null;
 let firstRun = false;
 let step = 0;
 let busy = false;
 let unknownOutcome = false;
 let legacyRequired = false;
+let catalog = { version: 1, entries: [], defaultEntryId: null };
+let loadedRevision = null;
+
+function updateDefaultOptions() {
+  const select = byId("catalog-default");
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "No default — select a model in chat";
+  select.append(empty);
+  for (const entry of catalog.entries) {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = `${entry.displayName ? `${entry.displayName} — ` : ""}${entry.provider} / ${entry.modelId || "(enter model ID)"}`;
+    select.append(option);
+  }
+  select.value = catalog.defaultEntryId ?? "";
+}
+function renderCatalog() {
+  const rows = byId("catalog-entries");
+  rows.replaceChildren();
+  catalog.entries.forEach((entry, index) => {
+    const row = document.createElement("fieldset");
+    const legend = document.createElement("legend");
+    legend.textContent = `Chat model ${index + 1}`;
+    row.append(legend);
+    for (const [key, label] of [
+      ["provider", "Provider"],
+      ["modelId", "Exact model ID"],
+      ["displayName", "Friendly name (optional)"],
+    ]) {
+      const wrapper = document.createElement("label");
+      wrapper.textContent = `${label} — chat model ${index + 1}`;
+      const input = document.createElement(
+        key === "provider" ? "select" : "input",
+      );
+      if (key === "provider") {
+        for (const provider of ["openai", "deepseek", "ollama", "openrouter"]) {
+          const option = document.createElement("option");
+          option.value = option.textContent = provider;
+          input.append(option);
+        }
+      } else {
+        input.type = "text";
+        input.autocomplete = "off";
+        input.autocapitalize = "off";
+        input.setAttribute("autocorrect", "off");
+        input.spellcheck = false;
+        input.maxLength = key === "modelId" ? 256 : 80;
+      }
+      input.value = entry[key] ?? "";
+      input.addEventListener("input", () => {
+        if (key === "displayName" && !input.value) delete entry.displayName;
+        else entry[key] = input.value;
+        updateDefaultOptions();
+      });
+      input.addEventListener("change", () => {
+        entry[key] = input.value;
+        if (key === "displayName" && !input.value) delete entry.displayName;
+        updateDefaultOptions();
+      });
+      wrapper.append(input);
+      row.append(wrapper);
+    }
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = `Remove chat model ${index + 1}`;
+    remove.addEventListener("click", () => {
+      if (catalog.defaultEntryId === entry.id) {
+        status.textContent =
+          "Choose another default or explicitly clear the default before removing this entry.";
+        byId("catalog-default").focus();
+        return;
+      }
+      catalog.entries = catalog.entries.filter(
+        (value) => value.id !== entry.id,
+      );
+      renderCatalog();
+      byId("catalog-add").focus();
+    });
+    row.append(remove);
+    rows.append(row);
+  });
+  updateDefaultOptions();
+  byId("catalog-add").disabled = catalog.entries.length >= 32;
+}
+byId("catalog-default").addEventListener("change", (event) => {
+  catalog.defaultEntryId = event.target.value || null;
+});
+byId("catalog-add").addEventListener("click", () => {
+  if (busy || catalog.entries.length >= 32) return;
+  catalog.entries.push({
+    id: `entry_${crypto.randomUUID()}`,
+    provider: "openai",
+    modelId: "",
+  });
+  renderCatalog();
+  byId("catalog-entries").lastElementChild.querySelector("input").focus();
+});
+
 let savedMemoryEnabled = "false";
 let memoryRead = 0;
 let memoryExpiry = null;
@@ -114,11 +218,20 @@ function fieldValues() {
   // Visibility and disabled state never decide persistence. Empty explicit values
   // reach the validator instead of silently resetting a custom model to default.
   return Object.fromEntries(
-    fields.map((field) => [field.key, byId(field.key).value]),
+    fields.map((field) => [
+      field.key,
+      field.key === "GARMIN_MCP_TOKEN_DIR"
+        ? tokenSelection
+        : byId(field.key).value,
+    ]),
   );
 }
 function retainDraft(values) {
-  for (const field of fields) byId(field.key).value = values[field.key];
+  tokenSelection = values.GARMIN_MCP_TOKEN_DIR ?? "";
+  for (const field of fields)
+    if (field.key !== "GARMIN_MCP_TOKEN_DIR")
+      byId(field.key).value = values[field.key];
+  renderConnection();
   byId("memory-configuration").open = true;
   byId("advanced-settings").open = true;
   renderMemory();
@@ -141,7 +254,7 @@ function renderStep() {
   byId("step-heading").textContent = [
     "Local data",
     "Provider",
-    "Optional Garmin — skip with Next",
+    "Connect Garmin or continue without Garmin",
     "Review",
   ][step];
   byId("data-step").hidden = wizard && step !== 0;
@@ -163,14 +276,30 @@ function renderStep() {
   byId("advanced-settings").hidden = wizard && step !== 3;
   renderMemory();
   byId("review-summary").textContent =
-    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Provider: ${byId("AI_PROVIDER")?.value || "auto"}. Garmin: ${byId("GARMIN_MCP_TOKEN_DIR")?.value ? "selected existing store" : "skipped"}. Memory: ${byId("MEMORY_ENABLED")?.value || "false"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
+    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Chat catalog: ${catalog.entries.length} entries, ${catalog.defaultEntryId ? "explicit default selected" : "no default (choose in chat)"}. Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("MEMORY_ENABLED")?.value || "false"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
+}
+function renderConnection() {
+  const verified = tokenSelection && tokenSelection === successfulDestination;
+  byId("connection-status").textContent = verified
+    ? `Connected — verified during this sign-in only. ${tokenSelection === savedTokenSelection ? "Saved for next explicit launch" : `Pending ${firstRun ? "Finish" : "Save and next explicit launch"}`}; current backend unchanged.`
+    : tokenSelection
+      ? "Configured — not verified. Saved connection preserved; no network probe performed."
+      : "Not connected. Connect now or later; chat and offline history remain available.";
+  byId("connect").textContent = tokenSelection
+    ? "Reconnect Garmin"
+    : "Connect Garmin";
+  byId("connect-later").textContent = firstRun
+    ? tokenSelection
+      ? "Continue with selected connection"
+      : "Continue without Garmin"
+    : "Connect later — keep current selection";
 }
 function setBusy(value) {
   busy = value;
   byId("settings").setAttribute("aria-busy", String(value));
   const committed = firstRun && onboarding?.settingsCommitted;
   for (const element of document.querySelectorAll(
-    "#settings input, #settings select, #settings button, #auth-section button",
+    "#settings input, #settings select, #settings button, #auth-section input, #auth-section button",
   ))
     if (element.id !== "cancel")
       element.disabled = value || (committed && element.id !== "save");
@@ -178,6 +307,8 @@ function setBusy(value) {
     for (const slot of slots)
       byId(slot).disabled =
         committed || byId(`${slot}-intent`).value !== "replace";
+  byId("catalog-add").disabled =
+    value || committed || catalog.entries.length >= 32;
 }
 async function reconcileOnboarding() {
   onboarding = await invoke("read_onboarding");
@@ -200,24 +331,49 @@ function showAuth(value) {
     ["authenticating", "needs-mfa", "submitting-mfa", "verifying"].includes(
       value.state,
     );
-  byId("sign-in").disabled = Boolean(active);
+  byId("sign-in").disabled = busy || Boolean(active);
+  byId("connect").disabled = busy || Boolean(active);
   byId("auth-cancel").disabled = !active;
-  byId("destination").disabled = Boolean(active);
-  byId("auth-parent").disabled = Boolean(active);
+  byId("email").disabled = byId("password").disabled = Boolean(active);
   byId("mfa-form").hidden = value?.state !== "needs-mfa";
-  byId("auth-status").textContent = value
-    ? `Sign-in: ${value.state}${value.code ? ` — ${value.code}` : ""}.`
-    : "Idle. No automatic login attempts.";
+  const failures = {
+    "credentials-rejected":
+      "Reconnect needed: Garmin rejected this sign-in. Check credentials privately before another explicit attempt; saved connection unchanged.",
+    "mfa-rejected":
+      "Garmin rejected the MFA code. No second submission or automatic retry; saved connection unchanged.",
+    "unsupported-challenge":
+      "This account challenge is unsupported or repeated. No bypass or automatic retry.",
+    "auth-unavailable":
+      "Authentication tooling unavailable. Manage uv/Python separately; this does not establish token expiry.",
+    "network-service":
+      "Network or Garmin service unavailable. This does not establish credential expiry; try later explicitly.",
+    "rate-limited":
+      "Garmin rate limit reached. Wait before another explicit attempt; this does not establish credential expiry.",
+    timeout:
+      "Sign-in timed out after its bounded deadline. No automatic retry; saved connection unchanged.",
+    "publication-refused":
+      "Private publication refused or outcome uncertain. Original stores preserved; independently committed new tokens may remain. Reconcile native state before another explicit attempt.",
+    "protocol-refused":
+      "Authentication protocol refused. No automatic retry; saved connection unchanged.",
+  };
+  byId("auth-status").textContent =
+    value?.state === "failed"
+      ? failures[value.code] ||
+        "Authentication unavailable. No automatic retry; saved connection unchanged."
+      : value
+        ? `Sign-in: ${value.state}.`
+        : "Idle. No automatic login attempts.";
   if (!active) {
-    clearInterval(authTimer);
+    clearTimeout(authTimer);
     authTimer = null;
     clearAuthSecrets();
   }
-  byId("use-tokens").hidden = value?.state !== "succeeded";
-  if (value?.state === "succeeded") {
-    successfulDestination = byId("destination").value;
+  byId("use-tokens").hidden =
+    value?.state !== "succeeded" || !value.destination;
+  if (value?.state === "succeeded" && value.destination) {
+    successfulDestination = value.destination;
     byId("auth-status").textContent =
-      "Authenticated tokens independently verified and saved privately. This does not guarantee future validity. Choose Use new store, then Save; applies after quit/reopen.";
+      `Connected — authenticated tokens verified during this sign-in and saved privately, not a guarantee of future validity. Choose Use this verified connection, then ${firstRun ? "Review and Finish" : "Save and explicitly quit/reopen"}. The running account is unchanged.`;
   }
 }
 async function refresh() {
@@ -225,13 +381,21 @@ async function refresh() {
   invalidateMemoryStatus();
   try {
     const saved = await invoke("read_settings");
+    if (!saved.chatCatalog || typeof saved.revision !== "string")
+      throw new Error("Unsupported settings snapshot");
+    catalog = structuredClone(saved.chatCatalog);
+    loadedRevision = saved.revision;
+    renderCatalog();
     onboarding = await invoke("read_onboarding");
     legacyRequired = saved.storage === "legacy-required";
     byId("storage-status").textContent = legacyRequired
       ? "Storage: legacy settings preserved. Explicit adoption or private re-entry required."
       : "Storage: owner-private plaintext file; saved values are never returned.";
     firstRun = Boolean(onboarding?.eligible && !saved.running);
+    savedTokenSelection = tokenSelection =
+      saved.fields.GARMIN_MCP_TOKEN_DIR ?? "";
     for (const field of fields) {
+      if (field.key === "GARMIN_MCP_TOKEN_DIR") continue;
       const input = byId(field.key);
       const value =
         saved.fields[field.key] ?? field.default ?? field.options?.[0] ?? "";
@@ -251,22 +415,31 @@ async function refresh() {
     }
     if (firstRun && !saved.saved) {
       byId("DATABASE_PATH").value = onboarding.database;
-      byId("destination").value = onboarding.tokens;
     }
+    byId("catalog-migration").hidden = ![
+      "catalog-migration-required",
+      "legacy-required",
+    ].includes(saved.storage);
+    byId("extraction-compatibility").textContent =
+      `Extraction and automatic titles retain the independent legacy policy ${byId("AI_PROVIDER").value}; OpenAI ${byId("AI_MODEL").value}, DeepSeek ${byId("DEEPSEEK_MODEL").value}. Catalog edits do not change these inputs or embeddings.`;
     renderStep();
+    renderConnection();
     status.textContent = firstRun
-      ? "First run: choose new or existing data, configure a provider, optionally add Garmin, then Finish and open Trainer. Old env files are never imported."
+      ? "First run: choose new or existing data, configure a provider, connect Garmin now or later, then Finish and open Trainer. Old env files are never imported."
       : saved.saved
         ? "Saved settings loaded; keys are masked. Changes require explicit quit/reopen."
         : "Existing installation recovery: settings are inaccessible or unsupported. Preserve them and reopen with a compatible build; no blank-install overwrite.";
     return true;
   } catch {
+    loadedRevision = null;
     status.textContent =
       "Saved settings are invalid or inaccessible. Check private settings permissions/version; no env fallback or key readback. Original data is unchanged.";
     return false;
   }
 }
 function createField(field) {
+  // Decoder/activation inventory remains compatible; no manual token control.
+  if (field.key === "GARMIN_MCP_TOKEN_DIR") return;
   const label = document.createElement("label");
   label.textContent = field.label;
   const input = document.createElement(field.options ? "select" : "input");
@@ -307,6 +480,10 @@ function createField(field) {
     input.setAttribute("autocorrect", "off");
     input.spellcheck = false;
   }
+  if (field.legacy) {
+    if (!field.options) input.type = "hidden";
+    label.hidden = true;
+  }
   label.append(input);
   if (field.key.startsWith("MEMORY_"))
     input.addEventListener("change", renderMemory);
@@ -330,11 +507,9 @@ function createField(field) {
           ? "external-tools"
           : field.advanced
             ? "advanced"
-            : field.key === "GARMIN_MCP_TOKEN_DIR"
-              ? "garmin-fields"
-              : field.key === "DATABASE_PATH"
-                ? "data-fields"
-                : "normal"),
+            : field.key === "DATABASE_PATH"
+              ? "data-fields"
+              : "normal"),
   );
   parent.append(label);
   if (["path", "directory"].includes(field.type)) {
@@ -387,7 +562,11 @@ async function initialize() {
     status.textContent = event.payload;
   });
   await window.__TAURI__.event.listen("desktop-settings-closed", () => {
+    authEpoch++;
+    authPending = false;
+    successfulDestination = "";
     clearSecrets();
+    byId("auth").hidden = true;
     invalidateMemoryStatus();
     showAuth(null);
   });
@@ -395,7 +574,14 @@ async function initialize() {
   if (message) status.textContent = message;
 }
 async function adoptProviders(readLegacy) {
-  if (busy || !legacyRequired) return;
+  if (
+    busy ||
+    !legacyRequired ||
+    loadedRevision === null ||
+    authPending ||
+    authActive()
+  )
+    return;
   invalidateMemoryStatus();
   setBusy(true);
   const values = fieldValues();
@@ -411,7 +597,12 @@ async function adoptProviders(readLegacy) {
     : "Validating private re-entry; no Keychain access.";
   try {
     const message = await invoke("adopt_provider_settings", {
-      input: { fields: values, keys },
+      input: {
+        fields: values,
+        keys,
+        chatCatalog: catalog,
+        expectedRevision: loadedRevision,
+      },
       readLegacy,
     });
     await refresh();
@@ -440,7 +631,14 @@ byId("adopt-provider").addEventListener("click", () => adoptProviders(true));
 byId("reenter-provider").addEventListener("click", () => adoptProviders(false));
 byId("settings").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (busy || legacyRequired) return;
+  if (
+    busy ||
+    legacyRequired ||
+    loadedRevision === null ||
+    authPending ||
+    authActive()
+  )
+    return;
   if (firstRun && step !== 3) return;
   invalidateMemoryStatus();
   setBusy(true);
@@ -453,7 +651,7 @@ byId("settings").addEventListener("submit", async (event) => {
     const intent = byId(`${slot}-intent`).value;
     const value = byId(slot).value;
     keys[slot] =
-      intent === "replace" && value
+      intent === "replace"
         ? { intent, value }
         : { intent: intent === "clear" ? "clear" : "unchanged" };
     byId(slot).value = "";
@@ -466,9 +664,19 @@ byId("settings").addEventListener("submit", async (event) => {
           ? {
               id: onboarding.id,
               selection: byId("database-selection").value,
-              settings: { fields: values, keys },
+              settings: {
+                fields: values,
+                keys,
+                chatCatalog: catalog,
+                expectedRevision: loadedRevision,
+              },
             }
-          : { fields: values, keys },
+          : {
+              fields: values,
+              keys,
+              chatCatalog: catalog,
+              expectedRevision: loadedRevision,
+            },
       },
     );
     await refresh();
@@ -537,6 +745,8 @@ byId("cancel").addEventListener("click", async () => {
     }
     return;
   }
+  authEpoch++;
+  authPending = false;
   if (session) {
     try {
       showAuth(await invoke("cancel_auth", { id: session.id }));
@@ -544,6 +754,9 @@ byId("cancel").addEventListener("click", async () => {
       /* Already ended; no new attempt. */
     }
   }
+  byId("auth").hidden = true;
+  successfulDestination = "";
+  showAuth(null);
   const reconciled = await refresh();
   if (!reconciled) return;
   unknownOutcome = false;
@@ -553,70 +766,131 @@ byId("cancel").addEventListener("click", async () => {
   status.textContent =
     "Edits cancelled. Saved settings and current backend unchanged; any independently committed database or tokens are retained.";
 });
-byId("auth-parent").addEventListener("click", async () => {
+function authActive() {
+  return [
+    "authenticating",
+    "needs-mfa",
+    "submitting-mfa",
+    "verifying",
+  ].includes(session?.state);
+}
+function currentAuth(epoch, id) {
+  return epoch === authEpoch && session?.id === id;
+}
+async function pollAuth(epoch, id) {
+  if (!currentAuth(epoch, id) || !authActive()) return;
   try {
-    const parent = await invoke("choose_path", { kind: "directory" });
-    if (parent) byId("destination").value = `${parent}/new-garmin-tokens`;
+    const value = await invoke("auth_status");
+    if (!currentAuth(epoch, id) || value?.id !== id) return;
+    showAuth(value);
+    if (authActive()) authTimer = setTimeout(() => pollAuth(epoch, id), 500);
   } catch {
-    byId("auth-status").textContent = "Folder selection unavailable.";
+    if (!currentAuth(epoch, id)) return;
+    byId("auth-status").textContent =
+      "Native auth status unavailable. Cancel this session or quit to stop owned authentication; no automatic retry.";
   }
+}
+byId("connect").addEventListener("click", () => {
+  if (busy || authPending || authActive()) return;
+  byId("auth").hidden = false;
+  byId("email").focus();
+});
+byId("connect-later").addEventListener("click", () => {
+  if (busy || authPending || authActive()) return;
+  clearAuthSecrets();
+  byId("auth").hidden = true;
+  if (firstRun && step === 2) {
+    step = 3;
+    renderStep();
+  }
+  status.textContent =
+    "No new sign-in. Current connection selection and provider draft preserved; chat and offline history remain available.";
 });
 byId("auth").addEventListener("submit", async (event) => {
   event.preventDefault();
-  byId("sign-in").disabled = true;
+  if (busy || authPending || authActive()) return;
+  const epoch = ++authEpoch;
+  authPending = true;
+  byId("sign-in").disabled = byId("connect").disabled = true;
+  byId("use-tokens").hidden = true;
   const input = {
-    destination: byId("destination").value,
     email: byId("email").value,
     password: byId("password").value,
   };
-  byId("email").value = byId("password").value = "";
+  clearAuthSecrets();
   try {
-    if (firstRun && input.destination === onboarding.tokens)
-      await invoke("prepare_onboarding_auth", { id: onboarding.id });
-    showAuth(await invoke("start_auth", input));
-    authTimer = setInterval(async () => {
-      try {
-        showAuth(await invoke("auth_status"));
-      } catch {
-        clearInterval(authTimer);
-        byId("auth-status").textContent =
-          "Native auth status unavailable. Quit to cancel owned authentication; no automatic retry.";
-      }
-    }, 500);
+    const value = await invoke("start_auth", input);
+    if (epoch !== authEpoch) {
+      // Closing/cancelling while start was in flight must not leak an active worker.
+      await invoke("cancel_auth", { id: value.id });
+      return;
+    }
+    authPending = false;
+    showAuth(value);
+    if (authActive())
+      authTimer = setTimeout(() => pollAuth(epoch, value.id), 500);
   } catch {
-    byId("sign-in").disabled = false;
+    if (epoch !== authEpoch) return;
+    // Refusal/interruption can be ambiguous; do not start another login blindly.
     byId("auth-status").textContent =
-      "Sign-in refused. Check uv/Python, private parent folder and unused destination; existing credentials are never replaced. No automatic retry.";
+      "Sign-in could not start or its outcome is unknown. Check uv/Python and app-private storage; quit/reopen to reconcile before another attempt. Existing connections are preserved.";
   } finally {
     input.email = input.password = "";
   }
 });
 byId("mfa-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (session?.state !== "needs-mfa" || busy) return;
+  const { id } = session;
+  const epoch = ++authEpoch;
+  clearTimeout(authTimer);
   const code = byId("mfa").value;
-  byId("mfa").value = "";
+  clearAuthSecrets();
+  session.state = "submitting-mfa";
   byId("mfa-form").hidden = true;
   try {
-    showAuth(await invoke("submit_mfa", { id: session.id, code }));
+    const value = await invoke("submit_mfa", { id, code });
+    if (currentAuth(epoch, id) && value?.id === id) {
+      showAuth(value);
+      if (authActive()) authTimer = setTimeout(() => pollAuth(epoch, id), 500);
+    }
   } catch {
-    byId("auth-status").textContent =
-      "MFA submission refused or session expired. Cancel; start again explicitly only when appropriate.";
+    if (currentAuth(epoch, id))
+      byId("auth-status").textContent =
+        "MFA submission refused or outcome unknown. Cancel or quit; do not submit again.";
   }
 });
 byId("auth-cancel").addEventListener("click", async () => {
+  if (!session || !authActive()) return;
+  const { id } = session;
+  const epoch = ++authEpoch;
+  clearTimeout(authTimer);
   clearAuthSecrets();
   try {
-    showAuth(await invoke("cancel_auth", { id: session.id }));
+    const value = await invoke("cancel_auth", { id });
+    if (currentAuth(epoch, id) && value?.id === id) showAuth(value);
   } catch {
-    byId("auth-status").textContent =
-      "Cancellation unavailable. Quit to stop owned authentication.";
+    if (currentAuth(epoch, id))
+      byId("auth-status").textContent =
+        "Cancellation unavailable. Quit to stop owned authentication; do not retry login.";
   }
 });
 byId("use-tokens").addEventListener("click", () => {
-  byId("GARMIN_MCP_TOKEN_DIR").value = successfulDestination;
+  if (
+    busy ||
+    authPending ||
+    session?.state !== "succeeded" ||
+    !successfulDestination ||
+    session.destination !== successfulDestination
+  )
+    return;
+  tokenSelection = successfulDestination;
+  renderConnection();
+  renderStep();
+  byId("auth").hidden = true;
   status.textContent = firstRun
-    ? "New tokens are committed independently. Store selected; continue to Review and Finish. Cancellation never deletes these tokens."
-    : "New token store selected in this form only. Save settings, then explicitly quit/reopen to use it.";
+    ? "Verified connection selected in draft. Tokens committed independently; continue to Review and Finish. Cancellation never deletes them."
+    : "Verified connection selected in draft only. Save, then explicitly quit/reopen; running account unchanged.";
 });
 initialize().catch(() => {
   status.textContent =

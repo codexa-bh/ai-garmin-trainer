@@ -38,7 +38,11 @@ export function isLoopbackAiBaseUrl(rawUrl: string): boolean {
     const parsed = new URL(rawUrl);
     return (
       ["http:", "https:"].includes(parsed.protocol) &&
-      ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)
+      ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname) &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.search &&
+      !parsed.hash
     );
   } catch {
     return false;

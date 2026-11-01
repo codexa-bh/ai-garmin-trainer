@@ -16,9 +16,20 @@ import { stubNativeDialog } from "./native-dialog-stub";
 import type { ModelSettingsSnapshot } from "@/lib/model-settings/contracts";
 
 const model: ModelSettingsSnapshot = {
-  options: [{ id: "gpt-6-luna", label: "GPT-6 Luna" }],
+  version: 2,
+  options: [
+    {
+      id: "entry_openai",
+      label: "openai / gpt-6-luna",
+      provider: "openai",
+      modelId: "gpt-6-luna",
+      available: true,
+    },
+  ],
   selected: null,
+  defaultEntryId: "entry_openai",
   effective: {
+    entryId: "entry_openai",
     source: "env",
     provider: "openai",
     modelName: "gpt-6-luna",
@@ -158,13 +169,13 @@ it("keeps model saves alive while chat is hidden, then revalidates its authorita
   });
   await screen.findByText(/Configured default \(environment\)/);
   fireEvent.change(screen.getByRole("combobox", { name: "Trainer model" }), {
-    target: { value: "gpt-6-luna" },
+    target: { value: "entry_openai" },
   });
   await screen.findByText("Saving model setting…");
   fireEvent.click(screen.getByRole("button", { name: "Sync" }));
   saved = {
     ...model,
-    selected: "gpt-6-luna",
+    selected: "entry_openai",
     effective: { ...model.effective, source: "saved" },
   };
   await act(async () => finish(response(saved)));
@@ -176,14 +187,14 @@ it("keeps model saves alive while chat is hidden, then revalidates its authorita
     ),
   );
   expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe(
-    "gpt-6-luna",
+    "entry_openai",
   );
   expect(
     fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH"),
   ).toHaveLength(1);
   expect(
     fetcher.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1]?.body,
-  ).toBe('{"modelId":"gpt-6-luna"}');
+  ).toBe('{"modelId":"entry_openai"}');
 });
 
 it("keeps maintenance requests, blank rejection, failures and late feedback in Sync across navigation", async () => {

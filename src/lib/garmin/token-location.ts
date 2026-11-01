@@ -22,7 +22,7 @@ export function resolveTokenLocation(
 ): TokenLocation {
   if (!value?.trim())
     throw new Error(
-      "Set GARMIN_MCP_TOKEN_DIR in .env.local; no default token location is used.",
+      "Garmin is not connected. Open native Settings → Connect Garmin; chat and offline history remain available.",
     );
   if (
     value !== value.trim() ||
@@ -51,7 +51,7 @@ export function inspectTokenLocation(value: string | undefined): TokenPresence {
       ok: false,
       className: "garmin.auth_config_invalid",
       detail:
-        "Set a literal GARMIN_MCP_TOKEN_DIR in .env.local; no alternate location is searched.",
+        "Open native Settings → Connect Garmin; no alternate connection is searched.",
     };
   }
   let stage = "directory";
@@ -78,7 +78,7 @@ export function inspectTokenLocation(value: string | undefined): TokenPresence {
         ok: false,
         className: "garmin.auth_file_empty",
         detail:
-          "Expected Garmin token file is empty; repair the selected store before live verification.",
+          "Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login.",
       };
     accessSync(location.tokenFile, constants.R_OK);
     return {
@@ -96,7 +96,7 @@ export function inspectTokenLocation(value: string | undefined): TokenPresence {
         ? `garmin.auth_${stage}_missing`
         : "garmin.auth_state_inaccessible",
       detail: missing
-        ? "Configured Garmin token directory or expected file is missing; repair this location, then perform a separate live verification."
+        ? "Configured Garmin connection is missing. Open native Settings → Reconnect Garmin, Save and explicitly quit/reopen."
         : "Configured Garmin auth state is inaccessible; check file types and private permissions. No token contents were read.",
     };
   }
