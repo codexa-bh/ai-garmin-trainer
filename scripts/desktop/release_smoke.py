@@ -18,7 +18,8 @@ from native_smoke import REPO, Observer, Run, canonical, fingerprint, listening,
 # Ordinary binaries now contain supported opt-in control, not legacy debug admission.
 # These precise legacy admission/probe/grant markers must remain excluded.
 MARKERS = [b'Smoke must use its exact private config/HOME/temp', b'com.codexa.garmin-trainer.smoke.r',
-           b'isolated-debug-result', b'allow-smoke-result', b'trainer-release-probe']
+           b'isolated-debug-result', b'allow-smoke-result', b'trainer-release-probe',
+           b'Local key deadline: effect unknown', b'Disclosure focus refused; no key dispatched']
 # Optimizers may encode CLI comparisons as instructions rather than contiguous strings.
 # Require the versioned identity contract actually serialized by the live endpoint instead.
 REQUIRED = [b'trainer-ordinary-isolated/v1', b'allow-isolated-result', b'__trainerOrdinaryIsolated',

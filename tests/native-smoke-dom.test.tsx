@@ -52,7 +52,65 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+function DebugFixture() {
+  return (
+    <aside className="settings-sheet">
+      <details className="settings-card llm-debug-card">
+        <summary>
+          LLM debug traces <span>2 assistant turns</span>
+        </summary>
+        <p>
+          Local developer diagnostics are enabled by application policy. Traces
+          may include private normalized Garmin/chat/tool context; keep them
+          local and out of screenshots or support artifacts.
+        </p>
+        <div className="debug-trace-list">
+          <details className="debug-trace-item">
+            <summary>
+              {new Date(1000).toLocaleString()} — T0243 synthetic trace
+            </summary>
+            <pre>
+              {JSON.stringify(
+                {
+                  schemaVersion: 1,
+                  finalAnswer: "T0243 synthetic diagnostic only",
+                },
+                null,
+                2,
+              )}
+            </pre>
+          </details>
+          <details className="debug-trace-item">
+            <summary>
+              {new Date(0).toLocaleString()} — T0243 synthetic missing trace
+            </summary>
+            <p>No debug trace captured for this assistant message.</p>
+          </details>
+        </div>
+      </details>
+    </aside>
+  );
+}
+
 describe("native-installed rendered smoke boundary", () => {
+  it("ordinary mode rejects debug disclosure actions and observations", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    render(<DebugFixture />);
+    expect(
+      (await command({ type: "observe" })).result.llmDebug,
+    ).toBeUndefined();
+    for (const request of [
+      { type: "click", target: "LLM debug traces" },
+      { type: "click", target: "First LLM trace" },
+      { type: "debugKey", key: "Enter" },
+      { type: "captureDebug" },
+    ])
+      expect((await command(request)).result.ok).toBe(false);
+    expect((document.querySelector("details") as HTMLDetailsElement).open).toBe(
+      false,
+    );
+    expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+  });
   it("denies ordinary viewport/capture controls in legacy mode or wrong view/preset", async () => {
     expect(
       (await command({ type: "setViewport", preset: "wide" })).result.ok,
@@ -207,6 +265,84 @@ describe("native-installed rendered smoke boundary", () => {
       await vi.advanceTimersByTimeAsync(10000);
     });
     expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+  });
+  it("observes native hidden ancestors correctly and refuses hidden inner-summary activation", async () => {
+    render(<DebugFixture />);
+    let result = (await command({ type: "observe" })).result;
+    expect(result.llmDebug).toMatchObject({
+      open: false,
+      warningVisible: false,
+      innerOpen: [false, false],
+      previewsVisible: [false, false],
+      bodiesVisible: [false, false],
+    });
+    expect(
+      (await command({ type: "click", target: "First LLM trace" })).result.ok,
+    ).toBe(false);
+    expect(
+      (await command({ type: "click", target: "LLM debug traces" })).result.ok,
+    ).toBe(true);
+    expect(
+      (await command({ type: "click", target: "First LLM trace" })).result.ok,
+    ).toBe(true);
+    result = (await command({ type: "observe" })).result;
+    expect(result.llmDebug).toMatchObject({
+      open: true,
+      warningVisible: true,
+      innerOpen: [true, false],
+      previewsVisible: [true, true],
+      bodiesVisible: [true, false],
+    });
+    await command({ type: "click", target: "LLM debug traces" });
+    result = (await command({ type: "observe" })).result;
+    expect(result.llmDebug).toMatchObject({
+      open: false,
+      innerOpen: [true, false],
+      previewsVisible: [false, false],
+      bodiesVisible: [false, false],
+    });
+    expect(JSON.stringify(result)).not.toContain("synthetic diagnostic");
+    expect(JSON.stringify(result)).not.toContain("synthetic trace");
+  });
+
+  it("permits only fixed synthetic debug capture, restores styling and refuses any private or additional content", async () => {
+    render(<DebugFixture />);
+    const before = document.querySelector(".llm-debug-card")!.textContent;
+    expect((await command({ type: "captureDebug" })).result.ok).toBe(true);
+    expect(document.getElementById("trainer-smoke-sanitizer")).not.toBeNull();
+    smoke.__trainerSmokeRestore();
+    expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+    expect(document.querySelector(".llm-debug-card")!.textContent).toBe(before);
+    const pre = document.querySelector("pre")!;
+    pre.textContent = "private diagnostic";
+    expect((await command({ type: "captureDebug" })).result.ok).toBe(false);
+    expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+    pre.textContent = JSON.stringify(
+      { schemaVersion: 1, finalAnswer: "T0243 synthetic diagnostic only" },
+      null,
+      2,
+    );
+    const extra = document.createElement("p");
+    extra.textContent = "private extra node";
+    document.querySelector(".llm-debug-card")!.append(extra);
+    expect((await command({ type: "captureDebug" })).result.ok).toBe(false);
+  });
+
+  it("prepares only the fixed disclosure summary for native-local Enter/Space without synthetic key activation", async () => {
+    render(<DebugFixture />);
+    expect((await command({ type: "debugKey", key: "Enter" })).result).toEqual({
+      ok: true,
+      readyForNativeKey: true,
+    });
+    expect(document.activeElement).toBe(
+      document.querySelector(".llm-debug-card > summary"),
+    );
+    expect((document.querySelector("details") as HTMLDetailsElement).open).toBe(
+      false,
+    );
+    for (const key of ["Tab", "Escape", "a", "Meta+Q"]) {
+      expect((await command({ type: "debugKey", key })).result.ok).toBe(false);
+    }
   });
   it("refuses mutation against server HTML before React hydration", async () => {
     document

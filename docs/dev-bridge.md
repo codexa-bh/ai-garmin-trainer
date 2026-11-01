@@ -1,6 +1,6 @@
 # Isolated programmatic native smoke
 
-Routine smoke uses the **real macOS ARM64 Tauri/WebView** through explicit native admission. Prefer the ordinary-artifact isolated scenario below when ordinary artifact/layout evidence is required; the existing debug and CI quick commands retain their narrower contracts. No browser launcher, Vite/HMR, fake backend, OS mouse/keyboard events, Accessibility, Apple Events, Screen Recording, app activation or focus restoration is used. Ordinary product setup/singleton behavior remains independent. Private provider-file settings and explicit legacy adoption/re-entry are outside this closed bridge.
+Routine smoke uses the **real macOS ARM64 Tauri/WebView** through explicit native admission. Prefer the ordinary-artifact isolated scenario below when ordinary artifact/layout evidence is required; debug and default CI quick retain their narrower contracts. No browser launcher, Vite/HMR, fake backend, global OS mouse/keyboard events, Accessibility, Apple Events, Screen Recording, activation or focus restoration is used. Only the separately opt-in debug disclosure scenario forwards fixed Enter/Space NSEvents directly to its owned non-key WebView, never the OS queue; ordinary mode rejects those controls. Ordinary product setup/singleton behavior remains independent. Private settings/auth and legacy adoption remain outside this closed bridge.
 
 ## Ordinary-artifact isolated scenario
 
@@ -70,15 +70,46 @@ two populated private copies, navigation and capture; this command does not narr
 The explicit `--resources-ready` option verifies same-source resource inventory for
 [one-build full nightly reproduction](validation.md#change-gated-native-nightly).
 
+### Opt-in synthetic LLM disclosure evidence
+
+`npm run smoke:quick -- --scratch <canonical-owner-private-task-scratch> --llm-debug`
+extends the existing seed with exactly two saved synthetic assistant turns (one
+trace and one missing-trace fallback). Default quick/nightly remains Profile-only;
+this opt-in adds no private database selection or recurring CI workload. The normal
+resource-ready option retains its exact-source/inventory checks.
+
+The scenario observes native closed/open/inner-open/outer-close/remount states,
+actual descendant visibility, native list-item marker, focus and focus-visible.
+Fixed Enter/Space events are sent directly to the owned non-key WKWebView after
+focusing only its outer debug summary. A trusted DOM key receipt and resulting
+state plus continued nonactivation are checked; these are **native-generated local
+events, not hardware input**, and never certify OS dialogs or global keyboard routing.
+An intentionally non-key WebView has `document.hasFocus() === false` and suppresses
+`:focus`/`:focus-visible` even with its summary as `activeElement`. The receipt
+records `activeWindowFocusCertified: false`; actual active-window focus-ring evidence
+remains separate. Never activate the app or fabricate a focus style to obtain it. No activation or global
+posting occurs; a key/frontmost instance refuses rather than taking over.
+
+Four actual WKWebView PNGs show default-closed, outer-open/inner-closed, independent
+inner-open and Profile-reopened states. The sanitizer exposes only the debug card,
+repositioned on an opaque background; it is subtree evidence, not normal full-window
+layout fidelity. Before capture it verifies the complete fixed synthetic content
+and structure, refusing private/unexpected previews, JSON or nodes. Observations
+return only booleans/expanded-state arrays, never trace text. Inspect each image;
+`debug-disclosure.json`/quick receipt retain source/state/capture/keyboard provenance.
+Seed/copy/Goals/trace data expire with task scratch and are never copied back.
+Ordinary-artifact launch, private data/integrations and hardware-input evidence
+remain independent; this path grants no settings, secret or general eval controls.
+
 ## Narrow protocol and result semantics
 
 `src-tauri/src/dev_bridge.rs` shares closed transport/result validation for the independently admitted debug and supported ordinary modes; `isolated_run.rs` owns ordinary admission. Legacy `smoke_config.rs` and its HOME/keyless policy remain debug/probe-only. Native-installed `src-tauri/debug/smoke.js` stays outside packaged UI resources. The ordinary binary contains the supported controller, but default launches never install it, manage bridge state or grant a result callback. An enabling environment alone cannot activate ordinary control.
 
 - `GET /identity`: authenticated schema/run/source/native PID/app/copy/origin plus fixed renderer-diagnostic booleans. Does not imply readiness.
 - `POST /command`: `{requestId,expectedRunId,command}`. UUID request/run identities, exact `Host: 127.0.0.1:<port>`, bearer capability and `X-Smoke-Run` are mandatory. Ordinary requests also require exact `expectedBoot`; result callbacks bind that same native boot. Capability stays in private config/client memory/header, never argv/URL/logs/receipts. Every browser Origin/Sec-Fetch-Site is refused; no CORS grant.
-- Closed commands: `observe`; `click` for exact main navigation/back/Profile-&-data-close/Profile-save/reload names; `input`/`assert` for **Goals synthetic sentinel only**; `capture` with no arbitrary selector/path. Missing, hidden, disabled, readonly, ambiguous, private or prehydration targets refuse before dispatch. No credential/login/setup form, general select/scroll, eval/invoke, state injection, HTTP proxy, filesystem/process or shutdown command.
-- Observations return allowlisted view/navigation/headings and readiness/saved booleans, never copied values, chat/transcript/diagnostic text or private credentials. Assertions return match booleans. Rendered actions are synthetic events, not trusted native input.
-- Only the exact admitted trainer origin/window receives its result-only permission (`allow-isolated-result` for ordinary; legacy debug permission remains debug-only). No remote settings/auth grant is added. Callback validates run/boot/window/origin, bound and exact pending request; native validates closed result keys, allowlisted enums/booleans and command correspondence, never arbitrary renderer JSON/text. Ordinary Goals must equal this run's sentinel. Fixed `setViewport`/`captureView` enums are ordinary-only, not generic selectors/geometry/paths; legacy `capture` remains debug-only.
+- Shared closed actions: `observe`; exact main navigation/back/Profile-close/save/reload clicks; **synthetic Goals only** input/assert. Ordinary adds only fixed `setViewport`/`captureView` presets. Debug alone retains Profile `capture`, synthetic `captureDebug`, outer **LLM debug traces**/**First LLM trace** summary clicks and fixed **Enter**/**Space** `debugKey`. Native input module/variants are compiled out of ordinary release; ordinary native and renderer guards reject those debug actions. No arbitrary selector/path/key, credential/login/setup, general scroll/select/eval/invoke, state injection, HTTP/filesystem/process proxy or shutdown command. Hidden/disabled/ambiguous/private/prehydration targets refuse before dispatch.
+- Ordinary observations retain only fixed view/navigation/headings/readiness/saved booleans. Debug alone may add closed metadata-only disclosure booleans and three same-length boolean arrays (at most128 entries); unknown keys, text, inconsistent shapes and bounds refuse natively. No copied values/transcripts/trace text/private credentials leave the renderer. Clicks/Goals are synthetic DOM events. Opt-in debug keys are native-generated WebView-local events, never hardware/global input; ordinary never uses them.
+- Only the exact admitted trainer origin/window receives its result-only permission (`allow-isolated-result` for ordinary; legacy debug permission remains debug-only). No remote settings/auth grant is added. Callback validates run/boot/window/origin, bound and exact pending request; native validates closed result keys, allowlisted enums/booleans and command correspondence, never arbitrary renderer JSON/text. Ordinary Goals must equal this run's sentinel. Capture selectors/geometry/paths are never caller supplied; debug subtree captures do not certify ordinary layout.
 - One request at a time; 16 KiB total request; two-second total read deadline; no duplicate/chunked framing; 4096 unique request IDs/run; five-second renderer deadline; 16 KiB callback result; four-second/4 MiB PNG bound. Unknown fields/commands refuse. Late/duplicate/unknown results cannot complete newer requests. Complete PNG framing and dimensions are checked; native publishes an exclusive 0600 temporary atomically without replacing an existing capture, confined to the run's `screenshots/`.
 - Correlated `{requestId,result:{ok:true,...}}` means actual renderer completion. Failed assertions/actions return HTTP 409, malformed commands 400, access/framing denial 403, deadline 504. **Timeout means effect unknown, not rollback.** The client exits nonzero and never blindly retries mutation. Only bounded read-only readiness/observation may poll. Inspect retained state before any fresh explicit action.
 

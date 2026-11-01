@@ -195,10 +195,16 @@ def security(run, other):
         {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedBoot': str(uuid.uuid4())},
         run.request({'type': 'click', 'target': 'Garmin sign-in'}, str(uuid.uuid4())),
         run.request({'type': 'captureView', 'view': 'setup', 'preset': 'wide'}, str(uuid.uuid4())),
+        run.request({'type': 'debugKey', 'key': 'Enter'}, str(uuid.uuid4())),
+        run.request({'type': 'captureDebug'}, str(uuid.uuid4())),
+        run.request({'type': 'click', 'target': 'LLM debug traces'}, str(uuid.uuid4())),
+        run.request({'type': 'click', 'target': 'First LLM trace'}, str(uuid.uuid4())),
     ]:
         run.http('/command', request, expected=400)
     request = run.request({'type': 'observe'}, str(uuid.uuid4()))
-    run.http('/command', request)
+    observation = run.http('/command', request)
+    if 'llmDebug' in observation.get('result', {}):
+        raise ValueError('Ordinary mode exposed debug disclosure observations')
     run.http('/command', request, expected=409)
     private_json(run.root / 'security.json', {'browserCrossRunPrivateControlAndStaleBootDenied': True, 'duplicatesDenied': True})
 

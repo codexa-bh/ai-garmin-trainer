@@ -12,6 +12,9 @@ use std::{
 use tauri::Manager;
 #[path = "dev_capture.rs"]
 mod capture;
+#[cfg(debug_assertions)]
+#[path = "dev_input.rs"]
+mod input;
 const LIMIT: usize = 16 * 1024;
 #[derive(Clone)]
 pub struct Config {
@@ -35,6 +38,13 @@ impl Config {
     fn permits(&self, command: &Command) -> bool {
         match command {
             Command::Capture {} => self.ordinary.is_none(),
+            #[cfg(debug_assertions)]
+            Command::CaptureDebug {} | Command::DebugKey { .. } => self.ordinary.is_none(),
+            Command::Click { target }
+                if ["LLM debug traces", "First LLM trace"].contains(&target.as_str()) =>
+            {
+                self.ordinary.is_none()
+            }
             Command::SetViewport { .. } | Command::CaptureView { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
                 if self.ordinary.is_some() =>
@@ -62,14 +72,52 @@ impl From<crate::smoke_config::Config> for Config {
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Command {
     Observe {},
-    Click { target: String },
-    Input { target: String, value: String },
-    Assert { target: String, value: String },
+    Click {
+        target: String,
+    },
+    Input {
+        target: String,
+        value: String,
+    },
+    Assert {
+        target: String,
+        value: String,
+    },
     Capture {},
-    SetViewport { preset: String },
-    CaptureView { view: String, preset: String },
+    SetViewport {
+        preset: String,
+    },
+    CaptureView {
+        view: String,
+        preset: String,
+    },
+    #[cfg(debug_assertions)]
+    CaptureDebug {},
+    #[cfg(debug_assertions)]
+    DebugKey {
+        key: String,
+    },
 }
 impl Command {
+    fn is_capture(&self) -> bool {
+        match self {
+            Self::Capture {} | Self::CaptureView { .. } => true,
+            #[cfg(debug_assertions)]
+            Self::CaptureDebug {} => true,
+            _ => false,
+        }
+    }
+    fn boundary(&self, ordinary: bool) -> &'static str {
+        #[cfg(debug_assertions)]
+        if matches!(self, Self::CaptureDebug {}) {
+            return "sanitized actual synthetic LLM disclosure subtree";
+        }
+        if ordinary {
+            "geometry-preserving redacted own-WebView"
+        } else {
+            "sanitized actual Profile Goals subtree"
+        }
+    }
     fn valid(&self) -> bool {
         match self {
             Self::Observe {} | Self::Capture {} => true,
@@ -78,18 +126,26 @@ impl Command {
                 ["trainer", "sync", "profile"].contains(&view.as_str())
                     && ["wide", "narrow"].contains(&preset.as_str())
             }
-            Self::Click { target } => [
-                "Activities",
-                "Health",
-                "Training Plan",
-                "Sync",
-                "Profile & data",
-                "Back to chat",
-                "Close Profile & data",
-                "Save Profile",
-                "Reload saved Profile",
-            ]
-            .contains(&target.as_str()),
+            #[cfg(debug_assertions)]
+            Self::CaptureDebug {} => true,
+            #[cfg(debug_assertions)]
+            Self::DebugKey { key } => ["Enter", "Space"].contains(&key.as_str()),
+            Self::Click { target } => {
+                [
+                    "Activities",
+                    "Health",
+                    "Training Plan",
+                    "Sync",
+                    "Profile & data",
+                    "Back to chat",
+                    "Close Profile & data",
+                    "Save Profile",
+                    "Reload saved Profile",
+                ]
+                .contains(&target.as_str())
+                    || (cfg!(debug_assertions)
+                        && ["LLM debug traces", "First LLM trace"].contains(&target.as_str()))
+            }
             Self::Input { target, value } | Self::Assert { target, value } => {
                 target == "Goals"
                     && value.starts_with("T0231-smoke-")
@@ -384,7 +440,39 @@ fn exact_keys(value: &Value, keys: &[&str]) -> bool {
         .map(|o| o.len() == keys.len() && keys.iter().all(|key| o.contains_key(*key)))
         .unwrap_or(false)
 }
-fn safe_result(command: &Command, value: &Value) -> bool {
+fn safe_debug_observation(value: &Value) -> bool {
+    if value["available"] == false {
+        return exact_keys(value, &["available"]);
+    }
+    let booleans = [
+        "available",
+        "open",
+        "summaryVisible",
+        "nativeMarker",
+        "focused",
+        "focusVisible",
+        "focusMatches",
+        "documentFocused",
+        "nativeKeyReceived",
+        "warningVisible",
+    ];
+    let arrays = ["innerOpen", "previewsVisible", "bodiesVisible"];
+    let mut keys = booleans.to_vec();
+    keys.extend(arrays);
+    exact_keys(value, &keys)
+        && value["available"] == true
+        && booleans.iter().all(|key| value[*key].is_boolean())
+        && arrays.iter().all(|key| {
+            value[*key]
+                .as_array()
+                .map(|items| items.len() <= 128 && items.iter().all(Value::is_boolean))
+                .unwrap_or(false)
+        })
+        && arrays.iter().all(|key| {
+            value[*key].as_array().map(Vec::len) == value["innerOpen"].as_array().map(Vec::len)
+        })
+}
+fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
     if value["ok"] == false {
         return (exact_keys(value, &["ok", "error"])
             && value["error"] == "Rendered command refused or failed")
@@ -407,21 +495,26 @@ fn safe_result(command: &Command, value: &Value) -> bool {
                     })
                     .unwrap_or(false)
             };
-            exact_keys(
-                value,
-                &[
-                    "ok",
-                    "dashboard",
-                    "hydrated",
-                    "navigation",
-                    "headings",
-                    "profileReady",
-                    "profileSaved",
-                    "view",
-                ],
-            ) && ["dashboard", "hydrated", "profileReady", "profileSaved"]
-                .iter()
-                .all(|k| value[*k].is_boolean())
+            let mut keys = vec![
+                "ok",
+                "dashboard",
+                "hydrated",
+                "navigation",
+                "headings",
+                "profileReady",
+                "profileSaved",
+                "view",
+            ];
+            if let Some(debug) = value.get("llmDebug") {
+                if ordinary || !safe_debug_observation(debug) {
+                    return false;
+                }
+                keys.push("llmDebug");
+            }
+            exact_keys(value, &keys)
+                && ["dashboard", "hydrated", "profileReady", "profileSaved"]
+                    .iter()
+                    .all(|k| value[*k].is_boolean())
                 && strings(
                     "navigation",
                     &[
@@ -476,6 +569,18 @@ fn safe_result(command: &Command, value: &Value) -> bool {
         Command::Capture {} => {
             exact_keys(value, &["ok", "boundary"])
                 && value["boundary"] == "sanitized actual Profile Goals subtree"
+        }
+        #[cfg(debug_assertions)]
+        Command::CaptureDebug {} => {
+            !ordinary
+                && exact_keys(value, &["ok", "boundary"])
+                && value["boundary"] == "sanitized actual synthetic LLM disclosure subtree"
+        }
+        #[cfg(debug_assertions)]
+        Command::DebugKey { .. } => {
+            !ordinary
+                && exact_keys(value, &["ok", "readyForNativeKey"])
+                && value["readyForNativeKey"] == true
         }
         Command::SetViewport { preset } => {
             exact_keys(value, &["ok", "preset"]) && value["preset"].as_str() == Some(preset)
@@ -550,12 +655,9 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
             .map_err(|_| "Renderer deadline: effect unknown; inspect before further mutation")
     };
     state.pending.lock().unwrap().take();
-    let capturing = matches!(
-        request.command,
-        Command::Capture {} | Command::CaptureView { .. }
-    );
+    let capturing = request.command.is_capture();
     let result = result.and_then(|value| {
-        if safe_result(&request.command, &value) {
+        if safe_result(&request.command, &value, state.config.ordinary.is_some()) {
             Ok(value)
         } else {
             Err("Closed renderer result schema refused")
@@ -567,7 +669,19 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
             json!({"requestId":request.request_id,"result":{"ok":false,"error":error}}),
         ),
         Ok(mut result) => {
+            #[cfg(debug_assertions)]
+            if let Command::DebugKey { key } = &request.command {
+                result = if result["ok"] == true && result["readyForNativeKey"] == true {
+                    match input::disclosure_key(&window, key) {
+                        Ok(()) => json!({"ok":true,"nativeLocalEvent":true,"hardwareInput":false}),
+                        Err(error) => json!({"ok":false,"error":error}),
+                    }
+                } else {
+                    json!({"ok":false,"error":"Disclosure focus refused; no key dispatched"})
+                };
+            }
             if result["ok"] == true && capturing {
+                let boundary = request.command.boundary(state.config.ordinary.is_some());
                 result = match capture::png(&window).and_then(|bytes| {
                     capture::publish(
                         &state.config.root.join("screenshots"),
@@ -576,7 +690,7 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
                     )
                 }) {
                     Ok(path) => {
-                        json!({"ok":true,"capture":path,"boundary":if state.config.ordinary.is_some(){"geometry-preserving redacted own-WebView"}else{"sanitized actual Profile Goals subtree"}})
+                        json!({"ok":true,"capture":path,"boundary":boundary})
                     }
                     Err(error) => json!({"ok":false,"error":error}),
                 };
@@ -596,6 +710,9 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn safe_result(command: &Command, value: &Value) -> bool {
+        super::safe_result(command, value, false)
+    }
     #[test]
     fn closed_commands_reject_privileges_and_private_targets() {
         for value in [
@@ -621,17 +738,71 @@ mod tests {
             }
             .valid())
         }
-        for target in ["Profile & data", "Close Profile & data"] {
+        for target in [
+            "Profile & data",
+            "Close Profile & data",
+            "LLM debug traces",
+            "First LLM trace",
+        ] {
             assert!(Command::Click {
                 target: target.into()
             }
             .valid());
+        }
+        for key in ["Enter", "Space"] {
+            assert!(Command::DebugKey { key: key.into() }.valid());
+        }
+        for key in ["Tab", "Escape", "a", "Meta+Q"] {
+            assert!(!Command::DebugKey { key: key.into() }.valid());
+        }
+        for value in [
+            json!({"type":"debugKey","key":"Enter","target":"Password"}),
+            json!({"type":"captureDebug","selector":"body"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
         }
         assert!(!Command::Input {
             target: "Goals".into(),
             value: "private text".into()
         }
         .valid());
+    }
+    #[test]
+    fn debug_observations_are_closed_bounded_and_unavailable_to_ordinary() {
+        assert!(safe_debug_observation(&json!({"available":false})));
+        assert!(!safe_debug_observation(
+            &json!({"available":false,"private":"copied text"})
+        ));
+        let mut observation = json!({"ok":true,"dashboard":true,"hydrated":true,"navigation":[],"headings":[],"profileReady":false,"profileSaved":false,"view":"Trainer","llmDebug":{"available":false}});
+        assert!(super::safe_result(
+            &Command::Observe {},
+            &observation,
+            false
+        ));
+        assert!(!super::safe_result(
+            &Command::Observe {},
+            &observation,
+            true
+        ));
+        observation["llmDebug"] = json!({"available":true,"open":false,"summaryVisible":true,"nativeMarker":true,"focused":false,"focusVisible":false,"focusMatches":false,"documentFocused":false,"nativeKeyReceived":false,"warningVisible":false,"innerOpen":[false,false],"previewsVisible":[false,false],"bodiesVisible":[false,false]});
+        assert!(super::safe_result(
+            &Command::Observe {},
+            &observation,
+            false
+        ));
+        observation["llmDebug"]["innerOpen"] = json!(["private text"]);
+        assert!(!super::safe_result(
+            &Command::Observe {},
+            &observation,
+            false
+        ));
+        assert!(!super::safe_result(
+            &Command::DebugKey {
+                key: "Enter".into()
+            },
+            &json!({"ok":true,"readyForNativeKey":true}),
+            true
+        ));
     }
     #[test]
     fn viewport_preserves_exact_client_size_and_bounds_native_insets() {
