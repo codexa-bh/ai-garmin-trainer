@@ -118,7 +118,7 @@ Start with [architecture](docs/architecture.md), then read only the detailed doc
 - [Memory](docs/memory.md) — Profile, semantic memory, extraction, embeddings, and deletion controls.
 - [Validation](docs/validation.md) and [developer process](docs/developer-process.md) — local smoke, same-task data back-sync, and task-created data cleanup.
 - [Local macOS desktop runtime](docs/desktop.md) — bundled resources, native lifecycle, private file settings/adoption, private sign-in, external integrations and rollback.
-- [Programmatic native smoke](docs/dev-bridge.md) — explicit isolated ordinary-artifact navigation/Profile/save/restart and geometry-preserving redacted capture without normal settings/singleton contact; separate debug/CI-quick, finite Health and keyless native Settings scenarios, owned shutdown and separately labeled legacy release-denial evidence.
+- [Programmatic native smoke](docs/dev-bridge.md) — explicit isolated ordinary-artifact navigation/Profile/save/restart and geometry-preserving redacted capture without normal settings/singleton contact; separate debug/CI-quick, finite Health and keyless native Settings scenarios, owned shutdown and separately labeled legacy release-denial evidence. Its [task-needed extension policy](docs/dev-bridge.md#task-needed-bridge-and-runner-extensions) makes bounded safe bridge/runner evolution expected, not a permanent capability ceiling.
 - [Source readiness and data lifecycle](docs/source-beta-readiness.md) — supported boundary, backup/restore, diagnostics, and dependency evidence.
 
 Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/style.css`, `src/app/api/`, `src/lib/ai/`, `src/lib/garmin/`, and `src/lib/memory/`.
