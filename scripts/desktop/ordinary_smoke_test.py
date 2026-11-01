@@ -156,6 +156,54 @@ class OrdinaryContracts(unittest.TestCase):
                 self.assertEqual(preset, command['preset'])
         self.assertEqual(captures, [(view, preset) for view in ['trainer', 'sync', 'profile'] for preset in ['wide', 'narrow']])
 
+    def test_opt_in_composer_config_is_fixed_keyless_private_and_preserves_source(self):
+        original = self.source.read_bytes()
+        run = self.run_fixture()
+        prior = (run.root / 'config/settings-v2.json').read_bytes()
+        run.prepare_composer()
+        configured = run.root / 'config/settings-v3.json'
+        value = json.loads(configured.read_text())
+        self.assertEqual(value['version'], 3)
+        self.assertEqual(value['keys'], {})
+        self.assertEqual(value['fields']['DATABASE_PATH'], str(run.database))
+        self.assertEqual(value['chatCatalog']['defaultEntryId'], 'entry_footer_other')
+        self.assertEqual([entry['id'] for entry in value['chatCatalog']['entries']], ['entry_footer_long', 'entry_footer_other'])
+        self.assertTrue(all(entry['provider'] == 'ollama' for entry in value['chatCatalog']['entries']))
+        self.assertEqual(configured.stat().st_mode & 0o777, 0o600)
+        self.assertEqual((run.root / 'config/settings-v2.json').read_bytes(), prior)
+        self.assertEqual(self.source.read_bytes(), original)
+        with self.assertRaises(FileExistsError):
+            run.prepare_composer()  # Never replace/adopt existing config on replay.
+
+    def test_composer_scenario_uses_finite_ui_actions_four_captures_and_persisted_choice(self):
+        run = self.run_fixture()
+        calls = []
+        observation = {key: True for key in ['modelReady', 'singleControl', 'footerOrder', 'fitsViewport', 'draftMatches', 'textareaStable', 'keysNoSend']}
+        run.command = lambda command: calls.append(command) or observation
+        run.wait = lambda predicate, label: None
+        run.composer_wait = lambda predicate, label: None
+        with patch.object(run, 'chat_hash', return_value='unchanged'), patch.object(run, 'model_choice', side_effect=[('entry_footer_long', 'saved'), (None, 'env')]):
+            run.composer_scenario()
+        self.assertEqual([command['action'] for command in calls if command['type'] == 'composer' and command['action'] != 'observe'], ['draft', 'keys', 'choose', 'reset'])
+        self.assertEqual([(command['view'], command['preset']) for command in calls if command['type'] == 'captureView'], [('composer', preset) for _state in ['saved', 'default'] for preset in ['wide', 'narrow']])
+        receipt = json.loads((run.root / 'composer-scenario.json').read_text())
+        self.assertTrue(receipt['chatDataUnchanged'])
+        self.assertEqual(receipt['providerSend'], 'not invoked')
+        self.assertNotIn('value', repr(calls))
+
+    def test_composer_persistence_failure_does_not_replay_choice_or_continue_capture(self):
+        run = self.run_fixture()
+        calls = []
+        run.command = lambda command: calls.append(command) or {}
+        run.wait = lambda predicate, label: None
+        run.composer_wait = lambda predicate, label: None
+        with patch.object(run, 'chat_hash', return_value='unchanged'), patch.object(run, 'model_choice', return_value=('entry_wrong', 'saved')):
+            with self.assertRaisesRegex(ValueError, 'did not persist'):
+                run.composer_scenario()
+        self.assertEqual(sum(command == {'type': 'composer', 'action': 'choose'} for command in calls), 1)
+        self.assertFalse(any(command['type'] == 'captureView' for command in calls))
+        self.assertFalse((run.root / 'composer-scenario.json').exists())
+
     def test_private_scratch_alias_and_foreign_inventory_denied(self):
         self.assertEqual(private_directory(self.root), self.root)
         self.root.chmod(0o755)

@@ -48,7 +48,9 @@ impl Config {
             {
                 self.ordinary.is_none()
             }
-            Command::SetViewport { .. } | Command::CaptureView { .. } => self.ordinary.is_some(),
+            Command::SetViewport { .. }
+            | Command::CaptureView { .. }
+            | Command::Composer { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
                 if self.ordinary.is_some() =>
             {
@@ -109,6 +111,9 @@ pub enum Command {
         view: String,
         preset: String,
     },
+    Composer {
+        action: String,
+    },
     #[cfg(debug_assertions)]
     Settings {
         action: crate::setup_smoke::Action,
@@ -166,8 +171,11 @@ impl Command {
             Self::Observe {} | Self::Capture {} => true,
             Self::SetViewport { preset } => ["wide", "narrow"].contains(&preset.as_str()),
             Self::CaptureView { view, preset } => {
-                ["trainer", "sync", "profile"].contains(&view.as_str())
+                ["trainer", "sync", "profile", "composer"].contains(&view.as_str())
                     && ["wide", "narrow"].contains(&preset.as_str())
+            }
+            Self::Composer { action } => {
+                ["observe", "draft", "choose", "reset", "keys"].contains(&action.as_str())
             }
             #[cfg(debug_assertions)]
             Self::CaptureDebug {} | Self::Settings { .. } | Self::Health { .. } => true,
@@ -671,6 +679,26 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                     }
                 }
         }
+        Command::Composer { action } => {
+            let booleans = [
+                "modelReady",
+                "singleControl",
+                "footerOrder",
+                "fitsViewport",
+                "draftMatches",
+                "textareaStable",
+                "savedChoice",
+                "defaultChoice",
+                "keysNoSend",
+            ];
+            let mut keys = vec!["ok", "action", "trustedInput"];
+            keys.extend(booleans);
+            ordinary
+                && exact_keys(value, &keys)
+                && value["action"].as_str() == Some(action)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
+        }
         Command::SetViewport { preset } => {
             exact_keys(value, &["ok", "preset"]) && value["preset"].as_str() == Some(preset)
         }
@@ -1110,6 +1138,50 @@ mod tests {
         .valid());
         assert!(!Command::SetViewport {
             preset: "arbitrary".into()
+        }
+        .valid());
+    }
+    #[test]
+    fn composer_is_finite_ordinary_only_and_results_never_return_values() {
+        for action in ["observe", "draft", "choose", "reset", "keys"] {
+            let command = Command::Composer {
+                action: action.into(),
+            };
+            assert!(command.valid());
+            assert!(!config().permits(&command));
+            let value = json!({"ok":true,"action":action,"trustedInput":false,
+                "modelReady":true,"singleControl":true,"footerOrder":true,"fitsViewport":true,
+                "draftMatches":true,"textareaStable":true,"savedChoice":false,"defaultChoice":true,"keysNoSend":true});
+            assert!(super::safe_result(&command, &value, true));
+            assert!(!safe_result(&command, &value));
+            for (key, changed) in [
+                ("private", json!("copied value")),
+                ("action", json!("send")),
+                ("trustedInput", json!(true)),
+                ("draftMatches", json!("private draft")),
+            ] {
+                let mut invalid = value.clone();
+                invalid[key] = changed;
+                assert!(!super::safe_result(&command, &invalid, true));
+            }
+        }
+        for action in ["send", "login", "select", "cancel", "eval"] {
+            assert!(!Command::Composer {
+                action: action.into()
+            }
+            .valid());
+        }
+        for value in [
+            json!({"type":"composer","action":"draft","value":"private"}),
+            json!({"type":"composer","action":"choose","modelId":"entry_private"}),
+            json!({"type":"composer","action":"keys","key":"Enter"}),
+            json!({"type":"composer","action":"observe","selector":"body"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
+        }
+        assert!(Command::CaptureView {
+            view: "composer".into(),
+            preset: "narrow".into()
         }
         .valid());
     }
