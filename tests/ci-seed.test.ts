@@ -82,6 +82,44 @@ describe("narrow CI-only synthetic seed", () => {
     }
   });
 
+  it("prepares only synthetic table documents/chat with unchanged schema and no private inputs", async () => {
+    const { realpathSync } = await import("node:fs");
+    const root = realpathSync(scratch());
+    const path = seed(root, `ci-seed-${randomUUID()}`, false, true);
+    const db = new Database(path, { readonly: true, fileMustExist: true });
+    try {
+      expect(currentSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(runIntegrityCheck(db)).toBe("ok");
+      const rows = db.prepare("select role, content from message").all();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        role: "assistant",
+        content: expect.stringContaining("Crédit"),
+      });
+      const record = db
+        .prepare("select document_json from weekly_artifact")
+        .get() as { document_json: string };
+      const weekly = JSON.parse(record.document_json) as {
+        latest: { title: string; contentMarkdown: string };
+        original: unknown;
+        review: { title: string; contentMarkdown: string };
+      };
+      expect(weekly.latest.title).toBe("T0249 synthetic plan");
+      expect(weekly.latest.contentMarkdown).toContain("30 / 30");
+      expect(weekly.original).toEqual(weekly.latest);
+      expect(weekly.review.title).toBe("T0249 synthetic review");
+      expect(weekly.review.contentMarkdown).toContain("https://example.test/");
+      expect(
+        db.prepare("select count(*) as count from activity").get(),
+      ).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+    expect(() => seed(root, `ci-seed-${randomUUID()}`, true, true)).toThrow(
+      "exclusive",
+    );
+  });
+
   it("refuses aliases, reused/escaping names, relative and public scratch", async () => {
     const { realpathSync } = await import("node:fs");
     const root = realpathSync(scratch());
