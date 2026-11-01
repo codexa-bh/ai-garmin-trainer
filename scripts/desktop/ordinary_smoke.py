@@ -138,6 +138,113 @@ class OrdinaryRun(Run):
                      'keyboard': 'synthetic DOM Enter/Space on owned selector; not trusted/native/hardware input',
                      'providerSend': 'not invoked', 'cleanup': 'copy-only preference/draft/Goals deferred to task-scratch expiry'})
 
+    def conversation_state(self):
+        # Only bounded booleans/counts leave the run-owned disposable DB.
+        with contextlib.closing(readonly(self.database)) as database:
+            rows = database.execute('select id,title from conversation').fetchall()
+            saved = database.execute("select value from app_metadata where key='chat.active_conversation.v1'").fetchone()
+            titles = {identifier: title for identifier, title in rows}
+            chosen = titles.get(saved[0]) if saved else None
+            first = 'T0250-first-' + self.id.replace('-', '')
+            second = 'T0250-second-' + self.id.replace('-', '')
+            return {'count': len(rows), 'savedFirst': chosen == first, 'savedSecond': chosen == second,
+                    'savedNew': chosen == 'New chat', 'messagesEmpty': database.execute('select count(*) from message').fetchone()[0] == 0,
+                    'onlySynthetic': all(title in [first, second, 'New chat'] for title in titles.values()),
+                    'defaultAbsent': 'default' not in titles}
+
+    def conversation_wait(self, predicate, label):
+        deadline = time.monotonic() + 8
+        observed = {}
+        while time.monotonic() < deadline:
+            observed = self.command({'type': 'conversation', 'action': 'observe'})
+            state = self.conversation_state()
+            if predicate(observed, state):
+                return observed
+            time.sleep(.1)  # Read-only bounded observation; never retry a mutation.
+        private_json(self.root / ('conversation-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': observed, 'state': state})
+        raise TimeoutError('Conversation assertion deadline: ' + label)
+
+    def conversation_open_history(self):
+        ui = self.command({'type': 'conversation', 'action': 'observe'})
+        if not ui['historyVisible']:
+            if not ui['historyExpanded']:
+                if not ui['historyToggleVisible']:
+                    self.command({'type': 'conversation', 'action': 'open-menu'})
+                    self.conversation_wait(lambda ui, db: ui['historyToggleVisible'], 'mobile history toggle')
+                self.command({'type': 'conversation', 'action': 'open-history'})
+                self.conversation_wait(lambda ui, db: ui['historyExpanded'], 'history open intent')
+            self.command({'type': 'conversation', 'action': 'settle-history'})
+            self.conversation_wait(lambda ui, db: ui['historyVisible'], 'visible history')
+
+    def conversation_create(self, slot):
+        if slot not in ['first', 'second']:
+            raise ValueError('Finite synthetic slot required')
+        self.conversation_open_history()
+        self.command({'type': 'conversation', 'action': 'new'})
+        self.conversation_wait(lambda ui, db: ui['newSelected'] and db['savedNew'], 'explicit New committed')
+        self.command({'type': 'conversation', 'action': 'menu-new'})
+        self.conversation_wait(lambda ui, db: ui['menuReady'], 'New menu')
+        self.command({'type': 'conversation', 'action': 'rename-new'})
+        self.conversation_wait(lambda ui, db: ui['renameReady'], 'New rename dialog')
+        self.command({'type': 'conversation', 'action': 'title-' + slot})
+        self.conversation_wait(lambda ui, db: ui['renameDraftReady'], 'fixed synthetic title draft')
+        self.command({'type': 'conversation', 'action': 'save-title'})
+        self.conversation_wait(lambda ui, db: ui[slot + 'Selected'] and db['saved' + slot.title()] and not ui['renameReady'], 'synthetic title saved')
+
+    def conversation_delete(self, slot):
+        if slot not in ['first', 'second']:
+            raise ValueError('Finite synthetic slot required')
+        self.conversation_open_history()
+        self.command({'type': 'conversation', 'action': 'menu-' + slot})
+        self.conversation_wait(lambda ui, db: ui['menuReady'], 'synthetic delete menu')
+        self.command({'type': 'conversation', 'action': 'delete-' + slot})
+
+    def conversation_scenario(self):
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Close Profile & data'})
+        self.wait(lambda value: value['view'] == 'Trainer', 'Trainer conversations')
+        self.conversation_open_history()
+        self.conversation_wait(lambda ui, db: ui['selectionReady'] and ui['empty'] and db['count'] == 0, 'non-creating empty startup')
+        self.conversation_create('first')
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and db['savedFirst'], 'explicit first saved')
+        self.conversation_create('second')
+        self.conversation_wait(lambda ui, db: ui['secondSelected'] and db['savedSecond'], 'explicit second saved')
+        self.command({'type': 'conversation', 'action': 'choose-first'})
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and db['savedFirst'], 'older first saved')
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'Sync while selection retained')
+        self.command({'type': 'click', 'target': 'Back to chat'})
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and db['savedFirst'], 'selection after navigation')
+        origin, boot = self.origin, self.boot
+        self.stop()
+        self.start(self.binary)
+        if self.origin == origin or self.boot == boot:
+            raise ValueError('Conversation restart did not use a fresh native origin/boot')
+        self.conversation_wait(lambda ui, db: ui['selectionReady'] and ui['firstSelected'] and ui['secondPresent'] and db['savedFirst'], 'restored older first on new origin')
+        images = []
+        for preset in ['wide', 'narrow']:
+            self.command({'type': 'setViewport', 'preset': preset})
+            self.conversation_open_history()
+            image = self.command({'type': 'captureView', 'view': 'conversation', 'preset': preset})
+            images.append({'state': 'restored-first', 'preset': preset, **image})
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.conversation_delete('second')
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and not ui['secondPresent'] and db['savedFirst'], 'non-active delete preserves first')
+        self.conversation_create('second')
+        self.conversation_wait(lambda ui, db: ui['secondSelected'] and db['savedSecond'], 'second recreated explicitly')
+        self.conversation_delete('second')
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and db['savedFirst'], 'active delete falls back to first')
+        self.conversation_delete('first')
+        self.conversation_wait(lambda ui, db: ui['newSelected'] and not ui['firstPresent'] and not ui['secondPresent'] and db['savedNew'] and db['count'] == 1, 'delete-last normal replacement')
+        images.append({'state': 'delete-last-replacement', 'preset': 'wide', **self.command({'type': 'captureView', 'view': 'conversation', 'preset': 'wide'})})
+        state = self.conversation_state()
+        if not all(state[key] for key in ['onlySynthetic', 'messagesEmpty', 'defaultAbsent']):
+            raise ValueError('Conversation privacy/non-resurrection gate failed')
+        private_json(self.root / 'conversation-scenario.json', {'passed': True, 'freshOriginAndBoot': True,
+                     'restoredOlderSelection': True, 'emptyStartupNonCreating': True, 'navigationAndDeletes': True,
+                     'state': state, 'captures': images, 'input': 'synthetic DOM actions and exact task-created confirmation; not native/hardware input or dialog certification',
+                     'cleanup': 'task-created copy-only chats/selection/Goals/captures deferred to scratch expiry; no copy-back'})
+
     def renew_capability(self):
         # Pin our original private root and hold its lifetime namespace lease while
         # exclusively staging/atomically replacing only our known descriptor.
@@ -326,6 +433,8 @@ def security(run, other):
         run.request({'type': 'health', 'action': 'daily'}, str(uuid.uuid4())),
         run.request({'type': 'health', 'action': 'capture-wide'}, str(uuid.uuid4())),
         run.request({'type': 'settings', 'action': 'open'}, str(uuid.uuid4())),
+        run.request({'type': 'conversation', 'action': 'delete-all'}, str(uuid.uuid4())),
+        run.request({'type': 'conversation', 'action': 'choose-first', 'id': 'private'}, str(uuid.uuid4())),
         run.request({'type': 'click', 'target': 'LLM debug traces'}, str(uuid.uuid4())),
         run.request({'type': 'click', 'target': 'First LLM trace'}, str(uuid.uuid4())),
     ]:
@@ -345,6 +454,7 @@ def main():
     arguments(parser)
     parser.add_argument('--bundle', required=True, help='Actual unmodified desktop:build .app; copied outside checkout per run')
     parser.add_argument('--prepare-only', action='store_true')
+    parser.add_argument('--conversation-selection', action='store_true', help='Finite keyless synthetic conversation create/select/restart/delete on empty-chat populated copies')
     parser.add_argument('--composer-footer', action='store_true', help='Finite keyless composer selection/reset/draft and wide/narrow masked capture; no provider send')
     args = parser.parse_args()
     os.umask(0o077)
@@ -360,7 +470,7 @@ def main():
     runs = []
     observer = None
     receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
-               'scenarioPassed': False, 'composerFooterRequested': args.composer_footer, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
+               'scenarioPassed': False, 'conversationSelectionRequested': args.conversation_selection, 'composerFooterRequested': args.composer_footer, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
                'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
                'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
                'cleanup': 'copy-only Goals and fixtures deferred to private task-scratch expiry; no copy-back'}
@@ -397,6 +507,10 @@ def main():
                 run.command({'type': 'setViewport', 'preset': 'wide'})
                 run.command({'type': 'click', 'target': 'Profile & data'})
                 run.wait(lambda value: value['profileReady'], 'Profile after composer')
+            if args.conversation_selection:
+                run.conversation_scenario()
+                run.command({'type': 'click', 'target': 'Profile & data'})
+                run.wait(lambda value: value['profileReady'], 'Profile after conversations')
             run.verify_parent_death(sentinel)
         if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
             raise ValueError('Source/artifact changed during execution')

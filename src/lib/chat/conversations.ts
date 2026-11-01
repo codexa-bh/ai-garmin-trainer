@@ -22,10 +22,36 @@ export type ConversationPorts = {
   deleteConversation(id: string): boolean;
   clearConversationHistory(id: string): void;
   isDebugTraceEnabled(): boolean;
+  getSelection(): string | null;
+  setSelection(id: string | null): void;
 };
 
 export function createConversationUseCases(ports: ConversationPorts) {
+  function resolveSelection() {
+    const saved = ports.getSelection();
+    let validId: string | null = null;
+    if (saved && saved.trim() === saved) {
+      try {
+        validId = safeConversationId(saved);
+      } catch {
+        // Invalid stored identity is stale metadata, never creation authority.
+      }
+    }
+    const existing = validId ? ports.getConversation(validId) : null;
+    const id = existing?.id ?? ports.listConversations(1)[0]?.id ?? null;
+    if (saved !== id) ports.setSelection(id);
+    return { conversationId: id };
+  }
   return {
+    resolveSelection,
+    selectConversation(value: unknown) {
+      if (typeof value !== "string" || !value || value.trim() !== value)
+        throw new Error("Conversation id must be a non-empty opaque id");
+      const id = safeConversationId(value);
+      if (!ports.getConversation(id)) return null;
+      ports.setSelection(id);
+      return { conversationId: id };
+    },
     isDebugTraceEnabled: () => ports.isDebugTraceEnabled(),
     listConversations(limit?: number) {
       return ports.listConversations(limit);
@@ -52,6 +78,8 @@ export function createConversationUseCases(ports: ConversationPorts) {
       const deleted = ports.deleteConversation(conversationId);
       const remaining =
         ports.listConversations(1)[0] ?? ports.createConversation();
+      if (ports.getSelection() === conversationId)
+        ports.setSelection(remaining.id);
       return {
         deleted,
         conversationId,

@@ -11,7 +11,11 @@ import {
   clearConversationHistory,
   deleteConversation,
 } from "@/lib/db/conversation-lifecycle";
+import { getAppMetadata, setAppMetadata } from "@/lib/db/repository";
 import { isLlmDebugTraceEnabled } from "@/lib/env";
+
+// Empty string represents a resolved empty DB. No schema/browser migration.
+const selectionKey = "chat.active_conversation.v1";
 import { createConversationUseCases } from "./conversations";
 
 export const conversations = createConversationUseCases({
@@ -25,4 +29,6 @@ export const conversations = createConversationUseCases({
   deleteConversation: (id) => deleteConversation(id),
   clearConversationHistory: (id) => clearConversationHistory(id),
   isDebugTraceEnabled: () => isLlmDebugTraceEnabled(),
+  getSelection: () => getAppMetadata(selectionKey),
+  setSelection: (id) => setAppMetadata(selectionKey, id ?? ""),
 });

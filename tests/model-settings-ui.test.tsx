@@ -365,6 +365,8 @@ it("keeps failed availability and its direct recovery inside the footer without 
         if (failing) return Promise.reject(new Error("private-network-detail"));
         return Promise.resolve(response(snapshot()));
       }
+      if (String(input) === "/api/conversations/selection")
+        return Promise.resolve(response({ conversationId: "default" }));
       return Promise.resolve(
         response({ messages: [], memories: [], conversations: [] }),
       );

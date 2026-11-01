@@ -156,6 +156,52 @@ class OrdinaryContracts(unittest.TestCase):
                 self.assertEqual(preset, command['preset'])
         self.assertEqual(captures, [(view, preset) for view in ['trainer', 'sync', 'profile'] for preset in ['wide', 'narrow']])
 
+    def test_conversation_scenario_uses_finite_actions_fresh_origin_and_only_run_copy(self):
+        run = self.run_fixture()
+        run.origin, run.boot = 'http://127.0.0.1:11111', 'old-boot'
+        commands = []
+        run.command = lambda command: commands.append(command) or {'ok': True}
+        run.wait = lambda predicate, label: None
+        run.conversation_wait = lambda predicate, label: None
+        run.conversation_open_history = lambda: commands.append({'type': 'conversation', 'action': 'open-history'})
+        run.stop = lambda: commands.append({'type': 'owned-stop'})
+        def start(binary):
+            self.assertEqual(binary, run.binary)
+            run.origin, run.boot = 'http://127.0.0.1:22222', 'fresh-boot'
+        run.start = start
+        run.conversation_state = lambda: {'onlySynthetic': True, 'messagesEmpty': True, 'defaultAbsent': True}
+        original = self.source.read_bytes()
+        run.conversation_scenario()
+        actions = [c['action'] for c in commands if c['type'] == 'conversation']
+        self.assertEqual([action for action in actions if action in ['new', 'choose-first', 'delete-second', 'delete-first']], ['new', 'new', 'choose-first', 'delete-second', 'new', 'delete-second', 'delete-first'])
+        self.assertEqual(actions.count('save-title'), 3)
+        self.assertEqual(actions.count('menu-second'), 2)
+        self.assertEqual(actions.count('menu-first'), 1)
+        self.assertEqual(sum(c['type'] == 'owned-stop' for c in commands), 1)
+        self.assertTrue(all(set(c) <= {'type', 'action', 'target', 'view', 'preset'} for c in commands))
+        captures = [c for c in commands if c['type'] == 'captureView']
+        self.assertEqual([c['preset'] for c in captures], ['wide', 'narrow', 'wide'])
+        receipt = json.loads((run.root / 'conversation-scenario.json').read_text())
+        self.assertTrue(receipt['passed'])
+        self.assertTrue(receipt['freshOriginAndBoot'])
+        self.assertNotIn('conversationId', repr(receipt))
+        self.assertEqual(self.source.read_bytes(), original)
+
+    def test_conversation_readback_exposes_only_bounded_synthetic_booleans(self):
+        run = self.run_fixture()
+        with contextlib.closing(sqlite3.connect(run.database)) as db:
+            db.executescript('create table conversation(id text, title text); create table message(id text); create table app_metadata(key text, value text);')
+            title = 'T0250-first-' + run.id.replace('-', '')
+            db.execute('insert into conversation values (?,?)', ('private-generated-id', title))
+            db.execute('insert into app_metadata values (?,?)', ('chat.active_conversation.v1', 'private-generated-id'))
+            db.commit()
+        state = run.conversation_state()
+        self.assertTrue(state['savedFirst'])
+        self.assertTrue(state['onlySynthetic'])
+        self.assertTrue(state['messagesEmpty'])
+        self.assertNotIn('private-generated-id', repr(state))
+        self.assertNotIn(title, repr(state))
+
     def test_opt_in_composer_config_is_fixed_keyless_private_and_preserves_source(self):
         original = self.source.read_bytes()
         run = self.run_fixture()

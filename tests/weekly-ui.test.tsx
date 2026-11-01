@@ -45,25 +45,27 @@ it.each(
     };
     const fetch = vi.fn((url: RequestInfo | URL) =>
       Promise.resolve(
-        String(url) === "/api/chat"
-          ? stream
-            ? new Response(
-                JSON.stringify({
-                  type: "done",
-                  assistantMessage,
-                  conversationId: "default",
-                  memoryProposal: { status: "none" },
-                }) + "\n",
-                { headers: { "content-type": "application/x-ndjson" } },
-              )
-            : new Response(
-                JSON.stringify({
-                  messages: [assistantMessage],
-                  toolEvidence: grounding,
-                }),
-                { headers: { "content-type": "application/json" } },
-              )
-          : response({ conversations: [] }),
+        String(url) === "/api/conversations/selection"
+          ? response({ conversationId: "default" })
+          : String(url) === "/api/chat"
+            ? stream
+              ? new Response(
+                  JSON.stringify({
+                    type: "done",
+                    assistantMessage,
+                    conversationId: "default",
+                    memoryProposal: { status: "none" },
+                  }) + "\n",
+                  { headers: { "content-type": "application/x-ndjson" } },
+                )
+              : new Response(
+                  JSON.stringify({
+                    messages: [assistantMessage],
+                    toolEvidence: grounding,
+                  }),
+                  { headers: { "content-type": "application/json" } },
+                )
+            : response({ conversations: [] }),
       ),
     );
     vi.stubGlobal("fetch", fetch);
@@ -89,6 +91,7 @@ it.each(
         messageInputRef: createRef(),
       }),
     );
+    await act(() => result.current.resolveConversationSelection());
     await act(() => result.current.submitChat("Update plans directly"));
     expect(loadWeekly).toHaveBeenCalledTimes(weekly === "succeeded" ? 1 : 0);
     expect(loadTrainingPlan).toHaveBeenCalledTimes(

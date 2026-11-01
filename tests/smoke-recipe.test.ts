@@ -176,6 +176,30 @@ describe("finite representative authored smoke recipe", () => {
     }
   });
 
+  it("preserves legitimate fractional imported duration/average-HR without accepting fractional counters or nonnumeric metrics", () => {
+    const db = new Database(":memory:");
+    try {
+      populate(db, "2026-11-01");
+      db.exec(
+        "delete from message;delete from conversation;update activity set duration_sec=123.5,avg_heart_rate=130.25",
+      );
+      expect(verify(db, "private").coverage).toBe("ok");
+      expect(
+        db
+          .prepare("select duration_sec,avg_heart_rate from activity limit 1")
+          .get(),
+      ).toEqual({ duration_sec: 123.5, avg_heart_rate: 130.25 });
+      db.exec("update daily_health set steps=1.25");
+      expect(() => verify(db, "private")).toThrow("Nonnumeric/nonfinite");
+      db.exec(
+        "update daily_health set steps=100;update activity set avg_heart_rate='not numeric'",
+      );
+      expect(() => verify(db, "private")).toThrow("Nonnumeric/nonfinite");
+    } finally {
+      db.close();
+    }
+  });
+
   it("publishes exclusively and refuses escaping/public/aliased/reused roots", () => {
     const root = scratch(),
       name = `smoke-input-${randomUUID()}`;

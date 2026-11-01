@@ -51,6 +51,7 @@ impl Config {
             Command::SetViewport { .. }
             | Command::CaptureView { .. }
             | Command::Composer { .. }
+            | Command::Conversation { .. }
             | Command::Tables { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
                 if self.ordinary.is_some() =>
@@ -115,6 +116,9 @@ pub enum Command {
     Composer {
         action: String,
     },
+    Conversation {
+        action: String,
+    },
     Tables {
         surface: String,
         edge: String,
@@ -176,12 +180,39 @@ impl Command {
             Self::Observe {} | Self::Capture {} => true,
             Self::SetViewport { preset } => ["wide", "narrow"].contains(&preset.as_str()),
             Self::CaptureView { view, preset } => {
-                ["trainer", "sync", "profile", "composer", "tables"].contains(&view.as_str())
+                [
+                    "trainer",
+                    "sync",
+                    "profile",
+                    "composer",
+                    "conversation",
+                    "tables",
+                ]
+                .contains(&view.as_str())
                     && ["wide", "narrow"].contains(&preset.as_str())
             }
             Self::Composer { action } => {
                 ["observe", "draft", "choose", "reset", "keys"].contains(&action.as_str())
             }
+            Self::Conversation { action } => [
+                "observe",
+                "open-menu",
+                "open-history",
+                "settle-history",
+                "new",
+                "menu-new",
+                "rename-new",
+                "title-first",
+                "title-second",
+                "save-title",
+                "menu-first",
+                "menu-second",
+                "choose-first",
+                "choose-second",
+                "delete-first",
+                "delete-second",
+            ]
+            .contains(&action.as_str()),
             Self::Tables { surface, edge } => {
                 ["plan", "review", "chat", "chat-simple"].contains(&surface.as_str())
                     && ["start", "end"].contains(&edge.as_str())
@@ -535,7 +566,22 @@ fn safe_debug_observation(value: &Value) -> bool {
 fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
     if value["ok"] == false {
         return (exact_keys(value, &["ok", "error"])
-            && value["error"] == "Rendered command refused or failed")
+            && (value["error"] == "Rendered command refused or failed"
+                || (matches!(command, Command::Conversation { .. })
+                    && [
+                        "admission",
+                        "history-toggle",
+                        "history-opening",
+                        "creating",
+                        "created",
+                        "menu",
+                        "rename",
+                        "saving",
+                    ]
+                    .iter()
+                    .any(|stage| {
+                        value["error"] == format!("Conversation action failed at {stage}")
+                    }))))
             || (command.is_assertion()
                 && exact_keys(value, &["ok", "matches"])
                 && value["matches"] == false);
@@ -695,6 +741,41 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                                 .unwrap_or(false)
                     }
                 }
+        }
+        Command::Conversation { action } => {
+            let booleans = [
+                "selectionReady",
+                "historyVisible",
+                "historyExpanded",
+                "historyFitsViewport",
+                "historyToggleVisible",
+                "menuReady",
+                "renameReady",
+                "renameDraftReady",
+                "empty",
+                "firstPresent",
+                "secondPresent",
+                "firstSelected",
+                "secondSelected",
+                "newSelected",
+                "transcriptEmpty",
+            ];
+            let mut keys = vec!["ok", "action", "trustedInput"];
+            keys.extend(booleans);
+            keys.push("historyGeometry");
+            let geometry = &value["historyGeometry"];
+            ordinary
+                && exact_keys(value, &keys)
+                && value["action"].as_str() == Some(action)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
+                && exact_keys(geometry, &["left", "right", "width"])
+                && ["left", "right", "width"].iter().all(|key| {
+                    geometry[*key]
+                        .as_f64()
+                        .map(|n| (-4096.0..=4096.0).contains(&n))
+                        .unwrap_or(false)
+                })
         }
         Command::Tables { surface, edge } => {
             let booleans = [
@@ -1276,6 +1357,60 @@ mod tests {
             port: 19321,
             ordinary: None,
         }
+    }
+    #[test]
+    fn finite_conversation_contract_rejects_private_fields_and_debug_mode() {
+        for action in [
+            "observe",
+            "open-menu",
+            "open-history",
+            "settle-history",
+            "new",
+            "menu-new",
+            "rename-new",
+            "title-first",
+            "title-second",
+            "save-title",
+            "menu-first",
+            "menu-second",
+            "choose-first",
+            "choose-second",
+            "delete-first",
+            "delete-second",
+        ] {
+            let command = Command::Conversation {
+                action: action.into(),
+            };
+            assert!(command.valid());
+            assert!(!config().permits(&command));
+            let value = json!({"ok":true,"action":action,"trustedInput":false,"selectionReady":true,"historyVisible":true,"historyExpanded":true,"historyFitsViewport":true,"historyToggleVisible":true,"historyGeometry":{"left":0,"right":300,"width":300},"menuReady":false,"renameReady":false,"renameDraftReady":false,"empty":false,"firstPresent":true,"secondPresent":true,"firstSelected":true,"secondSelected":false,"newSelected":false,"transcriptEmpty":true});
+            assert!(super::safe_result(&command, &value, true));
+            assert!(!super::safe_result(&command, &value, false));
+            assert!(super::safe_result(
+                &command,
+                &json!({"ok":false,"error":"Conversation action failed at saving"}),
+                true
+            ));
+            assert!(!super::safe_result(
+                &command,
+                &json!({"ok":false,"error":"private arbitrary detail"}),
+                true
+            ));
+            let mut private = value.clone();
+            private["conversationId"] = json!("private-id");
+            assert!(!super::safe_result(&command, &private, true));
+            let mut wrong = value.clone();
+            wrong["action"] = json!("delete-all");
+            assert!(!super::safe_result(&command, &wrong, true));
+        }
+        assert!(!Command::Conversation {
+            action: "delete-all".into()
+        }
+        .valid());
+        assert!(serde_json::from_value::<Command>(
+            json!({"type":"conversation","action":"choose-first","id":"private"})
+        )
+        .is_err());
     }
     #[test]
     fn late_duplicate_and_unknown_results_cannot_satisfy_a_new_request() {
