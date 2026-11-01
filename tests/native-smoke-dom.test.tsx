@@ -358,6 +358,8 @@ describe("native-installed rendered smoke boundary", () => {
       "llmDebug",
       "healthMode",
       "healthReady",
+      "healthMissingRecord",
+      "healthPartialRecord",
       "healthPreviousEnabled",
       "healthNextEnabled",
       "healthLatestEnabled",
@@ -535,6 +537,19 @@ describe("native-installed rendered smoke boundary", () => {
     });
     expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
   });
+  it("requests current own-WebView screen updates rather than a cached pre-mask snapshot", () => {
+    const capture = readFileSync("src-tauri/src/dev_capture.rs", "utf8");
+    expect(capture).toContain("class!(WKSnapshotConfiguration)");
+    expect(capture).toContain("setAfterScreenUpdates: true");
+    expect(capture).toContain("takeSnapshotWithConfiguration: configuration");
+    expect(capture).not.toContain(
+      "takeSnapshotWithConfiguration:std::ptr::null",
+    );
+    expect(capture).not.toMatch(
+      /makeKeyAndOrderFront|activateIgnoringOtherApps|CGWindowListCreateImage/,
+    );
+  });
+
   it("drives only finite rendered Health actions, keeps dates private, and masks without replacing layout", async () => {
     const record = (date: string) =>
       ({
@@ -568,7 +583,10 @@ describe("native-installed rendered smoke boundary", () => {
           <p data-testid="outside">private outside transcript</p>
           <section className="health-dashboard-panel">
             <HealthDashboardView
-              days={[record("2026-07-21"), record("2026-06-01")]}
+              days={[
+                { ...record("2026-07-21"), availability: "partial" },
+                record("2026-06-01"),
+              ]}
               rangeEnd={end}
               onSelectRange={setEnd}
               notice=""
@@ -600,16 +618,20 @@ describe("native-installed rendered smoke boundary", () => {
       (await command({ type: "health", action: "assert-range" })).result.ok,
     ).toBe(true);
     for (const action of ["capture-narrow", "capture-wide"]) {
-      const table = screen.getByRole("table");
-      const before = table.textContent;
+      const comparison = document.querySelector(".health-daily-comparison")!;
+      const before = comparison.textContent;
       expect((await command({ type: "health", action })).result.ok).toBe(true);
-      expect(table.textContent).toBe(before);
-      expect(getComputedStyle(table.querySelector("td")!).visibility).toBe(
-        "hidden",
-      );
-      expect(getComputedStyle(table.querySelector("time")!).visibility).toBe(
-        "hidden",
-      );
+      expect(comparison.textContent).toBe(before);
+      for (const privateNode of comparison.querySelectorAll(
+        "time, .health-rollup-value span, .health-rollup-value strong, .health-rollup-readout, svg text, .recharts-line-curve, .recharts-dot, .recharts-bar-rectangle, .health-daily-coverage li span",
+      )) {
+        expect(getComputedStyle(privateNode).visibility).toBe("hidden");
+      }
+      expect(
+        getComputedStyle(
+          comparison.querySelector(".health-rollup-heading strong")!,
+        ).visibility,
+      ).toBe("visible");
       expect(getComputedStyle(screen.getByTestId("outside")).visibility).toBe(
         "hidden",
       );

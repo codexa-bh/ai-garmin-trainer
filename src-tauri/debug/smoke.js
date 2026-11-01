@@ -57,16 +57,38 @@
     return el;
   }
   let rememberedHealthRange = null;
-  const healthTable = () => {
-    const tables = [
-      ...document.querySelectorAll(".health-daily-matrix"),
+  const healthComparison = () => {
+    const comparisons = [
+      ...document.querySelectorAll(
+        ".health-dashboard-panel .health-daily-comparison",
+      ),
     ].filter(visible);
+    const comparison = comparisons[0];
+    const dates = [
+      ...(comparison?.querySelectorAll(".health-daily-coverage time") ?? []),
+    ].map((el) => el.dateTime);
+    const cards = [
+      ...(comparison?.querySelectorAll(".health-rollup-chart") ?? []),
+    ];
     if (
-      tables.length !== 1 ||
-      tables[0].querySelectorAll("thead time").length !== 7
+      comparisons.length !== 1 ||
+      dates.length !== 7 ||
+      new Set(dates).size !== 7 ||
+      dates.some(
+        (date, index) =>
+          !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+          (index > 0 && date <= dates[index - 1]),
+      ) ||
+      cards.length !== 15 ||
+      cards.some(
+        (card) =>
+          [...card.querySelectorAll("[data-source-date]")]
+            .map((el) => el.dataset.sourceDate)
+            .join(",") !== dates.join(","),
+      )
     )
-      throw Error("Daily Health comparison not ready");
-    return tables[0];
+      throw Error("Daily Health charts not ready");
+    return comparison;
   };
   function debugCard() {
     const cards = [
@@ -143,7 +165,12 @@
     return card;
   }
   function healthObservation() {
-    const comparison = document.querySelector(".health-daily-matrix");
+    let comparison = null;
+    try {
+      comparison = healthComparison();
+    } catch {
+      /* Not mounted/ready. */
+    }
     const healthButtons = document.querySelectorAll(
       ".health-daily-actions button",
     );
@@ -153,10 +180,12 @@
       .toLowerCase();
     return {
       healthMode: ["daily", "weekly", "monthly"].includes(mode) ? mode : null,
-      healthReady: Boolean(
-        comparison &&
-        visible(comparison) &&
-        comparison.querySelectorAll("thead time").length === 7,
+      healthReady: Boolean(comparison),
+      healthMissingRecord: Boolean(
+        comparison?.querySelector('[data-coverage="missing-record"]'),
+      ),
+      healthPartialRecord: Boolean(
+        comparison?.querySelector('[data-coverage="partial"]'),
       ),
       healthPreviousEnabled: Boolean(
         healthButtons[0] &&
@@ -764,12 +793,14 @@
           el.click();
           return { ok: true, action: command.action, trustedInput: false };
         }
-        const table = healthTable();
+        const comparison = healthComparison();
         if (
           command.action === "remember-range" ||
           command.action === "assert-range"
         ) {
-          const dates = [...table.querySelectorAll("thead time")]
+          const dates = [
+            ...comparison.querySelectorAll(".health-daily-coverage time"),
+          ]
             .map((el) => el.dateTime)
             .join(",");
           if (command.action === "remember-range") {
@@ -785,9 +816,22 @@
         restore();
         const style = document.createElement("style");
         style.id = "trainer-smoke-sanitizer";
-        // Hide copied dates, values and coverage without changing their layout/width.
-        // Nothing is repositioned; no private text/DOM is returned by this command.
-        style.textContent = `body * {visibility:hidden !important} .health-dashboard-panel, .health-dashboard-panel * {visibility:visible !important} .health-dashboard-panel .health-daily-matrix td, .health-dashboard-panel .health-daily-matrix time, .health-dashboard-panel .health-daily-matrix caption, .health-dashboard-panel #health-daily-range, .health-dashboard-panel [role="status"] {visibility:hidden !important; position:relative} .health-dashboard-panel .health-daily-matrix td::after, .health-dashboard-panel .health-daily-matrix time::after, .health-dashboard-panel .health-daily-matrix caption::after, .health-dashboard-panel #health-daily-range::after, .health-dashboard-panel [role="status"]::after {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}`;
+        // Hide by default, revealing only fixed static Health controls/card chrome.
+        // Source-derived dates, values, plot marks/ticks, coverage and HRV context
+        // stay hidden at unchanged geometry; even unexpected descendants stay private.
+        style.textContent = `body * {visibility:hidden !important}
+          .health-dashboard-panel, .health-dashboard-header, .health-dashboard-header h1,
+          .health-dashboard-header button, .health-mode-controls, .health-mode-controls button,
+          .health-daily-actions, .health-daily-actions button, .health-rollup-chart,
+          .health-rollup-heading, .health-rollup-heading > strong, .health-rollup-heading > span,
+          .health-rollup-plot .recharts-cartesian-grid line,
+          .health-rollup-values button, .health-daily-coverage,
+          .health-daily-coverage > summary {visibility:visible !important}
+          .health-dashboard-panel #health-daily-range, .health-dashboard-panel [role="status"],
+          .health-daily-comparison .health-rollup-readout, .health-daily-comparison .health-rollup-value {position:relative}
+          .health-dashboard-panel #health-daily-range::after, .health-dashboard-panel [role="status"]::after,
+          .health-daily-comparison .health-rollup-readout::after, .health-daily-comparison .health-rollup-value::after
+          {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}`;
         document.head.append(style);
         await new Promise((resolve) => setTimeout(resolve, 120));
         return {

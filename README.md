@@ -155,8 +155,10 @@ values, not a weekly aggregate. Previous/Next step seven dates (including gaps);
 Latest returns to the newest imported date at or before today. The range survives
 tabs, away/back and overlapping post-sync refreshes. Missing records/fields and
 outside-loaded history are explicit, and today is marked in progress on the UTC
-sync calendar. Scroll the labeled comparison horizontally on narrow windows.
-Weekly/Monthly calculations and their bounded imported input remain unchanged.
+sync calendar. Responsive metric charts retain all seven date slots, with exact
+source values available by pointing to, focusing or tapping the date buttons.
+Collapsed per-date details preserve source coverage and categorical HRV context;
+gaps are not interpolated or filled with zero. Weekly/Monthly calculations and their bounded imported input remain unchanged.
 
 Complete daily-health coverage does not mean final totals. Each sync refreshes today and yesterday on the existing UTC sync calendar. Within the inclusive 14-day trailing window, older complete dates refresh when any stats, sleep, or body-battery fetch evidence is missing or at least 24 hours old. Missing/partial trailing dates still retry every run; historical gap/repair and checkpoint backfill remain separate. This costs at most 42 trailing tool calls per sync, normally six for repeated complete data within 24 hours. Refreshes preserve prior non-null fields when Garmin omits them and accept valid zero/downward corrections. Delayed uploads outside the window may still require a targeted re-sync; source agreement does not prove finality.
 

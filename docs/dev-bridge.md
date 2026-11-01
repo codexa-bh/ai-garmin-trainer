@@ -139,18 +139,29 @@ Add `--health-comparison` to the same populated-copy `smoke:native` command to
 exercise Previous/Next/Latest seven-date pages, Daily/Weekly/Monthly switching,
 range preservation through away/back, and fixed narrow (420×900) and wide
 (1280×900) own-window captures. The selected input must include older eligible
-Health history; missing history refuses this scenario rather than claiming range
-coverage. The default synthetic recipe supplies it, including finite edge cases; no primary discovery or durable fixture environment is introduced.
+Health history: at least fourteen eligible source dates with partial coverage in
+the historical page. Missing prerequisites refuse rather than claiming coverage.
+The supported default synthetic recipe supplies missing/partial/zero cases. Existing
+input gaps are preserved without extra omissions. Only when the historical page
+has no gap, the opt-in scenario omits one fixed-position row from each newly created
+owned online copy, preserving at least one partial record. A private preparation
+receipt distinguishes existing gaps from copy-only omissions; neither is invented
+as evidence about personal data. Repeated/live-copy preparation is refused. No
+primary discovery or additional durable fixture environment is introduced.
 
 The closed `health` command accepts only these actions: `daily`, `weekly`,
 `monthly`, `previous`, `next`, `latest`, `remember-range`, `assert-range`,
 `capture-wide`, `capture-narrow`. Range identity stays inside the renderer;
-observations expose only fixed mode and readiness/navigation booleans. Both
+observations expose only fixed mode and readiness/navigation/missing-record/
+partial-record booleans. Readiness checks the real fifteen chart cards, each with
+seven date-associated exact-value buttons, against the seven source-context dates. Both
 native and renderer reject unknown action/field/selector/date/viewport inputs.
 Fixed capture cases resize only the admitted owned window, never activate it.
 
-Health captures hide all non-Health surfaces and mask dates, values and coverage
-in place with a fixed CSS overlay, retaining actual geometry and scroll layout.
+Health captures hide everything by default and reveal only fixed static Health
+controls/card chrome and chart grid lines. Source dates, values, plot marks/ticks,
+coverage, HRV context and unexpected descendants stay hidden in place, retaining
+actual geometry and scroll layout; placeholders mark hidden readouts/date buttons.
 They do not reposition/reconstruct the comparison or prove masked exact values;
 synthetic DOM associations cover those. Inspect actual PNGs and record privacy,
 layout/overflow, source/hash and these limits. `health-scenario.json` records real
@@ -246,9 +257,9 @@ Safe, bounded task-needed smoke-bridge/runner evolution is **expected and wanted
 - `GET /identity`: authenticated schema/run/source/native PID/app/copy/origin plus fixed renderer-diagnostic booleans. Does not imply readiness.
 - `POST /command`: `{requestId,expectedRunId,command}`. UUID request/run identities, exact `Host: 127.0.0.1:<port>`, bearer capability and `X-Smoke-Run` are mandatory. Ordinary requests also require exact `expectedBoot`; result callbacks bind that same native boot. Capability stays in private config/client memory/header, never argv/URL/logs/receipts. Every browser Origin/Sec-Fetch-Site is refused; no CORS grant.
 - Shared closed actions: `observe`; exact main navigation/back/Profile-close/save/reload clicks; **synthetic Goals only** input/assert. Ordinary adds fixed `setViewport`/`captureView` presets plus the finite synthetic table and opt-in composer actions above (composer captures require its canonical synthetic state). Debug alone retains Profile `capture`, finite `health` actions above, synthetic `captureDebug`, outer **LLM debug traces**/**First LLM trace** clicks and fixed **Enter**/**Space** `debugKey`. Debug-only `settings` dispatch uses its exact admitted legacy Config and native local-document completion, never the trainer callback. All Settings/Health/disclosure variants and native input/setup modules compile out of ordinary release; ordinary native/renderer guards reject those debug controls. No arbitrary selector/path/key, credential/login, general scroll/select/eval/invoke, state injection, HTTP/filesystem/process proxy or shutdown. Hidden/disabled/ambiguous/private/prehydration targets refuse before dispatch.
-- Ordinary observations retain only fixed view/navigation/headings/readiness/saved booleans. Debug alone adds fixed Health mode/availability booleans and optional disclosure booleans/three same-length boolean arrays (at most 128 entries); unknown keys/text, inconsistent shapes/bounds and action-mismatched results refuse natively. Remembered Health dates remain inside the debug bootstrap, never results. No copied values/transcripts/trace text/private credentials leave the renderer. Clicks/Goals/Health are synthetic DOM events; opt-in debug keys are native-generated WebView-local events, never hardware/global input. Ordinary uses neither those keys nor debug Health/Settings actions.
+- Ordinary observations retain only fixed view/navigation/headings/readiness/saved booleans. Debug alone adds fixed Health mode/readiness/navigation/missing-record/partial-record booleans and optional disclosure booleans/three same-length boolean arrays (at most 128 entries); unknown keys/text, inconsistent shapes/bounds and action-mismatched results refuse natively. Remembered Health dates remain inside the debug bootstrap, never results. No copied values/transcripts/trace text/private credentials leave the renderer. Clicks/Goals/Health are synthetic DOM events; opt-in debug keys are native-generated WebView-local events, never hardware/global input. Ordinary uses neither those keys nor debug Health/Settings actions.
 - Only the exact admitted trainer origin/window receives its result-only permission (`allow-isolated-result` for ordinary; legacy debug permission remains debug-only). No remote settings/auth grant is added. Callback validates run/boot/window/origin, bound and exact pending request; native validates closed result keys, enums/booleans and command correspondence, never arbitrary renderer JSON/text. Ordinary Goals equal this run's sentinel. Capture selectors/geometry/paths are never caller supplied; debug subtree captures do not certify ordinary layout. Keyless debug Settings has independently typed bounded native completion and adds no renderer result permission.
-- One request at a time; 16 KiB total request; two-second total read deadline; no duplicate/chunked framing; 4096 unique request IDs/run; five-second renderer deadline; 16 KiB callback result; four-second/4 MiB PNG bound. Unknown fields/commands refuse. Late/duplicate/unknown results cannot complete newer requests. Complete PNG framing and dimensions are checked; native publishes an exclusive 0600 temporary atomically without replacing an existing capture, confined to the run's `screenshots/`.
+- One request at a time; 16 KiB total request; two-second total read deadline; no duplicate/chunked framing; 4096 unique request IDs/run; five-second renderer deadline; 16 KiB callback result; four-second/4 MiB PNG bound. Unknown fields/commands refuse. Late/duplicate/unknown results cannot complete newer requests. Native snapshots explicitly request screen updates before capture so current privacy masks/navigation/resize are flushed instead of accepting a cached prior-view frame. Background animation frames can be throttled, so the bounded renderer compositor delay is retained rather than requiring foreground activation. Complete PNG framing and dimensions are checked; native publishes an exclusive 0600 temporary atomically without replacing an existing capture, confined to the run's `screenshots/`.
 - Correlated `{requestId,result:{ok:true,...}}` means actual renderer completion. Failed assertions/actions return HTTP 409, malformed commands 400, access/framing denial 403, deadline 504. **Timeout means effect unknown, not rollback.** The client exits nonzero and never blindly retries mutation. Only bounded read-only readiness/observation may poll. Inspect retained state before any fresh explicit action.
 
 ## Production exclusion and required artifact evidence
