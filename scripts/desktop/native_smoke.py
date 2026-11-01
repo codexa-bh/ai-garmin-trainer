@@ -247,8 +247,38 @@ class Run:
         finally:
             client.close()
 
+    def prepare_health_comparison(self):
+        """Preserve existing gaps, or prepare one only on an owned prelaunch copy."""
+        from datetime import date, datetime, timedelta, timezone
+        if self.launches or self.child is not None or (self.root / 'health-preparation.json').exists() or canonical(self.database).parent != canonical(self.root):
+            raise ValueError('Health preparation requires an unlaunched owned copy')
+        if self.database.stat().st_nlink != 1 or self.database.stat().st_uid != os.getuid():
+            raise ValueError('Health copy identity refused')
+        with contextlib.closing(sqlite3.connect(self.database)) as copy:
+            dates = [row[0] for row in copy.execute('select date from daily_health where date <= ? order by date desc limit 21', (datetime.now(timezone.utc).date().isoformat(),))]
+            if len(dates) < 14 or any(date.fromisoformat(value).isoformat() != value for value in dates):
+                raise ValueError('Health comparison requires fourteen eligible source dates')
+            latest = date.fromisoformat(dates[0])
+            historical = [(latest - timedelta(days=index)).isoformat() for index in range(7, 14)]
+            rows = dict(copy.execute('select date, availability from daily_health where date between ? and ?', (historical[-1], historical[0])))
+            partial_count = sum(value == 'partial' for value in rows.values())
+            if not partial_count:
+                raise ValueError('Historical Health page lacks a partial source record')
+            existing_gap = any(value not in rows for value in historical)
+            omitted = (latest - timedelta(days=10)).isoformat()
+            if not existing_gap and partial_count == 1 and rows[omitted] == 'partial':
+                raise ValueError('Health omission would remove the only partial record')
+            before = fingerprint(copy)
+            changed = 0 if existing_gap else copy.execute('delete from daily_health where date=?', (omitted,)).rowcount
+            copy.commit()
+            after = fingerprint(copy)
+            expected = {**before['counts'], 'daily_health': before['counts']['daily_health'] - changed}
+            if changed != (0 if existing_gap else 1) or after['counts'] != expected or copy.execute('pragma foreign_key_check').fetchall():
+                raise ValueError('Bounded Health copy preparation failed')
+        private_json(self.root / 'health-preparation.json', {'copyOnly': True, 'removedDailyRowCount': changed, 'existingInputGap': existing_gap, 'sourcePartialCoverageRetained': True, 'inputUnmodified': True, 'limit': 'Existing input gaps stay unchanged; any extra omission is copy-only, never an original-source missing-date claim. No values fabricated or copied back.'})
+
     def health_scenario(self):
-        self.wait(lambda o: o['healthReady'], 'Daily seven-date matrix readiness')
+        self.wait(lambda o: o['healthReady'], 'Daily seven-date chart readiness')
         # Fail honestly if the selected input cannot exercise real range browsing.
         if not self.command({'type': 'observe'})['healthPreviousEnabled']:
             raise ValueError('Selected input lacks older eligible Daily history for range smoke')
@@ -257,7 +287,7 @@ class Run:
         self.command({'type': 'health', 'action': 'next'})
         self.wait(lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Next returns to latest page')
         self.command({'type': 'health', 'action': 'previous'})
-        self.wait(lambda o: o['healthLatestEnabled'], 'Historical calendar page')
+        self.wait(lambda o: o['healthLatestEnabled'] and o['healthMissingRecord'] and o['healthPartialRecord'], 'Historical calendar page with missing date and partial source coverage')
         self.command({'type': 'health', 'action': 'remember-range'})
         for mode in ['weekly', 'monthly', 'daily']:
             self.command({'type': 'health', 'action': mode})
@@ -271,7 +301,7 @@ class Run:
         images = {size: self.command({'type': 'health', 'action': 'capture-' + size}) for size in ['narrow', 'wide']}
         self.command({'type': 'health', 'action': 'latest'})
         self.wait(lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Explicit Latest reset')
-        private_json(self.root / 'health-scenario.json', {'passed': True, 'rangeTabsAwayBack': True, 'captures': images, 'limit': 'Masked actual geometry only; exact values proven with synthetic DOM tests. Image inspection remains required.'})
+        private_json(self.root / 'health-scenario.json', {'passed': True, 'rangeTabsAwayBack': True, 'missingDateAndPartialObserved': True, 'captures': images, 'limit': 'Masked actual chart geometry only; dates, values and data marks hidden. Exact values proven with deterministic DOM tests. Missing-date provenance is in health-preparation.json; image inspection remains required.'})
 
     def scenario(self, health_comparison=False):
         other_fields = self.other_profile_fields()
@@ -403,8 +433,11 @@ def main():
     try:
         for _ in range(2):
             prepared.verify_current()
-            runs.append(Run(scratch, database, source))
-            runs[-1].before_start = prepared.verify_current
+            run = Run(scratch, database, source)
+            runs.append(run)
+            run.before_start = prepared.verify_current
+            if args.health_comparison:
+                run.prepare_health_comparison()
         if args.prepare_only:
             print(json.dumps({'prepared': [str(run.root) for run in runs], 'integrity': 'ok', 'launches': 0}))
             return

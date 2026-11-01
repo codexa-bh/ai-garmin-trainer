@@ -627,6 +627,8 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 let health = [
                     "healthMode",
                     "healthReady",
+                    "healthMissingRecord",
+                    "healthPartialRecord",
                     "healthPreviousEnabled",
                     "healthNextEnabled",
                     "healthLatestEnabled",
@@ -1142,7 +1144,7 @@ mod tests {
             },
             &json!({"ok":true,"remembered":true,"dates":"private"})
         ));
-        let mut observation = json!({"ok":true,"dashboard":true,"hydrated":true,"navigation":[],"headings":[],"profileReady":false,"profileSaved":false,"view":"Health","healthMode":"daily","healthReady":true,"healthPreviousEnabled":true,"healthNextEnabled":false,"healthLatestEnabled":false});
+        let mut observation = json!({"ok":true,"dashboard":true,"hydrated":true,"navigation":[],"headings":[],"profileReady":false,"profileSaved":false,"view":"Health","healthMode":"daily","healthReady":true,"healthMissingRecord":true,"healthPartialRecord":true,"healthPreviousEnabled":true,"healthNextEnabled":false,"healthLatestEnabled":false});
         assert!(super::safe_result(
             &Command::Observe {},
             &observation,
@@ -1153,7 +1155,12 @@ mod tests {
             &observation,
             true
         ));
-        observation["healthReady"] = json!("private");
+        for key in ["healthReady", "healthMissingRecord", "healthPartialRecord"] {
+            let mut private = observation.clone();
+            private[key] = json!("private");
+            assert!(!safe_result(&Command::Observe {}, &private));
+        }
+        observation["sourceDates"] = json!(["private"]);
         assert!(!safe_result(&Command::Observe {}, &observation));
         assert!(!safe_result(
             &Command::Settings {
