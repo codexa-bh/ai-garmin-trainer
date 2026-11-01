@@ -179,6 +179,47 @@ describe("activated catalog rules and preference application", () => {
   });
 });
 
+it("keeps every model settings error non-cacheable without disclosing private failures", async () => {
+  vi.resetModules();
+  const { modelSettings } = await import("@/lib/model-settings/composition");
+  const { ModelSettingsValidationError } =
+    await import("@/lib/model-settings/application");
+  const route = await import("@/app/api/model-settings/route");
+  vi.spyOn(modelSettings, "read").mockImplementation(() => {
+    throw new Error("private-storage-details");
+  });
+  const failedRead = route.GET();
+  expect(failedRead.status).toBe(503);
+  expect(failedRead.headers.get("Cache-Control")).toBe("no-store");
+  expect(await failedRead.text()).not.toContain("private-storage");
+  const malformed = await route.PATCH(
+    new Request("http://localhost/api/model-settings", {
+      method: "PATCH",
+      body: "{",
+    }),
+  );
+  expect(malformed.status).toBe(400);
+  expect(malformed.headers.get("Cache-Control")).toBe("no-store");
+  const save = vi.spyOn(modelSettings, "save").mockImplementation(() => {
+    throw new ModelSettingsValidationError("Entry unavailable");
+  });
+  const request = () =>
+    new Request("http://localhost/api/model-settings", {
+      method: "PATCH",
+      body: JSON.stringify({ modelId: "entry_missing" }),
+    });
+  const rejected = await route.PATCH(request());
+  expect(rejected.status).toBe(400);
+  expect(rejected.headers.get("Cache-Control")).toBe("no-store");
+  save.mockImplementation(() => {
+    throw new Error("private-storage-details");
+  });
+  const uncertain = await route.PATCH(request());
+  expect(uncertain.status).toBe(503);
+  expect(uncertain.headers.get("Cache-Control")).toBe("no-store");
+  expect(await uncertain.text()).not.toContain("private-storage");
+});
+
 it("persists exact multi-model/provider selection and reset; preserves extraction, original metadata and redacted API boundaries", async () => {
   vi.resetModules();
   vi.stubEnv(

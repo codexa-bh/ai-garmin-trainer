@@ -12,7 +12,7 @@ export function GET() {
   } catch {
     return NextResponse.json(
       { error: "Model settings could not be loaded." },
-      { status: 503 },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
 }
@@ -24,7 +24,7 @@ export async function PATCH(request: Request) {
   } catch {
     return NextResponse.json(
       { error: "Invalid model settings request." },
-      { status: 400 },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }
   try {
@@ -39,7 +39,10 @@ export async function PATCH(request: Request) {
             ? error.message
             : "Model setting could not be confirmed. Use Retry model availability in chat to check the saved state.",
       },
-      { status: error instanceof ModelSettingsValidationError ? 400 : 503 },
+      {
+        status: error instanceof ModelSettingsValidationError ? 400 : 503,
+        headers: { "Cache-Control": "no-store" },
+      },
     );
   }
 }
