@@ -231,6 +231,7 @@ const groups = [
       "chat/route",
       "chat/delivery",
       "conversations/route",
+      "conversations/selection/route",
       "conversations/[conversationId]/route",
       "delete/route",
       "health-dashboard/route",

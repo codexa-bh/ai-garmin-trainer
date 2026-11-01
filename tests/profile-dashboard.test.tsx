@@ -36,6 +36,16 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
   );
 }
 
+// These legacy dashboard fixtures contain an existing default row. Selection
+// has a separate explicit HTTP contract now; dedicated suites cover its races.
+function selectionResponse(init?: RequestInit) {
+  return jsonResponse(
+    init?.method === "PUT"
+      ? JSON.parse(String(init.body))
+      : { conversationId: "default" },
+  );
+}
+
 function syncStreamResponse(events: unknown[]) {
   const encoder = new TextEncoder();
   return Promise.resolve(
@@ -273,9 +283,15 @@ describe("app metadata", () => {
 describe("TrainerDashboard Profile hydration", () => {
   it("keeps domain errors and retry behavior through handled async UI adapters", async () => {
     let failing = false;
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile")
         return failing
           ? Promise.reject(new Error("Profile temporarily unavailable"))
@@ -314,9 +330,15 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("shows newline-separated sports examples without populating or saving an empty Profile", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile")
         return jsonResponse({ ...profile([]), sports: [] });
       return jsonResponse({ ok: true });
@@ -340,9 +362,15 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("loads a saved Profile on no-auth startup but keeps it hidden until Profile & data opens", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile());
       return jsonResponse({ ok: true });
     });
@@ -404,9 +432,15 @@ describe("TrainerDashboard Profile hydration", () => {
       historyLimit: 40,
       llmDebugTracesEnabled: true,
     };
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(debugPayload);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(debugPayload);
       if (url === "/api/profile") return jsonResponse(profile([]));
       return jsonResponse({ ok: true });
     });
@@ -508,9 +542,14 @@ describe("TrainerDashboard Profile hydration", () => {
   it("keeps the enabled empty LLM disclosure closed until deliberately opened", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: RequestInfo | URL) => {
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
-        if (url.startsWith("/api/chat")) {
+        if (url === "/api/conversations/selection")
+          return selectionResponse(init);
+        if (
+          url.startsWith("/api/chat") ||
+          (url.startsWith("/api/conversations/") && init?.method === "GET")
+        ) {
           return jsonResponse({ ...emptyChat, llmDebugTracesEnabled: true });
         }
         if (url === "/api/profile") return jsonResponse(profile([]));
@@ -538,9 +577,14 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("keeps the LLM debug section absent for a disabled payload", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) {
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      ) {
         return jsonResponse({ ...emptyChat, llmDebugTracesEnabled: false });
       }
       if (url === "/api/profile") return jsonResponse(profile([]));
@@ -559,9 +603,15 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("keeps Diagnostics collapsed until opened", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       return jsonResponse({ ok: true });
     });
@@ -586,9 +636,14 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("omits the header context chip while preserving per-message local evidence", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) {
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      ) {
         return jsonResponse({
           conversationId: "default",
           messages: [
@@ -655,12 +710,18 @@ describe("TrainerDashboard Profile hydration", () => {
     const stream = controlledSyncStream();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory") return jsonResponse({ memories: [] });
       if (url.startsWith("/api/chat") && init?.method === "POST") {
         return stream.response;
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -669,6 +730,12 @@ describe("TrainerDashboard Profile hydration", () => {
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "What should I do tomorrow?" },
     });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     stream.push({
@@ -779,11 +846,17 @@ describe("TrainerDashboard Profile hydration", () => {
         "fetch",
         vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
           const url = String(input);
+          if (url === "/api/conversations/selection")
+            return selectionResponse(init);
           if (url === "/api/profile") return jsonResponse(profile([]));
           if (url === "/api/memory") return jsonResponse({ memories: [] });
           if (url.startsWith("/api/chat") && init?.method === "POST")
             return stream.response;
-          if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+          if (
+            url.startsWith("/api/chat") ||
+            (url.startsWith("/api/conversations/") && init?.method === "GET")
+          )
+            return jsonResponse(emptyChat);
           return jsonResponse({ ok: true });
         }),
       );
@@ -791,6 +864,12 @@ describe("TrainerDashboard Profile hydration", () => {
       fireEvent.change(screen.getByLabelText("Message"), {
         target: { value: "Status please" },
       });
+      await waitFor(() =>
+        expect(
+          (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      );
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
       expect(await screen.findByTestId("pending-step-status")).toHaveProperty(
         "textContent",
@@ -848,6 +927,12 @@ describe("TrainerDashboard Profile hydration", () => {
       fireEvent.change(screen.getByLabelText("Message"), {
         target: { value: "Try a new request" },
       });
+      await waitFor(() =>
+        expect(
+          (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      );
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
       expect(await screen.findByTestId("pending-step-status")).toHaveProperty(
         "textContent",
@@ -875,6 +960,8 @@ describe("TrainerDashboard Profile hydration", () => {
   it("uses concise user-facing wording for non-streamed completion status", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory") return jsonResponse({ memories: [] });
       if (url.startsWith("/api/chat") && init?.method === "POST") {
@@ -892,7 +979,11 @@ describe("TrainerDashboard Profile hydration", () => {
           historyLimit: 40,
         });
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -903,6 +994,12 @@ describe("TrainerDashboard Profile hydration", () => {
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "What should I do tomorrow?" },
     });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(
@@ -917,6 +1014,8 @@ describe("TrainerDashboard Profile hydration", () => {
   it("uses concise user-facing wording for streamed completion status", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory") return jsonResponse({ memories: [] });
       if (url.startsWith("/api/chat") && init?.method === "POST") {
@@ -945,7 +1044,11 @@ describe("TrainerDashboard Profile hydration", () => {
           },
         ]);
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -956,6 +1059,12 @@ describe("TrainerDashboard Profile hydration", () => {
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "What should I do tomorrow?" },
     });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("Keep tomorrow easy.")).toBeTruthy();
@@ -970,6 +1079,8 @@ describe("TrainerDashboard Profile hydration", () => {
   it("submits a non-empty composer message with Enter without inserting a newline", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory") return jsonResponse({ memories: [] });
       if (url === "/api/chat" && init?.method === "POST") {
@@ -985,7 +1096,11 @@ describe("TrainerDashboard Profile hydration", () => {
           ],
         });
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -996,6 +1111,12 @@ describe("TrainerDashboard Profile hydration", () => {
     fireEvent.change(message, {
       target: { value: "  What should I do tomorrow?  " },
     });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
 
     expect(fireEvent.keyDown(message, { key: "Enter", code: "Enter" })).toBe(
       false,
@@ -1019,6 +1140,8 @@ describe("TrainerDashboard Profile hydration", () => {
   it("preserves Shift+Enter as multiline input and keeps blank Enter guarded", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory") return jsonResponse({ memories: [] });
       if (url === "/api/chat" && init?.method === "POST") {
@@ -1034,7 +1157,11 @@ describe("TrainerDashboard Profile hydration", () => {
           ],
         });
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1092,9 +1219,14 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("keeps the desktop app topbar visible outside the transcript scroll contract", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) {
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      ) {
         return jsonResponse({
           ...emptyChat,
           messages: [
@@ -1196,9 +1328,15 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("exposes primary actions through a dismissible mobile main menu", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       return jsonResponse({ ok: true });
     });
@@ -1261,9 +1399,15 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("activates mobile menu items and dismisses the menu", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities?")) {
         return jsonResponse({
@@ -1352,9 +1496,15 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("renders the minimal chat shell and reachable grouped settings disclosure", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       return jsonResponse({ ok: true });
     });
@@ -1418,9 +1568,14 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("renders safe assistant Markdown while keeping unsafe links inert", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) {
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      ) {
         return jsonResponse({
           conversationId: "default",
           messages: [
@@ -1455,9 +1610,14 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("renders assistant Markdown tables without weakening inline safety", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) {
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      ) {
         return jsonResponse({
           conversationId: "default",
           messages: [
@@ -1502,9 +1662,15 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 
   it("preserves dirty edits when a manual Profile reload returns late", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") {
         const profileGetCount = fetchMock.mock.calls.filter(
           ([calledUrl]) => String(calledUrl) === "/api/profile",
@@ -1538,7 +1704,13 @@ describe("TrainerDashboard Profile hydration", () => {
     let savedBody: unknown;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile" && init?.method === "GET")
         return jsonResponse(profile([]));
       if (url === "/api/profile" && init?.method === "POST") {
@@ -1581,9 +1753,15 @@ describe("TrainerDashboard Profile hydration", () => {
 
 describe("TrainerDashboard athlete baseline summary", () => {
   it("renders read-only Garmin athlete baselines separately from Profile", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary")
         return jsonResponse({
@@ -1634,9 +1812,15 @@ describe("TrainerDashboard athlete baseline summary", () => {
   });
 
   async function checkBaselineZonePresentation(zoneStatus: string) {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary")
         return jsonResponse({
@@ -2510,9 +2694,15 @@ describe("TrainerDashboard activity charts", () => {
         durationSec: 3600,
       }),
     );
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities?")) {
         return jsonResponse({
@@ -2628,9 +2818,15 @@ describe("TrainerDashboard activity charts", () => {
 
   it("opens full-screen activity mode, requests 100 rows, resets search, and closes back to chat", async () => {
     const activityUrls: string[] = [];
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities?")) {
         activityUrls.push(url);
@@ -2691,9 +2887,15 @@ describe("TrainerDashboard activity charts", () => {
 
   it("loads the next 100 activities on bottom scroll and restarts pagination for search", async () => {
     const activityUrls: string[] = [];
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities?")) {
         activityUrls.push(url);
@@ -2768,9 +2970,15 @@ describe("TrainerDashboard activity charts", () => {
       expected: "Aerobic Base",
     },
   ) {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities/111111/dashboard")) {
         return jsonResponse({
@@ -3470,9 +3678,15 @@ describe("TrainerDashboard activity charts", () => {
     zoneStatus: string,
     zoneMessage: string,
   ) {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities/111111/dashboard")) {
         return jsonResponse({
@@ -3705,9 +3919,15 @@ describe("TrainerDashboard activity charts", () => {
   );
 
   it("opens with the activity selector expanded by default and a truthful collapse control", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities?")) {
         return jsonResponse({
@@ -3756,9 +3976,15 @@ describe("TrainerDashboard activity charts", () => {
   });
 
   it("collapses the selector to a slim rail that hides the title/search/list and keeps the expand control", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities?")) {
         return jsonResponse({
@@ -3815,9 +4041,15 @@ describe("TrainerDashboard activity charts", () => {
   });
 
   it("keeps selected activity detail visible when collapsed and restores query/selection on expand", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/activities/111111/dashboard")) {
         return jsonResponse({
@@ -3999,10 +4231,16 @@ describe("TrainerDashboard dedicated Sync view", () => {
     const detail =
       "Garmin MCP exited with code 1. Garmin connector request failed; upstream details are withheld to protect credentials and local paths.";
     let stream = controlledSyncStream();
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/sync") return stream.response;
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary") return jsonResponse(importSummary());
       return jsonResponse({ ok: true });
@@ -4112,8 +4350,10 @@ describe("TrainerDashboard dedicated Sync view", () => {
       });
       vi.stubGlobal(
         "fetch",
-        vi.fn((input: RequestInfo | URL) => {
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
           const url = String(input);
+          if (url === "/api/conversations/selection")
+            return selectionResponse(init);
           if (url === "/api/sync")
             return jsonResponse(
               {
@@ -4123,7 +4363,11 @@ describe("TrainerDashboard dedicated Sync view", () => {
               },
               { status: 409 },
             );
-          if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+          if (
+            url.startsWith("/api/chat") ||
+            (url.startsWith("/api/conversations/") && init?.method === "GET")
+          )
+            return jsonResponse(emptyChat);
           if (url === "/api/profile") return jsonResponse(profile([]));
           if (url === "/api/summary") return jsonResponse(importSummary());
           return jsonResponse({ ok: true });
@@ -4158,9 +4402,15 @@ describe("TrainerDashboard dedicated Sync view", () => {
   );
 
   it("opens Sync as navigation without starting a sync and renders metrics", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary") return jsonResponse(importSummary());
       return jsonResponse({ ok: true });
@@ -4223,9 +4473,15 @@ describe("TrainerDashboard dedicated Sync view", () => {
   });
 
   it("discloses weigh-in source and history source in Profile & data body-metrics rows", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary") return jsonResponse(importSummary());
       return jsonResponse({ ok: true });
@@ -4263,7 +4519,13 @@ describe("TrainerDashboard dedicated Sync view", () => {
     const stream = controlledSyncStream();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary") return jsonResponse(importSummary());
       if (url.startsWith("/api/activities?")) {
@@ -4365,7 +4627,13 @@ describe("TrainerDashboard dedicated Sync view", () => {
       "Garmin sync completed through the pinned stdio MCP connector with a very long paragraph that should not be repeated in the UI success result.";
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary") return jsonResponse(importSummary());
       if (url === "/api/sync" && init?.method === "POST") {
@@ -4416,7 +4684,13 @@ describe("TrainerDashboard dedicated Sync view", () => {
   it("uses clear activity-detail wording for detail Sync now progress", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/summary") return jsonResponse(importSummary());
       if (url === "/api/sync" && init?.method === "POST") {
@@ -4500,7 +4774,13 @@ describe("TrainerDashboard memory and new chat", () => {
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory" && init?.method === "PATCH") {
         patchedBody = JSON.parse(String(init.body));
@@ -4598,6 +4878,8 @@ describe("TrainerDashboard memory and new chat", () => {
     let patchBody: unknown = null;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
         return jsonResponse({ memories: [], pending: [], confirmed: [] });
@@ -4626,7 +4908,11 @@ describe("TrainerDashboard memory and new chat", () => {
           historyLimit: 12,
         });
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -4673,6 +4959,8 @@ describe("TrainerDashboard memory and new chat", () => {
     const patchBodies: unknown[] = [];
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
         return jsonResponse({ memories: [], pending: [], confirmed: [] });
@@ -4719,7 +5007,11 @@ describe("TrainerDashboard memory and new chat", () => {
           historyLimit: 12,
         });
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -4761,6 +5053,8 @@ describe("TrainerDashboard memory and new chat", () => {
     const updatedAt = "2026-07-17T12:00:00.000Z";
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
         return jsonResponse({ memories: [], pending: [], confirmed: [] });
@@ -4786,7 +5080,11 @@ describe("TrainerDashboard memory and new chat", () => {
       if (url === "/api/chat" && init?.method === "POST") {
         return stream.response;
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -4799,6 +5097,12 @@ describe("TrainerDashboard memory and new chat", () => {
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "Plan tomorrow" },
     });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() =>
@@ -4842,6 +5146,8 @@ describe("TrainerDashboard memory and new chat", () => {
     ];
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
         return jsonResponse({ memories: [], pending: [], confirmed: [] });
@@ -4890,7 +5196,11 @@ describe("TrainerDashboard memory and new chat", () => {
           historyLimit: 12,
         });
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     const confirmMock = vi.fn(() => true);
@@ -4927,8 +5237,10 @@ describe("TrainerDashboard memory and new chat", () => {
 
   it("closes an open conversation menu on outside pointer interaction", async () => {
     const updatedAt = "2026-07-17T12:00:00.000Z";
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
         return jsonResponse({ memories: [], pending: [], confirmed: [] });
@@ -4963,7 +5275,11 @@ describe("TrainerDashboard memory and new chat", () => {
           contextWindow: 1,
           historyLimit: 12,
         });
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -4992,8 +5308,10 @@ describe("TrainerDashboard memory and new chat", () => {
 
   it("keeps a previous saved conversation when delete confirmation is cancelled", async () => {
     const updatedAt = "2026-07-17T12:00:00.000Z";
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
         return jsonResponse({ memories: [], pending: [], confirmed: [] });
@@ -5021,7 +5339,11 @@ describe("TrainerDashboard memory and new chat", () => {
           contextWindow: 0,
           historyLimit: 12,
         });
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     const confirmMock = vi.fn(() => false);
@@ -5060,6 +5382,8 @@ describe("TrainerDashboard memory and new chat", () => {
     ];
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
         return jsonResponse({ memories: [], pending: [], confirmed: [] });
@@ -5103,7 +5427,11 @@ describe("TrainerDashboard memory and new chat", () => {
           historyLimit: 12,
         });
       }
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -5119,9 +5447,11 @@ describe("TrainerDashboard memory and new chat", () => {
 
     expect(await screen.findByText("Remaining chat transcript")).toBeTruthy();
     expect(screen.queryByText("Active answer before delete")).toBeNull();
-    expect(window.localStorage.getItem("trainer.activeConversationId")).toBe(
-      "remaining-chat",
-    );
+    expect(fetchMock).toHaveBeenCalledWith("/api/conversations/selection", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ conversationId: "remaining-chat" }),
+    });
   });
 
   it("disables saved-conversation deletion while a streamed answer is in flight", async () => {
@@ -5132,6 +5462,8 @@ describe("TrainerDashboard memory and new chat", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
         return jsonResponse({ memories: [], pending: [], confirmed: [] });
@@ -5160,7 +5492,11 @@ describe("TrainerDashboard memory and new chat", () => {
           historyLimit: 12,
         });
       if (url === "/api/chat" && init?.method === "POST") return chatPost;
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -5170,6 +5506,12 @@ describe("TrainerDashboard memory and new chat", () => {
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "Hold this stream open" },
     });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await openConversationMenu("Previous climb chat");
 
@@ -5201,6 +5543,12 @@ describe("TrainerDashboard memory and new chat", () => {
   });
 
   it("starts a manual new chat without replaying the visible transcript", async () => {
+    const created = {
+      id: "local-explicit-new",
+      title: "New chat",
+      createdAt: "2026-07-17T12:01:00Z",
+      updatedAt: "2026-07-17T12:01:00Z",
+    };
     let postedBody: { conversationId?: string } | undefined;
     const initialMessages = [
       {
@@ -5212,6 +5560,8 @@ describe("TrainerDashboard memory and new chat", () => {
     ];
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/memory")
         return jsonResponse({
@@ -5244,8 +5594,16 @@ describe("TrainerDashboard memory and new chat", () => {
           historyLimit: 12,
         });
       }
-      if (url.startsWith("/api/chat"))
-        return jsonResponse({ ...emptyChat, messages: initialMessages });
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse({
+          ...emptyChat,
+          messages: url.includes(created.id) ? [] : initialMessages,
+        });
+      if (url === "/api/conversations" && init?.method === "POST")
+        return jsonResponse({ conversation: created });
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -5268,6 +5626,12 @@ describe("TrainerDashboard memory and new chat", () => {
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "Fresh question" },
     });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => {
@@ -5285,10 +5649,16 @@ describe("TrainerDashboard transcript scrolling", () => {
         "fetch",
         vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
           const url = String(input);
+          if (url === "/api/conversations/selection")
+            return selectionResponse(init);
           if (url === "/api/profile") return jsonResponse(profile([]));
           if (url.startsWith("/api/chat") && init?.method === "POST")
             return stream.response;
-          if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+          if (
+            url.startsWith("/api/chat") ||
+            (url.startsWith("/api/conversations/") && init?.method === "GET")
+          )
+            return jsonResponse(emptyChat);
           return jsonResponse({ ok: true, conversations: [], memories: [] });
         }),
       );
@@ -5310,6 +5680,12 @@ describe("TrainerDashboard transcript scrolling", () => {
       fireEvent.change(screen.getByLabelText("Message"), {
         target: { value: "Grow the reply" },
       });
+      await waitFor(() =>
+        expect(
+          (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      );
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
       await screen.findByText("Starting your request…");
 
@@ -5408,10 +5784,15 @@ describe("TrainerDashboard transcript scrolling", () => {
       },
     ];
     let chatGets = 0;
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
-      if (url.startsWith("/api/chat")) {
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      ) {
         chatGets += 1;
         return jsonResponse({
           ...emptyChat,
@@ -5457,10 +5838,16 @@ describe("TrainerDashboard transcript scrolling", () => {
     ];
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url.startsWith("/api/chat") && init?.method === "POST")
         return jsonResponse({ ...emptyChat, messages: responseMessages });
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -5478,6 +5865,12 @@ describe("TrainerDashboard transcript scrolling", () => {
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "What should I do tomorrow?" },
     });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("Take an easy aerobic day.")).toBeTruthy();
@@ -5492,8 +5885,10 @@ describe("TrainerDashboard transcript scrolling", () => {
       content: `Activity return transcript line ${index}`,
       createdAt: `2026-07-17T12:0${index}:00Z`,
     }));
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/training-plan")
         return jsonResponse({ plan: null, stale: true, staleAfterDays: 14 });
@@ -5506,7 +5901,10 @@ describe("TrainerDashboard transcript scrolling", () => {
           offset: 0,
         });
       }
-      if (url.startsWith("/api/chat")) {
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      ) {
         return jsonResponse({ ...emptyChat, messages, contextWindow: 4 });
       }
       return jsonResponse({ ok: true, conversations: [], memories: [] });
@@ -5553,12 +5951,17 @@ describe("TrainerDashboard transcript scrolling", () => {
       content: `Training Plan return transcript line ${index}`,
       createdAt: `2026-07-17T12:1${index}:00Z`,
     }));
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/training-plan")
         return jsonResponse({ plan: null, stale: true, staleAfterDays: 14 });
-      if (url.startsWith("/api/chat")) {
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      ) {
         return jsonResponse({ ...emptyChat, messages, contextWindow: 4 });
       }
       return jsonResponse({ ok: true, conversations: [], memories: [] });
@@ -5605,12 +6008,17 @@ describe("TrainerDashboard transcript scrolling", () => {
       content: `Near-bottom transcript line ${index}`,
       createdAt: `2026-07-17T12:2${index}:00Z`,
     }));
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/training-plan")
         return jsonResponse({ plan: null, stale: true, staleAfterDays: 14 });
-      if (url.startsWith("/api/chat")) {
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      ) {
         return jsonResponse({ ...emptyChat, messages, contextWindow: 4 });
       }
       return jsonResponse({ ok: true, conversations: [], memories: [] });
@@ -5652,9 +6060,15 @@ describe("TrainerDashboard transcript scrolling", () => {
 
 describe("TrainerDashboard Training Plan section", () => {
   it("shows a new-chat suggestion when no Training Plan exists", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/training-plan")
         return jsonResponse({ plan: null, stale: true, staleAfterDays: 14 });
@@ -5676,7 +6090,13 @@ describe("TrainerDashboard Training Plan section", () => {
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/training-plan" && (!init || init.method === "GET"))
         return jsonResponse({

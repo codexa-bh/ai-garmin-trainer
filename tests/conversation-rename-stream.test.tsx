@@ -68,6 +68,12 @@ async function setup() {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return json(
+          init?.method === "PUT"
+            ? JSON.parse(String(init.body))
+            : { conversationId: "default" },
+        );
       if (url === "/api/conversations") {
         listCount += 1;
         return listCount === 1

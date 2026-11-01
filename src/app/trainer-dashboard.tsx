@@ -191,6 +191,9 @@ export function TrainerDashboard() {
   } = useSyncFeature({ setStatus, refreshHealthAfterSync, runAction });
   const {
     loadConversations,
+    resolveConversationSelection,
+    retryConversationSelection,
+    selectionError,
     loadChatHistory,
     cancelConversationRename,
     conversationId,
@@ -249,6 +252,7 @@ export function TrainerDashboard() {
   // These effects react to navigation, not to changing render-local handler
   // identities. Effect Events read current state without restarting requests.
   const initializeLocalSession = useEffectEvent(() => {
+    runInBackground(resolveConversationSelection());
     runInBackground(loadConversations(false));
     runInBackground(loadMemories(false));
     runInBackground(loadProfile("startup"));
@@ -282,7 +286,7 @@ export function TrainerDashboard() {
     return () => shell?.removeAttribute("data-renderer-ready");
   }, []);
   useEffect(() => {
-    loadConversationHistory(conversationId);
+    if (conversationId) loadConversationHistory(conversationId);
   }, [conversationId]);
   useLayoutEffect(() => {
     if (!forceNextScrollRef.current && !shouldAutoScrollRef.current) return;
@@ -1028,6 +1032,8 @@ export function TrainerDashboard() {
           startNewChat={startNewChat}
           conversationRows={conversationRows}
           conversationId={conversationId}
+          selectionError={selectionError}
+          retryConversationSelection={retryConversationSelection}
           closeConversationMenu={closeConversationMenu}
           selectConversation={selectConversation}
           openConversationMenuId={openConversationMenuId}

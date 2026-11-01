@@ -362,6 +362,8 @@ describe("context factory", () => {
 function conversationFixture() {
   const order: string[] = [];
   const ports: ConversationPorts = {
+    getSelection: vi.fn(() => null),
+    setSelection: vi.fn(),
     createConversation: vi.fn(() => {
       order.push("create");
       return conversation;
@@ -466,5 +468,22 @@ describe("conversation use cases", () => {
     app.renameConversation(" c ", "title");
     expect(ports.renameConversation).toHaveBeenCalledWith("c", "title");
     expect(app.listConversations(5)).toEqual([]);
+  });
+  it("selection construction is lazy and storage failures are errors, not empty fallback", () => {
+    const { ports, app, order } = conversationFixture();
+    expect(order).toEqual([]);
+    vi.mocked(ports.getSelection).mockReturnValue("c");
+    vi.mocked(ports.getConversation).mockImplementation(() => {
+      throw new Error("DB unavailable");
+    });
+    expect(() => app.resolveSelection()).toThrow("DB unavailable");
+    expect(ports.listConversations).not.toHaveBeenCalled();
+    expect(ports.createConversation).not.toHaveBeenCalled();
+    vi.mocked(ports.getConversation).mockReturnValue(conversation);
+    vi.mocked(ports.setSelection).mockImplementation(() => {
+      throw new Error("write failed");
+    });
+    expect(() => app.selectConversation("c")).toThrow("write failed");
+    expect(ports.ensureConversation).not.toHaveBeenCalled();
   });
 });

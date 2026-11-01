@@ -53,6 +53,104 @@ export function useChatFeature({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const [conversationId, setConversationId] = useActiveConversation();
+  const selectedIdRef = useRef(conversationId);
+  const selectionRevisionRef = useRef(0);
+  const selectionQueueRef = useRef(Promise.resolve());
+  const listRequestRef = useRef(0);
+  const deletedIdsRef = useRef(new Set<string>());
+  const creatingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const [selectionError, setSelectionError] = useState("");
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // One ordered HTTP lane for bootstrap, selection, create and delete. Generation
+  // guards alone cannot prevent an older write from winning in SQLite.
+  function queueSelection<T>(work: () => Promise<T>): Promise<T> {
+    const result = selectionQueueRef.current.then(work);
+    // A handled failure must not poison subsequent explicit retry/intent.
+    selectionQueueRef.current = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  function applySelection(id: string | null) {
+    selectionRevisionRef.current++;
+    setSelectionError("");
+    if (selectedIdRef.current === id) return;
+    selectedIdRef.current = id;
+    chatHistoryRequestRef.current++;
+    setConversationId(id);
+    setChatMessages([]);
+    setHistoryCursor(null);
+    setIsHistoryLoading(false);
+    setLastFailedMessage("");
+    setSelectionError("");
+    forceNextScrollRef.current = true;
+  }
+
+  async function writeSelection(id: string) {
+    const payload = await readJsonResponse<{ conversationId: string }>(
+      await fetch("/api/conversations/selection", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: id }),
+      }),
+    );
+    if (payload.conversationId !== id)
+      throw new Error("Selection was not saved");
+  }
+
+  async function resolveConversationSelection() {
+    const revision = selectionRevisionRef.current;
+    try {
+      const payload = await queueSelection(async () =>
+        readJsonResponse<{ conversationId: string | null }>(
+          await fetch("/api/conversations/selection", { method: "GET" }),
+        ),
+      );
+      if (!mountedRef.current || revision !== selectionRevisionRef.current)
+        return;
+      if (
+        payload.conversationId !== null &&
+        (typeof payload.conversationId !== "string" || !payload.conversationId)
+      )
+        throw new Error("Invalid selection response");
+      applySelection(payload.conversationId);
+    } catch {
+      if (mountedRef.current && revision === selectionRevisionRef.current)
+        setSelectionError(
+          "Conversation selection could not be loaded. Retry selection or choose a saved chat.",
+        );
+    }
+  }
+
+  async function persistSelection(id: string) {
+    const revision = selectionRevisionRef.current;
+    try {
+      await queueSelection(() => writeSelection(id));
+      if (mountedRef.current && revision === selectionRevisionRef.current)
+        setSelectionError("");
+    } catch {
+      if (mountedRef.current && revision === selectionRevisionRef.current)
+        setSelectionError(
+          "Conversation selection is not saved. Retry selection before relaunching.",
+        );
+    }
+  }
+
+  async function retryConversationSelection() {
+    const id = selectedIdRef.current;
+    if (id) await persistSelection(id);
+    else await resolveConversationSelection();
+  }
 
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
 
@@ -130,16 +228,14 @@ export function useChatFeature({
     });
   }
 
-  function conversationUrl(
-    id = conversationId,
-    cursor?: string | null,
-  ): string {
+  function conversationUrl(id: string, cursor?: string | null): string {
     const params = new URLSearchParams({ limit: "30" });
     if (cursor) params.set("cursor", cursor);
     return `/api/conversations/${encodeURIComponent(id)}?${params.toString()}`;
   }
 
   async function loadConversations(showStatus = true) {
+    const request = ++listRequestRef.current;
     const renameRevision = renameRevisionRef.current;
     if (showStatus)
       setStatus({ kind: "busy", message: "Conversations: loading…" });
@@ -148,19 +244,22 @@ export function useChatFeature({
         await fetch("/api/conversations", { method: "GET" }),
       );
       // Keep list membership/order fresh, but an older GET cannot undo a PATCH.
-      const reconciled = (payload.conversations ?? []).map((item) => {
-        const renamed = acknowledgedRenamesRef.current.get(item.id);
-        return renamed && renamed.revision > renameRevision
-          ? {
-              ...item,
-              title: renamed.title,
-              updatedAt:
-                item.updatedAt > renamed.updatedAt
-                  ? item.updatedAt
-                  : renamed.updatedAt,
-            }
-          : item;
-      });
+      if (!mountedRef.current || request !== listRequestRef.current) return;
+      const reconciled = (payload.conversations ?? [])
+        .filter((item) => !deletedIdsRef.current.has(item.id))
+        .map((item) => {
+          const renamed = acknowledgedRenamesRef.current.get(item.id);
+          return renamed && renamed.revision > renameRevision
+            ? {
+                ...item,
+                title: renamed.title,
+                updatedAt:
+                  item.updatedAt > renamed.updatedAt
+                    ? item.updatedAt
+                    : renamed.updatedAt,
+              }
+            : item;
+        });
       setConversations(reconciled);
       if (showStatus)
         setStatus({
@@ -169,7 +268,7 @@ export function useChatFeature({
         });
       return reconciled;
     } catch (error) {
-      if (showStatus)
+      if (mountedRef.current && request === listRequestRef.current)
         setStatus({
           kind: "error",
           message: `Conversation list failed: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -217,40 +316,36 @@ export function useChatFeature({
       });
       return;
     }
-    setConversationId(id);
+    if (deletedIdsRef.current.has(id)) return;
+    applySelection(id);
     setIsConversationDrawerOpen(false);
     conversationButtonRef.current?.focus();
+    await persistSelection(id);
   }
 
   async function loadChatHistory(showStatus = true, id = conversationId) {
+    if (!id || id !== selectedIdRef.current || deletedIdsRef.current.has(id))
+      return;
     const requestId = chatHistoryRequestRef.current + 1;
     chatHistoryRequestRef.current = requestId;
     if (showStatus)
       setStatus({ kind: "busy", message: "Chat: loading local history…" });
     try {
-      let response = await fetch(conversationUrl(id), { method: "GET" });
+      const response = await fetch(conversationUrl(id), { method: "GET" });
+      if (!mountedRef.current || chatHistoryRequestRef.current !== requestId)
+        return;
       if (response.status === 404) {
-        const created = await readJsonResponse<ConversationCreatePayload>(
-          await fetch("/api/conversations", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ id }),
-          }),
-        );
+        // Reads never create or resurrect a missing ID, even through legacy chat.
+        applySelection(null);
+        await resolveConversationSelection();
         await loadConversations(false);
-        response = await fetch(conversationUrl(created.conversation.id), {
-          method: "GET",
-        });
+        return;
       }
-      let payload = await readJsonResponse<ChatPayload>(response);
-      if (!Array.isArray(payload.messages)) {
-        payload = await readJsonResponse<ChatPayload>(
-          await fetch(`/api/chat?conversationId=${encodeURIComponent(id)}`, {
-            method: "GET",
-          }),
-        );
-      }
-      if (chatHistoryRequestRef.current !== requestId) return;
+      const payload = await readJsonResponse<ChatPayload>(response);
+      if (!mountedRef.current || chatHistoryRequestRef.current !== requestId)
+        return;
+      if (!Array.isArray(payload.messages))
+        throw new Error("Invalid history response");
       const nextMessages = payload.messages ?? [];
       rememberTranscriptFollowIntent();
       setChatMessages(nextMessages);
@@ -264,7 +359,7 @@ export function useChatFeature({
           message: `Chat: loaded ${nextMessages.length} messages from the local conversation.`,
         });
     } catch (error) {
-      if (showStatus)
+      if (mountedRef.current && chatHistoryRequestRef.current === requestId)
         setStatus({
           kind: "error",
           message: `Chat history failed: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -273,7 +368,8 @@ export function useChatFeature({
   }
 
   async function loadOlderMessages() {
-    if (!historyCursor || isHistoryLoading) return;
+    if (!conversationId || !historyCursor || isHistoryLoading) return;
+    const requestId = chatHistoryRequestRef.current;
     const transcript = transcriptRef.current;
     const previousHeight = transcript?.scrollHeight ?? 0;
     setIsHistoryLoading(true);
@@ -283,6 +379,8 @@ export function useChatFeature({
           method: "GET",
         }),
       );
+      if (!mountedRef.current || requestId !== chatHistoryRequestRef.current)
+        return;
       const olderMessages = payload.messages ?? [];
       if (typeof payload.llmDebugTracesEnabled === "boolean")
         setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled);
@@ -290,17 +388,25 @@ export function useChatFeature({
       setHistoryCursor(payload.nextCursor ?? null);
       requestAnimationFrame(() => {
         const nextTranscript = transcriptRef.current;
-        if (!nextTranscript) return;
+        if (
+          !mountedRef.current ||
+          !nextTranscript ||
+          requestId !== chatHistoryRequestRef.current
+        )
+          return;
         nextTranscript.scrollTop +=
           nextTranscript.scrollHeight - previousHeight;
       });
     } catch (error) {
+      if (!mountedRef.current || requestId !== chatHistoryRequestRef.current)
+        return;
       setStatus({
         kind: "error",
         message: `Older history failed: ${error instanceof Error ? error.message : "unknown error"}`,
       });
     } finally {
-      setIsHistoryLoading(false);
+      if (mountedRef.current && requestId === chatHistoryRequestRef.current)
+        setIsHistoryLoading(false);
     }
   }
 
@@ -420,34 +526,55 @@ export function useChatFeature({
       )
     )
       return;
-    const isActiveDelete = targetId === conversationId;
+    if (deletedIdsRef.current.has(targetId)) return;
+    deletedIdsRef.current.add(targetId);
+    listRequestRef.current++;
+    if (selectedIdRef.current === targetId) {
+      chatHistoryRequestRef.current++;
+      setIsHistoryLoading(false);
+    }
     setStatus({ kind: "busy", message: "Conversation: deleting…" });
     try {
-      const payload = await readJsonResponse<ConversationDeletePayload>(
-        await fetch(`/api/conversations/${encodeURIComponent(targetId)}`, {
-          method: "DELETE",
-        }),
-      );
-      setConversations(payload.conversations ?? []);
-      if (isActiveDelete) {
-        rememberTranscriptFollowIntent();
-        setChatMessages([]);
-        setHistoryCursor(null);
-        setLastFailedMessage("");
-        forceNextScrollRef.current = true;
-        setConversationId(payload.nextConversationId);
-      }
-      setStatus({
-        kind: "ok",
-        message: payload.deleted
-          ? isActiveDelete
-            ? "Conversation deleted; a safe remaining/new conversation is selected. Garmin data, Profile, and saved memories stay unchanged."
-            : "Conversation deleted from saved chats. The current transcript, Garmin data, Profile, and saved memories stay unchanged."
-          : isActiveDelete
-            ? "Conversation was already absent; a safe conversation is selected."
+      await queueSelection(async () => {
+        const payload = await readJsonResponse<ConversationDeletePayload>(
+          await fetch(`/api/conversations/${encodeURIComponent(targetId)}`, {
+            method: "DELETE",
+          }),
+        );
+        if (!mountedRef.current) return;
+        listRequestRef.current++;
+        setConversations(
+          (payload.conversations ?? []).filter(
+            (item) => !deletedIdsRef.current.has(item.id),
+          ),
+        );
+        // Compare *current* intent, not the selection captured before DELETE.
+        if (selectedIdRef.current === targetId) {
+          rememberTranscriptFollowIntent();
+          applySelection(payload.nextConversationId);
+          const replacementRevision = selectionRevisionRef.current;
+          try {
+            await writeSelection(payload.nextConversationId);
+          } catch {
+            if (
+              mountedRef.current &&
+              replacementRevision === selectionRevisionRef.current
+            )
+              setSelectionError(
+                "Conversation deletion completed, but selection may not be saved. Retry selection.",
+              );
+            return;
+          }
+        }
+        setStatus({
+          kind: "ok",
+          message: payload.deleted
+            ? "Conversation deleted; a safe conversation is selected. Garmin data, Profile, and saved memories stay unchanged."
             : "Conversation was already absent; saved chats were refreshed.",
+        });
       });
     } catch (error) {
+      deletedIdsRef.current.delete(targetId);
       setStatus({
         kind: "error",
         message: `Conversation delete failed: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -456,45 +583,60 @@ export function useChatFeature({
   }
 
   async function startNewChat() {
-    if (isChatLoading) return;
+    if (isChatLoading || creatingRef.current) return;
+    creatingRef.current = true;
+    let revision = ++selectionRevisionRef.current;
     setStatus({
       kind: "busy",
       message: "New chat: creating local conversation…",
     });
     try {
-      const payload = await readJsonResponse<
-        Partial<ConversationCreatePayload>
-      >(
-        await fetch("/api/conversations", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ title: "New chat" }),
-        }),
-      );
-      await loadConversations(false);
-      const nextConversationId =
-        payload.conversation?.id ??
-        `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      setConversationId(nextConversationId);
-      setChatMessages([]);
-      setHistoryCursor(null);
-      setLastFailedMessage("");
-      forceNextScrollRef.current = true;
-      setStatus({
-        kind: "ok",
-        message:
-          "New chat created. Active session context reset; prior transcripts stay in local SQLite. Semantic memory, Profile, and Garmin facts remain available when configured.",
+      await queueSelection(async () => {
+        const payload = await readJsonResponse<ConversationCreatePayload>(
+          await fetch("/api/conversations", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ title: "New chat" }),
+          }),
+        );
+        if (!payload.conversation?.id)
+          throw new Error("Conversation was not created");
+        if (!mountedRef.current || revision !== selectionRevisionRef.current)
+          return;
+        applySelection(payload.conversation.id);
+        revision = selectionRevisionRef.current;
+        await writeSelection(payload.conversation.id);
+        setStatus({
+          kind: "ok",
+          message:
+            "New chat created. Active session context reset; prior transcripts stay in local SQLite. Semantic memory, Profile, and Garmin facts remain available when configured.",
+        });
       });
+      await loadConversations(false);
     } catch (error) {
+      if (!mountedRef.current || revision !== selectionRevisionRef.current)
+        return;
+      setSelectionError(
+        "New chat selection may not be saved. Retry selection.",
+      );
       setStatus({
         kind: "error",
         message: `New chat failed: ${error instanceof Error ? error.message : "unknown error"}`,
       });
+    } finally {
+      creatingRef.current = false;
     }
   }
 
   async function submitChat(text: string) {
-    if (!text.trim() || isChatLoading) return;
+    if (
+      !text.trim() ||
+      isChatLoading ||
+      !conversationId ||
+      creatingRef.current ||
+      deletedIdsRef.current.has(conversationId)
+    )
+      return;
     const trimmed = text.trim();
     const pendingAssistantId = `streaming-assistant-${Date.now()}`;
     let assistantDraft = "";
@@ -694,16 +836,17 @@ export function useChatFeature({
     await submitChat(messageInputRef.current?.value ?? message);
   }
 
-  const conversationRows = conversations.length
-    ? conversations
-    : [
-        {
-          id: conversationId,
-          title: activeConversation?.title ?? "Trainer chat",
-          updatedAt: null,
-        },
-      ];
+  const conversationRows =
+    conversationId && !activeConversation
+      ? [
+          { id: conversationId, title: "Trainer chat", updatedAt: null },
+          ...conversations,
+        ]
+      : conversations;
   return {
+    resolveConversationSelection,
+    retryConversationSelection,
+    selectionError,
     loadConversations,
     loadChatHistory,
     cancelConversationRename,

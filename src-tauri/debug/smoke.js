@@ -407,6 +407,308 @@
         reveal(el);
     }
   }
+  // T0250 finite conversation scenario: only this run's two synthetic labels.
+  const conversationTitle = (slot) =>
+    `T0250-${slot}-${globalThis.__trainerOrdinaryIsolated?.runId.replaceAll("-", "")}`;
+  function conversationRows() {
+    if (!globalThis.__trainerOrdinaryIsolated || observe().view !== "Trainer")
+      throw Error("Ordinary Trainer only");
+    const rows = [...document.querySelectorAll(".conversation-item")];
+    if (
+      rows.length > 3 ||
+      rows.some(
+        (row) =>
+          ![
+            conversationTitle("first"),
+            conversationTitle("second"),
+            "New chat",
+          ].includes(
+            row.querySelector(".conversation-select > span")?.textContent,
+          ),
+      )
+    )
+      throw Error("Non-synthetic conversations refused");
+    return rows;
+  }
+  function conversationRow(slot) {
+    const rows = conversationRows().filter(
+      (row) =>
+        row.querySelector(".conversation-select > span")?.textContent ===
+        conversationTitle(slot),
+    );
+    if (rows.length !== 1)
+      throw Error("Synthetic conversation missing/ambiguous");
+    return rows[0];
+  }
+  function conversationHistoryVisible() {
+    const sidebar = document.querySelector(".conversation-sidebar");
+    if (!visible(sidebar)) return false;
+    const rect = sidebar.getBoundingClientRect();
+    return (
+      rect.width >= 200 &&
+      rect.left >= 0 &&
+      rect.right <= innerWidth &&
+      (sidebar.classList.contains("open") ||
+        (innerWidth > 960 && !sidebar.closest(".sidebar-collapsed")))
+    );
+  }
+  function conversationObservation(action) {
+    const rows = conversationRows();
+    const selected = (title) =>
+      rows.some(
+        (row) =>
+          row.querySelector(".conversation-select > span")?.textContent ===
+            title &&
+          row
+            .querySelector(".conversation-select")
+            ?.getAttribute("aria-current") === "true",
+      );
+    const present = (slot) =>
+      rows.some(
+        (row) =>
+          row.querySelector(".conversation-select > span")?.textContent ===
+          conversationTitle(slot),
+      );
+    return {
+      ok: true,
+      action,
+      trustedInput: false,
+      selectionReady:
+        ![...document.querySelectorAll('[role="alert"] button')].some((el) =>
+          el.textContent.includes("Retry selection"),
+        ) &&
+        ![...document.querySelectorAll('[role="status"]')].some(
+          (el) => el.textContent === "Loading conversation selection…",
+        ),
+      historyVisible: conversationHistoryVisible(),
+      historyGeometry: (() => {
+        const r = document
+          .querySelector(".conversation-sidebar")
+          ?.getBoundingClientRect();
+        return {
+          left: r?.left ?? 0,
+          right: r?.right ?? 0,
+          width: r?.width ?? 0,
+        };
+      })(),
+      menuReady: !!document.querySelector('[role="menu"]'),
+      renameReady: visible(
+        document.querySelector("#conversation-rename-title"),
+      ),
+      renameDraftReady: [
+        conversationTitle("first"),
+        conversationTitle("second"),
+      ].includes(document.querySelector("#conversation-rename-title")?.value),
+      historyExpanded:
+        !!document.querySelector(".conversation-sidebar.open") ||
+        (innerWidth > 960 &&
+          !document
+            .querySelector(".conversation-sidebar")
+            ?.closest(".sidebar-collapsed")),
+      historyFitsViewport: (() => {
+        const r = document
+          .querySelector(".conversation-sidebar")
+          ?.getBoundingClientRect();
+        return !!r && r.width >= 200 && r.left >= 0 && r.right <= innerWidth;
+      })(),
+      historyToggleVisible:
+        [
+          ...document.querySelectorAll(
+            'button[aria-label="Toggle conversation history"]',
+          ),
+        ].filter(visible).length === 1,
+      empty: rows.length === 0,
+      firstPresent: present("first"),
+      secondPresent: present("second"),
+      firstSelected: selected(conversationTitle("first")),
+      secondSelected: selected(conversationTitle("second")),
+      newSelected: selected("New chat"),
+      transcriptEmpty:
+        document.querySelectorAll(".transcript .chat-message").length === 0,
+    };
+  }
+  function conversationControl(row, selector) {
+    const el = row.querySelector(selector);
+    if (!el || !visible(el) || el.disabled)
+      throw Error("Conversation control unavailable");
+    return el;
+  }
+  let conversationStage = "admission";
+  let conversationMenu = null;
+  let conversationNaming = null;
+  // One rendered action per RPC. React reconciliation is observed only in a
+  // subsequent read-only RPC, never awaited inside a pending native callback.
+  function conversationAction(command) {
+    conversationStage = "admission";
+    const actions = [
+      "observe",
+      "open-menu",
+      "open-history",
+      "settle-history",
+      "new",
+      "menu-new",
+      "rename-new",
+      "title-first",
+      "title-second",
+      "save-title",
+      "menu-first",
+      "menu-second",
+      "choose-first",
+      "choose-second",
+      "delete-first",
+      "delete-second",
+    ];
+    if (
+      Object.keys(command).sort().join(",") !== "action,type" ||
+      !actions.includes(command.action)
+    )
+      throw Error("Unsupported conversation fields/action");
+    conversationRows();
+    if (command.action === "observe")
+      return conversationObservation(command.action);
+    if (command.action === "open-menu") {
+      if (innerWidth > 960) throw Error("Mobile menu only");
+      target("Menu").click();
+    } else if (command.action === "open-history") {
+      if (!conversationObservation("observe").historyExpanded)
+        target("Toggle conversation history").click();
+    } else if (command.action === "settle-history") {
+      const sidebar = document.querySelector(".conversation-sidebar");
+      if (
+        !conversationObservation("observe").historyExpanded ||
+        typeof CSSTransition === "undefined"
+      )
+        throw Error("An explicitly opened history transition is required");
+      // Nonactivating WebKit can freeze CSS transitions. Finish only this
+      // sidebar's existing finite transition at its real CSS endpoint; no
+      // style/transform override, generic animation control or geometry waiver.
+      for (const animation of sidebar.getAnimations())
+        if (
+          animation instanceof CSSTransition &&
+          animation.effect?.target === sidebar &&
+          ["transform", "width", "padding-left", "padding-right"].includes(
+            animation.transitionProperty,
+          )
+        )
+          animation.finish();
+    } else {
+      if (!conversationHistoryVisible())
+        throw Error("History must be visibly open");
+      const [operation, slot] = command.action.split("-");
+      if (command.action === "new") {
+        if (
+          conversationRows().some(
+            (row) =>
+              row.querySelector(".conversation-select > span")?.textContent ===
+              "New chat",
+          )
+        )
+          throw Error("Duplicate/ambiguous creation refused");
+        conversationStage = "creating";
+        target("New chat").click();
+      } else if (operation === "menu") {
+        const row =
+          slot === "new"
+            ? conversationRows().filter(
+                (item) =>
+                  item.querySelector(".conversation-select > span")
+                    ?.textContent === "New chat",
+              )
+            : [conversationRow(slot)];
+        if (row.length !== 1) throw Error("Ambiguous menu row");
+        conversationMenu = { slot, row: row[0] };
+        conversationControl(row[0], ".conversation-menu-trigger").click();
+      } else if (command.action === "rename-new") {
+        if (
+          conversationMenu?.slot !== "new" ||
+          !conversationMenu.row.isConnected
+        )
+          throw Error("Synthetic New menu required");
+        conversationStage = "menu";
+        target("Rename", '[role="menuitem"]').click();
+        conversationNaming = { row: conversationMenu.row, slot: null };
+        conversationMenu = null;
+      } else if (operation === "title") {
+        const input = document.querySelector("#conversation-rename-title");
+        if (
+          !conversationNaming?.row.isConnected ||
+          !visible(input) ||
+          input.disabled ||
+          input.value !== "New chat" ||
+          conversationObservation("observe")[slot + "Present"]
+        )
+          throw Error("Synthetic New rename required");
+        conversationStage = "rename";
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        ).set.call(input, conversationTitle(slot));
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        conversationNaming.slot = slot;
+      } else if (command.action === "save-title") {
+        const input = document.querySelector("#conversation-rename-title");
+        if (
+          !conversationNaming?.slot ||
+          input?.value !== conversationTitle(conversationNaming.slot)
+        )
+          throw Error("Known title draft required");
+        conversationStage = "saving";
+        target("Save", ".rename-dialog button").click();
+        conversationNaming = null;
+      } else if (operation === "choose") {
+        conversationControl(
+          conversationRow(slot),
+          ".conversation-select",
+        ).click();
+      } else {
+        const row = conversationRow(slot);
+        if (conversationMenu?.slot !== slot || conversationMenu.row !== row)
+          throw Error("Matching synthetic delete menu required");
+        const expected = `Delete local conversation "${conversationTitle(slot)}" and its messages? Garmin data, Profile, and saved memories stay unchanged.`;
+        const view = row.ownerDocument.defaultView;
+        const original = view.confirm;
+        try {
+          view.confirm = (text) => {
+            if (text !== expected)
+              throw Error("Unexpected confirmation refused");
+            return true;
+          };
+          target("Delete", '[role="menuitem"]').click();
+        } finally {
+          view.confirm = original;
+          conversationMenu = null;
+        }
+      }
+    }
+    return conversationObservation(command.action);
+  }
+  function revealConversations() {
+    if (!conversationHistoryVisible())
+      throw Error("Capture requires visibly open history");
+    conversationRows(); // Refuse unknown/copied labels before revealing anything.
+    for (const row of conversationRows()) {
+      for (const el of [
+        row,
+        row.querySelector(".conversation-select"),
+        row.querySelector(".conversation-select > span"),
+        row.querySelector(".conversation-menu-trigger"),
+      ])
+        el?.setAttribute("data-smoke-reveal", "");
+    }
+    for (const el of document.querySelectorAll(
+      ".conversation-sidebar button, .sidebar-header strong, .sidebar-header .section-kicker, .conversation-list .empty-chat",
+    ))
+      if (
+        [
+          "New chat",
+          "Conversations",
+          "History",
+          "No saved conversations yet.",
+        ].includes(el.textContent.trim())
+      )
+        el.setAttribute("data-smoke-reveal", "");
+  }
   let maskExpiry;
   function restore() {
     clearTimeout(maskExpiry);
@@ -424,6 +726,7 @@
     const expected = {
       trainer: "Trainer",
       composer: "Trainer",
+      conversation: "Trainer",
       sync: "Sync",
       profile: "Profile & data",
     }[command.view];
@@ -469,6 +772,7 @@
         pill.setAttribute("data-smoke-reveal", "");
     }
     if (command.view === "composer") revealComposer();
+    if (command.view === "conversation") revealConversations();
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";
     style.textContent =
@@ -502,6 +806,8 @@
         return observe();
       case "composer":
         return composerAction(command);
+      case "conversation":
+        return conversationAction(command);
       case "click": {
         if (["LLM debug traces", "First LLM trace"].includes(command.target)) {
           debugSummary(command.target === "First LLM trace").click();
@@ -656,7 +962,13 @@
       result = await execute(request.command);
     } catch {
       restore();
-      result = { ok: false, error: "Rendered command refused or failed" };
+      result = {
+        ok: false,
+        error:
+          request.command?.type === "conversation"
+            ? `Conversation action failed at ${conversationStage}`
+            : "Rendered command refused or failed",
+      };
     }
     try {
       await globalThis.__TAURI_INTERNALS__.invoke("smoke_result", {

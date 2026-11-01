@@ -51,6 +51,12 @@ async function setup(stream: boolean, waitForReply = true) {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/conversations/selection")
+        return json(
+          init?.method === "PUT"
+            ? JSON.parse(String(init.body))
+            : { conversationId: "default" },
+        );
       if (url === "/api/conversations") {
         listReads++;
         return json({
