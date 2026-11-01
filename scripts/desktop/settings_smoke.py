@@ -47,6 +47,7 @@ def main():
         run.observer = observer
         run.start(binary)
         before = run.http('/identity')
+        original_settings = (run.root / 'config/settings-v2.json').read_bytes()
         run.command({'type': 'settings', 'action': 'open'})
         initial = wait_settings(run, lambda o: o['ready'], 'initial setup ready')
         if not initial['notConnected'] or not initial['manualControlsAbsent'] or initial['formVisible'] or not initial['privateActionsDenied']:
@@ -64,7 +65,11 @@ def main():
         after = run.http('/identity')
         if any(before[key] != after[key] for key in ['pid', 'origin', 'database']):
             raise ValueError('Ordinary Save switched active backend or DB')
-        saved = json.loads((run.root / 'config/settings-v2.json').read_text())
+        saved = json.loads((run.root / 'config/settings-v3.json').read_text())
+        if saved['version'] != 3 or (run.root / 'config/settings-v2.json').read_bytes() != original_settings:
+            raise ValueError('Explicit catalog migration did not retain the original keyless settings')
+        if saved['chatCatalog']['defaultEntryId'] != 'entry_legacy_ollama' or len(saved['chatCatalog']['entries']) != 4:
+            raise ValueError('Fixed keyless catalog defaults changed')
         if saved['keys'] or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
             raise ValueError('Saved settings escaped keyless copy scope')
         run.command({'type': 'settings', 'action': 'close'})

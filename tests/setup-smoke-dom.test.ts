@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { waitFor } from "@testing-library/dom";
 import fields from "../src-tauri/ui/settings-fields.json";
+import { legacyChatCatalog } from "../src/lib/model-settings/catalog";
 
 const invoke = vi.fn();
 const controller = window as typeof window & {
@@ -29,6 +30,11 @@ beforeEach(async () => {
   invoke.mockImplementation(async (command) => {
     if (command === "read_settings")
       return {
+        revision: "synthetic-revision",
+        chatCatalog: legacyChatCatalog(
+          { AI_PROVIDER: "ollama" },
+          { openai: false, deepseek: false },
+        ),
         fields: {
           DATABASE_PATH: "/private/run/trainer.sqlite",
           AI_PROVIDER: "ollama",
