@@ -56,9 +56,6 @@ function setup(
   render(<TrainerDashboard />);
   return fetcher;
 }
-function openModel() {
-  fireEvent.click(screen.getByText("Trainer model", { selector: "summary" }));
-}
 function openProfile() {
   fireEvent.click(screen.getByRole("button", { name: "Profile & data" }));
   return screen.getByRole("dialog", { name: "Profile & data" });
@@ -77,16 +74,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("bounds expanded chat model content above shared card overflow rules", () => {
+it("keeps the inline model selector compact with no card, disclosure or nested scroll", () => {
+  setup();
+  const control = screen.getByRole("combobox", { name: "Trainer model" });
+  expect(control.closest("details, .settings-card, [role=dialog]")).toBeNull();
+  expect(
+    screen.queryByText(/Choose the model for subsequent trainer turns/),
+  ).toBeNull();
   const css = readFileSync("src/app/style.css", "utf8");
-  // The compound selector must outrank the later shared .settings-card rule.
-  // Otherwise actual WebKit paints the bounded card's children over chat.
-  expect(css).toMatch(
-    /\.settings-card\.chat-model-control\s*\{[^}]*max-height:\s*35vh;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;/,
-  );
-  expect(css).toMatch(
-    /\.settings-card\.chat-model-control\s*>\s*label\s*\{[^}]*margin:\s*12px 16px;/,
-  );
+  const containerRule = css.match(/\.chat-model-control\s*\{([^}]+)\}/)?.[1];
+  expect(containerRule).toBeTruthy();
+  expect(containerRule).not.toMatch(/overflow|max-height|height:/);
+  expect(css).toMatch(/\.chat-model-control select\s*\{[^}]*height:\s*32px;/);
 });
 
 it("keeps relocated Sync groups content-sized inside the outer scroll region", () => {
@@ -101,7 +100,6 @@ it("keeps relocated Sync groups content-sized inside the outer scroll region", (
 
 it("loads the model on initial chat without Profile, retains drafts and returns Profile focus on Escape/backdrop", async () => {
   const fetcher = setup();
-  openModel();
   await screen.findByText(/Configured default \(environment\): openai/);
   expect(
     fetcher.mock.calls.filter(([url]) => url === "/api/model-settings"),
@@ -158,7 +156,6 @@ it("keeps model saves alive while chat is hidden, then revalidates its authorita
       });
     return response(saved);
   });
-  openModel();
   await screen.findByText(/Configured default \(environment\)/);
   fireEvent.change(screen.getByRole("combobox", { name: "Trainer model" }), {
     target: { value: "gpt-6-luna" },
@@ -172,7 +169,6 @@ it("keeps model saves alive while chat is hidden, then revalidates its authorita
   };
   await act(async () => finish(response(saved)));
   fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
-  openModel();
   await screen.findByText(/Saved preference: openai/);
   await waitFor(() =>
     expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
