@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import stat
 import subprocess
 import uuid
 from native_smoke import Observer, Run, canonical, fingerprint, private_json, readonly, source_identity
@@ -50,13 +51,59 @@ class OrdinaryRun(Run):
             'controlPort': self.config['port'], 'capability': self.config['token'],
         }
         private_json(self.root / 'launch.json', self.descriptor)
+        root_info = self.root.stat()
+        launch_info = (self.root / 'launch.json').stat()
+        self.root_identity = (root_info.st_dev, root_info.st_ino)
+        self.launch_identity = (launch_info.st_dev, launch_info.st_ino)
+        self.previous_token = None
         private_json(self.root / 'artifact.json', {'artifactKind': 'ordinary', 'sourceFingerprint': source,
                      'artifactInventoryHash': self.artifact, 'files': len(inventory),
                      'bundleBytesRewritten': False, 'bundleIdentityRewritten': False})
 
+    def renew_capability(self):
+        # Pin our original private root and hold its lifetime namespace lease while
+        # exclusively staging/atomically replacing only our known descriptor.
+        fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        temporary = '.launch-' + str(uuid.uuid4())
+        created = False
+        try:
+            root_info = os.fstat(fd)
+            if (root_info.st_dev, root_info.st_ino) != self.root_identity or root_info.st_uid != os.getuid() or root_info.st_mode & 0o777 != 0o700:
+                raise ValueError('Run root changed; no descriptor publication')
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            prior = os.stat('launch.json', dir_fd=fd, follow_symlinks=False)
+            if (prior.st_dev, prior.st_ino) != self.launch_identity or not stat.S_ISREG(prior.st_mode) or prior.st_nlink != 1 or prior.st_uid != os.getuid() or prior.st_mode & 0o777 != 0o600:
+                raise ValueError('Run descriptor changed; preserve and reconcile')
+            token = os.urandom(32).hex()
+            descriptor = {**self.descriptor, 'capability': token}
+            staged = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+            created = True
+            with os.fdopen(staged, 'w') as output:
+                staged_info = os.fstat(output.fileno())
+                json.dump(descriptor, output, indent=2)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, 'launch.json', src_dir_fd=fd, dst_dir_fd=fd)
+            created = False
+            os.fsync(fd)
+            current = os.stat('launch.json', dir_fd=fd, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (staged_info.st_dev, staged_info.st_ino) or current.st_nlink != 1:
+                raise ValueError('Descriptor publication changed; preserve and reconcile')
+            self.launch_identity = (current.st_dev, current.st_ino)
+            self.previous_token = self.config['token']
+            self.config['token'] = token
+            self.descriptor = descriptor
+        finally:
+            try:
+                if created:
+                    os.unlink(temporary, dir_fd=fd)
+            finally:
+                os.close(fd)  # Releases only this descriptor's acquired lease.
+
     def spawn(self, binary, log):
         if Path(binary) != self.binary:
             raise ValueError('Exact owned ordinary bundle required')
+        self.renew_capability()
         self.previous_boot = self.boot
         self.boot = None
         env = {'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin', 'TMPDIR': str(self.root / 'tmp')}
@@ -162,6 +209,7 @@ class OrdinaryRun(Run):
         child.wait(timeout=5)
         self.stop()  # Existing bounded endpoint/DB/run-lease settlement must pass without stale-PID cleanup.
         self.start(self.binary)
+        self.http('/identity', extra={'Authorization': 'Bearer ' + self.previous_token}, expected=403)
         if self.boot == boot:
             raise ValueError('Parent-death restart reused native boot')
         self.command({'type': 'click', 'target': 'Profile & data'})
@@ -257,6 +305,7 @@ def main():
             sentinel = run.scenario()
             old_boot = run.boot
             run.verify_restart(run.binary, sentinel)
+            run.http('/identity', extra={'Authorization': 'Bearer ' + run.previous_token}, expected=403)
             run.http('/command', {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedBoot': old_boot}, expected=400)
             run.captures()
             run.verify_parent_death(sentinel)

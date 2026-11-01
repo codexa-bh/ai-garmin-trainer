@@ -66,6 +66,62 @@ class OrdinaryContracts(unittest.TestCase):
         self.assertNotIn(run.config['token'], repr(spawn.call_args))
         self.assertEqual((run.root / 'unit.log').read_bytes(), b'')
 
+    def test_fresh_capability_each_boot_with_private_atomic_descriptor(self):
+        run = self.run_fixture()
+        first, identity = run.config['token'], run.launch_identity
+        run.renew_capability()
+        second = run.config['token']
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(identity, run.launch_identity)
+        self.assertEqual(run.previous_token, first)
+        self.assertEqual(json.loads((run.root / 'launch.json').read_text()), run.descriptor)
+        run.renew_capability()
+        self.assertNotEqual(second, run.config['token'])
+        self.assertEqual(run.previous_token, second)
+        self.assertEqual(run.descriptor['capability'], run.config['token'])
+        self.assertEqual((run.root / 'launch.json').stat().st_mode & 0o777, 0o600)
+        self.assertEqual((run.root / 'launch.json').stat().st_nlink, 1)
+        self.assertEqual(list(run.root.glob('.launch-*')), [])
+
+    def test_descriptor_replacement_or_alias_is_preserved_not_adopted(self):
+        run = self.run_fixture()
+        launch = run.root / 'launch.json'
+        launch.rename(run.root / 'retained-launch.json')
+        launch.write_text('foreign descriptor')
+        launch.chmod(0o600)
+        original = run.config['token']
+        with self.assertRaises(ValueError):
+            run.renew_capability()
+        self.assertEqual(launch.read_text(), 'foreign descriptor')
+        launch.unlink()
+        target = run.root / 'foreign.json'
+        target.write_text('foreign private data')
+        launch.symlink_to(target)
+        with self.assertRaises(ValueError):
+            run.renew_capability()
+        self.assertEqual(target.read_text(), 'foreign private data')
+        self.assertTrue(launch.is_symlink())
+        self.assertEqual(run.config['token'], original)
+
+    def test_live_root_owner_or_replaced_root_never_gets_a_new_descriptor(self):
+        run = self.run_fixture()
+        original = (run.root / 'launch.json').read_bytes()
+        fd = os.open(run.root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaises(BlockingIOError):
+                run.renew_capability()
+            self.assertEqual((run.root / 'launch.json').read_bytes(), original)
+        finally:
+            os.close(fd)
+        run.root.rename(run.root.with_name(run.root.name + '-retained'))
+        run.root.mkdir(mode=0o700)
+        launch = run.root / 'launch.json'
+        launch.write_text('foreign root data')
+        with self.assertRaises(ValueError):
+            run.renew_capability()
+        self.assertEqual(launch.read_text(), 'foreign root data')
+
     def test_exact_identity_and_new_boot_required_and_request_bound(self):
         run = self.run_fixture()
         run.child = SimpleNamespace(pid=12345)
