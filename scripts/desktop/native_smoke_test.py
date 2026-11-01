@@ -59,6 +59,15 @@ class OwnershipTests(unittest.TestCase):
                 self.assertEqual(fingerprint(copy)['counts']['daily_health'], 29)
                 self.assertIsNone(copy.execute("select date from daily_health where date='2026-01-21'").fetchone())
                 self.assertEqual(copy.execute('select count(*) from daily_health where availability=\'partial\'').fetchone()[0], 29)
+            gapped = Run(root, run.database, 'a' * 64)
+            with contextlib.closing(readonly(gapped.database)) as copy:
+                gapped_before = fingerprint(copy)
+            gapped.prepare_health_comparison()
+            with contextlib.closing(readonly(gapped.database)) as copy:
+                self.assertEqual(fingerprint(copy), gapped_before)
+            existing = json.loads((gapped.root / 'health-preparation.json').read_text())
+            self.assertTrue(existing['existingInputGap'])
+            self.assertEqual(existing['removedDailyRowCount'], 0)
             receipt = json.loads((run.root / 'health-preparation.json').read_text())
             self.assertTrue(receipt['copyOnly'])
             self.assertEqual(receipt['removedDailyRowCount'], 1)

@@ -8,13 +8,13 @@ Build once from final reviewed inputs with `npm run desktop:build`. Then:
 
 ```bash
 npm run smoke:ordinary -- --scratch '/absolute/canonical/private-task-scratch' \
-  --input-file '/absolute/private/database-selection.json' \
+  --task-id T0252 \
   --bundle '/absolute/checkout/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
 ```
 
-Selection is a private `0600` single-link JSON document containing only `database`, an explicitly selected canonical compatible populated SQLite file. Scratch must already be canonical, owned and `0700`; the command does not chmod/adopt insecure inputs. Never discover normal settings/env/keys/tokens. Never use another task's private inputs without independently explicit consuming-task/operator authorization for that cross-task use. A bounded data-derived fixture needs explicit operator/task approval, stays private and must not become a new persistent fixture framework or public personal-data asset.
+Input defaults to the [finite authored synthetic recipe and supported preparer](smoke-inputs.md), requiring no personal input or approval. Scratch must already be canonical, owned and `0700`; insecure inputs are never chmodded/adopted. Optional private selection retains exactly `database` in bounded `0600` single-link JSON, with explicit current `--grant-file` and `--provenance-file` checks before private consumption. An applicable standing grant survives task changes; missing/revoked/expired/mismatched authority refuses that private route without fallback. Never discover normal settings/env/keys/tokens.
 
-For Pivan/E0007 work, consult the selected workspace's `epics/E0007-ai-garmin-connect-trainer/repos.md` → **Required local live smoke** → **private smoke-fixture inventory** before requesting fresh input. That single workspace owner records historical preparation/provenance and consent-first location, lifetime and compatibility checks; it publishes no private paths/data. Discovery is not reuse consent, current readiness, a new Settings control or live integration evidence. Outside that workspace, obtain an explicitly approved input; do not guess private locations.
+For Pivan/E0007, the selected workspace's `epics/E0007-ai-garmin-connect-trainer/content/private-smoke-fixture-inventory.md` owns approval/retention policy. Discovery is not consent or readiness; no actual private grant is supplied by this documentation. The [input contract](smoke-inputs.md#explicit-private-route) owns CLI/serialization and one-off compatibility, not a general permission service.
 
 The runner online-backs up the selected input into two exclusive `ordinary-<UUID>` roots, copies the **unmodified ordinary bundle** outside checkout and verifies every inventory byte. No binary, Info.plist, bundle identity or packaged resource is replaced. It directly launches each owned child with `--isolated-smoke-run <root/launch.json>`; capability is private, not argv/env/URL/log output. `--prepare-only` records independent copies/provenance with zero launches, not smoke success.
 
@@ -98,24 +98,22 @@ a quick Profile pass or offscreen WebKit probe for changed-path native evidence.
 
 ## Run the representative scenario
 
-This existing **debug-only** populated-copy command remains unchanged:
+This **debug-only** command now defaults to representative authored synthetic input; its native scenario/admission scope is unchanged.
 
-Prerequisites: `npm ci`, supported Node/Rust/Xcode tools, Python 3 and an explicitly approved existing compatible populated SQLite input. External providers, Garmin tokens, Keychain and Ollama are unnecessary: this scenario never invokes them. It does not certify their availability.
-
-Create a private input-selection file **outside source control**, containing only the explicitly selected canonical `database` path, not settings, tokens or keys. Use the existing task scratch directory (Pivan: `pivan-harness task-scratch path "$PIVAN_TASK_PATH" --create`). Do not use symlink aliases or search HOME/config to find input.
+Prerequisites: `npm ci`, supported Node/Rust/Xcode tools, Python 3 and canonical private task scratch (Pivan: `pivan-harness task-scratch path "$PIVAN_TASK_PATH" --create`; use a fresh `0700` child if needed, never adopt insecure input). External providers, Garmin tokens, Keychain and Ollama are unnecessary and never invoked. No real-integration certification follows.
 
 ```bash
-# Existing canonical task scratch, not a new persistent fixture environment:
-scratch='/absolute/canonical/task-scratch'
-(umask 077; set -C; printf '%s\n' '{"database":"/absolute/approved/populated.sqlite"}' > "$scratch/selected-database.json")
-npm run smoke:native -- --scratch "$scratch" --input-file "$scratch/selected-database.json"
+scratch='/absolute/canonical/private-task-scratch'
+npm run smoke:native -- --scratch "$scratch" --task-id T0252
 ```
+
+See [local smoke inputs](smoke-inputs.md) for recorded UTC anchor, no-launch preparation and optional exact private standing/one-off authority. No personal-input selection or repeated ticket-only consent is required for the synthetic route.
 
 The command assembles production Next/Node resources and builds a debug native host under a worktree-local preparation lock. It hashes tracked, staged/unstaged and untracked nonignored source inputs and refuses changes during preparation/execution. Build/test caches are worktree-local; never share mutable state across worktrees. It copies the prepared executable to scratch and uses it for two simultaneous uniquely owned native instances. A run directory/endpoint is never reused or stolen. `--prepare-only` exercises private online-backup/provenance preparation with **zero launches**; it is not smoke success.
 
 The runner:
 
-1. Creates fresh owner-private UUID directories with independent config/HOME/temp/WebView profile, capability, DB and output. Uses SQLite online backup, compares whole logical fingerprints/counts and integrity, and preserves originals. Never makes an empty DB or migrates it.
+1. Creates fresh owner-private UUID directories with independent config/HOME/temp/WebView profile, capability, DB and output. Uses SQLite online backup, compares whole logical fingerprints/counts and integrity, and preserves the prepared seed/original. Fresh synthetic schema is created only by the preparer; selected existing input is never migrated.
 2. Validates exact run/source/build/app/PID/selected-copy/backend origin plus a read-only **hydrated renderer** round trip. Listening/native Ready/HTTP 200/server-rendered HTML alone are insufficient. A DOM-only readiness marker is set by the normal dashboard effect; no feature state is read/injected.
 3. Navigates Trainer → Activities/Health/Training Plan/Sync → Trainer, then Profile & data without provider/sync/deletion actions. Inputs only a synthetic `T0231-smoke-<UUID>` Goals value via React-compatible DOM events, saves through the existing Profile owner and verifies other copied Profile fields unchanged. Quits/relaunches the same owned copy, checks new native PID and persisted Goals through rendered UI, then verifies the other fields again.
 4. Captures an actual own-WKWebView PNG after fixed temporary sanitization hides every private copied surface except Profile heading/saved badge, synthetic Goals and Save/Reload controls. This is explicitly a **sanitized Profile subtree**, not a normal full-window screenshot or layout-fidelity/native-input certificate. Never upload/commit images. Read/inspect each required image and record scenario/source/hash/visible-state analysis separately from capture success; Pivan tasks use `pr-smoke-assets` after inspection.
@@ -141,14 +139,15 @@ Add `--health-comparison` to the same populated-copy `smoke:native` command to
 exercise Previous/Next/Latest seven-date pages, Daily/Weekly/Monthly switching,
 range preservation through away/back, and fixed narrow (420×900) and wide
 (1280×900) own-window captures. The selected input must include older eligible
-Health history: fifteen consecutive eligible source dates with partial coverage
-in the historical page. Missing prerequisites refuse rather than claiming coverage.
-Before launch, the opt-in scenario omits exactly one fixed-position historical
-Health row from each newly created owned online copy. This guarantees a missing
-calendar slot alongside real partial source records, without fabricating values
-or changing selected input. A private preparation receipt attributes the omission;
-it is not evidence that the original source had a missing date. Repeated/live-copy
-preparation is refused. No new seed environment or primary discovery is introduced.
+Health history: at least fourteen eligible source dates with partial coverage in
+the historical page. Missing prerequisites refuse rather than claiming coverage.
+The supported default synthetic recipe supplies missing/partial/zero cases. Existing
+input gaps are preserved without extra omissions. Only when the historical page
+has no gap, the opt-in scenario omits one fixed-position row from each newly created
+owned online copy, preserving at least one partial record. A private preparation
+receipt distinguishes existing gaps from copy-only omissions; neither is invented
+as evidence about personal data. Repeated/live-copy preparation is refused. No
+primary discovery or additional durable fixture environment is introduced.
 
 The closed `health` command accepts only these actions: `daily`, `weekly`,
 `monthly`, `previous`, `next`, `latest`, `remember-range`, `assert-range`,
@@ -187,7 +186,7 @@ One instance, no capture, full navigation matrix, parallel/security/release suit
 real integrations or trusted native input. Missing/aliased/reused/escaping scratch
 or seed, wrong architecture, readiness/save/restart/cleanup failure is nonzero, with
 no fallback to user state or blind mutation retry. Existing `smoke:native` retains
-two populated private copies, navigation and capture; this command does not narrow it.
+two representative run copies, navigation and capture with synthetic default; quick does not narrow it.
 The explicit `--resources-ready` option verifies same-source resource inventory for
 [one-build full nightly reproduction](validation.md#change-gated-native-nightly).
 
@@ -268,7 +267,8 @@ Safe, bounded task-needed smoke-bridge/runner evolution is **expected and wanted
 After sufficient final validation and an ordinary unsigned ARM64 `npm run desktop:build`:
 
 ```bash
-npm run smoke:release -- --scratch "$scratch" --input-file "$scratch/selected-database.json"
+# Use the database-only selection produced by smoke:prepare (no personal input).
+npm run smoke:release -- --scratch "$scratch" --input-file '/canonical/smoke-input-UUID/selection.json'
 ```
 
 This inventories every file in the **actual ordinary bundled `.app`**, requires supported isolated admission/control markers and rejects precise legacy debug admission/grant/probe markers. Shared controller/callback code is intentionally present, not proof it is enabled on default launches. The command then separately builds an explicit `release-probe` executable. The latter changes only run-local paths/app identity/incognito/nonactivation and fixed denial observation. It has no listener/control/capture implementation or result callback. In a copied `.app` with read-only resources it supplies enabling environment, observes no endpoint and a fixed internal WebView request being denied (`command-not-found` or earlier ACL refusal). It reports that reason truthfully, reaps only its live child and verifies the original production artifact inventory unchanged. The unbundled release executable may now be the instrumented variant; ordinary `desktop:build` never enables the feature and its bundled app remains unchanged.
@@ -277,7 +277,7 @@ This inventories every file in the **actual ordinary bundled `.app`**, requires 
 
 ## Evidence and recovery
 
-Keep original failed logs/observations alongside later repairs. Each private run retains provenance, native/readiness/failure/observation/scenario/restart/shutdown records and screenshots; the task receipt records original integrity and focus-sampling limits. Profile sentinels exist only in task-owned populated copies and are intentionally deferred to scratch expiry; never copy back. Schema/back-sync is a verified no-op, not a new fixture system. See [developer process](developer-process.md) and the epic runbook.
+Keep original failed logs/observations alongside later repairs. Each private run retains provenance, native/readiness/failure/observation/scenario/restart/shutdown records and screenshots; the task receipt records original integrity and focus-sampling limits. Profile sentinels exist only in task-owned populated copies and are intentionally deferred to scratch expiry; never copy back. Schema/back-sync is a verified no-op for this finite local preparation seam, not a durable fixture system. See [developer process](developer-process.md) and the epic runbook.
 
 Use `npm run smoke:test`, focused DOM tests and `npm run desktop:test:native` for cheap boundary regressions, then the normal aggregate/reliability/build/native gates and current real smoke. Do not repeatedly rebuild/rerun unchanged heavy inputs to wait for hosted CI. Recurring CI runs only the separately documented synthetic quick scenario, not this full private populated-copy/release suite.
 

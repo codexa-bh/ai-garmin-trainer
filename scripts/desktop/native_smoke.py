@@ -140,6 +140,7 @@ class Run:
         self.pids = []
         self.commands = []
         self.observer = None
+        self.before_start = lambda: None  # Prepared-input authority may be rechecked for every boot.
 
     def spawn(self, binary, log):
         env = {'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin', 'HOME': str(self.root / 'home'),
@@ -153,6 +154,7 @@ class Run:
                 and identity['appIdentity'] == 'com.codexa.garmin-trainer.smoke.r' + self.id.replace('-', ''))
 
     def start(self, binary, timeout=100):
+        self.before_start()
         if self.child is not None or listening(self.config['port']):
             raise ValueError('Run live/endpoint occupied; no fallback or occupant kill')
         self.launches += 1
@@ -246,29 +248,34 @@ class Run:
             client.close()
 
     def prepare_health_comparison(self):
-        """One opt-in, prelaunch missing slot on the owned online copy, never input."""
+        """Preserve existing gaps, or prepare one only on an owned prelaunch copy."""
         from datetime import date, datetime, timedelta, timezone
         if self.launches or self.child is not None or (self.root / 'health-preparation.json').exists() or canonical(self.database).parent != canonical(self.root):
             raise ValueError('Health preparation requires an unlaunched owned copy')
         if self.database.stat().st_nlink != 1 or self.database.stat().st_uid != os.getuid():
             raise ValueError('Health copy identity refused')
         with contextlib.closing(sqlite3.connect(self.database)) as copy:
-            dates = [row[0] for row in copy.execute('select date from daily_health where date <= ? order by date desc limit 15', (datetime.now(timezone.utc).date().isoformat(),))]
-            if len(dates) != 15 or any(date.fromisoformat(value).isoformat() != value for value in dates):
-                raise ValueError('Health comparison requires fifteen recent eligible source dates')
+            dates = [row[0] for row in copy.execute('select date from daily_health where date <= ? order by date desc limit 21', (datetime.now(timezone.utc).date().isoformat(),))]
+            if len(dates) < 14 or any(date.fromisoformat(value).isoformat() != value for value in dates):
+                raise ValueError('Health comparison requires fourteen eligible source dates')
             latest = date.fromisoformat(dates[0])
-            if any(date.fromisoformat(value) != latest - timedelta(days=index) for index, value in enumerate(dates)):
-                raise ValueError('Health preparation requires consecutive source dates')
-            if not copy.execute("select count(*) from daily_health where date between ? and ? and availability='partial'", (dates[13], dates[7])).fetchone()[0]:
+            historical = [(latest - timedelta(days=index)).isoformat() for index in range(7, 14)]
+            rows = dict(copy.execute('select date, availability from daily_health where date between ? and ?', (historical[-1], historical[0])))
+            partial_count = sum(value == 'partial' for value in rows.values())
+            if not partial_count:
                 raise ValueError('Historical Health page lacks a partial source record')
+            existing_gap = any(value not in rows for value in historical)
+            omitted = (latest - timedelta(days=10)).isoformat()
+            if not existing_gap and partial_count == 1 and rows[omitted] == 'partial':
+                raise ValueError('Health omission would remove the only partial record')
             before = fingerprint(copy)
-            changed = copy.execute('delete from daily_health where date=?', (dates[10],)).rowcount
+            changed = 0 if existing_gap else copy.execute('delete from daily_health where date=?', (omitted,)).rowcount
             copy.commit()
             after = fingerprint(copy)
-            expected = {**before['counts'], 'daily_health': before['counts']['daily_health'] - 1}
-            if changed != 1 or after['counts'] != expected or copy.execute('pragma foreign_key_check').fetchall():
+            expected = {**before['counts'], 'daily_health': before['counts']['daily_health'] - changed}
+            if changed != (0 if existing_gap else 1) or after['counts'] != expected or copy.execute('pragma foreign_key_check').fetchall():
                 raise ValueError('Bounded Health copy preparation failed')
-        private_json(self.root / 'health-preparation.json', {'copyOnly': True, 'removedDailyRowCount': 1, 'sourcePartialCoverageRetained': True, 'inputUnmodified': True, 'limit': 'Missing date is an intentional copy-only omission, not evidence the selected source had a missing date; no values fabricated or copied back.'})
+        private_json(self.root / 'health-preparation.json', {'copyOnly': True, 'removedDailyRowCount': changed, 'existingInputGap': existing_gap, 'sourcePartialCoverageRetained': True, 'inputUnmodified': True, 'limit': 'Existing input gaps stay unchanged; any extra omission is copy-only, never an original-source missing-date claim. No values fabricated or copied back.'})
 
     def health_scenario(self):
         self.wait(lambda o: o['healthReady'], 'Daily seven-date chart readiness')
@@ -280,7 +287,7 @@ class Run:
         self.command({'type': 'health', 'action': 'next'})
         self.wait(lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Next returns to latest page')
         self.command({'type': 'health', 'action': 'previous'})
-        self.wait(lambda o: o['healthLatestEnabled'] and o['healthMissingRecord'] and o['healthPartialRecord'], 'Historical calendar page with copy-only missing date and source partial coverage')
+        self.wait(lambda o: o['healthLatestEnabled'] and o['healthMissingRecord'] and o['healthPartialRecord'], 'Historical calendar page with missing date and partial source coverage')
         self.command({'type': 'health', 'action': 'remember-range'})
         for mode in ['weekly', 'monthly', 'daily']:
             self.command({'type': 'health', 'action': mode})
@@ -294,7 +301,7 @@ class Run:
         images = {size: self.command({'type': 'health', 'action': 'capture-' + size}) for size in ['narrow', 'wide']}
         self.command({'type': 'health', 'action': 'latest'})
         self.wait(lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Explicit Latest reset')
-        private_json(self.root / 'health-scenario.json', {'passed': True, 'rangeTabsAwayBack': True, 'missingCopyDateAndSourcePartialObserved': True, 'captures': images, 'limit': 'Masked actual chart geometry only; dates, values and data marks hidden. Exact values proven with synthetic DOM tests. Missing date was prepared only in disposable copy; image inspection remains required.'})
+        private_json(self.root / 'health-scenario.json', {'passed': True, 'rangeTabsAwayBack': True, 'missingDateAndPartialObserved': True, 'captures': images, 'limit': 'Masked actual chart geometry only; dates, values and data marks hidden. Exact values proven with deterministic DOM tests. Missing-date provenance is in health-preparation.json; image inspection remains required.'})
 
     def scenario(self, health_comparison=False):
         other_fields = self.other_profile_fields()
@@ -410,24 +417,25 @@ def build(scratch, source, resources_ready=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
-    parser.add_argument('--input-file', required=True, help='Private JSON with explicitly selected canonical database; no env/settings discovery')
+    from smoke_input import arguments, prepare
+    arguments(parser)
     parser.add_argument('--prepare-only', action='store_true')
     parser.add_argument('--health-comparison', action='store_true', help='Finite Daily range/tab/away-back and masked wide/narrow capture scenario; selected input must include older Health history')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
-    input_file = canonical(args.input_file)
-    if input_file.stat().st_mode & 0o077:
-        raise ValueError('Input selection must be private')
-    database = canonical(json.loads(input_file.read_text())['database'])
+    prepared = prepare(scratch, args, 'health-comparison' if args.health_comparison else 'native')
+    database = prepared.database
     source = source_identity()
     runs = []
     observer = None
     noninterference = None
     try:
         for _ in range(2):
+            prepared.verify_current()
             run = Run(scratch, database, source)
             runs.append(run)
+            run.before_start = prepared.verify_current
             if args.health_comparison:
                 run.prepare_health_comparison()
         if args.prepare_only:
@@ -436,11 +444,13 @@ def main():
         binary = build(scratch, source)
         observer = Observer(scratch)
         for run in runs:
+            prepared.verify_current()
             run.observer = observer
             run.start(binary)
         if runs[0].origin == runs[1].origin:
             raise ValueError('Parallel backend collision')
         for run in runs:
+            prepared.verify_current()
             # Admission failures are real transport observations, not successful commands.
             for extra in [{'Authorization': 'Bearer wrong'}, {'Origin': 'null'}, {'X-Smoke-Run': str(uuid.uuid4())}, {'Host': 'localhost'}]:
                 run.http('/identity', extra=extra, expected=403)
@@ -465,7 +475,7 @@ def main():
                 if observer.child.poll() is None:
                     observer.child.terminate()
                     observer.child.wait(timeout=5)
-        receipt = {'source': source, 'runs': [str(run.root) for run in runs], 'primaryUnchanged': unchanged, 'shutdownErrors': errors, 'noninterference': noninterference, 'providerAndGarmin': 'not exercised; keyless offline representative flow'}
+        receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'runs': [str(run.root) for run in runs], 'primaryUnchanged': unchanged, 'shutdownErrors': errors, 'noninterference': noninterference, 'providerAndGarmin': 'not exercised; keyless offline representative flow'}
         private_json(scratch / ('native-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
         if not unchanged or errors:
             raise RuntimeError('Original integrity/shutdown gate failed; retained evidence')

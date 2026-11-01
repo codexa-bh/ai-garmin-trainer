@@ -2,6 +2,7 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
     "scripts/desktop/runtime.ts",
+    "scripts/desktop/smoke_recipe.ts",
     "src-tauri/ui/setup.js",
     "src-tauri/debug/smoke.js",
     "src-tauri/debug/setup-smoke.js"
