@@ -74,7 +74,7 @@ impl Config {
             ("MEMORY_ENABLED".into(), "false".into()),
             ("GARMIN_HISTORY_START_DATE".into(), "2024-01-01".into()),
         ]);
-        if !settings.keys.is_empty() || settings.fields != expected {
+        if settings.version != 2 || !settings.keys.is_empty() || settings.fields != expected {
             return Err(
                 "Smoke requires exact keyless run-local settings; no auth/tool overrides".into(),
             );
@@ -92,7 +92,7 @@ impl Config {
         Ok(())
     }
     pub fn settings(&self) -> PathBuf {
-        self.root.join("config/settings-v1.json")
+        self.root.join("config/settings-v2.json")
     }
     pub fn identifier(&self) -> String {
         format!(
@@ -148,7 +148,7 @@ mod tests {
             &root.join("trainer.sqlite"),
             b"DB preflight remains the real backend owner",
         );
-        let mut settings = serde_json::json!({"version":1,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite"),"AI_PROVIDER":"ollama","MEMORY_ENABLED":"false","GARMIN_HISTORY_START_DATE":"2024-01-01"}});
+        let mut settings = serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite"),"AI_PROVIDER":"ollama","MEMORY_ENABLED":"false","GARMIN_HISTORY_START_DATE":"2024-01-01"}});
         write(&config.settings(), settings.to_string().as_bytes());
         assert!(config.validate().is_ok());
         settings["keys"]["OPENAI_API_KEY"] =

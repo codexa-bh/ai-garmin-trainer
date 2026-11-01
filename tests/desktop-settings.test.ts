@@ -107,7 +107,7 @@ describe("desktop editable settings", () => {
       validateSettings({ ...base.fields, GARMIN_MCP_TOKEN_DIR: base.root }),
     ).toThrow();
   });
-  it("keeps secrets out of persistence and rejects missing/unknown/placeholder activation slots without fallback", () => {
+  it("keeps secrets out of non-secret validation and rejects missing/unknown/placeholder activation slots without fallback", () => {
     const base = baseline();
     const secret = "sentinel-provider-private";
     const frame = {
@@ -138,6 +138,28 @@ describe("desktop editable settings", () => {
         fields: { ...base.fields, AI_PROVIDER: "deepseek" },
       }),
     ).toThrow();
+  });
+  it("isolates Keychain to explicit read-only adoption and preserves private DTO/IPC boundaries", () => {
+    const main = readFileSync("src-tauri/src/main.rs", "utf8");
+    expect(main.match(/&keychain::Keychain/g)).toHaveLength(1);
+    const adoption = main.slice(
+      main.indexOf("async fn adopt_provider_settings"),
+      main.indexOf("fn read_onboarding"),
+    );
+    expect(adoption).toContain("setup_only(&window)");
+    expect(adoption).toContain("&keychain::Keychain");
+    expect(adoption).toContain('"--validate-existing-activation"');
+    const legacy = readFileSync("src-tauri/src/keychain.rs", "utf8");
+    expect(legacy).not.toMatch(/SecKeychain(?:Add|ItemDelete)|fn present/);
+    const setup = readFileSync("src-tauri/permissions/setup.toml", "utf8");
+    expect(setup).toContain('"adopt_provider_settings"');
+    const settings = readFileSync("src-tauri/src/settings.rs", "utf8");
+    const snapshot = settings.slice(
+      settings.indexOf("pub struct Snapshot"),
+      settings.indexOf("const LEGACY"),
+    );
+    expect(snapshot).not.toContain("Settings");
+    expect(snapshot).not.toContain("secrets");
   });
   it("packages the private auth worker and lock, and preserves native liveness/remote capability exclusions", () => {
     const assembly = readFileSync("scripts/desktop/assemble.mjs", "utf8");

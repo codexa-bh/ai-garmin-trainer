@@ -16,7 +16,7 @@ Required planning and close evidence:
 
 Destructive migrations, reset flows, import rewrites, Garmin deletion, and ambiguous DB-target work require a disposable DB copy unless the task explicitly scopes primary-data mutation and the operator approved it.
 
-Desktop runtime/settings/Keychain/auth/fresh-onboarding work keeps the same DB schema/data shapes: no backfill is required solely for packaging, configuration, token adoption or current-schema fresh initialization. The first-run fresh initializer uses authoritative migrations in memory; it never upgrades selected existing data. Desktop uses UI settings and native Keychain, never imports/loads user env files; retained explicit maintenance CLIs remain separate. Use an online SQLite backup for active-WAL copies and verify integrity; never use normal lazy app DB construction as a read-only migration probe. Desktop refuses unsupported schemas instead of implicitly migrating the primary. See [desktop adoption](desktop.md#explicit-private-state-adoption).
+Desktop runtime/private-provider-file/adoption/auth/fresh-onboarding work keeps the same DB schema/data shapes: no backfill is required solely for packaging, configuration, token adoption or current-schema fresh initialization. The first-run fresh initializer uses authoritative migrations in memory; it never upgrades selected existing data. Desktop uses UI settings and a native owner-private plaintext provider file, with explicit legacy adoption/re-entry and preserved originals; it never imports/loads user env files; retained explicit maintenance CLIs remain separate. Use an online SQLite backup for active-WAL copies and verify integrity; never use normal lazy app DB construction as a read-only migration probe. Desktop refuses unsupported schemas instead of implicitly migrating the primary. See [desktop adoption](desktop.md#explicit-private-state-adoption).
 
 ## Task-created smoke/test/mock data cleanup
 
@@ -31,7 +31,7 @@ Required cleanup evidence:
 
 The E0007 QA test-data cleanup protocol remains authoritative for deletion classification, evidence-first ordering, approval stops, and disposable-copy safeguards.
 
-The [programmatic native smoke runner](dev-bridge.md) automates this same populated-copy flow, not a new synthetic dataset/environment: the Goals sentinel is task/run-attributed, other copied Profile fields remain unchanged, originals are fingerprint-verified, and copy-only edits are explicitly deferred to scratch expiry without copy-back. Its keyless scenario does not certify live provider/Garmin/Keychain behavior. Native capture is a sanitized actual Profile subtree; image inspection and textual source/scenario evidence remain separate from file creation.
+The [programmatic native smoke runner](dev-bridge.md) automates this same populated-copy flow, not a new synthetic dataset/environment: the Goals sentinel is task/run-attributed, other copied Profile fields remain unchanged, originals are fingerprint-verified, and copy-only edits are explicitly deferred to scratch expiry without copy-back. Its keyless scenario does not certify live provider/Garmin behavior or private settings/adoption. Native capture is a sanitized actual Profile subtree; image inspection and textual source/scenario evidence remain separate from file creation.
 
 The explicitly scoped CI exception is `smoke:quick` / `scripts/ci/seed.ts`: one
 fresh job-local synthetic current-schema Profile, created via existing migrations

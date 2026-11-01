@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import next from "next";
-import { adoptConfiguration, desktopNextConfiguration } from "./config";
+import { adoptConfiguration, configureDesktopNext } from "./config";
 import { acceptsDesktopRequest } from "./http-policy";
 import { assertDesktopDatabase } from "../../src/lib/db/desktop-preflight";
 import {
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   const app = next({
     dev: false,
     dir: root,
-    conf: desktopNextConfiguration(required.config),
+    conf: configureDesktopNext(required.config),
     hostname: "127.0.0.1",
   });
   await app.prepare();

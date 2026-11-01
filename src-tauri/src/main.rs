@@ -4,6 +4,7 @@ mod auth;
 mod dev_bridge;
 mod keychain;
 mod onboarding;
+mod private_store;
 mod settings;
 #[cfg(any(debug_assertions, feature = "release-probe"))]
 mod smoke_config;
@@ -34,11 +35,9 @@ fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
     if let Some(config) = app.try_state::<smoke_config::Config>() {
         return Ok(config.settings());
     }
-    Ok(app
-        .path()
-        .app_config_dir()
-        .map_err(|_| "Private app config directory unavailable.")?
-        .join("settings-v1.json"))
+    Ok(settings::selected(&app.path().app_config_dir().map_err(
+        |_| "Private app config directory unavailable.",
+    )?))
 }
 
 fn resources(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
@@ -105,7 +104,7 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
         .settings_write
         .lock()
         .map_err(|_| "Settings ownership unavailable.")?;
-    let mut snapshot = settings::activation(&settings_path(app)?, &keychain::Keychain)?;
+    let mut snapshot = settings::activation(&settings_path(app)?)?;
     drop(_write); // Saves remain available during backend startup; activation is immutable.
     let result = supervisor::Service::start(
         &resources(app)?,
@@ -203,7 +202,7 @@ async fn read_settings(
             .settings_write
             .lock()
             .map_err(|_| "Settings ownership unavailable.")?;
-        settings::snapshot(&settings_path(&app)?, &keychain::Keychain, running)
+        settings::snapshot(&settings_path(&app)?, running)
     })
     .await
     .map_err(|_| "Settings read interrupted.".to_string())?
@@ -240,10 +239,63 @@ async fn save_settings(
         }
         let fields = settings::validate(&resources(&app)?, &input.fields)?;
         let updates = input.keys;
-        settings::save(&settings_path(&app)?, fields, updates, &keychain::Keychain)
+        settings::save(&settings_path(&app)?, fields, updates)
     })
     .await
     .map_err(|_| "Settings save interrupted.".to_string())?
+    .map_err(str::to_owned)
+}
+// Explicit local action only: never called by startup, refresh, Save or Finish.
+#[tauri::command]
+async fn adopt_provider_settings(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    input: settings::SaveInput,
+    read_legacy: bool,
+) -> Result<String, String> {
+    setup_only(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = app.state::<Runtime>();
+        let _setup = runtime
+            .onboarding
+            .try_lock()
+            .map_err(|_| "Setup operation active.")?;
+        let _write = runtime
+            .settings_write
+            .try_lock()
+            .map_err(|_| "Settings operation active.")?;
+        if runtime.quitting.load(Ordering::SeqCst) {
+            return Err("App is quitting.");
+        }
+        let path = settings_path(&app)?;
+        let fields = settings::validate(&resources(&app)?, &input.fields)?;
+        let (next, original) = settings::adoption(
+            &path,
+            settings::SaveInput {
+                fields,
+                keys: input.keys,
+            },
+            read_legacy,
+            &keychain::Keychain,
+        )?;
+        let mut frame = settings::adoption_frame(&next)?;
+        let result = onboarding::bundled(
+            &resources(&app)?,
+            "--validate-existing-activation",
+            &mut frame,
+            128 * 1024,
+            &runtime.onboarding_cancel,
+            &runtime.quitting,
+        );
+        frame.fill(0);
+        result?;
+        if runtime.quitting.load(Ordering::SeqCst) {
+            return Err("Adoption cancelled before commit; originals unchanged.");
+        }
+        settings::commit_adoption(&path, &next, &original)
+    })
+    .await
+    .map_err(|_| "Adoption outcome unknown; reload saved state before retry.".to_owned())?
     .map_err(str::to_owned)
 }
 #[tauri::command]
@@ -337,7 +389,7 @@ async fn finish_onboarding(
                 if fresh { onboarding::initialize(&resources(&app)?, &target, &state.root, &mut state.database, &runtime.onboarding_cancel, &runtime.quitting)?; }
                 if runtime.onboarding_cancel.load(Ordering::SeqCst) || runtime.quitting.load(Ordering::SeqCst) { return Err("Setup cancelled; committed outputs remain available for explicit retry."); }
                 let fields = onboarding::validate(&resources(&app)?, &validated.fields, &runtime.onboarding_cancel, &runtime.quitting)?;
-                message = settings::save_new(&path, fields, input.settings.keys, &keychain::Keychain)?;
+                message = settings::save_new(&path, fields, input.settings.keys)?;
                 state.settings_committed = true;
                 state.saved_settings = Some(onboarding::OwnedSettings::capture(&path)?);
             }
@@ -550,6 +602,7 @@ fn main() {
         auth_status,
         submit_mfa,
         cancel_auth,
+        adopt_provider_settings,
         dev_bridge::smoke_result
     ]);
     #[cfg(not(debug_assertions))]
@@ -565,7 +618,8 @@ fn main() {
         start_auth,
         auth_status,
         submit_mfa,
-        cancel_auth
+        cancel_auth,
+        adopt_provider_settings
     ]);
     let app = builder.on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

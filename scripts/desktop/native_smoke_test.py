@@ -29,7 +29,9 @@ class OwnershipTests(unittest.TestCase):
             for run in [first, second]:
                 self.assertEqual(run.database.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(run.root.stat().st_mode & 0o777, 0o700)
-                self.assertEqual(json.loads((run.root / 'config/settings-v1.json').read_text())['keys'], {})
+                settings = json.loads((run.root / 'config/settings-v2.json').read_text())
+                self.assertEqual(settings['version'], 2)
+                self.assertEqual(settings['keys'], {})
                 with contextlib.closing(readonly(run.database)) as copy:
                     self.assertEqual(fingerprint(copy), baseline)
                 # A receipt/PID is never shutdown authority without a live handle.
