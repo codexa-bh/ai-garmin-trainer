@@ -1,4 +1,8 @@
-use crate::{keychain::Secrets, private_store};
+use crate::{
+    chat_catalog::{self, Catalog},
+    keychain::Secrets,
+    private_store,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -15,6 +19,12 @@ pub struct Settings {
     pub version: u8,
     pub fields: BTreeMap<String, String>,
     pub keys: BTreeMap<String, String>,
+    #[serde(
+        rename = "chatCatalog",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub chat_catalog: Option<Catalog>,
 }
 #[derive(Deserialize)]
 #[serde(tag = "intent", rename_all = "lowercase", deny_unknown_fields)]
@@ -28,6 +38,10 @@ pub enum KeyUpdate {
 pub struct SaveInput {
     pub fields: BTreeMap<String, String>,
     pub keys: BTreeMap<String, KeyUpdate>,
+    #[serde(rename = "chatCatalog")]
+    pub chat_catalog: Catalog,
+    #[serde(rename = "expectedRevision")]
+    pub expected_revision: String,
 }
 #[derive(Serialize)]
 pub struct Snapshot {
@@ -36,19 +50,21 @@ pub struct Snapshot {
     pub saved: bool,
     pub running: bool,
     pub storage: &'static str,
+    #[serde(rename = "chatCatalog")]
+    pub chat_catalog: Catalog,
+    pub revision: String,
 }
 const LEGACY: &str = "Legacy provider settings require explicit adoption or private re-entry in Desktop Settings. No automatic Keychain access.";
-/// Presence, not successful parsing, selects v2. Invalid state never falls back.
+/// Presence, not successful parsing, selects the newest format. No fallback.
 pub fn selected(directory: &Path) -> PathBuf {
-    let next = directory.join("settings-v2.json");
-    let legacy = directory.join("settings-v1.json");
-    if !matches!(fs::symlink_metadata(&next), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
-        || matches!(fs::symlink_metadata(&legacy), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
-    {
-        next
-    } else {
-        legacy
+    for name in ["settings-v3.json", "settings-v2.json", "settings-v1.json"] {
+        let path = directory.join(name);
+        if !matches!(fs::symlink_metadata(&path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+        {
+            return path;
+        }
     }
+    directory.join("settings-v3.json")
 }
 // Retained metadata contract for independent Garmin/smoke inputs. Provider
 // documents and onboarding identity use descriptor-bound private_store IO.
@@ -67,12 +83,32 @@ pub fn private_file(path: &Path) -> Result<(), &'static str> {
     Ok(())
 }
 fn valid_secret(value: &str) -> bool {
-    !value.trim().is_empty()
+    let lower = value.trim().to_ascii_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| c == '-' || c == '_' || c.is_whitespace())
+        .collect();
+    !lower.is_empty()
         && value.len() <= 16384
         && !value.chars().any(char::is_control)
-        && !["your-", "your_", "replace-me", "changeme", "placeholder"]
+        && lower != "..."
+        && !(lower.starts_with('<') && lower.ends_with('>'))
+        && !words
+            .first()
+            .map(|word| {
+                [
+                    "replace",
+                    "your",
+                    "example",
+                    "placeholder",
+                    "changeme",
+                    "todo",
+                ]
+                .contains(word)
+            })
+            .unwrap_or(false)
+        && !words
             .iter()
-            .any(|prefix| value.to_ascii_lowercase().starts_with(prefix))
+            .any(|word| ["replace", "placeholder", "changeme"].contains(word))
 }
 fn decode(bytes: &[u8]) -> Result<Settings, &'static str> {
     let settings: Settings = serde_json::from_slice(bytes)
@@ -89,7 +125,16 @@ fn decode(bytes: &[u8]) -> Result<Settings, &'static str> {
     }) {
         return Err("Saved settings contain unsupported fields; no values are returned.");
     }
-    if ![1, 2].contains(&settings.version)
+    if settings.version == 3 {
+        settings
+            .chat_catalog
+            .as_ref()
+            .ok_or("Chat catalog missing; preserve settings and use a compatible build.")?
+            .validate()?;
+    } else if settings.chat_catalog.is_some() {
+        return Err("Unexpected catalog on legacy settings; originals preserved.");
+    }
+    if ![1, 2, 3].contains(&settings.version)
         || settings.keys.iter().any(|(slot, value)| {
             !SLOTS.contains(&slot.as_str())
                 || if settings.version == 1 {
@@ -107,17 +152,65 @@ fn decode(bytes: &[u8]) -> Result<Settings, &'static str> {
     Ok(settings)
 }
 pub fn load(path: &Path) -> Result<Settings, &'static str> {
-    decode(&private_store::read(path)?)
+    let settings = decode(&private_store::read(path)?)?;
+    if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+        if ["settings-v1.json", "settings-v2.json", "settings-v3.json"].contains(&name)
+            && name != format!("settings-v{}.json", settings.version)
+        {
+            return Err("Settings filename/version conflict; preserve originals and use a compatible build.");
+        }
+    }
+    Ok(settings)
+}
+// No bytes/secrets in this token. Parent/file descriptor privacy checks still
+// bind every read/publication; this adds stale whole-form protection.
+pub fn revision(path: &Path) -> Result<String, &'static str> {
+    match fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok("absent".into()),
+        Err(_) => Err("Settings revision unavailable; reload before saving."),
+        Ok(m) => {
+            private_file(path)?;
+            Ok(format!(
+                "{}-{}-{}-{}-{}-{}-{}",
+                m.dev(),
+                m.ino(),
+                m.len(),
+                m.mtime(),
+                m.mtime_nsec(),
+                m.ctime(),
+                m.ctime_nsec()
+            ))
+        }
+    }
+}
+fn check_revision(path: &Path, expected: &str) -> Result<(), &'static str> {
+    if revision(path)? != expected {
+        return Err("Settings changed since this form was loaded. Reload before saving; no changes published.");
+    }
+    Ok(())
 }
 pub fn snapshot(path: &Path, running: bool) -> Result<Snapshot, &'static str> {
     let saved =
         !matches!(fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
+    let before = revision(path)?;
     let settings = if saved {
         load(path)?
     } else {
         Settings::default()
     };
+    let chat_catalog = if saved {
+        settings
+            .chat_catalog
+            .clone()
+            .unwrap_or_else(|| chat_catalog::legacy(&settings.fields, &settings.keys))
+    } else {
+        Catalog::default()
+    };
+    chat_catalog.validate()?;
+    check_revision(path, &before)?;
     Ok(Snapshot {
+        chat_catalog,
+        revision: before,
         keys: SLOTS
             .iter()
             .map(|slot| {
@@ -142,6 +235,8 @@ pub fn snapshot(path: &Path, running: bool) -> Result<Snapshot, &'static str> {
             "new-private-file"
         } else if settings.version == 1 {
             "legacy-required"
+        } else if settings.version == 2 {
+            "catalog-migration-required"
         } else {
             "private-file"
         },
@@ -187,26 +282,15 @@ fn message(durable: bool, fresh: bool) -> String {
         }
     )
 }
-pub fn save(
-    path: &Path,
-    fields: BTreeMap<String, String>,
-    updates: BTreeMap<String, KeyUpdate>,
-) -> Result<String, &'static str> {
-    save_inner(path, fields, updates, false)
+pub fn save(path: &Path, input: SaveInput) -> Result<String, &'static str> {
+    save_inner(path, input, false)
 }
-pub fn save_new(
-    path: &Path,
-    fields: BTreeMap<String, String>,
-    updates: BTreeMap<String, KeyUpdate>,
-) -> Result<String, &'static str> {
-    save_inner(path, fields, updates, true)
+pub fn save_new(path: &Path, input: SaveInput) -> Result<String, &'static str> {
+    save_inner(path, input, true)
 }
-fn save_inner(
-    path: &Path,
-    fields: BTreeMap<String, String>,
-    updates: BTreeMap<String, KeyUpdate>,
-    fresh: bool,
-) -> Result<String, &'static str> {
+fn save_inner(path: &Path, input: SaveInput, fresh: bool) -> Result<String, &'static str> {
+    check_revision(path, &input.expected_revision)?;
+    input.chat_catalog.validate()?;
     let exists =
         !matches!(fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
     if fresh && exists {
@@ -225,14 +309,34 @@ fn save_inner(
             ..Default::default()
         }
     };
-    if next.version != 2 {
+    if next.version == 1 {
         return Err(LEGACY);
     }
-    next.fields = fields;
-    apply(&mut next, updates)?;
-    Ok(message(
-        private_store::publish(path, &encode(&next)?, previous.as_deref())?,
-        fresh,
+    let migrating = exists && next.version == 2;
+    next.version = 3;
+    next.fields = input.fields;
+    next.chat_catalog = Some(input.chat_catalog);
+    apply(&mut next, input.keys)?;
+    let bytes = encode(&next)?;
+    check_revision(path, &input.expected_revision)?;
+    let target = if migrating {
+        path.with_file_name("settings-v3.json")
+    } else {
+        path.to_path_buf()
+    };
+    let durable = private_store::publish(
+        &target,
+        &bytes,
+        if migrating { None } else { previous.as_deref() },
+    )?;
+    Ok(format!(
+        "{}{}",
+        message(durable, fresh),
+        if migrating {
+            " Catalog migration committed; original v2 retained unchanged."
+        } else {
+            ""
+        }
     ))
 }
 /// Explicit user action only. Never retain a partially retrieved provider set.
@@ -243,15 +347,18 @@ pub fn adoption(
     read_legacy: bool,
     secrets: &impl Secrets,
 ) -> Result<(Settings, Vec<u8>), &'static str> {
+    check_revision(path, &input.expected_revision)?;
+    input.chat_catalog.validate()?;
     let original = private_store::read(path)?;
     let old = decode(&original)?;
     if old.version != 1 {
         return Err("Already file-backed; reload settings. Adoption was not repeated.");
     }
     let mut next = Settings {
-        version: 2,
+        version: 3,
         fields: input.fields,
         keys: BTreeMap::new(),
+        chat_catalog: Some(input.chat_catalog),
     };
     for (slot, account) in old.keys {
         if matches!(input.keys.get(&slot), None | Some(KeyUpdate::Unchanged)) {
@@ -276,18 +383,21 @@ pub fn commit_adoption(
     next: &Settings,
     original: &[u8],
 ) -> Result<String, &'static str> {
-    if next.version != 2 || private_store::read(path)? != original {
+    if next.version != 3 || private_store::read(path)? != original {
         return Err("Legacy settings changed; reload before adoption. Originals preserved.");
     }
-    let target = path.with_file_name("settings-v2.json");
+    let target = path.with_file_name("settings-v3.json");
     let durable = private_store::publish(&target, &encode(next)?, None)?;
     Ok(format!("Private file adoption committed; legacy settings and Keychain items preserved. Quit and reopen explicitly.{}", if durable { "" } else { " Verification/directory durability uncertain; reconcile saved state before retry." }))
 }
 fn frame(settings: &Settings) -> Result<Vec<u8>, &'static str> {
-    let mut bytes = serde_json::to_vec(
-        &serde_json::json!({"version":1,"fields":settings.fields,"secrets":settings.keys}),
-    )
-    .map_err(|_| "Activation unavailable.")?;
+    let value = if let Some(catalog) = &settings.chat_catalog {
+        catalog.validate()?;
+        serde_json::json!({"version":2,"fields":settings.fields,"secrets":settings.keys,"chatCatalog":catalog})
+    } else {
+        serde_json::json!({"version":1,"fields":settings.fields,"secrets":settings.keys})
+    };
+    let mut bytes = serde_json::to_vec(&value).map_err(|_| "Activation unavailable.")?;
     if bytes.len() >= 128 * 1024 {
         return Err("Activation too large.");
     }
@@ -299,9 +409,10 @@ pub fn adoption_frame(settings: &Settings) -> Result<Vec<u8>, &'static str> {
 }
 pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
     let mut next = Settings {
-        version: 2,
+        version: 3,
         fields: input.fields.clone(),
         keys: BTreeMap::new(),
+        chat_catalog: Some(input.chat_catalog.clone()),
     };
     for (slot, update) in &input.keys {
         if !SLOTS.contains(&slot.as_str()) {
@@ -318,7 +429,7 @@ pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
 }
 pub fn activation(path: &Path) -> Result<Vec<u8>, &'static str> {
     let settings = load(path)?;
-    if settings.version != 2 {
+    if settings.version == 1 {
         return Err(LEGACY);
     }
     frame(&settings)
@@ -432,17 +543,29 @@ mod tests {
             },
         )])
     }
+    fn input(
+        path: &Path,
+        fields: BTreeMap<String, String>,
+        keys: BTreeMap<String, KeyUpdate>,
+    ) -> SaveInput {
+        SaveInput {
+            fields,
+            keys,
+            chat_catalog: snapshot(path, false).unwrap().chat_catalog,
+            expected_revision: revision(path).unwrap(),
+        }
+    }
     #[test]
     fn first_save_is_exclusive_and_does_not_return_next_launch_instructions() {
         let root = root();
         let path = selected(&root);
-        let message = save_new(&path, BTreeMap::new(), replacement()).unwrap();
+        let message = save_new(&path, input(&path, BTreeMap::new(), replacement())).unwrap();
         assert!(message.contains("committed"));
         assert!(!message.contains("Quit"));
         let original = private_store::read(&path).unwrap();
-        assert!(save_new(&path, BTreeMap::new(), BTreeMap::new()).is_err());
+        assert!(save_new(&path, input(&path, BTreeMap::new(), BTreeMap::new())).is_err());
         assert_eq!(private_store::read(&path).unwrap(), original);
-        assert_eq!(load(&path).unwrap().version, 2);
+        assert_eq!(load(&path).unwrap().version, 3);
         let read = serde_json::to_string(&snapshot(&path, false).unwrap()).unwrap();
         assert!(!read.contains("synthetic-provider-secret"));
         assert!(read.contains("configured"));
@@ -451,15 +574,21 @@ mod tests {
             .contains("synthetic-provider-secret"));
         save(
             &path,
-            BTreeMap::new(),
-            BTreeMap::from([("OPENAI_API_KEY".into(), KeyUpdate::Unchanged)]),
+            input(
+                &path,
+                BTreeMap::new(),
+                BTreeMap::from([("OPENAI_API_KEY".into(), KeyUpdate::Unchanged)]),
+            ),
         )
         .unwrap();
         assert_eq!(private_store::read(&path).unwrap(), original);
         save(
             &path,
-            BTreeMap::new(),
-            BTreeMap::from([("OPENAI_API_KEY".into(), KeyUpdate::Clear)]),
+            input(
+                &path,
+                BTreeMap::new(),
+                BTreeMap::from([("OPENAI_API_KEY".into(), KeyUpdate::Clear)]),
+            ),
         )
         .unwrap();
         assert!(load(&path).unwrap().keys.is_empty());
@@ -472,6 +601,7 @@ mod tests {
         let legacy = Settings {
             version: 1,
             fields: BTreeMap::from([("AI_MODEL".into(), "custom-model".into())]),
+            chat_catalog: None,
             keys: SLOTS
                 .iter()
                 .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
@@ -488,14 +618,11 @@ mod tests {
             snapshot(&path, false).unwrap();
             assert!(activation(&path).is_err());
         }
-        assert!(save(&path, legacy.fields.clone(), replacement()).is_err());
+        assert!(save(&path, input(&path, legacy.fields.clone(), replacement())).is_err());
         assert_eq!(fake.calls.get(), 0);
         assert!(adoption(
             &path,
-            SaveInput {
-                fields: legacy.fields.clone(),
-                keys: replacement()
-            },
+            input(&path, legacy.fields.clone(), replacement()),
             false,
             &fake
         )
@@ -503,10 +630,7 @@ mod tests {
         assert_eq!(fake.calls.get(), 0);
         let (next, prior) = adoption(
             &path,
-            SaveInput {
-                fields: legacy.fields.clone(),
-                keys: BTreeMap::new(),
-            },
+            input(&path, legacy.fields.clone(), BTreeMap::new()),
             true,
             &fake,
         )
@@ -517,17 +641,14 @@ mod tests {
         commit_adoption(&path, &next, &prior).unwrap();
         assert_eq!(private_store::read(&path).unwrap(), original);
         let active = selected(&root);
-        assert_eq!(active.file_name().unwrap(), "settings-v2.json");
+        assert_eq!(active.file_name().unwrap(), "settings-v3.json");
         for _ in 0..3 {
             snapshot(&active, false).unwrap();
             activation(&active).unwrap();
         }
         assert!(adoption(
             &active,
-            SaveInput {
-                fields: BTreeMap::new(),
-                keys: BTreeMap::new()
-            },
+            input(&active, BTreeMap::new(), BTreeMap::new()),
             true,
             &fake
         )
@@ -546,6 +667,7 @@ mod tests {
         let legacy = Settings {
             version: 1,
             fields: BTreeMap::new(),
+            chat_catalog: None,
             keys: SLOTS
                 .iter()
                 .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
@@ -559,15 +681,12 @@ mod tests {
         };
         assert!(adoption(
             &path,
-            SaveInput {
-                fields: BTreeMap::new(),
-                keys: BTreeMap::new()
-            },
+            input(&path, BTreeMap::new(), BTreeMap::new()),
             true,
             &fake
         )
         .is_err());
-        assert!(!root.join("settings-v2.json").exists());
+        assert!(!root.join("settings-v3.json").exists());
         assert_eq!(fake.calls.get(), 2);
         let keys = SLOTS
             .iter()
@@ -580,16 +699,8 @@ mod tests {
                 )
             })
             .collect();
-        let (next, prior) = adoption(
-            &path,
-            SaveInput {
-                fields: BTreeMap::new(),
-                keys,
-            },
-            false,
-            &fake,
-        )
-        .unwrap();
+        let (next, prior) =
+            adoption(&path, input(&path, BTreeMap::new(), keys), false, &fake).unwrap();
         commit_adoption(&path, &next, &prior).unwrap();
         assert_eq!(fake.calls.get(), 2);
         fs::remove_dir_all(root).unwrap();
@@ -619,6 +730,7 @@ mod tests {
         let legacy = Settings {
             version: 1,
             fields: fields.clone(),
+            chat_catalog: None,
             keys: SLOTS
                 .iter()
                 .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
@@ -632,10 +744,7 @@ mod tests {
         };
         let (next, prior) = adoption(
             &path,
-            SaveInput {
-                fields: fields.clone(),
-                keys: BTreeMap::new(),
-            },
+            input(&path, fields.clone(), BTreeMap::new()),
             true,
             &fake,
         )
@@ -672,6 +781,7 @@ mod tests {
             version: 2,
             fields,
             keys: BTreeMap::new(),
+            chat_catalog: None,
         };
         let mut invalid = adoption_frame(&no_keys).unwrap();
         assert!(crate::onboarding::bundled(
@@ -684,6 +794,56 @@ mod tests {
         )
         .is_err());
         assert_eq!(fake.calls.get(), 3);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn catalog_migration_preserves_original_and_stale_or_invalid_forms_never_publish() {
+        let root = root();
+        let old_path = root.join("settings-v2.json");
+        let old = Settings {
+            version: 2,
+            fields: BTreeMap::from([
+                ("AI_PROVIDER".into(), "openai".into()),
+                ("AI_MODEL".into(), "Custom/Exact:Tag".into()),
+            ]),
+            keys: BTreeMap::from([("OPENAI_API_KEY".into(), "synthetic-original-key".into())]),
+            chat_catalog: None,
+        };
+        let original = encode(&old).unwrap();
+        private_store::publish(&old_path, &original, None).unwrap();
+        let mut first = input(&old_path, old.fields.clone(), BTreeMap::new());
+        let stale = input(&old_path, old.fields.clone(), BTreeMap::new());
+        first.chat_catalog.entries[0].display_name = Some("Friendly".into());
+        save(&old_path, first).unwrap();
+        let active = selected(&root);
+        assert_eq!(active.file_name().unwrap(), "settings-v3.json");
+        assert_eq!(private_store::read(&old_path).unwrap(), original);
+        let committed = private_store::read(&active).unwrap();
+        // Another old form cannot overwrite the newly published authority.
+        assert!(save(&old_path, stale).is_err());
+        let stale = input(&active, old.fields.clone(), BTreeMap::new());
+        let mut edit = input(&active, old.fields.clone(), BTreeMap::new());
+        edit.chat_catalog.entries[0].model_id = "Second/Exact:Tag".into();
+        save(&active, edit).unwrap();
+        let after_edit = private_store::read(&active).unwrap();
+        assert_ne!(committed, after_edit);
+        assert!(save(&active, stale).is_err());
+        let mut invalid = input(&active, old.fields.clone(), replacement());
+        invalid.chat_catalog.default_entry_id = Some("entry_deleted".into());
+        assert!(save(&active, invalid).is_err());
+        assert_eq!(private_store::read(&active).unwrap(), after_edit);
+        let saved = load(&active).unwrap();
+        assert_eq!(saved.fields, old.fields); // extraction/title inputs unchanged
+        assert_eq!(saved.keys, old.keys); // unchanged shared slot, never partial
+        assert_eq!(
+            saved.chat_catalog.unwrap().entries[0].model_id,
+            "Second/Exact:Tag"
+        );
+        fs::write(&active, b"corrupt-newest").unwrap();
+        assert_eq!(selected(&root), active);
+        assert!(snapshot(&active, false).is_err());
+        assert!(activation(&active).is_err());
+        assert_eq!(private_store::read(&old_path).unwrap(), original);
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

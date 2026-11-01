@@ -2,6 +2,11 @@ import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { configuredSecret, getOptionalEnv } from "../../src/lib/env";
 import fields from "../../src-tauri/ui/settings-fields.json";
+import {
+  legacyChatCatalog,
+  containsControlCharacters,
+  validateChatCatalog,
+} from "../../src/lib/model-settings/catalog";
 
 export const SECRET_SLOTS = [
   "OPENAI_API_KEY",
@@ -62,8 +67,8 @@ export function validateSettings(
   for (const value of Object.values(values))
     if (
       typeof value !== "string" ||
-      value.length > 2048 ||
-      [...value].some((character) => character.charCodeAt(0) < 32)
+      Buffer.byteLength(value, "utf8") > 2048 ||
+      containsControlCharacters(value)
     )
       throw new Error("Invalid setting value.");
   const strings = values as Record<string, string>;
@@ -136,11 +141,17 @@ export function activationEnvironment(
     version?: unknown;
     fields?: unknown;
     secrets?: unknown;
+    chatCatalog?: unknown;
   };
   if (
-    frame.version !== 1 ||
+    ![1, 2].includes(frame.version as number) ||
     Object.keys(frame).some(
-      (key) => !["version", "fields", "secrets"].includes(key),
+      (key) =>
+        !(
+          frame.version === 2
+            ? ["version", "fields", "secrets", "chatCatalog"]
+            : ["version", "fields", "secrets"]
+        ).includes(key),
     )
   )
     throw new Error("Unsupported activation.");
@@ -155,8 +166,8 @@ export function activationEnvironment(
     if (
       !SECRET_SLOTS.some((slot) => slot === key) ||
       typeof value !== "string" ||
-      value.length > 16384 ||
-      [...value].some((character) => character.charCodeAt(0) < 32) ||
+      Buffer.byteLength(value, "utf8") > 16384 ||
+      containsControlCharacters(value) ||
       !configuredSecret(value)
     )
       throw new Error("Invalid provider secret.");
@@ -165,12 +176,13 @@ export function activationEnvironment(
   const env = getOptionalEnv(result);
   const selected = env.AI_PROVIDER;
   if (
-    (selected === "openai" && !result.OPENAI_API_KEY) ||
-    (selected === "deepseek" && !result.DEEPSEEK_API_KEY) ||
-    (selected === "openrouter" && !result.OPENROUTER_API_KEY) ||
-    (selected === "auto" &&
-      !result.OPENAI_API_KEY &&
-      !result.DEEPSEEK_API_KEY) ||
+    (frame.version === 1 &&
+      ((selected === "openai" && !result.OPENAI_API_KEY) ||
+        (selected === "deepseek" && !result.DEEPSEEK_API_KEY) ||
+        (selected === "openrouter" && !result.OPENROUTER_API_KEY) ||
+        (selected === "auto" &&
+          !result.OPENAI_API_KEY &&
+          !result.DEEPSEEK_API_KEY))) ||
     (env.MEMORY_ENABLED === "true" &&
       env.MEMORY_EMBEDDING_PROVIDER === "openai" &&
       !result.OPENAI_API_KEY)
@@ -178,5 +190,13 @@ export function activationEnvironment(
     throw new Error(
       "Required provider key unavailable. Update private settings; no provider fallback.",
     );
+  const catalog =
+    frame.version === 2
+      ? validateChatCatalog(frame.chatCatalog)
+      : legacyChatCatalog(result, {
+          openai: Boolean(result.OPENAI_API_KEY),
+          deepseek: Boolean(result.DEEPSEEK_API_KEY),
+        });
+  result.CHAT_MODEL_CATALOG = JSON.stringify(catalog);
   return result;
 }

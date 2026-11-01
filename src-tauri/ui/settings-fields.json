@@ -16,23 +16,32 @@
   },
   {
     "key": "AI_PROVIDER",
-    "label": "Configured chat provider",
+    "label": "Preserved extraction/title policy (not chat)",
+    "legacy": true,
     "options": ["auto", "openai", "deepseek", "ollama", "openrouter"]
   },
-  { "key": "AI_MODEL", "label": "OpenAI model", "default": "gpt-6-luna" },
+  {
+    "key": "AI_MODEL",
+    "label": "Preserved OpenAI extraction model",
+    "default": "gpt-6-luna",
+    "legacy": true
+  },
   {
     "key": "DEEPSEEK_MODEL",
-    "label": "DeepSeek model",
+    "label": "Preserved DeepSeek extraction model",
+    "legacy": true,
     "default": "deepseek-flash"
   },
   {
     "key": "OPENROUTER_MODEL",
-    "label": "OpenRouter model",
+    "label": "Preserved legacy OpenRouter model",
+    "legacy": true,
     "default": "nvidia/nemotron-3.5-lightning:free"
   },
   {
     "key": "OLLAMA_MODEL",
-    "label": "Ollama model",
+    "label": "Preserved legacy Ollama model",
+    "legacy": true,
     "default": "qwen3.5:4b",
     "advanced": true
   },

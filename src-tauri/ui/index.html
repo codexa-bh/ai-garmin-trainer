@@ -43,7 +43,31 @@
           </label>
           <div id="data-fields"></div>
         </fieldset>
-        <fieldset id="normal"><legend>Provider and models</legend></fieldset>
+        <fieldset id="normal">
+          <legend>Chat model catalog</legend>
+          <p>
+            Add up to 32 entries across OpenAI, DeepSeek, Ollama and OpenRouter.
+            Enter literal provider model IDs; names are optional. Each provider
+            shares its key below. Local configuration is not remote
+            availability.
+          </p>
+          <p id="catalog-migration" hidden>
+            Legacy models and the determinable prior default are shown for
+            explicit migration on Save. Original settings are retained. Missing
+            keys never choose another provider. Existing chat preferences map
+            only to an exact provider/model match.
+          </p>
+          <div id="catalog-entries"></div>
+          <button type="button" id="catalog-add">Add chat model</button>
+          <label
+            >Default chat model (optional)<select id="catalog-default"></select
+          ></label>
+          <p>
+            Removing a default requires clearing or reassigning it first. A
+            removed saved chat selection stays unavailable until explicitly
+            replaced or reset.
+          </p>
+        </fieldset>
         <fieldset id="garmin-fields">
           <legend>Existing Garmin tokens (optional)</legend>
         </fieldset>
@@ -76,7 +100,8 @@
         <details>
           <summary>Advanced settings</summary>
           <fieldset id="advanced">
-            <legend>Memory and external tools</legend>
+            <legend>Connections, memory and external tools</legend>
+            <p id="extraction-compatibility"></p>
           </fieldset>
         </details>
         <section id="review" hidden aria-label="Review setup">
@@ -98,9 +123,12 @@
         </section>
         <p id="next-launch-guidance">
           Saved runtime changes apply only after you explicitly quit and reopen.
-          They never switch the current database, account or provider in place.
-          The trainer's saved model preference remains independent. Local debug
-          traces are always enabled and may contain private context.
+          Catalog, default, keys and connection edits are pending until that
+          next launch; they never switch the current database, account or
+          provider in place. Chat selects only from the already activated
+          catalog for future turns. Its saved model preference remains
+          independent. Local debug traces are always enabled and may contain
+          private context.
         </p>
         <div class="actions">
           <button type="button" id="back" hidden>Back</button>

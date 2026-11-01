@@ -139,6 +139,100 @@ describe("desktop editable settings", () => {
       }),
     ).toThrow();
   });
+  it("validates private activation v2 without inventing a default or requiring a chat key; keeps enabled embedding admission", () => {
+    const base = baseline();
+    const frame = {
+      version: 2,
+      fields: base.fields,
+      secrets: {},
+      chatCatalog: { version: 1, entries: [], defaultEntryId: null },
+    };
+    const activated = activationEnvironment(frame);
+    expect(JSON.parse(activated.CHAT_MODEL_CATALOG)).toEqual(frame.chatCatalog);
+    expect(activated.AI_PROVIDER).toBe("openai"); // extraction intent, not chat
+    const configured = {
+      ...frame,
+      chatCatalog: {
+        version: 1,
+        entries: [
+          {
+            id: "entry_custom",
+            provider: "openrouter",
+            modelId: "Vendor/Model:Exact",
+          },
+        ],
+        defaultEntryId: "entry_custom",
+      },
+    };
+    expect(
+      JSON.parse(activationEnvironment(configured).CHAT_MODEL_CATALOG),
+    ).toEqual(configured.chatCatalog);
+    for (const bad of [
+      { ...frame, version: 3 },
+      { ...frame, chatCatalog: undefined },
+      { ...frame, endpoint: "no" },
+      {
+        ...frame,
+        chatCatalog: { ...frame.chatCatalog, defaultEntryId: "entry_missing" },
+      },
+      {
+        ...frame,
+        fields: {
+          ...base.fields,
+          MEMORY_ENABLED: "true",
+          MEMORY_EMBEDDING_PROVIDER: "openai",
+        },
+      },
+      { ...frame, secrets: { OPENAI_API_KEY: "placeholder-key" } },
+    ])
+      expect(() => activationEnvironment(bad)).toThrow();
+    expect(() =>
+      validateSettings({ ...base.fields, CHAT_MODEL_CATALOG: "{}" }),
+    ).toThrow();
+  });
+  it.each(["auto", "openai", "deepseek", "ollama", "openrouter"] as const)(
+    "catalog changes never retarget extraction/title legacy policy %s",
+    async (provider) => {
+      const adapters = await import("../src/lib/ai/providers");
+      for (const [openai, deepseek] of [
+        [true, true],
+        [true, false],
+        [false, true],
+        [false, false],
+      ]) {
+        const prior = { ...process.env };
+        try {
+          process.env.AI_PROVIDER = provider;
+          process.env.AI_MODEL = "independent-openai";
+          process.env.DEEPSEEK_MODEL = "independent-deepseek";
+          process.env.OPENAI_API_KEY = openai
+            ? "synthetic-key"
+            : "placeholder-key";
+          process.env.DEEPSEEK_API_KEY = deepseek
+            ? "synthetic-key"
+            : "placeholder-key";
+          const before = adapters.selectedMemoryExtractionModel();
+          process.env.CHAT_MODEL_CATALOG = JSON.stringify({
+            version: 1,
+            entries: [
+              {
+                id: "entry_changed",
+                provider: "openrouter",
+                modelId: "different",
+              },
+            ],
+            defaultEntryId: "entry_changed",
+          });
+          const after = adapters.selectedMemoryExtractionModel();
+          expect(after?.provider).toBe(before?.provider);
+          expect(after?.modelName).toBe(before?.modelName);
+          if (before) expect(["openai", "deepseek"]).toContain(before.provider);
+        } finally {
+          process.env = prior;
+        }
+      }
+    },
+  );
   it("isolates Keychain to explicit read-only adoption and preserves private DTO/IPC boundaries", () => {
     const main = readFileSync("src-tauri/src/main.rs", "utf8");
     expect(main.match(/&keychain::Keychain/g)).toHaveLength(1);

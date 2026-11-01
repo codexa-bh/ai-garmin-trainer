@@ -198,7 +198,12 @@ const groups = [
   ["weekly", "domain", "lib/weekly", ["contracts", "calendar"]],
   ["weekly", "application", "lib/weekly", ["application"]],
   ["weekly", "composition", "lib/weekly", ["composition"]],
-  ["model-settings", "domain", "lib/model-settings", ["contracts", "policy"]],
+  [
+    "model-settings",
+    "domain",
+    "lib/model-settings",
+    ["contracts", "policy", "catalog"],
+  ],
   ["model-settings", "application", "lib/model-settings", ["application"]],
   ["model-settings", "composition", "lib/model-settings", ["composition"]],
   ["profile", "domain", "lib/profile", ["contracts"]],

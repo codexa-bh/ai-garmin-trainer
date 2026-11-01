@@ -3,27 +3,44 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createModelSettings } from "@/lib/model-settings/application";
-import type { ModelConfiguration } from "@/lib/model-settings/contracts";
+import type {
+  ChatCatalog,
+  ChatProvider,
+  ModelConfiguration,
+} from "@/lib/model-settings/contracts";
 import { modelSettingsSnapshot } from "@/lib/model-settings/policy";
 import { getOptionalEnv, hasConfiguredSecret } from "@/lib/env";
 
-const inherited = {
-  provider: "ollama",
-  modelName: "custom-local",
-  available: true,
+const catalog: ChatCatalog = {
+  version: 1,
+  entries: [
+    { id: "entry_deepseek", provider: "deepseek", modelId: "deepseek-flash" },
+    { id: "entry_openai", provider: "openai", modelId: "gpt-6-luna" },
+    { id: "entry_local", provider: "ollama", modelId: "custom-local" },
+  ],
+  defaultEntryId: "entry_local",
 };
+function configuration(): ModelConfiguration {
+  return {
+    catalog: structuredClone(catalog),
+    configured: {
+      deepseek: true,
+      openai: true,
+      ollama: true,
+      openrouter: false,
+    },
+  };
+}
 function fixture() {
   let stored: string | null = null;
-  const config: ModelConfiguration = {
-    deepseekConfigured: true,
-    openaiConfigured: true,
-    inherited,
-  };
+  let legacy: string | null = null;
+  const config = configuration();
   const write = vi.fn((value: string) => {
     stored = value;
   });
   const app = createModelSettings({
     readPreference: () => stored,
+    readLegacyPreference: () => legacy,
     writePreference: write,
     configuration: () => config,
   });
@@ -31,35 +48,46 @@ function fixture() {
     app,
     config,
     write,
-    corrupt: (value: string) => {
+    corrupt: (value: string | null) => {
       stored = value;
+    },
+    legacy: (value: string) => {
+      legacy = value;
     },
   };
 }
-
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
-describe("runtime model rules and application", () => {
+describe("activated catalog rules and preference application", () => {
   it.each([
-    [true, true, ["deepseek-flash", "gpt-6-luna"]],
-    [true, false, ["deepseek-flash"]],
-    [false, true, ["gpt-6-luna"]],
-    [false, false, []],
-  ] as const)(
-    "lists only configured models (%s/%s)",
-    (deepseekConfigured, openaiConfigured, ids) => {
-      const snapshot = modelSettingsSnapshot(null, {
-        deepseekConfigured,
-        openaiConfigured,
-        inherited,
-      });
-      expect(snapshot.options.map((option) => option.id)).toEqual(ids);
-      expect(snapshot.effective).toEqual({ ...inherited, source: "env" });
-    },
-  );
+    [true, true],
+    [true, false],
+    [false, true],
+    [false, false],
+  ])("keeps ineligible entries visible (%s/%s)", (deepseek, openai) => {
+    const config = configuration();
+    config.configured.deepseek = deepseek;
+    config.configured.openai = openai;
+    const state = modelSettingsSnapshot(null, config);
+    expect(state.options.map((entry) => entry.id)).toEqual(
+      catalog.entries.map((entry) => entry.id),
+    );
+    expect(state.options.map((entry) => entry.available)).toEqual([
+      deepseek,
+      openai,
+      true,
+    ]);
+    expect(state.effective).toEqual({
+      entryId: "entry_local",
+      provider: "ollama",
+      modelName: "custom-local",
+      available: true,
+      source: "env",
+    });
+  });
   it.each([
     undefined,
     "",
@@ -69,93 +97,129 @@ describe("runtime model rules and application", () => {
     "replace-with-key",
     "your_api_key",
     "placeholder-key",
-  ])("ignores absent/placeholder credentials: %s", (key) => {
+  ])("rejects placeholder eligibility: %s", (key) => {
     const env = getOptionalEnv({ OPENAI_API_KEY: key, DEEPSEEK_API_KEY: key });
-    expect(
-      modelSettingsSnapshot(null, {
-        deepseekConfigured: hasConfiguredSecret(env.DEEPSEEK_API_KEY),
-        openaiConfigured: hasConfiguredSecret(env.OPENAI_API_KEY),
-        inherited,
-      }).options,
-    ).toEqual([]);
+    expect(hasConfiguredSecret(env.OPENAI_API_KEY)).toBe(false);
+    expect(hasConfiguredSecret(env.DEEPSEEK_API_KEY)).toBe(false);
   });
-  it("validates before mutation, fails closed on lost keys/corrupt storage, and explicitly resets", () => {
+  it("validates before mutation; keeps removed/ineligible/corrupt intent; resets only the override", () => {
     const { app, config, write, corrupt } = fixture();
-    expect(app.selection()).toBeNull();
-    expect(app.save({ modelId: "deepseek-flash" })).toMatchObject({
-      selected: "deepseek-flash",
+    expect(app.selection().modelId).toBe("custom-local");
+    expect(app.save({ modelId: "entry_deepseek" })).toMatchObject({
+      selected: "entry_deepseek",
       effective: {
         provider: "deepseek",
         modelName: "deepseek-flash",
-        source: "saved",
         available: true,
+        source: "saved",
       },
     });
     for (const body of [
       null,
       [],
       {},
-      "gpt-6-luna",
+      "entry_openai",
       { modelId: false },
       { modelId: 3 },
-      { modelId: "forged-secret" },
-    ]) {
-      expect(() => app.save(body)).toThrow(/Choose an available model/);
-    }
-    config.openaiConfigured = false;
-    expect(() => app.save({ modelId: "gpt-6-luna" })).toThrow(/not configured/);
+      { modelId: "raw-forged-secret" },
+      { modelId: "entry_openai", key: "no" },
+    ])
+      expect(() => app.save(body)).toThrow(/Choose an activated/);
+    config.configured.openai = false;
+    expect(() => app.save({ modelId: "entry_openai" })).toThrow(/ineligible/);
+    expect(() => app.save({ modelId: "entry_deleted" })).toThrow(/absent/);
     expect(write).toHaveBeenCalledTimes(1);
-    expect(app.selection()).toBe("deepseek-flash");
-    config.deepseekConfigured = false;
+    config.configured.deepseek = false;
     expect(app.read()).toMatchObject({
-      options: [],
-      selected: "deepseek-flash",
+      selected: "entry_deepseek",
       effective: { available: false, source: "saved" },
     });
-    expect(() => app.selection()).toThrow(/saved model/);
-    config.openaiConfigured = true;
-    expect(app.save({ modelId: "gpt-6-luna" }).effective.available).toBe(true);
-    corrupt("secret-corrupt-stored-id");
+    expect(() => app.selection()).toThrow(/key/);
+    config.catalog.entries.splice(0, 1);
     expect(app.read()).toMatchObject({
-      selected: null,
-      effective: { source: "saved", available: false },
+      selected: "entry_deepseek",
+      effective: { available: false, provider: null },
     });
+    expect(() => app.selection()).toThrow(/no longer/);
+    corrupt("secret-corrupt-stored-id");
+    expect(app.read().selected).toBeNull();
     expect(JSON.stringify(app.read())).not.toContain("secret-corrupt");
     expect(() => app.selection()).toThrow(/invalid/);
-    expect(app.save({ modelId: null }).effective).toEqual({
-      ...inherited,
-      source: "env",
-    });
-    expect(app.selection()).toBeNull();
+    app.save({ modelId: null });
+    expect(app.selection().id).toBe("entry_local");
+    config.catalog.defaultEntryId = null;
+    expect(app.read().effective.available).toBe(false);
+    expect(() => app.selection()).toThrow(/No default/);
     write.mockImplementationOnce(() => {
       throw new Error("private storage details");
     });
-    expect(() => app.save({ modelId: "gpt-6-luna" })).toThrow();
-    expect(app.selection()).toBeNull();
+    expect(() => app.save({ modelId: null })).toThrow();
+  });
+  it("maps legacy only by exact provider and literal model; v2 reset/selection has precedence without original writes", () => {
+    const { app, config, legacy, write, corrupt } = fixture();
+    legacy("gpt-6-luna");
+    expect(app.read().selected).toBe("entry_openai");
+    expect(write).not.toHaveBeenCalled();
+    config.catalog.entries[1].modelId = "custom-openai";
+    expect(app.read().effective.available).toBe(false);
+    expect(app.read().selected).toBeNull();
+    app.save({ modelId: null });
+    expect(app.selection().id).toBe("entry_local");
+    config.catalog.entries[1].modelId = "gpt-6-luna";
+    expect(app.read().selected).toBeNull(); // explicit v2 reset beats legacy
+    corrupt(null);
+    legacy("unknown-private-original");
+    expect(JSON.stringify(app.read())).not.toContain("unknown-private");
+    expect(app.read().effective.available).toBe(false);
+    config.catalog.entries = [];
+    config.catalog.defaultEntryId = null;
+    app.save({ modelId: null });
+    expect(app.read().options).toEqual([]);
+    expect(() => app.selection()).toThrow(/No default/);
   });
 });
 
-it("persists through fresh compositions/connections, preserves env/extraction and exposes only safe API DTOs/errors", async () => {
+it("persists exact multi-model/provider selection and reset; preserves extraction, original metadata and redacted API boundaries", async () => {
   vi.resetModules();
-  const path = join(
-    mkdtempSync(join(tmpdir(), "model-settings-")),
-    "trainer.sqlite",
+  vi.stubEnv(
+    "DATABASE_PATH",
+    join(mkdtempSync(join(tmpdir(), "model-settings-")), "trainer.sqlite"),
   );
-  vi.stubEnv("DATABASE_PATH", path);
   vi.stubEnv("AI_PROVIDER", "openai");
-  vi.stubEnv("AI_MODEL", "custom-openai-model");
-  vi.stubEnv("DEEPSEEK_MODEL", "custom-deepseek-model");
-  vi.stubEnv("OPENAI_API_KEY", "sentinel-openai-secret");
-  vi.stubEnv("DEEPSEEK_API_KEY", "sentinel-deepseek-secret");
+  vi.stubEnv("AI_MODEL", "independent-extraction");
+  for (const key of [
+    "OPENAI_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "OPENROUTER_API_KEY",
+  ])
+    vi.stubEnv(key, "sentinel-provider-secret");
+  const providers: ChatProvider[] = [
+    "openai",
+    "deepseek",
+    "ollama",
+    "openrouter",
+  ];
+  const entries = providers.flatMap((provider) =>
+    [0, 1].map((i) => ({
+      id: `entry_${provider}_${i}`,
+      provider,
+      modelId: `${provider}/Exact:Model${i}`,
+      displayName: "Same name",
+    })),
+  );
+  vi.stubEnv(
+    "CHAT_MODEL_CATALOG",
+    JSON.stringify({ version: 1, entries, defaultEntryId: entries[0].id }),
+  );
   const { modelSettings, selectedTrainerModel } =
     await import("@/lib/model-settings/composition");
-  const providers = await import("@/lib/ai/providers");
+  const adapters = await import("@/lib/ai/providers");
+  const repository = await import("@/lib/db/repository");
+  repository.setAppMetadata("ai.chat_model", "gpt-6-luna");
+  expect(() => selectedTrainerModel()).toThrow(/resolve exactly/); // no provider-only mapping
+  modelSettings.save({ modelId: null });
   const network = vi.spyOn(globalThis, "fetch");
-  const extraction = providers.selectedMemoryExtractionModel();
-  expect(selectedTrainerModel()).toMatchObject({
-    provider: "openai",
-    modelName: "custom-openai-model",
-  });
+  const extraction = adapters.selectedMemoryExtractionModel();
   const { GET, PATCH } = await import("@/app/api/model-settings/route");
   const patch = (body: unknown) =>
     PATCH(
@@ -164,35 +228,41 @@ it("persists through fresh compositions/connections, preserves env/extraction an
         body: JSON.stringify(body),
       }),
     );
-  expect((await patch({ modelId: "deepseek-flash" })).status).toBe(200);
-  expect(selectedTrainerModel()).toMatchObject({
-    provider: "deepseek",
-    modelName: "deepseek-flash",
-  });
-  expect(providers.selectedMemoryExtractionModel()).toMatchObject({
-    provider: extraction?.provider,
-    modelName: extraction?.modelName,
-  });
-  expect(process.env.AI_MODEL).toBe("custom-openai-model");
-  const { getDatabase } = await import("@/lib/db/connection");
-  getDatabase().close();
+  for (const entry of entries) {
+    expect((await patch({ modelId: entry.id })).status).toBe(200);
+    expect(selectedTrainerModel()).toMatchObject({
+      provider: entry.provider,
+      modelName: entry.modelId,
+      model: { modelId: entry.modelId },
+    });
+    expect(adapters.selectedMemoryExtractionModel()).toMatchObject({
+      provider: extraction?.provider,
+      modelName: extraction?.modelName,
+    });
+  }
+  expect(repository.getAppMetadata("ai.chat_model")).toBe("gpt-6-luna");
+  expect(process.env.AI_MODEL).toBe("independent-extraction");
+  (await import("@/lib/db/connection")).getDatabase().close();
   vi.resetModules();
   const fresh = await import("@/lib/model-settings/composition");
-  expect(fresh.modelSettings.selection()).toBe("deepseek-flash");
-  vi.stubEnv("DEEPSEEK_API_KEY", "placeholder-key");
-  expect(() => fresh.selectedTrainerModel()).toThrow(/not configured/);
-  const newRoute = await import("@/app/api/model-settings/route");
-  const stale = await newRoute.PATCH(
-    new Request("http://localhost/api/model-settings", {
-      method: "PATCH",
-      body: JSON.stringify({ modelId: "deepseek-flash" }),
-    }),
-  );
-  expect(stale.status).toBe(400);
-  expect(fresh.modelSettings.read().selected).toBe("deepseek-flash");
+  expect(fresh.modelSettings.selection().id).toBe("entry_openrouter_1");
+  vi.stubEnv("OPENROUTER_API_KEY", "placeholder-key");
+  expect(() => fresh.selectedTrainerModel()).toThrow(/key/);
+  const freshRoute = await import("@/app/api/model-settings/route");
   expect(
     (
-      await newRoute.PATCH(
+      await freshRoute.PATCH(
+        new Request("http://localhost/api/model-settings", {
+          method: "PATCH",
+          body: JSON.stringify({ modelId: "entry_openrouter_1" }),
+        }),
+      )
+    ).status,
+  ).toBe(400);
+  expect(fresh.modelSettings.read().selected).toBe("entry_openrouter_1");
+  expect(
+    (
+      await freshRoute.PATCH(
         new Request("http://localhost/api/model-settings", {
           method: "PATCH",
           body: "{",
@@ -200,36 +270,22 @@ it("persists through fresh compositions/connections, preserves env/extraction an
       )
     ).status,
   ).toBe(400);
-  const response = newRoute.GET();
-  expect(response.headers.get("Cache-Control")).toBe("no-store");
-  const text = await response.text();
-  expect(text).not.toMatch(/sentinel-|API_KEY|DATABASE_PATH/);
-  fresh.modelSettings.save({ modelId: "gpt-6-luna" });
-  expect(fresh.selectedTrainerModel()).toMatchObject({
-    provider: "openai",
-    modelName: "gpt-6-luna",
-  });
+  expect(freshRoute.GET().headers.get("Cache-Control")).toBe("no-store");
+  expect(await freshRoute.GET().text()).not.toMatch(
+    /sentinel-|API_KEY|DATABASE_PATH|independent-extraction/,
+  );
   fresh.modelSettings.save({ modelId: null });
   expect(fresh.selectedTrainerModel()).toMatchObject({
     provider: "openai",
-    modelName: "custom-openai-model",
+    modelName: entries[0].modelId,
   });
-  for (const provider of ["ollama", "openrouter"] as const) {
-    vi.stubEnv("AI_PROVIDER", provider);
-    vi.stubEnv("OPENROUTER_API_KEY", "sentinel-router-secret");
-    expect(fresh.selectedTrainerModel().provider).toBe(provider);
-    expect(fresh.modelSettings.read().effective).toMatchObject({
-      provider,
-      source: "env",
-    });
-  }
+  // Pending disk saves cannot change this immutable startup process catalog.
   expect(network).not.toHaveBeenCalled();
-  const read = vi.spyOn(modelSettings, "read").mockImplementation(() => {
+  vi.spyOn(modelSettings, "read").mockImplementation(() => {
     throw new Error("sentinel-private-db");
   });
   expect(GET().status).toBe(503);
   expect(await GET().text()).not.toContain("sentinel");
-  read.mockRestore();
   vi.spyOn(modelSettings, "save").mockImplementation(() => {
     throw new Error("sentinel-private-db");
   });
