@@ -159,7 +159,9 @@ describe("desktop editable settings", () => {
       main.indexOf("async fn save_settings"),
     );
     expect(memoryRead).toContain("setup_only(&window)");
-    expect(memoryRead).toContain("runtime.service.try_lock()");
+    expect(memoryRead.replace(/\s+/g, "")).toContain(
+      "runtime.service.try_lock()",
+    );
     expect(memoryRead).not.toContain("settings_path");
     expect(memoryRead).not.toContain("keychain");
     const settings = readFileSync("src-tauri/src/settings.rs", "utf8");
@@ -169,6 +171,32 @@ describe("desktop editable settings", () => {
     );
     expect(snapshot).not.toContain("Settings");
     expect(snapshot).not.toContain("secrets");
+  });
+  it("refuses private setup mutation in both admitted modes before auth or managed allocation", () => {
+    const main = readFileSync("src-tauri/src/main.rs", "utf8");
+    const guard = main.slice(
+      main.indexOf("fn private_setup_only"),
+      main.indexOf("fn stop_runtime"),
+    );
+    expect(guard).toContain("isolated_run::Admission");
+    expect(guard).toContain("smoke_config::Config");
+    for (const name of [
+      "adopt_provider_settings",
+      "finish_onboarding",
+      "choose_path",
+      "start_auth",
+      "submit_mfa",
+    ]) {
+      const from = main.indexOf(`fn ${name}(`);
+      expect(from).toBeGreaterThan(-1);
+      const next = main.indexOf("#[tauri::command]", from);
+      const body = main.slice(from, next === -1 ? undefined : next);
+      expect(body).toContain("private_setup_only(&window)?");
+      if (name === "start_auth")
+        expect(body.indexOf("private_setup_only")).toBeLessThan(
+          body.indexOf(".start_managed("),
+        );
+    }
   });
   it("packages the private auth worker and lock, and preserves native liveness/remote capability exclusions", () => {
     const assembly = readFileSync("scripts/desktop/assemble.mjs", "utf8");
