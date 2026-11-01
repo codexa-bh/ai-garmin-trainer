@@ -31,7 +31,7 @@ Required cleanup evidence:
 
 The E0007 QA test-data cleanup protocol remains authoritative for deletion classification, evidence-first ordering, approval stops, and disposable-copy safeguards.
 
-The [programmatic native smoke runner](dev-bridge.md) automates this same populated-copy flow, not a new synthetic dataset/environment: the Goals sentinel is task/run-attributed, other copied Profile fields remain unchanged, originals are fingerprint-verified, and copy-only edits are explicitly deferred to scratch expiry without copy-back. Its keyless scenario does not certify live provider/Garmin behavior or private settings/adoption. Native capture is a sanitized actual Profile subtree; image inspection and textual source/scenario evidence remain separate from file creation.
+The [programmatic native smoke runner](dev-bridge.md) automates this same populated-copy flow, not a new synthetic dataset/environment: the Goals sentinel is task/run-attributed, other copied Profile fields remain unchanged, originals are fingerprint-verified, and copy-only edits are explicitly deferred to scratch expiry without copy-back. Its keyless scenario does not certify live provider/Garmin behavior or private settings/adoption. Debug capture is a sanitized actual Profile subtree; supported ordinary-artifact capture instead preserves real geometry under fixed hide-by-default masks at wide/narrow Trainer/Sync/Profile views. Neither reveals copied facts/transcripts or certifies trusted native input. Image inspection and textual source/scenario evidence remain separate from file creation.
 
 The explicitly scoped CI exception is `smoke:quick` / `scripts/ci/seed.ts`: one
 fresh job-local synthetic current-schema Profile, created via existing migrations

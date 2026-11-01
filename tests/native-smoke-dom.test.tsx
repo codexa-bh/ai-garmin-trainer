@@ -10,6 +10,7 @@ declare global {
   interface Window {
     __trainerSmoke: (request: unknown) => Promise<void>;
     __trainerSmokeRestore: () => void;
+    __trainerOrdinaryIsolated?: { runId: string };
   }
 }
 const smoke = window;
@@ -29,7 +30,8 @@ async function command(command: unknown) {
   };
 }
 beforeEach(() => {
-  invoke.mockClear();
+  invoke.mockReset();
+  delete smoke.__trainerOrdinaryIsolated;
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
     value: { invoke },
     configurable: true,
@@ -48,6 +50,8 @@ afterEach(() => {
   smoke.__trainerSmokeRestore();
   document.body.replaceChildren();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 function DebugFixture() {
@@ -91,6 +95,210 @@ function DebugFixture() {
 }
 
 describe("native-installed rendered smoke boundary", () => {
+  it("ordinary mode rejects debug disclosure, Health and Settings controls and observations", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    const click = vi.fn();
+    render(
+      <>
+        <DebugFixture />
+        <section className="health-dashboard-panel">
+          <button onClick={click}>Daily</button>
+          <table className="health-daily-matrix">
+            <thead>
+              <tr>
+                {Array.from({ length: 7 }, (_, i) => (
+                  <th key={i}>
+                    <time dateTime="2026-01-01">private date</time>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          </table>
+        </section>
+      </>,
+    );
+    const observed = (await command({ type: "observe" })).result;
+    for (const key of [
+      "llmDebug",
+      "healthMode",
+      "healthReady",
+      "healthPreviousEnabled",
+      "healthNextEnabled",
+      "healthLatestEnabled",
+    ])
+      expect(observed[key]).toBeUndefined();
+    for (const request of [
+      { type: "click", target: "LLM debug traces" },
+      { type: "click", target: "First LLM trace" },
+      { type: "debugKey", key: "Enter" },
+      { type: "captureDebug" },
+      { type: "health", action: "daily" },
+      { type: "health", action: "remember-range" },
+      { type: "health", action: "capture-wide" },
+      { type: "settings", action: "open" },
+    ])
+      expect((await command(request)).result.ok).toBe(false);
+    expect(click).not.toHaveBeenCalled();
+    expect((document.querySelector("details") as HTMLDetailsElement).open).toBe(
+      false,
+    );
+    expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+  });
+  it("denies ordinary viewport/capture controls in legacy mode or wrong view/preset", async () => {
+    expect(
+      (await command({ type: "setViewport", preset: "wide" })).result.ok,
+    ).toBe(false);
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 850);
+    expect(
+      (await command({ type: "captureView", view: "setup", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(
+      (
+        await command({
+          type: "captureView",
+          view: "trainer",
+          preset: "arbitrary",
+        })
+      ).result.ok,
+    ).toBe(false);
+    expect((await command({ type: "capture" })).result.ok).toBe(false);
+  });
+  it("masks private content without reflow and restores on callback rejection", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 850);
+    render(
+      <>
+        <nav>
+          <button>Sync</button>
+        </nav>
+        <p data-testid="private">private transcript</p>
+      </>,
+    );
+    const result = await command({
+      type: "captureView",
+      view: "trainer",
+      preset: "wide",
+    });
+    expect(result.result.ok).toBe(true);
+    const style = document.getElementById("trainer-smoke-sanitizer");
+    expect(style?.textContent).not.toMatch(
+      /position|width|height|display|top:|left:/,
+    );
+    expect(getComputedStyle(screen.getByTestId("private")).visibility).toBe(
+      "hidden",
+    );
+    expect(
+      getComputedStyle(screen.getByRole("button", { name: "Sync" })).visibility,
+    ).toBe("visible");
+    expect(JSON.stringify(result)).not.toContain("private transcript");
+    smoke.__trainerSmokeRestore();
+    expect(style?.isConnected).toBe(false);
+    invoke.mockRejectedValueOnce(new Error("permission refused"));
+    await command({ type: "captureView", view: "trainer", preset: "wide" });
+    expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  });
+  it("keeps reviewed native-mobile chrome visible without revealing copied content", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 420);
+    vi.stubGlobal("innerHeight", 850);
+    render(
+      <header>
+        <div className="app-brand">
+          <h1 className="app-title">Garmin AI Trainer</h1>
+        </div>
+        <div className="app-mobile-menu">
+          <button className="app-menu-toggle">Menu</button>
+        </div>
+        <p data-testid="private-mobile">private transcript</p>
+      </header>,
+    );
+    expect(
+      (
+        await command({
+          type: "captureView",
+          view: "trainer",
+          preset: "narrow",
+        })
+      ).result.ok,
+    ).toBe(true);
+    expect(
+      getComputedStyle(
+        screen.getByRole("heading", { name: "Garmin AI Trainer" }),
+      ).visibility,
+    ).toBe("visible");
+    expect(
+      getComputedStyle(screen.getByRole("button", { name: "Menu" })).visibility,
+    ).toBe("visible");
+    expect(
+      getComputedStyle(screen.getByTestId("private-mobile")).visibility,
+    ).toBe("hidden");
+  });
+  it("refuses copied Profile Goals and expires successful masks without native cleanup", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 420);
+    vi.stubGlobal("innerHeight", 850);
+    const { unmount } = render(
+      <aside className="settings-sheet">
+        <div className="profile-settings-card">
+          <span className="pill">Profile saved</span>
+          <label>
+            Goals
+            <textarea aria-label="Goals" defaultValue="private original" />
+          </label>
+        </div>
+      </aside>,
+    );
+    expect(
+      (
+        await command({
+          type: "captureView",
+          view: "profile",
+          preset: "narrow",
+        })
+      ).result.ok,
+    ).toBe(false);
+    unmount();
+    render(
+      <aside className="settings-sheet">
+        <div className="profile-settings-card">
+          <span className="pill">Profile saved</span>
+          <label>
+            Goals
+            <textarea aria-label="Goals" defaultValue={sentinel} />
+          </label>
+        </div>
+      </aside>,
+    );
+    vi.useFakeTimers();
+    let pending: Promise<void>;
+    await act(async () => {
+      pending = smoke.__trainerSmoke({
+        requestId: "capture",
+        expectedRunId: "run",
+        expectedBoot: "boot",
+        command: { type: "captureView", view: "profile", preset: "narrow" },
+      });
+      await vi.advanceTimersByTimeAsync(120);
+      await pending;
+    });
+    expect(document.getElementById("trainer-smoke-sanitizer")).not.toBeNull();
+    expect((invoke.mock.calls.at(-1)?.[1] as { boot: string }).boot).toBe(
+      "boot",
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+  });
   it("drives only finite rendered Health actions, keeps dates private, and masks without replacing layout", async () => {
     const record = (date: string) =>
       ({

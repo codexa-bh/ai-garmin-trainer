@@ -18,7 +18,10 @@ import {
 } from "../scripts/desktop/config";
 import { acceptsDesktopRequest } from "../scripts/desktop/http-policy";
 import { assertDesktopDatabase } from "../src/lib/db/desktop-preflight";
-import { acquireDatabaseWriter } from "../src/lib/db/writer-ownership";
+import {
+  acquireDatabaseWriter,
+  releaseDatabaseWritersForProcessExit,
+} from "../src/lib/db/writer-ownership";
 import { migrateDatabase } from "../src/lib/db/migrations";
 
 const directories: string[] = [];
@@ -231,6 +234,35 @@ describe("desktop database admission", () => {
     expect(() => fresh.acquireDatabaseWriter(actual)).not.toThrow();
     expect(process.listenerCount("exit")).toBe(listeners);
     expect(existsSync(`${actual}.trainer-writer`)).toBe(true);
+  });
+  it("settles current process leases before hard exit without stealing replacements", () => {
+    const own = join(directory(), "owned.sqlite");
+    const changed = join(directory(), "changed.sqlite");
+    releases.push(acquireDatabaseWriter(own), acquireDatabaseWriter(changed));
+    writeFileSync(`${changed}.trainer-writer`, "foreign replacement", {
+      mode: 0o600,
+    });
+    releaseDatabaseWritersForProcessExit();
+    expect(existsSync(`${own}.trainer-writer`)).toBe(false);
+    expect(readFileSync(`${changed}.trainer-writer`, "utf8")).toBe(
+      "foreign replacement",
+    );
+    releaseDatabaseWritersForProcessExit();
+    expect(readFileSync(`${changed}.trainer-writer`, "utf8")).toBe(
+      "foreign replacement",
+    );
+  });
+  it("an old release callback cannot delete a later process-local lease", () => {
+    const path = join(directory(), "restart.sqlite");
+    const old = acquireDatabaseWriter(path);
+    releaseDatabaseWritersForProcessExit();
+    const current = acquireDatabaseWriter(path);
+    releases.push(current);
+    const identity = readFileSync(`${path}.trainer-writer`, "utf8");
+    old();
+    expect(readFileSync(`${path}.trainer-writer`, "utf8")).toBe(identity);
+    releaseDatabaseWritersForProcessExit();
+    expect(existsSync(`${path}.trainer-writer`)).toBe(false);
   });
   it("releases only its exact owned lease", () => {
     const path = join(directory(), "new.sqlite");

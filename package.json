@@ -9,6 +9,7 @@
     "smoke:native": "python3 scripts/desktop/native_smoke.py",
     "smoke:settings": "python3 scripts/desktop/settings_smoke.py",
     "smoke:release": "python3 scripts/desktop/release_smoke.py",
+    "smoke:ordinary": "python3 scripts/desktop/ordinary_smoke.py",
     "smoke:test": "python3 -m unittest discover -s scripts/desktop -p '*_test.py' && python3 -m unittest discover -s scripts/ci -p '*_test.py'",
     "ci:seed": "tsx scripts/ci/seed.ts",
     "desktop:test:native": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
