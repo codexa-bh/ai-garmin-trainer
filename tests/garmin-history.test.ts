@@ -26,6 +26,7 @@ const remote = vi.hoisted(() => ({
   cancelAt: 0,
   advanceAt: 0,
   failure: "",
+  bodyFailed: false,
   hang: false,
 }));
 vi.mock("../src/lib/garmin/client", () => ({
@@ -38,6 +39,13 @@ vi.mock("../src/lib/garmin/mcp-client", async (original) => ({
     close() {}
     async callTool(name: string, args: Record<string, unknown>) {
       remote.calls.push({ name, args });
+      if (
+        remote.bodyFailed &&
+        ["get_user_profile", "get_body_composition", "get_weigh_ins"].includes(
+          name,
+        )
+      )
+        throw new Error("body fixture read failed");
       if (remote.cancelAt === remote.calls.length) remote.cancelled = true;
       if (remote.advanceAt === remote.calls.length)
         vi.setSystemTime(Date.now() + SYNC_LIMITS.milliseconds + 1);
@@ -94,6 +102,7 @@ beforeEach(() => {
     cancelAt: 0,
     advanceAt: 0,
     failure: "",
+    bodyFailed: false,
     hang: false,
   });
   vi.resetModules();
@@ -148,6 +157,19 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     expect(next.storedActivities).toBe(4);
     expect(next.history.activities.windowEnd).toBe("2026-08-08");
     expect(next.history.activities.oldestImported).toBe("2026-09-04");
+  });
+
+  it("never advances body discovery when all baseline/body reads fail", async () => {
+    remote.bodyFailed = true;
+    const app = await import("../src/lib/garmin/composition");
+    const result = await app.runGarminSync();
+    expect(result.status).toBe("failed");
+    expect(result.history.body).toMatchObject({
+      nextDate: "2026-09-07",
+      checks: 0,
+    });
+    expect(result.history.health.checks).toBe(6);
+    expect(result.bodyMetrics.availability).toBe("failed");
   });
 
   it("replays safely after normalized commit but failed cursor persistence", async () => {

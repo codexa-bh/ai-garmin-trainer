@@ -107,6 +107,10 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
         errorMessage: errors.join("; ") || "Garmin body metrics fetch failed",
         preservedPrevious,
       });
+      if (strict)
+        throw new Error(
+          "Garmin body history read failed; range cursor preserved.",
+        );
       return getGarminBodyMetrics();
     }
     if (strict && (historyFailed || weighInFailed))
