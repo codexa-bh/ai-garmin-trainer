@@ -1950,7 +1950,14 @@ h2 {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   text-align: left;
   vertical-align: top;
-  overflow-wrap: anywhere;
+  /* Preserve word-sized intrinsic minimums; cap long tokens without clipping. */
+  max-width: 32rem;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.assistant-table .assistant-table-compact {
+  white-space: nowrap;
 }
 
 .assistant-table th {
