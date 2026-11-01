@@ -222,7 +222,7 @@ export function SettingsView({
           </details>
 
           {llmDebugTracesEnabled ? (
-            <details className="settings-card llm-debug-card" open>
+            <details className="settings-card llm-debug-card">
               <summary>
                 LLM debug traces{" "}
                 <span className="pill">

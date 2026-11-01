@@ -370,7 +370,7 @@ describe("TrainerDashboard Profile hydration", () => {
     );
   });
 
-  it("shows env-gated LLM debug traces in Settings without leaking them into the transcript", async () => {
+  it("defaults the entire LLM debug disclosure closed and preserves independent trace details", async () => {
     const debugPayload = {
       conversationId: "default",
       messages: [
@@ -387,7 +387,7 @@ describe("TrainerDashboard Profile hydration", () => {
               model: "deepseek-chat",
               providerCalls: [{ index: 1, purpose: "planner" }],
               toolSteps: [{ index: 1, tool: "runReadOnlySql" }],
-              finalAnswer: "User-facing answer only.",
+              finalAnswer: "Synthetic diagnostic context. ".repeat(100),
               caps: { string: 1200 },
             },
           },
@@ -395,7 +395,7 @@ describe("TrainerDashboard Profile hydration", () => {
         {
           id: "assistant-no-debug-1",
           role: "assistant",
-          content: "Older assistant answer.",
+          content: "Older synthetic assistant answer. ".repeat(10),
           createdAt: "2026-07-24T11:00:00.000Z",
           grounding: null,
         },
@@ -419,22 +419,130 @@ describe("TrainerDashboard Profile hydration", () => {
 
     openSettings();
 
+    const dialog = screen.getByRole("dialog", { name: "Profile & data" });
+    const summary = within(dialog).getByText("LLM debug traces", {
+      exact: false,
+    });
+    const disclosure = summary.closest("details") as HTMLDetailsElement;
+    const traces = Array.from(
+      disclosure.querySelectorAll<HTMLDetailsElement>(".debug-trace-item"),
+    );
+    const traceSummaries = traces.map((trace) =>
+      trace.querySelector("summary")!,
+    );
+    const warning = within(disclosure).getByText(
+      /Local developer diagnostics are enabled/,
+    );
+    const diagnostic = within(disclosure).getByText(/runReadOnlySql/);
+    const missing = within(disclosure).getByText(
+      "No debug trace captured for this assistant message.",
+    );
+
+    // Native details hides non-summary descendants without removing their DOM.
+    // These state/activation assertions are not a WebView visual/keyboard test.
+    expect(disclosure.open).toBe(false);
+    expect(disclosure.hasAttribute("open")).toBe(false);
+    expect(within(summary).getByText("2 assistant turns")).toBeTruthy();
+    expect(warning.parentElement).toBe(disclosure);
+    expect(traceSummaries[0].textContent).toContain(
+      "Older synthetic assistant answer.",
+    );
+    expect(traceSummaries[1].textContent).toContain("User-facing answer only.");
+    expect(traces.every((trace) => !trace.open)).toBe(true);
+    expect(missing.closest("details")).toBe(traces[0]);
+    expect(diagnostic.closest("details")).toBe(traces[1]);
+
+    const requestsBeforeToggle = fetchMock.mock.calls.length;
+    fireEvent.click(summary);
+    expect(disclosure.open).toBe(true);
+    expect(traces.every((trace) => !trace.open)).toBe(true);
+    fireEvent.click(traceSummaries[1]);
+    expect(traces[1].open).toBe(true);
+    expect(traces[0].open).toBe(false);
+    fireEvent.click(traceSummaries[0]);
+    expect(traces[0].open).toBe(true);
+    fireEvent.click(traceSummaries[0]);
+    expect(traces[0].open).toBe(false);
+
+    fireEvent.click(summary);
+    expect(disclosure.open).toBe(false);
+    expect(traces[1].open).toBe(true);
+    expect(disclosure.contains(diagnostic)).toBe(true);
+    fireEvent.click(summary);
+    expect(disclosure.open).toBe(true);
+    expect(traces[1].open).toBe(true);
+    fireEvent.click(traceSummaries[1]);
+    expect(traces[1].open).toBe(false);
+    expect(fetchMock.mock.calls.length).toBe(requestsBeforeToggle);
+
+    // Normal Profile edits rerender the shell without resetting native state.
+    fireEvent.change(screen.getByLabelText("Goals"), {
+      target: { value: "Synthetic unsaved goal" },
+    });
+    expect(disclosure.open).toBe(true);
+    fireEvent.click(summary);
+    fireEvent.change(screen.getByLabelText("Goals"), {
+      target: { value: "Another synthetic unsaved goal" },
+    });
+    expect(disclosure.open).toBe(false);
+
+    fireEvent.click(summary);
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Close Profile & data" }),
+    );
+    expect(screen.queryByRole("dialog", { name: "Profile & data" })).toBeNull();
+    openSettings();
+    const reopened = screen
+      .getByText("LLM debug traces", { exact: false })
+      .closest("details") as HTMLDetailsElement;
+    expect(reopened).not.toBe(disclosure);
+    expect(reopened.open).toBe(false);
+    expect(reopened.hasAttribute("open")).toBe(false);
     expect(
-      await screen.findByText("LLM debug traces", { exact: false }),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/Local developer diagnostics are enabled/),
-    ).toBeTruthy();
-    expect(screen.getByText(/runReadOnlySql/)).toBeTruthy();
-    expect(
-      screen.getByText("No debug trace captured for this assistant message."),
-    ).toBeTruthy();
+      Array.from(reopened.querySelectorAll("details")).every(
+        (trace) => !trace.open,
+      ),
+    ).toBe(true);
   });
 
-  it("keeps env-disabled LLM debug Settings section absent", async () => {
+  it("keeps the enabled empty LLM disclosure closed until deliberately opened", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/chat")) {
+          return jsonResponse({ ...emptyChat, llmDebugTracesEnabled: true });
+        }
+        if (url === "/api/profile") return jsonResponse(profile([]));
+        return jsonResponse({ ok: true });
+      }),
+    );
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+    const summary = await screen.findByText("LLM debug traces", {
+      exact: false,
+    });
+    const disclosure = summary.closest("details") as HTMLDetailsElement;
+    const empty = within(disclosure).getByText(
+      "No assistant messages in the active conversation yet.",
+    );
+    expect(within(summary).getByText("0 assistant turns")).toBeTruthy();
+    expect(disclosure.open).toBe(false);
+    expect(disclosure.hasAttribute("open")).toBe(false);
+    expect(empty.closest("details")).toBe(disclosure);
+    expect(disclosure.querySelector(".debug-trace-item")).toBeNull();
+    fireEvent.click(summary);
+    expect(disclosure.open).toBe(true);
+    fireEvent.click(summary);
+    expect(disclosure.open).toBe(false);
+  });
+
+  it("keeps the LLM debug section absent for a disabled payload", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.startsWith("/api/chat")) return jsonResponse(emptyChat);
+      if (url.startsWith("/api/chat")) {
+        return jsonResponse({ ...emptyChat, llmDebugTracesEnabled: false });
+      }
       if (url === "/api/profile") return jsonResponse(profile([]));
       return jsonResponse({ ok: true });
     });
