@@ -890,6 +890,8 @@ mod tests {
             json!({"type":"observe","selector":"body"}),
             json!({"type":"settings","action":"auth"}),
             json!({"type":"settings","action":"connect","value":"secret"}),
+            json!({"type":"settings","action":"captureIntro","selector":"body"}),
+            json!({"type":"settings","action":"captureIntro","value":"secret"}),
             json!({"type":"health","action":"eval"}),
             json!({"type":"health","action":"capture-wide","width":800}),
             json!({"type":"health","action":"remember-range","date":"2026-01-01"}),

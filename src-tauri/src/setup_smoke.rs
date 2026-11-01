@@ -22,6 +22,7 @@ pub enum Action {
     Save,
     Cancel,
     Capture,
+    CaptureIntro,
     Close,
 }
 #[derive(Deserialize, Serialize)]
@@ -163,7 +164,12 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
     if matches!(action, Action::Save) {
         config.validate()?;
     }
-    if matches!(action, Action::Capture) {
+    if matches!(action, Action::Capture | Action::CaptureIntro) {
+        let boundary = if matches!(action, Action::CaptureIntro) {
+            "geometry-preserving masked actual static Settings introduction; debug only, not ordinary or trusted input"
+        } else {
+            "sanitized actual Garmin Settings subtrees; not full-window layout or trusted input"
+        };
         let result = (|| {
             let prepared = evaluate(&window, &action)?;
             if !prepared.ok {
@@ -176,9 +182,7 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
                 &uuid::Uuid::new_v4().to_string(),
                 &bytes,
             )?;
-            Ok(
-                json!({"ok":true,"capture":path,"boundary":"sanitized actual Garmin Settings subtrees; not full-window layout or trusted input"}),
-            )
+            Ok(json!({"ok":true,"capture":path,"boundary":boundary}))
         })();
         let _ =
             window.eval("window.__trainerSetupSmokeRestore && window.__trainerSetupSmokeRestore()");
@@ -215,6 +219,17 @@ mod tests {
     }
     #[test]
     fn actions_and_observations_exclude_private_controls_and_text() {
+        assert!(matches!(
+            serde_json::from_value::<Action>(json!("captureIntro")).unwrap(),
+            Action::CaptureIntro
+        ));
+        for value in [
+            json!({"action":"captureIntro","selector":"body"}),
+            json!("captureSecret"),
+            json!("capture-intro"),
+        ] {
+            assert!(serde_json::from_value::<Action>(value).is_err());
+        }
         for action in [
             "auth", "email", "password", "mfa", "picker", "finish", "eval", "input",
         ] {
