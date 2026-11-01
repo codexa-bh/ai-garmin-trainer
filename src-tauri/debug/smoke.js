@@ -57,16 +57,38 @@
     return el;
   }
   let rememberedHealthRange = null;
-  const healthTable = () => {
-    const tables = [
-      ...document.querySelectorAll(".health-daily-matrix"),
+  const healthComparison = () => {
+    const comparisons = [
+      ...document.querySelectorAll(
+        ".health-dashboard-panel .health-daily-comparison",
+      ),
     ].filter(visible);
+    const comparison = comparisons[0];
+    const dates = [
+      ...(comparison?.querySelectorAll(".health-daily-coverage time") ?? []),
+    ].map((el) => el.dateTime);
+    const cards = [
+      ...(comparison?.querySelectorAll(".health-rollup-chart") ?? []),
+    ];
     if (
-      tables.length !== 1 ||
-      tables[0].querySelectorAll("thead time").length !== 7
+      comparisons.length !== 1 ||
+      dates.length !== 7 ||
+      new Set(dates).size !== 7 ||
+      dates.some(
+        (date, index) =>
+          !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+          (index > 0 && date <= dates[index - 1]),
+      ) ||
+      cards.length !== 15 ||
+      cards.some(
+        (card) =>
+          [...card.querySelectorAll("[data-source-date]")]
+            .map((el) => el.dataset.sourceDate)
+            .join(",") !== dates.join(","),
+      )
     )
-      throw Error("Daily Health comparison not ready");
-    return tables[0];
+      throw Error("Daily Health charts not ready");
+    return comparison;
   };
   function debugCard() {
     const cards = [
@@ -143,7 +165,12 @@
     return card;
   }
   function healthObservation() {
-    const comparison = document.querySelector(".health-daily-matrix");
+    let comparison = null;
+    try {
+      comparison = healthComparison();
+    } catch {
+      /* Not mounted/ready. */
+    }
     const healthButtons = document.querySelectorAll(
       ".health-daily-actions button",
     );
@@ -153,10 +180,12 @@
       .toLowerCase();
     return {
       healthMode: ["daily", "weekly", "monthly"].includes(mode) ? mode : null,
-      healthReady: Boolean(
-        comparison &&
-        visible(comparison) &&
-        comparison.querySelectorAll("thead time").length === 7,
+      healthReady: Boolean(comparison),
+      healthMissingRecord: Boolean(
+        comparison?.querySelector('[data-coverage="missing-record"]'),
+      ),
+      healthPartialRecord: Boolean(
+        comparison?.querySelector('[data-coverage="partial"]'),
       ),
       healthPreviousEnabled: Boolean(
         healthButtons[0] &&
@@ -206,7 +235,11 @@
           ].includes(s),
         ),
       ...(globalThis.__trainerOrdinaryIsolated
-        ? {}
+        ? {
+            tablesReady: [
+              ...document.querySelectorAll(".assistant-table"),
+            ].some(visible),
+          }
         : { ...healthObservation(), llmDebug: debugObservation() }),
       profileReady: Boolean(goals && visible(goals) && !goals.disabled),
       profileSaved:
@@ -227,6 +260,370 @@
       // No copied text, control values, transcripts or diagnostics leave the renderer.
     };
   }
+  const footerEntries = [
+    [
+      "entry_footer_long",
+      "T0246 long descriptive local model selection for narrow composer footer — ollama / T0246/Long-local-model-name:exact-tag",
+    ],
+    ["entry_footer_other", "T0246 alternate — ollama / T0246/Alternate:Tag"],
+  ];
+  let composerTextarea;
+  let keysNoSend = false;
+  const composerDraft = () =>
+    `T0246-composer-${globalThis.__trainerOrdinaryIsolated?.runId}`;
+  function composerElements() {
+    if (!globalThis.__trainerOrdinaryIsolated || observe().view !== "Trainer")
+      throw Error("Ordinary isolated Trainer only");
+    const textareas = [
+      ...document.querySelectorAll(
+        '.composer-dock textarea[aria-label="Message"]',
+      ),
+    ].filter(visible);
+    const selects = [
+      ...document.querySelectorAll('select[aria-label="Trainer model"]'),
+    ].filter(visible);
+    const sends = [
+      ...document.querySelectorAll(".composer-dock button"),
+    ].filter((el) => visible(el) && name(el) === "Send");
+    if (textareas.length !== 1 || selects.length !== 1 || sends.length !== 1)
+      throw Error("Composer unavailable/ambiguous");
+    return { textarea: textareas[0], select: selects[0], send: sends[0] };
+  }
+  function knownFooterCatalog(select) {
+    const options = [...select.options];
+    return (
+      options.length >= 2 &&
+      options.length <= 3 &&
+      footerEntries.every(([id, label]) =>
+        options.some(
+          (option) =>
+            option.value === id &&
+            option.textContent === label &&
+            !option.disabled,
+        ),
+      ) &&
+      options.every(
+        (option) =>
+          footerEntries.some(
+            ([id, label]) =>
+              option.value === id && option.textContent === label,
+          ) ||
+          (option.value === "" &&
+            option.disabled &&
+            [
+              `Default · ${footerEntries[1][1]}`,
+              "Unavailable saved entry",
+            ].includes(option.textContent)),
+      )
+    );
+  }
+  function composerObservation(action) {
+    const { textarea, select, send } = composerElements();
+    const rects = [textarea, select, send].map((el) =>
+      el.getBoundingClientRect(),
+    );
+    const [field, model, submit] = rects;
+    return {
+      ok: true,
+      action,
+      trustedInput: false,
+      modelReady: !select.disabled && knownFooterCatalog(select),
+      singleControl:
+        document.querySelectorAll('select[aria-label="Trainer model"]')
+          .length === 1 &&
+        !document.querySelector(".trainer-heading-row select"),
+      footerOrder:
+        textarea.compareDocumentPosition(select) ===
+          Node.DOCUMENT_POSITION_FOLLOWING &&
+        select.closest(".chat-model-control")?.nextElementSibling === send,
+      fitsViewport:
+        rects.every(
+          (rect) =>
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.left >= 0 &&
+            rect.right <= innerWidth &&
+            rect.top >= 0 &&
+            rect.bottom <= innerHeight,
+        ) &&
+        model.top >= field.bottom &&
+        model.right <= submit.left &&
+        document.documentElement.scrollWidth <= innerWidth,
+      draftMatches: textarea.value === composerDraft(),
+      textareaStable: textarea === composerTextarea,
+      savedChoice:
+        select.value === footerEntries[0][0] &&
+        Boolean(
+          document.querySelector(
+            '.chat-model-control button[aria-label="Reset to configured default"]',
+          ),
+        ),
+      defaultChoice:
+        select.value === "" &&
+        select.selectedOptions[0]?.textContent ===
+          `Default · ${footerEntries[1][1]}`,
+      keysNoSend,
+    };
+  }
+  function composerAction(command) {
+    if (
+      Object.keys(command).sort().join(",") !== "action,type" ||
+      !["observe", "draft", "choose", "reset", "keys"].includes(command.action)
+    )
+      throw Error("Unsupported composer action/fields");
+    const { textarea, select } = composerElements();
+    if (
+      command.action !== "observe" &&
+      (select.disabled || !knownFooterCatalog(select) || textarea.disabled)
+    )
+      throw Error("Composer not ready or catalog private");
+    if (command.action === "draft") {
+      if (textarea.value && textarea.value !== composerDraft())
+        throw Error("Existing draft is private");
+      composerTextarea = textarea;
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      ).set.call(textarea, composerDraft());
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (command.action === "choose") {
+      Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      ).set.call(select, footerEntries[0][0]);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (command.action === "reset") {
+      target("Reset to configured default").click();
+    } else if (command.action === "keys") {
+      if (textarea.value !== composerDraft() || textarea !== composerTextarea)
+        throw Error("Synthetic draft required");
+      const transcript = document.querySelector(".transcript")?.textContent;
+      select.focus();
+      for (const key of ["Enter", " "]) {
+        for (const type of ["keydown", "keypress", "keyup"])
+          select.dispatchEvent(
+            new KeyboardEvent(type, { key, bubbles: true, cancelable: true }),
+          );
+      }
+      keysNoSend =
+        textarea.value === composerDraft() &&
+        textarea === composerTextarea &&
+        transcript === document.querySelector(".transcript")?.textContent;
+      if (!keysNoSend) throw Error("Selector keys changed composer/transcript");
+    }
+    return composerObservation(command.action);
+  }
+  function revealComposer() {
+    const { textarea, select, send } = composerElements();
+    const observation = composerObservation("observe");
+    if (
+      !observation.modelReady ||
+      !observation.draftMatches ||
+      !observation.textareaStable
+    )
+      throw Error("Capture requires canonical synthetic composer");
+    const reveal = (el) => el.setAttribute("data-smoke-reveal", "");
+    [textarea, select, ...select.options, send].forEach(reveal);
+    for (const el of document.querySelectorAll(
+      ".trainer-heading-row h2, .trainer-heading-row .section-kicker, .chat-model-control label, .chat-model-control button, .chat-model-save-state",
+    )) {
+      if (
+        [
+          "Chat with your private coach",
+          "Daily trainer",
+          "Model",
+          "Default",
+          "Saved",
+        ].includes(el.textContent.trim())
+      )
+        reveal(el);
+    }
+  }
+  // Fixed synthetic table scenario: never return/reveal arbitrary saved documents.
+  const tableProse =
+    "Synthetic evidence describes duration and partial credit with explicit limitations; descriptive prose should wrap at word boundaries.";
+  const tableToken = `https://example.test/${"unbroken".repeat(50)}`;
+  function expectedTable(surface) {
+    if (surface === "chat-simple")
+      return [
+        ["Metric", "Average", "Reference"],
+        ["Duration", "42 min", "Synthetic reference"],
+        ["Distance", "5 km", "Synthetic reference"],
+      ];
+    const reordered = surface !== "plan";
+    const headers = [
+      "KPI",
+      "Target",
+      "Unit",
+      "Evidence",
+      reordered ? "Crédit" : "Points",
+      "Calculation",
+    ];
+    const order = reordered ? [4, 3, 5, 0, 2, 1] : [0, 1, 2, 3, 4, 5];
+    return [
+      headers,
+      ...["30 / 30", "25 / 25", "15 / 15", "0 / 10"].map((score) => [
+        "Easy work",
+        "150",
+        "min",
+        reordered ? tableToken : tableProse,
+        score,
+        tableProse,
+      ]),
+    ].map((row) => order.map((index) => row[index]));
+  }
+  function syntheticTable(surface) {
+    if (
+      !globalThis.__trainerOrdinaryIsolated ||
+      !["plan", "review", "chat", "chat-simple"].includes(surface)
+    )
+      throw Error("Ordinary synthetic tables only");
+    const inChat = surface.startsWith("chat");
+    if (observe().view !== (inChat ? "Trainer" : "Training Plan"))
+      throw Error("Wrong table view");
+    const roots = inChat
+      ? [...document.querySelectorAll(".transcript")]
+      : [...document.querySelectorAll(".training-plan-report")].filter(
+          (el) =>
+            el.querySelector("h3")?.textContent ===
+            `T0249 synthetic ${surface}`,
+        );
+    const expected = expectedTable(surface);
+    const tables = roots
+      .flatMap((root) => [...root.querySelectorAll(".assistant-table")])
+      .filter((table) => {
+        const rows = [...table.rows].map((row) =>
+          [...row.cells].map((cell) => cell.textContent),
+        );
+        return JSON.stringify(rows) === JSON.stringify(expected);
+      });
+    if (
+      tables.length !== 1 ||
+      !visible(tables[0]) ||
+      tables[0].querySelectorAll("td *, th *").length !==
+        (surface === "chat-simple" ? 2 : 4) ||
+      [...tables[0].querySelectorAll("td *, th *")].some(
+        (el) => !["STRONG", "CODE"].includes(el.tagName),
+      )
+    )
+      throw Error("Missing/ambiguous/noncanonical synthetic table");
+    return tables[0];
+  }
+  let selectedTable;
+  let selectedSurface;
+  function lineCount(cell) {
+    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+    const tops = [];
+    while (walker.nextNode()) {
+      const range = document.createRange();
+      range.selectNodeContents(walker.currentNode);
+      for (const rect of range.getClientRects())
+        if (rect.width > 0 && !tops.some((top) => Math.abs(top - rect.top) < 1))
+          tops.push(rect.top);
+    }
+    return tops.length;
+  }
+  function tableHeaderVisible(table) {
+    const header = table.tHead.getBoundingClientRect();
+    let top = 0,
+      bottom = innerHeight;
+    for (let node = table.parentElement; node; node = node.parentElement) {
+      if (node.clientHeight && getComputedStyle(node).overflowY !== "visible") {
+        const rect = node.getBoundingClientRect();
+        top = Math.max(top, rect.top);
+        bottom = Math.min(bottom, rect.bottom);
+      }
+    }
+    return (
+      header.width > 0 && header.top >= top - 1 && header.bottom <= bottom + 1
+    );
+  }
+  async function tablesAction(command) {
+    if (
+      Object.keys(command).sort().join(",") !== "edge,surface,type" ||
+      !["start", "end"].includes(command.edge)
+    )
+      throw Error("Unsupported table action/fields");
+    const table = syntheticTable(command.surface);
+    const wrapper = table.closest(".assistant-table-wrapper");
+    if (!wrapper) throw Error("Contained table required");
+    restore();
+    // scrollIntoView also scrolls overflow:hidden ancestors, which can conceal
+    // the real panel on desktop. Scroll only user-scrollable table ancestors.
+    for (let node = wrapper; node; node = node.parentElement) {
+      if (
+        ["auto", "scroll"].includes(getComputedStyle(node).overflowY) &&
+        node.scrollHeight > node.clientHeight
+      )
+        node.scrollTop +=
+          table.getBoundingClientRect().top -
+          node.getBoundingClientRect().top -
+          8;
+    }
+    wrapper.scrollLeft = command.edge === "end" ? wrapper.scrollWidth : 0;
+    selectedTable = table;
+    selectedSurface = command.surface;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const compact = [...table.querySelectorAll(".assistant-table-compact")];
+    const prose = [...table.querySelectorAll("td")].filter(
+      (cell) => cell.textContent === tableProse,
+    );
+    const rect = wrapper.getBoundingClientRect();
+    return {
+      ok: true,
+      surface: command.surface,
+      edge: command.edge,
+      trustedInput: false,
+      compact:
+        compact.length > 0 && compact.every((cell) => lineCount(cell) === 1),
+      proseWrapped:
+        command.surface === "chat-simple" ||
+        prose.some((cell) => lineCount(cell) > 1),
+      contained:
+        document.documentElement.scrollWidth <= innerWidth &&
+        rect.left >= 0 &&
+        rect.right <= innerWidth &&
+        getComputedStyle(wrapper).overflowX === "auto" &&
+        table.getBoundingClientRect().width <= wrapper.scrollWidth + 1,
+      scrollable: wrapper.scrollWidth > wrapper.clientWidth,
+      edgeReached:
+        command.edge === "start"
+          ? wrapper.scrollLeft === 0
+          : Math.abs(
+              wrapper.scrollLeft + wrapper.clientWidth - wrapper.scrollWidth,
+            ) <= 1,
+      allCells: true,
+      headerVisible: tableHeaderVisible(table),
+    };
+  }
+  function revealTables() {
+    if (
+      !selectedTable ||
+      syntheticTable(selectedSurface) !== selectedTable ||
+      !tableHeaderVisible(selectedTable)
+    )
+      throw Error("Canonical selected table with visible header required");
+    // WebKit can omit a visible descendant's scrolled compositing layer when
+    // its ancestor is visibility:hidden. Reveal only empty-text containers on
+    // the selected path; every sibling/child remains independently masked.
+    for (
+      let node = selectedTable.parentElement;
+      node && node !== document.body;
+      node = node.parentElement
+    ) {
+      if (
+        [...node.childNodes].some(
+          (child) =>
+            child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+        )
+      )
+        throw Error("Capture refuses private direct ancestor text");
+      node.setAttribute("data-smoke-reveal", "");
+    }
+    for (const el of [selectedTable, ...selectedTable.querySelectorAll("*")])
+      el.setAttribute("data-smoke-reveal", "");
+  }
   let maskExpiry;
   function restore() {
     clearTimeout(maskExpiry);
@@ -243,10 +640,14 @@
       throw Error("Unsupported viewport/mode");
     const expected = {
       trainer: "Trainer",
+      composer: "Trainer",
       sync: "Sync",
       profile: "Profile & data",
     }[command.view];
-    if (!expected || observe().view !== expected)
+    if (command.view === "tables") {
+      if (!selectedTable || syntheticTable(selectedSurface) !== selectedTable)
+        throw Error("Unsafe table capture");
+    } else if (!expected || observe().view !== expected)
       throw Error("Unsafe capture view");
     if (command.view === "profile") {
       const goals = target("Goals", "textarea");
@@ -296,6 +697,8 @@
       if (pill?.textContent.trim() === "Profile saved")
         pill.setAttribute("data-smoke-reveal", "");
     }
+    if (command.view === "composer") revealComposer();
+    if (command.view === "tables") revealTables();
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";
     style.textContent =
@@ -369,6 +772,10 @@
           progressStarted: panel.querySelectorAll(".sync-log-entry").length > 0,
         };
       }
+      case "composer":
+        return composerAction(command);
+      case "tables":
+        return tablesAction(command);
       case "click": {
         if (["LLM debug traces", "First LLM trace"].includes(command.target)) {
           debugSummary(command.target === "First LLM trace").click();
@@ -437,12 +844,14 @@
           el.click();
           return { ok: true, action: command.action, trustedInput: false };
         }
-        const table = healthTable();
+        const comparison = healthComparison();
         if (
           command.action === "remember-range" ||
           command.action === "assert-range"
         ) {
-          const dates = [...table.querySelectorAll("thead time")]
+          const dates = [
+            ...comparison.querySelectorAll(".health-daily-coverage time"),
+          ]
             .map((el) => el.dateTime)
             .join(",");
           if (command.action === "remember-range") {
@@ -458,9 +867,22 @@
         restore();
         const style = document.createElement("style");
         style.id = "trainer-smoke-sanitizer";
-        // Hide copied dates, values and coverage without changing their layout/width.
-        // Nothing is repositioned; no private text/DOM is returned by this command.
-        style.textContent = `body * {visibility:hidden !important} .health-dashboard-panel, .health-dashboard-panel * {visibility:visible !important} .health-dashboard-panel .health-daily-matrix td, .health-dashboard-panel .health-daily-matrix time, .health-dashboard-panel .health-daily-matrix caption, .health-dashboard-panel #health-daily-range, .health-dashboard-panel [role="status"] {visibility:hidden !important; position:relative} .health-dashboard-panel .health-daily-matrix td::after, .health-dashboard-panel .health-daily-matrix time::after, .health-dashboard-panel .health-daily-matrix caption::after, .health-dashboard-panel #health-daily-range::after, .health-dashboard-panel [role="status"]::after {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}`;
+        // Hide by default, revealing only fixed static Health controls/card chrome.
+        // Source-derived dates, values, plot marks/ticks, coverage and HRV context
+        // stay hidden at unchanged geometry; even unexpected descendants stay private.
+        style.textContent = `body * {visibility:hidden !important}
+          .health-dashboard-panel, .health-dashboard-header, .health-dashboard-header h1,
+          .health-dashboard-header button, .health-mode-controls, .health-mode-controls button,
+          .health-daily-actions, .health-daily-actions button, .health-rollup-chart,
+          .health-rollup-heading, .health-rollup-heading > strong, .health-rollup-heading > span,
+          .health-rollup-plot .recharts-cartesian-grid line,
+          .health-rollup-values button, .health-daily-coverage,
+          .health-daily-coverage > summary {visibility:visible !important}
+          .health-dashboard-panel #health-daily-range, .health-dashboard-panel [role="status"],
+          .health-daily-comparison .health-rollup-readout, .health-daily-comparison .health-rollup-value {position:relative}
+          .health-dashboard-panel #health-daily-range::after, .health-dashboard-panel [role="status"]::after,
+          .health-daily-comparison .health-rollup-readout::after, .health-daily-comparison .health-rollup-value::after
+          {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}`;
         document.head.append(style);
         await new Promise((resolve) => setTimeout(resolve, 120));
         return {

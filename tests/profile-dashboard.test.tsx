@@ -802,6 +802,14 @@ describe("TrainerDashboard Profile hydration", () => {
         counters: { modelCalls: 2, toolsSucceeded: 1, toolsUnsuccessful: 1 },
       });
       expect(await screen.findByTestId("pending-counters")).toBeTruthy();
+      const streaming = screen.getByRole("button", { name: "Streaming…" });
+      const modelGroup = screen
+        .getByRole("combobox", { name: "Trainer model" })
+        .closest(".chat-model-control");
+      expect(modelGroup?.nextElementSibling).toBe(streaming);
+      expect(
+        screen.getByRole("button", { name: "Cancel" }).nextElementSibling,
+      ).toBe(streaming.parentElement);
       if (terminal === "cancel") {
         fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
         expect(screen.queryByTestId("pending-step-status")).toBeNull();
@@ -1071,6 +1079,16 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(actionsBlock).toContain("flex-wrap: wrap;");
     expect(actionsBlock).toContain("margin-top: 10px;");
     expect(actionsBlock).toContain("padding: 0 8px;");
+    const submitGroup =
+      css.match(/\.composer-submit-group\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    expect(submitGroup).toContain("display: flex;");
+    expect(submitGroup).toContain("max-width: 100%;");
+    expect(submitGroup).toContain("min-width: 0;");
+    expect(submitGroup).toContain("justify-content: flex-end;");
+    expect(css).toMatch(
+      /\.composer-submit-group > button\s*\{\s*flex-shrink: 0;/,
+    );
+    expect(css).not.toContain(".composer-actions button:last-child");
   });
 
   it("keeps the desktop app topbar visible outside the transcript scroll contract", async () => {
@@ -5344,7 +5362,14 @@ describe("TrainerDashboard transcript scrolling", () => {
       );
       stream.close();
       if (intent === "error") {
-        await screen.findByRole("button", { name: "Retry" });
+        const retry = await screen.findByRole("button", { name: "Retry" });
+        const send = screen.getByRole("button", { name: "Send" });
+        expect(retry.nextElementSibling).toBe(send.parentElement);
+        expect(
+          screen
+            .getByRole("combobox", { name: "Trainer model" })
+            .closest(".chat-model-control")?.nextElementSibling,
+        ).toBe(send);
         expect(screen.queryByText(/Later growth/)).toBeNull();
       } else {
         await screen.findByText("Final Markdown answer");

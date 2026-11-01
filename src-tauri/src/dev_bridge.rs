@@ -53,7 +53,10 @@ impl Config {
             {
                 self.ordinary.is_none()
             }
-            Command::SetViewport { .. } | Command::CaptureView { .. } => self.ordinary.is_some(),
+            Command::SetViewport { .. }
+            | Command::CaptureView { .. }
+            | Command::Composer { .. }
+            | Command::Tables { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
                 if self.ordinary.is_some() =>
             {
@@ -129,6 +132,13 @@ pub enum Command {
         view: String,
         preset: String,
     },
+    Composer {
+        action: String,
+    },
+    Tables {
+        surface: String,
+        edge: String,
+    },
     #[cfg(debug_assertions)]
     Settings {
         action: crate::setup_smoke::Action,
@@ -189,8 +199,15 @@ impl Command {
             | Self::HistorySettings { .. } => true,
             Self::SetViewport { preset } => ["wide", "narrow"].contains(&preset.as_str()),
             Self::CaptureView { view, preset } => {
-                ["trainer", "sync", "profile"].contains(&view.as_str())
+                ["trainer", "sync", "profile", "composer", "tables"].contains(&view.as_str())
                     && ["wide", "narrow"].contains(&preset.as_str())
+            }
+            Self::Composer { action } => {
+                ["observe", "draft", "choose", "reset", "keys"].contains(&action.as_str())
+            }
+            Self::Tables { surface, edge } => {
+                ["plan", "review", "chat", "chat-simple"].contains(&surface.as_str())
+                    && ["start", "end"].contains(&edge.as_str())
             }
             #[cfg(debug_assertions)]
             Self::CaptureDebug {} | Self::Settings { .. } | Self::Health { .. } => true,
@@ -571,6 +588,12 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 "profileSaved",
                 "view",
             ];
+            if let Some(ready) = value.get("tablesReady") {
+                if !ordinary || !ready.is_boolean() {
+                    return false;
+                }
+                keys.push("tablesReady");
+            }
             if let Some(debug) = value.get("llmDebug") {
                 if ordinary || !safe_debug_observation(debug) {
                     return false;
@@ -581,6 +604,8 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 let health = [
                     "healthMode",
                     "healthReady",
+                    "healthMissingRecord",
+                    "healthPartialRecord",
                     "healthPreviousEnabled",
                     "healthNextEnabled",
                     "healthLatestEnabled",
@@ -707,6 +732,45 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                                 .unwrap_or(false)
                     }
                 }
+        }
+        Command::Tables { surface, edge } => {
+            let booleans = [
+                "compact",
+                "proseWrapped",
+                "contained",
+                "scrollable",
+                "edgeReached",
+                "allCells",
+                "headerVisible",
+            ];
+            let mut keys = vec!["ok", "surface", "edge", "trustedInput"];
+            keys.extend(booleans);
+            ordinary
+                && exact_keys(value, &keys)
+                && value["surface"].as_str() == Some(surface)
+                && value["edge"].as_str() == Some(edge)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
+        }
+        Command::Composer { action } => {
+            let booleans = [
+                "modelReady",
+                "singleControl",
+                "footerOrder",
+                "fitsViewport",
+                "draftMatches",
+                "textareaStable",
+                "savedChoice",
+                "defaultChoice",
+                "keysNoSend",
+            ];
+            let mut keys = vec!["ok", "action", "trustedInput"];
+            keys.extend(booleans);
+            ordinary
+                && exact_keys(value, &keys)
+                && value["action"].as_str() == Some(action)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
         }
         Command::SetViewport { preset } => {
             exact_keys(value, &["ok", "preset"]) && value["preset"].as_str() == Some(preset)
@@ -959,6 +1023,8 @@ mod tests {
             json!({"type":"observe","selector":"body"}),
             json!({"type":"settings","action":"auth"}),
             json!({"type":"settings","action":"connect","value":"secret"}),
+            json!({"type":"settings","action":"captureIntro","selector":"body"}),
+            json!({"type":"settings","action":"captureIntro","value":"secret"}),
             json!({"type":"health","action":"eval"}),
             json!({"type":"health","action":"capture-wide","width":800}),
             json!({"type":"health","action":"remember-range","date":"2026-01-01"}),
@@ -1094,7 +1160,7 @@ mod tests {
             },
             &json!({"ok":true,"remembered":true,"dates":"private"})
         ));
-        let mut observation = json!({"ok":true,"dashboard":true,"hydrated":true,"navigation":[],"headings":[],"profileReady":false,"profileSaved":false,"view":"Health","healthMode":"daily","healthReady":true,"healthPreviousEnabled":true,"healthNextEnabled":false,"healthLatestEnabled":false});
+        let mut observation = json!({"ok":true,"dashboard":true,"hydrated":true,"navigation":[],"headings":[],"profileReady":false,"profileSaved":false,"view":"Health","healthMode":"daily","healthReady":true,"healthMissingRecord":true,"healthPartialRecord":true,"healthPreviousEnabled":true,"healthNextEnabled":false,"healthLatestEnabled":false});
         assert!(super::safe_result(
             &Command::Observe {},
             &observation,
@@ -1105,7 +1171,12 @@ mod tests {
             &observation,
             true
         ));
-        observation["healthReady"] = json!("private");
+        for key in ["healthReady", "healthMissingRecord", "healthPartialRecord"] {
+            let mut private = observation.clone();
+            private[key] = json!("private");
+            assert!(!safe_result(&Command::Observe {}, &private));
+        }
+        observation["sourceDates"] = json!(["private"]);
         assert!(!safe_result(&Command::Observe {}, &observation));
         assert!(!safe_result(
             &Command::Settings {
@@ -1209,6 +1280,89 @@ mod tests {
             preset: "arbitrary".into()
         }
         .valid());
+    }
+    #[test]
+    fn composer_is_finite_ordinary_only_and_results_never_return_values() {
+        for action in ["observe", "draft", "choose", "reset", "keys"] {
+            let command = Command::Composer {
+                action: action.into(),
+            };
+            assert!(command.valid());
+            assert!(!config().permits(&command));
+            let value = json!({"ok":true,"action":action,"trustedInput":false,
+                "modelReady":true,"singleControl":true,"footerOrder":true,"fitsViewport":true,
+                "draftMatches":true,"textareaStable":true,"savedChoice":false,"defaultChoice":true,"keysNoSend":true});
+            assert!(super::safe_result(&command, &value, true));
+            assert!(!safe_result(&command, &value));
+            for (key, changed) in [
+                ("private", json!("copied value")),
+                ("action", json!("send")),
+                ("trustedInput", json!(true)),
+                ("draftMatches", json!("private draft")),
+            ] {
+                let mut invalid = value.clone();
+                invalid[key] = changed;
+                assert!(!super::safe_result(&command, &invalid, true));
+            }
+        }
+        for action in ["send", "login", "select", "cancel", "eval"] {
+            assert!(!Command::Composer {
+                action: action.into()
+            }
+            .valid());
+        }
+        for value in [
+            json!({"type":"composer","action":"draft","value":"private"}),
+            json!({"type":"composer","action":"choose","modelId":"entry_private"}),
+            json!({"type":"composer","action":"keys","key":"Enter"}),
+            json!({"type":"composer","action":"observe","selector":"body"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
+        }
+        assert!(Command::CaptureView {
+            view: "composer".into(),
+            preset: "narrow".into()
+        }
+        .valid());
+    }
+    #[test]
+    fn synthetic_tables_are_finite_ordinary_only_and_boolean_results() {
+        for surface in ["plan", "review", "chat", "chat-simple"] {
+            for edge in ["start", "end"] {
+                let command = Command::Tables {
+                    surface: surface.into(),
+                    edge: edge.into(),
+                };
+                assert!(command.valid());
+                assert!(!config().permits(&command));
+                let value = json!({"ok":true,"surface":surface,"edge":edge,"trustedInput":false,
+                    "compact":true,"proseWrapped":true,"contained":true,"scrollable":true,"edgeReached":true,"allCells":true,"headerVisible":true});
+                assert!(super::safe_result(&command, &value, true));
+                assert!(!safe_result(&command, &value));
+                for (key, changed) in [
+                    ("private", json!("copied document")),
+                    ("compact", json!("secret")),
+                    ("surface", json!("settings")),
+                    ("edge", json!("arbitrary")),
+                    ("trustedInput", json!(true)),
+                ] {
+                    let mut invalid = value.clone();
+                    invalid[key] = changed;
+                    assert!(!super::safe_result(&command, &invalid, true));
+                }
+            }
+        }
+        for (surface, edge) in [("settings", "start"), ("plan", "arbitrary")] {
+            assert!(!Command::Tables {
+                surface: surface.into(),
+                edge: edge.into()
+            }
+            .valid());
+        }
+        assert!(serde_json::from_value::<Command>(
+            json!({"type":"tables","surface":"plan","edge":"start","selector":"body"})
+        )
+        .is_err());
     }
     fn config() -> Config {
         Config {

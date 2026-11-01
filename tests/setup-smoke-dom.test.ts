@@ -156,6 +156,82 @@ it("refuses capture and restores styles when the privacy mask is not effective",
     (document.getElementById("garmin-fields") as HTMLElement).style.cssText,
   ).toBe("");
 });
+it("captures only verified static intro text at its real geometry and restores it", () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, 800, 45),
+  );
+  const intro = Array.from(document.querySelector("main")!.children).slice(
+    0,
+    3,
+  );
+  const before = intro.map((el) => el.getBoundingClientRect().toJSON());
+  invoke.mockClear();
+  expect(controller.__trainerSetupSmoke("captureIntro").ok).toBe(true);
+  for (const element of document.body.querySelectorAll("*")) {
+    if (!(element instanceof HTMLElement)) continue;
+    expect(getComputedStyle(element).visibility).toBe(
+      intro.includes(element) ? "visible" : "hidden",
+    );
+  }
+  expect(intro.map((el) => el.getBoundingClientRect().toJSON())).toEqual(
+    before,
+  );
+  expect(invoke).not.toHaveBeenCalled();
+  controller.__trainerSetupSmokeRestore();
+  for (const element of document.body.querySelectorAll("*"))
+    expect((element as HTMLElement).style.cssText).toBe("");
+});
+it.each([
+  "private-text",
+  "nested-control",
+  "hidden",
+  "overflow",
+  "ineffective-mask",
+])("refuses intro capture on %s and restores every style", (scenario) => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, scenario === "overflow" ? 2000 : 800, 45),
+  );
+  const notice = document.querySelector("main > p") as HTMLElement;
+  if (scenario === "private-text") notice.textContent = "private-sentinel";
+  if (scenario === "nested-control")
+    notice.append(document.createElement("input"));
+  if (scenario === "hidden") notice.hidden = true;
+  if (scenario === "ineffective-mask") {
+    const original = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const computed = original(element, pseudo);
+        return element.id === "DATABASE_PATH"
+          ? new Proxy(computed, {
+              get(target, key) {
+                return key === "visibility"
+                  ? "visible"
+                  : Reflect.get(target, key);
+              },
+            })
+          : computed;
+      },
+    );
+  }
+  expect(controller.__trainerSetupSmoke("captureIntro").ok).toBe(false);
+  for (const element of document.body.querySelectorAll("*"))
+    expect((element as HTMLElement).style.cssText).toBe("");
+});
+it("expires the intro privacy mask if native capture completion never arrives", () => {
+  vi.useFakeTimers();
+  try {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(24, 24, 800, 45),
+    );
+    expect(controller.__trainerSetupSmoke("captureIntro").ok).toBe(true);
+    vi.advanceTimersByTime(5000);
+    expect(
+      (document.querySelector("main > p") as HTMLElement).style.cssText,
+    ).toBe("");
+  } finally {
+    vi.useRealTimers();
+  }
+});
 it("refuses disabled, hidden or ambiguous controls before dispatch", () => {
   const button = document.getElementById("connect") as HTMLButtonElement;
   button.disabled = true;

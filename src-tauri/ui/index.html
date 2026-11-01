@@ -11,16 +11,12 @@
     <main>
       <h1>Settings</h1>
       <p>
-        Settings and provider keys are stored in an owner-private plaintext file
-        on this Mac (folder 0700, file 0600), not encrypted. The same user,
-        privileged processes and backups can read them. Saved keys are never
-        displayed. Existing env files are not loaded or imported.
+        Settings and API keys are saved locally without encryption. Saved keys
+        are hidden.
       </p>
       <p>
-        The selected database will be writable. Quit any other app or older
-        backend using it first. For evaluation, select a disposable populated
-        copy. Existing databases are never initialized or upgraded. First-run
-        Create new is a separate, exclusive operation on an unused destination.
+        The app can update the selected database. Close other apps using it
+        first. Existing databases won’t be upgraded automatically.
       </p>
       <p id="status" role="status">Checking saved settings…</p>
       <nav id="wizard" hidden aria-label="First-run setup">

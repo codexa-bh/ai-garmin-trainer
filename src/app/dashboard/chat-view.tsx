@@ -314,11 +314,8 @@ export function ChatView({
 
       <section className="trainer-card" aria-labelledby="trainer-heading">
         <div className="trainer-heading-row">
-          <div>
-            <p className="section-kicker">Daily trainer</p>
-            <h2 id="trainer-heading">Chat with your private coach</h2>
-          </div>
-          <ModelSettingsCard modelSettings={modelSettings} />
+          <p className="section-kicker">Daily trainer</p>
+          <h2 id="trainer-heading">Chat with your private coach</h2>
         </div>
 
         <div
@@ -461,13 +458,17 @@ export function ChatView({
                 Cancel
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => runInBackground(sendChat())}
-              disabled={isChatLoading || !message.trim()}
-            >
-              {isChatLoading ? "Streaming…" : "Send"}
-            </button>
+            <div className="composer-submit-group">
+              <ModelSettingsCard modelSettings={modelSettings} />
+              <button
+                type="button"
+                className="primary-action"
+                onClick={() => runInBackground(sendChat())}
+                disabled={isChatLoading || !message.trim()}
+              >
+                {isChatLoading ? "Streaming…" : "Send"}
+              </button>
+            </div>
           </div>
         </div>
       </section>

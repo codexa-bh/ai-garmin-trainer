@@ -335,33 +335,40 @@ describe("TrainerDashboard Health dashboard", () => {
         notice=""
       />,
     );
-    const table = screen.getByRole("table");
-    const values = (name: string) =>
-      within(within(table).getByRole("rowheader", { name }).parentElement!)
-        .getAllByRole("cell")
-        .map((cell) => cell.textContent);
+    const values = (title: string) =>
+      within(screen.getByLabelText(`${title} daily values`))
+        .getAllByRole("button")
+        .map((button) => button.querySelector("strong")?.textContent);
     expect(values("Sleep duration").slice(-2)).toEqual(["Unavailable", "0 m"]);
     expect(values("Sleep score").slice(-2)).toEqual(["86", "Unavailable"]);
     expect(values("Deep sleep").slice(-2)).toEqual(["1 h 14 m", "0 m"]);
     expect(values("Light sleep").slice(-2)).toEqual(["4 h 4 m", "4 h 4 m"]);
     expect(values("Awake sleep").slice(-2)).toEqual(["30 m", "30 m"]);
     expect(values("Nap sleep").slice(-2)).toEqual(["0 m", "Unavailable"]);
-    expect(values("Total calories · kcal").slice(-2)).toEqual(["1,500", "999"]);
-    expect(values("Active calories · kcal").slice(-2)).toEqual([
-      "Unavailable",
-      "0",
+    expect(values("Total calories").slice(-2)).toEqual([
+      "1,500 kcal",
+      "999 kcal",
     ]);
-    expect(values("Resting calories · kcal").slice(-2)).toEqual([
+    expect(values("Active calories").slice(-2)).toEqual([
       "Unavailable",
-      "1,200",
+      "0 kcal",
     ]);
-    expect(values("HRV · ms / status").slice(-2)).toEqual([
-      "Low",
+    expect(values("Resting calories").slice(-2)).toEqual([
+      "Unavailable",
+      "1,200 kcal",
+    ]);
+    expect(values("HRV").slice(-2)).toEqual([
+      "Unavailable · Low",
       "41.2 ms · Balanced",
     ]);
     expect(values("Stress avg").slice(-2)).toEqual(["Unavailable", "38"]);
-    expect(values("Intensity minutes · min").slice(-2)).toEqual(["38", "0"]);
-    expect(within(table).queryByText(/16,824|2,200/)).toBeNull();
+    expect(values("Intensity minutes").slice(-2)).toEqual(["38 min", "0 min"]);
+    expect(screen.queryByText(/16,824|2,200/)).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getAllByRole("group", { name: /daily chart$/ })).toHaveLength(
+      15,
+    );
+    expect(screen.queryByText(/Period average|Period total/)).toBeNull();
     expect(screen.queryByText("Complete daily health record")).toBeNull();
   });
 
@@ -391,7 +398,9 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(document.activeElement).toBe(monthly);
     fireEvent.keyDown(monthly, { key: "Home" });
     expect(document.activeElement).toBe(daily);
-    expect(screen.getByRole("table")).toBeTruthy();
+    expect(
+      screen.getByRole("group", { name: "Sleep duration daily chart" }),
+    ).toBeTruthy();
   });
 
   it("shows a Daily-only empty state for future/invalid rows without hiding rollup tabs", () => {
@@ -409,7 +418,7 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(screen.getByRole("tab", { name: "Weekly" })).toBeTruthy();
   });
 
-  it("opens from desktop navigation, renders the matrix, and never POSTs to /api/sync", async () => {
+  it("opens from desktop navigation, renders seven-date charts, and never POSTs to /api/sync", async () => {
     const fetchMock = renderDashboard(baseFetchMock());
 
     const panel = await openHealthDashboard();
@@ -428,19 +437,13 @@ describe("TrainerDashboard Health dashboard", () => {
       method: "GET",
     });
 
-    const table = within(panel).getByRole("table", {
-      name: /Daily Health — individual source values/,
-    });
-    expect(within(table).getAllByRole("columnheader")).toHaveLength(8);
-    expect(within(table).getAllByRole("rowheader")).toHaveLength(16);
+    expect(within(panel).queryByRole("table")).toBeNull();
+    const cards = within(panel).getAllByRole("group", { name: /daily chart$/ });
+    expect(cards).toHaveLength(15);
     expect(
-      within(table)
-        .getByRole("rowheader", { name: "Sleep duration" })
-        .getAttribute("scope"),
-    ).toBe("row");
-    expect(table.querySelectorAll('th[scope="col"]')).toHaveLength(8);
-    expect(
-      Array.from(table.querySelectorAll("time"), (node) => node.dateTime),
+      Array.from(cards[0].querySelectorAll("[data-source-date]"), (node) =>
+        node.getAttribute("data-source-date"),
+      ),
     ).toEqual([
       "2026-07-15",
       "2026-07-16",
@@ -450,12 +453,15 @@ describe("TrainerDashboard Health dashboard", () => {
       "2026-07-20",
       "2026-07-21",
     ]);
+    for (const card of cards) {
+      expect(within(card).getAllByRole("button")).toHaveLength(7);
+      for (const button of within(card).getAllByRole("button"))
+        expect(button.tabIndex).toBe(0);
+    }
     expect(
-      within(panel).getByRole("region", { name: /scroll horizontally/ })
-        .tabIndex,
-    ).toBe(0);
-    expect(
-      within(table).getByRole("rowheader", { name: "Intensity minutes · min" }),
+      within(panel).getByRole("group", {
+        name: "Intensity minutes daily chart",
+      }),
     ).toBeTruthy();
     expect(within(panel).queryByText("Body battery morning")).toBeNull();
     expect(within(panel).queryByText("Body battery evening")).toBeNull();
@@ -493,26 +499,30 @@ describe("TrainerDashboard Health dashboard", () => {
 
     const panel = await openHealthDashboard();
 
-    expect(within(panel).getByText("7 h 24 m")).toBeTruthy();
-    expect(within(panel).getByText("Sleep score")).toBeTruthy();
-    expect(within(panel).getByText("Deep sleep")).toBeTruthy();
-    expect(within(panel).getByText("1 h 14 m")).toBeTruthy();
-    expect(within(panel).getByText("REM sleep")).toBeTruthy();
-    expect(within(panel).getByText("1 h 36 m")).toBeTruthy();
-    expect(within(panel).getAllByText("86").length).toBeGreaterThanOrEqual(1);
-    expect(within(panel).getByText("52")).toBeTruthy();
-    expect(within(panel).getByText("Resting HR · bpm")).toBeTruthy();
-    expect(within(panel).getByText("41.2 ms · Balanced")).toBeTruthy();
-    expect(within(panel).getAllByText("38").length).toBeGreaterThanOrEqual(1);
-    expect(within(panel).getByText("Stress avg")).toBeTruthy();
-    expect(within(panel).getByText("8,412")).toBeTruthy();
-    expect(within(panel).getByText("Steps")).toBeTruthy();
-    expect(within(panel).getByText("2,310")).toBeTruthy();
-    expect(
-      within(panel).getByRole("rowheader", { name: "Total calories · kcal" }),
-    ).toBeTruthy();
-    expect(within(panel).getByText("710")).toBeTruthy();
-    expect(within(panel).getAllByText("1,600")).toHaveLength(2);
+    for (const [title, value] of [
+      ["Sleep duration", "7 h 24 m"],
+      ["Sleep score", "86"],
+      ["Deep sleep", "1 h 14 m"],
+      ["Light sleep", "4 h 4 m"],
+      ["REM sleep", "1 h 36 m"],
+      ["Awake sleep", "30 m"],
+      ["Nap sleep", "0 m"],
+      ["Resting HR", "52 bpm"],
+      ["HRV", "41.2 ms · balanced"],
+      ["Stress avg", "38"],
+      ["Steps", "8,412 steps"],
+      ["Total calories", "2,310 kcal"],
+      ["Active calories", "710 kcal"],
+      ["Resting calories", "1,600 kcal"],
+      ["Intensity minutes", "38 min"],
+    ]) {
+      const card = within(panel).getByRole("group", {
+        name: `${title} daily chart`,
+      });
+      expect(
+        within(card).getByRole("button", { name: `July 21, 2026: ${value}` }),
+      ).toBeTruthy();
+    }
     expect(within(panel).queryByText("Body battery morning")).toBeNull();
     expect(within(panel).queryByText("Body battery evening")).toBeNull();
     expect(
@@ -630,19 +640,34 @@ describe("TrainerDashboard Health dashboard", () => {
     ).toBe(false);
   });
 
-  it("omits daily sparklines and trend-chart copy while preserving metric values", async () => {
+  it("shows raw Daily chart graphics and exact pointer/keyboard values without rollup copy", async () => {
     renderDashboard(baseFetchMock());
 
     const panel = await openHealthDashboard();
 
-    expect(within(panel).queryAllByRole("img")).toHaveLength(0);
-    expect(within(panel).queryByText("No trend — not enough data")).toBeNull();
-    expect(within(panel).getByText("7 h 24 m")).toBeTruthy();
-    expect(within(panel).getByText("8,412")).toBeTruthy();
-
-    expect(within(panel).queryAllByRole("img")).toHaveLength(0);
-    expect(within(panel).queryByText("No trend — not enough data")).toBeNull();
-    expect(within(panel).getByText("10,200")).toBeTruthy();
+    const card = within(panel).getByRole("group", {
+      name: "Steps daily chart",
+    });
+    expect(card.querySelector(".health-rollup-plot")).toBeTruthy();
+    expect(
+      card.querySelectorAll(".recharts-bar-rectangle").length,
+    ).toBeGreaterThan(0);
+    const exact = within(card).getByRole("button", {
+      name: "July 19, 2026: 10,200 steps",
+    });
+    for (const action of [
+      fireEvent.pointerEnter,
+      fireEvent.focus,
+      fireEvent.click,
+    ]) {
+      action(exact);
+      expect(card.querySelector(".health-rollup-readout")?.textContent).toBe(
+        "July 19, 2026: 10,200 steps",
+      );
+    }
+    expect(
+      within(panel).queryByText(/Period average|Period total|\/day/),
+    ).toBeNull();
   });
 
   it("switches to weekly and monthly rollups with source-only visible metric values", async () => {
@@ -771,13 +796,15 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(newerMonthly.hasAttribute("disabled")).toBe(true);
   });
 
-  it("contains Daily matrix overflow without shrinking exact values", () => {
-    const scroll = appStyleRule(".health-daily-scroller");
-    expect(scroll).toContain("min-width: 0;");
-    expect(scroll).toContain("max-width: 100%;");
-    expect(scroll).toContain("overflow-x: auto;");
-    expect(appStyleRule(".health-daily-matrix")).toContain(
-      "min-width: 1050px;",
+  it("contains Daily chart and source-detail widths without a wide matrix", () => {
+    const comparison = appStyleRule(".health-daily-comparison");
+    expect(comparison).toContain("min-width: 0;");
+    expect(comparison).toContain("max-width: 100%;");
+    expect(appStyleRule(".health-daily-coverage ul")).toContain(
+      "minmax(min(220px, 100%), 1fr)",
+    );
+    expect(readFileSync("src/app/style.css", "utf8")).not.toContain(
+      ".health-daily-matrix",
     );
   });
 

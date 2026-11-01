@@ -52,6 +52,7 @@ def main():
         initial = wait_settings(run, lambda o: o['ready'], 'initial setup ready')
         if not initial['notConnected'] or not initial['manualControlsAbsent'] or initial['formVisible'] or not initial['privateActionsDenied']:
             raise ValueError('Initial Garmin settings state incorrect')
+        captures.append({'scenario': 'concise-static-introduction', **run.command({'type': 'settings', 'action': 'captureIntro'})})
         captures.append({'scenario': 'not-connected-connect-later', **run.command({'type': 'settings', 'action': 'capture'})})
         run.command({'type': 'settings', 'action': 'connect'})
         wait_settings(run, lambda o: o['formVisible'], 'Connect reveals private form without login')
@@ -79,6 +80,7 @@ def main():
         wait_settings(run, lambda o: o['ready'] and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'], 'saved defaults survive exact-scope restart')
         if source_identity() != source:
             raise ValueError('Source changed during Settings smoke')
+        captures.append({'scenario': 'concise-introduction-after-save-restart', **run.command({'type': 'settings', 'action': 'captureIntro'})})
         receipt.update(connectLater=True, cancel=True, savedKeylessDefaults=True, activeBackendUnchanged=True, restart=True)
         passed = True
     finally:

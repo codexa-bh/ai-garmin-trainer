@@ -91,6 +91,12 @@ function parseMarkdownTableBlock(
   return { table: { headers, rows }, nextIndex };
 }
 
+function compactTableCellClass(text: string): string | undefined {
+  // Bound by source length, not header names/column positions or score semantics.
+  // Longer Markdown (including link destinations) conservatively stays wrappable.
+  return text.length <= 24 ? "assistant-table-compact" : undefined;
+}
+
 function renderMarkdownTable(table: MarkdownTableBlock, keyPrefix: string) {
   return (
     <div className="assistant-table-wrapper" key={keyPrefix}>
@@ -98,7 +104,11 @@ function renderMarkdownTable(table: MarkdownTableBlock, keyPrefix: string) {
         <thead>
           <tr>
             {table.headers.map((header, index) => (
-              <th key={index} scope="col">
+              <th
+                key={index}
+                scope="col"
+                className={compactTableCellClass(header)}
+              >
                 {renderInlineMarkdown(header, `${keyPrefix}-h-${index}`)}
               </th>
             ))}
@@ -108,7 +118,7 @@ function renderMarkdownTable(table: MarkdownTableBlock, keyPrefix: string) {
           {table.rows.map((row, rowIndex) => (
             <tr key={rowIndex}>
               {row.map((cell, cellIndex) => (
-                <td key={cellIndex}>
+                <td key={cellIndex} className={compactTableCellClass(cell)}>
                   {renderInlineMarkdown(
                     cell,
                     `${keyPrefix}-r-${rowIndex}-${cellIndex}`,

@@ -39,11 +39,13 @@
     return value;
   }
   const styles = new Map();
+  let restoreTimer;
   function style(el, key, value) {
     if (!styles.has(el)) styles.set(el, el.style.cssText);
     el.style.setProperty(key, value, "important");
   }
   function restore() {
+    clearTimeout(restoreTimer);
     for (const [el, original] of styles) el.style.cssText = original;
     styles.clear();
   }
@@ -66,6 +68,52 @@
         )
           throw Error("Unavailable");
         el.click();
+      } else if (action === "captureIntro") {
+        restore();
+        const main = document.querySelector("body > main");
+        const intro = main ? Array.from(main.children).slice(0, 3) : [];
+        const expected = [
+          "Settings",
+          "Settings and API keys are saved locally without encryption. Saved keys are hidden.",
+          "The app can update the selected database. Close other apps using it first. Existing databases won’t be upgraded automatically.",
+        ];
+        if (
+          intro.length !== 3 ||
+          intro.some(
+            (el, index) =>
+              el.tagName !== (index === 0 ? "H1" : "P") ||
+              el.childElementCount !== 0 ||
+              el.textContent.replace(/\s+/g, " ").trim() !== expected[index] ||
+              !visible(el),
+          )
+        )
+          throw Error("Unexpected introduction");
+        // Reveal only verified static text at its actual geometry, never status/form values.
+        for (const el of document.body.querySelectorAll("*"))
+          if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+        for (const el of intro) style(el, "visibility", "visible");
+        if (
+          Array.from(document.body.querySelectorAll("*")).some(
+            (el) =>
+              el instanceof HTMLElement &&
+              !intro.includes(el) &&
+              getComputedStyle(el).visibility !== "hidden",
+          ) ||
+          intro.some((el) => {
+            const rect = el.getBoundingClientRect();
+            return (
+              !visible(el) ||
+              rect.width <= 0 ||
+              rect.height <= 0 ||
+              rect.left < 0 ||
+              rect.top < 0 ||
+              rect.right > window.innerWidth ||
+              rect.bottom > window.innerHeight
+            );
+          })
+        )
+          throw Error("Introduction sanitization did not apply");
+        restoreTimer = setTimeout(restore, 5000);
       } else if (action === "capture") {
         if (!observe().manualControlsAbsent || !observe().notConnected)
           throw Error("Unsafe capture");
@@ -114,7 +162,7 @@
       } else if (action !== "observe") throw Error("Unsupported");
       return observe();
     } catch {
-      if (action === "capture") restore();
+      if (action === "capture" || action === "captureIntro") restore();
       return { ...empty(), ok: false };
     }
   };

@@ -8,7 +8,6 @@ import {
   type HealthDashboardDay,
   type HealthDashboardMode,
 } from "./contracts";
-import { numberLabel } from "./formatting";
 import { dailyHealthRange, shiftHealthDate } from "./health-daily-range";
 function formatSleepMinutes(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "Unavailable";
@@ -170,48 +169,67 @@ function hasSleepStageRollup(rollups: HealthRollup[]): boolean {
 }
 
 const DAILY_METRICS: Array<{
-  label: string;
-  value: (day: HealthDashboardDay) => string;
+  title: string;
+  unit: string;
+  kind?: "line" | "bar";
+  value: (day: HealthDashboardDay) => number | null;
+  format?: (value: number) => string;
 }> = [
   {
-    label: "Sleep duration",
-    value: (day) => formatSleepMinutes(day.sleepMinutes),
+    title: "Sleep duration",
+    unit: "min",
+    kind: "line",
+    value: (day) => day.sleepMinutes,
+    format: formatSleepMinutes,
   },
-  { label: "Sleep score", value: (day) => finiteNumberLabel(day.sleepScore) },
+  {
+    title: "Sleep score",
+    unit: "score",
+    kind: "line",
+    value: (day) => day.sleepScore,
+    format: finiteNumberLabel,
+  },
+  { title: "Steps", unit: "steps", value: (day) => day.steps },
+  {
+    title: "Total calories",
+    unit: "kcal",
+    value: (day) => day.totalCalories ?? day.calories,
+  },
+  {
+    title: "Resting HR",
+    unit: "bpm",
+    kind: "line",
+    value: (day) => day.restingHeartRate,
+  },
+  { title: "HRV", unit: "ms", kind: "line", value: (day) => day.hrvMs },
+  {
+    title: "Stress avg",
+    unit: "score",
+    kind: "line",
+    value: (day) => day.stressAvg,
+    format: finiteNumberLabel,
+  },
+  {
+    title: "Intensity minutes",
+    unit: "min",
+    value: (day) => day.intensityMinutes,
+  },
   ...SLEEP_STAGE_FIELDS.map(([label, field]) => ({
-    label: `${label} sleep`,
-    value: (day: HealthDashboardDay) => formatSleepMinutes(day[field]),
+    title: `${label} sleep`,
+    unit: "min",
+    kind: "line" as const,
+    value: (day: HealthDashboardDay) => day[field],
+    format: formatSleepMinutes,
   })),
   {
-    label: "Active calories · kcal",
-    value: (day) => finiteNumberLabel(day.activeCalories),
+    title: "Active calories",
+    unit: "kcal",
+    value: (day) => day.activeCalories,
   },
   {
-    label: "Resting calories · kcal",
-    value: (day) => finiteNumberLabel(day.restingCalories),
-  },
-  {
-    label: "Total calories · kcal",
-    value: (day) => finiteNumberLabel(day.totalCalories ?? day.calories),
-  },
-  {
-    label: "Resting HR · bpm",
-    value: (day) => finiteNumberLabel(day.restingHeartRate),
-  },
-  {
-    label: "HRV · ms / status",
-    value: (day) => {
-      const numeric = day.hrvMs != null && Number.isFinite(day.hrvMs);
-      return numeric
-        ? `${numberLabel(day.hrvMs, 1)} ms${day.hrvStatus ? ` · ${day.hrvStatus}` : ""}`
-        : day.hrvStatus || "Unavailable";
-    },
-  },
-  { label: "Stress avg", value: (day) => finiteNumberLabel(day.stressAvg) },
-  { label: "Steps", value: (day) => finiteNumberLabel(day.steps) },
-  {
-    label: "Intensity minutes · min",
-    value: (day) => finiteNumberLabel(day.intensityMinutes),
+    title: "Resting calories",
+    unit: "kcal",
+    value: (day) => day.restingCalories,
   },
 ];
 
@@ -246,6 +264,11 @@ function DailyComparison({
       timeZone: "UTC",
     });
   const rangeLabel = `${label(range.start)} – ${label(range.end)}`;
+  const slots = range.slots.map((slot) => ({
+    ...slot,
+    key: slot.date,
+    label: label(slot.date),
+  }));
   return (
     <>
       <div
@@ -290,71 +313,68 @@ function DailyComparison({
         <p>No imported records in this range. Date gaps are not zero values.</p>
       ) : null}
       <p id="health-daily-help" className="helper-text">
-        Scroll horizontally to compare dates. Recorded coverage is not full
-        metric availability or finality. Today is in progress on the UTC sync
-        calendar. Unavailable fields are not estimated.
+        Seven daily source values, not weekly aggregates. Gaps are unavailable,
+        not zero. Point to or focus a date below each chart for exact values.
+        Recorded coverage does not imply full metric availability or finality.
+        {slots.some((slot) => slot.isCurrentDay)
+          ? " Today · in progress, not final (UTC)."
+          : ""}
       </p>
       <div
-        className="health-daily-scroller"
-        role="region"
-        aria-label="Daily health comparison, scroll horizontally"
+        className="health-daily-comparison"
         aria-describedby="health-daily-help"
-        tabIndex={0}
       >
-        <table className="health-daily-matrix">
-          <caption>
-            Daily Health — individual source values · {rangeLabel}
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">Metric / unit</th>
-              {range.slots.map((slot) => (
-                <th scope="col" key={slot.date}>
-                  <time dateTime={slot.date}>
-                    {new Date(`${slot.date}T00:00:00Z`).toLocaleDateString(
-                      undefined,
-                      {
-                        weekday: "short",
-                        day: "numeric",
-                        month: "short",
-                        timeZone: "UTC",
-                      },
-                    )}
-                  </time>
-                  {slot.isCurrentDay ? (
-                    <span className="health-daily-detail">
-                      Today · in progress, not final
-                    </span>
-                  ) : null}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="health-daily-coverage">
-              <th scope="row">Source coverage</th>
-              {range.slots.map((slot) => (
-                <td key={slot.date}>
+        <div className="health-rollup-grid">
+          {DAILY_METRICS.map((metric) => (
+            <HealthRollupChart
+              key={metric.title}
+              rollups={slots}
+              presentation="daily"
+              title={metric.title}
+              unit={metric.unit}
+              kind={metric.kind}
+              metric={(slot) =>
+                slot.record ? metric.value(slot.record) : null
+              }
+              formatValue={metric.format}
+              pointDetail={
+                metric.title === "HRV"
+                  ? (slot) => slot.record?.hrvStatus ?? null
+                  : undefined
+              }
+              emptyMessage="No recorded values for these dates."
+            />
+          ))}
+        </div>
+        <details className="health-daily-coverage">
+          <summary>Source coverage and HRV status by date</summary>
+          <ul>
+            {slots.map((slot) => (
+              <li
+                key={slot.date}
+                data-coverage={
+                  slot.record?.availability ??
+                  (slot.outsideLoaded ? "outside" : "missing-record")
+                }
+              >
+                <time dateTime={slot.date}>{slot.label}</time>
+                <span>
                   {slot.record
                     ? healthAvailabilityLabel(slot.record.availability)
                     : slot.outsideLoaded
                       ? "Outside loaded history"
                       : "No imported record"}
-                </td>
-              ))}
-            </tr>
-            {DAILY_METRICS.map((metric) => (
-              <tr key={metric.label}>
-                <th scope="row">{metric.label}</th>
-                {range.slots.map((slot) => (
-                  <td key={slot.date}>
-                    {slot.record ? metric.value(slot.record) : "Unavailable"}
-                  </td>
-                ))}
-              </tr>
+                </span>
+                {slot.isCurrentDay ? (
+                  <span>Today · in progress, not final</span>
+                ) : null}
+                {slot.record?.hrvStatus ? (
+                  <span>HRV status: {slot.record.hrvStatus}</span>
+                ) : null}
+              </li>
             ))}
-          </tbody>
-        </table>
+          </ul>
+        </details>
       </div>
       <p className="helper-text">
         Sleep stages and recorded duration are independent.{" "}

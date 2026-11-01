@@ -35,6 +35,8 @@ export function HealthRollupChart<T extends Period>({
   formatValue,
   kind = "bar",
   emptyMessage = "Unavailable for these periods.",
+  presentation = "rollup",
+  pointDetail,
 }: {
   rollups: T[];
   metric: (rollup: T) => number | null;
@@ -43,6 +45,8 @@ export function HealthRollupChart<T extends Period>({
   formatValue?: (value: number) => string;
   kind?: "line" | "bar";
   emptyMessage?: string;
+  presentation?: "rollup" | "daily";
+  pointDetail?: (period: T) => string | null;
 }) {
   const readoutId = useId();
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -56,7 +60,12 @@ export function HealthRollupChart<T extends Period>({
       ...period,
       value,
       shortLabel: compactPeriod(period.key),
-      valueLabel: value === null ? "Unavailable" : labelForValue(value),
+      valueLabel: [
+        value === null ? "Unavailable" : labelForValue(value),
+        pointDetail?.(period),
+      ]
+        .filter(Boolean)
+        .join(" · "),
     };
   });
   const hasValues = data.some((point) => point.value !== null);
@@ -74,12 +83,17 @@ export function HealthRollupChart<T extends Period>({
     <section
       className={`health-rollup-chart${hasValues ? "" : " empty-state"}`}
       role="group"
-      aria-label={`${title} rollup chart`}
+      aria-label={`${title} ${presentation === "daily" ? "daily" : "rollup"} chart`}
     >
       <div className="health-rollup-heading">
         <strong>{title}</strong>
         <span>
-          {kind === "line" ? "Period average" : "Period total"} · {unit}
+          {presentation === "daily"
+            ? "Daily source values"
+            : kind === "line"
+              ? "Period average"
+              : "Period total"}{" "}
+          · {unit}
         </span>
       </div>
       {hasValues ? (
@@ -164,17 +178,22 @@ export function HealthRollupChart<T extends Period>({
       <p className="health-rollup-readout" id={readoutId} aria-live="polite">
         {active
           ? `${active.label}: ${active.valueLabel}`
-          : "No periods available."}
+          : presentation === "daily"
+            ? "No dates available."
+            : "No periods available."}
       </p>
       <ul
         className="health-rollup-values"
-        aria-label={`${title} period values`}
+        aria-label={`${title} ${presentation === "daily" ? "daily" : "period"} values`}
       >
         {data.map((point) => (
           <li key={point.key}>
             <button
               type="button"
               className="health-rollup-value"
+              data-source-date={
+                presentation === "daily" ? point.key : undefined
+              }
               data-chart-state={
                 point.value === null ? "unavailable" : "available"
               }
