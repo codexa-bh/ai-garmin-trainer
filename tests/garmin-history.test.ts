@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   HISTORY_CHECKPOINT,
   historyState,
+  shiftDate,
   SYNC_LIMITS,
 } from "../src/lib/garmin/history-policy";
 import { createGarminReader } from "../src/lib/garmin/reader-adapter";
@@ -13,6 +14,14 @@ const remote = vi.hoisted(() => ({
   calls: [] as Array<{ name: string; args: Record<string, unknown> }>,
   stats: new Map<string, unknown>(),
   sleep: new Map<string, unknown>(),
+  pages: new Map<
+    number,
+    {
+      activities: Record<string, unknown>[];
+      has_more: boolean;
+      next_page?: number;
+    }
+  >(),
   cancelled: false,
   cancelAt: 0,
   advanceAt: 0,
@@ -41,7 +50,14 @@ vi.mock("../src/lib/garmin/mcp-client", async (original) => ({
         return JSON.stringify(remote.sleep.get(String(args.date)) ?? {});
       if (name === "get_body_battery") return "[]";
       if (name === "get_activities_by_date")
-        return '{"activities":[],"has_more":false}';
+        return JSON.stringify(
+          String(args.end_date) < "2026-09-08"
+            ? (remote.pages.get(Number(args.page)) ?? {
+                activities: [],
+                has_more: false,
+              })
+            : { activities: [], has_more: false },
+        );
       if (name === "get_user_profile")
         return '{"userData":{"weight":70,"height":180}}';
       if (name === "get_body_composition")
@@ -73,6 +89,7 @@ beforeEach(() => {
     calls: [],
     stats: new Map(),
     sleep: new Map(),
+    pages: new Map(),
     cancelled: false,
     cancelAt: 0,
     advanceAt: 0,
@@ -94,6 +111,114 @@ const healthDates = () =>
     .map((call) => String(call.args.date));
 
 describe("bounded discovery through the real HTTP/composition/reader/SQLite seams", () => {
+  it("refreshes a frozen window head for new arrivals while resuming its range-bound page", async () => {
+    const activity = (id: string, day: string) => ({
+      activityId: id,
+      activityType: "running",
+      startTimeLocal: `${day}T12:00:00`,
+      trainingEffect: 2,
+    });
+    remote.pages.set(0, {
+      activities: [activity("a", "2026-09-06")],
+      has_more: true,
+    });
+    remote.pages.set(1, {
+      activities: [activity("b", "2026-09-05")],
+      has_more: true,
+    });
+    const app = await import("../src/lib/garmin/composition");
+    const first = await app.runGarminSync();
+    expect(first.history.activities.page).toBe(2);
+    remote.pages.set(0, {
+      activities: [activity("new", "2026-09-07"), activity("a", "2026-09-06")],
+      has_more: true,
+    });
+    remote.pages.set(2, {
+      activities: [activity("c", "2026-09-04")],
+      has_more: false,
+    });
+    remote.calls = [];
+    const next = await app.runGarminSync();
+    const calls = remote.calls.filter(
+      (call) =>
+        call.name === "get_activities_by_date" &&
+        call.args.end_date === "2026-09-07",
+    );
+    expect(calls.map((call) => call.args.page)).toEqual([0, 2]);
+    expect(next.storedActivities).toBe(4);
+    expect(next.history.activities.windowEnd).toBe("2026-08-08");
+    expect(next.history.activities.oldestImported).toBe("2026-09-04");
+  });
+
+  it("replays safely after normalized commit but failed cursor persistence", async () => {
+    const repo = await import("../src/lib/db/repository");
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const db = getDatabase();
+    db.exec(`create trigger checkpoint_write_fault before update on sync_checkpoint
+      when new.key='garmin_history_v1' and json_extract(new.value, '$.operations') > 0
+      begin select raise(abort, 'checkpoint_write_fault'); end`);
+    const app = await import("../src/lib/garmin/composition");
+    await expect(app.runGarminSync()).rejects.toThrow("checkpoint_write_fault");
+    expect(repo.dataCounts().healthDays).toBe(1);
+    expect(JSON.parse(repo.getCheckpoint(HISTORY_CHECKPOINT)!)).toMatchObject({
+      outcome: "running",
+      health: { nextDate: "2026-09-07" },
+    });
+    db.exec("drop trigger checkpoint_write_fault");
+    const resumed = await app.runGarminSync();
+    expect(resumed.status).toBe("completed");
+    expect(repo.dataCounts().healthDays).toBe(20);
+    expect(
+      db
+        .prepare(
+          "select count(*) as n from daily_health where date='2026-09-21'",
+        )
+        .get(),
+    ).toEqual({ n: 1 });
+  });
+
+  it("moves the repair SQL window beyond a capped prefix rather than starving later candidates", async () => {
+    const repo = await import("../src/lib/db/repository");
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const db = getDatabase();
+    const insert = db.prepare(
+      "insert into daily_health(date, availability) values (?, 'missing')",
+    );
+    db.transaction(() => {
+      for (let i = 0; i < 1005; i += 1) insert.run(shiftDate("2000-01-01", i));
+    })();
+    const saved = historyState(null, null, "2026-09-21");
+    saved.health.nextDate = null;
+    saved.body.nextDate = null;
+    saved.activities.nextDate = null;
+    saved.repairAfter = shiftDate("2000-01-01", 499);
+    repo.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(saved));
+    const app = await import("../src/lib/garmin/composition");
+    const result = await app.runGarminSync();
+    expect(result.status).toBe("completed");
+    expect(healthDates().slice(-2)).toEqual([
+      shiftDate("2000-01-01", 500),
+      shiftDate("2000-01-01", 501),
+    ]);
+    expect(result.history.repairAfter).toBe(shiftDate("2000-01-01", 501));
+    expect(healthDates()).toHaveLength(16);
+  });
+
+  it("refuses corrupt/unknown checkpoints without resetting or constructing a connector", async () => {
+    const repo = await import("../src/lib/db/repository");
+    const app = await import("../src/lib/garmin/composition");
+    const saved = {
+      ...historyState(null, null, "2026-09-21"),
+      health: { nextDate: "bad" },
+    };
+    const bytes = JSON.stringify(saved);
+    repo.saveCheckpoint(HISTORY_CHECKPOINT, bytes);
+    await expect(app.runGarminSync()).rejects.toThrow(
+      "preserve it for recovery",
+    );
+    expect(repo.getCheckpoint(HISTORY_CHECKPOINT)).toBe(bytes);
+    expect(remote.calls).toEqual([]);
+  });
   it("prioritizes recent dates, counts nested operations and continues past old empty dates without claiming remote exhaustion", async () => {
     const sync = await import("../src/app/api/sync/route");
     const repo = await import("../src/lib/db/repository");

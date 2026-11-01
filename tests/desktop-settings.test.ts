@@ -44,7 +44,8 @@ afterEach(() => {
 describe("desktop editable settings", () => {
   it("activates existing or new configurations without a date, preserves a valid legacy limit and clears it explicitly", () => {
     const base = baseline();
-    const { GARMIN_HISTORY_START_DATE: _legacy, ...automatic } = base.fields;
+    const automatic: Record<string, string> = { ...base.fields };
+    delete automatic.GARMIN_HISTORY_START_DATE;
     for (const fields of [
       automatic,
       { ...automatic, GARMIN_HISTORY_START_DATE: "" },

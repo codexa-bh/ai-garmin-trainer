@@ -172,9 +172,7 @@ export function SyncView({
               type="button"
               className="primary-action"
               onClick={() => runInBackground(syncNow())}
-              disabled={
-                isSyncing || importSummary?.history?.outcome === "running"
-              }
+              disabled={isSyncing || importSummary?.syncActive}
               aria-label="Sync now — import latest Garmin data"
             >
               {isSyncing
@@ -197,10 +195,13 @@ export function SyncView({
           </p>
           {importSummary?.history ? (
             <p className="helper-text" role="status">
-              Last invocation: {importSummary.history.outcome}. Historical
-              health dates checked: {importSummary.history.health.checks}; dates
-              with metrics: {importSummary.history.health.checksWithMetrics};
-              oldest imported:{" "}
+              Last invocation: {importSummary.history.outcome}.{" "}
+              {importSummary.syncActive
+                ? "A sync is currently active."
+                : "No sync is active; continuation is explicit."}{" "}
+              Historical health dates checked:{" "}
+              {importSummary.history.health.checks}; dates with metrics:{" "}
+              {importSummary.history.health.checksWithMetrics}; oldest imported:{" "}
               {importSummary.history.health.oldestImported ?? "unknown"};
               unresolved dates: {importSummary.history.unresolvedHealth.length}.
               Next older health date:{" "}

@@ -127,7 +127,9 @@ export function createLocalData(reads: LocalDataReads) {
           hasHeartRate: item.hasHeartRate,
           hasElevation: item.hasElevation,
         }));
+      const history = reads.importSummary().history;
       return {
+        ...(history ? { history } : {}),
         counts: { ...counts, healthCoverage },
         coverage,
         athlete,

@@ -65,8 +65,7 @@ export function useSyncFeature({
   }
 
   async function syncNow() {
-    if (isSyncingRef.current || importSummary?.history?.outcome === "running")
-      return;
+    if (isSyncingRef.current || importSummary?.syncActive) return;
     isSyncingRef.current = true;
     setIsSyncing(true);
     let logLines: SyncRunState["lines"] = [

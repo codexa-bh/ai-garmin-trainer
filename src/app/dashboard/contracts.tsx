@@ -277,6 +277,7 @@ export type DetailCoveragePayload = {
 };
 
 export type ImportSummaryPayload = {
+  syncActive?: boolean;
   history?: import("@/lib/garmin/history-policy").GarminHistoryState | null;
   activities: number;
   healthDays: number;

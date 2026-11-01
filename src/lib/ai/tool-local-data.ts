@@ -24,11 +24,16 @@ export async function executeLocalDataTool(
       return {
         index: input.index,
         tool: input.toolName,
-        status: result.status === "completed" ? "succeeded" : "failed",
+        status: result.status === "failed" ? "failed" : "succeeded",
         summary: boundedText(`${result.status}: ${result.detail}`),
         privacy:
           "Read-only Garmin MCP stdio connector and app-owned normalized SQLite writes only; no Garmin write-back.",
-        reason: result.status === "completed" ? undefined : "sync_failed",
+        reason:
+          result.status === "failed"
+            ? "sync_failed"
+            : result.status === "completed"
+              ? undefined
+              : "sync_paused",
         result,
       };
     }

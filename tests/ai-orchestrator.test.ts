@@ -112,6 +112,7 @@ vi.mock("@/lib/ai/math-analysis", () => ({
 vi.mock("@/lib/db/repository", () => ({
   activityDetailCoverage,
   dataCounts,
+  importSummary: vi.fn(() => ({ history: null })),
   getActivityByGarminId: vi.fn(),
   getActivityDetailForAnalytics: vi.fn(),
   getGarminAthleteBaseline,
@@ -169,7 +170,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
       })
       .mockImplementationOnce(async () => {
         expect(statuses.at(-1)).toBe(
-          "Reviewing the completed sync outcome for your response…",
+          "Reviewing the bounded sync outcome (history may remain incomplete) for your response…",
         );
         return {
           toolCalls: [
@@ -202,7 +203,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(statuses).toEqual([
       "Considering your request with the available local context…",
       "Running the requested Garmin sync action…",
-      "Reviewing the completed sync outcome for your response…",
+      "Reviewing the bounded sync outcome (history may remain incomplete) for your response…",
       "Checking imported data and local sync coverage…",
       "Checking imported data and local sync coverage…",
       "Reviewing the local import and sync coverage for your response…",
@@ -1162,6 +1163,38 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).not.toContain("duplicate_side_effect");
     expect(result.text).not.toContain("already used in this turn");
   });
+
+  it.each(["budget-limited", "cancelled"])(
+    "retains %s as an honest paused tool outcome without automatic continuation",
+    async (status) => {
+      runGarminSync.mockResolvedValueOnce({
+        status,
+        detail: "History remains incomplete; continue explicitly.",
+      });
+      generateText
+        .mockResolvedValueOnce({
+          toolCalls: [{ toolName: "runGarminSync", input: {} }],
+        })
+        .mockResolvedValueOnce(
+          grounded("History remains incomplete; continue explicitly.", [
+            toolClaim(1, "runGarminSync"),
+          ]),
+        );
+      const result = await orchestrateTrainerChat({
+        model: "mock",
+        system: "system",
+        userRequest: "sync my most recent data",
+      });
+      expect(runGarminSync).toHaveBeenCalledTimes(1);
+      expect(result.toolSteps[0]).toMatchObject({
+        status: "succeeded",
+        reason: "sync_paused",
+        result: { status },
+      });
+      expect(result.text).toContain("continue explicitly");
+      expect(result.text).not.toContain("sync_failed");
+    },
+  );
 
   it("reports the original side-effect failure without leaking connector token paths", async () => {
     runGarminSync.mockResolvedValueOnce({
