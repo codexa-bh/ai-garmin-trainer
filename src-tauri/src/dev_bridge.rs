@@ -12,6 +12,8 @@ use std::{
 use tauri::Manager;
 #[path = "dev_capture.rs"]
 pub(crate) mod capture;
+#[path = "dev_input.rs"]
+mod input;
 const LIMIT: usize = 16 * 1024;
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
@@ -22,11 +24,16 @@ pub enum Command {
     Assert { target: String, value: String },
     Capture {},
     Settings { action: crate::setup_smoke::Action },
+    CaptureDebug {},
+    DebugKey { key: String },
 }
 impl Command {
     fn valid(&self) -> bool {
         match self {
-            Self::Observe {} | Self::Capture {} | Self::Settings { .. } => true,
+            Self::Observe {} | Self::Capture {} | Self::CaptureDebug {} | Self::Settings { .. } => {
+                true
+            }
+            Self::DebugKey { key } => ["Enter", "Space"].contains(&key.as_str()),
             Self::Click { target } => [
                 "Activities",
                 "Health",
@@ -37,6 +44,8 @@ impl Command {
                 "Close Profile & data",
                 "Save Profile",
                 "Reload saved Profile",
+                "LLM debug traces",
+                "First LLM trace",
             ]
             .contains(&target.as_str()),
             Self::Input { target, value } | Self::Assert { target, value } => {
@@ -332,7 +341,27 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
             json!({"requestId":request.request_id,"result":{"ok":false,"error":error}}),
         ),
         Ok(mut result) => {
-            if result["ok"] == true && matches!(request.command, Command::Capture {}) {
+            if let Command::DebugKey { key } = &request.command {
+                result = if result["ok"] == true && result["readyForNativeKey"] == true {
+                    match input::disclosure_key(&window, key) {
+                        Ok(()) => json!({"ok":true,"nativeLocalEvent":true,"hardwareInput":false}),
+                        Err(error) => json!({"ok":false,"error":error}),
+                    }
+                } else {
+                    json!({"ok":false,"error":"Disclosure focus refused; no key dispatched"})
+                };
+            }
+            if result["ok"] == true
+                && matches!(
+                    request.command,
+                    Command::Capture {} | Command::CaptureDebug {}
+                )
+            {
+                let boundary = if matches!(request.command, Command::CaptureDebug {}) {
+                    "sanitized actual synthetic LLM disclosure subtree"
+                } else {
+                    "sanitized actual Profile Goals subtree"
+                };
                 result = match capture::png(&window).and_then(|bytes| {
                     capture::publish(
                         &state.config.root.join("screenshots"),
@@ -341,7 +370,7 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
                     )
                 }) {
                     Ok(path) => {
-                        json!({"ok":true,"capture":path,"boundary":"sanitized actual Profile Goals subtree"})
+                        json!({"ok":true,"capture":path,"boundary":boundary})
                     }
                     Err(error) => json!({"ok":false,"error":error}),
                 };
@@ -385,11 +414,28 @@ mod tests {
             }
             .valid())
         }
-        for target in ["Profile & data", "Close Profile & data"] {
+        for target in [
+            "Profile & data",
+            "Close Profile & data",
+            "LLM debug traces",
+            "First LLM trace",
+        ] {
             assert!(Command::Click {
                 target: target.into()
             }
             .valid());
+        }
+        for key in ["Enter", "Space"] {
+            assert!(Command::DebugKey { key: key.into() }.valid());
+        }
+        for key in ["Tab", "Escape", "a", "Meta+Q"] {
+            assert!(!Command::DebugKey { key: key.into() }.valid());
+        }
+        for value in [
+            json!({"type":"debugKey","key":"Enter","target":"Password"}),
+            json!({"type":"captureDebug","selector":"body"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
         }
         assert!(!Command::Input {
             target: "Goals".into(),
