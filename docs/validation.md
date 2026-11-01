@@ -88,6 +88,15 @@ Routine native/ordinary smoke defaults to [finite authored synthetic inputs](smo
 
 Knip's additional entrypoints are assembler-bundled `scripts/desktop/runtime.ts`, local setup HTML's `src-tauri/ui/setup.js`, shared natively admitted `src-tauri/debug/smoke.js` (never installed by default), debug-only `src-tauri/debug/setup-smoke.js`, and the Python-invoked `scripts/desktop/smoke_recipe.ts`; both bootstraps stay outside production UI resources. Closed debug `smoke:settings` covers keyless nonactivating Connect/later/cancel/Save/restart and inspected sanitized Garmin subtrees, with native auth/MFA/adoption/picker/Finish refusal. It does not certify ordinary artifacts, first-run or live login; see [debug Settings scope](dev-bridge.md#closed-keyless-native-settings-smoke). Shared settings validation/catalog is reached from these entries; the packaged Python auth worker/uv lock is tested through the focused desktop suite. Actual native smoke must include blank Create/Finish/same-session ready/relaunch, populated Use-existing, exclusive collision/sidecar/lease rejection and committed-state retry/cancel, advanced settings, metadata-only private-file save/reload, explicit legacy adoption/denial/re-entry and preserved originals, saved direct launch and ordinary next-launch-only saves. The packaged assembler probes the in-memory initializer without a filesystem target; native tests exercise real bundled fresh publication and readonly compatibility, not ordinary-artifact wizard certification. Real fresh password/MFA entry belongs to the operator in the private local UI; name unavailable live challenge evidence and never equate deterministic simulation with live MFA. Generated `src-tauri/{target,gen,resources}` and `dist` are build output only; no source files are exempted from lint/ownership/Knip.
 
+Presentation-only Markdown-table changes can use `npm run smoke:tables -- --scratch
+<canonical-private-task-scratch> --bundle <same-source-ordinary-app>` instead of
+personal populated inputs. It uses the existing synthetic seed, actual ordinary
+native artifact and isolated online-copy/identity/shutdown owners. See the finite
+[table scenario](dev-bridge.md#finite-synthetic-markdown-table-scenario) for strict
+canonical-content masks, twelve wide/narrow/scroll-edge captures, before-use
+contracts and explicit integration/input-fidelity limits. Default recurring CI and
+quick/ordinary scenarios are unchanged.
+
 ## Generated Next.js declarations
 
 `next-env.d.ts` and `.next/` are framework-owned, ignored local output. Do not

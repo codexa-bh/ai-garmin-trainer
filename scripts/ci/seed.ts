@@ -1,4 +1,4 @@
-// CI-only fresh synthetic input. Never discovers/imports normal app state.
+// Fresh synthetic input for CI and finite table smoke. Never imports normal state.
 import {
   closeSync,
   lstatSync,
@@ -19,8 +19,17 @@ import {
 } from "../../src/lib/db/migrations";
 import { conversation, message, trainerProfile } from "../../src/lib/db/schema";
 import { validateSettings } from "../desktop/settings";
+import { weeklyCalendar } from "../../src/lib/weekly/calendar";
+import { simpleTableFixture, tableFixture } from "./table-fixture";
+import type { WeeklyRecord } from "../../src/lib/weekly/contracts";
 
-export function seed(scratch: string, name: string, llmDebug = false): string {
+export function seed(
+  scratch: string,
+  name: string,
+  llmDebug = false,
+  tables = false,
+): string {
+  if (llmDebug && tables) throw new Error("Synthetic scenarios are exclusive.");
   const stat = lstatSync(scratch);
   if (
     !isAbsolute(scratch) ||
@@ -90,6 +99,54 @@ export function seed(scratch: string, name: string, llmDebug = false): string {
         ])
         .run();
     }
+    if (tables) {
+      const store = drizzle(db);
+      store
+        .insert(conversation)
+        .values({
+          id: "default",
+          title: "T0249 synthetic tables",
+          createdAt: new Date(0),
+          updatedAt: sql`1000`,
+        })
+        .run();
+      store
+        .insert(message)
+        .values({
+          id: "synthetic-tables",
+          conversationId: "default",
+          role: "assistant",
+          content: `${tableFixture(true)}\n\n${simpleTableFixture}`,
+          createdAt: sql`1000`,
+        })
+        .run();
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const { weekStart } = weeklyCalendar(new Date(), timeZone);
+      const doc = {
+        title: "T0249 synthetic plan",
+        contentMarkdown: tableFixture(),
+        revision: "synthetic-plan",
+        savedAt: new Date(0).toISOString(),
+      };
+      const record: WeeklyRecord = {
+        weekStart,
+        timeZone,
+        revision: "synthetic-tables",
+        original: doc,
+        latest: doc,
+        review: {
+          ...doc,
+          title: "T0249 synthetic review",
+          contentMarkdown: tableFixture(true),
+          revision: "synthetic-review",
+          asOf: new Date(0).toISOString(),
+          planRevision: doc.revision,
+        },
+      };
+      db.prepare(
+        "insert into weekly_artifact (week_start, document_json) values (?, ?)",
+      ).run(weekStart, JSON.stringify(record));
+    }
     if (
       currentSchemaVersion(db) !== LATEST_SCHEMA_VERSION ||
       runIntegrityCheck(db) !== "ok"
@@ -113,12 +170,20 @@ if (
 ) {
   if (
     process.argv.length !== 4 &&
-    !(process.argv.length === 5 && process.argv[4] === "--llm-debug")
+    !(
+      process.argv.length === 5 &&
+      ["--llm-debug", "--markdown-tables"].includes(process.argv[4])
+    )
   )
     throw new Error(
-      "Usage: ci:seed <canonical-private-scratch> <ci-seed-UUID> [--llm-debug]",
+      "Usage: ci:seed <canonical-private-scratch> <ci-seed-UUID> [--llm-debug|--markdown-tables]",
     );
-  seed(process.argv[2], process.argv[3], process.argv[4] === "--llm-debug");
+  seed(
+    process.argv[2],
+    process.argv[3],
+    process.argv[4] === "--llm-debug",
+    process.argv[4] === "--markdown-tables",
+  );
   console.log(
     "Fresh synthetic current-schema Profile seed ready; no private inputs or credentials.",
   );
