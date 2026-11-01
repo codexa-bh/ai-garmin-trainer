@@ -1,5 +1,14 @@
-import { useState, type RefObject } from "react";
-import { type ImportSummaryPayload, type SyncRunState } from "./contracts";
+import {
+  useState,
+  type Dispatch,
+  type SetStateAction,
+  type RefObject,
+} from "react";
+import {
+  type ImportSummaryPayload,
+  type SyncRunState,
+  type Status,
+} from "./contracts";
 import { numberLabel } from "./formatting";
 import {
   formatDetailCoverageSummary,
@@ -47,7 +56,7 @@ function SyncLoginHelp({
       </p>
       <p>
         Verify and reuse existing credentials first. Only if new authentication
-        is genuinely needed, open Desktop Settings from the native app menu and
+        is genuinely needed, open Settings from the native app menu and
         explicitly start private Garmin sign-in in an unused token directory.
         Save the selected store for the next quit/reopen; this trainer page has
         no credential or native-auth access. Advanced private-terminal
@@ -78,7 +87,7 @@ function SyncLoginHelp({
         genuinely needed replacement, manually preserve existing artifacts
         outside the selected credential directory; never delete your only usable
         credentials. Keep passwords, MFA codes and auth output private. This
-        trainer page never starts login automatically; only the local Desktop
+        trainer page never starts login automatically; only the local native
         Settings action handles transient credentials, never AI chat.
       </p>
     </section>
@@ -96,6 +105,13 @@ export function SyncView({
   syncRun,
   syncLogRef,
   importSummary,
+  runAction,
+  refreshSummary,
+  detailGarminId,
+  setDetailGarminId,
+  backfillDetail,
+  refreshDetailCoverage,
+  status,
 }: {
   closeSyncView: () => void;
   syncCloseRef: RefObject<HTMLButtonElement | null>;
@@ -107,6 +123,13 @@ export function SyncView({
   syncRun: SyncRunState;
   syncLogRef: RefObject<HTMLPreElement | null>;
   importSummary: ImportSummaryPayload | null;
+  runAction: (label: string, request: () => Promise<Response>) => Promise<void>;
+  refreshSummary: () => Promise<void>;
+  detailGarminId: string;
+  setDetailGarminId: Dispatch<SetStateAction<string>>;
+  backfillDetail: () => Promise<void>;
+  refreshDetailCoverage: () => Promise<void>;
+  status: Status;
 }) {
   return (
     <section className="sync-view-panel" aria-labelledby="sync-view-heading">
@@ -191,6 +214,78 @@ export function SyncView({
                 ))
               : "Current-run progress will appear here after Sync now starts."}
           </pre>
+        </section>
+
+        <section
+          className="sync-action-card"
+          aria-labelledby="sync-maintenance-heading"
+        >
+          <h2 id="sync-maintenance-heading">Garmin maintenance</h2>
+          <p>
+            Verification checks connector file presence, not authentication
+            validity. Reads use the pinned local stdio connector. Configure
+            tokens or private sign-in in native Settings, then explicitly
+            quit/reopen; this trainer page and AI have no credential access.
+          </p>
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={() =>
+                runInBackground(
+                  runAction("Verify connector", () => fetch("/api/sync")),
+                )
+              }
+            >
+              Verify connector
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => runInBackground(refreshSummary())}
+            >
+              Refresh import summary
+            </button>
+          </div>
+          <div className="detail-tools">
+            <label>
+              Garmin activity ID
+              <input
+                aria-label="Garmin activity ID"
+                placeholder="Garmin activity ID"
+                value={detailGarminId}
+                onChange={(event) => setDetailGarminId(event.target.value)}
+              />
+            </label>
+            <div className="button-row">
+              <button
+                type="button"
+                onClick={() => runInBackground(backfillDetail())}
+              >
+                Force refresh detail
+              </button>
+              <button
+                type="button"
+                onClick={() => runInBackground(refreshDetailCoverage())}
+              >
+                Show detail coverage
+              </button>
+            </div>
+          </div>
+          <h3>Current operation</h3>
+          {status.message === syncRun.finalMessage ||
+          status.message ===
+            syncRun.lines.map((entry) => entry.text).join("\n") ? (
+            <p className="helper-text">Current-run feedback appears above.</p>
+          ) : (
+            <pre
+              className={`status ${status.kind}`}
+              aria-label="Garmin maintenance feedback"
+              aria-live="polite"
+              role={status.kind === "error" ? "alert" : "status"}
+            >
+              {status.message}
+            </pre>
+          )}
         </section>
 
         <section

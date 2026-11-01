@@ -245,8 +245,8 @@ class Run:
     def profile_scenario(self, capture=False, other_fields=None):
         if other_fields is None:
             other_fields = self.other_profile_fields()
-        self.command({'type': 'click', 'target': 'Data & settings'})
-        self.wait(lambda o: o['view'] == 'Settings' and o['profileReady'], 'Settings/Profile readiness')
+        self.command({'type': 'click', 'target': 'Profile & data'})
+        self.wait(lambda o: o['view'] == 'Profile & data' and o['profileReady'], 'Profile & data readiness')
         sentinel = 'T0231-smoke-' + self.id
         self.command({'type': 'input', 'target': 'Goals', 'value': sentinel})
         self.wait(lambda o: not o['profileSaved'], 'React-controlled dirty state')
@@ -263,8 +263,8 @@ class Run:
     def verify_restart(self, binary, sentinel):
         self.stop()
         self.start(binary)
-        self.command({'type': 'click', 'target': 'Data & settings'})
-        self.wait(lambda o: o['profileReady'] and o['profileSaved'], 'Relaunched persisted Profile')
+        self.command({'type': 'click', 'target': 'Profile & data'})
+        self.wait(lambda o: o['view'] == 'Profile & data' and o['profileReady'] and o['profileSaved'], 'Relaunched persisted Profile')
         self.command({'type': 'assert', 'target': 'Goals', 'value': sentinel})
         if self.other_profile_fields() != self.other_profile_hash:
             raise ValueError('Non-Goals Profile fields changed across restart')

@@ -62,9 +62,9 @@ open 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.
 
 Source reads/clones need no GitHub account. Pushing requires repository authorization. Run source commands from the checkout. `desktop:dev` rebuilds production backend resources and opens the native development host; there is no browser dev server or HMR.
 
-### 2. Enter Desktop Settings
+### 2. Enter Settings
 
-First launch opens **Desktop Settings**, also available from the native app menu even without a working backend. Desktop no longer loads/selects/discovers env files or its old configuration pointer. Upgrading users must re-enter settings; original env files, DBs and tokens are not imported, moved, changed or deleted.
+First launch opens **Settings**, also available from the native app menu even without a working backend. Desktop no longer loads/selects/discovers env files or its old configuration pointer. Upgrading users must re-enter settings; original env files, DBs and tokens are not imported, moved, changed or deleted.
 
 A genuinely blank installation opens a guided **Data → Provider → optional Garmin → Review** wizard. Explicitly choose **Create new database** (unused destination only) or **Use existing data** (compatible SQLite only). Native proposes an owner-private platform app-data destination outside the checkout and an editable history date (today on the UTC sync calendar); selecting a date does not import anything. Create new initializes the authoritative current schema in memory, then exclusively publishes the new file without overwriting files, sidecars or leases. Existing selection and ordinary startup never create, migrate or adopt a missing/old/corrupt/owned database.
 
@@ -83,13 +83,13 @@ For an existing installation, **Save for next launch**, then explicitly quit/reo
 
 ### 3. Garmin access
 
-Prefer existing tokens. For new authentication, explicitly choose **Garmin sign-in** in the trusted local Desktop Settings window, using an unused directory inside an owner-private parent. Enter email/password and supported MFA privately there, never in trainer chat, screenshots or issues. Credentials remain transient; native owns cancellation and a 180-second timeout. Only independently verified tokens are published, without overwriting existing stores. This is an unofficial connector, not official OAuth; challenges/rate limits may prevent login. See [authentication and recovery](docs/garmin-auth.md).
+Prefer existing tokens. For new authentication, explicitly choose **Garmin sign-in** in the trusted local Settings window, using an unused directory inside an owner-private parent. Enter email/password and supported MFA privately there, never in trainer chat, screenshots or issues. Credentials remain transient; native owns cancellation and a 180-second timeout. Only independently verified tokens are published, without overwriting existing stores. This is an unofficial connector, not official OAuth; challenges/rate limits may prevent login. See [authentication and recovery](docs/garmin-auth.md).
 
 Ordinary sync/FIT remains pinned read-only stdio with credential fallback stripping. Token-file metadata alone does not prove current authentication or expiry. No app-access sign-in is required; Garmin login is optional and never automatic at startup.
 
 ### 4. Explicit non-serving maintenance only when needed
 
-The retained `doctor`, `db:status` and private-terminal `garmin:auth` tools still use deliberately authored checkout env/process configuration; **they do not read private Desktop Settings or legacy Keychain**. `.env.example` is now a maintenance CLI reference, not desktop onboarding. Do not overwrite existing private env files. Never paste their values or auth output into chat/issues.
+The retained `doctor`, `db:status` and private-terminal `garmin:auth` tools still use deliberately authored checkout env/process configuration; **they do not read private native Settings or legacy Keychain**. `.env.example` is now a maintenance CLI reference, not desktop onboarding. Do not overwrite existing private env files. Never paste their values or auth output into chat/issues.
 
 For existing-data schema upgrades (or separately chosen CLI creation), quit every owner of the explicitly approved target, preserve a verified WAL-aware backup, rehearse on a disposable copy and obtain separate primary-mutation approval. Then use the existing discrete CLI, not desktop startup:
 
@@ -107,7 +107,7 @@ Leave `MEMORY_ENABLED=false` to run without semantic memory. For embedded SQLite
 
 Ollama/OpenRouter chat does **not** select the memory extractor: guarded extraction uses configured DeepSeek/OpenAI when available, otherwise deterministic fallback. Review the memory guide before enabling it if you want processing to remain local.
 
-Local debug traces are currently always enabled by tested application policy, regardless of `LLM_DEBUG_TRACES`. Traces visible in Settings may include private normalized Garmin/chat/tool context; keep them local and out of screenshots/support artifacts.
+Local debug traces are currently always enabled by tested application policy, regardless of `LLM_DEBUG_TRACES`. Traces visible in Profile & data may include private normalized Garmin/chat/tool context; keep them local and out of screenshots/support artifacts.
 
 ## Repository guide
 
@@ -125,9 +125,11 @@ Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/style.css`, 
 
 ## Runtime trainer model
 
-Settings → **Trainer model** offers **DeepSeek Flash** and/or **GPT-6 Luna** when their respective server keys are configured. Saving takes effect on subsequent trainer turns without restarting; running turns retain their original model. The app-wide preference persists locally across reloads/restarts. **Reset to configured default** restores environment selection, including custom models and Ollama/OpenRouter. With no saved preference, DeepSeek-first auto selection is unchanged.
+Trainer navigation uses **Profile & data** for editable Profile, imported athlete/body facts, diagnostics and deletion. **Sync** owns connector verification, import-summary refresh and activity-detail maintenance; Memory remains separate.
 
-Availability means a non-placeholder key, not account funding or remote readiness. Missing keys produce no selectable choices; a saved choice whose key disappears stays unavailable until explicitly replaced/reset, with no silent fallback. Trainer Settings never exposes/edits keys or changes memory extraction/embeddings. The separate native Desktop Settings owns those settings and private provider-file updates, applied after explicit quit/reopen. See [local runtime](docs/local-runtime.md#runtime-trainer-model-preference).
+Chat → **Trainer model** offers **DeepSeek Flash** and/or **GPT-6 Luna** when their respective server keys are configured. Saving takes effect on subsequent trainer turns without restarting; running turns retain their original model. The app-wide preference persists locally across reloads/restarts. **Reset to configured default** restores environment selection, including custom models and Ollama/OpenRouter. With no saved preference, DeepSeek-first auto selection is unchanged.
+
+Availability means a non-placeholder key, not account funding or remote readiness. Missing keys produce no selectable choices; a saved choice whose key disappears stays unavailable until explicitly replaced/reset, with no silent fallback. The chat control never exposes/edits keys or changes memory extraction/embeddings. Native Settings owns configuration and private provider-file updates, applied after explicit quit/reopen. See [local runtime](docs/local-runtime.md#runtime-trainer-model-preference).
 
 ## Weekly plans and reviews
 

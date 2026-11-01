@@ -5,9 +5,9 @@
     "Health",
     "Training Plan",
     "Sync",
-    "Data & settings",
+    "Profile & data",
     "Back to chat",
-    "Close settings",
+    "Close Profile & data",
     "Save Profile",
     "Reload saved Profile",
   ]);
@@ -75,7 +75,7 @@
             "Health",
             "Training Plan",
             "Sync",
-            "Data & settings",
+            "Profile & data",
           ].includes(s),
         ),
       profileReady: Boolean(goals && visible(goals) && !goals.disabled),
@@ -84,7 +84,7 @@
           .querySelector(".profile-settings-card .pill")
           ?.textContent.trim() === "Profile saved",
       view: document.querySelector(".settings-sheet")
-        ? "Settings"
+        ? "Profile & data"
         : document.querySelector(".activity-dashboard-active")
           ? "Activities"
           : document.querySelector(".health-dashboard-active")
@@ -111,14 +111,14 @@
       case "click": {
         if (!allowedClicks.has(command.target))
           throw Error("Private/unsupported control");
-        if (command.target === "Close settings") {
+        if (command.target === "Close Profile & data") {
           const buttons = [
             ...document.querySelectorAll(
               ".settings-sheet .sheet-header button",
             ),
           ].filter(visible);
           if (buttons.length !== 1 || buttons[0].disabled)
-            throw Error("Settings close unavailable");
+            throw Error("Profile & data close unavailable");
           buttons[0].click();
         } else {
           target(command.target).click();

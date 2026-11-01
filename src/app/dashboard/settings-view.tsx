@@ -11,10 +11,7 @@ import {
 } from "./contracts";
 import { dateLabel, dayListLabel, valueLabel } from "./formatting";
 import { ProfileCard } from "./profile-card";
-import { ModelSettingsCard } from "./model-settings-card";
-import type { useModelSettings } from "./use-model-settings";
 export function SettingsView({
-  modelSettings,
   closeSettingsSheet,
   settingsCloseRef,
   isProfileDirty,
@@ -28,22 +25,16 @@ export function SettingsView({
   saveProfile,
   loadProfile,
   runAction,
-  refreshSummary,
   athleteBaselineMessage,
   athleteBaseline,
   bodyMetricsMessage,
   bodyMetrics,
-  detailGarminId,
-  setDetailGarminId,
-  backfillDetail,
-  refreshDetailCoverage,
   llmDebugTracesEnabled,
   debugTraceMessages,
   diagnosticsOpen,
   setDiagnosticsOpen,
   status,
 }: {
-  modelSettings: ReturnType<typeof useModelSettings>;
   closeSettingsSheet: () => void;
   settingsCloseRef: RefObject<HTMLButtonElement | null>;
   isProfileDirty: boolean;
@@ -57,15 +48,10 @@ export function SettingsView({
   saveProfile: () => Promise<void>;
   loadProfile: (trigger: "startup" | "manual") => Promise<void>;
   runAction: (label: string, request: () => Promise<Response>) => Promise<void>;
-  refreshSummary: () => Promise<void>;
   athleteBaselineMessage: string;
   athleteBaseline: AthleteBaselinePayload | null;
   bodyMetricsMessage: string;
   bodyMetrics: BodyMetricsPayload | null;
-  detailGarminId: string;
-  setDetailGarminId: Dispatch<SetStateAction<string>>;
-  backfillDetail: () => Promise<void>;
-  refreshDetailCoverage: () => Promise<void>;
   llmDebugTracesEnabled: boolean;
   debugTraceMessages: ChatMessage[];
   diagnosticsOpen: boolean;
@@ -77,7 +63,7 @@ export function SettingsView({
       <button
         type="button"
         className="settings-backdrop"
-        aria-label="Close settings"
+        aria-label="Close Profile & data"
         onClick={closeSettingsSheet}
       />
       <aside
@@ -88,21 +74,21 @@ export function SettingsView({
       >
         <header className="sheet-header">
           <div>
-            <p className="section-kicker">Settings</p>
-            <h2 id="settings-heading">Data &amp; settings</h2>
+            <p className="section-kicker">Profile &amp; data</p>
+            <h2 id="settings-heading">Profile &amp; data</h2>
           </div>
           <button
             type="button"
             className="chrome-button"
             onClick={closeSettingsSheet}
             ref={settingsCloseRef}
+            aria-label="Close Profile & data"
           >
             Close
           </button>
         </header>
 
         <div className="settings-groups">
-          <ModelSettingsCard modelSettings={modelSettings} />
           <ProfileCard
             isProfileDirty={isProfileDirty}
             profileSaveState={profileSaveState}
@@ -117,35 +103,14 @@ export function SettingsView({
           />
 
           <details className="settings-card" open>
-            <summary>Garmin data and sync</summary>
+            <summary>Imported Garmin facts</summary>
             <p>
-              Open Desktop Settings from the native app menu to select an
-              existing private token directory. Reuse existing credentials
-              first; only if needed, explicitly start Garmin sign-in there using
-              an unused store. Save and quit/reopen to apply. Sync uses pinned
-              local stdio reads. Verification checks file presence, not
-              authentication validity. This trainer page and AI never receive
-              passwords or MFA codes.
+              Read-only athlete and body facts from the local import summary,
+              separate from your editable Profile. Open Sync for connector
+              verification, import refresh and activity-detail maintenance.
+              Native Settings in the app menu owns configuration and private
+              sign-in; this trainer page has no credential access.
             </p>
-            <div className="button-row">
-              <button
-                type="button"
-                onClick={() =>
-                  runInBackground(
-                    runAction("Verify connector", () => fetch("/api/sync")),
-                  )
-                }
-              >
-                Verify connector
-              </button>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => runInBackground(refreshSummary())}
-              >
-                Refresh import summary
-              </button>
-            </div>
             <p className="helper-text" role="status" aria-live="polite">
               {athleteBaselineMessage}
             </p>
@@ -254,31 +219,6 @@ export function SettingsView({
             ) : (
               <p>Body metrics not available until the local summary loads.</p>
             )}
-            <div className="detail-tools">
-              <label>
-                Garmin activity ID
-                <input
-                  aria-label="Garmin activity ID"
-                  placeholder="Garmin activity ID"
-                  value={detailGarminId}
-                  onChange={(event) => setDetailGarminId(event.target.value)}
-                />
-              </label>
-              <div className="button-row">
-                <button
-                  type="button"
-                  onClick={() => runInBackground(backfillDetail())}
-                >
-                  Force refresh detail
-                </button>
-                <button
-                  type="button"
-                  onClick={() => runInBackground(refreshDetailCoverage())}
-                >
-                  Show detail coverage
-                </button>
-              </div>
-            </div>
           </details>
 
           {llmDebugTracesEnabled ? (
@@ -290,10 +230,9 @@ export function SettingsView({
                 </span>
               </summary>
               <p>
-                Local developer diagnostics are enabled by environment
-                configuration. Traces may include private normalized
-                Garmin/chat/tool context and are inspectable only on this
-                loopback app; Settings does not edit env files.
+                Local developer diagnostics are enabled by application policy.
+                Traces may include private normalized Garmin/chat/tool context;
+                keep them local and out of screenshots or support artifacts.
               </p>
               <div className="debug-trace-list" aria-label="LLM debug traces">
                 {debugTraceMessages.length ? (
@@ -345,9 +284,9 @@ export function SettingsView({
               Provider disclosure: selected conversation context may be sent to
               the configured AI provider. Local safety boundary: run on
               localhost/private loopback only, never public or LAN-exposed.
-              Garmin credential safety: authenticate out of band and never paste
-              passwords, token contents, provider keys, or raw payloads into the
-              app.
+              Garmin credential safety: use only trusted native Settings for
+              private sign-in. Never paste passwords, token contents, provider
+              keys, or raw payloads into trainer chat.
             </p>
             <div className="button-row">
               <button

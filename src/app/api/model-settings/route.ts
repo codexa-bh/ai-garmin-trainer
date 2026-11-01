@@ -37,7 +37,7 @@ export async function PATCH(request: Request) {
         error:
           error instanceof ModelSettingsValidationError
             ? error.message
-            : "Model setting could not be confirmed. Reload Settings to check the saved state.",
+            : "Model setting could not be confirmed. Use Retry model availability in chat to check the saved state.",
       },
       { status: error instanceof ModelSettingsValidationError ? 400 : 503 },
     );

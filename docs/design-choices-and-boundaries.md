@@ -11,8 +11,8 @@ Application code must not quietly become the coach by embedding product-level tr
 ### Local-first and private by default
 
 - The sole supported product launcher is the macOS ARM64 Tauri app supervising its single-user loopback Next.js/Node backend; standalone browser support is retired.
-- Garmin token/connector auth state stays outside the trainer renderer. The narrowly approved desktop-only exception permits transient email/password/MFA entry in trusted local Desktop Settings and its private native auth adapter, never the trainer/model/HTTP APIs. Provider keys stay in a native owner-private plaintext file with metadata-only UI reads. Folder `0700`/file `0600` restrict access, not encrypt it: same-user/privileged processes and backups can read it. Legacy Keychain access occurs only after explicit setup adoption; originals remain intact, with private re-entry after denial and no automatic retry.
-- The app stores normalized local data and avoids exposing secrets, filesystem paths, auth/session rows, raw FIT dumps, connector handles, or environment values to the model/trainer UI. Local Desktop Settings necessarily shows editable non-secret paths/settings, not saved keys or token contents.
+- Garmin token/connector auth state stays outside the trainer renderer. The narrowly approved desktop-only exception permits transient email/password/MFA entry in trusted local native Settings and its private native auth adapter, never the trainer/model/HTTP APIs. Provider keys stay in a native owner-private plaintext file with metadata-only UI reads. Folder `0700`/file `0600` restrict access, not encrypt it: same-user/privileged processes and backups can read it. Legacy Keychain access occurs only after explicit setup adoption; originals remain intact, with private re-entry after denial and no automatic retry.
+- The app stores normalized local data and avoids exposing secrets, filesystem paths, auth/session rows, raw FIT dumps, connector handles, or environment values to the model/trainer UI. Local native Settings necessarily shows editable non-secret paths/settings, not saved keys or token contents.
 - Public hosting, LAN exposure, non-loopback Ollama endpoints, multi-user tenancy, Garmin write-back, and production operations are outside the local MVP boundary.
 
 ### AI reasoning over tools, not hidden formulas
@@ -441,7 +441,7 @@ Non-responsibilities:
 
 - no web-exposed connector transport;
 - no Garmin write-back;
-- no password collection in trainer/model/connector workflows; explicit transient native Desktop Settings auth is isolated in `src-tauri`/`scripts/desktop`, not this feature;
+- no password collection in trainer/model/connector workflows; explicit transient native Settings auth is isolated in `src-tauri`/`scripts/desktop`, not this feature;
 - no coaching/ranking decisions.
 
 ### `src/lib/memory`

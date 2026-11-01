@@ -61,16 +61,17 @@ export function useModelSettings(open: boolean) {
       setSnapshot(null);
       setState("error");
       setMessage(
-        "Model settings could not be loaded. Reopen Settings to retry.",
+        "Model settings could not be loaded. Use Retry model availability in chat.",
       );
     }
   }
-  const loadOnOpen = useEffectEvent(() => {
+  function retry() {
     load().catch(() => {
       setState("error");
       setMessage("Model settings could not be loaded.");
     });
-  });
+  }
+  const loadOnOpen = useEffectEvent(() => retry());
   useEffect(() => {
     // Schedule the external read after navigation commits; cancel unopened work.
     const timer = open ? setTimeout(() => loadOnOpen(), 0) : undefined;
@@ -101,7 +102,7 @@ export function useModelSettings(open: boolean) {
     } catch {
       setState("error");
       setMessage(
-        "Model setting could not be confirmed. Reopen Settings to refresh current availability and saved state.",
+        "Model setting could not be confirmed. Use Retry model availability in chat to refresh current availability and saved state.",
       );
     } finally {
       saving.current = false;
@@ -113,5 +114,5 @@ export function useModelSettings(open: boolean) {
       setMessage("Model setting could not be confirmed.");
     });
   }
-  return { snapshot, state, message, choose };
+  return { snapshot, state, message, choose, retry };
 }

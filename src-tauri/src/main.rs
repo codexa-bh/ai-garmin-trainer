@@ -653,7 +653,7 @@ fn main() {
             *app.state::<Runtime>().onboarding_id.lock().map_err(|_| std::io::Error::other("Setup identity unavailable"))? = state.id.clone();
             *app.state::<Runtime>().onboarding.lock().map_err(|_| std::io::Error::other("Setup state unavailable"))? = Some(state);
             let app_menu = tauri::menu::SubmenuBuilder::new(app, "Garmin Trainer")
-                .text("configuration", "Desktop Settings…").separator().quit().build()?;
+                .text("configuration", "Settings…").separator().quit().build()?;
             let menu = tauri::menu::MenuBuilder::new(app).item(&app_menu).build()?;
             app.set_menu(menu)?;
             app.on_menu_event(|app, event| {

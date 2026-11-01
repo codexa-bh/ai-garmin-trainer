@@ -28,7 +28,7 @@ class QuickTests(unittest.TestCase):
             sentinel = run.profile_scenario()
             self.assertEqual(sentinel, 'T0231-smoke-unit-uuid')
             self.assertEqual([call.args[0] for call in run.command.call_args_list], [
-                {'type': 'click', 'target': 'Data & settings'},
+                {'type': 'click', 'target': 'Profile & data'},
                 {'type': 'input', 'target': 'Goals', 'value': sentinel},
                 {'type': 'click', 'target': 'Save Profile'},
                 {'type': 'assert', 'target': 'Goals', 'value': sentinel},

@@ -15,7 +15,7 @@ npm run desktop:build
 
 Open `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app`, including outside the checkout. `desktop:dev` uses the same rebuilt production resources, no HMR/browser dev server. Source edits require rebuilding; settings edits need only explicit quit/reopen. Tauri is the sole product launcher. Retained doctor/status/migration/private-terminal-auth tools are non-serving maintenance, not desktop configuration sources.
 
-The native crate enables `custom-protocol` by default so local settings/error HTML works without a backend. Settings remains available from the **Desktop Settings…** native menu regardless of backend readiness. Startup status is persisted in memory to avoid listener races.
+The native crate enables `custom-protocol` by default so local settings/error HTML works without a backend. Native Settings remains available from the **Settings…** native menu regardless of backend readiness. Startup status is persisted in memory to avoid listener races.
 
 `desktop:build` passes `--no-sign --no-binary-patching`; no codesign/notarization runs. Do not disable Gatekeeper or install/sign to bypass errors. Keep release stripping disabled: Homebrew Rust 1.98 proc-macro metadata failed with release stripping (`E0463`); the supported no-strip build preserves compiler output.
 
@@ -36,7 +36,7 @@ Resources are immutable: desktop disables ISR disk flushing/image optimization, 
 
 ## Explicit private-state adoption
 
-**Desktop Settings** replaces env-file selection/loading entirely. Upgrades do not import the old pointer or env files. Users re-enter supported settings; originals are retained unchanged for rollback. No cwd/home/adjacent env discovery or generic environment editor exists.
+**Settings** replaces env-file selection/loading entirely. Upgrades do not import the old pointer or env files. Users re-enter supported settings; originals are retained unchanged for rollback. No cwd/home/adjacent env discovery or generic environment editor exists.
 
 - Genuine first run has Data → Provider → optional Garmin → Review steps. Explicit **Create new database** uses a visible unused owner-private app-data destination outside source/bundle; a custom destination needs an existing private parent. Bootstrap runs authoritative migrations in memory, then native writes/fsyncs/read-only verifies and exclusively publishes fresh bytes under a pinned parent descriptor/shared target lease. Existing files, sidecars, aliases and unknown leases are never replaced. No writable selected-file migration or initialization WAL is involved.
 - **Use existing data** selects a compatible DB and optional existing owner-private token directory using canonical absolute paths. No aliases, shell expansion, URLs or relative paths. Selected DB will be writable: first quit other owners, evaluate on a disposable populated backup, and obtain separate approval before primary cutover.
