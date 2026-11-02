@@ -470,6 +470,63 @@
         ].includes(action)
       ) {
         captureProvider(action.slice(7).toLowerCase());
+      } else if (
+        ["captureFooterWide", "captureFooterNarrow"].includes(action)
+      ) {
+        restore();
+        const main = document.querySelector("body > main");
+        const footer = byId("save")?.closest(".actions");
+        const controls = footer
+          ? [...footer.children].filter((el) => visible(el))
+          : [];
+        if (
+          !main ||
+          /External uv\/uvx, Python/.test(main.textContent) ||
+          !footer ||
+          controls.length !== 2 ||
+          controls[0] !== byId("save") ||
+          controls[1] !== byId("cancel") ||
+          controls.some(
+            (el, index) =>
+              el.childElementCount ||
+              el.textContent.trim() !==
+                ["Save settings", "Cancel edits"][index],
+          ) ||
+          [...main.children]
+            .slice(-2)
+            .some((el) => el.tagName !== "FORM" || el.textContent.trim())
+        )
+          throw Error("Unexpected Settings footer");
+        scrollPosition = [window.scrollX, window.scrollY];
+        window.scrollTo(
+          0,
+          Math.max(0, footer.getBoundingClientRect().top + window.scrollY - 24),
+        );
+        for (const el of document.body.querySelectorAll("*"))
+          if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+        for (const el of controls) style(el, "visibility", "visible");
+        if (
+          [...document.body.querySelectorAll("*")].some(
+            (el) =>
+              el instanceof HTMLElement &&
+              !controls.includes(el) &&
+              getComputedStyle(el).visibility !== "hidden",
+          ) ||
+          controls.some((el) => {
+            const r = el.getBoundingClientRect();
+            return (
+              !visible(el) ||
+              r.width <= 0 ||
+              r.height <= 0 ||
+              r.left < 0 ||
+              r.top < 0 ||
+              r.right > innerWidth ||
+              r.bottom > innerHeight
+            );
+          })
+        )
+          throw Error("Footer mask refused");
+        restoreTimer = setTimeout(restore, 5000);
       } else if (action === "captureIntro") {
         restore();
         const main = document.querySelector("body > main");

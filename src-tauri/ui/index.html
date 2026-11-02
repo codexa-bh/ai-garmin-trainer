@@ -121,7 +121,8 @@
                 <div id="catalog-ollama-config"></div>
               </details>
               <p class="helper">
-                No key. Manage the local daemon/models separately; embeddings
+                Optional: only selected Ollama chat needs its separately managed
+                daemon/model. Cloud chat does not require Ollama; embeddings
                 stay independent.
               </p>
             </section>
@@ -335,9 +336,9 @@
             Finish validates local configuration and private provider keys, not
             remote funding, model availability or network access. No automatic
             provider call, Garmin login/sync or fallback. Optional Garmin
-            tooling may be unavailable without blocking saved views. Ollama
-            requires your separately managed daemon/model; nothing is installed
-            or started.
+            tooling may be unavailable without blocking saved views. Only
+            selected Ollama chat or enabled Ollama embeddings require its
+            separately managed daemon/model; nothing is installed or started.
           </p>
           <p>
             Cancellation retains any database, settings or independently
@@ -363,11 +364,6 @@
       <!-- External form owners keep inline sign-in separate from Settings Save. -->
       <form id="garmin-auth" autocomplete="off"></form>
       <form id="garmin-mfa" autocomplete="off"></form>
-      <p>
-        External uv/uvx, Python and optional Ollama remain operator-managed. No
-        software or models are installed at launch. Use the native Desktop
-        Settings menu to return here even when the backend is unavailable.
-      </p>
     </main>
   </body>
 </html>

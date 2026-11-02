@@ -522,7 +522,7 @@ function showAuth(value) {
     "unsupported-challenge":
       "This account challenge is unsupported or repeated. No bypass or automatic retry.",
     "auth-unavailable":
-      "Authentication tooling unavailable. Manage uv/Python separately; this does not establish token expiry.",
+      "Authentication could not start or finish; its cause is unknown. See README Installation for uv/Python setup and recovery. No automatic retry; saved connections and offline data remain available.",
     "network-service":
       "Network or Garmin service unavailable. This does not establish credential expiry; try later explicitly.",
     "rate-limited":
@@ -1024,10 +1024,26 @@ byId("garmin-auth").addEventListener("submit", async (event) => {
     showAuth(value);
     if (authActive())
       authTimer = setTimeout(() => pollAuth(epoch, value.id), 500);
-  } catch {
+  } catch (error) {
     if (epoch !== authEpoch) return;
-    // Refusal/interruption can be ambiguous; do not start another login blindly.
+    const dependency = new Map([
+      [
+        "dependency-uv-unavailable",
+        "Sign-in cannot execute uv or its configured override. Check native Settings technical tool paths and README Installation, then explicitly retry. Saved connections and offline data remain available.",
+      ],
+      [
+        "dependency-python-unavailable",
+        "Sign-in requires installed Python 3.12; none was found by the selected uv. See README Installation to manage Python separately, then explicitly retry. Saved connections and offline data remain available.",
+      ],
+    ]).get(typeof error === "string" ? error : "");
+    if (dependency) {
+      // These native refusals precede worker creation; retry is explicit, not automatic.
+      authPending = false;
+      renderAuthPresentation();
+    }
+    // Other refusal/interruption remains ambiguous; do not start another login blindly.
     byId("auth-status").textContent =
+      dependency ||
       "Sign-in could not start or its outcome is unknown. Check uv/Python and app-private storage; quit/reopen to reconcile before another attempt. Existing connections are preserved.";
   } finally {
     input.email = input.password = "";

@@ -974,8 +974,14 @@
       el.setAttribute("data-smoke-reveal", "");
   }
   let maskExpiry;
+  let maskScroll = [];
   function restore() {
     clearTimeout(maskExpiry);
+    for (const [node, left, top] of maskScroll) {
+      node.scrollLeft = left;
+      node.scrollTop = top;
+    }
+    maskScroll = [];
     document.getElementById("trainer-smoke-sanitizer")?.remove();
     for (const el of document.querySelectorAll("[data-smoke-reveal]"))
       el.removeAttribute("data-smoke-reveal");
@@ -1049,6 +1055,51 @@
         pill.setAttribute("data-smoke-reveal", "");
     }
     if (command.view === "sync") {
+      const help = document.querySelector(
+        '[aria-labelledby="sync-dependency-heading"]',
+      );
+      if (help && visible(help)) {
+        const children = [...help.children];
+        const summaries = [
+          "The Garmin connector launcher cannot execute. Check uvx or its configured override, then explicitly retry.",
+          "The Garmin connector could not start. Its cause, including Python availability, is unknown.",
+        ];
+        if (
+          children.length !== 3 ||
+          children.some((el) => el.childElementCount) ||
+          children[0].tagName !== "H3" ||
+          children[0].textContent !== "Garmin action setup" ||
+          children[1].tagName !== "P" ||
+          !summaries.includes(children[1].textContent) ||
+          children[2].tagName !== "P" ||
+          children[2].textContent !==
+            "See README → Installation → Garmin access for setup. Check the executable path in native Settings → Troubleshooting / technical controls; manage uvx and compatible Python separately, then explicitly retry this action. Sign-in is not a tooling fix. Saved data remains available."
+        ) {
+          restore();
+          throw Error("Unrecognized dependency guidance");
+        }
+        for (let node = help.parentElement; node; node = node.parentElement)
+          maskScroll.push([node, node.scrollLeft, node.scrollTop]);
+        help.scrollIntoView({
+          block: "center",
+          inline: "nearest",
+          behavior: "instant",
+        });
+        const rect = help.getBoundingClientRect();
+        if (
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          rect.left < 0 ||
+          rect.top < 0 ||
+          rect.right > innerWidth ||
+          rect.bottom > innerHeight
+        ) {
+          restore();
+          throw Error("Dependency guidance outside viewport");
+        }
+        help.setAttribute("data-smoke-reveal", "");
+        for (const el of children) el.setAttribute("data-smoke-reveal", "");
+      }
       // Like table captures, WebKit's scroll layer needs visible containers.
       // Validate all ancestors before revealing them; siblings remain masked.
       const containers = new Set();

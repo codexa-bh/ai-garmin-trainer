@@ -113,6 +113,10 @@ impl Auth {
         }
         parent.verify()?;
         unused_destination(&destination)?;
+        if !resources.join("runtime/scripts/garmin_auth.py").is_file() {
+            return Err("Authentication resources unavailable. Rebuild the app; saved connections are preserved.");
+        }
+        crate::runtime_dependency::check_auth_uv(executable)?;
         let id = uuid::Uuid::new_v4().to_string();
         let staging = destination
             .parent()
@@ -166,11 +170,20 @@ impl Auth {
         }
         let child = match command.spawn() {
             Ok(child) => child,
-            Err(_) => {
+            Err(error) => {
                 if parent.verify().is_ok() && same_staging(&staging, &staging_file) {
                     let _ = fs::remove_dir(&staging);
                 }
-                return Err("Auth tooling unavailable. Install/manage uv and Python separately.");
+                return Err(
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+                    ) {
+                        crate::runtime_dependency::UV_UNAVAILABLE
+                    } else {
+                        "Authentication could not start; its cause is unknown. Saved connections are preserved."
+                    },
+                );
             }
         };
         let (tx, events) = mpsc::channel();

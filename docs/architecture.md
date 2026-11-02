@@ -373,6 +373,8 @@ reader operations, synchronous import storage, request-time config and a clock.
 `import-policy.ts` owns legacy date planning and detail error classification; pure `history-policy.ts` owns additive versioned family progress, unknown-boundary semantics, UTC date arithmetic and the finite Sync admission contract. Contracts live in
 `import-contracts.ts`, `import-ports.ts` and existing feature types, not DB types.
 
+`dependency-error.ts` is a closed pure Garmin action-error contract (launcher unavailable versus unknown startup), not a capability registry or process owner. MCP converts OS spawn facts to it; Sync carries its optional reason in the existing result envelope and renders setup guidance without a login recommendation. Native `runtime_dependency.rs` owns only the bounded non-installing auth-time installed-Python diagnostic; no startup/Settings/offline readiness gate is added. Optional FIT and persistent checkpoint versions are unchanged.
+
 `reader-adapter.ts` owns MCP wire parsing, activity/health/detail normalization,
 FIT supplement ordering and archive dispatch. Profile/body/FIT-baseline values
 remain unknown inputs to the existing pure, validating feature normalizers; no

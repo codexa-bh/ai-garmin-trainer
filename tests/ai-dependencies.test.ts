@@ -48,6 +48,7 @@ const allowed = new Set([
   "analytics/terrain-sections.ts",
   "chat/contracts.ts",
   "garmin/detail-types.ts",
+  "garmin/dependency-error.ts",
   "garmin/import-contracts.ts",
   "garmin/history-policy.ts",
   "garmin/discovery-policy.ts",

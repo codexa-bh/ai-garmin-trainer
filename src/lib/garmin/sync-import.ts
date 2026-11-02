@@ -8,6 +8,10 @@ import {
 } from "./discovery-policy";
 import type { GarminSyncResult, ProgressReporter } from "./import-contracts";
 import { isoDate } from "./import-policy";
+import {
+  GarminDependencyError,
+  garminDependencyReason,
+} from "./dependency-error";
 import { createBaselineImports } from "./baseline-import";
 import { createDetailImports } from "./detail-import";
 import {
@@ -188,6 +192,7 @@ export function createGarminImports({
     let bodyMetrics = store.getGarminBodyMetrics();
     let outcome: typeof state.outcome = "settled";
     let failure: string | undefined;
+    let dependency: GarminSyncResult["dependency"];
     const save = () => {
       state.operations = operations;
       state.updatedAt = clock().toISOString();
@@ -604,6 +609,7 @@ export function createGarminImports({
         if (!interactive) await supplements();
         if (failure) outcome = "failed";
       } catch (error) {
+        dependency = garminDependencyReason(error);
         outcome =
           error instanceof SyncPause
             ? error.reason
@@ -621,7 +627,8 @@ export function createGarminImports({
                 : overallRemaining() <= 0
                   ? "Operation deadline reached; Resume explicitly to continue unknown history."
                   : "Internal batch deadline reached; committed progress retained. Refresh durable truth before Resume."
-            : error instanceof NoHistoryProgress
+            : error instanceof NoHistoryProgress ||
+                error instanceof GarminDependencyError
               ? error.message
               : "Garmin sync stopped after a connector or storage failure; committed data and unresolved history are retained.";
       }
@@ -647,6 +654,7 @@ export function createGarminImports({
         state.unresolvedHealth.length > 0;
       const result: GarminSyncResult = {
         status: outcome === "settled" ? "completed" : outcome,
+        ...(dependency ? { dependency } : {}),
         activitiesImported,
         healthDaysImported,
         activitiesProcessed: activitiesImported,

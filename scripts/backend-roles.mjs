@@ -115,6 +115,7 @@ const groups = [
       "body-metrics-normalize",
       "detail-normalize",
       "detail-types",
+      "dependency-error",
       "import-contracts",
       "import-policy",
       "history-policy",

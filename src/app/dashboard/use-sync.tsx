@@ -154,7 +154,11 @@ export function useSyncFeature({
             finalKind = "error";
             const detail =
               event.type === "result" ? event.detail : event.message;
-            if (detail) recovery = syncFailureRecovery(detail);
+            if (event.dependency === "launcher-unavailable")
+              recovery = "dependency";
+            else if (event.dependency === "startup-unknown")
+              recovery = "startup";
+            else if (detail) recovery = syncFailureRecovery(detail);
             failureSummary = syncFailureSummary(recovery);
           }
           if (event.type === "result") {

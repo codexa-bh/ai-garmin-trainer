@@ -10,7 +10,14 @@ export type SyncRunState = {
   lines: Array<{ text: string; severity: "info" | "error" }>;
   finalMessage: string;
   failureSummary: string | null;
-  recovery: "connector" | "auth" | "network" | "rate-limit" | null;
+  recovery:
+    | "connector"
+    | "dependency"
+    | "startup"
+    | "auth"
+    | "network"
+    | "rate-limit"
+    | null;
 };
 
 export type TranscriptScrollSnapshot = {
@@ -346,6 +353,7 @@ export type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
 export type ProfileSaveState = "idle" | "saving" | "saved" | "error";
 
 export type SyncProgressEvent = {
+  dependency?: "launcher-unavailable" | "startup-unknown";
   continuationAvailable?: boolean;
   type?: string;
   status?: string;

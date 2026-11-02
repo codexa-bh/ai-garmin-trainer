@@ -11,6 +11,7 @@ mod live_settings;
 mod memory_status;
 mod onboarding;
 mod private_store;
+mod runtime_dependency;
 mod settings;
 #[cfg(debug_assertions)]
 mod setup_smoke;
@@ -615,7 +616,7 @@ async fn start_auth(
                 .iter()
                 .map(PathBuf::from)
                 .find(|path| path.is_file())
-                .ok_or("uv tooling unavailable. Install/manage it separately.")?
+                .ok_or(runtime_dependency::UV_UNAVAILABLE)?
         };
         let result = runtime
             .auth
