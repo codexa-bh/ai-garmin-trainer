@@ -218,6 +218,33 @@ class HistoryRun(OrdinaryRun):
             time.sleep(.25)
         raise TimeoutError('Owned Sync claim did not settle; no duplicate continuation')
 
+    def continue_once(self):
+        """One explicitly selected checkpoint continuation; never replay Cancel/start."""
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'Sync continuation')
+        before = self.summary()
+        if before['active'] or before['outcome'] not in ('failed', 'cancelled', 'budget-limited', 'settled'):
+            raise ValueError('Stopped explicit prior discovery checkpoint required')
+        images = self.sync_captures = []
+        self.wait_sync(lambda value: value['startEnabled'], 40)
+        self.command({'type': 'sync', 'action': 'continue'})  # Exactly one mutation.
+        started = self.wait_sync(lambda value: value['running'] or value['failed'], 15)
+        if not started['failed']:
+            images.append({'scenario': 'single-continuation-progress', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
+            private_json(self.root / 'single-continuation-progress.json', {'captures':images, 'source':self.config['source'], 'boot':self.boot})
+            result = self.wait_sync(lambda value: not value['running'] and (value['paused'] or value['completed'] or value['failed']))
+        else:
+            result = started
+        self.settle_claim()
+        after = self.summary()
+        images.append({'scenario': 'single-continuation-settled', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
+        private_json(self.root / 'single-continuation.json', {'before':before, 'after':after, 'rendered':result,
+                     'captures':images, 'maxInvocations':1, 'maxRemoteAttempts':96, 'maxSeconds':180,
+                     'source':self.config['source'], 'boot':self.boot, 'remoteLowerBoundProven':False})
+        if result['failed']:
+            raise ValueError('Single continuation failed; no retry or login')
+
     def real_sync(self):
         self.command({'type': 'setViewport', 'preset': 'wide'})
         self.command({'type': 'click', 'target': 'Sync'})
@@ -263,7 +290,10 @@ def main():
     parser.add_argument('--input-file', required=True)
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--token-input', help='Explicit private selector; never normal-settings discovery')
+    parser.add_argument('--continuation-only', action='store_true', help='One explicitly selected prior-checkpoint continuation; no repeated Cancel/start batch')
     args = parser.parse_args()
+    if args.continuation_only and not args.token_input:
+        parser.error('--continuation-only requires explicitly selected copied tokens')
     os.umask(0o077)
     scratch = private_directory(args.scratch)
     selection = canonical(args.input_file)
@@ -287,14 +317,14 @@ def main():
                'captures': [], 'cleanup': 'private copy-only state/captures retained to task-scratch expiry; no copy-back'}
     try:
         observer = Observer(scratch)
-        for mode in ['create-new', 'use-existing']:
+        for mode in (['use-existing'] if args.continuation_only else ['create-new', 'use-existing']):
             run = HistoryRun(scratch, database, source, bundle, inventory, history_setup=mode)
             runs.append(run)
             run.observer = observer
             receipt['captures'].extend(run.onboarding())
             receipt['captures'].append(run.optional_limit())
             run.stop()
-        run = runs[1]
+        run = runs[-1]
         if args.token_input:
             token_source, token_hashes = copy_tokens(args.token_input, run.root)
             # This is our own keyless settings, not operator/native settings or provider discovery.
@@ -307,8 +337,12 @@ def main():
             private_json(staged, saved)
             os.replace(staged, path)
             run.start(run.binary)
-            run.real_sync()  # finally retains partial captures even when continuation refuses.
-            receipt['realGarmin'] = 'copied-token native-owned Sync/cancel/two explicit continuations passed'
+            if args.continuation_only:
+                run.continue_once()
+                receipt['realGarmin'] = 'one explicit copied-token native-owned checkpoint continuation passed; no new Cancel/start batch'
+            else:
+                run.real_sync()  # finally retains partial captures even when continuation refuses.
+                receipt['realGarmin'] = 'copied-token native-owned Sync/cancel/two explicit continuations passed'
         else:
             receipt['realGarmin'] = 'unavailable: no explicit private copied-token input'
             run.start(run.binary)

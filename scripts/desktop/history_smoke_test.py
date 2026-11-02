@@ -74,6 +74,35 @@ class HistoryTokenContracts(unittest.TestCase):
         self.assertEqual(evidence['cancelled'], cancelled)
         self.assertEqual(evidence['settled'][0]['summary']['failureClass'], 'auth')
 
+    def test_selected_checkpoint_continuation_is_exactly_one_invocation(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        before = {'active':False, 'outcome':'failed', 'operations':50}
+        after = {'active':False, 'outcome':'budget-limited', 'operations':96}
+        run = SimpleNamespace(root=self.destination, config={'source':'unit-only'}, boot='unit-only',
+                              command=Mock(return_value={'ok':True, 'capture':'unit-only.png'}), wait=Mock(),
+                              summary=Mock(side_effect=[before, after]), settle_claim=Mock(),
+                              wait_sync=Mock(side_effect=[{'startEnabled':True}, {'running':True,'failed':False},
+                                                          {'running':False,'paused':True,'completed':False,'failed':False}]))
+        HistoryRun.continue_once(run)
+        actions = [call.args[0].get('action') for call in run.command.call_args_list]
+        self.assertEqual(actions.count('continue'), 1)
+        self.assertNotIn('start', actions)
+        self.assertNotIn('cancel', actions)
+        evidence=json.loads((self.destination/'single-continuation.json').read_text())
+        self.assertEqual(evidence['maxInvocations'], 1)
+        self.assertEqual(evidence['after'], after)
+        self.assertEqual(len(evidence['captures']), 2)
+
+    def test_active_or_missing_checkpoint_refuses_single_continuation(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        for summary in [{'active':True,'outcome':'failed'}, {'active':False,'outcome':None}]:
+            run=SimpleNamespace(command=Mock(), wait=Mock(), summary=Mock(return_value=summary))
+            with self.assertRaisesRegex(ValueError, 'prior discovery checkpoint'):
+                HistoryRun.continue_once(run)
+            self.assertFalse(any(call.args[0].get('action') == 'continue' for call in run.command.call_args_list))
+
     def test_native_setup_failure_is_retained_without_finish_replay(self):
         from types import SimpleNamespace
         from unittest.mock import Mock, call

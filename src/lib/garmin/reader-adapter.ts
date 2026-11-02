@@ -56,7 +56,7 @@ function parseToolJson(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
     if (
-      /^No (?:stats|daily stats|sleep data|sleep summary|body battery data|body composition data|weigh.ins|activities|user profile|cycling FTP)(?: found| available)(?: for [^\n]+)?\.?$/i.test(
+      /^No (?:stats|daily stats|sleep data|sleep summary|body battery data|body composition data|weigh.ins|weight measurements|activities|user profile|cycling FTP)(?: found| available)(?: for [^\n]+| between \d{4}-\d{2}-\d{2} and \d{4}-\d{2}-\d{2})?\.?$/i.test(
         trimmed,
       )
     )
@@ -266,10 +266,42 @@ export function createGarminReader({
           )
         );
       }
+      // The pinned battery tool can return a valid charged/drained summary
+      // without any level metric. That must not discard valid stats/sleep or
+      // invent a battery value; malformed summaries still remain unresolved.
+      const batterySummaryKeys = new Set([
+        "date",
+        "charged",
+        "drained",
+        "events",
+        "current_feedback",
+      ]);
+      const batterySummary =
+        Array.isArray(bodyBattery) &&
+        bodyBattery.length > 0 &&
+        bodyBattery.every((day: unknown) => {
+          if (!day || typeof day !== "object" || Array.isArray(day))
+            return false;
+          const record = day as Record<string, unknown>;
+          return (
+            record.date === date &&
+            Array.isArray(record.events) &&
+            Object.keys(record).every((key) => batterySummaryKeys.has(key)) &&
+            [record.charged, record.drained].every(
+              (value) =>
+                value === null ||
+                (typeof value === "number" && Number.isFinite(value)),
+            ) &&
+            (record.current_feedback === undefined ||
+              typeof record.current_feedback === "string" ||
+              record.current_feedback === null)
+          );
+        });
       for (const [index, payload] of [stats, sleep, bodyBattery].entries()) {
         const key = ["stats", "sleep", "bodyBattery"][index];
         if (
           !recognized(payload, knownKeys[index]) &&
+          !(key === "bodyBattery" && batterySummary) &&
           normalizeDailyHealth(date, { [key]: payload }).availability ===
             "missing"
         )
