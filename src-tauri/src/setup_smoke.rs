@@ -25,6 +25,12 @@ pub enum Action {
     CaptureWide,
     CaptureNarrow,
     CaptureIntro,
+    LiveCatalog,
+    LiveRotate,
+    LiveClear,
+    LiveEmpty,
+    CaptureLive,
+    StopBackend,
     CatalogExercise,
     CatalogEmpty,
     KeysExercise,
@@ -44,7 +50,11 @@ struct Observation {
     form_visible: bool,
     manual_controls_absent: bool,
     not_connected: bool,
-    saved_for_next_launch: bool,
+    saved: bool,
+    live_applied: bool,
+    live_unknown: bool,
+    saved_unapplied: bool,
+    pending_restart: bool,
     catalog_ready: bool,
     catalog_exercised: bool,
     catalog_without_defaults: bool,
@@ -78,7 +88,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogReady:false,catalogExercised:false,catalogWithoutDefaults:false,emptyCatalog:false,keysReady:false,keysEdited:false,keysRejected:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,saved:false,liveApplied:false,liveUnknown:false,savedUnapplied:false,pendingRestart:false,catalogReady:false,catalogExercised:false,catalogWithoutDefaults:false,emptyCatalog:false,keysReady:false,keysEdited:false,keysRejected:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -175,6 +185,16 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         }
         return Err("Foreign or not-yet-loaded Settings document".into());
     }
+    if matches!(action, Action::StopBackend) {
+        config.validate()?;
+        let runtime = app.state::<crate::Runtime>();
+        runtime
+            .service
+            .try_lock()
+            .map_err(|_| "Owned backend busy")?
+            .take();
+        return Ok(json!({"ok":true}));
+    }
     if matches!(action, Action::Close) {
         window.close().map_err(|_| "Settings close refused")?;
         return Ok(json!({"ok":true}));
@@ -206,8 +226,11 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             | Action::CaptureDeepseek
             | Action::CaptureOllama
             | Action::CaptureOpenrouter
+            | Action::CaptureLive
     ) {
-        let boundary = if matches!(
+        let boundary = if matches!(action, Action::CaptureLive) {
+            "masked fixed safe Settings live-application feedback only; no form/keys/paths; debug synthetic DOM evidence"
+        } else if matches!(
             action,
             Action::CaptureOpenai
                 | Action::CaptureDeepseek
@@ -291,7 +314,7 @@ mod tests {
             json!({"action":"catalogEmpty","value":"private"})
         )
         .is_err());
-        let current = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":false,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":true,"keysReady":false,"keysEdited":false,"keysRejected":false});
+        let current = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":false,"liveApplied":false,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"catalogReady":false,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":true,"keysReady":false,"keysEdited":false,"keysRejected":false});
         assert!(serde_json::from_value::<Observation>(current.clone()).is_ok());
         let mut invalid = current;
         invalid["emptyCatalog"] = json!("private");
@@ -320,6 +343,12 @@ mod tests {
             "captureDeepseek",
             "captureOllama",
             "captureOpenrouter",
+            "liveCatalog",
+            "liveRotate",
+            "liveClear",
+            "liveEmpty",
+            "captureLive",
+            "stopBackend",
         ] {
             assert!(serde_json::from_value::<Action>(json!(action)).is_ok());
             assert!(
@@ -327,7 +356,12 @@ mod tests {
                     .is_err()
             );
         }
-        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":false,"keysReady":false,"keysEdited":false,"keysRejected":false})).is_ok());
+        let observation = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":true,"liveApplied":true,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"catalogReady":true,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":false,"keysReady":false,"keysEdited":false,"keysRejected":false});
+        assert!(serde_json::from_value::<Observation>(observation.clone()).is_ok());
+        let mut private = observation;
+        private["password"] = json!("private-sentinel");
+        assert!(serde_json::from_value::<Observation>(private).is_err());
+        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true})).is_err());
         for action in [
             "auth", "email", "password", "mfa", "picker", "finish", "eval", "input",
         ] {

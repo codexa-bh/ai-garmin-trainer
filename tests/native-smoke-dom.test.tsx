@@ -12,7 +12,7 @@ import {
 import { HealthDashboardView } from "../src/app/dashboard/health-metrics";
 import { ModelSettingsCard } from "../src/app/dashboard/model-settings-card";
 import { useModelSettings } from "../src/app/dashboard/use-model-settings";
-import type { ModelSettingsSnapshot } from "../src/lib/model-settings/contracts";
+import { modelSettingsSnapshot } from "../src/lib/model-settings/policy";
 import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
 
 declare global {
@@ -142,20 +142,21 @@ function composerFixture(eligibility?: "mixed" | "empty") {
     if (init?.method && init.method !== "PATCH") posts();
     if (init?.method === "PATCH")
       preference = JSON.parse(String(init.body)).modelId;
-    const selected = options.find((entry) => entry.id === preference);
-    const body: ModelSettingsSnapshot = {
-      version: 3,
-      options,
-      selected: preference,
-      status: preference ? "selected" : "unselected",
-      available: Boolean(selected?.available),
-      ...(!selected?.available
-        ? {
-            unavailableReason:
-              "Provider key is not configured. Update native Settings, quit and reopen.",
-          }
-        : {}),
-    };
+    // Use production metadata so privacy allowlists cannot pass against stale copy.
+    const body = modelSettingsSnapshot(
+      preference
+        ? { version: 1, status: "selected", entryId: preference }
+        : { version: 1, status: "unselected" },
+      {
+        catalog: { version: 1, entries: options, defaultEntryId: null },
+        configured: {
+          openai: false,
+          deepseek: false,
+          openrouter: false,
+          ollama: true,
+        },
+      },
+    );
     return Promise.resolve(new Response(JSON.stringify(body)));
   });
   vi.stubGlobal("fetch", fetcher);
@@ -362,7 +363,7 @@ describe("native-installed rendered smoke boundary", () => {
       vi.stubGlobal("innerHeight", 850);
       const { fetcher, posts } = composerFixture(eligibility);
       await screen.findByText(
-        "Provider key is not configured. Update native Settings, quit and reopen.",
+        "Provider key is not configured. Save in native Settings and confirm live application; retry availability.",
       );
       let observed = (await command({ type: "composer", action: "observe" }))
         .result;

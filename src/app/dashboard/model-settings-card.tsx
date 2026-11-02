@@ -32,7 +32,7 @@ export function ModelSettingsCard({
         id="trainer-model"
         aria-label="Trainer model"
         aria-describedby="trainer-model-status"
-        title={`${entry?.provider ?? "Model"} / ${entry?.modelId ?? "unavailable"}. Applies to subsequent turns; running turns, memory extraction and embeddings are unchanged. Native catalog/key edits need quit/reopen.`}
+        title={`${entry?.provider ?? "Model"} / ${entry?.modelId ?? "unavailable"}. Applies to subsequent turns; running turns, memory extraction and embeddings are unchanged. Confirm native catalog/key live application; other settings remain restart-only.`}
         value={selected}
         disabled={busy || !eligibleOptions.length || state === "error"}
         onChange={(event) => choose(event.target.value as ChatModelId)}
@@ -72,8 +72,8 @@ export function ModelSettingsCard({
       {snapshot && !eligibleOptions.length ? (
         <p>
           {snapshot.options.length
-            ? "No available entries. Configure provider keys or eligible local models in native Settings, then quit/reopen."
-            : "No configured entries. Add chat models in native Settings, then quit/reopen."}
+            ? "No available entries. Configure provider keys or eligible local models in native Settings, confirm live application and retry availability."
+            : "No configured entries. Add chat models in native Settings, confirm live application and retry availability."}
         </p>
       ) : null}
       {state === "error" ? (

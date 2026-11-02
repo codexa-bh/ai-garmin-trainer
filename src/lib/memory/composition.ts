@@ -1,4 +1,5 @@
 import { setAppMetadata } from "../db/repository";
+import { getOptionalEnv, withConfiguration, type AppEnv } from "../env";
 import { memoryExtractionSelection } from "../ai/providers";
 import { memoryStatusProjection } from "./status";
 import { DISABLED_METADATA_KEY } from "./config";
@@ -14,12 +15,27 @@ import { sqliteMemoryPersistence } from "./sqlite-storage";
 import type { TrainerMemoryStore } from "./types";
 
 let singleton: TrainerMemoryStore | null = null;
+let credentialSnapshot: AppEnv | null = null;
 let activeConfig: ReturnType<typeof memoryRuntimeConfig> | null = null;
 let observation: { ready: boolean; at: number } | null = null;
 
 export function trainerMemoryStore(): TrainerMemoryStore {
+  const env = getOptionalEnv();
+  // Only credentials rotate here. Native live state retains the entire startup
+  // nonlive base; no Save-time store construction, migration or readiness probe.
+  if (
+    credentialSnapshot &&
+    ["OPENAI_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"].some(
+      (slot) =>
+        credentialSnapshot![slot as keyof AppEnv] !== env[slot as keyof AppEnv],
+    )
+  ) {
+    singleton = null;
+    observation = null;
+  }
   if (!singleton) {
-    const config = memoryRuntimeConfig();
+    credentialSnapshot = env;
+    const config = memoryRuntimeConfig(env);
     activeConfig = config;
     singleton = createMemoryStore({
       settings: {
@@ -37,7 +53,8 @@ export function trainerMemoryStore(): TrainerMemoryStore {
       storage: sqliteMemoryPersistence,
       embedding: createEmbedding(config),
       extractionMode: memoryExtractionMode,
-      extract: extractMemoryCandidatesWithLlm,
+      extract: (...args) =>
+        withConfiguration(env, () => extractMemoryCandidatesWithLlm(...args)),
       stableId,
       now: () => Date.now(),
     });
@@ -57,6 +74,7 @@ export function trainerMemoryStore(): TrainerMemoryStore {
 export function resetTrainerMemoryStore(): void {
   singleton = null;
   activeConfig = null;
+  credentialSnapshot = null;
   observation = null;
 }
 

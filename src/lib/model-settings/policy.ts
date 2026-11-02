@@ -84,7 +84,7 @@ export function modelSettingsSnapshot(
       ...(!available
         ? {
             unavailableReason:
-              "Provider key is not configured. Update native Settings, quit and reopen.",
+              "Provider key is not configured. Save in native Settings and confirm live application; retry availability.",
           }
         : {}),
     };

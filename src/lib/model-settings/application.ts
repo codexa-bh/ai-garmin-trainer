@@ -57,7 +57,7 @@ export function createModelSettings(ports: {
     };
     if (!modelSettingsSnapshot(choice, config).available)
       throw new ModelSettingsValidationError(
-        "That entry is absent or ineligible. Refresh the activated catalog; native edits require quit/reopen.",
+        "That entry is absent or ineligible. Refresh the activated catalog; confirm live application in native Settings.",
       );
     current(config); // Refuse unsupported authority, including before replacement.
     ports.writeChoice(JSON.stringify(choice));

@@ -1,10 +1,95 @@
-"""Finite Garmin geometry runner contract, no native launches."""
+"""Cheap finite live Settings runner contract tests; no native launch/provider use."""
+import json
+import pathlib
+import tempfile
 import unittest
+from unittest.mock import patch
+import settings_smoke
+
+
+class Run:
+    def __init__(self, root, fault=None):
+        self.root = pathlib.Path(root)
+        (self.root / 'config').mkdir()
+        self.origin = 'http://127.0.0.1:19324'
+        self.selected = None
+        self.action = None
+        self.fault = fault
+        self.backend = 12345
+
+    def http(self, path):
+        if path != '/identity':
+            raise AssertionError('Only fixed identity route')
+        return {'pid': 54321, 'backendPid': self.backend, 'origin': self.origin, 'database': 'owned-copy'}
+
+    def command(self, command):
+        action = command['action']
+        if action.startswith('live'):
+            self.action = action
+        if action == 'stopBackend':
+            self.backend = None
+        if action == 'save' and self.backend:
+            suffix = 'one' if self.action == 'liveCatalog' else 'two'
+            keys = {slot: 'T0257-synthetic-' + slot + '-' + suffix for slot in ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY']} if self.action in ['liveCatalog', 'liveRotate'] else {}
+            if self.fault == 'retained-key' and self.action == 'liveClear':
+                keys['OPENAI_API_KEY'] = 'old-key'
+            (self.root / 'config/settings-v3.json').write_text(json.dumps({'keys': keys, 'fields': {'MEMORY_EMBEDDING_DIMS': '2048'}, 'chatCatalog': {'defaultEntryId': None}}))
+            if self.fault == 'restart':
+                self.backend += 1
+        return {'ok': True}
+
+    def metadata(self, _run, model_id=None, write=False):
+        if write:
+            self.selected = model_id
+        entries = [{'id': 'entry_legacy_' + provider, 'provider': provider, 'modelId': 'Synthetic/Live:one' if provider == 'openai' else 'fixed-model', 'available': True} for provider in ['openai', 'deepseek', 'ollama', 'openrouter']]
+        if self.action == 'liveClear':
+            entries = [entry for entry in entries if entry['provider'] != 'openai']
+            for entry in entries:
+                entry['available'] = entry['provider'] == 'ollama'
+        if self.action == 'liveEmpty':
+            entries = []
+        selected = 'entry_legacy_deepseek' if self.fault == 'remap' else self.selected
+        return {'version': 3, 'options': entries, 'selected': selected, 'status': 'selected', 'available': any(entry['id'] == selected and entry['available'] for entry in entries)}
+
+
+class LiveRunnerTests(unittest.TestCase):
+    def scenario(self, fault=None):
+        with tempfile.TemporaryDirectory() as root:
+            run = Run(root, fault)
+            captures = []
+            with patch.object(settings_smoke, 'model_settings', side_effect=run.metadata), patch.object(settings_smoke, 'wait_settings', side_effect=lambda *_args: {'liveApplied': True, 'pendingRestart': run.action != 'liveCatalog' or fault == 'false-restart', 'savedUnapplied': True}):
+                result = settings_smoke.live_scenario(run, captures)
+            self.assertEqual(len(result), 4)
+            self.assertEqual(len(captures), 4)
+            self.assertIsNone(run.backend)
+            self.assertTrue(all(item['compiledNextUptake'] for item in result))
+
+    def test_finite_positive_without_provider_or_arbitrary_route(self):
+        self.scenario()
+
+    def test_rejects_restart_retained_key_and_preference_remap(self):
+        for fault in ['restart', 'retained-key', 'remap', 'false-restart']:
+            with self.subTest(fault=fault), self.assertRaises(ValueError):
+                self.scenario(fault)
+
+
 from unittest.mock import Mock
 from settings_smoke import capture_garmin, verify_choice_catalog, wait_settings
 
 
 class SettingsCaptureTests(unittest.TestCase):
+    def test_live_empty_restart_observes_without_replaying_eight_row_mutation(self):
+        run = Mock()
+        state = {'version': 3, 'selected': 'entry_legacy_openai', 'available': False, 'options': []}
+        with patch.object(settings_smoke, 'wait_settings'), patch.object(settings_smoke, 'model_settings', return_value=state):
+            settings_smoke.verify_empty_restart(run, [], 'unused-live-binary', True)
+        run.command.assert_not_called()
+        run.stop.assert_not_called()
+        run.start.assert_not_called()
+        state['selected'] = 'entry_legacy_ollama'
+        with patch.object(settings_smoke, 'wait_settings'), patch.object(settings_smoke, 'model_settings', return_value=state), self.assertRaises(ValueError):
+            settings_smoke.verify_empty_restart(run, [], 'unused-live-binary', True)
+
     def test_partial_not_ready_document_never_calls_state_predicate(self):
         run = Mock()
         run.command.side_effect = [{'ok': True, 'ready': False}, {'ok': True, 'ready': True, 'emptyCatalog': True}]
