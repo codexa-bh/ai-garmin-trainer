@@ -11,6 +11,28 @@ from native_smoke import Run, canonical, fingerprint, readonly
 
 
 class OwnershipTests(unittest.TestCase):
+    def test_settings_grouped_save_receipt_accepts_only_exact_synthetic_catalog(self):
+        from copy import deepcopy
+        import uuid
+        from settings_smoke import verify_catalog
+        providers = ['openai', 'deepseek', 'ollama', 'openrouter']
+        entries = [dict(id='entry_legacy_' + provider, provider=provider, modelId=f'synthetic/{provider}:Case', displayName='Synthetic model') for provider in providers]
+        entries += [dict(id='entry_' + str(uuid.uuid4()), provider=provider, modelId=f'synthetic/{provider}:Second') for provider in providers]
+        catalog = dict(version=1, entries=entries, defaultEntryId='entry_legacy_ollama')
+        verify_catalog(catalog)
+        for case in ['text', 'identity', 'name', 'provider', 'default', 'extra', 'order', 'duplicate']:
+            changed = deepcopy(catalog)
+            if case == 'text': changed['entries'][4]['modelId'] = 'private'
+            if case == 'identity': changed['entries'][4]['id'] = 'entry_not_uuid'
+            if case == 'name': changed['entries'][4]['displayName'] = 'private'
+            if case == 'provider': changed['entries'][4]['provider'] = 'ollama'
+            if case == 'default': changed['defaultEntryId'] = None
+            if case == 'extra': changed['secret'] = 'private'
+            if case == 'order': changed['entries'].reverse()
+            if case == 'duplicate': changed['entries'][5]['id'] = changed['entries'][4]['id']
+            with self.subTest(case=case), self.assertRaises(ValueError):
+                verify_catalog(changed)
+
     def test_online_backup_is_independent_private_and_does_not_change_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

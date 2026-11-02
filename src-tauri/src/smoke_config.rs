@@ -139,9 +139,38 @@ impl Config {
         catalog: &crate::chat_catalog::Catalog,
         fields: &std::collections::BTreeMap<String, String>,
     ) -> bool {
-        // Same fixed keyless legacy defaults only; no arbitrary catalog, model,
-        // provider/default changes or additional setup controller authority.
-        *catalog == crate::chat_catalog::legacy(fields, &Default::default())
+        // Two closed states only: legacy defaults or the authored grouped UI
+        // scenario. Added identities must be genuine v4 UUID entries; model/name,
+        // order, providers and default are exact, not caller-supplied text.
+        if *catalog == crate::chat_catalog::legacy(fields, &Default::default()) {
+            return true;
+        }
+        if catalog.validate().is_err()
+            || catalog.entries.len() != 8
+            || catalog.default_entry_id.as_deref() != Some("entry_legacy_ollama")
+        {
+            return false;
+        }
+        ["openai", "deepseek", "ollama", "openrouter"]
+            .iter()
+            .enumerate()
+            .all(|(index, provider)| {
+                let first = &catalog.entries[index];
+                let second = &catalog.entries[index + 4];
+                first.id == format!("entry_legacy_{provider}")
+                    && first.provider == *provider
+                    && first.model_id == format!("synthetic/{provider}:Case")
+                    && first.display_name.as_deref() == Some("Synthetic model")
+                    && second.provider == *provider
+                    && second.model_id == format!("synthetic/{provider}:Second")
+                    && second.display_name.is_none()
+                    && second
+                        .id
+                        .strip_prefix("entry_")
+                        .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                        .map(|id| id.get_version_num() == 4 && second.id == format!("entry_{id}"))
+                        == Some(true)
+            })
     }
     pub fn accepts_save(&self, input: &crate::settings::SaveInput) -> bool {
         self.accepts_fields(&input.fields)
@@ -265,6 +294,33 @@ mod tests {
         changed_catalog.chat_catalog = input.chat_catalog.clone();
         changed_catalog.chat_catalog.entries[2].model_id = "nondefault-local-model".into();
         assert!(!config.accepts_save(&changed_catalog));
+        let mut synthetic = crate::chat_catalog::legacy(&input.fields, &Default::default());
+        for entry in &mut synthetic.entries {
+            entry.model_id = format!("synthetic/{}:Case", entry.provider);
+            entry.display_name = Some("Synthetic model".into());
+        }
+        for provider in ["openai", "deepseek", "ollama", "openrouter"] {
+            synthetic.entries.push(crate::chat_catalog::Entry {
+                id: format!("entry_{}", uuid::Uuid::new_v4()),
+                provider: provider.into(),
+                model_id: format!("synthetic/{provider}:Second"),
+                display_name: None,
+            });
+        }
+        assert!(config.accepts_catalog(&synthetic, &input.fields));
+        for case in 0..7 {
+            let mut rejected = synthetic.clone();
+            match case {
+                0 => rejected.entries[4].model_id = "private-text".into(),
+                1 => rejected.entries[4].id = "entry_not_a_uuid".into(),
+                2 => rejected.entries[0].display_name = Some("private-text".into()),
+                3 => rejected.entries[4].provider = "deepseek".into(),
+                4 => rejected.default_entry_id = None,
+                5 => rejected.entries.swap(0, 1),
+                _ => rejected.entries[5].id = rejected.entries[4].id.clone(),
+            }
+            assert!(!config.accepts_catalog(&rejected, &input.fields));
+        }
         let next = root.join("config/settings-v3.json");
         let projected = crate::chat_catalog::legacy(&input.fields, &Default::default());
         let version3 = serde_json::json!({"version":3,"keys":{},"fields":input.fields,"chatCatalog":projected});
