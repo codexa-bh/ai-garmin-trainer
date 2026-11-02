@@ -8,6 +8,7 @@ import re
 import signal
 import time
 import uuid
+import smoke_resources as resources
 from native_smoke import Observer, Run, build, canonical, fingerprint, private_json, readonly, source_identity
 from live_provider import LiveProvider
 
@@ -141,6 +142,7 @@ def capture_providers(run, captures, scenario):
                              **run.command({'type': 'settings', 'action': 'capture' + provider})})
 
 
+@resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
@@ -152,6 +154,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
+    resources.configure(scratch)
     selected = canonical(args.input_file)
     if selected.stat().st_mode & 0o077:
         raise ValueError('Private selection required')
@@ -165,7 +168,8 @@ def main():
     errors = []
     receipt = {'source': source, 'scenario': 'populated-copy-keyless-native-Settings', 'runId': run.id,
                'exclusions': 'Debug Settings only; geometry-preserving synthetic provider sections, not unmasked full-window/default/ordinary Settings, first-run Finish, real provider/auth or trusted OS input.',
-               'cleanup': 'Task-owned online backup/settings/images/logs deferred to scratch expiry; no copy-back or primary mutation.'}
+               'resourceDisposition': resources.disposition(),
+               'cleanup': 'Final owned-disposal receipt records online-copy removal or retention; settings/images/logs remain; no copy-back or primary mutation.'}
     try:
         binary = build(scratch, source, resources_ready=args.resources_ready)
         if args.live_settings:
@@ -276,30 +280,31 @@ def main():
         receipt.update(connectLater=True, cancel=True, groupedCatalog=not args.live_settings, exactSavedIdentities=True, noDefaultControls=True, emptyCatalogSavedReloaded=True, oldDefaultRemovalRetainsUnavailableIdentity=True, activeBackendUnchanged=True, restart=True, syntheticProviderFields=args.provider_fields, staleSaveRefused=args.provider_fields)
         passed = True
     finally:
-        try:
-            run.stop()
-        except Exception as error:
-            errors.append(type(error).__name__)
-        if fixture:
-            receipt['syntheticProvider'] = {'models': fixture.models, 'responses': fixture.observations, 'taskCreatedConversations': fixture.conversations}
+        with resources.preserve_failure():
             try:
-                fixture.stop()
-                receipt['syntheticProviderStopped'] = True
+                run.stop()
             except Exception as error:
                 errors.append(type(error).__name__)
-        if observer:
-            try:
-                receipt['noninterference'] = observer.stop(run.pids)
-            except Exception as error:
-                errors.append(type(error).__name__)
-        with contextlib.closing(readonly(database)) as original:
-            receipt['originalUnchanged'] = fingerprint(original) == run.original
-        receipt.update(passed=passed and not errors and receipt['originalUnchanged'], shutdownErrors=errors, captures=captures, run=str(run.root))
-        path = scratch / ('settings-receipt-' + str(uuid.uuid4()) + '.json')
-        private_json(path, receipt)
-        print(json.dumps({'passed': receipt['passed'], 'receipt': str(path), 'runId': run.id}))
-        if not receipt['passed']:
-            raise RuntimeError('Settings smoke failed; retained evidence, no automatic mutation replay')
+            if fixture:
+                receipt['syntheticProvider'] = {'models': fixture.models, 'responses': fixture.observations, 'taskCreatedConversations': fixture.conversations}
+                try:
+                    fixture.stop()
+                    receipt['syntheticProviderStopped'] = True
+                except Exception as error:
+                    errors.append(type(error).__name__)
+            if observer:
+                try:
+                    receipt['noninterference'] = observer.stop(run.pids)
+                except Exception as error:
+                    errors.append(type(error).__name__)
+            with contextlib.closing(readonly(database)) as original:
+                receipt['originalUnchanged'] = fingerprint(original) == run.original
+            receipt.update(passed=passed and not errors and receipt['originalUnchanged'], shutdownErrors=errors, captures=captures, run=str(run.root))
+            path = scratch / ('settings-receipt-' + str(uuid.uuid4()) + '.json')
+            private_json(path, receipt)
+            print(json.dumps({'passed': receipt['passed'], 'receipt': str(path), 'runId': run.id}))
+            if not receipt['passed']:
+                raise RuntimeError('Settings smoke failed; retained evidence, no automatic mutation replay')
 
 
 if __name__ == '__main__':
