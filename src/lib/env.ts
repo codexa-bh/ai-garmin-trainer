@@ -11,10 +11,13 @@ const PLACEHOLDER_SECRET_PATTERNS = [
 const optionalEnvSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
   DATABASE_PATH: z.string().default("./data/trainer.sqlite"),
-  GARMIN_HISTORY_START_DATE: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  GARMIN_HISTORY_START_DATE: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
+  ),
   GARMIN_MCP_COMMAND: z.string().default("uvx"),
   GARMIN_MCP_ARGS: z.string().default(GARMIN_MCP_DEFAULT_ARGS_STRING),
   GARMIN_MCP_TOKEN_DIR: z.string().optional(),
@@ -82,15 +85,13 @@ export function requireRuntimeEnv(
   input: Record<string, string | undefined> = process.env,
 ): AppEnv {
   const env = getOptionalEnv(input);
-  const missing = [
-    ["GARMIN_HISTORY_START_DATE", env.GARMIN_HISTORY_START_DATE],
-  ].filter(([, value]) => !value);
-  if (missing.length > 0)
-    throw new Error(
-      `Missing required runtime environment: ${missing.map(([key]) => key).join(", ")}`,
-    );
+  if (!env.GARMIN_HISTORY_START_DATE) return env;
   const start = new Date(`${env.GARMIN_HISTORY_START_DATE}T00:00:00Z`);
-  if (Number.isNaN(start.getTime()) || start > new Date())
+  if (
+    Number.isNaN(start.getTime()) ||
+    start.toISOString().slice(0, 10) !== env.GARMIN_HISTORY_START_DATE ||
+    start > new Date()
+  )
     throw new Error(
       "GARMIN_HISTORY_START_DATE must be a calendar date no later than today",
     );

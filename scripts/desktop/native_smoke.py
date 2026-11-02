@@ -86,7 +86,7 @@ class Observer:
         from smoke_build import observer_binary
         resources.copy_file(observer_binary(REPO), binary)
         with self.log.open('xb') as output:
-            self.child = subprocess.Popen([str(binary)], stdout=output, stderr=subprocess.DEVNULL, start_new_session=True)
+            self.child = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=output, stderr=subprocess.DEVNULL, start_new_session=True)
         resources.guard(self.verify_settled)
 
     def verify_settled(self):
@@ -140,7 +140,7 @@ class Run:
         if not ordinary:
             private_json(self.root / 'config.json', self.config)
         private_json(self.root / 'config/settings-v2.json', {'version': 2, 'keys': {}, 'fields': {
-            'DATABASE_PATH': str(self.database), 'AI_PROVIDER': 'ollama', 'MEMORY_ENABLED': 'false', 'GARMIN_HISTORY_START_DATE': '2024-01-01'}})
+            'DATABASE_PATH': str(self.database), 'AI_PROVIDER': 'ollama', 'MEMORY_ENABLED': 'false'}})
         private_json(self.root / 'provenance.json', {'source': source, 'original': self.original, 'copy': 'SQLite online backup', 'primaryWriteRequested': False})
         self.child = None
         self.shutdown_failure = None
@@ -191,6 +191,9 @@ class Run:
                     self.origin = identity['origin']
                     if not self.origin.startswith('http://127.0.0.1:') or int(self.origin.rsplit(':', 1)[1]) == self.config['port']:
                         raise ValueError('Invalid backend origin')
+                    if identity.get('runtimeReady') is not True:
+                        time.sleep(.1)
+                        continue
                     observation = self.command({'type': 'observe'})
                     if observation['dashboard'] and observation['hydrated']:
                         private_json(self.root / f'readiness-{self.launches}.json', {**identity, 'rendererRoundTrip': True})
@@ -372,6 +375,9 @@ class Run:
                 if child.poll() is None:
                     os.killpg(child.pid, signal.SIGKILL)
                 child.wait(timeout=5)
+        pipe = getattr(child, 'stdin', None)
+        if pipe:
+            pipe.close()
         self.child = None
         backend_port = int(self.origin.rsplit(':', 1)[1]) if self.origin else None
         deadline = time.monotonic() + 10

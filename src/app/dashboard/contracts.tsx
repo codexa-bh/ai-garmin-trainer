@@ -6,7 +6,7 @@ export type Status = {
 };
 
 export type SyncRunState = {
-  kind: "idle" | "running" | "completed" | "failed";
+  kind: "idle" | "running" | "completed" | "failed" | "paused";
   lines: Array<{ text: string; severity: "info" | "error" }>;
   finalMessage: string;
   failureSummary: string | null;
@@ -277,6 +277,8 @@ export type DetailCoveragePayload = {
 };
 
 export type ImportSummaryPayload = {
+  syncActive?: boolean;
+  history?: import("@/lib/garmin/history-policy").GarminHistoryState | null;
   activities: number;
   healthDays: number;
   healthCoverage?: HealthCoveragePayload;
@@ -342,6 +344,7 @@ export type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
 export type ProfileSaveState = "idle" | "saving" | "saved" | "error";
 
 export type SyncProgressEvent = {
+  continuationAvailable?: boolean;
   type?: string;
   status?: string;
   stage?: string;

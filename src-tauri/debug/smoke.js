@@ -1019,6 +1019,15 @@
       "Reload saved Profile",
       "Menu",
       "Run Garmin sync",
+      "Sync now",
+      "Sync / continue history",
+      "Sync already in progress",
+      "Cancel sync",
+      "Ready",
+      "Syncing",
+      "Complete",
+      "Paused",
+      "Failed",
       "Verify connector",
       "Refresh summary",
       "Activity detail maintenance",
@@ -1026,7 +1035,7 @@
     // Hide by default; reveal only reviewed exact static text at its real geometry.
     // No top/left/width/position/display/reparenting overrides or copied facts.
     for (const el of document.querySelectorAll(
-      ".app-brand .app-title, .app-mobile-menu .app-menu-toggle, nav button, .sync-view-header h1, .sync-view-header button, .sync-view-panel h2, .sheet-header h2, .sheet-header button, .profile-settings-card .button-row button",
+      ".app-brand .app-title, .app-mobile-menu .app-menu-toggle, nav button, .sync-view-header h1, .sync-view-header button, .sync-view-panel h2, [aria-labelledby='sync-action-heading'] button, [aria-labelledby='sync-action-heading'] .pill, .sheet-header h2, .sheet-header button, .profile-settings-card .button-row button",
     )) {
       if (visible(el) && labels.has(el.textContent.trim()))
         el.setAttribute("data-smoke-reveal", "");
@@ -1038,6 +1047,31 @@
       const pill = document.querySelector(".profile-settings-card .pill");
       if (pill?.textContent.trim() === "Profile saved")
         pill.setAttribute("data-smoke-reveal", "");
+    }
+    if (command.view === "sync") {
+      // Like table captures, WebKit's scroll layer needs visible containers.
+      // Validate all ancestors before revealing them; siblings remain masked.
+      const containers = new Set();
+      for (const revealed of document.querySelectorAll("[data-smoke-reveal]")) {
+        for (
+          let node = revealed.parentElement;
+          node && node !== document.body;
+          node = node.parentElement
+        ) {
+          if (
+            [...node.childNodes].some(
+              (child) =>
+                child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+            )
+          ) {
+            restore();
+            throw Error("Sync capture refuses private direct ancestor text");
+          }
+          containers.add(node);
+        }
+      }
+      for (const container of containers)
+        container.setAttribute("data-smoke-reveal", "");
     }
     if (command.view === "composer") revealComposer();
     if (command.view === "conversation") revealConversations();
@@ -1073,6 +1107,48 @@
     switch (command.type) {
       case "observe":
         return observe();
+      case "sync": {
+        if (Object.keys(command).sort().join(",") !== "action,type")
+          throw Error("Unknown Sync fields");
+        const panel = document.querySelector(
+          '[aria-labelledby="sync-action-heading"]',
+        );
+        if (
+          !visible(panel) ||
+          !["observe", "start", "continue", "cancel", "refresh"].includes(
+            command.action,
+          )
+        )
+          throw Error("Sync unavailable");
+        if (command.action !== "observe") {
+          const labels = {
+            start: "Sync now — import latest Garmin data",
+            continue: "Sync now — import latest Garmin data",
+            cancel: "Cancel sync",
+            refresh: "Refresh import summary",
+          };
+          const el = target(labels[command.action]);
+          if (!el.closest(".sync-view-content"))
+            throw Error("Sync-only target required");
+          el.click();
+        }
+        const start = panel.querySelector(
+          '[aria-label="Sync now — import latest Garmin data"]',
+        );
+        const cancel = [...panel.querySelectorAll("button")].find(
+          (el) => name(el) === "Cancel sync",
+        );
+        return {
+          ok: true,
+          running: panel.dataset.syncRunning === "true",
+          paused: panel.dataset.syncKind === "paused",
+          completed: panel.dataset.syncKind === "completed",
+          failed: panel.dataset.syncKind === "failed",
+          startEnabled: !!start && visible(start) && !start.disabled,
+          cancelEnabled: !!cancel && visible(cancel) && !cancel.disabled,
+          progressStarted: panel.querySelectorAll(".sync-log-entry").length > 0,
+        };
+      }
       case "composer":
         return composerAction(command);
       case "conversation":

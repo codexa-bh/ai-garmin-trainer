@@ -61,7 +61,7 @@ const evidence: Record<TrainerToolName, string> = {
   verifyActivityReference: "the activity reference check",
   getActivityDetailAvailability: "the local detail availability",
   getActivityDetailSlice: "the returned portion of activity detail",
-  runGarminSync: "the completed sync outcome",
+  runGarminSync: "the bounded sync outcome (history may remain incomplete)",
   forceRefreshActivityDetail: "the activity detail refresh outcome",
   getWeeklyPlan: "the selected weekly documents",
   saveWeeklyDocuments: "the saved weekly documents",

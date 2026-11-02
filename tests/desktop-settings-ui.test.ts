@@ -1184,9 +1184,17 @@ describe("trusted local desktop settings UI", () => {
   it("guides blank data/provider/optional-Garmin/review with private defaults and explicit intents", async () => {
     await firstRun();
     expect(input("DATABASE_PATH").value).toBe("/private/task/new ü.sqlite");
-    expect(input("GARMIN_HISTORY_START_DATE").value).toMatch(
-      /^\d{4}-\d{2}-\d{2}$/,
-    );
+    expect(input("GARMIN_HISTORY_START_DATE").value).toBe("");
+    expect(
+      document
+        .getElementById("history-options")
+        ?.contains(input("GARMIN_HISTORY_START_DATE")),
+    ).toBe(true);
+    expect(
+      document
+        .getElementById("data-fields")
+        ?.contains(input("GARMIN_HISTORY_START_DATE")),
+    ).toBe(false);
     expect(input("database-selection").value).toBe("create-new");
     expect(document.getElementById("save")?.hidden).toBe(true);
     review();

@@ -56,7 +56,6 @@ describe("fresh-only desktop initialization", () => {
       version: 1,
       fields: {
         DATABASE_PATH: "/private/uncreated/new.sqlite",
-        GARMIN_HISTORY_START_DATE: "2025-01-01",
         AI_PROVIDER: "openai",
       },
       secrets: { OPENAI_API_KEY: "sentinel-configured-only" },

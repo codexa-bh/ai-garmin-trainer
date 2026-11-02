@@ -69,7 +69,12 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
     client: GarminReader,
     startDate: string,
     endDate: string,
-  ): Promise<GarminBodyMetricsDto> {
+    strict = false,
+  ): Promise<
+    GarminBodyMetricsDto & {
+      fetchedHistory?: { count: number; oldest: string | null };
+    }
+  > {
     const attemptedAt = clock();
     const previous = getGarminBodyMetrics();
     let profilePayload: unknown;
@@ -102,8 +107,16 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
         errorMessage: errors.join("; ") || "Garmin body metrics fetch failed",
         preservedPrevious,
       });
+      if (strict)
+        throw new Error(
+          "Garmin body history read failed; range cursor preserved.",
+        );
       return getGarminBodyMetrics();
     }
+    if (strict && (historyFailed || weighInFailed))
+      throw new Error(
+        "Garmin body history read failed; range cursor preserved.",
+      );
     const snapshot = normalizeGarminBodyMetrics({
       profilePayload,
       historyPayload,
@@ -114,13 +127,20 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
     });
     const hasUsableSnapshot = hasUsableGarminBodyMetrics(snapshot);
     writeGarminBodyMetricsRefresh({
+      historyOnly: strict,
       snapshot: hasUsableSnapshot ? snapshot : null,
       status: snapshot.availability,
       attemptedAt,
       errorMessage: errors.length ? errors.join("; ") : null,
-      preservedPrevious: false,
+      preservedPrevious: Boolean(previous.fetchedAt),
     });
-    return getGarminBodyMetrics();
+    return {
+      ...getGarminBodyMetrics(),
+      fetchedHistory: {
+        count: snapshot.historyRows.length,
+        oldest: snapshot.historyRows.map((row) => row.date).sort()[0] ?? null,
+      },
+    };
   }
 
   return { fetchAndStoreAthleteBaseline, fetchAndStoreBodyMetrics };

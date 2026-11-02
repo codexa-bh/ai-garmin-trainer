@@ -37,8 +37,14 @@ def private_directory(path):
 
 
 class OrdinaryRun(Run):
-    def __init__(self, scratch, database, source, bundle, inventory):
+    def __init__(self, scratch, database, source, bundle, inventory, *, history_setup=None):
+        if history_setup not in (None, 'create-new', 'use-existing'):
+            raise ValueError('Finite history setup scope required')
         super().__init__(scratch, database, source, ordinary=True)
+        if history_setup:
+            (self.root / 'config/settings-v2.json').rename(self.root / 'prepared-keyless-settings.json')
+            if history_setup == 'create-new':
+                self.database.rename(self.root / 'prepared-populated.sqlite')
         self.artifact = inventory_hash(inventory)
         self.boot = None
         self.previous_boot = None
@@ -53,6 +59,8 @@ class OrdinaryRun(Run):
             'sourceFingerprint': source, 'artifactInventoryHash': self.artifact,
             'controlPort': self.config['port'], 'capability': self.config['token'],
         }
+        if history_setup:
+            self.descriptor['historySetup'] = history_setup
         private_json(self.root / 'launch.json', self.descriptor)
         root_info = self.root.stat()
         launch_info = (self.root / 'launch.json').stat()
@@ -366,7 +374,7 @@ class OrdinaryRun(Run):
             env['HOME'] = os.environ['HOME']  # Retain, never replace or inspect normal HOME contents.
         with open(log, 'xb', opener=lambda p, flags: os.open(p, flags, 0o600)) as output:
             return subprocess.Popen([str(binary), '--isolated-smoke-run', str(self.root / 'launch.json')],
-                                    cwd=self.root, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+                                    cwd=self.root, env=env, stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
 
     def accept_identity(self, identity):
         boot = identity.get('boot')
@@ -507,6 +515,8 @@ def security(run, other):
         run.request({'type': 'health', 'action': 'daily'}, str(uuid.uuid4())),
         run.request({'type': 'health', 'action': 'capture-wide'}, str(uuid.uuid4())),
         run.request({'type': 'settings', 'action': 'open'}, str(uuid.uuid4())),
+        run.request({'type': 'historySettings', 'action': 'open'}, str(uuid.uuid4())),
+        run.request({'type': 'sync', 'action': 'start'}, str(uuid.uuid4())),
         run.request({'type': 'conversation', 'action': 'delete-all'}, str(uuid.uuid4())),
         run.request({'type': 'conversation', 'action': 'choose-first', 'id': 'private'}, str(uuid.uuid4())),
         run.request({'type': 'click', 'target': 'LLM debug traces'}, str(uuid.uuid4())),
