@@ -354,7 +354,9 @@ class Run:
         private_json(self.root / 'scenario.json', {'navigation': 'passed' if capture else 'not enrolled: quick Profile only', 'goalsSave': 'passed', 'otherProfileFieldsUnchanged': True, 'sentinel': sentinel, 'capture': image, 'commands': self.commands, 'cleanup': 'copy-only Profile sentinel; final owned-disposal/retention receipt is authoritative; never copied back'})
         return sentinel
 
-    def verify_restart(self, binary, sentinel):
+    def verify_restart(self, binary, sentinel, kind='profile'):
+        if kind not in ['profile', 'model']:
+            raise ValueError('Unknown finite restart evidence kind')
         self.stop()
         self.start(binary)
         self.command({'type': 'click', 'target': 'Profile & data'})
@@ -362,7 +364,7 @@ class Run:
         self.command({'type': 'assert', 'target': 'Goals', 'value': sentinel})
         if self.other_profile_fields() != self.other_profile_hash:
             raise ValueError('Non-Goals Profile fields changed across restart')
-        private_json(self.root / 'restart.json', {'otherProfileFieldsUnchanged': True, 'passed': True, 'sameOwnedCopy': True, 'newNativePid': self.pids[-1] != self.pids[-2]})
+        private_json(self.root / ('model-restart.json' if kind == 'model' else 'restart.json'), {'otherProfileFieldsUnchanged': True, 'passed': True, 'sameOwnedCopy': True, 'newNativePid': self.pids[-1] != self.pids[-2]})
 
     def stop(self):
         child = self.child

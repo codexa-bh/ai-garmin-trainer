@@ -9,6 +9,8 @@
     savedForNextLaunch: false,
     catalogReady: false,
     catalogExercised: false,
+    catalogWithoutDefaults: false,
+    emptyCatalog: false,
     keysReady: false,
     keysEdited: false,
     keysRejected: false,
@@ -95,7 +97,8 @@
   function syntheticCatalog() {
     return (
       safeKeys() &&
-      byId("catalog-default")?.value === "entry_legacy_ollama" &&
+      !byId("catalog-default") &&
+      !document.querySelector('.catalog-row [aria-label^="Default"]') &&
       document.querySelectorAll(".catalog-row").length === 8 &&
       providers.every((provider) => {
         const group = rows(provider);
@@ -136,7 +139,8 @@
     ];
     if (
       !safeKeys() ||
-      byId("catalog-default").value !== "entry_legacy_ollama" ||
+      byId("catalog-default") ||
+      document.querySelector('.catalog-row [aria-label^="Default"]') ||
       document.querySelectorAll(".catalog-row").length !== 4 ||
       !providers.every(
         (provider, index) =>
@@ -148,13 +152,6 @@
     )
       throw Error("Not exact legacy catalog");
     // Actual app controls only. No application-state injection or caller input.
-    click(rows("ollama")[0].querySelector('button[aria-label^="Remove"]'));
-    if (
-      document.activeElement !== byId("catalog-default") ||
-      rows("ollama").length !== 1 ||
-      !byId("status").textContent.includes("explicitly clear")
-    )
-      throw Error("Default removal was not guarded");
     for (const provider of providers) {
       edit(model(rows(provider)[0]), `synthetic/${provider}:Case`);
       edit(name(rows(provider)[0]), "Synthetic model");
@@ -172,19 +169,6 @@
     )
       throw Error("Duplicate not explained");
     edit(model(rows("openai")[1]), "synthetic/openai:Second");
-    click(rows("openrouter")[1].querySelector('button[aria-label^="Default"]'));
-    if (byId("catalog-default").value !== rows("openrouter")[1].dataset.entryId)
-      throw Error("Global default lost");
-    byId("catalog-default").value = "";
-    byId("catalog-default").dispatchEvent(
-      new Event("change", { bubbles: true }),
-    );
-    if (
-      document.querySelectorAll('.catalog-row [aria-pressed="true"]').length !==
-      0
-    )
-      throw Error("Clear failed");
-    click(rows("ollama")[0].querySelector('button[aria-label^="Default"]'));
     click(byId("catalog-deepseek-add"));
     click(rows("deepseek")[2].querySelector('button[aria-label^="Remove"]'));
     if (
@@ -203,6 +187,11 @@
     if (!value.ready) return value;
     value.catalogReady = syntheticCatalog();
     value.catalogExercised = exercised;
+    value.catalogWithoutDefaults =
+      !byId("catalog-default") &&
+      !document.querySelector('.catalog-row [aria-label^="Default"]');
+    value.emptyCatalog =
+      safeKeys() && document.querySelectorAll(".catalog-row").length === 0;
     value.keysReady = keysReady();
     value.keysEdited = keysEdited();
     value.keysRejected =
@@ -240,7 +229,11 @@
   }
   function captureProvider(provider) {
     restore();
-    if (!syntheticCatalog()) throw Error("Not canonical synthetic catalog");
+    if (
+      !syntheticCatalog() &&
+      !(observe().emptyCatalog && observe().catalogWithoutDefaults)
+    )
+      throw Error("Not canonical synthetic catalog");
     const root = byId(`catalog-${provider}`);
     const reveal = [root.querySelector("h2"), byId(`catalog-${provider}-add`)];
     if (
@@ -261,7 +254,7 @@
       const buttons = Array.from(row.querySelectorAll("button"));
       if (
         labels.length !== 2 ||
-        buttons.length !== 2 ||
+        buttons.length !== 1 ||
         row.querySelectorAll("input").length !== 2 ||
         labels.some(
           (label, index) =>
@@ -269,14 +262,8 @@
             label.textContent !== ["Model ID", "Name (optional)"][index],
         ) ||
         buttons.some(
-          (button, index) =>
-            button.childElementCount !== 0 ||
-            button.textContent !==
-              (index === 1
-                ? "Remove"
-                : button.getAttribute("aria-pressed") === "true"
-                  ? "Default ✓"
-                  : "Default"),
+          (button) =>
+            button.childElementCount !== 0 || button.textContent !== "Remove",
         )
       )
         throw Error("Unexpected row content");
@@ -350,6 +337,17 @@
         exerciseKeys();
       } else if (action === "catalogExercise") {
         exerciseCatalog();
+      } else if (action === "catalogEmpty") {
+        if (!syntheticCatalog())
+          throw Error("Only canonical synthetic catalog may be removed");
+        for (const provider of providers) {
+          while (rows(provider).length)
+            click(
+              rows(provider)[0].querySelector('button[aria-label^="Remove"]'),
+            );
+        }
+        if (!observe().emptyCatalog)
+          throw Error("Catalog removal did not apply");
       } else if (
         [
           "captureOpenai",

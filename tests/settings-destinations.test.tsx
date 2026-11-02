@@ -16,7 +16,7 @@ import { stubNativeDialog } from "./native-dialog-stub";
 import type { ModelSettingsSnapshot } from "@/lib/model-settings/contracts";
 
 const model: ModelSettingsSnapshot = {
-  version: 2,
+  version: 3,
   options: [
     {
       id: "entry_openai",
@@ -26,15 +26,9 @@ const model: ModelSettingsSnapshot = {
       available: true,
     },
   ],
-  selected: null,
-  defaultEntryId: "entry_openai",
-  effective: {
-    entryId: "entry_openai",
-    source: "env",
-    provider: "openai",
-    modelName: "gpt-6-luna",
-    available: true,
-  },
+  selected: "entry_openai",
+  status: "selected",
+  available: true,
 };
 const profile = {
   goals: ["Saved goal"],
@@ -111,7 +105,7 @@ it("keeps relocated Sync groups content-sized inside the outer scroll region", (
 
 it("loads the model on initial chat without Profile, retains drafts and returns Profile focus on Escape/backdrop", async () => {
   const fetcher = setup();
-  await screen.findByText(/Configured default \(environment\): openai/);
+  await screen.findByText(/openai \/ gpt-6-luna/, { selector: "span" });
   expect(
     fetcher.mock.calls.filter(([url]) => url === "/api/model-settings"),
   ).toHaveLength(1);
@@ -167,7 +161,7 @@ it("keeps model saves alive while chat is hidden, then revalidates its authorita
       });
     return response(saved);
   });
-  await screen.findByText(/Configured default \(environment\)/);
+  await screen.findByText(/openai \/ gpt-6-luna/, { selector: "span" });
   fireEvent.change(screen.getByRole("combobox", { name: "Trainer model" }), {
     target: { value: "entry_openai" },
   });
@@ -176,11 +170,11 @@ it("keeps model saves alive while chat is hidden, then revalidates its authorita
   saved = {
     ...model,
     selected: "entry_openai",
-    effective: { ...model.effective, source: "saved" },
+    status: "selected",
   };
   await act(async () => finish(response(saved)));
   fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
-  await screen.findByText(/Saved preference: openai/);
+  await screen.findByText(/openai \/ gpt-6-luna/, { selector: "span" });
   await waitFor(() =>
     expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
       false,
