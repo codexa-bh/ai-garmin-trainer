@@ -296,6 +296,23 @@ mod tests {
         changed_catalog.chat_catalog = input.chat_catalog.clone();
         changed_catalog.chat_catalog.entries[2].model_id = "nondefault-local-model".into();
         assert!(!config.accepts_save(&changed_catalog));
+        changed_catalog.chat_catalog = crate::chat_catalog::Catalog::default();
+        assert!(config.accepts_save(&changed_catalog));
+        changed_catalog
+            .chat_catalog
+            .entries
+            .push(crate::chat_catalog::Entry {
+                id: "entry_synthetic".into(),
+                provider: "ollama".into(),
+                model_id: "T0258/Exact:Tag".into(),
+                display_name: Some("T0258 explicit model".into()),
+            });
+        assert!(config.accepts_save(&changed_catalog));
+        changed_catalog.chat_catalog.entries[0].display_name = Some("private-name".into());
+        assert!(!config.accepts_save(&changed_catalog));
+        changed_catalog.chat_catalog.entries[0].display_name = Some("T0258 explicit model".into());
+        changed_catalog.chat_catalog.entries[0].provider = "openai".into();
+        assert!(!config.accepts_save(&changed_catalog));
         let next = root.join("config/settings-v3.json");
         let projected = crate::chat_catalog::legacy(&input.fields, &Default::default());
         let version3 = serde_json::json!({"version":3,"keys":{},"fields":input.fields,"chatCatalog":projected});

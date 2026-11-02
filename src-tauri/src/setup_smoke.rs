@@ -271,6 +271,26 @@ mod tests {
     }
     #[test]
     fn actions_and_observations_exclude_private_controls_and_text() {
+        for name in [
+            "catalog",
+            "catalogEmpty",
+            "captureCatalog",
+            "captureCatalogNarrow",
+        ] {
+            let action: Action = serde_json::from_value(json!(name)).unwrap();
+            assert_eq!(serde_json::to_value(action).unwrap(), json!(name));
+            assert!(
+                serde_json::from_value::<Action>(json!({"action":name,"value":"private"})).is_err()
+            );
+        }
+        let observed = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogWithoutDefaults":true,"syntheticCatalog":true,"emptyCatalog":false});
+        assert!(serde_json::from_value::<Observation>(observed.clone()).is_ok());
+        let mut extra = observed.clone();
+        extra["modelId"] = json!("private");
+        assert!(serde_json::from_value::<Observation>(extra).is_err());
+        let mut text = observed;
+        text["syntheticCatalog"] = json!("private");
+        assert!(serde_json::from_value::<Observation>(text).is_err());
         assert!(matches!(
             serde_json::from_value::<Action>(json!("captureIntro")).unwrap(),
             Action::CaptureIntro

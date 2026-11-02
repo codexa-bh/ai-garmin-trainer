@@ -1,7 +1,7 @@
 """Finite Garmin geometry runner contract, no native launches."""
 import unittest
 from unittest.mock import Mock
-from settings_smoke import capture_garmin
+from settings_smoke import capture_garmin, verify_choice_catalog
 
 
 class SettingsCaptureTests(unittest.TestCase):
@@ -19,6 +19,21 @@ class SettingsCaptureTests(unittest.TestCase):
                          ({'type': 'settings', 'action': 'captureNarrow'},))
         self.assertEqual([c['scenario'] for c in captures],
                          ['connect-no-login-wide', 'connect-no-login-narrow'])
+
+    def test_only_exact_no_default_catalog_and_retained_prior_intent_pass(self):
+        import copy
+        saved = {'chatCatalog': {'defaultEntryId': None, 'entries': [{'modelId': 'T0258/Exact:Tag'}]}, 'selectionCompatibility': {'catalog': {'defaultEntryId': 'entry_legacy_ollama'}}}
+        verify_choice_catalog(saved)
+        for kind in ['new-default', 'substitution', 'lost-original']:
+            changed = copy.deepcopy(saved)
+            if kind == 'new-default':
+                changed['chatCatalog']['defaultEntryId'] = 'entry_other'
+            elif kind == 'substitution':
+                changed['chatCatalog']['entries'][0]['modelId'] = 'another-model'
+            else:
+                changed['selectionCompatibility']['catalog']['defaultEntryId'] = None
+            with self.assertRaises(ValueError):
+                verify_choice_catalog(changed)
 
     def test_capture_refusal_never_retries_or_advances(self):
         run = Mock()

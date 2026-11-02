@@ -27,6 +27,13 @@ def capture_garmin(run, captures, scenario):
                          **run.command({'type': 'settings', 'action': action})})
 
 
+def verify_choice_catalog(saved):
+    if saved['chatCatalog']['defaultEntryId'] is not None or [entry['modelId'] for entry in saved['chatCatalog']['entries']] != ['T0258/Exact:Tag']:
+        raise ValueError('Explicit synthetic catalog Save changed')
+    if saved['selectionCompatibility']['catalog']['defaultEntryId'] != 'entry_legacy_ollama':
+        raise ValueError('Prior exact default compatibility lost before Trainer restart')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
@@ -80,10 +87,7 @@ def main():
         saved = json.loads((run.root / 'config/settings-v3.json').read_text())
         if saved['version'] != 3 or (run.root / 'config/settings-v2.json').read_bytes() != original_settings:
             raise ValueError('Explicit catalog migration did not retain the original keyless settings')
-        if saved['chatCatalog']['defaultEntryId'] is not None or [entry['modelId'] for entry in saved['chatCatalog']['entries']] != ['T0258/Exact:Tag']:
-            raise ValueError('Explicit synthetic catalog Save changed')
-        if saved['selectionCompatibility']['catalog']['defaultEntryId'] != 'entry_legacy_ollama':
-            raise ValueError('Prior exact default compatibility lost before Trainer restart')
+        verify_choice_catalog(saved)
         if saved['keys'] or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
             raise ValueError('Saved settings escaped keyless copy scope')
         run.command({'type': 'settings', 'action': 'close'})
