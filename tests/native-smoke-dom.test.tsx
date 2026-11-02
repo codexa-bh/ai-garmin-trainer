@@ -138,28 +138,18 @@ function composerFixture(eligibility?: "mixed" | "empty") {
   const options = eligibility
     ? [...(eligibility === "empty" ? [] : footerOptions), ...cloud]
     : footerOptions;
-  const defaultEntry = eligibility ? cloud[0] : footerOptions[1];
   const fetcher = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method && init.method !== "PATCH") posts();
     if (init?.method === "PATCH")
       preference = JSON.parse(String(init.body)).modelId;
-    const selected = options.find(
-      (entry) => entry.id === (preference ?? defaultEntry.id),
-    )!;
-    const saved = preference !== null;
+    const selected = options.find((entry) => entry.id === preference);
     const body: ModelSettingsSnapshot = {
-      version: 2,
+      version: 3,
       options,
       selected: preference,
-      defaultEntryId: defaultEntry.id,
-      effective: {
-        entryId: selected.id,
-        provider: selected.provider,
-        modelName: selected.modelId,
-        source: saved ? "saved" : "env",
-        available: selected.available,
-      },
-      ...(!selected.available
+      status: preference ? "selected" : "unselected",
+      available: Boolean(selected?.available),
+      ...(!selected?.available
         ? {
             unavailableReason:
               "Provider key is not configured. Update native Settings, quit and reopen.",
@@ -277,7 +267,7 @@ describe("native-installed rendered smoke boundary", () => {
     ))
       expect(typeof value).toBe("boolean");
   });
-  it("drives fixed actual model owner selection/reset and synthetic draft/keys, returning only booleans and masking all copied content", async () => {
+  it("drives fixed actual model owner explicit selection and synthetic draft/keys, returning only booleans and masking all copied content", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     vi.stubGlobal("innerWidth", 1280);
     vi.stubGlobal("innerHeight", 850);
@@ -311,7 +301,10 @@ describe("native-installed rendered smoke boundary", () => {
       (await command({ type: "composer", action: "keys" })).result.keysNoSend,
     ).toBe(true);
     await command({ type: "composer", action: "choose" });
-    await screen.findByRole("button", { name: "Reset to configured default" });
+    await screen.findByText(
+      /ollama \/ T0246\/Long-local-model-name:exact-tag/,
+      { selector: "span" },
+    );
     const observed = (await command({ type: "composer", action: "observe" }))
       .result;
     for (const key of [
@@ -347,23 +340,22 @@ describe("native-installed rendered smoke boundary", () => {
       document.getElementById("trainer-smoke-sanitizer")?.textContent,
     ).not.toMatch(/position|display|width|height/);
     smoke.__trainerSmokeRestore();
-    await command({ type: "composer", action: "reset" });
-    await screen.findByRole("option", {
-      name: `Default · ${footerOptions[1].label}`,
-    });
+    expect(
+      (await command({ type: "composer", action: "reset" })).result.ok,
+    ).toBe(false);
     expect(
       (await command({ type: "composer", action: "observe" })).result
-        .defaultChoice,
+        .savedChoice,
     ).toBe(true);
     expect(
       fetcher.mock.calls
         .filter(([, init]) => init?.method === "PATCH")
         .map(([, init]) => init?.body),
-    ).toEqual(['{"modelId":"entry_footer_long"}', '{"modelId":null}']);
+    ).toEqual(['{"modelId":"entry_footer_long"}']);
     expect(posts).not.toHaveBeenCalled();
   });
   it.each(["mixed", "empty"] as const)(
-    "proves %s eligible choices with hidden saved/default, finite actions and exact sanitized warnings",
+    "proves %s eligible choices with unavailable explicit selection, finite actions and exact sanitized warnings",
     async (eligibility) => {
       smoke.__trainerOrdinaryIsolated = { runId: "unit" };
       vi.stubGlobal("innerWidth", 1280);
@@ -420,15 +412,17 @@ describe("native-installed rendered smoke boundary", () => {
       smoke.__trainerSmokeRestore();
       if (eligibility === "mixed") {
         await command({ type: "composer", action: "choose" });
-        await screen.findByText(/Saved preference: ollama/);
+        await screen.findByText(
+          /ollama \/ T0246\/Long-local-model-name:exact-tag/,
+          { selector: "span" },
+        );
       }
-      await command({ type: "composer", action: "reset" });
-      await screen.findByRole("option", {
-        name: "Unavailable configured default",
-      });
+      expect(
+        (await command({ type: "composer", action: "reset" })).result.ok,
+      ).toBe(false);
       observed = (await command({ type: "composer", action: "observe" }))
         .result;
-      expect(observed.unavailableChoice).toBe(true);
+      expect(observed.unavailableChoice).toBe(eligibility === "empty");
       expect(observed.noEligibleChoices).toBe(eligibility === "empty");
       expect(JSON.stringify(observed)).not.toMatch(
         /Absent|private|entry_hidden/,
@@ -439,9 +433,7 @@ describe("native-installed rendered smoke boundary", () => {
           .filter(([, init]) => init?.method === "PATCH")
           .map(([, init]) => init?.body),
       ).toEqual(
-        eligibility === "empty"
-          ? ['{"modelId":null}']
-          : ['{"modelId":"entry_footer_long"}', '{"modelId":null}'],
+        eligibility === "empty" ? [] : ['{"modelId":"entry_footer_long"}'],
       );
       const select = screen.getByRole("combobox") as HTMLSelectElement;
       select.options[0].textContent = "private unknown placeholder";

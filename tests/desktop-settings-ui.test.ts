@@ -388,7 +388,7 @@ describe("trusted local desktop settings UI", () => {
       expect(input(key).spellcheck).toBe(false);
     }
   });
-  it("manages normal catalog rows with durable identities and explicit default removal; preserves separate extraction inputs", async () => {
+  it("manages durable grouped rows without default controls or removal guard; preserves separate extraction inputs", async () => {
     const screen = within(document.body);
     expect(input("AI_PROVIDER").closest("label")?.hidden).toBe(true);
     expect(input("AI_MODEL").closest("label")?.hidden).toBe(true);
@@ -401,25 +401,14 @@ describe("trusted local desktop settings UI", () => {
     fireEvent.input(screen.getByLabelText("Name (optional) — OpenAI model 1"), {
       target: { value: "Fast" },
     });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Remove — OpenAI model 1" }),
-    );
-    expect(document.getElementById("status")?.textContent).toContain(
-      "explicitly clear",
-    );
-    expect(document.activeElement).toBe(
-      document.getElementById("catalog-default"),
-    );
-    expect(screen.getByLabelText("Model ID — OpenAI model 1")).toBeTruthy();
+    expect(screen.queryByLabelText("Default chat model (optional)")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Default/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add Ollama model" }));
     expect(document.activeElement).toBe(
       screen.getByLabelText("Model ID — Ollama model 1"),
     );
     fireEvent.input(screen.getByLabelText("Model ID — Ollama model 1"), {
       target: { value: "local:Exact" },
-    });
-    fireEvent.change(screen.getByLabelText("Default chat model (optional)"), {
-      target: { value: "" },
     });
     fireEvent.submit(document.getElementById("settings")!);
     await waitFor(() =>
@@ -450,9 +439,6 @@ describe("trusted local desktop settings UI", () => {
         "backend unchanged",
       ),
     );
-    fireEvent.change(screen.getByLabelText("Default chat model (optional)"), {
-      target: { value: "" },
-    });
     fireEvent.click(
       screen.getByRole("button", { name: "Remove — OpenAI model 1" }),
     );
@@ -461,7 +447,7 @@ describe("trusted local desktop settings UI", () => {
       document.getElementById("catalog-openai-add"),
     );
   });
-  it("groups shared controls once, keeps secret/cursor drafts mounted and uses one global default", () => {
+  it("groups shared controls once, keeps secret/cursor drafts mounted and has no default controls", () => {
     const screen = within(document.body);
     expect(
       Array.from(document.querySelectorAll(".catalog-provider h2")).map(
@@ -494,17 +480,8 @@ describe("trusted local desktop settings UI", () => {
     expect(input("OPENAI_API_KEY")).toBe(key);
     expect(key.value).toBe("synthetic-draft");
     expect(key.disabled).toBe(false);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Default — DeepSeek model 1" }),
-    );
-    expect(
-      document.querySelectorAll('.catalog-row [aria-pressed="true"]'),
-    ).toHaveLength(1);
-    expect(input("catalog-default").value).not.toBe("entry_existing");
-    fireEvent.change(input("catalog-default"), { target: { value: "" } });
-    expect(
-      document.querySelectorAll('.catalog-row [aria-pressed="true"]'),
-    ).toHaveLength(0);
+    expect(document.getElementById("catalog-default")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Default/ })).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Remove — DeepSeek model 1" }),
     );
@@ -638,7 +615,7 @@ describe("trusted local desktop settings UI", () => {
       ),
     );
     expect(saved).toEqual({ version: 1, entries, defaultEntryId: null });
-    expect(input("catalog-default").value).toBe("");
+    expect(document.getElementById("catalog-default")).toBeNull();
     for (const id of ["entry_o", "entry_a", "entry_r", "entry_b"]) {
       const row = document.querySelector(`[data-entry-id="${id}"]`)!;
       fireEvent.click(

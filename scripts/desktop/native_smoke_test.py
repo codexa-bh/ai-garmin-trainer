@@ -11,6 +11,26 @@ from native_smoke import Run, canonical, fingerprint, readonly
 
 
 class OwnershipTests(unittest.TestCase):
+    def test_profile_and_model_restart_evidence_remain_exclusive_and_distinct(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            run = object.__new__(Run)
+            run.root = Path(directory).resolve()
+            run.pids = [10, 11]
+            run.other_profile_hash = 'unchanged'
+            for name in ['stop', 'start', 'command', 'wait']:
+                setattr(run, name, Mock())
+            run.other_profile_fields = Mock(return_value='unchanged')
+            run.verify_restart('owned', 'sentinel')
+            first = (run.root / 'restart.json').read_bytes()
+            run.verify_restart('owned', 'sentinel', kind='model')
+            self.assertEqual((run.root / 'restart.json').read_bytes(), first)
+            self.assertTrue((run.root / 'model-restart.json').exists())
+            self.assertEqual((run.root / 'model-restart.json').stat().st_mode & 0o777, 0o600)
+            with self.assertRaisesRegex(ValueError, 'Unknown finite'):
+                run.verify_restart('owned', 'sentinel', kind='../private')
+            self.assertEqual(run.stop.call_count, 2)
+
     def test_synthetic_provider_preparation_and_persistence_are_finite_debug_only(self):
         from settings_smoke import verify_keys
         initial = {'OPENAI_API_KEY': 'synthetic-openai-original', 'DEEPSEEK_API_KEY': 'synthetic-deepseek-original'}
@@ -40,7 +60,7 @@ class OwnershipTests(unittest.TestCase):
         providers = ['openai', 'deepseek', 'ollama', 'openrouter']
         entries = [dict(id='entry_legacy_' + provider, provider=provider, modelId=f'synthetic/{provider}:Case', displayName='Synthetic model') for provider in providers]
         entries += [dict(id='entry_' + str(uuid.uuid4()), provider=provider, modelId=f'synthetic/{provider}:Second') for provider in providers]
-        catalog = dict(version=1, entries=entries, defaultEntryId='entry_legacy_ollama')
+        catalog = dict(version=1, entries=entries, defaultEntryId=None)
         verify_catalog(catalog)
         for case in ['text', 'identity', 'name', 'provider', 'default', 'extra', 'order', 'duplicate']:
             changed = deepcopy(catalog)
@@ -48,7 +68,7 @@ class OwnershipTests(unittest.TestCase):
             if case == 'identity': changed['entries'][4]['id'] = 'entry_not_uuid'
             if case == 'name': changed['entries'][4]['displayName'] = 'private'
             if case == 'provider': changed['entries'][4]['provider'] = 'ollama'
-            if case == 'default': changed['defaultEntryId'] = None
+            if case == 'default': changed['defaultEntryId'] = 'entry_legacy_ollama'
             if case == 'extra': changed['secret'] = 'private'
             if case == 'order': changed['entries'].reverse()
             if case == 'duplicate': changed['entries'][5]['id'] = changed['entries'][4]['id']

@@ -17,20 +17,16 @@ export type ModelOption = ChatEntry & {
   unavailableReason?: string;
 };
 export type ModelSettingsSnapshot = {
-  version: 2;
+  version: 3;
   options: ModelOption[];
   selected: ChatModelId | null;
-  defaultEntryId: ChatModelId | null;
-  effective: {
-    entryId: ChatModelId | null;
-    provider: ChatProvider | null;
-    modelName: string | null;
-    source: "saved" | "env";
-    available: boolean;
-  };
+  status: "selected" | "unselected" | "unresolved";
+  available: boolean;
   unavailableReason?: string;
 };
 export type ModelConfiguration = {
   catalog: ChatCatalog;
+  // Undefined only for old activation/CLI inputs. Null means processed fresh configuration.
+  compatibilityCatalog?: ChatCatalog | null;
   configured: Record<ChatProvider, boolean>;
 };
