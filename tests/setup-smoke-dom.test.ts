@@ -18,6 +18,7 @@ beforeEach(async () => {
   vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(
     () => [{ width: 10 }] as unknown as DOMRectList,
   );
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({ json: async () => fields })),
@@ -133,29 +134,36 @@ it("refuses private/arbitrary actions and never reads secrets, paths or copied t
     );
   expect(
     getComputedStyle(document.getElementById("garmin-fields")!).position,
-  ).toBe("fixed");
+  ).not.toBe("fixed");
   controller.__trainerSetupSmokeRestore();
   expect(
     (document.getElementById("DATABASE_PATH") as HTMLElement).style.cssText,
   ).toBe("");
 });
-it("refuses capture and restores styles when the privacy mask is not effective", () => {
-  const original = window.getComputedStyle.bind(window);
-  vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
-    const computed = original(element, pseudo);
-    return element.id === "DATABASE_PATH"
-      ? new Proxy(computed, {
-          get(target, key) {
-            return key === "visibility" ? "visible" : Reflect.get(target, key);
-          },
-        })
-      : computed;
-  });
-  expect(controller.__trainerSetupSmoke("capture").ok).toBe(false);
-  expect(
-    (document.getElementById("garmin-fields") as HTMLElement).style.cssText,
-  ).toBe("");
-});
+it.each(["capture", "captureWide", "captureNarrow"])(
+  "refuses %s and restores styles when the privacy mask is not effective",
+  (action) => {
+    const original = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const computed = original(element, pseudo);
+        return element.id === "DATABASE_PATH"
+          ? new Proxy(computed, {
+              get(target, key) {
+                return key === "visibility"
+                  ? "visible"
+                  : Reflect.get(target, key);
+              },
+            })
+          : computed;
+      },
+    );
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
+    expect(
+      (document.getElementById("garmin-fields") as HTMLElement).style.cssText,
+    ).toBe("");
+  },
+);
 it("captures only verified static intro text at its real geometry and restores it", () => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
     new DOMRect(24, 24, 800, 45),
@@ -232,6 +240,44 @@ it("expires the intro privacy mask if native capture completion never arrives", 
     vi.useRealTimers();
   }
 });
+it.each(["captureWide", "captureNarrow"])(
+  "captures %s with unchanged Garmin geometry and a finite static-only mask",
+  (action) => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(24, 24, 350, 600),
+    );
+    const root = document.getElementById("garmin-fields")!;
+    const before = root.getBoundingClientRect().toJSON();
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+    expect(root.getBoundingClientRect().toJSON()).toEqual(before);
+    expect(getComputedStyle(root).position).not.toBe("fixed");
+    expect(
+      getComputedStyle(document.getElementById("auth-status")!).visibility,
+    ).toBe("hidden");
+    controller.__trainerSetupSmokeRestore();
+    expect((root as HTMLElement).style.cssText).toBe("");
+  },
+);
+it.each(["text", "nested", "disclosure", "overflow"])(
+  "refuses Garmin capture on %s without leaking values",
+  (scenario) => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(24, 24, scenario === "overflow" ? 2000 : 350, 600),
+    );
+    if (scenario === "text")
+      document.getElementById("connection-status")!.textContent += " private";
+    if (scenario === "nested")
+      document
+        .getElementById("connect")!
+        .append(document.createElement("span"));
+    if (scenario === "disclosure")
+      (document.getElementById("garmin-privacy") as HTMLDetailsElement).open =
+        true;
+    expect(controller.__trainerSetupSmoke("captureNarrow").ok).toBe(false);
+    for (const element of document.body.querySelectorAll("*"))
+      expect((element as HTMLElement).style.cssText).toBe("");
+  },
+);
 it("refuses disabled, hidden or ambiguous controls before dispatch", () => {
   const button = document.getElementById("connect") as HTMLButtonElement;
   button.disabled = true;

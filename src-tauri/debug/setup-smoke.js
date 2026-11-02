@@ -40,6 +40,7 @@
   }
   const styles = new Map();
   let restoreTimer;
+  let scrollPosition;
   function style(el, key, value) {
     if (!styles.has(el)) styles.set(el, el.style.cssText);
     el.style.setProperty(key, value, "important");
@@ -48,6 +49,8 @@
     clearTimeout(restoreTimer);
     for (const [el, original] of styles) el.style.cssText = original;
     styles.clear();
+    if (scrollPosition) window.scrollTo(...scrollPosition);
+    scrollPosition = null;
   }
   globalThis.__trainerSetupSmokeRestore = restore;
   globalThis.__trainerSetupSmoke = (action) => {
@@ -114,55 +117,88 @@
         )
           throw Error("Introduction sanitization did not apply");
         restoreTimer = setTimeout(restore, 5000);
-      } else if (action === "capture") {
+      } else if (["capture", "captureWide", "captureNarrow"].includes(action)) {
         if (!observe().manualControlsAbsent || !observe().notConnected)
           throw Error("Unsafe capture");
         restore();
-        // Trusted fixed CSSOM changes respect the existing CSP; no inline stylesheet
-        // injection or policy relaxation. Keep exact original styles for finally restore.
+        const root = byId("garmin-fields");
+        // Fixed static allowlist only. Never reveal arbitrary subtree text or input values.
+        const approved = new Map([
+          [root.querySelector("legend"), "Garmin connection"],
+          [
+            byId("connection-status"),
+            "Not connected. Connect now or later; chat and offline history remain available.",
+          ],
+          [
+            root.querySelector(":scope > p:not([id])"),
+            "Connect for fresh Garmin data and coaching grounded in it. Configured-provider chat and saved/offline history remain available without Garmin.",
+          ],
+          [byId("connect"), "Connect Garmin"],
+          [byId("connect-later"), "Connect later — keep current selection"],
+          [byId("sign-in"), "Sign in and verify"],
+          [
+            byId("garmin-privacy").querySelector("summary"),
+            "Sign-in and private storage details",
+          ],
+        ]);
+        for (const [element, text] of approved) {
+          if (
+            !element ||
+            element.childElementCount ||
+            element.textContent.replace(/\s+/g, " ").trim() !== text
+          )
+            throw Error("Unexpected Garmin text");
+        }
+        const labels = Array.from(byId("auth").querySelectorAll("label"));
+        if (
+          labels.length !== 2 ||
+          labels.some(
+            (el, index) =>
+              el.textContent.trim() !== ["Email", "Password"][index] ||
+              el.children.length !== 1 ||
+              el.firstElementChild !== byId(["email", "password"][index]),
+          )
+        )
+          throw Error("Unexpected credential labels");
+        if (byId("garmin-privacy").open)
+          throw Error("Disclosure must be collapsed");
+        scrollPosition = [window.scrollX, window.scrollY];
+        window.scrollTo(
+          0,
+          Math.max(0, root.getBoundingClientRect().top + window.scrollY - 24),
+        );
+        const before = root.getBoundingClientRect();
         for (const el of document.body.querySelectorAll("*"))
           if (el instanceof HTMLElement) style(el, "visibility", "hidden");
-        for (const [id, top] of [
-          ["garmin-fields", "24px"],
-          ["auth-section", "240px"],
-        ]) {
-          const root = byId(id);
-          for (const el of [root, ...root.querySelectorAll("*")])
-            if (el instanceof HTMLElement) style(el, "visibility", "visible");
-          for (const [key, value] of Object.entries({
-            position: "fixed",
-            top,
-            left: "24px",
-            width: "800px",
-            "box-sizing": "border-box",
-            "background-color": "#12251c",
-            "font-size": "14px",
-            "line-height": "1.35",
-          }))
-            style(root, key, value);
-        }
-        style(
-          byId("auth-section"),
-          "top",
-          `${Math.ceil(byId("garmin-fields").getBoundingClientRect().bottom + 16)}px`,
-        );
-        for (const el of document.querySelectorAll(
-          "#auth-section input, #auth-status",
-        ))
-          style(el, "visibility", "hidden");
+        for (const el of [root, ...approved.keys(), ...labels])
+          style(el, "visibility", "visible");
+        const after = root.getBoundingClientRect();
         if (
-          ["DATABASE_PATH", "OPENAI_API_KEY", "email", "password", "mfa"].some(
-            (id) => getComputedStyle(byId(id)).visibility !== "hidden",
+          Array.from(document.body.querySelectorAll("*")).some(
+            (el) =>
+              el instanceof HTMLElement &&
+              ![root, ...approved.keys(), ...labels].includes(el) &&
+              getComputedStyle(el).visibility !== "hidden",
           ) ||
-          getComputedStyle(byId("garmin-fields")).position !== "fixed" ||
-          byId("auth-section").getBoundingClientRect().bottom >
-            window.innerHeight - 8
+          ["left", "top", "width", "height"].some(
+            (key) => before[key] !== after[key],
+          ) ||
+          after.left < 0 ||
+          after.right > window.innerWidth ||
+          after.top < 0 ||
+          after.bottom > window.innerHeight
         )
-          throw Error("Sanitization did not apply");
+          throw Error("Garmin mask or viewport refused");
+        restoreTimer = setTimeout(restore, 5000);
       } else if (action !== "observe") throw Error("Unsupported");
       return observe();
     } catch {
-      if (action === "capture" || action === "captureIntro") restore();
+      if (
+        ["capture", "captureWide", "captureNarrow", "captureIntro"].includes(
+          action,
+        )
+      )
+        restore();
       return { ...empty(), ok: false };
     }
   };
