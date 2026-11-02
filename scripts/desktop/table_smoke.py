@@ -7,6 +7,7 @@ from pathlib import Path
 import signal
 import subprocess
 import uuid
+import smoke_resources as resources
 
 from native_smoke import REPO, Observer, fingerprint, private_json, readonly, source_identity
 from ordinary_smoke import OrdinaryRun, inventory_hash, private_directory
@@ -42,6 +43,7 @@ def scenario(run, scratch):
     return captures
 
 
+@resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
@@ -49,6 +51,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     scratch = private_directory(args.scratch)
+    resources.configure(scratch)
     screenshots = scratch / 'screenshots'
     if not screenshots.exists():
         screenshots.mkdir(mode=0o700)
@@ -61,9 +64,11 @@ def main():
     provenance = json.loads((bundle / 'Contents/Resources/resources/provenance.json').read_text())
     if provenance.get('sourceFingerprint') != source:
         raise ValueError('Ordinary artifact/source mismatch')
+    allocation = resources.directory(scratch / ('seed-allocation-' + str(uuid.uuid4())))
     name = 'ci-seed-' + str(uuid.uuid4())
-    subprocess.run(['npm', 'run', 'ci:seed', '--', str(scratch), name, '--markdown-tables'], cwd=REPO, check=True, timeout=60)
-    database = scratch / name / 'synthetic.sqlite'
+    subprocess.run(['npm', 'run', 'ci:seed', '--', str(allocation), name, '--markdown-tables'], cwd=REPO, check=True, timeout=60)
+    database = allocation / name / 'synthetic.sqlite'
+    resources.file_created(database)
     run = OrdinaryRun(scratch, database, source, bundle, inventory)
     observer = None
     errors = []
@@ -84,24 +89,25 @@ def main():
             raise ValueError('Source/artifact changed during smoke')
         receipt['passed'] = True
     finally:
-        try:
-            run.stop()
-        except Exception as error:
-            errors.append(type(error).__name__ + ': owned shutdown failed')
-        if observer:
+        with resources.preserve_failure():
             try:
-                receipt['noninterference'] = observer.stop(run.pids)
+                run.stop()
             except Exception as error:
-                errors.append(type(error).__name__ + ': observer failed')
-        with contextlib.closing(readonly(database)) as original:
-            receipt['syntheticInputUnchanged'] = fingerprint(original) == run.original
-        receipt['shutdownErrors'] = errors
-        receipt['passed'] = receipt['passed'] and not errors and receipt['syntheticInputUnchanged']
-        path = scratch / ('table-receipt-' + str(uuid.uuid4()) + '.json')
-        private_json(path, receipt)
-        print(json.dumps({'passed': receipt['passed'], 'receipt': str(path), 'source': source, 'runId': run.id}))
-        if not receipt['passed']:
-            raise RuntimeError('Table smoke incomplete/failed; original evidence retained, no fallback or blind retry')
+                errors.append(type(error).__name__ + ': owned shutdown failed')
+            if observer:
+                try:
+                    receipt['noninterference'] = observer.stop(run.pids)
+                except Exception as error:
+                    errors.append(type(error).__name__ + ': observer failed')
+            with contextlib.closing(readonly(database)) as original:
+                receipt['syntheticInputUnchanged'] = fingerprint(original) == run.original
+            receipt['shutdownErrors'] = errors
+            receipt['passed'] = receipt['passed'] and not errors and receipt['syntheticInputUnchanged']
+            path = scratch / ('table-receipt-' + str(uuid.uuid4()) + '.json')
+            private_json(path, receipt)
+            print(json.dumps({'passed': receipt['passed'], 'receipt': str(path), 'source': source, 'runId': run.id}))
+            if not receipt['passed']:
+                raise RuntimeError('Table smoke incomplete/failed; original evidence retained, no fallback or blind retry')
 
 
 if __name__ == '__main__':

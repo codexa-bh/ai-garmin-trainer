@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import smoke_resources as resources
 import signal
 import stat
 import subprocess
@@ -43,7 +44,7 @@ class OrdinaryRun(Run):
         self.previous_boot = None
         self.rejected_pids = []
         self.bundle = self.root / 'Garmin Trainer.app'
-        shutil.copytree(bundle, self.bundle)
+        resources.copy_tree(bundle, self.bundle)
         if audit(self.bundle) != inventory:
             raise ValueError('Ordinary bundle copy changed inventory')
         self.binary = self.bundle / 'Contents/MacOS/garmin-trainer-desktop'
@@ -484,6 +485,10 @@ class OrdinaryRun(Run):
         finally:
             os.close(fd)
 
+    def verify_settled(self):
+        super().verify_settled()
+        self.verify_run_lease_settled()
+
     def stop(self):
         super().stop()
         self.verify_run_lease_settled()
@@ -516,6 +521,7 @@ def security(run, other):
     private_json(run.root / 'security.json', {'browserCrossRunPrivateControlAndStaleBootDenied': True, 'duplicatesDenied': True})
 
 
+@resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
@@ -530,6 +536,7 @@ def main():
     args.composer_footer = args.composer_footer or args.model_eligibility
     os.umask(0o077)
     scratch = private_directory(args.scratch)
+    resources.configure(scratch)
     prepared = prepare(scratch, args, 'ordinary')
     database = prepared.database
     bundle = canonical(args.bundle)
@@ -554,6 +561,7 @@ def main():
             if args.composer_footer:
                 runs[-1].prepare_composer(('mixed' if index == 0 else 'empty') if args.model_eligibility else None)
         if args.prepare_only:
+            resources.retain('prepare-only outputs promised for later use; zero launches')
             receipt['preparedOnly'] = True
             return
         observer = Observer(scratch)
@@ -587,24 +595,26 @@ def main():
             raise ValueError('Source/artifact changed during execution')
         receipt['scenarioPassed'] = True
     finally:
-        for run in runs:
-            try:
-                run.stop()
-            except Exception as error:
-                errors.append(type(error).__name__ + ': owned shutdown failed; inspect private run evidence')
-        if observer:
-            try:
-                receipt['noninterference'] = observer.stop([pid for run in runs for pid in run.pids + run.rejected_pids])
-            except Exception as error:
-                errors.append(type(error).__name__ + ': observer failed')
-        with contextlib.closing(readonly(database)) as original:
-            receipt['inputUnchanged'] = all(fingerprint(original) == run.original for run in runs)
-        receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors})
-        private_json(scratch / ('ordinary-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
-        if errors or not receipt['inputUnchanged']:
-            raise RuntimeError('Original preservation/owned shutdown gate failed; retained private evidence')
-        if args.prepare_only:
-            print(json.dumps(receipt))
+        with resources.preserve_failure():
+            for run in runs:
+                try:
+                    run.stop()
+                except Exception as error:
+                    errors.append(type(error).__name__ + ': owned shutdown failed; inspect private run evidence')
+            if observer:
+                try:
+                    receipt['noninterference'] = observer.stop([pid for run in runs for pid in run.pids + run.rejected_pids])
+                except Exception as error:
+                    errors.append(type(error).__name__ + ': observer failed')
+            prepared.verify_current()
+            with contextlib.closing(readonly(database)) as original:
+                receipt['inputUnchanged'] = all(fingerprint(original) == run.original for run in runs)
+            receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors})
+            private_json(scratch / ('ordinary-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
+            if errors or not receipt['inputUnchanged']:
+                raise RuntimeError('Original preservation/owned shutdown gate failed; retained private evidence')
+            if args.prepare_only:
+                print(json.dumps(receipt))
     print(json.dumps(receipt))
 
 

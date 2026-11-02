@@ -8,7 +8,7 @@ import http.client
 import json
 import os
 from pathlib import Path
-import shutil
+import smoke_resources as resources
 import signal
 import socket
 import sqlite3
@@ -83,9 +83,15 @@ class Observer:
     def __init__(self, scratch):
         self.log = scratch / ('focus-' + str(uuid.uuid4()) + '.log')
         binary = scratch / ('observer-' + str(uuid.uuid4()))
-        subprocess.run(['xcrun', 'swiftc', str(REPO / 'scripts/desktop/native_observer.swift'), '-o', str(binary)], check=True, capture_output=True, timeout=60)
+        from smoke_build import observer_binary
+        resources.copy_file(observer_binary(REPO), binary)
         with self.log.open('xb') as output:
             self.child = subprocess.Popen([str(binary)], stdout=output, stderr=subprocess.DEVNULL, start_new_session=True)
+        resources.guard(self.verify_settled)
+
+    def verify_settled(self):
+        if self.child.poll() is None:
+            raise RuntimeError('Observer still live; retain invocation resources')
 
     def samples(self):
         return [line.split() for line in self.log.read_text().splitlines() if len(line.split()) == 4]
@@ -114,12 +120,15 @@ class Run:
     def __init__(self, scratch, database, source, *, ordinary=False):
         self.id = str(uuid.uuid4())
         self.root = scratch / (('ordinary-' if ordinary else 'native-') + self.id)
-        self.root.mkdir(mode=0o700)
+        resources.directory(self.root)
         for name in (['app-data', 'setup-profile'] if ordinary else ['home']) + ['tmp', 'profile', 'config', 'screenshots']:
             (self.root / name).mkdir(mode=0o700)
         (self.root / 'owner').write_text(self.id)
         (self.root / 'owner').chmod(0o600)
         self.database = self.root / 'trainer.sqlite'
+        fd = os.open(self.database, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        os.close(fd)
+        resources.file_created(self.database)
         with contextlib.closing(readonly(database)) as original:
             self.original = fingerprint(original)
             with contextlib.closing(sqlite3.connect(self.database)) as copy:
@@ -141,6 +150,11 @@ class Run:
         self.commands = []
         self.observer = None
         self.before_start = lambda: None  # Prepared-input authority may be rechecked for every boot.
+        resources.guard(self.verify_settled)
+
+    def verify_settled(self):
+        if self.child is not None or self.shutdown_failure or listening(self.config['port']) or (self.origin and listening(int(self.origin.rsplit(':', 1)[1]))) or Path(str(self.database) + '.trainer-writer').exists():
+            raise RuntimeError('Run not finally settled; retain invocation resources')
 
     def spawn(self, binary, log):
         env = {'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin', 'HOME': str(self.root / 'home'),
@@ -393,27 +407,13 @@ def verify_resources(source):
         raise ValueError('Prepared resource inventory mismatch')
 
 
-def build(scratch, source, resources_ready=False):
-    (REPO / 'dist').mkdir(exist_ok=True)
-    with (REPO / 'dist/native-smoke.lock').open('w') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if source_identity() != source:
-            raise ValueError('Source changed before preparation')
-        if resources_ready:
-            verify_resources(source)
-        steps = [] if resources_ready else [('resources', ['npm', 'run', 'desktop:resources'])]
-        steps.append(('debug', ['cargo', 'build', '--locked', '--manifest-path', 'src-tauri/Cargo.toml']))
-        for label, args in steps:
-            with (scratch / (label + '-' + str(uuid.uuid4()) + '.log')).open('xb') as log:
-                subprocess.run(args, cwd=REPO, env={**os.environ, 'TRAINER_BUILD_SOURCE': source}, stdout=log, stderr=subprocess.STDOUT, check=True)
-        if source_identity() != source:
-            raise ValueError('Source changed during preparation')
-        destination = scratch / ('native-binary-' + str(uuid.uuid4()))
-        shutil.copy2(REPO / 'src-tauri/target/debug/garmin-trainer-desktop', destination)
-        destination.chmod(0o700)
-        return destination
+def build(scratch, source, resources_ready=False, *, mode='debug'):
+    from smoke_build import prepare
+    return prepare(REPO, scratch, source, source_identity, verify_resources,
+                   resources_ready=resources_ready, mode=mode)
 
 
+@resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
@@ -424,6 +424,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
+    resources.configure(scratch)
     prepared = prepare(scratch, args, 'health-comparison' if args.health_comparison else 'native')
     database = prepared.database
     source = source_identity()
@@ -439,6 +440,7 @@ def main():
             if args.health_comparison:
                 run.prepare_health_comparison()
         if args.prepare_only:
+            resources.retain('prepare-only outputs promised for later use; zero launches')
             print(json.dumps({'prepared': [str(run.root) for run in runs], 'integrity': 'ok', 'launches': 0}))
             return
         binary = build(scratch, source)
@@ -459,26 +461,28 @@ def main():
         if source_identity() != source:
             raise ValueError('Source changed during execution')
     finally:
-        errors = []
-        for run in runs:
-            try:
-                run.stop()
-            except Exception as error:
-                errors.append(str(error))
-        with contextlib.closing(readonly(database)) as original:
-            unchanged = all(fingerprint(original) == run.original for run in runs)
-        if observer:
-            try:
-                noninterference = observer.stop([pid for run in runs for pid in run.pids])
-            except Exception as error:
-                errors.append(str(error))
-                if observer.child.poll() is None:
-                    observer.child.terminate()
-                    observer.child.wait(timeout=5)
-        receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'runs': [str(run.root) for run in runs], 'primaryUnchanged': unchanged, 'shutdownErrors': errors, 'noninterference': noninterference, 'providerAndGarmin': 'not exercised; keyless offline representative flow'}
-        private_json(scratch / ('native-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
-        if not unchanged or errors:
-            raise RuntimeError('Original integrity/shutdown gate failed; retained evidence')
+        with resources.preserve_failure():
+            errors = []
+            for run in runs:
+                try:
+                    run.stop()
+                except Exception as error:
+                    errors.append(str(error))
+            if observer:
+                try:
+                    noninterference = observer.stop([pid for run in runs for pid in run.pids])
+                except Exception as error:
+                    errors.append(str(error))
+                    if observer.child.poll() is None:
+                        observer.child.terminate()
+                        observer.child.wait(timeout=5)
+            prepared.verify_current()
+            with contextlib.closing(readonly(database)) as original:
+                unchanged = all(fingerprint(original) == run.original for run in runs)
+            receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'runs': [str(run.root) for run in runs], 'primaryUnchanged': unchanged, 'shutdownErrors': errors, 'noninterference': noninterference, 'providerAndGarmin': 'not exercised; keyless offline representative flow'}
+            private_json(scratch / ('native-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
+            if not unchanged or errors:
+                raise RuntimeError('Original integrity/shutdown gate failed; retained evidence')
     print(json.dumps({'passed': True, **receipt}))
 
 

@@ -13,7 +13,8 @@ import shutil
 import subprocess
 import time
 import uuid
-from native_smoke import REPO, Observer, Run, canonical, fingerprint, listening, private_json, readonly, source_identity
+import smoke_resources as resources
+from native_smoke import REPO, Observer, Run, build, canonical, fingerprint, listening, private_json, readonly, source_identity
 
 # Ordinary binaries contain supported opt-in control, not legacy debug admission.
 # Exclude precise legacy admission/grant/probe, native-input and setup-only markers.
@@ -51,6 +52,7 @@ def protect_resources(root):
         file.chmod(0o500 if file.is_dir() or file.stat().st_mode & 0o111 else 0o400)
 
 
+@resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
@@ -58,6 +60,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
+    resources.configure(scratch)
     selected = canonical(args.input_file)
     if selected.stat().st_mode & 0o077:
         raise ValueError('Input selection must be private')
@@ -67,15 +70,14 @@ def main():
     database = canonical(json.loads(selected.read_text())['database'])
     run = Run(scratch, database, source)
     private_json(run.root / 'ordinary-artifact-audit.json', {'source': source, 'artifactHash': artifact, 'files': len(inventory), 'excludedMarkers': [m.decode() for m in MARKERS], 'requiredSupportedMarkers': [m.decode() for m in REQUIRED], 'ordinaryArtifactLaunched': False})
-    with (scratch / ('release-probe-build-' + str(uuid.uuid4()) + '.log')).open('xb') as log:
-        subprocess.run(['cargo', 'build', '--locked', '--release', '--target', 'aarch64-apple-darwin', '--features', 'release-probe', '--manifest-path', 'src-tauri/Cargo.toml'], cwd=REPO, env={**os.environ, 'TRAINER_BUILD_SOURCE': source}, stdout=log, stderr=subprocess.STDOUT, check=True)
-    if source_identity() != source:
-        raise ValueError('Source changed during release probe build')
+    probe = build(scratch, source, resources_ready=True, mode='release-probe')
     app = run.root / 'Release Denial Probe.app'
-    shutil.copytree(APP, app)
+    def prepare_probe(copy):
+        # Only the newly exclusive probe copy is modified, before sealing its inventory.
+        shutil.copy2(probe, copy / 'Contents/MacOS/garmin-trainer-desktop')
+        protect_resources(copy / 'Contents/Resources')
+    resources.copy_tree(APP, app, prepare=prepare_probe)
     binary = app / 'Contents/MacOS/garmin-trainer-desktop'
-    shutil.copy2(REPO / 'src-tauri/target/aarch64-apple-darwin/release/garmin-trainer-desktop', binary)
-    protect_resources(app / 'Contents/Resources')
     observer = Observer(scratch)
     report = None
     noninterference = None
@@ -99,11 +101,22 @@ def main():
         if report.get('runId') != run.id or report.get('debugCommandDenied') is not True:
             raise ValueError('Release denial did not match this owned run')
     finally:
-        run.stop()
-        noninterference = observer.stop(run.pids)
-        with contextlib.closing(readonly(database)) as original:
-            if fingerprint(original) != run.original:
-                raise ValueError('Original DB integrity changed during release probe')
+        with resources.preserve_failure():
+            errors = []
+            try:
+                run.stop()
+            except Exception as error:
+                errors.append(type(error).__name__)
+            try:
+                noninterference = observer.stop(run.pids)
+            except Exception as error:
+                errors.append(type(error).__name__)
+            with contextlib.closing(readonly(database)) as original:
+                if fingerprint(original) != run.original:
+                    errors.append('Original DB integrity changed during release probe')
+            private_json(run.root / 'release-settlement.json', {'errors': errors, 'noninterference': noninterference})
+            if errors:
+                raise RuntimeError('Release probe preservation/shutdown failed; retain diagnosis')
     if audit(APP) != inventory:
         raise ValueError('Ordinary artifact changed during separate probe build/launch')
     result = {'source': source, 'ordinaryArtifactAudit': 'passed', 'ordinaryArtifactHash': artifact, 'ordinaryArtifactLaunched': False, 'instrumentedReleaseModeDenial': report, 'noDebugListener': True, 'noninterference': noninterference, 'ownedShutdown': 'passed', 'run': str(run.root)}

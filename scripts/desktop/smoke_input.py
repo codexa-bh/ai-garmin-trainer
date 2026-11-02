@@ -132,6 +132,9 @@ def recipe_command(arguments):
     return json.loads(result.stdout)
 
 
+import smoke_resources as resources
+
+
 class PreparedInput:
     def __init__(self, database, root, original, recheck, provenance):
         self.database, self.root, self.original = database, root, original
@@ -190,10 +193,11 @@ def prepare(scratch, args, scenario):
                     raise ValueError('Authorized original changed; no reuse')
         grant_check = recheck_private
         grant_check()
-        root.mkdir(mode=0o700)
+        resources.directory(root)
         prepared = root / 'input.sqlite'
         fd = os.open(prepared, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         os.close(fd)
+        resources.file_created(prepared)
         deadline = time.monotonic() + 10
         def progress(_status, _remaining, _total):
             if time.monotonic() > deadline:
@@ -209,9 +213,11 @@ def prepare(scratch, args, scenario):
         if args.grant_file or args.provenance_file:
             raise ValueError('Private options without explicit selection refused')
         anchor = args.anchor or datetime.now(timezone.utc).date().isoformat()
-        result = recipe_command(['create', str(scratch), 'smoke-input-' + str(uuid.uuid4()), anchor])
+        allocation = resources.directory(scratch / ('input-allocation-' + str(uuid.uuid4())))
+        result = recipe_command(['create', str(allocation), 'smoke-input-' + str(uuid.uuid4()), anchor])
         prepared = Path(result.pop('path'))
         root = prepared.parent
+        resources.file_created(prepared)
         checks = recipe_command(['verify', str(prepared), 'synthetic'])
         with contextlib.closing(readonly(prepared)) as db:
             original = fingerprint(db)
