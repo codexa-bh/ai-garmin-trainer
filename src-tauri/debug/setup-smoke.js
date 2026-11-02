@@ -240,6 +240,7 @@
   const styles = new Map();
   let restoreTimer;
   let scrollPosition;
+  let privacyOpen;
   function style(el, key, value) {
     if (!styles.has(el)) styles.set(el, el.style.cssText);
     el.style.setProperty(key, value, "important");
@@ -248,6 +249,8 @@
     clearTimeout(restoreTimer);
     for (const [el, original] of styles) el.style.cssText = original;
     styles.clear();
+    if (privacyOpen !== undefined) byId("garmin-privacy").open = privacyOpen;
+    privacyOpen = undefined;
     if (scrollPosition) window.scrollTo(...scrollPosition);
     scrollPosition = null;
   }
@@ -713,7 +716,11 @@
         )
           throw Error("Introduction sanitization did not apply");
         restoreTimer = setTimeout(restore, 5000);
-      } else if (["capture", "captureWide", "captureNarrow"].includes(action)) {
+      } else if (
+        ["capture", "captureWide", "captureNarrow", "capturePrivacy"].includes(
+          action,
+        )
+      ) {
         if (!observe().manualControlsAbsent || !observe().notConnected)
           throw Error("Unsafe capture");
         restore();
@@ -739,6 +746,22 @@
             "Sign-in and private storage details",
           ],
         ]);
+        if (action === "capturePrivacy") {
+          const disclosure = byId("garmin-privacy");
+          const paragraphs = disclosure.querySelectorAll("p");
+          if (disclosure.children.length !== 3 || paragraphs.length !== 2)
+            throw Error("Unexpected disclosure structure");
+          approved.set(
+            paragraphs[0],
+            "This unofficial connector is not official OAuth. Account challenges and rate limits may prevent sign-in. Only your explicit action starts login; no automatic retries.",
+          );
+          approved.set(
+            paragraphs[1],
+            "Email, password and one supported MFA code stay transient in native sign-in, never saved, logged or sent to AI. Do not enter credentials in chat.",
+          );
+          privacyOpen = disclosure.open;
+          disclosure.open = true;
+        }
         for (const [element, text] of approved) {
           if (
             !element ||
@@ -758,7 +781,7 @@
           )
         )
           throw Error("Unexpected credential labels");
-        if (byId("garmin-privacy").open)
+        if (action !== "capturePrivacy" && byId("garmin-privacy").open)
           throw Error("Disclosure must be collapsed");
         scrollPosition = [window.scrollX, window.scrollY];
         window.scrollTo(

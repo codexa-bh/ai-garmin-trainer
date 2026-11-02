@@ -25,6 +25,7 @@ pub enum Action {
     CaptureWide,
     CaptureNarrow,
     CaptureIntro,
+    CapturePrivacy,
     CaptureFooterWide,
     CaptureFooterNarrow,
     LiveCatalog,
@@ -239,6 +240,7 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             | Action::CaptureWide
             | Action::CaptureNarrow
             | Action::CaptureIntro
+            | Action::CapturePrivacy
             | Action::CaptureFooterWide
             | Action::CaptureFooterNarrow
             | Action::CaptureOpenai
@@ -269,6 +271,8 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             Action::CaptureFooterWide | Action::CaptureFooterNarrow
         ) {
             "geometry-preserving masked Settings footer with blanket notice absent; debug only, no form/keys/paths or trusted input"
+        } else if matches!(action, Action::CapturePrivacy) {
+            "geometry-preserving masked expanded static Garmin disclosure at fixed wide debug viewport; restored after capture, no input values or ordinary/trusted-input certification"
         } else if matches!(action, Action::CaptureIntro) {
             "geometry-preserving masked actual static Settings introduction; debug only, not ordinary or trusted input"
         } else {
@@ -286,6 +290,7 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
                 | Action::CaptureRestartWide
                 | Action::CaptureRestartNarrow
                 | Action::CaptureLive
+                | Action::CapturePrivacy
         ) {
             let width = if matches!(
                 action,
@@ -383,6 +388,7 @@ mod tests {
             Action::CaptureIntro
         ));
         for text in [
+            "capturePrivacy",
             "captureWide",
             "captureNarrow",
             "captureFooterWide",
@@ -393,6 +399,7 @@ mod tests {
         for value in [
             json!({"action":"captureWide","width":500}),
             json!({"action":"captureIntro","selector":"body"}),
+            json!({"action":"capturePrivacy","selector":"body"}),
             json!("captureSecret"),
             json!("capture-intro"),
         ] {
