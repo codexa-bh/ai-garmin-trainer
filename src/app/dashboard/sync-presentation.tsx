@@ -1,12 +1,9 @@
 import {
-  type AthleteBaselinePayload,
-  type BodyMetricsPayload,
   type DetailCoveragePayload,
   type HealthCoveragePayload,
   type SyncProgressEvent,
   type SyncRunState,
 } from "./contracts";
-import { dateLabel } from "./formatting";
 
 // Match the existing redacted server vocabulary, never incidental auth/token words.
 // Keep this client-only allowlist separate from error severity and rendered prose.
@@ -170,34 +167,4 @@ export function formatDetailCoverageSummary(
   if (!coverage)
     return `${legacyDetailedActivities} available/partial detailed activities`;
   return `${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable activity details`;
-}
-
-export function formatAthleteBaselineSummary(
-  baseline: AthleteBaselinePayload,
-): string {
-  const maxHr = baseline.values.configuredMaxHeartRateBpm
-    ? `configured max HR ${baseline.values.configuredMaxHeartRateBpm} bpm from Garmin FIT zones target`
-    : "configured max HR unavailable from the pinned connector";
-  const zones = baseline.values.heartRateZones.boundaries.length
-    ? "HR zones available"
-    : "HR-zone boundaries unavailable";
-  return `Athlete baseline ${baseline.availability}; ${maxHr}; ${zones}; last attempt ${dateLabel(baseline.lastAttemptAt)}.`;
-}
-
-export function formatBodyMetricsSummary(metrics: BodyMetricsPayload): string {
-  const weight =
-    metrics.values.weightKg !== null
-      ? `current weight imported (${metrics.values.weightKg} kg${metrics.currentWeightSource === "weigh_in" ? ", source: weigh-in" : metrics.currentWeightSource === "profile" ? ", source: profile" : ""})`
-      : "current weight unavailable";
-  const height =
-    metrics.values.heightCm !== null
-      ? `height imported (${metrics.values.heightCm} cm)`
-      : "height unavailable";
-  const history =
-    metrics.history.availability === "available"
-      ? `weight history ${metrics.history.count} rows (${metrics.history.rangeStart ?? "unknown"} to ${metrics.history.rangeEnd ?? "unknown"}${metrics.history.source ? `, source: ${metrics.history.source}` : ""})`
-      : `weight history ${metrics.history.availability}`;
-  const weighIns =
-    metrics.weighInAvailability === "failed" ? " weigh-in refresh failed" : "";
-  return `Body metrics ${metrics.availability}; ${weight}; ${height}; ${history};${weighIns} last attempt ${dateLabel(metrics.lastAttemptAt)}.`;
 }

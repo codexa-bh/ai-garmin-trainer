@@ -348,7 +348,18 @@ describe("TrainerDashboard Profile hydration", () => {
     render(React.createElement(TrainerDashboard));
     openSettings();
 
-    await screen.findByText("Saved Profile loaded from local SQLite.");
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Constraints") as HTMLTextAreaElement).value,
+      ).toBe("no running this week"),
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Save Profile",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
     const sports = screen.getByLabelText(
       "Preferred sports",
     ) as HTMLTextAreaElement;
@@ -1751,6 +1762,223 @@ describe("TrainerDashboard Profile hydration", () => {
   });
 });
 
+describe("Profile & data concise feedback", () => {
+  function setup(
+    summary: () => Promise<Response>,
+    getProfile = () => jsonResponse(profile()),
+  ) {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
+      if (url === "/api/profile") return getProfile();
+      if (url === "/api/summary") return summary();
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(React.createElement(TrainerDashboard));
+    openSettings();
+    return fetchMock;
+  }
+
+  function expectNoRoutineProse(dialog: HTMLElement) {
+    expect(dialog.textContent).not.toMatch(
+      /Set one item per line|Saved Profile loaded from local SQLite|Read-only athlete and body facts|Athlete baseline \w+;|Body metrics \w+;/,
+    );
+    const cards = dialog.querySelectorAll(
+      ".profile-settings-card, .settings-card:has(.compact-facts)",
+    );
+    for (const card of cards)
+      expect(card.querySelector('[role="status"]')).toBeNull();
+  }
+
+  it.each(["complete", "partial", "unavailable", "missing"])(
+    "removes routine prose with %s summaries while retaining facts and controls",
+    async (availability) => {
+      const base = importSummary();
+      const summary =
+        availability === "missing"
+          ? { activities: 0, healthDays: 0, detailedActivities: 0 }
+          : importSummary({
+              athleteBaseline: { ...base.athleteBaseline, availability },
+              bodyMetrics: { ...base.bodyMetrics, availability },
+            });
+      const fetchMock = setup(() => jsonResponse(summary));
+      const dialog = screen.getByRole("dialog", { name: "Profile & data" });
+      await within(dialog).findByText("Cycling FTP");
+      await waitFor(() =>
+        expect(
+          (within(dialog).getByLabelText("Goals") as HTMLTextAreaElement).value,
+        ).toBe("Build hiking endurance"),
+      );
+      expectNoRoutineProse(dialog);
+      for (const label of [
+        "Configured max HR",
+        "HR-zone boundaries",
+        "Current weight",
+        "Height",
+        "Weight history",
+        "Weigh-in status",
+      ])
+        expect(within(dialog).getByText(label)).toBeTruthy();
+      expect(within(dialog).getByLabelText("Garmin body metrics")).toBeTruthy();
+      if (availability !== "missing") {
+        expect(
+          within(dialog).getByText("75 kg (source: latest weigh-in)"),
+        ).toBeTruthy();
+        expect(within(dialog).getByText("182 cm")).toBeTruthy();
+        expect(within(dialog).getAllByText(availability)).toHaveLength(2);
+      } else {
+        expect(within(dialog).getByText("not attempted")).toBeTruthy();
+      }
+      expect(within(dialog).getByLabelText("Preferred sports")).toBeTruthy();
+      expect(within(dialog).getByLabelText("Constraints")).toBeTruthy();
+      expect(
+        within(dialog).getByRole("button", { name: "Save Profile" }),
+      ).toBeTruthy();
+      expect(
+        within(dialog).getByRole("button", { name: "Reload saved Profile" }),
+      ).toBeTruthy();
+      expect(
+        fetchMock.mock.calls.filter(([url]) => url === "/api/summary"),
+      ).toHaveLength(1);
+      expect(
+        fetchMock.mock.calls.filter(([url]) => url === "/api/profile"),
+      ).toHaveLength(1);
+    },
+  );
+
+  it("retains accessible pending feedback and clears it after hydration", async () => {
+    let resolveSummary!: (response: Response) => void;
+    let resolveProfile!: (response: Response) => void;
+    setup(
+      () =>
+        new Promise((resolve) => {
+          resolveSummary = resolve;
+        }),
+      () =>
+        new Promise((resolve) => {
+          resolveProfile = resolve;
+        }),
+    );
+    await screen.findByText("Loading saved local Profile…");
+    expect(
+      screen.getByText("Loading saved local Profile…").getAttribute("role"),
+    ).toBe("status");
+    expect(
+      screen.getByText("Loading athlete baseline…").getAttribute("aria-live"),
+    ).toBe("polite");
+    expect(screen.getByText("Loading body metrics…").getAttribute("role")).toBe(
+      "status",
+    );
+    expect(
+      (screen.getByLabelText("Goals") as HTMLTextAreaElement).disabled,
+    ).toBe(true);
+    resolveProfile(await jsonResponse(profile()));
+    resolveSummary(await jsonResponse(importSummary()));
+    await screen.findByText("Cycling FTP");
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Goals") as HTMLTextAreaElement).disabled,
+      ).toBe(false),
+    );
+    expectNoRoutineProse(
+      screen.getByRole("dialog", { name: "Profile & data" }),
+    );
+  });
+
+  it("keeps initial summary failure actionable without claiming facts loaded", async () => {
+    setup(() => Promise.reject(new Error("Summary unavailable")));
+    const error = await screen.findByText(
+      "Athlete baseline summary failed: Summary unavailable",
+    );
+    expect(error.getAttribute("role")).toBe("status");
+    expect(
+      screen
+        .getByText("Body metrics summary failed: Summary unavailable")
+        .getAttribute("aria-live"),
+    ).toBe("polite");
+    expect(
+      screen.getByText("Not available until the local summary loads."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Cycling FTP")).toBeNull();
+  });
+
+  it("shows summary refresh failure with retained facts, then clears failure on recovery", async () => {
+    let failing = false;
+    setup(() =>
+      failing
+        ? Promise.reject(new Error("Summary unavailable"))
+        : jsonResponse(importSummary()),
+    );
+    await screen.findByText("75 kg (source: latest weigh-in)");
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Profile & data" })).getByRole(
+        "button",
+        { name: "Close Profile & data" },
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Sync" }));
+    failing = true;
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh import summary" }),
+    );
+    await screen.findByText(/Import summary failed: Summary unavailable/);
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    openSettings();
+    expect(
+      screen
+        .getByText("Athlete baseline summary failed: Summary unavailable")
+        .getAttribute("role"),
+    ).toBe("status");
+    expect(
+      screen.getByText("Body metrics summary failed: Summary unavailable"),
+    ).toBeTruthy();
+    expect(screen.getByText("75 kg (source: latest weigh-in)")).toBeTruthy();
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Profile & data" })).getByRole(
+        "button",
+        { name: "Close Profile & data" },
+      ),
+    );
+    failing = false;
+    fireEvent.click(screen.getByRole("button", { name: "Sync" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh import summary" }),
+    );
+    await screen.findByText(/Import summary: 247 stored activities/);
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    openSettings();
+    expectNoRoutineProse(
+      screen.getByRole("dialog", { name: "Profile & data" }),
+    );
+  });
+
+  it("preserves weigh-in refresh failure independently of normal body narrative", async () => {
+    const summary = importSummary();
+    setup(() =>
+      jsonResponse({
+        ...summary,
+        bodyMetrics: { ...summary.bodyMetrics, weighInAvailability: "failed" },
+      }),
+    );
+    const failure = await screen.findByText(
+      "Weigh-in refresh failed. Open Sync to retry the import refresh.",
+    );
+    expect(failure.getAttribute("role")).toBe("status");
+    expect(
+      screen.getByText("failed").closest("dl")?.getAttribute("aria-label"),
+    ).toBe("Garmin body metrics");
+    expect(screen.getByText("75 kg (source: latest weigh-in)")).toBeTruthy();
+    expect(screen.queryByText(/Body metrics available;/)).toBeNull();
+  });
+});
+
 describe("TrainerDashboard athlete baseline summary", () => {
   it("renders read-only Garmin athlete baselines separately from Profile", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -1894,17 +2122,9 @@ describe("TrainerDashboard athlete baseline summary", () => {
     openSettings();
 
     expect(
-      await screen.findByText(
-        /configured max HR 190 bpm from Garmin FIT zones target/,
-      ),
+      await screen.findByText("190 bpm (Garmin FIT zones target)"),
     ).toBeTruthy();
-    expect(
-      screen.getByText(
-        zoneStatus === "unavailable"
-          ? /HR-zone boundaries unavailable;/
-          : /HR zones available/,
-      ),
-    ).toBeTruthy();
+    expect(screen.queryByText(/Athlete baseline complete;/)).toBeNull();
     expect(
       screen.getByText("HR-zone boundaries").nextElementSibling?.textContent,
     ).toBe(
@@ -4538,12 +4758,15 @@ describe("TrainerDashboard dedicated Sync view", () => {
     );
 
     const dialog = screen.getByRole("dialog", { name: "Profile & data" });
-    expect(dialog.textContent).toContain(
-      "current weight imported (75 kg, source: weigh-in)",
-    );
-    expect(dialog.textContent).toContain(
-      "weight history 42 rows (2026-01-01 to 2026-07-22, source: weigh_in)",
-    );
+    expect(dialog.textContent).not.toContain("current weight imported");
+    expect(
+      within(dialog).getByText("Current weight").nextElementSibling
+        ?.textContent,
+    ).toBe("75 kg (source: latest weigh-in)");
+    expect(
+      within(dialog).getByText("Weight history").nextElementSibling
+        ?.textContent,
+    ).toBe("42 rows (2026-01-01 to 2026-07-22, source: weigh_in)");
     expect(dialog.textContent).toContain("(source: latest weigh-in)");
     expect(dialog.textContent).toContain("Weigh-in status");
     expect(dialog.textContent).toContain("available");

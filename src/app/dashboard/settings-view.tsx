@@ -104,16 +104,11 @@ export function SettingsView({
 
           <details className="settings-card" open>
             <summary>Imported Garmin facts</summary>
-            <p>
-              Read-only athlete and body facts from the local import summary,
-              separate from your editable Profile. Open Sync for connector
-              verification, import refresh and activity-detail maintenance.
-              Native Settings in the app menu owns configuration and private
-              sign-in; this trainer page has no credential access.
-            </p>
-            <p className="helper-text" role="status" aria-live="polite">
-              {athleteBaselineMessage}
-            </p>
+            {athleteBaselineMessage ? (
+              <p className="helper-text" role="status" aria-live="polite">
+                {athleteBaselineMessage}
+              </p>
+            ) : null}
             {athleteBaseline ? (
               <dl className="compact-facts">
                 <div>
@@ -175,9 +170,11 @@ export function SettingsView({
             ) : (
               <p>Not available until the local summary loads.</p>
             )}
-            <p className="helper-text" role="status" aria-live="polite">
-              {bodyMetricsMessage}
-            </p>
+            {bodyMetricsMessage ? (
+              <p className="helper-text" role="status" aria-live="polite">
+                {bodyMetricsMessage}
+              </p>
+            ) : null}
             {bodyMetrics ? (
               <dl className="compact-facts" aria-label="Garmin body metrics">
                 <div>
