@@ -32,10 +32,19 @@ beforeEach(async () => {
     if (command === "read_settings")
       return {
         revision: "synthetic-revision",
-        chatCatalog: legacyChatCatalog(
-          { AI_PROVIDER: "ollama" },
-          { openai: false, deepseek: false },
-        ),
+        chatCatalog: (() => {
+          const catalog = legacyChatCatalog(
+            { AI_PROVIDER: "ollama" },
+            { openai: false, deepseek: false },
+          );
+          return {
+            ...catalog,
+            entries: catalog.entries.map((entry) => ({
+              ...entry,
+              displayName: "Synthetic model",
+            })),
+          };
+        })(),
         fields: {
           DATABASE_PATH: "/private/run/trainer.sqlite",
           AI_PROVIDER: "ollama",
@@ -389,6 +398,29 @@ it("exercises finite configured/replacement/removal/absent fields and copies onl
     /synthetic-openai|••|sqlite/,
   );
 });
+it("preserves hidden legacy names through real ID-only form submission", async () => {
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(true);
+  controller.__trainerSetupSmoke("save");
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("save_settings", expect.anything()),
+  );
+  const catalog = invoke.mock.calls.find(
+    ([command]) => command === "save_settings",
+  )![1].input.chatCatalog;
+  expect(
+    catalog.entries
+      .slice(0, 4)
+      .every(
+        (entry: { displayName?: string }) =>
+          entry.displayName === "Synthetic model",
+      ),
+  ).toBe(true);
+  expect(
+    catalog.entries
+      .slice(4)
+      .every((entry: object) => !("displayName" in entry)),
+  ).toBe(true);
+});
 it("removes the complete no-default catalog while preserving synthetic pending key intents", async () => {
   await configuredProviders();
   expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(true);
@@ -430,6 +462,9 @@ it("exercises real grouped controls and masks only canonical synthetic provider 
     catalogExercised: true,
   });
   expect(document.querySelectorAll(".catalog-row")).toHaveLength(8);
+  expect(document.querySelectorAll(".catalog-row input")).toHaveLength(8);
+  expect(document.body.textContent).not.toContain("Name (optional)");
+  expect(document.body.textContent).not.toContain("Synthetic model");
   expect(
     document.querySelectorAll('.catalog-row [aria-pressed="true"]'),
   ).toHaveLength(0);
@@ -465,6 +500,7 @@ it("exercises real grouped controls and masks only canonical synthetic provider 
 });
 it.each([
   "private-model",
+  "extra-name-control",
   "private-key",
   "private-label",
   "trailing-text",
@@ -480,6 +516,11 @@ it.each([
     "entry_legacy_openai-modelId",
   ) as HTMLInputElement;
   if (scenario === "private-model") model.value = "private-sentinel";
+  if (scenario === "extra-name-control") {
+    const alias = document.createElement("input");
+    alias.value = "private-sentinel";
+    model.closest(".catalog-row")!.append(alias);
+  }
   if (scenario === "private-key")
     (document.getElementById("OPENAI_API_KEY") as HTMLInputElement).value =
       "private-sentinel";

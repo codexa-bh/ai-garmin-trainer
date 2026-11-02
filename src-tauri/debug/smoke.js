@@ -261,11 +261,8 @@
     };
   }
   const footerEntries = [
-    [
-      "entry_footer_long",
-      "T0246 long descriptive local model selection for narrow composer footer — ollama / T0246/Long-local-model-name:exact-tag",
-    ],
-    ["entry_footer_other", "T0246 alternate — ollama / T0246/Alternate:Tag"],
+    ["entry_footer_long", "ollama / T0246/Long-local-model-name:exact-tag"],
+    ["entry_footer_other", "ollama / T0246/Alternate:Tag"],
   ];
   let composerTextarea;
   let keysNoSend = false;

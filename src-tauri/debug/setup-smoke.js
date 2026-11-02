@@ -32,7 +32,10 @@
   const rows = (provider) =>
     Array.from(byId(`catalog-${provider}-rows`).children);
   const model = (row) => row.querySelector('input[id$="-modelId"]');
-  const name = (row) => row.querySelector('input[id$="-displayName"]');
+  const idOnlyRows = () =>
+    Array.from(document.querySelectorAll(".catalog-row")).every(
+      (row) => row.querySelectorAll("input").length === 1 && !!model(row),
+    );
   function keyState(provider, state) {
     const input = byId(`${provider}_API_KEY`);
     const statuses = {
@@ -101,6 +104,7 @@
   function syntheticCatalog() {
     return (
       safeKeys() &&
+      idOnlyRows() &&
       !byId("catalog-default") &&
       !document.querySelector('.catalog-row [aria-label^="Default"]') &&
       document.querySelectorAll(".catalog-row").length === 8 &&
@@ -113,9 +117,7 @@
             group[1].dataset.entryId,
           ) &&
           model(group[0])?.value === `synthetic/${provider}:Case` &&
-          name(group[0])?.value === "Synthetic model" &&
-          model(group[1])?.value === `synthetic/${provider}:Second` &&
-          name(group[1])?.value === ""
+          model(group[1])?.value === `synthetic/${provider}:Second`
         );
       })
     );
@@ -143,6 +145,7 @@
     ];
     if (
       !safeKeys() ||
+      !idOnlyRows() ||
       byId("catalog-default") ||
       document.querySelector('.catalog-row [aria-label^="Default"]') ||
       document.querySelectorAll(".catalog-row").length !== 4 ||
@@ -150,15 +153,13 @@
         (provider, index) =>
           rows(provider).length === 1 &&
           rows(provider)[0].dataset.entryId === `entry_legacy_${provider}` &&
-          model(rows(provider)[0]).value === legacyModels[index] &&
-          name(rows(provider)[0]).value === "",
+          model(rows(provider)[0]).value === legacyModels[index],
       )
     )
       throw Error("Not exact legacy catalog");
     // Actual app controls only. No application-state injection or caller input.
     for (const provider of providers) {
       edit(model(rows(provider)[0]), `synthetic/${provider}:Case`);
-      edit(name(rows(provider)[0]), "Synthetic model");
       click(byId(`catalog-${provider}-add`));
       if (document.activeElement !== model(rows(provider)[1]))
         throw Error("Add focus lost");
@@ -264,13 +265,12 @@
       const labels = Array.from(row.querySelectorAll("label"));
       const buttons = Array.from(row.querySelectorAll("button"));
       if (
-        labels.length !== 2 ||
+        labels.length !== 1 ||
         buttons.length !== 1 ||
-        row.querySelectorAll("input").length !== 2 ||
+        row.querySelectorAll("input").length !== 1 ||
         labels.some(
-          (label, index) =>
-            label.childElementCount !== 1 ||
-            label.textContent !== ["Model ID", "Name (optional)"][index],
+          (label) =>
+            label.childElementCount !== 1 || label.textContent !== "Model ID",
         ) ||
         buttons.some(
           (button) =>
@@ -278,7 +278,7 @@
         )
       )
         throw Error("Unexpected row content");
-      reveal.push(...labels, model(row), name(row), ...buttons);
+      reveal.push(...labels, model(row), ...buttons);
     }
     if (provider !== "ollama") {
       const slot = `${provider.toUpperCase()}_API_KEY`;
