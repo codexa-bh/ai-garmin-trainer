@@ -13,7 +13,7 @@ npm ci
 npm run desktop:build
 ```
 
-Open `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app`, including outside the checkout. `desktop:dev` uses the same rebuilt production resources, no HMR/browser dev server. Source edits require rebuilding. Catalog/default/shared keys can apply live after exact acknowledgment; all other settings still require explicit quit/reopen. Tauri is the sole product launcher. Retained doctor/status/migration/private-terminal-auth tools are non-serving maintenance, not desktop configuration sources.
+Open `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app`, including outside the checkout. `desktop:dev` uses the same rebuilt production resources, no HMR/browser dev server. Source edits require rebuilding. Catalog/shared keys can apply live after exact acknowledgment; all other settings still require explicit quit/reopen. Tauri is the sole product launcher. Retained doctor/status/migration/private-terminal-auth tools are non-serving maintenance, not desktop configuration sources.
 
 The native crate enables `custom-protocol` by default so local settings/error HTML works without a backend. Native Settings remains available from the **Settings…** native menu regardless of backend readiness. Startup status is persisted in memory to avoid listener races.
 

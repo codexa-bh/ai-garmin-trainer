@@ -292,7 +292,7 @@
   const footerUnavailable = ["Unavailable selected model"];
   const footerUnselected = "Choose a model";
   const footerWarning =
-    "Provider key is not configured. Update native Settings, quit and reopen.";
+    "Provider key is not configured. Save in native Settings and confirm live application; retry availability.";
   const footerEmpty =
     "No available entries. Configure provider keys or eligible local models in native Settings, confirm live application and retry availability.";
   function knownFooterCatalog(select) {
