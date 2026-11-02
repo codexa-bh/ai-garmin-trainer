@@ -8,19 +8,23 @@ export function ModelSettingsCard({
 }) {
   const { snapshot, state, message, choose, retry } = modelSettings;
   const busy = state === "loading" || state === "saving";
-  const selected = snapshot?.options.some(
-    (option) => option.id === snapshot.selected,
+  const eligibleOptions =
+    snapshot?.options.filter((option) => option.available) ?? [];
+  const selected = eligibleOptions.some(
+    (option) => option.id === snapshot?.selected,
   )
-    ? snapshot.selected!
+    ? snapshot!.selected!
     : "";
   const defaultEntry = snapshot?.options.find(
     (entry) => entry.id === snapshot.defaultEntryId,
   );
   const inheritedLabel = snapshot
     ? snapshot.effective.source === "env"
-      ? defaultEntry
+      ? defaultEntry?.available
         ? `Default · ${defaultEntry.label}`
-        : "Selection required — no default"
+        : defaultEntry
+          ? "Unavailable configured default"
+          : "Selection required — no default"
       : "Unavailable saved entry"
     : state === "error"
       ? "Model unavailable"
@@ -34,7 +38,7 @@ export function ModelSettingsCard({
         aria-describedby="trainer-model-status"
         title={`${snapshot?.effective.provider ?? "Model"} / ${snapshot?.effective.modelName ?? "unavailable"}. Default: ${defaultEntry?.label ?? "none"}. Applies to subsequent turns; running turns, memory extraction and embeddings are unchanged. Native catalog/key edits need quit/reopen.`}
         value={selected}
-        disabled={busy || !snapshot?.options.length || state === "error"}
+        disabled={busy || !eligibleOptions.length || state === "error"}
         onChange={(event) => choose(event.target.value as ChatModelId)}
       >
         {!selected ? (
@@ -42,14 +46,9 @@ export function ModelSettingsCard({
             {inheritedLabel}
           </option>
         ) : null}
-        {snapshot?.options.map((option) => (
-          <option
-            key={option.id}
-            value={option.id}
-            disabled={!option.available}
-          >
+        {eligibleOptions.map((option) => (
+          <option key={option.id} value={option.id}>
             {option.label}
-            {!option.available ? " — key not configured" : ""}
           </option>
         ))}
       </select>
@@ -92,10 +91,11 @@ export function ModelSettingsCard({
       {snapshot?.unavailableReason ? (
         <p role="alert">{snapshot.unavailableReason}</p>
       ) : null}
-      {snapshot && !snapshot.options.length ? (
+      {snapshot && !eligibleOptions.length ? (
         <p>
-          No configured entries. Add chat models in native Settings, then
-          quit/reopen.
+          {snapshot.options.length
+            ? "No available entries. Configure provider keys or eligible local models in native Settings, then quit/reopen."
+            : "No configured entries. Add chat models in native Settings, then quit/reopen."}
         </p>
       ) : null}
       {state === "error" ? (

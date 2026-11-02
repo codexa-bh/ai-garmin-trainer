@@ -799,6 +799,9 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
         Command::Composer { action } => {
             let booleans = [
                 "modelReady",
+                "catalogKnown",
+                "unavailableChoice",
+                "noEligibleChoices",
                 "singleControl",
                 "footerOrder",
                 "fitsViewport",
@@ -1274,7 +1277,8 @@ mod tests {
             assert!(command.valid());
             assert!(!config().permits(&command));
             let value = json!({"ok":true,"action":action,"trustedInput":false,
-                "modelReady":true,"singleControl":true,"footerOrder":true,"fitsViewport":true,
+                "modelReady":true,"catalogKnown":true,"unavailableChoice":false,"noEligibleChoices":false,
+                "singleControl":true,"footerOrder":true,"fitsViewport":true,
                 "draftMatches":true,"textareaStable":true,"savedChoice":false,"defaultChoice":true,"keysNoSend":true});
             assert!(super::safe_result(&command, &value, true));
             assert!(!safe_result(&command, &value));
@@ -1283,6 +1287,9 @@ mod tests {
                 ("action", json!("send")),
                 ("trustedInput", json!(true)),
                 ("draftMatches", json!("private draft")),
+                ("unavailableChoice", json!("private model")),
+                ("catalogKnown", json!(null)),
+                ("noEligibleChoices", json!("private catalog")),
             ] {
                 let mut invalid = value.clone();
                 invalid[key] = changed;
