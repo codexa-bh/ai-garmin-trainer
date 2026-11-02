@@ -346,17 +346,17 @@
           </p>
         </section>
         <p id="next-launch-guidance">
-          Saved runtime changes apply only after you explicitly quit and reopen.
-          Catalog, keys and connection edits are pending until that next launch;
-          they never switch the current database, account or provider in place.
-          Chat selects only from the already activated catalog for future turns.
-          Its saved model preference remains independent. Local debug traces are
-          always enabled and may contain private context.
+          Save can apply chat catalog and provider keys now; confirm the
+          reported result. Other settings need explicit quit/reopen and never
+          switch a live database or account. Trainer keeps one independent
+          explicit choice; there is no Default/Reset. Running work retains its
+          captured settings. Local debug traces are always enabled and may
+          contain private context.
         </p>
         <div class="actions">
           <button type="button" id="back" hidden>Back</button>
           <button type="button" id="next" hidden>Next</button>
-          <button type="submit" id="save">Save for next launch</button
+          <button type="submit" id="save">Save settings</button
           ><button type="button" id="cancel">Cancel edits</button>
         </div>
       </form>

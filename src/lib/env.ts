@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { AsyncLocalStorage } from "node:async_hooks";
+import {
+  containsControlCharacters,
+  validateChatCatalog,
+} from "./model-settings/catalog";
 import { GARMIN_MCP_DEFAULT_ARGS_STRING } from "./garmin/mcp-config";
 
 const PLACEHOLDER_SECRET_PATTERNS = [
@@ -79,7 +84,160 @@ export function isLlmDebugTraceEnabled(
 export function getOptionalEnv(
   input: Record<string, string | undefined> = process.env,
 ): AppEnv {
+  if (input === process.env) {
+    const cell = configurationCell();
+    const captured = cell.scope.getStore() ?? cell.active?.env;
+    if (captured) return captured;
+  }
   return optionalEnvSchema.parse(input);
+}
+
+type LiveConfiguration = {
+  env: AppEnv;
+  generation: number;
+  revision: string;
+  projection: string;
+};
+type ConfigurationCell = {
+  scope: AsyncLocalStorage<AppEnv>;
+  boot?: string;
+  base?: AppEnv;
+  extractionProvider?: "openai" | "deepseek" | null;
+  active?: LiveConfiguration;
+};
+// The launcher and compiled Next routes are separate bundles in ONE Node process.
+// A process-owned, narrowly named cell (not a module singleton) crosses that boundary.
+// No private values are written to process.env, build config or disk on live Save.
+function configurationCell(): ConfigurationCell {
+  const owner = process as typeof process & {
+    __trainerLiveConfigurationV1?: ConfigurationCell;
+  };
+  return (owner.__trainerLiveConfigurationV1 ??= {
+    scope: new AsyncLocalStorage<AppEnv>(),
+  });
+}
+export function initializeLiveConfiguration(boot: string): void {
+  const cell = configurationCell();
+  if (cell.boot || !/^[a-f0-9-]{36}$/.test(boot))
+    throw new Error("Live configuration boot refused.");
+  const base = Object.freeze(optionalEnvSchema.parse(process.env));
+  cell.boot = boot;
+  cell.base = base;
+  cell.extractionProvider =
+    base.AI_PROVIDER === "openai" || base.AI_PROVIDER === "deepseek"
+      ? base.AI_PROVIDER
+      : hasConfiguredSecret(base.DEEPSEEK_API_KEY)
+        ? "deepseek"
+        : hasConfiguredSecret(base.OPENAI_API_KEY)
+          ? "openai"
+          : null;
+  cell.active = {
+    env: base,
+    generation: 0,
+    revision: "startup",
+    projection: "",
+  };
+}
+export function withConfiguration<T>(env: AppEnv, work: () => T): T {
+  return configurationCell().scope.run(env, work);
+}
+export function liveConfigurationStatus() {
+  const cell = configurationCell();
+  if (!cell.boot || !cell.active)
+    throw new Error("Live configuration unavailable.");
+  return {
+    version: 1,
+    boot: cell.boot,
+    generation: cell.active.generation,
+    revision: cell.active.revision,
+    state: "applied",
+  } as const;
+}
+export function extractionConfiguration(env: AppEnv): AppEnv | null {
+  const cell = configurationCell();
+  if (!cell.boot) return env;
+  return cell.extractionProvider
+    ? { ...env, AI_PROVIDER: cell.extractionProvider }
+    : null;
+}
+export function applyLiveConfiguration(input: unknown) {
+  const cell = configurationCell();
+  if (
+    !cell.boot ||
+    !cell.base ||
+    !cell.active ||
+    !input ||
+    typeof input !== "object" ||
+    Array.isArray(input)
+  )
+    throw new Error("Live configuration refused.");
+  const frame = input as Record<string, unknown>;
+  if (
+    Object.keys(frame).length !== 6 ||
+    Object.keys(frame).some(
+      (key) =>
+        ![
+          "version",
+          "boot",
+          "generation",
+          "revision",
+          "chatCatalog",
+          "secrets",
+        ].includes(key),
+    ) ||
+    frame.version !== 1 ||
+    frame.boot !== cell.boot ||
+    !Number.isSafeInteger(frame.generation) ||
+    (frame.generation as number) < 1 ||
+    typeof frame.revision !== "string" ||
+    !/^[0-9-]{1,256}$/.test(frame.revision) ||
+    !frame.secrets ||
+    typeof frame.secrets !== "object" ||
+    Array.isArray(frame.secrets)
+  )
+    throw new Error("Live configuration refused.");
+  const catalog = validateChatCatalog(frame.chatCatalog);
+  const secrets = frame.secrets as Record<string, unknown>;
+  const slots = [
+    "OPENAI_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "OPENROUTER_API_KEY",
+  ] as const;
+  if (
+    Object.keys(secrets).some(
+      (key) => !slots.includes(key as (typeof slots)[number]),
+    ) ||
+    Object.values(secrets).some(
+      (value) =>
+        typeof value !== "string" ||
+        Buffer.byteLength(value) > 16384 ||
+        containsControlCharacters(value) ||
+        !configuredSecret(value),
+    )
+  )
+    throw new Error("Live configuration refused.");
+  const env = Object.freeze({
+    ...cell.base,
+    CHAT_MODEL_CATALOG: JSON.stringify(catalog),
+    OPENAI_API_KEY: secrets.OPENAI_API_KEY as string | undefined,
+    DEEPSEEK_API_KEY: secrets.DEEPSEEK_API_KEY as string | undefined,
+    OPENROUTER_API_KEY: secrets.OPENROUTER_API_KEY as string | undefined,
+  });
+  const projection = JSON.stringify([
+    frame.revision,
+    env.CHAT_MODEL_CATALOG,
+    ...slots.map((slot) => env[slot] ?? null),
+  ]);
+  const generation = frame.generation as number;
+  if (
+    generation < cell.active.generation ||
+    (generation === cell.active.generation &&
+      projection !== cell.active.projection)
+  )
+    throw new Error("Stale live configuration refused.");
+  if (generation > cell.active.generation)
+    cell.active = { env, generation, revision: frame.revision, projection };
+  return liveConfigurationStatus();
 }
 
 export function requireRuntimeEnv(

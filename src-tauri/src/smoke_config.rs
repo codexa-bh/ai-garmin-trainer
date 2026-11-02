@@ -63,7 +63,7 @@ impl Config {
         }
         let settings = crate::settings::load(&self.settings())?;
         if ![2, 3].contains(&settings.version)
-            || !accepted_keys(&settings.keys)
+            || !(accepted_keys(&settings.keys) || self.synthetic_keys(&settings.keys))
             || !self.accepts_fields(&settings.fields)
             || settings
                 .selection_compatibility
@@ -121,6 +121,16 @@ impl Config {
             return false;
         };
         fields.iter().all(|(key, value)| {
+            #[cfg(debug_assertions)]
+            if key == "OLLAMA_BASE_URL" && value == "http://127.0.0.1:11435/v1" {
+                let marker = self.root.join("live-provider");
+                return crate::settings::private_file(&marker).is_ok()
+                    && fs::read_to_string(marker).ok().as_deref() == Some(self.run_id.as_str());
+            }
+            #[cfg(debug_assertions)]
+            if key == "MEMORY_EMBEDDING_DIMS" && value == "2048" {
+                return true;
+            }
             if let Some(expected) = baseline.get(key) {
                 return value == expected;
             }
@@ -163,6 +173,27 @@ impl Config {
         {
             return true;
         }
+        #[cfg(debug_assertions)]
+        {
+            let mut synthetic = crate::chat_catalog::legacy(fields, &Default::default());
+            for entry in &mut synthetic.entries {
+                if entry.provider == "openai" {
+                    entry.model_id = "Synthetic/Live:one".into();
+                } else if entry.provider == "ollama" {
+                    entry.model_id = "Synthetic/Local:two".into();
+                }
+            }
+            synthetic.default_entry_id = None;
+            if *catalog == synthetic {
+                return true;
+            }
+            synthetic.entries.retain(|entry| entry.provider != "openai");
+            synthetic.default_entry_id = None;
+            if *catalog == synthetic || *catalog == crate::chat_catalog::Catalog::default() {
+                return true;
+            }
+        }
+        // Preserve delivered grouped-provider evidence and its exact UUID/content bounds.
         if catalog.validate().is_err()
             || catalog.entries.len() != 8
             || catalog.default_entry_id.is_some()
@@ -201,19 +232,57 @@ impl Config {
                 .keys
                 .values()
                 .all(|intent| matches!(intent, crate::settings::KeyUpdate::Unchanged))
-                || (crate::settings::load(&self.settings())
-                    .map(|saved| saved.keys == initial_keys())
-                    .unwrap_or(false)
-                    && input.keys.len() == 3
-                    && matches!(input.keys.get("OPENAI_API_KEY"), Some(crate::settings::KeyUpdate::Replace { value }) if value == "synthetic-openai-replacement")
-                    && matches!(
-                        input.keys.get("DEEPSEEK_API_KEY"),
-                        Some(crate::settings::KeyUpdate::Clear)
-                    )
-                    && matches!(
-                        input.keys.get("OPENROUTER_API_KEY"),
-                        Some(crate::settings::KeyUpdate::Unchanged)
-                    )))
+                || self.synthetic_intents(&input.keys)
+                || self.provider_field_intents(input))
+    }
+    fn synthetic_keys(&self, keys: &std::collections::BTreeMap<String, String>) -> bool {
+        #[cfg(debug_assertions)]
+        for suffix in ["one", "two"] {
+            if keys.len() == 3
+                && crate::settings::SLOTS.iter().all(|slot| {
+                    keys.get(*slot) == Some(&format!("T0257-synthetic-{slot}-{suffix}"))
+                })
+            {
+                return true;
+            }
+        }
+        let _ = keys;
+        false
+    }
+    fn synthetic_intents(
+        &self,
+        keys: &std::collections::BTreeMap<String, crate::settings::KeyUpdate>,
+    ) -> bool {
+        #[cfg(debug_assertions)]
+        {
+            if keys.len() == 3
+                && crate::settings::SLOTS
+                    .iter()
+                    .all(|slot| matches!(keys.get(*slot), Some(crate::settings::KeyUpdate::Clear)))
+            {
+                return true;
+            }
+            for suffix in ["one", "two"] {
+                if keys.len() == 3 && crate::settings::SLOTS.iter().all(|slot| matches!(keys.get(*slot), Some(crate::settings::KeyUpdate::Replace { value }) if value == &format!("T0257-synthetic-{slot}-{suffix}"))) { return true; }
+            }
+        }
+        let _ = keys;
+        false
+    }
+    fn provider_field_intents(&self, input: &crate::settings::SaveInput) -> bool {
+        crate::settings::load(&self.settings())
+            .map(|saved| saved.keys == initial_keys())
+            .unwrap_or(false)
+            && input.keys.len() == 3
+            && matches!(input.keys.get("OPENAI_API_KEY"), Some(crate::settings::KeyUpdate::Replace { value }) if value == "synthetic-openai-replacement")
+            && matches!(
+                input.keys.get("DEEPSEEK_API_KEY"),
+                Some(crate::settings::KeyUpdate::Clear)
+            )
+            && matches!(
+                input.keys.get("OPENROUTER_API_KEY"),
+                Some(crate::settings::KeyUpdate::Unchanged)
+            )
     }
     pub fn settings(&self) -> PathBuf {
         let next = self.root.join("config/settings-v3.json");
@@ -405,6 +474,63 @@ mod tests {
         changed_catalog.chat_catalog = input.chat_catalog.clone();
         changed_catalog.chat_catalog.entries[2].model_id = "nondefault-local-model".into();
         assert!(!config.accepts_save(&changed_catalog));
+        #[cfg(debug_assertions)]
+        {
+            let mut live = crate::settings::SaveInput {
+                fields: input.fields.clone(),
+                keys: Default::default(),
+                chat_catalog: input.chat_catalog.clone(),
+                expected_revision: input.expected_revision.clone(),
+            };
+            live.chat_catalog
+                .entries
+                .iter_mut()
+                .find(|entry| entry.provider == "openai")
+                .unwrap()
+                .model_id = "Synthetic/Live:one".into();
+            live.chat_catalog
+                .entries
+                .iter_mut()
+                .find(|entry| entry.provider == "ollama")
+                .unwrap()
+                .model_id = "Synthetic/Local:two".into();
+            live.chat_catalog.default_entry_id = None;
+            for slot in crate::settings::SLOTS {
+                live.keys.insert(
+                    slot.into(),
+                    crate::settings::KeyUpdate::Replace {
+                        value: format!("T0257-synthetic-{slot}-one"),
+                    },
+                );
+            }
+            assert!(config.accepts_save(&live));
+            live.fields
+                .insert("MEMORY_EMBEDDING_DIMS".into(), "2048".into());
+            assert!(config.accepts_save(&live));
+            live.fields
+                .insert("MEMORY_EMBEDDING_DIMS".into(), "2049".into());
+            assert!(!config.accepts_save(&live));
+            live.fields
+                .insert("MEMORY_EMBEDDING_DIMS".into(), "2048".into());
+            live.keys.insert(
+                "OPENAI_API_KEY".into(),
+                crate::settings::KeyUpdate::Replace {
+                    value: "real-or-arbitrary-private-input".into(),
+                },
+            );
+            assert!(!config.accepts_save(&live));
+            for slot in crate::settings::SLOTS {
+                live.keys
+                    .insert(slot.into(), crate::settings::KeyUpdate::Clear);
+            }
+            live.chat_catalog
+                .entries
+                .retain(|entry| entry.provider != "openai");
+            live.chat_catalog.default_entry_id = None;
+            assert!(config.accepts_save(&live));
+            live.chat_catalog = Default::default();
+            assert!(config.accepts_save(&live));
+        }
         let mut synthetic = crate::chat_catalog::legacy(&input.fields, &Default::default());
         for entry in &mut synthetic.entries {
             entry.model_id = format!("synthetic/{}:Case", entry.provider);
@@ -433,6 +559,17 @@ mod tests {
                 _ => rejected.entries[5].id = rejected.entries[4].id.clone(),
             }
             assert!(!config.accepts_catalog(&rejected, &input.fields));
+        }
+        #[cfg(debug_assertions)]
+        {
+            let mut provider_fields = input.fields.clone();
+            provider_fields.insert("OLLAMA_BASE_URL".into(), "http://127.0.0.1:11435/v1".into());
+            assert!(!config.accepts_fields(&provider_fields));
+            write(&root.join("live-provider"), id.as_bytes());
+            assert!(config.accepts_fields(&provider_fields));
+            provider_fields.insert("OLLAMA_BASE_URL".into(), "http://127.0.0.1:11436/v1".into());
+            assert!(!config.accepts_fields(&provider_fields));
+            fs::remove_file(root.join("live-provider")).unwrap();
         }
         let next = root.join("config/settings-v3.json");
         let projected = crate::chat_catalog::legacy(&input.fields, &Default::default());

@@ -65,6 +65,7 @@ pub struct Snapshot {
     #[serde(rename = "chatCatalog")]
     pub chat_catalog: Catalog,
     pub revision: String,
+    pub activation: String,
 }
 const LEGACY: &str = "Legacy provider settings require explicit adoption or private re-entry in Desktop Settings. No automatic Keychain access.";
 /// Presence, not successful parsing, selects the newest format. No fallback.
@@ -235,6 +236,8 @@ pub fn snapshot(path: &Path, running: bool) -> Result<Snapshot, &'static str> {
     Ok(Snapshot {
         chat_catalog,
         revision: before,
+        activation:
+            "Live state unknown; reload reconciles the owned backend without retrying Save.".into(),
         keys: SLOTS
             .iter()
             .map(|slot| {
@@ -295,7 +298,7 @@ fn message(durable: bool, fresh: bool) -> String {
     let state = if fresh {
         "First-run settings committed."
     } else {
-        "Settings committed. Quit and reopen to apply; the running backend is unchanged."
+        "Settings committed."
     };
     format!(
         "{state}{}",
