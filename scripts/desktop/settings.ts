@@ -79,13 +79,12 @@ export function validateSettings(
   if (database === "existing") literalPath(strings.DATABASE_PATH, false);
   if (strings.GARMIN_MCP_TOKEN_DIR)
     literalPath(strings.GARMIN_MCP_TOKEN_DIR, true);
-  if (!strings.GARMIN_HISTORY_START_DATE)
-    throw new Error("Set the history start date.");
   const date = new Date(`${strings.GARMIN_HISTORY_START_DATE}T00:00:00Z`);
   if (
-    !Number.isFinite(date.getTime()) ||
-    date.toISOString().slice(0, 10) !== strings.GARMIN_HISTORY_START_DATE ||
-    date > new Date()
+    strings.GARMIN_HISTORY_START_DATE &&
+    (!Number.isFinite(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== strings.GARMIN_HISTORY_START_DATE ||
+      date > new Date())
   )
     throw new Error(
       "History date must be a calendar date no later than today.",

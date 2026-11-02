@@ -160,7 +160,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
     },
   },
   "runGarminSync": {
-    "description": "Run a bounded local Garmin import/sync when the current user explicitly asks to sync/import/refresh Garmin data. Use at most once per turn. It writes only app-owned normalized SQLite rows and never writes back to Garmin.",
+    "description": "Run a bounded local Garmin import/sync when the current user explicitly asks to sync/import/refresh Garmin data. Use at most once per turn. Settled or budget/cancelled invocations can leave older history unresolved; report that uncertainty and never continue automatically. It writes only app-owned normalized SQLite rows and never writes back to Garmin.",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,

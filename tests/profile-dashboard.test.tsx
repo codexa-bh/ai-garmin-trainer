@@ -5841,6 +5841,28 @@ describe("TrainerDashboard transcript scrolling", () => {
       if (url === "/api/conversations/selection")
         return selectionResponse(init);
       if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/model-settings")
+        return jsonResponse({
+          version: 2,
+          options: [
+            {
+              id: "entry_scroll",
+              provider: "ollama",
+              modelId: "synthetic/scroll",
+              label: "ollama / synthetic/scroll",
+              available: true,
+            },
+          ],
+          selected: null,
+          defaultEntryId: "entry_scroll",
+          effective: {
+            entryId: "entry_scroll",
+            provider: "ollama",
+            modelName: "synthetic/scroll",
+            source: "env",
+            available: true,
+          },
+        });
       if (url.startsWith("/api/chat") && init?.method === "POST")
         return jsonResponse({ ...emptyChat, messages: responseMessages });
       if (
@@ -5871,6 +5893,9 @@ describe("TrainerDashboard transcript scrolling", () => {
           .disabled,
       ).toBe(false),
     );
+    await screen.findByRole("option", {
+      name: "Default · ollama / synthetic/scroll",
+    });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("Take an easy aerobic day.")).toBeTruthy();

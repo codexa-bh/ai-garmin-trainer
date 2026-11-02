@@ -1,3 +1,5 @@
+import { SyncPause, historyFailureClass } from "./history-policy";
+
 export function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -83,6 +85,11 @@ export function dailyHealthImportPlan(input: {
 }
 
 export function compactError(error: unknown): string {
+  if (
+    error instanceof SyncPause ||
+    ["auth", "rate-limit"].includes(historyFailureClass(error))
+  )
+    throw error;
   return (
     error instanceof Error ? error.message : "Garmin connector fetch failed"
   ).slice(0, 500);

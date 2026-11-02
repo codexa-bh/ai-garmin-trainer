@@ -21,6 +21,13 @@ const DIRECTORIES: [&str; 7] = [
     "tokens",
 ];
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HistorySetup {
+    CreateNew,
+    UseExisting,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Descriptor {
@@ -31,13 +38,15 @@ pub struct Descriptor {
     pub artifact_inventory_hash: String,
     pub control_port: u16,
     pub capability: String,
+    #[serde(default)]
+    pub history_setup: Option<HistorySetup>,
 }
 
 pub struct Admission {
     pub descriptor: Descriptor,
     pub boot: String,
     directories: Vec<private_store::PinnedDirectory>,
-    database: (u64, u64),
+    database: std::sync::Mutex<Option<(u64, u64)>>,
     descriptor_capture: (u64, u64, Vec<u8>),
     owner_capture: (u64, u64, Vec<u8>),
 }
@@ -86,6 +95,16 @@ impl Descriptor {
             return Err(DENIED);
         }
         Ok(())
+    }
+}
+
+pub fn wait_for_owner_loss(input: &mut impl Read) {
+    let mut byte = [0u8; 1];
+    loop {
+        match input.read(&mut byte) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            _ => return, // EOF, unexpected data or failure: stop only our own instance.
+        }
     }
 }
 
@@ -229,7 +248,18 @@ impl Admission {
         {
             return Err(DENIED);
         }
-        Self::admit(path, verify_artifact)
+        let admission = Self::admit(path, verify_artifact)?;
+        if admission.descriptor.history_setup.is_some() {
+            // History automation must retain a real ownership pipe, not a terminal,
+            // file, environment marker or stored parent PID.
+            let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+            if unsafe { libc::fstat(libc::STDIN_FILENO, metadata.as_mut_ptr()) } != 0
+                || unsafe { metadata.assume_init() }.st_mode & libc::S_IFMT != libc::S_IFIFO
+            {
+                return Err(DENIED);
+            }
+        }
+        Ok(admission)
     }
     fn admit(
         path: &Path,
@@ -261,28 +291,148 @@ impl Admission {
                 &descriptor.root.join(name),
             )?);
         }
-        let database = database_identity(&descriptor.root.join("trainer.sqlite"))?;
+        let missing_settings = Self::missing_settings_at(&descriptor.root);
+        let database_path = descriptor.root.join("trainer.sqlite");
+        let database = if matches!(descriptor.history_setup, Some(HistorySetup::CreateNew))
+            && missing_settings
+        {
+            if !matches!(fs::symlink_metadata(&database_path), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+            {
+                return Err(DENIED);
+            }
+            None
+        } else {
+            Some(database_identity(&database_path)?)
+        };
         artifact(&descriptor)?;
         let admission = Self {
             descriptor,
             boot: uuid::Uuid::new_v4().to_string(),
             directories,
-            database,
+            database: std::sync::Mutex::new(database),
             descriptor_capture,
             owner_capture,
         };
         admission.verify_settings()?;
         Ok(admission)
     }
-    pub fn settings(&self) -> PathBuf {
-        // Newest presence is authority, even if invalid; never select legacy v1.
-        let next = self.descriptor.root.join("config/settings-v3.json");
-        if !matches!(fs::symlink_metadata(&next), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
-        {
-            next
-        } else {
-            self.descriptor.root.join("config/settings-v2.json")
+    fn missing_settings_at(root: &Path) -> bool {
+        ["settings-v1.json", "settings-v2.json", "settings-v3.json"].iter().all(|name| {
+            matches!(fs::symlink_metadata(root.join("config").join(name)), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+        })
+    }
+    pub fn bind_created_database(
+        &self,
+        owned: &crate::onboarding::OwnedDatabase,
+    ) -> Result<(), &'static str> {
+        let path = self.descriptor.root.join("trainer.sqlite");
+        owned.verify(&path)?;
+        let mut identity = self.database.lock().map_err(|_| DENIED)?;
+        if !matches!(self.descriptor.history_setup, Some(HistorySetup::CreateNew)) {
+            return Err(DENIED);
         }
+        let current = database_identity(&path)?;
+        if identity.map(|prior| prior != current).unwrap_or(false) {
+            return Err(DENIED);
+        }
+        *identity = Some(current);
+        Ok(())
+    }
+    pub fn accepts_history_settings(&self, input: &settings::SaveInput) -> bool {
+        if self.descriptor.history_setup.is_none()
+            || self.confine(&input.fields).is_err()
+            || !input
+                .keys
+                .values()
+                .all(|intent| matches!(intent, settings::KeyUpdate::Unchanged))
+        {
+            return false;
+        }
+        let saved = if Self::missing_settings_at(&self.descriptor.root) {
+            settings::Settings::default()
+        } else {
+            match settings::load(&self.settings()) {
+                Ok(saved) => saved,
+                Err(_) => return false,
+            }
+        };
+        if !saved.keys.is_empty() {
+            return false;
+        }
+        let expected_catalog = if saved.version == 0 {
+            crate::chat_catalog::Catalog::default()
+        } else {
+            saved
+                .chat_catalog
+                .clone()
+                .unwrap_or_else(|| crate::chat_catalog::legacy(&saved.fields, &Default::default()))
+        };
+        if input.chat_catalog != expected_catalog {
+            return false;
+        }
+        let Ok(catalog) = serde_json::from_str::<Vec<serde_json::Value>>(include_str!(
+            "../ui/settings-fields.json"
+        )) else {
+            return false;
+        };
+        input.fields.iter().all(|(key, value)| {
+            if key == "DATABASE_PATH" {
+                return PathBuf::from(value) == self.descriptor.root.join("trainer.sqlite");
+            }
+            if key == "GARMIN_HISTORY_START_DATE" {
+                return value.is_empty() || value == "2024-01-01";
+            }
+            if key == "GARMIN_MCP_TOKEN_DIR" {
+                return value == saved.fields.get(key).map(String::as_str).unwrap_or("");
+            }
+            if let Some(expected) = saved.fields.get(key) {
+                return value == expected;
+            }
+            catalog
+                .iter()
+                .find(|field| field["key"].as_str() == Some(key.as_str()))
+                .map(|field| {
+                    let default = field
+                        .get("default")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| {
+                            field
+                                .get("options")
+                                .and_then(|v| v.as_array())
+                                .and_then(|v| v.first())
+                                .and_then(|v| v.as_str())
+                        })
+                        .unwrap_or("");
+                    value == default
+                })
+                .unwrap_or(false)
+        })
+    }
+    pub fn accepts_finish(&self, input: &crate::onboarding::FinishInput) -> bool {
+        if input
+            .settings
+            .fields
+            .get("GARMIN_HISTORY_START_DATE")
+            .map(|value| !value.is_empty())
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        matches!(
+            (&self.descriptor.history_setup, &input.selection),
+            (
+                Some(HistorySetup::CreateNew),
+                crate::onboarding::Selection::CreateNew
+            ) | (
+                Some(HistorySetup::UseExisting),
+                crate::onboarding::Selection::UseExisting
+            )
+        ) && self.accepts_history_settings(&input.settings)
+    }
+    pub fn settings(&self) -> PathBuf {
+        // Reuse the private-file owner: newest presence wins; genuine absence
+        // selects the current v3 destination. verify_settings still refuses v1.
+        settings::selected(&self.descriptor.root.join("config"))
     }
     pub fn identifier(&self) -> String {
         format!(
@@ -294,7 +444,17 @@ impl Admission {
         for directory in &self.directories {
             directory.verify()?;
         }
-        if database_identity(&self.descriptor.root.join("trainer.sqlite"))? != self.database
+        let identity = *self.database.lock().map_err(|_| DENIED)?;
+        let database_ok = match identity {
+            Some(expected) => {
+                database_identity(&self.descriptor.root.join("trainer.sqlite"))? == expected
+            }
+            None => {
+                matches!(self.descriptor.history_setup, Some(HistorySetup::CreateNew))
+                    && matches!(fs::symlink_metadata(self.descriptor.root.join("trainer.sqlite")), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+            }
+        };
+        if !database_ok
             || private_store::capture(&self.descriptor.root.join("launch.json"))?
                 != self.descriptor_capture
             || private_store::capture(&self.descriptor.root.join("owner"))? != self.owner_capture
@@ -340,8 +500,15 @@ impl Admission {
     }
     pub fn verify_settings(&self) -> Result<(), &'static str> {
         self.verify()?;
+        if self.descriptor.history_setup.is_some()
+            && Self::missing_settings_at(&self.descriptor.root)
+        {
+            return Ok(());
+        }
         let saved = settings::load(&self.settings())?;
-        if ![2, 3].contains(&saved.version) {
+        if ![2, 3].contains(&saved.version)
+            || (self.descriptor.history_setup.is_some() && !saved.keys.is_empty())
+        {
             return Err(DENIED);
         }
         self.confine(&saved.fields)
@@ -377,6 +544,75 @@ mod tests {
         let path = root.join("launch.json");
         write(path.clone(), serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"runId":id,"root":root,"sourceFingerprint":"a".repeat(64),"artifactInventoryHash":"b".repeat(64),"controlPort":23567,"capability":"c".repeat(64)})).unwrap());
         (root, path)
+    }
+    #[test]
+    fn owner_loss_is_bounded_and_does_not_need_a_saved_pid() {
+        use std::os::unix::net::UnixStream;
+        let (mut reader, owner) = UnixStream::pair().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            wait_for_owner_loss(&mut reader);
+            tx.send(()).unwrap();
+        });
+        drop(owner);
+        rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        thread.join().unwrap();
+        let mut unexpected_data = std::io::Cursor::new(vec![1u8; 4096]);
+        wait_for_owner_loss(&mut unexpected_data);
+        assert_eq!(unexpected_data.position(), 1); // No command parsing/unbounded buffering.
+    }
+    #[test]
+    fn missing_settings_and_fresh_database_need_exact_explicit_history_scope() {
+        let (root, path) = fixture();
+        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        assert!(Admission::admit(&path, |_| Ok(())).is_err());
+        let mut descriptor: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        descriptor["historySetup"] = serde_json::json!("use-existing");
+        fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
+        let existing = Admission::admit(&path, |_| Ok(())).unwrap();
+        assert!(existing.verify_settings().is_ok());
+        let newest = root.join("config/settings-v3.json");
+        assert_eq!(existing.settings(), newest);
+        let saved = serde_json::json!({"version":3,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")},"chatCatalog":crate::chat_catalog::Catalog::default()});
+        fs::write(&newest, serde_json::to_vec(&saved).unwrap()).unwrap();
+        fs::set_permissions(&newest, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(existing.verify_settings().is_ok());
+        fs::remove_file(&newest).unwrap();
+        let conflict = root.join("config/settings-v2.json");
+        fs::write(&conflict, serde_json::to_vec(&saved).unwrap()).unwrap();
+        fs::set_permissions(&conflict, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(existing.verify_settings().is_err()); // Filename/version guard remains binding.
+        fs::remove_file(conflict).unwrap();
+        drop(existing);
+        descriptor["historySetup"] = serde_json::json!("create-new");
+        fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
+        assert!(Admission::admit(&path, |_| Ok(())).is_err()); // Collision is not adoption.
+        fs::remove_file(root.join("trainer.sqlite")).unwrap();
+        let fresh = Admission::admit(&path, |_| Ok(())).unwrap();
+        let fields = BTreeMap::from([(
+            "DATABASE_PATH".into(),
+            root.join("trainer.sqlite").to_string_lossy().into_owned(),
+        )]);
+        let input = settings::SaveInput {
+            fields,
+            keys: Default::default(),
+            chat_catalog: Default::default(),
+            expected_revision: "missing".into(),
+        };
+        assert!(fresh.accepts_history_settings(&input));
+        let mut bad = input;
+        bad.fields
+            .insert("GARMIN_MCP_COMMAND".into(), "/external/command".into());
+        assert!(!fresh.accepts_history_settings(&bad));
+        bad.fields.remove("GARMIN_MCP_COMMAND");
+        bad.keys
+            .insert("OPENAI_API_KEY".into(), settings::KeyUpdate::Clear);
+        assert!(!fresh.accepts_history_settings(&bad));
+        fs::write(root.join("trainer.sqlite"), b"unbound external publication").unwrap();
+        assert!(fresh.verify().is_err()); // Only native OwnedDatabase can bind a new identity.
+        drop(fresh);
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn argument_intent_is_exact_and_never_falls_back() {

@@ -206,6 +206,76 @@ describe("independent dashboard feature ownership", () => {
     expect(result.current.trainingPlanEditing).toBe(false);
   });
 
+  it.each(["budget-limited", "cancelled"])(
+    "reports %s as a resumable pause, not a failed or all-history result",
+    async (outcome) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            `${JSON.stringify({ type: "result", status: outcome, detail: "History remains unknown; continue explicitly." })}\n`,
+          ),
+        )
+        .mockResolvedValueOnce(
+          response({ activities: 0, healthDays: 0, syncActive: false }),
+        );
+      vi.stubGlobal("fetch", fetch);
+      const refreshHealthAfterSync = vi.fn(async () => {});
+      const { result } = renderHook(() =>
+        useSyncFeature({
+          setStatus: vi.fn(),
+          refreshHealthAfterSync,
+          runAction: vi.fn(),
+        }),
+      );
+      await act(() => result.current.syncNow());
+      expect(result.current.syncRun.kind).toBe("paused");
+      expect(result.current.syncRun.failureSummary).toBeNull();
+      expect(result.current.syncRun.finalMessage).toContain(
+        "continue explicitly",
+      );
+      expect(
+        result.current.syncRun.lines.every((line) => line.severity === "info"),
+      ).toBe(true);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("uses live server ownership, not a stale interrupted outcome, to gate explicit continuation", async () => {
+    let active = true;
+    const fetch = vi.fn((url: string) =>
+      Promise.resolve(
+        url === "/api/summary"
+          ? response({
+              activities: 0,
+              healthDays: 0,
+              syncActive: active,
+              history: { outcome: "running" },
+            })
+          : new Response('{"type":"result","status":"completed"}\n'),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() =>
+      useSyncFeature({
+        setStatus: vi.fn(),
+        refreshHealthAfterSync: vi.fn(async () => {}),
+        runAction: vi.fn(),
+      }),
+    );
+    await act(() => result.current.loadImportSummary("startup", false));
+    await act(() => result.current.syncNow());
+    expect(
+      fetch.mock.calls.filter(([url]) => url === "/api/sync"),
+    ).toHaveLength(0);
+    active = false;
+    await act(() => result.current.refreshSummary());
+    await act(() => result.current.syncNow());
+    expect(
+      fetch.mock.calls.filter(([url]) => url === "/api/sync"),
+    ).toHaveLength(1);
+  });
+
   it("deduplicates sync starts and refreshes summary before the Health callback", async () => {
     const order: string[] = [];
     let finish!: (response: Response) => void;

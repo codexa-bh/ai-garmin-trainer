@@ -251,6 +251,7 @@ export function normalizeDailyHealth(
   const sleepMinutes = firstMinutesFromSecondsOrNull(
     sleep?.sleepTimeSeconds,
     sleep?.sleep_seconds,
+    sleep?.sleep_time_seconds,
   );
   const activeCalories = firstNonNegativeNumberOrNull(
     stats?.active_calories,
@@ -323,6 +324,7 @@ export function normalizeDailyHealth(
     steps: firstNumberOrNull(
       stats?.total_steps,
       stats?.totalSteps,
+      stats?.steps,
       payloads.steps,
     ),
     calories: totalCalories,
