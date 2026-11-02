@@ -51,7 +51,7 @@ beforeEach(async () => {
       };
     if (command === "read_onboarding") return { eligible: false };
     if (command === "save_settings")
-      return "Settings committed. Quit and reopen to apply; the running backend is unchanged.";
+      return "Settings committed. Live fields applied for subsequent operations; captured work is unchanged.";
     return "";
   });
   window.eval(readFileSync("src-tauri/ui/setup.js", "utf8"));
@@ -82,9 +82,7 @@ it("drives only actual Connect/later/cancel/Save controls without authentication
   );
   expect(controller.__trainerSetupSmoke("save").ok).toBe(true);
   await waitFor(() =>
-    expect(controller.__trainerSetupSmoke("observe").savedForNextLaunch).toBe(
-      true,
-    ),
+    expect(controller.__trainerSetupSmoke("observe").liveApplied).toBe(true),
   );
   const commands = invoke.mock.calls.map(([command]) => command);
   expect(commands).toContain("save_settings");
@@ -100,6 +98,75 @@ it("drives only actual Connect/later/cancel/Save controls without authentication
     ),
   ).toBe(false);
 });
+it.each(["liveCatalog", "liveRotate", "liveClear", "liveEmpty"])(
+  "uses only fixed synthetic %s form presets and never returns values",
+  async (action) => {
+    let submitted: Record<string, unknown> | undefined;
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "save_settings") submitted = structuredClone(args.input);
+      return original(command, args);
+    });
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+    expect(invoke.mock.calls.some(([name]) => name === "save_settings")).toBe(
+      false,
+    );
+    expect(controller.__trainerSetupSmoke("save").ok).toBe(true);
+    await waitFor(() =>
+      expect(controller.__trainerSetupSmoke("observe").liveApplied).toBe(true),
+    );
+    const payload = submitted as {
+      chatCatalog: {
+        entries: Array<{ provider: string; modelId: string }>;
+        defaultEntryId: string | null;
+      };
+      fields: Record<string, string>;
+      keys: Record<string, unknown>;
+    };
+    if (action === "liveCatalog") {
+      expect(
+        payload.chatCatalog.entries.find(
+          (entry: { provider: string }) => entry.provider === "openai",
+        )?.modelId,
+      ).toBe("Synthetic/Live:one");
+      expect(payload.chatCatalog.defaultEntryId).toBe("entry_legacy_openai");
+    }
+    if (action === "liveRotate")
+      expect(payload.fields.MEMORY_EMBEDDING_DIMS).toBe("2048");
+    for (const slot of [
+      "OPENAI_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "OPENROUTER_API_KEY",
+    ]) {
+      expect(payload.keys[slot]).toEqual(
+        action === "liveClear" || action === "liveEmpty"
+          ? { intent: "clear" }
+          : {
+              intent: "replace",
+              value: `T0257-synthetic-${slot}-${action === "liveCatalog" ? "one" : "two"}`,
+            },
+      );
+    }
+    if (action === "liveClear")
+      expect(payload.chatCatalog.entries).toHaveLength(3);
+    if (action === "liveEmpty")
+      expect(payload.chatCatalog.entries).toHaveLength(0);
+    expect(
+      JSON.stringify(controller.__trainerSetupSmoke("observe")),
+    ).not.toMatch(/synthetic|API_KEY|sqlite|Live:one/);
+    expect(controller.__trainerSetupSmoke("captureLive").ok).toBe(true);
+    expect(
+      getComputedStyle(document.getElementById("status")!).visibility,
+    ).toBe("visible");
+    expect(
+      getComputedStyle(document.getElementById("OPENAI_API_KEY")!).visibility,
+    ).toBe("hidden");
+    controller.__trainerSetupSmokeRestore();
+    document.getElementById("status")!.textContent += " private-sentinel";
+    expect(controller.__trainerSetupSmoke("captureLive").ok).toBe(false);
+  },
+);
+
 it("refuses private/arbitrary actions and never reads secrets, paths or copied text back", () => {
   for (const id of ["email", "password", "mfa", "OPENAI_API_KEY"])
     (document.getElementById(id) as HTMLInputElement).value =

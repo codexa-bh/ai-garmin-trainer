@@ -1,4 +1,6 @@
 import { weekly } from "../weekly/composition";
+import { getOptionalEnv, withConfiguration, type AppEnv } from "../env";
+import type { PreparedChatTurn } from "./turn";
 import { fallbackLlmDebugTrace } from "@/lib/ai/debug-trace";
 import { orchestrateTrainerChat } from "@/lib/ai/composition";
 import { selectedTrainerModel } from "@/lib/model-settings/composition";
@@ -45,12 +47,7 @@ const buildSystemContext = createChatContext({
     ),
 });
 
-export const {
-  prepareChatTurn,
-  generateChatTurn,
-  completeChatTurn,
-  completeConversationTitle,
-} = createChatTurns({
+const turns = createChatTurns({
   claimConversationTitle,
   finishConversationTitle,
   generateConversationTitle,
@@ -83,3 +80,27 @@ export const {
       });
   },
 });
+
+// Prepared work owns credentials through retrieval, answer ingestion and deferred
+// title completion even when delivery invokes those phases after a newer Save.
+// The WeakMap retains no transcript/configuration after the prepared turn dies.
+const admitted = new WeakMap<PreparedChatTurn, AppEnv>();
+export const prepareChatTurn: typeof turns.prepareChatTurn = (...args) => {
+  const env = getOptionalEnv();
+  const prepared = withConfiguration(env, () => turns.prepareChatTurn(...args));
+  admitted.set(prepared, env);
+  return prepared;
+};
+export const generateChatTurn: typeof turns.generateChatTurn = (...args) =>
+  withConfiguration(admitted.get(args[0]) ?? getOptionalEnv(), () =>
+    turns.generateChatTurn(...args),
+  );
+export const completeChatTurn: typeof turns.completeChatTurn = (...args) =>
+  withConfiguration(admitted.get(args[0]) ?? getOptionalEnv(), () =>
+    turns.completeChatTurn(...args),
+  );
+export const completeConversationTitle: typeof turns.completeConversationTitle =
+  (...args) =>
+    withConfiguration(admitted.get(args[0]) ?? getOptionalEnv(), () =>
+      turns.completeConversationTitle(...args),
+    );

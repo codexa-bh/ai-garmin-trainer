@@ -21,7 +21,7 @@ export function modelSettingsSnapshot(
       ...(!available
         ? {
             unavailableReason:
-              "Provider key is not configured. Update native Settings, quit and reopen.",
+              "Provider key is not configured. Save in native Settings and confirm live application; retry availability.",
           }
         : {}),
     };
@@ -51,11 +51,11 @@ export function modelSettingsSnapshot(
     : options.find((option) => option.id === identity);
   const available = Boolean(entry?.available);
   const reason = unresolved
-    ? "The preserved legacy or invalid preference cannot resolve exactly. Add its exact provider/model in Settings and restart, choose another entry, or reset explicitly."
+    ? "The preserved legacy or invalid preference cannot resolve exactly. Add its exact provider/model in Settings and confirm application, choose another entry, or reset explicitly."
     : !entry
       ? saved
         ? "The saved entry is no longer in the activated catalog. Choose another entry or reset explicitly."
-        : "No default chat model. Choose an entry, or configure the catalog/default in native Settings and restart."
+        : "No default chat model. Choose an entry, or save the catalog/default in native Settings and confirm application."
       : entry.unavailableReason;
   return {
     version: 2,

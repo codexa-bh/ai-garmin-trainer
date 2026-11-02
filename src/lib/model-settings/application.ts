@@ -35,7 +35,7 @@ export function createModelSettings(ports: {
     const id = body.modelId as string | null;
     if (id !== null && !modelSettingsSnapshot(id, config).effective.available)
       throw new ModelSettingsValidationError(
-        "That entry is absent or ineligible. Refresh the activated catalog; native edits require quit/reopen.",
+        "That entry is absent or ineligible. Refresh the activated catalog; confirm live application in native Settings.",
       );
     ports.writePreference(id ?? "");
     return snapshot(config);

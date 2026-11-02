@@ -98,6 +98,29 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("refreshes safe active metadata after native activation without preference writes or focus loss", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(response(snapshot()))
+    .mockResolvedValueOnce(response(snapshot(0)));
+  vi.stubGlobal("fetch", fetcher);
+  render(<Harness />);
+  await waitFor(() =>
+    expect(screen.queryByText("Loading model settings…")).toBeNull(),
+  );
+  const select = screen.getByRole("combobox", { name: "Trainer model" });
+  select.focus();
+  await act(() =>
+    window.dispatchEvent(new Event("trainer-live-settings-applied")),
+  );
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  await waitFor(() =>
+    expect(screen.getByText(/No configured entries/)).toBeTruthy(),
+  );
+  expect(document.activeElement).toBe(select);
+  expect(fetcher.mock.calls.every((call) => !call[1]?.method)).toBe(true);
+});
+
 it.each([4, 1, 0])(
   "projects a %s-entry catalog to eligible exact/disambiguated choices without a large card",
   async (count) => {

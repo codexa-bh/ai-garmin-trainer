@@ -2,6 +2,7 @@ import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   configuredSecret,
+  extractionConfiguration,
   getOptionalEnv,
   hasConfiguredSecret,
   type AppEnv,
@@ -279,15 +280,22 @@ export function selectedModel(env: AppEnv = getOptionalEnv()): SelectedAiModel {
 export function memoryExtractionSelection(env: AppEnv = getOptionalEnv()) {
   // Metadata only. Share selection with construction; never initialize an SDK
   // merely to disclose the active extraction boundary.
+  const active = extractionConfiguration(env);
   const extractionEnv: AppEnv =
-    env.AI_PROVIDER === "ollama" || env.AI_PROVIDER === "openrouter"
-      ? { ...env, AI_PROVIDER: "auto" }
-      : env;
+    active &&
+    (active.AI_PROVIDER === "ollama" || active.AI_PROVIDER === "openrouter")
+      ? { ...active, AI_PROVIDER: "auto" }
+      : (active ?? {
+          ...env,
+          OPENAI_API_KEY: undefined,
+          DEEPSEEK_API_KEY: undefined,
+        });
   return cloudProviderStatus(extractionEnv);
 }
 
 export function selectedMemoryExtractionModel(): SelectedAiModel | null {
-  const env = getOptionalEnv();
+  const env = extractionConfiguration(getOptionalEnv());
+  if (!env) return null;
   const extractionEnv: AppEnv =
     env.AI_PROVIDER === "ollama" || env.AI_PROVIDER === "openrouter"
       ? { ...env, AI_PROVIDER: "auto" }

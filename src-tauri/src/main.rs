@@ -5,6 +5,7 @@ mod chat_catalog;
 mod dev_bridge;
 mod isolated_run;
 mod keychain;
+mod live_settings;
 mod memory_status;
 mod onboarding;
 mod private_store;
@@ -29,6 +30,7 @@ struct Runtime {
     quitting: AtomicBool,
     status: Mutex<String>,
     settings_write: Mutex<()>,
+    live_unknown: AtomicBool,
     auth: Mutex<auth::Auth>,
     onboarding: Mutex<Option<onboarding::State>>,
     onboarding_id: Mutex<String>,
@@ -136,7 +138,9 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
         run.verify_settings()?;
     }
-    let mut snapshot = settings::activation(&settings_path(app)?)?;
+    let path = settings_path(app)?;
+    let startup_revision = settings::revision(&path)?;
+    let mut snapshot = settings::activation(&path)?;
     drop(_write); // Saves remain available during backend startup; activation is immutable.
     let result = supervisor::Service::start(
         &resources(app)?,
@@ -145,7 +149,9 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
         &runtime.onboarding_cancel,
     );
     snapshot.fill(0);
-    let service = result?;
+    let mut service = result?;
+    service.live.startup_revision = startup_revision.clone();
+    service.live.revision = startup_revision;
     let origin = format!("http://127.0.0.1:{}", service.port);
     let url = origin.parse().map_err(|_| "Owned origin invalid.")?;
     let expected = origin.clone();
@@ -251,16 +257,26 @@ async fn read_settings(
     setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
-        let running = runtime
-            .service
-            .try_lock()
-            .map(|guard| guard.is_some())
-            .unwrap_or(true);
+        let mut service = runtime.service.try_lock().ok();
+        let running = service.as_ref().map(|guard| guard.is_some()).unwrap_or(true);
         let _write = runtime
             .settings_write
             .lock()
             .map_err(|_| "Settings ownership unavailable.")?;
-        settings::snapshot(&settings_path(&app)?, running)
+        let path = settings_path(&app)?;
+        let mut snapshot = settings::snapshot(&path, running)?;
+        if let Some(service) = service.as_mut().and_then(|guard| guard.as_mut()) {
+            if service.reconcile_live() {
+                runtime.live_unknown.store(false, Ordering::SeqCst);
+                snapshot.activation = format!("{}{}", if service.live.revision == snapshot.revision {
+                    "Saved live revision is active for subsequent operations."
+                } else { "Saved live revision is not active; no automatic retry. Explicit reopen can apply saved settings." },
+                if service.live.startup_fields != snapshot.fields { " Other saved settings are pending explicit quit/reopen." } else { "" });
+            }
+        } else if service.is_some() {
+            snapshot.activation = "Owned backend not running; saved settings apply on explicit reopen.".into();
+        }
+        Ok(snapshot)
     })
     .await
     .map_err(|_| "Settings read interrupted.".to_string())?
@@ -318,21 +334,52 @@ async fn save_settings(
                 "Use Finish for this first-run session. Ordinary saves never launch a backend.",
             );
         }
-        let _write = runtime
-            .settings_write
-            .lock()
-            .map_err(|_| "Settings ownership unavailable.")?;
-        if runtime.quitting.load(Ordering::SeqCst) {
-            return Err("App is quitting.");
+        // Same order as launch: service before settings. Never wait for startup.
+        let mut service = runtime.service.try_lock().ok();
+        let _write = runtime.settings_write.lock().map_err(|_| "Settings ownership unavailable.")?;
+        if runtime.quitting.load(Ordering::SeqCst) { return Err("App is quitting."); }
+        if runtime.live_unknown.load(Ordering::SeqCst) {
+            let reconciled = service.as_mut().and_then(|guard| guard.as_mut()).map(|owned| owned.reconcile_live()).unwrap_or(false);
+            if !reconciled { return Err("Previous live outcome remains unknown. Reload to reconcile or explicitly quit/reopen before another Save; no retry performed."); }
+            runtime.live_unknown.store(false, Ordering::SeqCst);
         }
         let fields = settings::validate(&resources(&app)?, &input.fields)?;
         if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
             run.confine(&fields)?;
         }
-        settings::save(
-            &settings_path(&app)?,
-            settings::SaveInput { fields, ..input },
-        )
+        if runtime.quitting.load(Ordering::SeqCst) { return Err("App is quitting; no new Save committed."); }
+        let committed = settings::save(&settings_path(&app)?, settings::SaveInput { fields, ..input })?;
+        // Re-resolve v3 after an explicit v2 migration. Keep the write lock until
+        // the exact committed authority has been projected and acknowledged.
+        let result = (|| {
+            let path = settings_path(&app)?;
+            let revision = settings::revision(&path)?;
+            let saved = settings::load(&path)?;
+            if settings::revision(&path)? != revision { return Err("Committed authority changed during projection."); }
+            if runtime.quitting.load(Ordering::SeqCst) { return Ok(" Saved; live fields not applied because the app is quitting.".to_string()); }
+            let Some(owned) = service.as_mut().and_then(|guard| guard.as_mut()) else {
+                return Ok(" Saved; live fields not applied: owned backend absent or busy. No start/restart or retry performed.".to_string());
+            };
+            let pending = if owned.live.pending_restart(&saved) { " Other saved settings are pending explicit quit/reopen." } else { "" };
+            let outcome = match owned.apply_live(&saved, &revision) {
+                Ok(()) => {
+                    runtime.live_unknown.store(false, Ordering::SeqCst);
+                    // Fixed secret-free notification. Trainer receives no native IPC
+                    // authority; its existing metadata owner performs the safe read.
+                    if let Some(trainer) = app.get_webview_window("trainer") {
+                        let _ = trainer.eval("window.dispatchEvent(new Event('trainer-live-settings-applied'));");
+                    }
+                    " Live fields applied for subsequent operations; captured work is unchanged."
+                },
+                Err(live_settings::Failure::Unapplied) => " Saved; live fields not applied. Reload to reconcile, or explicitly quit/reopen; no automatic retry.",
+                Err(live_settings::Failure::Unknown) => {
+                    runtime.live_unknown.store(true, Ordering::SeqCst);
+                    " Saved; live outcome unknown/unconfirmed. Reload to reconcile exact active state before another Save; no automatic retry."
+                },
+            };
+            Ok::<String, &'static str>(format!("{outcome}{pending}"))
+        })();
+        Ok(format!("{committed}{}", result.unwrap_or_else(|_| " Saved; committed state retained, live outcome unknown. Reload before another action; no rollback or retry.".into())))
     })
     .await
     .map_err(|_| "Settings save interrupted.".to_string())?

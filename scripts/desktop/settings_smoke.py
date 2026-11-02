@@ -1,6 +1,7 @@
 """Nonactivating keyless native Settings smoke; no credential input, auth or general controller."""
 import argparse
 import contextlib
+import http.client
 import json
 import os
 import signal
@@ -20,11 +21,78 @@ def wait_settings(run, predicate, label):
     raise TimeoutError('Settings observation deadline: ' + label)
 
 
+def model_settings(run, model_id=None, write=False):
+    if not run.origin or not run.origin.startswith('http://127.0.0.1:'):
+        raise ValueError('Exact owned backend origin required')
+    client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
+    try:
+        body = json.dumps({'modelId': model_id}) if write else None
+        client.request('PATCH' if write else 'GET', '/api/model-settings', body, {'Content-Type': 'application/json'})
+        response = client.getresponse()
+        raw = response.read(32769)
+        if response.status != 200 or len(raw) > 32768:
+            raise ValueError('Owned model metadata request failed/bounded')
+        value = json.loads(raw)
+        if value.get('version') != 2 or not isinstance(value.get('options'), list):
+            raise ValueError('Owned model metadata schema')
+        return value
+    finally:
+        client.close()
+
+
+def live_scenario(run, captures):
+    before = run.http('/identity')
+    if not isinstance(before.get('backendPid'), int):
+        raise ValueError('Exact owned backend PID required')
+    model_settings(run, 'entry_legacy_ollama', write=True)
+    observations = []
+    for action in ['liveCatalog', 'liveRotate', 'liveClear', 'liveEmpty']:
+        run.command({'type': 'settings', 'action': action})
+        run.command({'type': 'settings', 'action': 'save'})
+        observed = wait_settings(run, lambda value: value['liveApplied'], 'exact native live ack: ' + action)
+        active = model_settings(run)
+        saved = json.loads((run.root / 'config/settings-v3.json').read_text())
+        if action in ['liveCatalog', 'liveRotate']:
+            suffix = 'one' if action == 'liveCatalog' else 'two'
+            if saved['keys'] != {slot: 'T0257-synthetic-' + slot + '-' + suffix for slot in ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY']}:
+                raise ValueError('Synthetic complete-key projection mismatch')
+            if not all(option['available'] for option in active['options']):
+                raise ValueError('New fixed synthetic credentials not visible to compiled Next route')
+            if active['effective']['entryId'] != 'entry_legacy_ollama' or active['selected'] != 'entry_legacy_ollama':
+                raise ValueError('Native default change rewrote explicit preference')
+            if next(option for option in active['options'] if option['provider'] == 'openai')['modelId'] != 'Synthetic/Live:one':
+                raise ValueError('Compiled Next route retained startup catalog')
+            if action == 'liveRotate':
+                if not observed['pendingRestart'] or saved['fields']['MEMORY_EMBEDDING_DIMS'] != '2048':
+                    raise ValueError('Mixed restart-only settings feedback missing')
+                model_settings(run, 'entry_legacy_openai', write=True)
+        else:
+            if saved['keys'] or active['defaultEntryId'] is not None or active['effective']['available'] or active['selected'] != 'entry_legacy_openai':
+                raise ValueError('Clear/deletion silently retained keys/default or remapped preference')
+            if action == 'liveClear' and (len(active['options']) != 3 or any(option['available'] for option in active['options'] if option['provider'] != 'ollama')):
+                raise ValueError('Cleared cloud credentials remained eligible')
+            if action == 'liveEmpty' and active['options']:
+                raise ValueError('Explicit empty catalog not active')
+        after = run.http('/identity')
+        if any(before[key] != after[key] for key in ['pid', 'backendPid', 'origin', 'database']):
+            raise ValueError('Live Save restarted/switched owned backend')
+        captures.append({'scenario': action + '-acknowledged-feedback', **run.command({'type': 'settings', 'action': 'captureLive'})})
+        observations.append({'preset': action, 'liveApplied': True, 'pendingRestart': observed['pendingRestart'], 'backendPidUnchanged': True, 'compiledNextUptake': True})
+    model_settings(run, write=True)  # Explicit reset, not native preference mutation.
+    run.command({'type': 'settings', 'action': 'stopBackend'})
+    run.command({'type': 'settings', 'action': 'save'})
+    wait_settings(run, lambda value: value['savedUnapplied'], 'backend absent: saved not applied, no hidden start')
+    if run.http('/identity')['backendPid'] is not None:
+        raise ValueError('Save unexpectedly started a backend')
+    return observations
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--input-file', required=True)
     parser.add_argument('--resources-ready', action='store_true')
+    parser.add_argument('--live-settings', action='store_true', help='Finite synthetic catalog/default/key rotation/clear and absent-backend scenario; no provider calls')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
@@ -62,7 +130,7 @@ def main():
         run.command({'type': 'settings', 'action': 'cancel'})
         wait_settings(run, lambda o: o['ready'] and not o['formVisible'], 'Cancel reconciles saved state')
         run.command({'type': 'settings', 'action': 'save'})
-        wait_settings(run, lambda o: o['savedForNextLaunch'], 'native Save committed next-launch-only')
+        wait_settings(run, lambda o: o['liveApplied'], 'native Save committed and live fields acknowledged')
         after = run.http('/identity')
         if any(before[key] != after[key] for key in ['pid', 'origin', 'database']):
             raise ValueError('Ordinary Save switched active backend or DB')
@@ -73,6 +141,8 @@ def main():
             raise ValueError('Fixed keyless catalog defaults changed')
         if saved['keys'] or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
             raise ValueError('Saved settings escaped keyless copy scope')
+        if args.live_settings:
+            receipt['liveSettings'] = live_scenario(run, captures)
         run.command({'type': 'settings', 'action': 'close'})
         run.stop()
         run.start(binary)

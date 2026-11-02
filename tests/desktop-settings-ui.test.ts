@@ -43,6 +43,7 @@ beforeEach(async () => {
           defaultEntryId: "entry_existing",
         },
         revision: "revision-one",
+        activation: "Saved live revision is active for subsequent operations.",
         fields: {
           DATABASE_PATH: "/private/test-only.sqlite",
           AI_PROVIDER: "openai",
@@ -57,7 +58,7 @@ beforeEach(async () => {
       };
     if (command === "setup_status") return "";
     if (command === "save_settings")
-      return "Saved for next launch; backend unchanged.";
+      return "Settings committed. Live fields applied for subsequent operations; captured work is unchanged. Other saved settings are pending explicit quit/reopen.";
     if (command === "start_auth")
       return { id: "session-one", state: "needs-mfa" };
     if (command === "submit_mfa")
@@ -140,18 +141,21 @@ describe("trusted local desktop settings UI", () => {
       );
     },
   );
-  it("does not reintroduce duplicate storage narration after Save and reload", async () => {
+  it("reports live application separately from pending restart after Save and reload", async () => {
     fireEvent.submit(document.getElementById("settings")!);
     await waitFor(() =>
       expect(document.getElementById("status")?.textContent).toContain(
-        "backend unchanged",
+        "Live fields applied for subsequent operations",
       ),
     );
     expect(document.getElementById("storage-status")?.textContent).toBe("");
+    expect(document.getElementById("status")?.textContent).toContain(
+      "pending explicit quit/reopen",
+    );
     fireEvent.click(document.getElementById("cancel")!);
     await waitFor(() =>
       expect(document.getElementById("status")?.textContent).toContain(
-        "Changes require explicit quit/reopen",
+        "Edits cancelled.",
       ),
     );
     expect(document.getElementById("storage-status")?.textContent).toBe("");
@@ -235,7 +239,7 @@ describe("trusted local desktop settings UI", () => {
     expect(sent.fields.AI_MODEL).toBe("gpt-6-luna");
     await waitFor(() =>
       expect(document.getElementById("status")?.textContent).toContain(
-        "backend unchanged",
+        "Live fields applied for subsequent operations",
       ),
     );
     fireEvent.change(screen.getByLabelText("Default chat model (optional)"), {
@@ -293,7 +297,7 @@ describe("trusted local desktop settings UI", () => {
     await waitFor(() => expect(input("OPENAI_API_KEY").value).toBe(""));
     await waitFor(() =>
       expect(document.getElementById("status")?.textContent).toContain(
-        "backend unchanged",
+        "Live fields applied for subsequent operations",
       ),
     );
     expect(invoke).not.toHaveBeenCalledWith("start_auth", expect.anything());

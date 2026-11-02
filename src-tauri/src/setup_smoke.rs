@@ -23,6 +23,12 @@ pub enum Action {
     Cancel,
     Capture,
     CaptureIntro,
+    LiveCatalog,
+    LiveRotate,
+    LiveClear,
+    LiveEmpty,
+    CaptureLive,
+    StopBackend,
     Close,
 }
 #[derive(Deserialize, Serialize)]
@@ -33,7 +39,11 @@ struct Observation {
     form_visible: bool,
     manual_controls_absent: bool,
     not_connected: bool,
-    saved_for_next_launch: bool,
+    saved: bool,
+    live_applied: bool,
+    live_unknown: bool,
+    saved_unapplied: bool,
+    pending_restart: bool,
 }
 struct Document {
     loaded: Arc<AtomicBool>,
@@ -60,7 +70,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,saved:false,liveApplied:false,liveUnknown:false,savedUnapplied:false,pendingRestart:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -157,15 +167,37 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         }
         return Err("Foreign or not-yet-loaded Settings document".into());
     }
+    if matches!(action, Action::StopBackend) {
+        config.validate()?;
+        let runtime = app.state::<crate::Runtime>();
+        runtime
+            .service
+            .try_lock()
+            .map_err(|_| "Owned backend busy")?
+            .take();
+        return Ok(json!({"ok":true}));
+    }
     if matches!(action, Action::Close) {
         window.close().map_err(|_| "Settings close refused")?;
         return Ok(json!({"ok":true}));
     }
-    if matches!(action, Action::Save) {
+    if matches!(
+        action,
+        Action::Save
+            | Action::LiveCatalog
+            | Action::LiveRotate
+            | Action::LiveClear
+            | Action::LiveEmpty
+    ) {
         config.validate()?;
     }
-    if matches!(action, Action::Capture | Action::CaptureIntro) {
-        let boundary = if matches!(action, Action::CaptureIntro) {
+    if matches!(
+        action,
+        Action::Capture | Action::CaptureIntro | Action::CaptureLive
+    ) {
+        let boundary = if matches!(action, Action::CaptureLive) {
+            "masked fixed safe Settings live-application feedback only; no form/keys/paths; debug synthetic DOM evidence"
+        } else if matches!(action, Action::CaptureIntro) {
             "geometry-preserving masked actual static Settings introduction; debug only, not ordinary or trusted input"
         } else {
             "sanitized actual Garmin Settings subtrees; not full-window layout or trusted input"

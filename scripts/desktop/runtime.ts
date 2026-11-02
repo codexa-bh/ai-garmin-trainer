@@ -12,6 +12,8 @@ import {
   validateSettings,
 } from "./settings";
 import { freshDatabase } from "./initialize";
+import { initializeLiveConfiguration } from "../../src/lib/env";
+import { serveLiveSettings } from "./live-settings";
 
 const protocol = process.stdout.write.bind(process.stdout);
 const report = (value: object) => protocol(`${JSON.stringify(value)}\n`);
@@ -83,6 +85,13 @@ async function main(): Promise<void> {
   const server = createServer((request, response) => {
     if (!acceptsDesktopRequest(request.headers, origin)) {
       response.writeHead(403).end("Desktop origin refused.");
+      return;
+    }
+    if (request.url === "/__desktop/live-settings") {
+      serveLiveSettings(request, response, nonce, () => ready).catch(() => {
+        if (!response.headersSent) response.writeHead(503);
+        response.end();
+      });
       return;
     }
     if (request.url === "/__desktop/ready") {
@@ -171,6 +180,7 @@ async function main(): Promise<void> {
     throw new Error("No owned listener.");
   origin = `http://127.0.0.1:${address.port}`;
   process.env.NEXT_PUBLIC_APP_URL = origin;
+  initializeLiveConfiguration(nonce);
   stage = "database-ownership";
   // Exercise the real production composition/DB owner before readiness. This
   // acquires the shared source/desktop lease and catches late admission races.

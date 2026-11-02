@@ -837,7 +837,7 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
     if path == "/identity" {
         return (
             200,
-            json!({"schemaVersion":1,"runId":state.config.run_id,"source":state.config.source,"appIdentity":app.config().identifier,"pid":std::process::id(),"origin":*state.origin.lock().unwrap(),"database":state.config.root.join("trainer.sqlite"),"buildMode":if cfg!(debug_assertions){"debug"}else{"release"},"artifactKind":if state.config.ordinary.is_some(){"ordinary"}else{"debug"},"launchMode":"isolated","controlContract":crate::isolated_run::CONTRACT,"boot":state.config.boot(),"artifactInventoryHash":state.config.ordinary.as_ref().map(|a| &a.descriptor.artifact_inventory_hash),"rendererDiagnostic":renderer_diagnostic(app)}),
+            json!({"schemaVersion":1,"runId":state.config.run_id,"source":state.config.source,"appIdentity":app.config().identifier,"pid":std::process::id(),"backendPid":app.state::<crate::Runtime>().service.try_lock().ok().and_then(|guard| guard.as_ref().map(|service| service.pid())),"origin":*state.origin.lock().unwrap(),"database":state.config.root.join("trainer.sqlite"),"buildMode":if cfg!(debug_assertions){"debug"}else{"release"},"artifactKind":if state.config.ordinary.is_some(){"ordinary"}else{"debug"},"launchMode":"isolated","controlContract":crate::isolated_run::CONTRACT,"boot":state.config.boot(),"artifactInventoryHash":state.config.ordinary.as_ref().map(|a| &a.descriptor.artifact_inventory_hash),"rendererDiagnostic":renderer_diagnostic(app)}),
         );
     }
     let request: Request = match serde_json::from_slice(body) {
