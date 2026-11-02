@@ -5843,7 +5843,7 @@ describe("TrainerDashboard transcript scrolling", () => {
       if (url === "/api/profile") return jsonResponse(profile([]));
       if (url === "/api/model-settings")
         return jsonResponse({
-          version: 2,
+          version: 3,
           options: [
             {
               id: "entry_scroll",
@@ -5853,15 +5853,9 @@ describe("TrainerDashboard transcript scrolling", () => {
               available: true,
             },
           ],
-          selected: null,
-          defaultEntryId: "entry_scroll",
-          effective: {
-            entryId: "entry_scroll",
-            provider: "ollama",
-            modelName: "synthetic/scroll",
-            source: "env",
-            available: true,
-          },
+          selected: "entry_scroll",
+          status: "selected",
+          available: true,
         });
       if (url.startsWith("/api/chat") && init?.method === "POST")
         return jsonResponse({ ...emptyChat, messages: responseMessages });
@@ -5894,7 +5888,7 @@ describe("TrainerDashboard transcript scrolling", () => {
       ).toBe(false),
     );
     await screen.findByRole("option", {
-      name: "Default · ollama / synthetic/scroll",
+      name: "ollama / synthetic/scroll",
     });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
