@@ -22,7 +22,7 @@ Native admits strict schema-v1 descriptor/source/resource/artifact identity befo
 
 Two authenticated release-native/source/artifact/boot/selected-copy identities and actual hydrated renderer round trips precede navigation, synthetic Goals save and owned restart/persistence. Cross-run, browser, wrong boot, duplicate and private-control rejection are exercised. Capture covers fixed Trainer/Sync/Profile views at wide 1280×850 and narrow 420×850 logical viewports. Masks hide everything by default and reveal only reviewed static labels/controls and this run's saved synthetic Goals. Geometry is preserved: no Profile repositioning or resize/reflow is used. Restoration is unconditional with a bounded renderer expiry. PNGs are local-only, not uploaded; **read/inspect every required image** and record what it verifies. Blank masked areas conceal transcripts, copied facts, paths, diagnostics and private inputs. This is redacted layout evidence, not full unmodified-window or trusted OS-input certification.
 
-The baseline is keyless. No real provider/Garmin success is implied; separately provisioned run-native settings and explicit token copies are required for available real integration checks through the verified owned backend. Never read back keys, copy normal settings, generate env files or automate sign-in/MFA. Existing debug, quick and release-probe regressions remain independent. Focus is sampled every 10ms without activation/restoration; absence of a live operator instance must be disclosed, not manufactured. Only live child handles authorize shutdown; verify native reaping, backend/control endpoints and DB/run lease settlement. Copies/Goals stay task-attributed until scratch expiry; no primary mutation/copy-back or worktree disposal.
+The baseline is keyless. No real provider/Garmin success is implied; separately provisioned run-native settings and explicit token copies are required for available real integration checks through the verified owned backend. Never read back keys, copy normal settings, generate env files or automate sign-in/MFA. Existing debug, quick and release-probe regressions remain independent. Focus is sampled every 10ms without activation/restoration; absence of a live operator instance must be disclosed, not manufactured. Only live child handles authorize shutdown; verify native reaping, backend/control endpoints and DB/run lease settlement. Copies/Goals are task-attributed and subject to [evidence-first owned disposal](#preparation-reuse-and-owned-disposal); no primary mutation/copy-back or worktree disposal.
 
 ## Bounded ordinary history setup and copied-token Sync
 
@@ -171,7 +171,7 @@ npm run smoke:native -- --scratch "$scratch" --task-id T0252
 
 See [local smoke inputs](smoke-inputs.md) for recorded UTC anchor, no-launch preparation and optional exact private standing/one-off authority. No personal-input selection or repeated ticket-only consent is required for the synthetic route.
 
-The command assembles production Next/Node resources and builds a debug native host under a worktree-local preparation lock. It hashes tracked, staged/unstaged and untracked nonignored source inputs and refuses changes during preparation/execution. Build/test caches are worktree-local; never share mutable state across worktrees. It copies the prepared executable to scratch and uses it for two simultaneous uniquely owned native instances. A run directory/endpoint is never reused or stolen. `--prepare-only` exercises private online-backup/provenance preparation with **zero launches**; it is not smoke success.
+The command prepares production Next/Node resources and a debug native host under a worktree-local preparation lock, reusing only [verified compatible preparation](#preparation-reuse-and-owned-disposal). It hashes tracked, staged/unstaged and untracked nonignored source inputs and refuses changes during preparation/execution. Build/test caches are worktree-local; never share mutable state across worktrees. It copies the prepared executable to scratch and uses it for two simultaneous uniquely owned native instances. A run directory/endpoint is never reused or stolen. `--prepare-only` exercises private online-backup/provenance preparation with **zero launches**; it is not smoke success.
 
 The runner:
 
@@ -203,7 +203,7 @@ Provider masks additionally reveal shared password fields only in independently 
 
 `captureIntro` reveals only the verified static Settings H1 and two approved introductory paragraphs at their unchanged geometry; unexpected text, nested elements, hidden/overflowing notices or an ineffective privacy mask refuse. Every other element (including status, paths and all form values) is hidden. The mask restores on native success/failure and independently expires after five seconds. The runner captures the intro initially and after Save/restart; this proves only debug keyless existing-installation copy, not ordinary/default Settings, first-run or trusted input. It accepts no selector/value/text input or private readback and retains exact debug-run/window/document admission and closed native boolean completion.
 
-Garmin captures scroll the **actual consolidated Garmin fieldset** into view without repositioning/reflowing its subtree. `captureWide` and `captureNarrow` use fixed native 1000×1000 and 420×1000 logical viewports; legacy `capture` uses the current viewport. A hide-by-default mask reveals only verified static connection text/buttons, empty-form labels and the collapsed privacy summary; input values, auth result/status and all other state remain hidden. Unexpected text/nesting, expanded disclosure, ineffective masks or out-of-viewport geometry refuse. These prove only masked section geometry, not full-window layout, successful login, ordinary Settings or trusted input. Native restores sanitization/viewport after success/failure; the mask also expires after five seconds. Read/inspect images and record local helper evidence; never upload. Online copies/settings/logs/images are task-attributed and expiry-deferred, originals fingerprint-verified, with no primary mutation/copy-back. Real login/MFA remains privately operator-entered only in a separately arranged safe native window; this controller cannot exercise it.
+Garmin captures scroll the **actual consolidated Garmin fieldset** into view without repositioning/reflowing its subtree. `captureWide` and `captureNarrow` use fixed native 1000×1000 and 420×1000 logical viewports; legacy `capture` uses the current viewport. A hide-by-default mask reveals only verified static connection text/buttons, empty-form labels and the collapsed privacy summary; input values, auth result/status and all other state remain hidden. Unexpected text/nesting, expanded disclosure, ineffective masks or out-of-viewport geometry refuse. These prove only masked section geometry, not full-window layout, successful login, ordinary Settings or trusted input. Native restores sanitization/viewport after success/failure; the mask also expires after five seconds. Read/inspect images and record local helper evidence; never upload. Online copies/settings/logs/images are task-attributed under the [owned-disposal contract](#preparation-reuse-and-owned-disposal), originals fingerprint-verified, with no primary mutation/copy-back. Real login/MFA remains privately operator-entered only in a separately arranged safe native window; this controller cannot exercise it.
 
 ## Finite Daily Health comparison scenario
 
@@ -252,7 +252,7 @@ It drives only Profile & data Goals save through the ordinary UI, quits/relaunch
 the same owned state and asserts persistence plus unchanged other Profile fields.
 It retains authenticated source/native/backend/hydrated renderer and shutdown
 receipts. Existing sentinel protocol is reused; no new native command or production
-bypass is added. Seed/copy Goals are CI synthetic and expire with scratch/runner.
+bypass is added. Seed/copy Goals are CI synthetic and follow [owned disposal](#preparation-reuse-and-owned-disposal); retained diagnostics expire with scratch/runner.
 
 One instance, no capture, full navigation matrix, parallel/security/release suite,
 real integrations or trusted native input. Missing/aliased/reused/escaping scratch
@@ -347,9 +347,53 @@ This inventories every file in the **actual ordinary bundled `.app`**, requires 
 
 **Static audit plus launch-only-instrumented release denial is not ordinary-artifact launch.** Use `smoke:ordinary` for admitted unmodified outside-checkout ordinary-artifact evidence. Default no-argument app behavior still uses the focus-taking singleton and normal settings, and remains independent: never launch it against an operator singleton/config/primary data merely for certification. Native admission/default-routing regression tests do not claim a live ordinary-default UI certificate. Manual private settings/auth evidence still needs an explicitly arranged noninterfering operator window. Source delivery grants no signing/install/release/primary restart.
 
+## Preparation reuse and owned disposal
+
+The existing Python runner family shares small local preparation/disposal helpers,
+not a global cache, scheduler or fixture service. `desktop:resources` and
+`desktop:build` still perform their full documented builds. Smoke preparation may
+skip resource/Cargo requests only under the worktree preparation flock with an
+exact source-byte identity (including dirty/deleted/nonignored untracked files),
+installed dependency bytes, relevant build environment, toolchain and mode key,
+complete verified resource inventory and saved native executable hash. Debug and
+release-probe stamps are distinct. Corrupt/incomplete/changed inputs rebuild or
+refuse; explicit `--resources-ready` mismatch still refuses, never falls back.
+Swift observer compilation is reused only for verified source/compiler/SDK bytes.
+Build logs and `build-reuse-*.json` record each hit/miss and artifact hashes; a
+Cargo request is not itself proof that Cargo compiled anything.
+
+Every invocation retains separate writable DB/settings/WebView/native namespaces,
+independent execution copies and unmodified outside-checkout ordinary bundles.
+No mutable build/app/DB state is shared across worktrees. Build reuse is not a
+substitute for required final validation or actual ordinary/debug/probe smoke.
+
+Only newly exclusive allocations enrolled in the live invocation's in-memory
+ledger can be disposed: run DB copies, owned preparation/seed DBs, execution copies
+and sealed prelaunch bundle inventories. All scenario/restart/denial/inventory,
+owned native/backend/observer reaping and endpoint/writer/run-lease settlement,
+original/input preservation and final compact receipt checks finish first.
+Intermediate `Run.stop()` never deletes restart inputs. Descriptor-relative
+no-follow identity/inventory checks and private quarantine/reverification refuse
+replaced parents/objects, links/hardlinks, mixed/foreign content and unsettled
+leases/unknown sidecars. Only verified read-only **probe-copy** directories may be
+made writable for disposal; originals are never chmodded.
+
+`resource-disposition-*.json` records exact artifact paths/counts/bytes and removed
+or retained outcomes. Keep this receipt alongside the scenario receipt: scenario
+success alone does not certify successful disposal. Required PNGs, logs, compact
+provenance/identity/diagnostics and run roots survive. Dynamic WebView/home state
+and unregistered sidecars are not adopted for recursive deletion. Failed,
+interrupted, timed-out/unknown, partially constructed or preservation/shutdown/
+receipt-failed invocations retain allocations for diagnosis and preserve the
+original exception; cleanup failure stays nonzero with its own retained receipt.
+`--prepare-only`, standalone `smoke:prepare` and borrowed selections retain their
+promised consumable outputs. Consuming a borrowed preparation never grants its
+deletion. There is no historical sweep, timestamp policy, private-original,
+worktree/alias or accepted-output cleanup authority.
+
 ## Evidence and recovery
 
-Keep original failed logs/observations alongside later repairs. Each private run retains provenance, native/readiness/failure/observation/scenario/restart/shutdown records and screenshots; the task receipt records original integrity and focus-sampling limits. Profile sentinels exist only in task-owned populated copies and are intentionally deferred to scratch expiry; never copy back. Schema/back-sync is a verified no-op for this finite local preparation seam, not a durable fixture system. See [developer process](developer-process.md) and the epic runbook.
+Keep original failed logs/observations alongside later repairs. Each private run retains provenance, native/readiness/failure/observation/scenario/restart/shutdown records and screenshots; the task receipt records original integrity and focus-sampling limits. Profile sentinels exist only in task-owned populated copies; apply [owned disposal](#preparation-reuse-and-owned-disposal), never copy back. Schema/back-sync is a verified no-op for this finite local preparation seam, not a durable fixture system. See [developer process](developer-process.md) and the epic runbook.
 
 Use `npm run smoke:test`, focused DOM tests and `npm run desktop:test:native` for cheap boundary regressions, then the normal aggregate/reliability/build/native gates and current real smoke. Do not repeatedly rebuild/rerun unchanged heavy inputs to wait for hosted CI. Recurring CI runs only the separately documented synthetic quick scenario, not this full private populated-copy/release suite.
 
