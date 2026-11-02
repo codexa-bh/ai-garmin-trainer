@@ -181,8 +181,10 @@
           ).scrollIntoView({ block: "start" });
           for (const el of document.body.querySelectorAll("*"))
             if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+          // The closed database-operation labels are public too. Hiding option
+          // children can make WebKit snapshots paint a stale first-option label.
           for (const el of document.querySelectorAll(
-            "h1, #wizard, #wizard p, #data-step legend, #data-step label, #database-selection, #advanced-settings > summary, #history-options, #history-options *, #review h2, #save, #back, #next, #cancel",
+            "h1, #wizard, #wizard p, #data-step legend, #data-step label, #database-selection, #database-selection option, #advanced-settings > summary, #history-options, #history-options *, #review h2, #save, #back, #next, #cancel",
           )) {
             if (el instanceof HTMLElement) style(el, "visibility", "visible");
           }

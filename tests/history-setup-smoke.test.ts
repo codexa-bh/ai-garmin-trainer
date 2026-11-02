@@ -113,6 +113,23 @@ it("drives genuine no-date first-run semantics through the real setup owner, wit
     privateControlsAbsent: true,
   });
   expect(window.__trainerHistorySetup("useExisting").ok).toBe(true);
+  const selection = document.getElementById(
+    "database-selection",
+  ) as HTMLSelectElement;
+  expect(selection.value).toBe("use-existing");
+  expect(window.__trainerHistorySetup("capture").ok).toBe(true);
+  expect(getComputedStyle(selection.selectedOptions[0]).visibility).toBe(
+    "visible",
+  );
+  expect(
+    getComputedStyle(document.getElementById("DATABASE_PATH")!).visibility,
+  ).toBe("hidden");
+  for (const option of document.querySelectorAll(
+    "#settings select:not(#database-selection) option",
+  ))
+    expect(getComputedStyle(option).visibility).toBe("hidden");
+  window.__trainerHistoryRestore();
+  expect(selection.selectedOptions[0].style.visibility).toBe("");
   for (let i = 0; i < 3; i++)
     expect(window.__trainerHistorySetup("next").ok).toBe(true);
   expect(window.__trainerHistorySetup("observe").reviewStep).toBe(true);
