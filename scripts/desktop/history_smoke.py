@@ -88,10 +88,15 @@ def prepare_synthetic_history(run):
     if any(char.isspace() for char in str(script)):
         raise ValueError('Synthetic connector arguments require a whitespace-free owned path')
     (root / 'tokens').mkdir(mode=0o700)
-    for target, data in [(script, Path(__file__).with_name('history_connector.py').read_bytes()), (root / 'tokens/garmin_tokens.json', SENTINEL)]:
-        with open(target, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as output:
+    if any(char.isspace() for char in python):
+        raise ValueError('Unambiguous Python shebang required')
+    connector = b'#!' + python.encode() + b'\n' + Path(__file__).with_name('history_connector.py').read_bytes().split(b'\n', 1)[1]
+    for target, data, mode in [(script, connector, 0o700), (root / 'tokens/garmin_tokens.json', SENTINEL, 0o600)]:
+        with open(target, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, mode)) as output:
             output.write(data)
-    saved['fields'].update({'GARMIN_MCP_COMMAND': python, 'GARMIN_MCP_ARGS': str(script) + ' ' + str(root), 'GARMIN_MCP_TOKEN_DIR': str(root / 'tokens')})
+    # Only an existing allowlisted executable field; reviewed package arguments
+    # remain immutable. The authored executable validates that exact argv.
+    saved['fields'].update({'GARMIN_MCP_COMMAND': str(script), 'GARMIN_MCP_TOKEN_DIR': str(root / 'tokens')})
     staged = root / 'config/synthetic-history-settings.json'
     private_json(staged, saved)
     os.replace(staged, path)

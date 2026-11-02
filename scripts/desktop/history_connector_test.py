@@ -3,10 +3,11 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import subprocess
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
-from history_connector import SENTINEL, admitted, reply
+from history_connector import SENTINEL, REVIEWED_ARGS, admitted, reply
 from history_smoke import HistoryRun, prepare_synthetic_history
 from native_smoke import private_json
 
@@ -33,6 +34,9 @@ class SyntheticHistoryContracts(unittest.TestCase):
         saved = json.loads((self.root / 'config/settings-v3.json').read_text())
         self.assertEqual(saved['keys'], {})
         self.assertEqual(saved['fields']['GARMIN_MCP_TOKEN_DIR'], str(self.root / 'tokens'))
+        self.assertNotIn('GARMIN_MCP_ARGS', saved['fields'])
+        self.assertEqual((self.root / 'synthetic_history_connector.py').stat().st_mode & 0o777, 0o700)
+        self.assertEqual(saved['fields']['GARMIN_MCP_COMMAND'], str(self.root / 'synthetic_history_connector.py'))
         self.assertTrue(admitted(self.root))
         self.assertEqual((self.root / 'tokens/garmin_tokens.json').read_bytes(), SENTINEL)
         self.assertEqual(original['fields'], {})
@@ -42,6 +46,17 @@ class SyntheticHistoryContracts(unittest.TestCase):
         imports = {node.names[0].name for node in ast.walk(tree) if isinstance(node, ast.Import)}
         self.assertEqual(imports, {'json', 'os', 'stat', 'sys'})
         self.assertFalse(any(isinstance(node, ast.ImportFrom) and node.module not in ('pathlib',) for node in ast.walk(tree)))
+
+    def test_actual_executable_keeps_reviewed_argv_and_refuses_unknown_launch(self):
+        self.prepare()
+        script = str(self.root / 'synthetic_history_connector.py')
+        frame = json.dumps({'jsonrpc':'2.0', 'id':1, 'method':'initialize', 'params':{}}) + '\n'
+        result = subprocess.run([script, *REVIEWED_ARGS], input=frame, text=True, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['result']['serverInfo']['name'], 'authored-history-only')
+        refused = subprocess.run([script, '--unreviewed'], input=frame, text=True, capture_output=True, timeout=5)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual(refused.stdout, '')
 
     def test_preconfigured_secret_or_live_child_refuses_without_outputs(self):
         for saved in [{'keys':{'OPENAI_API_KEY':'never-open'}, 'fields':{}}, {'keys':{}, 'fields':{'GARMIN_MCP_TOKEN_DIR':'never-open'}}]:

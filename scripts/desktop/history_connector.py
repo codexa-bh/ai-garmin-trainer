@@ -11,6 +11,7 @@ import stat
 import sys
 
 SENTINEL = b'{"syntheticHistoryOnly":true}'
+REVIEWED_ARGS = ['--from', 'git+https://github.com/Taxuspt/garmin_mcp.git@3610be6feed93088d85b0f35aba9d7d07c2505a7', '--with', 'mcp==1.28.1', 'garmin-mcp']
 TOOLS = frozenset(('get_stats', 'get_sleep_summary', 'get_body_battery',
                    'get_weekly_steps', 'get_activities_by_date', 'get_user_profile',
                    'get_cycling_ftp', 'get_body_composition', 'get_weigh_ins',
@@ -77,7 +78,7 @@ def reply(message):
 
 
 def main():
-    if len(sys.argv) != 2 or not admitted(sys.argv[1]):
+    if sys.argv[1:] != REVIEWED_ARGS or not admitted(Path(__file__).resolve().parent):
         raise SystemExit('Explicit private synthetic run required')
     attempts = 0
     while True:
