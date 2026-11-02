@@ -347,19 +347,15 @@ export function runDoctor(
     );
   }
 
-  const requiredPresence = [
-    ["GARMIN_HISTORY_START_DATE", env.GARMIN_HISTORY_START_DATE],
-  ] as const;
-  for (const [name, value] of requiredPresence) {
-    check(
-      checks,
-      value ? "pass" : "fail",
-      `config.${name.toLowerCase()}`,
-      value ? "config.present" : "config.missing_required",
-      `${name} ${value ? "is present" : "is missing"}; value content is not printed.`,
-      value ? undefined : `Set ${name} in .env.local before local startup.`,
-    );
-  }
+  check(
+    checks,
+    "pass",
+    "config.garmin_history_start_date",
+    "config.optional_history_limit",
+    env.GARMIN_HISTORY_START_DATE
+      ? "An optional history exploration limit is configured; it does not prove remote coverage."
+      : "Automatic bounded Garmin history discovery is configured; no start date is required.",
+  );
 
   const provider = aiProviderStatus(env);
   const providerKeyPresent = Boolean(provider.selected);

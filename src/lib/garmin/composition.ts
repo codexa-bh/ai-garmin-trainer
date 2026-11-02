@@ -11,6 +11,7 @@ import {
 import { requireRuntimeEnv } from "../env";
 import {
   finishSyncRun,
+  healthHistoryBounds,
   getActivityDetailAttempt,
   getCheckpoint,
   listActivityIdsNeedingDetail,
@@ -45,11 +46,11 @@ import { createActivityDetailRequests } from "./detail-requests";
 // Bind functions only: no environment validation, DB opening, clock capture or
 // connector construction until the corresponding invocation reaches that step.
 const imports = createGarminImports({
-  historyStartDate: () =>
-    requireRuntimeEnv().GARMIN_HISTORY_START_DATE as string,
+  historyStartDate: () => requireRuntimeEnv().GARMIN_HISTORY_START_DATE,
   clock: () => new Date(),
-  createReader: () =>
+  createReader: (control) =>
     createGarminReader({
+      control,
       connector: new GarminMcpClient(),
       fit: {
         baseline: fetchFitBaselineWithLocalWrapper,
@@ -61,6 +62,7 @@ const imports = createGarminImports({
     }),
   store: {
     dataCounts,
+    healthHistoryBounds,
     finishSyncRun,
     getCheckpoint,
     getGarminAthleteBaseline,
@@ -93,6 +95,7 @@ export const {
   backfillActivityDetail,
   backfillActivityEffortFields,
 } = imports;
+export const isGarminSyncRunning = imports.isSyncRunning;
 export const verifyGarminConnection = verifyConnectorToken;
 export const activityDetailRequests = createActivityDetailRequests({
   activityDetailCoverage,

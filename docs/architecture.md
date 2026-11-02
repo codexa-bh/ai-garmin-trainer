@@ -78,8 +78,7 @@ Resource ownership stays unchanged: compositions bind functions at import time,
 not resources. One lazy SQLite connection is shared; memory topology is
 snapshotted from the startup base; credential changes create a new lazy current store while old work retains its immutable snapshot; each Garmin import starts/closes one reader;
 each guarded SQL invocation owns/closes its readonly session; each AI turn owns
-one disposable tool context; each provider call owns its timeout. HTTP disconnect
-still does not acquire cancellation of provider/connector work. No global DI
+one disposable tool context; each provider call owns its timeout. Provider disconnect semantics are unchanged. Explicit Sync cancellation/HTTP disconnect now stops sync admission and its owned reader work; persisted normalized data is not rolled back. No global DI
 container, ambient setter, eager initialization, schema/data migration or new
 retry is introduced. Explicit operational auth/migrate/status/doctor scripts remain
 outer entrypoints, not domain services.
@@ -371,7 +370,7 @@ facade, never an inward dependency. `createGarminImports` binds explicit named
 reader operations, synchronous import storage, request-time config and a clock.
 `baseline-import.ts` owns athlete/body refresh failure and preservation policy;
 `detail-import.ts` owns effort/detail attempts, partial success and lifecycle;
-`import-policy.ts` owns date planning and error classification. Contracts live in
+`import-policy.ts` owns legacy date planning and detail error classification; pure `history-policy.ts` owns additive versioned family progress, unknown-boundary semantics, UTC date arithmetic and the finite Sync admission contract. Contracts live in
 `import-contracts.ts`, `import-ports.ts` and existing feature types, not DB types.
 
 `reader-adapter.ts` owns MCP wire parsing, activity/health/detail normalization,
@@ -380,18 +379,16 @@ remain unknown inputs to the existing pure, validating feature normalizers; no
 vendor SDK or arbitrary tool dispatcher enters application ports. Composition
 supplies the pinned stdio client, local FIT wrappers and repository archive writer,
 which still redacts before persistence. The archive precedes normalization and
-normalized writes; all three daily-health reads precede parsing and archives.
+normalized writes. All successful daily-health subreads precede archives; recognized plain-text authentication/rate-limit errors now stop before further date subreads. Unknown/malformed responses never become successful empty coverage.
 No raw archive is exposed to the application store or HTTP response.
 
 Composition performs no DB/env/clock/client work at import time. Sync records its
 run before reader construction, starts/closes one reader per invocation and keeps
 initial DTO reads outside its try/finally. Standalone effort converts startup
 errors to failed results, while standalone detail propagates startup errors.
-Close remains synchronous and is not swallowed. Checkpoints, counters, bounded
-errors, failed callback propagation, detail preservation and best-effort HR-zone
-behavior are unchanged. HTTP owns parsing, date serialization, NDJSON and status
-codes; unknown detail IDs are rejected before connector access. Disconnect does
-not gain cancellation propagation. No retries or async persistence are added.
+Close remains synchronous and is not swallowed. The new `garmin_history_v1` checkpoint keeps separate reverse health, frozen activity-window/page and body-history positions; old global cursors are never reused as range identities. Idempotent normalized writes precede cursor saves, so a crash replays rather than skips. Existing evidenced historical dates can be traversed without remote re-fetch; no local minimum becomes a remote lower-bound proof. Failed health dates remain separately unresolved. Body writes merge date-keyed history and preserve current facts during older-only batches. No schema migration/reset is needed.
+
+Sync admits at most 96 remote-operation attempts/180 seconds, with at most 30 seconds per nested MCP/FIT operation and no automatic retry. It reserves bounded history/repair work before detail supplements. The outer reader owns timers, cancellation and connector/FIT aborts; plain supplied clock/admission/cancel ports keep capabilities outside application policy. Normalized data and independent detail-attempt evidence survive interruption. HTTP owns NDJSON and disconnect cancellation; one application-owned live Sync claim prevents duplicate runs. UI result/summary distinguish settled invocation, budget/cancel/error and unfinished history; no auto-continuation or general job API is introduced.
 
 `tests/garmin-application.test.ts` uses supplied fake capabilities and ordered
 write/event journals, without infrastructure mocks. `garmin-reader-adapter.test.ts`
@@ -399,8 +396,7 @@ checks wire/archive/FIT order; `garmin-production-wiring.test.ts` exercises actu
 HTTP/composition/reader/SQLite wiring with only external connector/process seams
 replaced. `garmin-dependencies.test.ts` follows type-inclusive closures and rejects
 outer imports/ambient capabilities. Existing athlete, daily-health, detail,
-connector and AI tool suites retain compatibility coverage. SQL/schema and stored
-shapes are unchanged: migration/back-sync is a no-op; source revert is rollback.
+connector and AI tool suites retain compatibility coverage. `garmin-history.test.ts` additionally exercises real HTTP/SQLite discovery, sparse metric islands, preserved old weight rows, fatal/protocol failures, cancellation/exclusion and nested admission/deadlines. SQL schema is unchanged, but checkpoint/body-merge semantics require same-task populated-copy transition/re-sync verification; they are not a data back-sync no-op. Source rollback ignores additive discovery keys and preserves normalized records/backups; the prior exhaustive policy is not bounded-sync certification.
 
 ## Personalization application and adapters
 

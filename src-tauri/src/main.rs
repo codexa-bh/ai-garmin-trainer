@@ -3,6 +3,8 @@ mod auth;
 mod chat_catalog;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
 mod dev_bridge;
+#[cfg(any(debug_assertions, not(feature = "release-probe")))]
+mod history_setup;
 mod isolated_run;
 mod keychain;
 mod live_settings;
@@ -31,6 +33,7 @@ struct Runtime {
     status: Mutex<String>,
     settings_write: Mutex<()>,
     live_unknown: AtomicBool,
+    setup_failure: Mutex<Option<&'static str>>,
     auth: Mutex<auth::Auth>,
     onboarding: Mutex<Option<onboarding::State>>,
     onboarding_id: Mutex<String>,
@@ -310,6 +313,15 @@ async fn save_settings(
     input: settings::SaveInput,
 ) -> Result<String, String> {
     setup_only(&window)?;
+    if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+        if run.descriptor.history_setup.is_some() && !run.accepts_history_settings(&input) {
+            let refusal = "History scope permits only unchanged keyless run-local settings and a fixed optional limit.";
+            if let Ok(mut failure) = app.state::<Runtime>().setup_failure.lock() {
+                *failure = Some(refusal);
+            }
+            return Err(refusal.into());
+        }
+    }
     #[cfg(any(debug_assertions, feature = "release-probe"))]
     if let Some(config) = app.try_state::<smoke_config::Config>() {
         if !config.accepts_save(&input) {
@@ -321,6 +333,7 @@ async fn save_settings(
     }
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
+        let result = (|| -> Result<String, &'static str> {
         let onboarding = runtime
             .onboarding
             .try_lock()
@@ -380,6 +393,9 @@ async fn save_settings(
             Ok::<String, &'static str>(format!("{outcome}{pending}"))
         })();
         Ok(format!("{committed}{}", result.unwrap_or_else(|_| " Saved; committed state retained, live outcome unknown. Reload before another action; no rollback or retry.".into())))
+        })();
+        if let Ok(mut failure) = runtime.setup_failure.lock() { *failure = result.as_ref().err().copied(); }
+        result
     })
     .await
     .map_err(|_| "Settings save interrupted.".to_string())?
@@ -473,7 +489,14 @@ async fn finish_onboarding(
     window: tauri::WebviewWindow,
     input: onboarding::FinishInput,
 ) -> Result<String, String> {
-    private_setup_only(&window)?;
+    setup_only(&window)?;
+    if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+        if !run.accepts_finish(&input) {
+            return Err("First-run history selection/configuration scope refused.".into());
+        }
+    } else {
+        private_setup_only(&window)?;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let mut guard = runtime.onboarding.try_lock().map_err(|_| "Setup operation already active; do not retry until it settles.".to_owned())?;
@@ -500,7 +523,12 @@ async fn finish_onboarding(
                 if !validated.ok { return Err("Setup validation refused."); }
                 let target = PathBuf::from(validated.fields.get("DATABASE_PATH").ok_or("Select a database.")?);
                 if let Some(db) = &state.database { db.verify(&target)?; }
-                if fresh { onboarding::initialize(&resources(&app)?, &target, &state.root, &mut state.database, &runtime.onboarding_cancel, &runtime.quitting)?; }
+                if fresh {
+                    onboarding::initialize(&resources(&app)?, &target, &state.root, &mut state.database, &runtime.onboarding_cancel, &runtime.quitting)?;
+                    if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+                        run.bind_created_database(state.database.as_ref().ok_or("Created database identity unavailable.")?)?;
+                    }
+                }
                 if runtime.onboarding_cancel.load(Ordering::SeqCst) || runtime.quitting.load(Ordering::SeqCst) { return Err("Setup cancelled; committed outputs remain available for explicit retry."); }
                 let fields = onboarding::validate(&resources(&app)?, &validated.fields, &runtime.onboarding_cancel, &runtime.quitting)?;
                 message = settings::save_new(&path, settings::SaveInput { fields, ..input.settings })?;
@@ -514,6 +542,7 @@ async fn finish_onboarding(
             state.eligible = false;
             Ok(format!("{ready} {message}"))
         })();
+        if let Ok(mut failure) = runtime.setup_failure.lock() { *failure = result.as_ref().err().copied(); }
         result.map_err(|error| format!("{error} Database committed: {}. Settings committed: {}. Independent successful Garmin tokens are retained. Retry reconciles saved state; no automatic recreation or rollback.", state.database.is_some(), state.settings_committed))
     }).await.map_err(|_| "Setup result interrupted; inspect commit state before retry.".to_owned())?
 }
@@ -786,21 +815,28 @@ fn main() {
             if let Some(run) = ordinary {
                 #[cfg(target_os = "macos")]
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                app.manage(run.clone());
                 #[cfg(not(feature = "release-probe"))]
                 dev_bridge::start(app.handle(), dev_bridge::Config {
                     run_id: run.descriptor.run_id.clone(), token: run.descriptor.capability.clone(), root: run.descriptor.root.clone(),
                     source: run.descriptor.source_fingerprint.clone(), port: run.descriptor.control_port, ordinary: Some(run.clone()),
                 })?;
-                app.manage(run.clone());
-                WebviewWindowBuilder::new(app, "setup", WebviewUrl::App("index.html".into()))
+                let mut setup = WebviewWindowBuilder::new(app, "setup", WebviewUrl::App("index.html".into()))
                     .title("Garmin Trainer — isolated Settings").inner_size(900.0, 820.0)
                     .visible(false).focused(false).incognito(true).data_directory(run.descriptor.root.join("setup-profile"))
                     .on_navigation(|url| (url.scheme() == "tauri" && url.host_str() == Some("localhost")) || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost")))
-                    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny).build()?;
+                    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
+                #[cfg(any(debug_assertions, not(feature = "release-probe")))]
+                if run.descriptor.history_setup.is_some() {
+                    setup = setup.initialization_script(include_str!("../debug/history-setup.js"))
+                        .on_navigation(history_setup::document);
+                }
+                setup.build()?;
             }
             let settings = settings_path(app.handle()).map_err(std::io::Error::other)?;
             let root = if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
-                run.descriptor.root.join("app-data")
+                if run.descriptor.history_setup.is_some() { run.descriptor.root.clone() }
+                else { run.descriptor.root.join("app-data") }
             } else { app.path().app_data_dir()?.join("private") };
             let state = onboarding::State::new(&settings, root);
             let launch_saved = !state.eligible;
@@ -817,6 +853,17 @@ fn main() {
             });
             let signal_handle = app.handle().clone();
             ctrlc::set_handler(move || { stop_runtime(&signal_handle); signal_handle.exit(0); })?;
+            if app.try_state::<std::sync::Arc<isolated_run::Admission>>().map(|run| run.descriptor.history_setup.is_some()).unwrap_or(false) {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    // A retained runner pipe owns this instance. EOF/invalid data means
+                    // owner loss, never authority to target another process or saved PID.
+                    isolated_run::wait_for_owner_loss(&mut std::io::stdin());
+                    handle.state::<Runtime>().onboarding_cancel.store(true, Ordering::SeqCst);
+                    stop_runtime(&handle);
+                    handle.exit(0);
+                });
+            }
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 // Only versioned app-owned settings are consulted. Old env

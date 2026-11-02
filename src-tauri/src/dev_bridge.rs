@@ -38,6 +38,11 @@ impl Config {
     fn permits(&self, command: &Command) -> bool {
         match command {
             Command::Capture {} => self.ordinary.is_none(),
+            Command::HistorySettings { .. } | Command::Sync { .. } => self
+                .ordinary
+                .as_ref()
+                .map(|run| run.descriptor.history_setup.is_some())
+                .unwrap_or(false),
             #[cfg(debug_assertions)]
             Command::CaptureDebug {}
             | Command::DebugKey { .. }
@@ -91,9 +96,24 @@ pub enum HealthAction {
     CaptureNarrow,
 }
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncAction {
+    Observe,
+    Start,
+    Cancel,
+    Continue,
+    Refresh,
+}
+#[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Command {
     Observe {},
+    Sync {
+        action: SyncAction,
+    },
+    HistorySettings {
+        action: crate::history_setup::Action,
+    },
     Click {
         target: String,
     },
@@ -177,7 +197,10 @@ impl Command {
     }
     fn valid(&self) -> bool {
         match self {
-            Self::Observe {} | Self::Capture {} => true,
+            Self::Observe {}
+            | Self::Capture {}
+            | Self::Sync { .. }
+            | Self::HistorySettings { .. } => true,
             Self::SetViewport { preset } => ["wide", "narrow"].contains(&preset.as_str()),
             Self::CaptureView { view, preset } => {
                 [
@@ -689,6 +712,20 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                     })
                     .unwrap_or(false)
         }
+        Command::HistorySettings { .. } => false, // Native-local typed completion only.
+        Command::Sync { .. } => {
+            let keys = [
+                "ok",
+                "running",
+                "paused",
+                "completed",
+                "failed",
+                "startEnabled",
+                "cancelEnabled",
+                "progressStarted",
+            ];
+            exact_keys(value, &keys) && keys.iter().all(|key| value[*key].is_boolean())
+        }
         Command::Click { target } => {
             exact_keys(value, &["ok", "action", "trustedInput"])
                 && value["action"].as_str() == Some(target)
@@ -830,6 +867,16 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
         }
     }
 }
+fn runtime_ready(app: &tauri::AppHandle) -> bool {
+    let runtime = app.state::<crate::Runtime>();
+    let ready = !runtime.quitting.load(std::sync::atomic::Ordering::SeqCst)
+        && runtime
+            .service
+            .try_lock()
+            .map(|service| service.is_some())
+            .unwrap_or(false);
+    ready
+}
 fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) -> (u16, Value) {
     if !state.config.verify() {
         return (403, json!({"ok":false,"error":"Run authority changed"}));
@@ -837,7 +884,7 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
     if path == "/identity" {
         return (
             200,
-            json!({"schemaVersion":1,"runId":state.config.run_id,"source":state.config.source,"appIdentity":app.config().identifier,"pid":std::process::id(),"backendPid":app.state::<crate::Runtime>().service.try_lock().ok().and_then(|guard| guard.as_ref().map(|service| service.pid())),"origin":*state.origin.lock().unwrap(),"database":state.config.root.join("trainer.sqlite"),"buildMode":if cfg!(debug_assertions){"debug"}else{"release"},"artifactKind":if state.config.ordinary.is_some(){"ordinary"}else{"debug"},"launchMode":"isolated","controlContract":crate::isolated_run::CONTRACT,"boot":state.config.boot(),"artifactInventoryHash":state.config.ordinary.as_ref().map(|a| &a.descriptor.artifact_inventory_hash),"rendererDiagnostic":renderer_diagnostic(app)}),
+            json!({"schemaVersion":1,"runId":state.config.run_id,"source":state.config.source,"appIdentity":app.config().identifier,"pid":std::process::id(),"backendPid":app.state::<crate::Runtime>().service.try_lock().ok().and_then(|guard| guard.as_ref().map(|service| service.pid())),"origin":*state.origin.lock().unwrap(),"database":state.config.root.join("trainer.sqlite"),"buildMode":if cfg!(debug_assertions){"debug"}else{"release"},"artifactKind":if state.config.ordinary.is_some(){"ordinary"}else{"debug"},"launchMode":"isolated","controlContract":crate::isolated_run::CONTRACT,"boot":state.config.boot(),"artifactInventoryHash":state.config.ordinary.as_ref().map(|a| &a.descriptor.artifact_inventory_hash),"runtimeReady":runtime_ready(app),"rendererDiagnostic":renderer_diagnostic(app)}),
         );
     }
     let request: Request = match serde_json::from_slice(body) {
@@ -863,6 +910,17 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
         );
     }
     drop(seen);
+    if let Command::HistorySettings { action } = request.command {
+        let result = crate::history_setup::execute(app, action);
+        let (status, value) = match result {
+            Ok(value) => (if value["ok"] == true { 200 } else { 409 }, value),
+            Err(error) => (409, json!({"ok":false,"error":error})),
+        };
+        return (
+            status,
+            json!({"requestId":request.request_id,"result":value}),
+        );
+    }
     #[cfg(debug_assertions)]
     if let Command::Settings { action } = request.command {
         let Some(config) = app.try_state::<crate::smoke_config::Config>() else {
@@ -1001,6 +1059,45 @@ mod tests {
     use super::*;
     fn safe_result(command: &Command, value: &Value) -> bool {
         super::safe_result(command, value, false)
+    }
+    #[test]
+    fn sync_and_history_results_do_not_accept_private_or_generic_controls() {
+        let baseline = Config {
+            run_id: uuid::Uuid::new_v4().to_string(),
+            token: "a".repeat(64),
+            root: std::path::PathBuf::from("/nonexistent-test-only"),
+            source: "b".repeat(64),
+            port: 12345,
+            ordinary: None,
+        };
+        assert!(!baseline.permits(&Command::Sync {
+            action: SyncAction::Start
+        }));
+        assert!(!baseline.permits(&Command::HistorySettings {
+            action: crate::history_setup::Action::Open
+        }));
+        for value in [
+            json!({"type":"sync","action":"auth"}),
+            json!({"type":"sync","action":"start","budget":9999}),
+            json!({"type":"historySettings","action":"input"}),
+            json!({"type":"historySettings","action":"legacyLimit","value":"2020-01-01"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
+        }
+        let cmd = Command::Sync {
+            action: SyncAction::Observe,
+        };
+        let mut result = json!({"ok":true,"running":false,"paused":false,"completed":false,"failed":false,"startEnabled":true,"cancelEnabled":false,"progressStarted":false});
+        assert!(super::safe_result(&cmd, &result, true));
+        result["rawProgress"] = json!("copied private payload");
+        assert!(!super::safe_result(&cmd, &result, true));
+        assert!(!super::safe_result(
+            &Command::HistorySettings {
+                action: crate::history_setup::Action::Observe
+            },
+            &json!({"ok":true}),
+            true
+        ));
     }
     #[test]
     fn closed_commands_reject_privileges_and_private_targets() {

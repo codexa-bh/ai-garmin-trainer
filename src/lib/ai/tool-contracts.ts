@@ -289,7 +289,7 @@ export const trainerToolContracts = {
   },
   runGarminSync: {
     description:
-      "Run a bounded local Garmin import/sync when the current user explicitly asks to sync/import/refresh Garmin data. Use at most once per turn. It writes only app-owned normalized SQLite rows and never writes back to Garmin.",
+      "Run a bounded local Garmin import/sync when the current user explicitly asks to sync/import/refresh Garmin data. Use at most once per turn. Settled or budget/cancelled invocations can leave older history unresolved; report that uncertainty and never continue automatically. It writes only app-owned normalized SQLite rows and never writes back to Garmin.",
     inputSchema: trainerToolInputSchemas.runGarminSync,
   },
   getSyncStatus: {
