@@ -140,6 +140,74 @@ describe("independent dashboard feature ownership", () => {
     expect(result.current.healthDashboardError).toContain("offline");
   });
 
+  it("retains Profile save progress, newer-edit protection and failure feedback", async () => {
+    let resolve!: (value: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() =>
+      useProfileFeature({ setStatus: vi.fn() }),
+    );
+    act(() => result.current.updateProfileField("goals", "Submitted draft"));
+    expect(result.current.profileMessage).toContain("Unsaved changes");
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.saveProfile();
+    });
+    expect(result.current.profileMessage).toBe(
+      "Saving Profile to local SQLite…",
+    );
+    expect(result.current.profileControlsDisabled).toBe(true);
+    act(() => result.current.updateProfileField("goals", "Newer draft"));
+    await act(async () => {
+      resolve(
+        response({
+          ok: true,
+          profile: { goals: ["Submitted draft"], sports: [], constraints: [] },
+        }),
+      );
+      await pending;
+    });
+    expect(result.current.profileMessage).toBe(
+      "Previous Profile values were saved; current edits remain unsaved.",
+    );
+    expect(result.current.profileFields.goals).toBe("Newer draft");
+    expect(result.current.isProfileDirty).toBe(true);
+    act(() => {
+      pending = result.current.saveProfile();
+    });
+    await act(async () => {
+      resolve(response({ error: "Storage unavailable" }, 500));
+      await pending;
+    });
+    expect(result.current.profileMessage).toContain(
+      "Profile save failed; unsaved edits are still in the form:",
+    );
+    expect(result.current.profileFields.goals).toBe("Newer draft");
+    expect(result.current.isProfileDirty).toBe(true);
+    expect(result.current.profileControlsDisabled).toBe(false);
+    act(() => {
+      pending = result.current.saveProfile();
+    });
+    await act(async () => {
+      resolve(
+        response({
+          ok: true,
+          profile: { goals: ["Newer draft"], sports: [], constraints: [] },
+        }),
+      );
+      await pending;
+    });
+    expect(result.current.profileMessage).toBe(
+      "Profile saved and ready for trainer grounding.",
+    );
+    expect(result.current.isProfileDirty).toBe(false);
+  });
+
   it("keeps Profile edits made while a reload is in flight", async () => {
     let resolve!: (response: Response) => void;
     vi.stubGlobal(

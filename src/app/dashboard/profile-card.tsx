@@ -31,13 +31,11 @@ export function ProfileCard({
           {profileSummary}
         </span>
       </summary>
-      <p>
-        Set one item per line. Saved Profile data is loaded from local SQLite on
-        startup, then used with imported Garmin facts.
-      </p>
-      <p className="helper-text" role="status" aria-live="polite">
-        {profileMessage}
-      </p>
+      {profileMessage ? (
+        <p className="helper-text" role="status" aria-live="polite">
+          {profileMessage}
+        </p>
+      ) : null}
       <label>
         Goals
         <textarea
