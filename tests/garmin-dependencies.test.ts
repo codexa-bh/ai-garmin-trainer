@@ -22,6 +22,7 @@ const allowed = new Set([
   "import-contracts.ts",
   "import-policy.ts",
   "history-policy.ts",
+  "discovery-policy.ts",
   "types.ts",
   "detail-types.ts",
   "athlete-normalize.ts",

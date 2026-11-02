@@ -197,6 +197,7 @@ export type GarminReadOperation =
   | "get_activity_power_in_timezones"
   | "get_activity_fit_data"
   | "get_stats"
+  | "get_weekly_steps"
   | "get_sleep_summary"
   | "get_morning_training_readiness"
   | "get_user_profile"

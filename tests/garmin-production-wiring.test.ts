@@ -134,6 +134,7 @@ describe("HTTP through real production composition, reader and SQLite", () => {
   });
 
   it("streams progress/result, persists normalized data and redacts archives; repeated sync preserves coverage", async () => {
+    vi.useFakeTimers();
     const sync = await import("../src/app/api/sync/route");
     const repo = await import("../src/lib/db/repository");
     for (let i = 0; i < 2; i += 1) {
@@ -142,7 +143,9 @@ describe("HTTP through real production composition, reader and SQLite", () => {
       expect(response.headers.get("content-type")).toContain(
         "application/x-ndjson",
       );
-      const events = (await response.text())
+      const stream = response.text();
+      await vi.advanceTimersByTimeAsync(30_000);
+      const events = (await stream)
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as Record<string, unknown>);

@@ -103,6 +103,7 @@ export type LocalDataCounts = {
 };
 
 export type LocalImportSummary = {
+  discovery?: import("../garmin/discovery-policy").GarminDiscoveryState | null;
   history?: import("../garmin/history-policy").GarminHistoryState | null;
   activities: number;
   healthDays: number;

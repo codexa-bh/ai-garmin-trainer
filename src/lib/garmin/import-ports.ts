@@ -37,6 +37,10 @@ export interface GarminReader {
   }>;
   activityEffort(garminId: string): Promise<NormalizedActivity | null>;
   fitBaseline(garminIds: string[]): Promise<unknown>;
+  weeklySteps?(
+    endDate: string,
+    weeks: number,
+  ): Promise<import("./discovery-policy").StepsHint>;
   dailyHealth(date: string): Promise<NormalizedDailyHealth>;
   activityDetail(garminId: string): Promise<{
     recognized: boolean;
@@ -130,4 +134,5 @@ export type GarminImportPorts = {
   createReader: (control?: GarminReadControl) => GarminReader;
   historyStartDate: () => string | undefined;
   clock: () => Date;
+  wait?: (milliseconds: number) => Promise<void>;
 };

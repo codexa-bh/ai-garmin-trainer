@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { createGarminImports } from "../src/lib/garmin/sync-import";
+import { createGarminReader } from "../src/lib/garmin/reader-adapter";
+import {
+  DISCOVERY_CHECKPOINT,
+  DISCOVERY_LIMITS,
+} from "../src/lib/garmin/discovery-policy";
 import {
   HISTORY_CHECKPOINT,
   historyState,
@@ -191,6 +196,216 @@ function fixture() {
   const app = createGarminImports(ports);
   return { app, store, reader, ports, journal, checkpoints, detail };
 }
+
+function operationFixture() {
+  const f = fixture();
+  let milliseconds = now.getTime();
+  let cancelled = false;
+  let nextFailure = "";
+  const calls: Array<{
+    name: string;
+    args: Record<string, unknown>;
+    at: number;
+  }> = [];
+  const dates = new Set<string>();
+  f.ports.clock = () => new Date(milliseconds);
+  f.ports.wait = async (delay) => {
+    milliseconds += delay;
+  };
+  f.ports.historyStartDate = () => "2026-07-01";
+  vi.mocked(f.store.listDailyHealthMissingGapDates).mockImplementation(
+    ({ startDate, endDate }) =>
+      startDate === endDate && !dates.has(startDate) ? [startDate] : [],
+  );
+  vi.mocked(f.store.upsertDailyHealth).mockImplementation((rows) => {
+    for (const row of rows) dates.add(row.date);
+    return rows.length;
+  });
+  f.ports.createReader = (control) =>
+    createGarminReader({
+      control,
+      archive: () => {},
+      connector: {
+        start: async () => {},
+        close: () => {},
+        callTool: async (name, args) => {
+          calls.push({ name, args, at: milliseconds });
+          if (nextFailure) throw new Error(nextFailure);
+          if (name === "get_weekly_steps")
+            return JSON.stringify({
+              end_date: args.end_date,
+              weeks_requested: args.weeks,
+              weeks_returned: 0,
+              weekly_data: [],
+            });
+          if (name === "get_activities_by_date")
+            return '{"activities":[],"has_more":false}';
+          if (name === "get_body_battery") return "[]";
+          return "{}";
+        },
+      },
+      fit: {
+        baseline: async () => undefined,
+        altitude: async () => undefined,
+        distance: async () => undefined,
+        speed: async () => undefined,
+      },
+    });
+  const app = createGarminImports({
+    ...f.ports,
+    historyStartDate: () => f.ports.historyStartDate(),
+    wait: (ms) => f.ports.wait!(ms),
+  });
+  return {
+    ...f,
+    app,
+    calls,
+    dates,
+    cancelled: () => cancelled,
+    cancel: () => {
+      cancelled = true;
+    },
+    advance: (ms: number) => {
+      milliseconds += ms;
+    },
+    fail: () => {
+      nextFailure = "rate limit";
+    },
+  };
+}
+
+describe("interactive ownership, safety and comparative request cost", () => {
+  it("amortizes common work compared with repeated bounded callers over the same sparse three-year-old checkpoint", async () => {
+    const automatic = operationFixture();
+    const manual = operationFixture();
+    for (const f of [automatic, manual]) {
+      f.ports.historyStartDate = () => "2023-07-01";
+      const saved = historyState(null, "2023-07-01", "2023-09-21");
+      f.checkpoints.set(HISTORY_CHECKPOINT, JSON.stringify(saved));
+    }
+    const one = await automatic.app.runGarminSync(undefined, {
+      interactive: true,
+    });
+    let repeated = await manual.app.runGarminSync();
+    let invocations = 1;
+    while (repeated.continuationAvailable && invocations < 20) {
+      repeated = await manual.app.runGarminSync();
+      invocations += 1;
+    }
+    expect(one.status).toBe("completed");
+    expect(repeated.continuationAvailable).toBe(false);
+    expect(invocations).toBeGreaterThan(10);
+    expect(automatic.dates).toEqual(manual.dates);
+    expect(one.history.health.nextDate).toBe(repeated.history.health.nextDate);
+    expect(automatic.calls.length).toBeLessThan(manual.calls.length);
+    expect(
+      automatic.calls.filter((call) => call.name === "get_user_profile"),
+    ).toHaveLength(1);
+    expect(
+      manual.calls.filter((call) => call.name === "get_user_profile").length,
+    ).toBeGreaterThan(10);
+    for (let index = 1; index < automatic.calls.length; index += 1)
+      expect(
+        automatic.calls[index].at - automatic.calls[index - 1].at,
+      ).toBeGreaterThanOrEqual(DISCOVERY_LIMITS.dispatchIntervalMs);
+    expect(one.discovery?.operation?.batches).toBeGreaterThan(10);
+  });
+  it("keeps the original deadline across batches, startup and waits", async () => {
+    const f = operationFixture();
+    f.ports.historyStartDate = () => undefined;
+    const result = await f.app.runGarminSync(
+      (event) => {
+        if (event.message.includes("continuing within the same operation"))
+          f.advance(DISCOVERY_LIMITS.milliseconds);
+      },
+      { interactive: true },
+    );
+    expect(result.status).toBe("budget-limited");
+    expect(result.discovery?.operation?.attempts).toBeLessThan(480);
+    expect(
+      Date.parse(result.discovery!.operation!.updatedAt) -
+        Date.parse(result.discovery!.operation!.startedAt),
+    ).toBeGreaterThanOrEqual(DISCOVERY_LIMITS.milliseconds);
+  });
+  it("retains exclusivity at inter-batch boundaries and cancellation settles before release", async () => {
+    const f = operationFixture();
+    let overlap: Promise<unknown> | undefined;
+    const result = await f.app.runGarminSync(
+      (event) => {
+        if (event.message.includes("continuing within the same operation")) {
+          expect(f.app.isSyncRunning()).toBe(true);
+          overlap = f.app.runGarminSync().catch((error: unknown) => error);
+          f.cancel();
+        }
+      },
+      { interactive: true, cancelled: f.cancelled },
+    );
+    expect(result.status).toBe("cancelled");
+    expect(await overlap).toBeInstanceOf(Error);
+    expect(
+      JSON.parse(f.checkpoints.get(DISCOVERY_CHECKPOINT)!).operation.outcome,
+    ).toBe("cancelled");
+    expect(f.app.isSyncRunning()).toBe(false);
+  });
+  it("does not bypass a swallowed baseline error or retry it within the operation", async () => {
+    const f = operationFixture();
+    const result = await f.app.runGarminSync(
+      (event) => {
+        if (event.stage === "body_metrics") f.fail();
+      },
+      { interactive: true },
+    );
+    expect(result.status).toBe("failed");
+    expect(result.discovery?.operation?.batches).toBe(0);
+    expect(
+      f.calls.filter((call) => call.name === "get_user_profile"),
+    ).toHaveLength(1);
+    expect(
+      f.calls.filter((call) => call.name === "get_body_composition"),
+    ).toHaveLength(0);
+  });
+  it("rotates families when slow health consumes an internal batch instead of starving body/activity", async () => {
+    const f = operationFixture();
+    f.ports.historyStartDate = () => undefined;
+    const result = await f.app.runGarminSync(
+      (event) => {
+        if (event.date && event.date < "2026-09-08") f.advance(110_000);
+      },
+      { interactive: true },
+    );
+    expect(result.status).toBe("budget-limited");
+    expect(result.history.body.checks).toBeGreaterThan(1);
+    expect(result.history.activities.checks).toBeGreaterThan(1);
+    expect(result.history.health.checks).toBeGreaterThan(1);
+  });
+  it("stops a repeated unresolved candidate with no safe progress instead of spinning", async () => {
+    const f = operationFixture();
+    const saved = historyState(null, "2026-07-01", "2026-09-21");
+    saved.health.nextDate =
+      saved.activities.nextDate =
+      saved.body.nextDate =
+        null;
+    saved.unresolvedHealth = ["2027-01-01"];
+    f.checkpoints.set(HISTORY_CHECKPOINT, JSON.stringify(saved));
+    const result = await f.app.runGarminSync(undefined, { interactive: true });
+    expect(result.status).toBe("failed");
+    expect(result.discovery?.operation?.batches).toBe(1);
+    expect(result.discovery?.operation?.stopReason).toContain(
+      "no forward progress",
+    );
+    expect(result.history.unresolvedHealth).toEqual(["2027-01-01"]);
+  });
+  it("refuses unsupported additive state without changing original bytes or constructing a reader", async () => {
+    const f = operationFixture();
+    const bytes = '{"version":99}';
+    f.checkpoints.set(DISCOVERY_CHECKPOINT, bytes);
+    await expect(
+      f.app.runGarminSync(undefined, { interactive: true }),
+    ).rejects.toThrow("preserve");
+    expect(f.checkpoints.get(DISCOVERY_CHECKPOINT)).toBe(bytes);
+    expect(f.calls).toEqual([]);
+  });
+});
 
 describe("Garmin imports with supplied capabilities, no infrastructure mocks", () => {
   it("binds lazily and preserves sync config/clock, write, checkpoint, event and close order", async () => {

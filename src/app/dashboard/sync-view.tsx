@@ -131,7 +131,7 @@ export function SyncView({
               {isSyncing
                 ? "Sync already in progress"
                 : importSummary?.history
-                  ? "Sync / continue history"
+                  ? "Resume history"
                   : "Sync now"}
             </button>
             {isSyncing && cancelSync ? (
@@ -141,14 +141,22 @@ export function SyncView({
             ) : null}
           </div>
           <p className="helper-text">
-            Each explicit run admits at most 96 remote-operation attempts and
-            180 seconds, including nested reads; these are not exact Garmin HTTP
-            counts. Recent data comes first. Remote earliest history remains
-            unknown; no automatic background continuation.
+            One explicit Sync automatically advances historical batches for up
+            to 30 minutes or 480 remote-operation attempts, paced sequentially.
+            Each internal batch stays within 96 attempts / 180 seconds; each
+            read within 30 seconds. These are not exact Garmin HTTP counts.
+            Recent data comes first. Cancel at any time; restart requires
+            explicit Resume. Opening this view never starts discovery. Total
+            history remains unknown.
           </p>
           {importSummary?.history ? (
             <p className="helper-text" role="status">
-              Last invocation: {importSummary.history.outcome}.{" "}
+              Last operation:{" "}
+              {importSummary.history.outcome === "running" &&
+              !importSummary.syncActive
+                ? "interrupted"
+                : importSummary.history.outcome}
+              .{" "}
               {importSummary.syncActive
                 ? "A sync is currently active."
                 : "No sync is active; continuation is explicit."}{" "}
@@ -162,6 +170,30 @@ export function SyncView({
                 "chosen exploration boundary reached"}
               . Refresh summary after cancellation or a lost response before
               continuing.
+            </p>
+          ) : null}
+          {importSummary?.discovery?.operation ? (
+            <p className="helper-text" role="status">
+              Phase:{" "}
+              {importSummary.syncActive
+                ? importSummary.discovery.operation.phase
+                : "settled"}
+              ; historical batches: {importSummary.discovery.operation.batches};
+              cumulative attempts: {importSummary.discovery.operation.attempts}.{" "}
+              {importSummary.history?.outcome === "running" &&
+              !importSummary.syncActive
+                ? "Previous operation interrupted; committed progress is retained. Resume explicitly."
+                : importSummary.discovery.operation.stopReason}
+              {importSummary.discovery.hint ? (
+                <>
+                  {" "}
+                  Steps-only hint: {importSummary.discovery.hint.startDate}–
+                  {importSummary.discovery.hint.endDate};{" "}
+                  {importSummary.discovery.hint.weeksWithData} positive weeks.
+                  This does not establish sleep, stress, body or
+                  earliest-history coverage.
+                </>
+              ) : null}
             </p>
           ) : null}
           {isSyncing ? (

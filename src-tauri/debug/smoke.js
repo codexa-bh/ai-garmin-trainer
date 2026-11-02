@@ -1021,6 +1021,7 @@
       "Run Garmin sync",
       "Sync now",
       "Sync / continue history",
+      "Resume history",
       "Sync already in progress",
       "Cancel sync",
       "Ready",

@@ -83,10 +83,12 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
     let historyFailed = false;
     let weighInFailed = false;
     const errors: string[] = [];
-    try {
-      profilePayload = await client.profile();
-    } catch (error) {
-      errors.push(`profile: ${compactError(error)}`);
+    if (!strict) {
+      try {
+        profilePayload = await client.profile();
+      } catch (error) {
+        errors.push(`profile: ${compactError(error)}`);
+      }
     }
     try {
       historyPayload = await client.bodyComposition(startDate, endDate);

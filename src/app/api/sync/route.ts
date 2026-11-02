@@ -44,7 +44,7 @@ export async function POST(request?: Request) {
       try {
         const result = await runGarminSync(
           (progress) => send({ type: "progress", ...progress }),
-          { cancelled },
+          { cancelled, interactive: true },
         );
         send({ type: "result", ...result });
         if (!disconnected) controller.close();

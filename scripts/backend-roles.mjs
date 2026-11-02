@@ -118,6 +118,7 @@ const groups = [
       "import-contracts",
       "import-policy",
       "history-policy",
+      "discovery-policy",
       "import-ports",
       "normalize",
       "sync",
