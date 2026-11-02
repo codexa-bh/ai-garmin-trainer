@@ -309,13 +309,31 @@ fn message(durable: bool, fresh: bool) -> String {
         }
     )
 }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveResult {
+    pub message: String,
+    pub restart_required: bool,
+}
+// Internal commit facts, never serialized to the renderer. Durability uncertainty
+// is not authority for a successful-restart notice.
+pub struct SavedCommit {
+    pub message: String,
+    pub previous_fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, String>,
+    pub durable: bool,
+}
+#[cfg(test)]
 pub fn save(path: &Path, input: SaveInput) -> Result<String, &'static str> {
+    save_confirmed(path, input).map(|saved| saved.message)
+}
+pub fn save_confirmed(path: &Path, input: SaveInput) -> Result<SavedCommit, &'static str> {
     save_inner(path, input, false)
 }
 pub fn save_new(path: &Path, input: SaveInput) -> Result<String, &'static str> {
-    save_inner(path, input, true)
+    save_inner(path, input, true).map(|saved| saved.message)
 }
-fn save_inner(path: &Path, input: SaveInput, fresh: bool) -> Result<String, &'static str> {
+fn save_inner(path: &Path, input: SaveInput, fresh: bool) -> Result<SavedCommit, &'static str> {
     check_revision(path, &input.expected_revision)?;
     input.chat_catalog.validate()?;
     let exists =
@@ -369,6 +387,7 @@ fn save_inner(path: &Path, input: SaveInput, fresh: bool) -> Result<String, &'st
             },
         });
     }
+    let previous_fields = next.fields.clone();
     next.version = 3;
     next.fields = input.fields;
     let mut catalog = input.chat_catalog;
@@ -387,15 +406,20 @@ fn save_inner(path: &Path, input: SaveInput, fresh: bool) -> Result<String, &'st
         &bytes,
         if migrating { None } else { previous.as_deref() },
     )?;
-    Ok(format!(
-        "{}{}",
-        message(durable, fresh),
-        if migrating {
-            " Catalog migration committed; original v2 retained unchanged."
-        } else {
-            ""
-        }
-    ))
+    Ok(SavedCommit {
+        message: format!(
+            "{}{}",
+            message(durable, fresh),
+            if migrating {
+                " Catalog migration committed; original v2 retained unchanged."
+            } else {
+                ""
+            }
+        ),
+        previous_fields,
+        fields: next.fields,
+        durable,
+    })
 }
 /// Explicit user action only. Never retain a partially retrieved provider set.
 /// Re-entry requires a decision for every legacy slot and makes zero legacy calls.
@@ -624,6 +648,32 @@ mod tests {
             chat_catalog: snapshot(path, false).unwrap().chat_catalog,
             expected_revision: revision(path).unwrap(),
         }
+    }
+    #[test]
+    fn confirmed_save_carries_private_delta_only_internally_and_refuses_stale_commit() {
+        let root = root();
+        let path = selected(&root);
+        let before = BTreeMap::from([("MEMORY_EMBEDDING_DIMS".into(), "1536".into())]);
+        save_new(&path, input(&path, before.clone(), replacement())).unwrap();
+        let after = BTreeMap::from([("MEMORY_EMBEDDING_DIMS".into(), "2048".into())]);
+        let stale = input(&path, before.clone(), BTreeMap::new());
+        let committed =
+            save_confirmed(&path, input(&path, after.clone(), BTreeMap::new())).unwrap();
+        assert!(committed.durable);
+        assert_eq!(committed.previous_fields, before);
+        assert_eq!(committed.fields, after);
+        let result = serde_json::to_value(SaveResult {
+            message: committed.message,
+            restart_required: true,
+        })
+        .unwrap();
+        assert_eq!(result.as_object().unwrap().len(), 2);
+        assert_eq!(result["restartRequired"], true);
+        assert!(!result.to_string().contains("2048"));
+        assert!(!result.to_string().contains("synthetic-provider-secret"));
+        assert!(save_confirmed(&path, stale).is_err());
+        assert_eq!(load(&path).unwrap().fields, after);
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn first_save_is_exclusive_and_does_not_return_next_launch_instructions() {

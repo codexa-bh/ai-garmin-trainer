@@ -112,7 +112,17 @@
     try {
       if (action === "observe") return observe();
       if (!observe().ready) throw Error("Not ready");
+      if (byId("restart-required")?.open && action !== "dismissRestart")
+        throw Error("Dismiss restart notice first");
       switch (action) {
+        case "dismissRestart":
+          if (
+            !byId("restart-required")?.open ||
+            document.activeElement !== byId("restart-dismiss")
+          )
+            throw Error("No focused restart notice");
+          click("restart-dismiss");
+          break;
         case "observe":
           break;
         case "createNew":

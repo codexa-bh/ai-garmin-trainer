@@ -21,6 +21,16 @@ async function setup(firstRun: boolean, historyLimit = "") {
     "src-tauri/ui/index.html",
     "utf8",
   ).replace(/<script[^>]*>.*?<\/script>/gs, "");
+  const dialog = document.getElementById(
+    "restart-required",
+  ) as HTMLDialogElement;
+  dialog.showModal = vi.fn(() => {
+    dialog.open = true;
+  });
+  dialog.close = vi.fn(() => {
+    dialog.open = false;
+    dialog.dispatchEvent(new Event("close"));
+  });
   vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(
     () => [{ width: 10 }] as unknown as DOMRectList,
   );
@@ -71,7 +81,11 @@ async function setup(firstRun: boolean, historyLimit = "") {
         savedFields =
           args?.input?.settings?.fields ?? args?.input?.fields ?? {};
         saved = true;
-        return "Settings committed. Live fields applied for subsequent operations; captured work is unchanged. Other saved settings are pending explicit quit/reopen.";
+        const message =
+          "Settings committed. Live fields applied for subsequent operations; captured work is unchanged. Other saved settings are pending explicit quit/reopen.";
+        return command === "save_settings"
+          ? { message, restartRequired: true }
+          : message;
       }
       throw Error("Unexpected native capability");
     },
@@ -275,6 +289,15 @@ it("supports only fixed optional-limit/automatic actions, next-launch Save and r
       }),
     }),
   );
+  expect(window.__trainerHistorySetup("capture").ok).toBe(false);
+  expect(window.__trainerHistorySetup("dismissRestart").ok).toBe(true);
+  expect(
+    (document.getElementById("restart-required") as HTMLDialogElement).open,
+  ).toBe(false);
+  expect(
+    invoke.mock.calls.filter(([command]) => command === "save_settings"),
+  ).toHaveLength(1);
+  expect(window.__trainerHistorySetup("dismissRestart").ok).toBe(false);
   expect(window.__trainerHistorySetup("automatic").automaticHistory).toBe(true);
   expect(window.__trainerHistorySetup("capture").ok).toBe(true);
   expect(

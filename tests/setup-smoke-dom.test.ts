@@ -15,8 +15,21 @@ beforeEach(async () => {
     "src-tauri/ui/index.html",
     "utf8",
   ).replace(/<script[^>]*>.*?<\/script>/gs, "");
+  const dialog = document.getElementById(
+    "restart-required",
+  ) as HTMLDialogElement;
+  dialog.showModal = vi.fn(() => {
+    dialog.open = true;
+  });
+  dialog.close = vi.fn(() => {
+    dialog.open = false;
+    dialog.dispatchEvent(new Event("close"));
+  });
   vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(
     () => [{ width: 10 }] as unknown as DOMRectList,
+  );
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, 300, 45),
   );
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   vi.stubGlobal(
@@ -52,7 +65,11 @@ beforeEach(async () => {
       };
     if (command === "read_onboarding") return { eligible: false };
     if (command === "save_settings")
-      return "Settings committed. Live fields applied for subsequent operations; captured work is unchanged.";
+      return {
+        message:
+          "Settings committed. Live fields applied for subsequent operations; captured work is unchanged.",
+        restartRequired: false,
+      };
     return "";
   });
   window.eval(readFileSync("src-tauri/ui/setup.js", "utf8"));
@@ -187,10 +204,167 @@ it.each(["liveCatalog", "liveRotate", "liveClear", "liveEmpty"])(
     ).toBe("hidden");
     controller.__trainerSetupSmokeRestore();
     document.getElementById("status")!.textContent += " private-sentinel";
-    expect(controller.__trainerSetupSmoke("captureLive").ok).toBe(false);
+    expect(controller.__trainerSetupSmoke("captureLive")).toMatchObject({
+      ok: false,
+      captureFeedbackRejected: true,
+      captureMaskRejected: false,
+    });
   },
 );
 
+async function openRestart() {
+  const original = invoke.getMockImplementation()!;
+  invoke.mockImplementation(async (command, args) =>
+    command === "save_settings"
+      ? {
+          message:
+            "Settings committed. Live fields applied for subsequent operations; captured work is unchanged.",
+          restartRequired: true,
+        }
+      : original(command, args),
+  );
+  controller.__trainerSetupSmoke("save");
+  await waitFor(() =>
+    expect(controller.__trainerSetupSmoke("observe").restartFocused).toBe(true),
+  );
+}
+it.each(["restartDismiss", "restartEscape"])(
+  "observes finite modal focus, contains Tab and %s without Save replay",
+  async (action) => {
+    expect(controller.__trainerSetupSmoke("restartChange").ok).toBe(true);
+    expect(
+      (document.getElementById("MEMORY_EMBEDDING_DIMS") as HTMLInputElement)
+        .value,
+    ).toBe("2048");
+    expect(controller.__trainerSetupSmoke("restartRestore").ok).toBe(true);
+    await openRestart();
+    expect(controller.__trainerSetupSmoke("restartTab").restartFocused).toBe(
+      true,
+    );
+    expect(controller.__trainerSetupSmoke("save").ok).toBe(false);
+    expect(controller.__trainerSetupSmoke(action)).toMatchObject({
+      restartVisible: false,
+      saveFocused: true,
+    });
+    expect(
+      invoke.mock.calls.filter(([name]) => name === "save_settings"),
+    ).toHaveLength(1);
+  },
+);
+it.each(["captureRestartWide", "captureRestartNarrow"])(
+  "masks %s to exact static modal nodes and restores on expiry",
+  async (action) => {
+    await openRestart();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(24, 24, 300, 45),
+    );
+    vi.useFakeTimers();
+    try {
+      expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+      for (const el of document.body.querySelectorAll("*"))
+        if (el instanceof HTMLElement)
+          expect(getComputedStyle(el).visibility).toBe(
+            [
+              "restart-required",
+              "restart-heading",
+              "restart-description",
+              "restart-dismiss",
+            ].includes(el.id)
+              ? "visible"
+              : "hidden",
+          );
+      vi.advanceTimersByTime(5000);
+      for (const el of document.body.querySelectorAll("*"))
+        expect((el as HTMLElement).style.cssText).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it.each(["private-copy", "nested", "overflow", "ineffective-mask", "focus"])(
+  "refuses modal capture on %s and restores all styles",
+  async (fault) => {
+    await openRestart();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(24, 24, fault === "overflow" ? 2000 : 300, 45),
+    );
+    if (fault === "private-copy")
+      document.getElementById("restart-description")!.textContent +=
+        " private-sentinel";
+    if (fault === "nested")
+      document
+        .getElementById("restart-required")!
+        .append(document.createElement("input"));
+    if (fault === "focus") document.getElementById("save")!.focus();
+    if (fault === "ineffective-mask") {
+      const original = window.getComputedStyle.bind(window);
+      vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) =>
+        el.id === "DATABASE_PATH"
+          ? new Proxy(original(el, pseudo), {
+              get(target, key) {
+                return key === "visibility"
+                  ? "visible"
+                  : Reflect.get(target, key);
+              },
+            })
+          : original(el, pseudo),
+      );
+    }
+    expect(controller.__trainerSetupSmoke("captureRestartWide").ok).toBe(false);
+    for (const el of document.body.querySelectorAll("*"))
+      expect((el as HTMLElement).style.cssText).toBe("");
+    expect(
+      JSON.stringify(controller.__trainerSetupSmoke("observe")),
+    ).not.toMatch(/private-sentinel|sqlite|API_KEY/);
+  },
+);
+it("positions live feedback after releasing retained Save focus and refuses overflow", async () => {
+  controller.__trainerSetupSmoke("save");
+  await waitFor(() =>
+    expect(controller.__trainerSetupSmoke("observe").liveApplied).toBe(true),
+  );
+  document.getElementById("save")!.focus();
+  expect(controller.__trainerSetupSmoke("captureLive").ok).toBe(true);
+  expect(document.activeElement).not.toBe(document.getElementById("save"));
+  controller.__trainerSetupSmokeRestore();
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, -500, 300, 45),
+  );
+  expect(controller.__trainerSetupSmoke("captureLive").ok).toBe(false);
+  for (const el of document.body.querySelectorAll("*"))
+    expect((el as HTMLElement).style.cssText).toBe("");
+});
+it("accepts non-rendered closed-dialog visibility caching but refuses any rendered mask leak", async () => {
+  controller.__trainerSetupSmoke("save");
+  await waitFor(() =>
+    expect(controller.__trainerSetupSmoke("observe").liveApplied).toBe(true),
+  );
+  const original = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) =>
+    el.id === "restart-description"
+      ? new Proxy(original(el, pseudo), {
+          get(target, key) {
+            return key === "visibility" ? "visible" : Reflect.get(target, key);
+          },
+        })
+      : original(el, pseudo),
+  );
+  const rects = vi.spyOn(HTMLElement.prototype, "getClientRects");
+  rects.mockImplementation(function (this: HTMLElement) {
+    return (this.closest("dialog:not([open])")
+      ? []
+      : [{ width: 10 }]) as unknown as DOMRectList;
+  });
+  expect(controller.__trainerSetupSmoke("captureLive").ok).toBe(true);
+  controller.__trainerSetupSmokeRestore();
+  rects.mockImplementation(() => [{ width: 10 }] as unknown as DOMRectList);
+  expect(controller.__trainerSetupSmoke("captureLive")).toMatchObject({
+    ok: false,
+    captureMaskRejected: true,
+  });
+  for (const el of document.body.querySelectorAll("*"))
+    expect((el as HTMLElement).style.cssText).toBe("");
+});
 it("refuses private/arbitrary actions and never reads secrets, paths or copied text back", () => {
   for (const id of ["email", "password", "mfa", "OPENAI_API_KEY"])
     (document.getElementById(id) as HTMLInputElement).value =
@@ -260,7 +434,7 @@ it("captures only verified static intro text at its real geometry and restores i
   );
   const intro = Array.from(document.querySelector("main")!.children).slice(
     0,
-    3,
+    1,
   );
   const before = intro.map((el) => el.getBoundingClientRect().toJSON());
   invoke.mockClear();
@@ -289,7 +463,7 @@ it.each([
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
     new DOMRect(24, 24, scenario === "overflow" ? 2000 : 800, 45),
   );
-  const notice = document.querySelector("main > p") as HTMLElement;
+  const notice = document.querySelector("main > h1") as HTMLElement;
   if (scenario === "private-text") notice.textContent = "private-sentinel";
   if (scenario === "nested-control")
     notice.append(document.createElement("input"));

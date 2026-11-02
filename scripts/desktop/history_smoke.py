@@ -204,6 +204,7 @@ class HistoryRun(OrdinaryRun):
         self.settings_action('legacyLimit')
         self.settings_action('save')
         self.wait_settings(lambda value: value['ready'] and value['savedForNextLaunch'] and value['legacyLimit'], 'legacy optional-limit Save')
+        self.settings_action('dismissRestart')
         if self.http('/identity')['origin'] != original_origin:
             raise ValueError('Save unexpectedly changed running backend')
         image = {'scenario': 'saved-optional-limit', **self.settings_action('capture')}
@@ -214,6 +215,7 @@ class HistoryRun(OrdinaryRun):
         self.settings_action('automatic')
         self.settings_action('save')
         self.wait_settings(lambda value: value['ready'] and value['savedForNextLaunch'] and value['automaticHistory'], 'clear limit Save')
+        self.settings_action('dismissRestart')
         self.stop()
         self.start(self.binary)
         return image
