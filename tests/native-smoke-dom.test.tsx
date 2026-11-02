@@ -123,24 +123,48 @@ const footerOptions = [
     available: true,
   },
 ];
-function composerFixture() {
+function composerFixture(eligibility?: "mixed" | "empty") {
   const posts = vi.fn();
+  let preference: string | null = eligibility ? "entry_hidden_0" : null;
+  const cloud = ["openai", "openai", "deepseek", "openrouter"].map(
+    (provider, index) => ({
+      id: `entry_hidden_${index}`,
+      provider: provider as "openai" | "deepseek" | "openrouter",
+      modelId: `T0253/Absent:${index}`,
+      label: `${provider} / T0253/Absent:${index}`,
+      available: false,
+    }),
+  );
+  const options = eligibility
+    ? [...(eligibility === "empty" ? [] : footerOptions), ...cloud]
+    : footerOptions;
+  const defaultEntry = eligibility ? cloud[0] : footerOptions[1];
   const fetcher = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method && init.method !== "PATCH") posts();
-    const saved = init?.body === '{"modelId":"entry_footer_long"}';
-    const selected = footerOptions[saved ? 0 : 1];
+    if (init?.method === "PATCH")
+      preference = JSON.parse(String(init.body)).modelId;
+    const selected = options.find(
+      (entry) => entry.id === (preference ?? defaultEntry.id),
+    )!;
+    const saved = preference !== null;
     const body: ModelSettingsSnapshot = {
       version: 2,
-      options: footerOptions,
-      selected: saved ? selected.id : null,
-      defaultEntryId: footerOptions[1].id,
+      options,
+      selected: preference,
+      defaultEntryId: defaultEntry.id,
       effective: {
         entryId: selected.id,
         provider: selected.provider,
         modelName: selected.modelId,
         source: saved ? "saved" : "env",
-        available: true,
+        available: selected.available,
       },
+      ...(!selected.available
+        ? {
+            unavailableReason:
+              "Provider key is not configured. Update native Settings, quit and reopen.",
+          }
+        : {}),
     };
     return Promise.resolve(new Response(JSON.stringify(body)));
   });
@@ -262,6 +286,102 @@ describe("native-installed rendered smoke boundary", () => {
     ).toEqual(['{"modelId":"entry_footer_long"}', '{"modelId":null}']);
     expect(posts).not.toHaveBeenCalled();
   });
+  it.each(["mixed", "empty"] as const)(
+    "proves %s eligible choices with hidden saved/default, finite actions and exact sanitized warnings",
+    async (eligibility) => {
+      smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+      vi.stubGlobal("innerWidth", 1280);
+      vi.stubGlobal("innerHeight", 850);
+      const { fetcher, posts } = composerFixture(eligibility);
+      await screen.findByText(
+        "Provider key is not configured. Update native Settings, quit and reopen.",
+      );
+      let observed = (await command({ type: "composer", action: "observe" }))
+        .result;
+      expect(observed).toMatchObject({
+        ok: true,
+        catalogKnown: true,
+        unavailableChoice: true,
+        noEligibleChoices: eligibility === "empty",
+        modelReady: eligibility !== "empty",
+      });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(
+        (await command({ type: "composer", action: "draft" })).result
+          .draftMatches,
+      ).toBe(true);
+      if (eligibility === "empty") {
+        for (const action of ["choose", "keys"])
+          expect((await command({ type: "composer", action })).result.ok).toBe(
+            false,
+          );
+      } else {
+        expect(
+          (await command({ type: "composer", action: "keys" })).result
+            .keysNoSend,
+        ).toBe(true);
+      }
+      expect(
+        (
+          await command({
+            type: "captureView",
+            view: "composer",
+            preset: "wide",
+          })
+        ).result.ok,
+      ).toBe(true);
+      expect(getComputedStyle(screen.getByRole("alert")).visibility).toBe(
+        "visible",
+      );
+      expect(
+        getComputedStyle(screen.getByText("private copied transcript"))
+          .visibility,
+      ).toBe("hidden");
+      if (eligibility === "empty")
+        expect(
+          getComputedStyle(screen.getByText(/No available entries/)).visibility,
+        ).toBe("visible");
+      smoke.__trainerSmokeRestore();
+      if (eligibility === "mixed") {
+        await command({ type: "composer", action: "choose" });
+        await screen.findByText(/Saved preference: ollama/);
+      }
+      await command({ type: "composer", action: "reset" });
+      await screen.findByRole("option", {
+        name: "Unavailable configured default",
+      });
+      observed = (await command({ type: "composer", action: "observe" }))
+        .result;
+      expect(observed.unavailableChoice).toBe(true);
+      expect(observed.noEligibleChoices).toBe(eligibility === "empty");
+      expect(JSON.stringify(observed)).not.toMatch(
+        /Absent|private|entry_hidden/,
+      );
+      expect(posts).not.toHaveBeenCalled();
+      expect(
+        fetcher.mock.calls
+          .filter(([, init]) => init?.method === "PATCH")
+          .map(([, init]) => init?.body),
+      ).toEqual(
+        eligibility === "empty"
+          ? ['{"modelId":null}']
+          : ['{"modelId":"entry_footer_long"}', '{"modelId":null}'],
+      );
+      const select = screen.getByRole("combobox") as HTMLSelectElement;
+      select.options[0].textContent = "private unknown placeholder";
+      expect(
+        (
+          await command({
+            type: "captureView",
+            view: "composer",
+            preset: "wide",
+          })
+        ).result.ok,
+      ).toBe(false);
+      expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+      expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+    },
+  );
   it("refuses composer privileges, unknown/extra/private values, copied drafts/catalog captures and non-Trainer surfaces", async () => {
     expect(
       (await command({ type: "composer", action: "draft" })).result.ok,

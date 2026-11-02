@@ -289,19 +289,28 @@
       throw Error("Composer unavailable/ambiguous");
     return { textarea: textareas[0], select: selects[0], send: sends[0] };
   }
+  const footerUnavailable = [
+    "Unavailable saved entry",
+    "Unavailable configured default",
+  ];
+  const footerWarning =
+    "Provider key is not configured. Update native Settings, quit and reopen.";
+  const footerEmpty =
+    "No available entries. Configure provider keys or eligible local models in native Settings, then quit/reopen.";
   function knownFooterCatalog(select) {
     const options = [...select.options];
+    const choices = options.filter((option) => option.value !== "");
     return (
-      options.length >= 2 &&
+      options.length >= 1 &&
       options.length <= 3 &&
-      footerEntries.every(([id, label]) =>
-        options.some(
-          (option) =>
-            option.value === id &&
-            option.textContent === label &&
-            !option.disabled,
-        ),
-      ) &&
+      (choices.length === 0 ||
+        (choices.length === 2 &&
+          footerEntries.every(
+            ([id, label], index) =>
+              choices[index].value === id &&
+              choices[index].textContent === label &&
+              !choices[index].disabled,
+          ))) &&
       options.every(
         (option) =>
           footerEntries.some(
@@ -310,10 +319,9 @@
           ) ||
           (option.value === "" &&
             option.disabled &&
-            [
-              `Default · ${footerEntries[1][1]}`,
-              "Unavailable saved entry",
-            ].includes(option.textContent)),
+            [`Default · ${footerEntries[1][1]}`, ...footerUnavailable].includes(
+              option.textContent,
+            )),
       )
     );
   }
@@ -328,6 +336,21 @@
       action,
       trustedInput: false,
       modelReady: !select.disabled && knownFooterCatalog(select),
+      catalogKnown: knownFooterCatalog(select),
+      unavailableChoice:
+        knownFooterCatalog(select) &&
+        select.value === "" &&
+        select.selectedOptions[0]?.disabled &&
+        footerUnavailable.includes(select.selectedOptions[0]?.textContent) &&
+        document.querySelector(".chat-model-control [role=alert]")
+          ?.textContent === footerWarning,
+      noEligibleChoices:
+        knownFooterCatalog(select) &&
+        select.disabled &&
+        select.options.length === 1 &&
+        [...document.querySelectorAll(".chat-model-control p")].some(
+          (el) => el.textContent === footerEmpty,
+        ),
       singleControl:
         document.querySelectorAll('select[aria-label="Trainer model"]')
           .length === 1 &&
@@ -374,7 +397,9 @@
     const { textarea, select } = composerElements();
     if (
       command.action !== "observe" &&
-      (select.disabled || !knownFooterCatalog(select) || textarea.disabled)
+      (!knownFooterCatalog(select) ||
+        textarea.disabled ||
+        (select.disabled && !["draft", "reset"].includes(command.action)))
     )
       throw Error("Composer not ready or catalog private");
     if (command.action === "draft") {
@@ -418,13 +443,19 @@
     const { textarea, select, send } = composerElements();
     const observation = composerObservation("observe");
     if (
-      !observation.modelReady ||
+      !(
+        observation.modelReady ||
+        (observation.noEligibleChoices && observation.unavailableChoice)
+      ) ||
       !observation.draftMatches ||
       !observation.textareaStable
     )
       throw Error("Capture requires canonical synthetic composer");
     const reveal = (el) => el.setAttribute("data-smoke-reveal", "");
     [textarea, select, ...select.options, send].forEach(reveal);
+    for (const el of document.querySelectorAll(".chat-model-control p")) {
+      if ([footerWarning, footerEmpty].includes(el.textContent)) reveal(el);
+    }
     for (const el of document.querySelectorAll(
       ".trainer-heading-row h2, .trainer-heading-row .section-kicker, .chat-model-control label, .chat-model-control button, .chat-model-save-state",
     )) {

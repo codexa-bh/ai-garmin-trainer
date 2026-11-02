@@ -50,6 +50,35 @@ not exercised natively; no provider send/streaming or trusted keyboard claim fol
 Copies/preferences/draft/Goals/images are task-attributed and scratch-expiry deferred.
 Default ordinary/debug/quick scenarios gain no extra workload or privileges.
 
+#### Missing-key eligibility evidence
+
+`--model-eligibility` implies composer-footer evidence, leaving the baseline scenario
+unchanged. The existing two run-owned copies instead receive fixed keyless v3
+catalogs: two eligible synthetic Ollama entries plus four missing-key cloud entries
+(two OpenAI, one DeepSeek, one OpenRouter), and four cloud entries only. Both have
+an unavailable cloud default and an initially saved matching identity. Preparation
+seeds only the exclusive disposable copy before boot and refuses an existing
+legacy/v2 model preference; original input and v2 settings remain unchanged. No
+provider call, private input or Settings/auth grant is added.
+
+The same closed actions prove hidden saved choices, explicit eligible replacement
+(mixed run only) and reset to an unavailable default. Draft/reset may operate on a
+canonical disabled zero-choice control; choose/keys still refuse it. Three additional
+boolean results (`catalogKnown`, `unavailableChoice`, `noEligibleChoices`) expose no
+IDs, labels, keys or copied content. Native exact-field/type/mode validation and all
+existing run/boot/origin/request/time bounds remain binding. Unknown/extra actions,
+caller values and noncanonical catalogs/placeholders refuse.
+
+Mixed hidden-saved/replacement/unavailable-default and all-ineligible saved/default
+states each receive wide/narrow `composer` captures (ten total). Masks additionally
+reveal only generic unavailable placeholders and exact fixed safe key/empty guidance;
+all other unknown/copied text stays hidden, with unconditional restoration/expiry.
+The runner verifies full authoritative eligibility/default metadata, exact saved/reset
+identity and unchanged chat fingerprints. This proves native control/DOM option
+omission, not OS popup rendering, trusted input, real provider/Garmin readiness or
+normal-singleton behavior. Inspect every actual PNG. All run-only preferences,
+drafts, Goals and captures remain task-attributed and scratch-expiry deferred.
+
 ### Opt-in conversation selection evidence
 
 T0250 adds `--conversation-selection` to `smoke:ordinary` for approved populated
