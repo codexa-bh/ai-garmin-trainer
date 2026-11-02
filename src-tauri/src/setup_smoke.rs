@@ -22,6 +22,8 @@ pub enum Action {
     Save,
     Cancel,
     Capture,
+    CaptureWide,
+    CaptureNarrow,
     CaptureIntro,
     Catalog,
     CatalogEmpty,
@@ -174,24 +176,12 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
     if matches!(
         action,
         Action::Capture
+            | Action::CaptureWide
+            | Action::CaptureNarrow
             | Action::CaptureIntro
             | Action::CaptureCatalog
             | Action::CaptureCatalogNarrow
     ) {
-        if matches!(
-            action,
-            Action::CaptureCatalog | Action::CaptureCatalogNarrow
-        ) {
-            let width = if matches!(action, Action::CaptureCatalogNarrow) {
-                420.0
-            } else {
-                900.0
-            };
-            window
-                .set_size(tauri::LogicalSize::new(width, 820.0))
-                .map_err(|_| "Settings viewport refused")?;
-            std::thread::sleep(Duration::from_millis(150));
-        }
         let boundary = if matches!(
             action,
             Action::CaptureCatalog | Action::CaptureCatalogNarrow
@@ -200,8 +190,35 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         } else if matches!(action, Action::CaptureIntro) {
             "geometry-preserving masked actual static Settings introduction; debug only, not ordinary or trusted input"
         } else {
-            "sanitized actual Garmin Settings subtrees; not full-window layout or trusted input"
+            "geometry-preserving masked consolidated Garmin section at fixed debug viewport; scrolled, inputs hidden, not full-window, ordinary or trusted input"
         };
+        let original_size = window
+            .inner_size()
+            .map_err(|_| "Settings viewport unavailable")?;
+        if matches!(
+            action,
+            Action::CaptureWide
+                | Action::CaptureNarrow
+                | Action::CaptureCatalog
+                | Action::CaptureCatalogNarrow
+        ) {
+            let catalog = matches!(
+                action,
+                Action::CaptureCatalog | Action::CaptureCatalogNarrow
+            );
+            let width = if matches!(action, Action::CaptureNarrow | Action::CaptureCatalogNarrow) {
+                420.0
+            } else if catalog {
+                900.0
+            } else {
+                1000.0
+            };
+            let height = if catalog { 820.0 } else { 1000.0 };
+            window
+                .set_size(tauri::LogicalSize::new(width, height))
+                .map_err(|_| "Settings viewport refused")?;
+            std::thread::sleep(Duration::from_millis(150));
+        }
         let result = (|| {
             let prepared = evaluate(&window, &action)?;
             if !prepared.ok {
@@ -218,6 +235,9 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         })();
         let _ =
             window.eval("window.__trainerSetupSmokeRestore && window.__trainerSetupSmokeRestore()");
+        window
+            .set_size(original_size)
+            .map_err(|_| "Settings viewport restoration refused")?;
         return result;
     }
     let mut value = serde_json::to_value(evaluate(&window, &action)?)
@@ -255,7 +275,11 @@ mod tests {
             serde_json::from_value::<Action>(json!("captureIntro")).unwrap(),
             Action::CaptureIntro
         ));
+        for text in ["captureWide", "captureNarrow"] {
+            assert!(serde_json::from_value::<Action>(json!(text)).is_ok());
+        }
         for value in [
+            json!({"action":"captureWide","width":500}),
             json!({"action":"captureIntro","selector":"body"}),
             json!("captureSecret"),
             json!("capture-intro"),
