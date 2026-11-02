@@ -228,6 +228,7 @@ describe("trusted local desktop settings UI", () => {
       "use-tokens",
       "mfa-form",
       "auth-status",
+      "connect-later",
     ])
       expect(visible(id)).toBe(false);
     fireEvent.click(input("connect"));
@@ -235,9 +236,34 @@ describe("trusted local desktop settings UI", () => {
     expect(document.activeElement).toBe(input("email"));
     expect(visible("auth-cancel")).toBe(false);
     expect(visible("connection-status")).toBe(false);
+    expect(visible("connect-later")).toBe(true);
+    expect(input("connect-later").textContent).toBe("Back");
+    input("connect-later").focus();
     fireEvent.click(input("connect-later"));
     expect(visible("auth")).toBe(false);
+    expect(visible("connect-later")).toBe(false);
     expect(visible("connection-status")).toBe(true);
+    expect(document.activeElement?.id).toBe("connection-status");
+  });
+  it("removes only the specified storage paragraph even in the expanded disclosure", () => {
+    const disclosure = document.getElementById(
+      "garmin-privacy",
+    ) as HTMLDetailsElement;
+    disclosure.open = true;
+    const copy = disclosure.textContent!.replace(/\s+/g, " ");
+    expect(copy).not.toContain(
+      "The app chooses a fresh private location on this Mac",
+    );
+    expect(copy).not.toContain("Tokens are plaintext, not encrypted");
+    expect(copy).not.toContain(
+      "Verified tokens remain saved even if you later cancel settings",
+    );
+    expect(disclosure.querySelectorAll("p")).toHaveLength(2);
+    expect(copy).toContain("This unofficial connector is not official OAuth.");
+    expect(copy).toContain(
+      "Email, password and one supported MFA code stay transient",
+    );
+    expect(copy).toContain("Cancellation and the 180-second deadline");
   });
   it("projects pending, MFA, verification, success and selected states without stale accessible controls", async () => {
     const original = invoke.getMockImplementation()!;
@@ -260,6 +286,9 @@ describe("trusted local desktop settings UI", () => {
     expect(visible("auth")).toBe(false);
     expect(visible("auth-cancel")).toBe(false);
     expect(input("connect-later").disabled).toBe(true);
+    expect(visible("connect-later")).toBe(true);
+    fireEvent.click(input("connect-later"));
+    expect(visible("auth-section")).toBe(true);
     expect(document.activeElement?.id).toBe("auth-status");
     resolveStart({ id: "session-one", state: "authenticating" });
     await waitFor(() => expect(visible("auth-cancel")).toBe(true));
@@ -302,6 +331,7 @@ describe("trusted local desktop settings UI", () => {
     ])
       expect(visible(id)).toBe(false);
     expect(visible("connection-status")).toBe(true);
+    expect(visible("connect-later")).toBe(false);
     expect(document.getElementById("connection-status")?.textContent).toContain(
       "Pending Save",
     );
@@ -1035,8 +1065,32 @@ describe("trusted local desktop settings UI", () => {
     expect(document.getElementById("connect")?.textContent).toBe(
       "Reconnect Garmin",
     );
-    fireEvent.click(document.getElementById("connect-later")!);
+    expect(visible("connect-later")).toBe(false);
     input("AI_MODEL").value = "draft-model";
+    fireEvent.input(input("OPENAI_API_KEY"), {
+      target: { value: "provider-draft" },
+    });
+    for (let cycle = 0; cycle < 2; cycle++) {
+      fireEvent.click(input("connect"));
+      expect(visible("connect-later")).toBe(true);
+      expect(input("connect-later").textContent).toBe(
+        "Back — keep current connection",
+      );
+      input("email").value = "synthetic@example.invalid";
+      input("password").value = "transient-draft";
+      input("connect-later").focus();
+      fireEvent.click(input("connect-later"));
+      expect(visible("connect-later")).toBe(false);
+      expect(visible("auth-section")).toBe(false);
+      expect(document.activeElement?.id).toBe("connection-status");
+      expect(input("AI_MODEL").value).toBe("draft-model");
+      expect(input("OPENAI_API_KEY").value).toBe("provider-draft");
+      expect(input("email").value).toBe("");
+      expect(input("password").value).toBe("");
+      expect(invoke.mock.calls.some(([name]) => name === "save_settings")).toBe(
+        false,
+      );
+    }
     fireEvent.submit(document.getElementById("settings")!);
     await waitFor(() =>
       expect(submitted?.input.fields).toMatchObject({
@@ -1367,6 +1421,10 @@ describe("trusted local desktop settings UI", () => {
       "Pending Finish",
     );
     expect(visible("auth-section")).toBe(false);
+    expect(visible("connect-later")).toBe(true);
+    expect(input("connect-later").textContent).toBe(
+      "Continue with selected connection",
+    );
     fireEvent.click(input("connect-later"));
     expect(visible("review")).toBe(true);
     expect(visible("garmin-fields")).toBe(false);
@@ -1477,6 +1535,7 @@ describe("trusted local desktop settings UI", () => {
     });
     fireEvent.click(document.getElementById("next")!);
     fireEvent.click(document.getElementById("next")!);
+    expect(visible("connect-later")).toBe(true);
     expect(document.getElementById("connect-later")?.textContent).toBe(
       "Continue without Garmin",
     );

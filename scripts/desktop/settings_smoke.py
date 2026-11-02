@@ -333,12 +333,17 @@ def main():
             passed = True
             return
         captures.append({'scenario': 'concise-static-introduction', **run.command({'type': 'settings', 'action': 'captureIntro'})})
-        capture_garmin(run, captures, 'not-connected-connect-later')
+        capture_garmin(run, captures, 'not-connected-back-hidden')
         run.command({'type': 'settings', 'action': 'connect'})
         wait_settings(run, lambda o: o['formVisible'], 'Connect reveals private form without login')
         capture_garmin(run, captures, 'connect-form-no-login')
         run.command({'type': 'settings', 'action': 'later'})
-        wait_settings(run, lambda o: not o['formVisible'] and o['notConnected'], 'Connect later preserves selection')
+        wait_settings(run, lambda o: not o['formVisible'] and o['notConnected'], 'Back closes form without login')
+        capture_garmin(run, captures, 'back-closed')
+        run.command({'type': 'settings', 'action': 'connect'})
+        wait_settings(run, lambda o: o['formVisible'], 'repeated Connect opens form')
+        run.command({'type': 'settings', 'action': 'later'})
+        wait_settings(run, lambda o: not o['formVisible'] and o['notConnected'], 'repeated Back closes form')
         run.command({'type': 'settings', 'action': 'cancel'})
         wait_settings(run, lambda o: o['editsCancelled'] and not o['formVisible'], 'Cancel reconciles saved state')
         if not args.live_settings:

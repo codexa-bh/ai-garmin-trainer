@@ -153,7 +153,7 @@
             without Garmin.
           </p>
           <button type="button" id="connect">Connect Garmin</button>
-          <button type="button" id="connect-later">Connect later</button>
+          <button type="button" id="connect-later" hidden>Back</button>
           <div id="auth-section" hidden aria-label="Private Garmin sign-in">
             <div id="auth" hidden>
               <label
@@ -201,13 +201,6 @@
               This unofficial connector is not official OAuth. Account
               challenges and rate limits may prevent sign-in. Only your explicit
               action starts login; no automatic retries.
-            </p>
-            <p>
-              The app chooses a fresh private location on this Mac (folder 0700,
-              files 0600). Tokens are plaintext, not encrypted; the same user,
-              privileged processes and backups can read them. Existing
-              connections are preserved. Verified tokens remain saved even if
-              you later cancel settings.
             </p>
             <p>
               Email, password and one supported MFA code stay transient in

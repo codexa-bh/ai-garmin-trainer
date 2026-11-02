@@ -99,8 +99,11 @@ it("drives only actual Connect/later/cancel/Save controls without authentication
     manualControlsAbsent: true,
     formVisible: false,
   });
+  expect(controller.__trainerSetupSmoke("later").ok).toBe(false);
   expect(controller.__trainerSetupSmoke("connect").formVisible).toBe(true);
+  expect(document.getElementById("connect-later")?.textContent).toBe("Back");
   expect(controller.__trainerSetupSmoke("later").formVisible).toBe(false);
+  expect(controller.__trainerSetupSmoke("later").ok).toBe(false);
   expect(controller.__trainerSetupSmoke("cancel").ok).toBe(true);
   await waitFor(() =>
     expect(document.getElementById("status")?.textContent).toContain(
@@ -413,6 +416,26 @@ it("refuses private/arbitrary actions and never reads secrets, paths or copied t
     (document.getElementById("DATABASE_PATH") as HTMLElement).style.cssText,
   ).toBe("");
 });
+it.each(["capture", "captureWide", "captureNarrow"])(
+  "verifies contextual Back visibility and copy for %s before capturing",
+  (action) => {
+    const back = document.getElementById("connect-later")!;
+    expect(back.hidden).toBe(true);
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+    controller.__trainerSetupSmokeRestore();
+    expect(controller.__trainerSetupSmoke("connect").formVisible).toBe(true);
+    expect(back.hidden).toBe(false);
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+    controller.__trainerSetupSmokeRestore();
+    back.hidden = true;
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
+    expect(document.querySelector('[style*="visibility"]')).toBeNull();
+    back.hidden = false;
+    back.textContent = "Connect later — keep current selection";
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
+    expect(document.querySelector('[style*="visibility"]')).toBeNull();
+  },
+);
 it.each(["capture", "captureWide", "captureNarrow"])(
   "refuses %s and restores styles when the privacy mask is not effective",
   (action) => {

@@ -717,6 +717,8 @@
         if (!observe().manualControlsAbsent || !observe().notConnected)
           throw Error("Unsafe capture");
         restore();
+        if (visible(byId("connect-later")) !== observe().formVisible)
+          throw Error("Unexpected back action visibility");
         const root = byId("garmin-fields");
         // Fixed static allowlist only. Never reveal arbitrary subtree text or input values.
         const approved = new Map([
@@ -730,7 +732,7 @@
             "Connect for fresh Garmin data and coaching grounded in it. Configured-provider chat and saved/offline history remain available without Garmin.",
           ],
           [byId("connect"), "Connect Garmin"],
-          [byId("connect-later"), "Connect later — keep current selection"],
+          [byId("connect-later"), "Back"],
           [byId("sign-in"), "Sign in and verify"],
           [
             byId("garmin-privacy").querySelector("summary"),
