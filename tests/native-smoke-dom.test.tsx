@@ -550,7 +550,7 @@ describe("native-installed rendered smoke boundary", () => {
     );
   });
 
-  it("drives only finite rendered Health actions, keeps dates private, and masks without replacing layout", async () => {
+  describe("finite rendered Health boundary", () => {
     const record = (date: string) =>
       ({
         date,
@@ -595,64 +595,77 @@ describe("native-installed rendered smoke boundary", () => {
         </>
       );
     }
-    render(<Health />);
-    expect(
-      (await command({ type: "health", action: "assert-range" })).result.ok,
-    ).toBe(false);
-    expect((await command({ type: "health", action: "next" })).result.ok).toBe(
-      false,
-    );
-    expect(
-      (await command({ type: "health", action: "previous" })).result.ok,
-    ).toBe(true);
-    expect(
-      (await command({ type: "health", action: "remember-range" })).result.ok,
-    ).toBe(true);
-    for (const action of ["weekly", "monthly", "daily"]) {
-      expect((await command({ type: "health", action })).result.ok).toBe(true);
-      expect((await command({ type: "observe" })).result.healthMode).toBe(
-        action,
-      );
-    }
-    expect(
-      (await command({ type: "health", action: "assert-range" })).result.ok,
-    ).toBe(true);
-    for (const action of ["capture-narrow", "capture-wide"]) {
-      const comparison = document.querySelector(".health-daily-comparison")!;
-      const before = comparison.textContent;
-      expect((await command({ type: "health", action })).result.ok).toBe(true);
-      expect(comparison.textContent).toBe(before);
-      for (const privateNode of comparison.querySelectorAll(
-        "time, .health-rollup-value span, .health-rollup-value strong, .health-rollup-readout, svg text, .recharts-line-curve, .recharts-dot, .recharts-bar-rectangle, .health-daily-coverage li span",
-      )) {
-        expect(getComputedStyle(privateNode).visibility).toBe("hidden");
+    it("drives only finite actions and never returns private dates or values", async () => {
+      render(<Health />);
+      expect(
+        (await command({ type: "health", action: "assert-range" })).result.ok,
+      ).toBe(false);
+      expect(
+        (await command({ type: "health", action: "next" })).result.ok,
+      ).toBe(false);
+      expect(
+        (await command({ type: "health", action: "previous" })).result.ok,
+      ).toBe(true);
+      expect(
+        (await command({ type: "health", action: "remember-range" })).result.ok,
+      ).toBe(true);
+      for (const action of ["weekly", "monthly", "daily"]) {
+        expect((await command({ type: "health", action })).result.ok).toBe(
+          true,
+        );
+        expect((await command({ type: "observe" })).result.healthMode).toBe(
+          action,
+        );
       }
       expect(
-        getComputedStyle(
-          comparison.querySelector(".health-rollup-heading strong")!,
-        ).visibility,
-      ).toBe("visible");
-      expect(getComputedStyle(screen.getByTestId("outside")).visibility).toBe(
-        "hidden",
+        (await command({ type: "health", action: "assert-range" })).result.ok,
+      ).toBe(true);
+      expect(
+        (await command({ type: "health", action: "latest" })).result.ok,
+      ).toBe(true);
+      expect(
+        (await command({ type: "health", action: "assert-range" })).result.ok,
+      ).toBe(false);
+      const observed = JSON.stringify(await command({ type: "observe" }));
+      expect(observed).not.toMatch(
+        /2026-|8,412|synthetic-status|private outside transcript/,
       );
-      smoke.__trainerSmokeRestore();
-    }
-    expect(
-      (await command({ type: "health", action: "latest" })).result.ok,
-    ).toBe(true);
-    expect(
-      (await command({ type: "health", action: "assert-range" })).result.ok,
-    ).toBe(false);
-    const observed = JSON.stringify(await command({ type: "observe" }));
-    expect(observed).not.toMatch(
-      /2026-|8,412|synthetic-status|private outside transcript/,
+      for (const unknown of [
+        { type: "health", action: "eval" },
+        { type: "health", action: "capture-wide", selector: "body" },
+        { type: "health", action: "remember-range", date: "2026-01-01" },
+      ])
+        expect((await command(unknown)).result.ok).toBe(false);
+    });
+
+    // Keep each real rendered capture/privacy contract independent of navigation
+    // and the other viewport's CSS work within the normal per-test deadline.
+    it.each(["capture-narrow", "capture-wide"])(
+      "%s masks private content without replacing layout",
+      async (action) => {
+        render(<Health />);
+        const comparison = document.querySelector(".health-daily-comparison")!;
+        const before = comparison.textContent;
+        expect((await command({ type: "health", action })).result.ok).toBe(
+          true,
+        );
+        expect(comparison.textContent).toBe(before);
+        for (const privateNode of comparison.querySelectorAll(
+          "time, .health-rollup-value span, .health-rollup-value strong, .health-rollup-readout, svg text, .recharts-line-curve, .recharts-dot, .recharts-bar-rectangle, .health-daily-coverage li span",
+        )) {
+          expect(getComputedStyle(privateNode).visibility).toBe("hidden");
+        }
+        expect(
+          getComputedStyle(
+            comparison.querySelector(".health-rollup-heading strong")!,
+          ).visibility,
+        ).toBe("visible");
+        expect(getComputedStyle(screen.getByTestId("outside")).visibility).toBe(
+          "hidden",
+        );
+        smoke.__trainerSmokeRestore();
+      },
     );
-    for (const unknown of [
-      { type: "health", action: "eval" },
-      { type: "health", action: "capture-wide", selector: "body" },
-      { type: "health", action: "remember-range", date: "2026-01-01" },
-    ])
-      expect((await command(unknown)).result.ok).toBe(false);
   });
 
   it("refuses Health actions outside the visible Health owner", async () => {
