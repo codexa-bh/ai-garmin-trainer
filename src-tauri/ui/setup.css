@@ -82,8 +82,23 @@ button {
   color: #a9c9b6;
   font-size: 14px;
 }
-#memory-section p {
+#memory-section p,
+#garmin-fields {
   overflow-wrap: anywhere;
+}
+#garmin-fields {
+  min-width: 0;
+}
+#garmin-fields input {
+  box-sizing: border-box;
+  width: 100%;
+}
+#garmin-fields button {
+  max-width: 100%;
+}
+#garmin-privacy {
+  border-top: 1px solid #5e7c6a;
+  margin-top: 12px;
 }
 #memory-section details {
   border-top: 1px solid #5e7c6a;

@@ -66,7 +66,9 @@
         </fieldset>
         <fieldset id="garmin-fields">
           <legend>Garmin connection</legend>
-          <p id="connection-status" role="status">Not connected</p>
+          <p id="connection-status" role="status" tabindex="-1">
+            Not connected
+          </p>
           <p>
             Connect for fresh Garmin data and coaching grounded in it.
             Configured-provider chat and saved/offline history remain available
@@ -74,6 +76,69 @@
           </p>
           <button type="button" id="connect">Connect Garmin</button>
           <button type="button" id="connect-later">Connect later</button>
+          <div id="auth-section" hidden aria-label="Private Garmin sign-in">
+            <div id="auth" hidden>
+              <label
+                >Email<input
+                  id="email"
+                  type="email"
+                  autocomplete="off"
+                  required
+                  form="garmin-auth"
+              /></label>
+              <label
+                >Password<input
+                  id="password"
+                  type="password"
+                  autocomplete="new-password"
+                  required
+                  form="garmin-auth"
+              /></label>
+              <button id="sign-in" type="submit" form="garmin-auth">
+                Sign in and verify
+              </button>
+            </div>
+            <div id="mfa-form" hidden>
+              <label
+                >MFA code<input
+                  id="mfa"
+                  type="password"
+                  autocomplete="off"
+                  maxlength="128"
+                  form="garmin-mfa"
+              /></label>
+              <button type="submit" form="garmin-mfa">Submit code once</button>
+            </div>
+            <button type="button" id="auth-cancel" hidden disabled>
+              Cancel sign-in
+            </button>
+            <button type="button" id="use-tokens" hidden>
+              Use this verified connection
+            </button>
+            <p id="auth-status" role="status" tabindex="-1" hidden></p>
+          </div>
+          <details id="garmin-privacy">
+            <summary>Sign-in and private storage details</summary>
+            <p>
+              This unofficial connector is not official OAuth. Account
+              challenges and rate limits may prevent sign-in. Only your explicit
+              action starts login; no automatic retries.
+            </p>
+            <p>
+              The app chooses a fresh private location on this Mac (folder 0700,
+              files 0600). Tokens are plaintext, not encrypted; the same user,
+              privileged processes and backups can read them. Existing
+              connections are preserved. Verified tokens remain saved even if
+              you later cancel settings.
+            </p>
+            <p>
+              Email, password and one supported MFA code stay transient in
+              native sign-in, never saved, logged or sent to AI. Do not enter
+              credentials in chat. Cancellation and the 180-second deadline stop
+              owned authentication; perfect memory zeroization is not
+              guaranteed.
+            </p>
+          </details>
         </fieldset>
         <fieldset id="keys">
           <legend>Provider keys — private file</legend>
@@ -209,57 +274,9 @@
           ><button type="button" id="cancel">Cancel edits</button>
         </div>
       </form>
-      <section id="auth-section" aria-labelledby="auth-heading">
-        <h2 id="auth-heading">Connect Garmin privately</h2>
-        <details>
-          <summary>Sign-in and private storage details</summary>
-          <p>
-            This unofficial connector is not official OAuth. Account challenges
-            and rate limits may prevent sign-in. Only your explicit action
-            starts login; no automatic retries.
-          </p>
-          <p>
-            The app chooses a fresh private location on this Mac (folder 0700,
-            files 0600). Tokens are plaintext, not encrypted; the same user,
-            privileged processes and backups can read them. Existing connections
-            are preserved. Verified tokens remain saved even if you later cancel
-            settings.
-          </p>
-          <p>
-            Email, password and one supported MFA code stay transient in native
-            sign-in, never saved, logged or sent to AI. Do not enter credentials
-            in chat. Cancellation and the 180-second deadline stop owned
-            authentication; perfect memory zeroization is not guaranteed.
-          </p>
-        </details>
-        <form id="auth" hidden autocomplete="off">
-          <label
-            >Email<input id="email" type="email" autocomplete="off" required
-          /></label>
-          <label
-            >Password<input
-              id="password"
-              type="password"
-              autocomplete="new-password"
-              required
-          /></label>
-          <button id="sign-in" type="submit">Sign in and verify</button>
-        </form>
-        <form id="mfa-form" hidden autocomplete="off">
-          <label
-            >MFA code<input
-              id="mfa"
-              type="password"
-              autocomplete="off"
-              maxlength="128" /></label
-          ><button type="submit">Submit code once</button>
-        </form>
-        <button type="button" id="auth-cancel" disabled>Cancel sign-in</button>
-        <button type="button" id="use-tokens" hidden>
-          Use this verified connection
-        </button>
-        <p id="auth-status" role="status">Idle. No automatic login attempts.</p>
-      </section>
+      <!-- External form owners keep inline sign-in separate from Settings Save. -->
+      <form id="garmin-auth" autocomplete="off"></form>
+      <form id="garmin-mfa" autocomplete="off"></form>
       <p>
         External uv/uvx, Python and optional Ollama remain operator-managed. No
         software or models are installed at launch. Use the native Desktop
