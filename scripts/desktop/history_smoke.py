@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import signal
 import stat
+import smoke_resources as resources
 import sys
 import time
 import urllib.request
@@ -98,6 +99,35 @@ def prepare_synthetic_history(run):
     # remain immutable. The authored executable validates that exact argv.
     saved['fields'].update({'GARMIN_MCP_COMMAND': str(script), 'GARMIN_MCP_TOKEN_DIR': str(root / 'tokens')})
     staged = root / 'config/synthetic-history-settings.json'
+    private_json(staged, saved)
+    os.replace(staged, path)
+
+
+def prepare_dependency_scenario(run, scenario):
+    """Finite stopped synthetic-only variants; never change a live executable/config."""
+    if scenario not in ('missing', 'unknown', 'healthy'):
+        raise ValueError('Closed dependency scenario required')
+    root = private_directory(run.root)
+    if run.child is not None or listening(run.config['port']):
+        raise ValueError('Stopped owned dependency run required')
+    path = root / 'config/settings-v3.json'
+    saved = json.loads(path.read_text())
+    from history_connector import SENTINEL
+    if saved['keys'] or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens'):
+        raise ValueError('Exact synthetic-only connection required')
+    if scenario == 'unknown':
+        script = root / 'unknown_connector.py'
+        with open(script, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o700)) as output:
+            output.write(b'#!' + str(Path(sys.executable).resolve()).encode() + b'\nraise SystemExit(2)\n')
+    else:
+        script = root / ('missing_uvx' if scenario == 'missing' else 'synthetic_history_connector.py')
+        if scenario == 'missing':
+            # Existing canonical paths are required by unchanged Settings validation.
+            # A nonexecutable fixture resolves to the product's unavailable-tool sentinel.
+            with open(script, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as output:
+                output.write(b'synthetic nonexecutable launcher\n')
+    saved['fields']['GARMIN_MCP_COMMAND'] = str(script)
+    staged = root / ('config/dependency-' + scenario + '.json')
     private_json(staged, saved)
     os.replace(staged, path)
 
@@ -246,6 +276,7 @@ class HistoryRun(OrdinaryRun):
             if predicate(value):
                 return value
             time.sleep(.25)
+        private_json(self.root / ('sync-observation-timeout-' + str(uuid.uuid4()) + '.json'), {'rendered':value, 'summary':self.summary()})
         raise TimeoutError('Finite Sync observation deadline; no mutation replay')
 
     def settle_claim(self):
@@ -313,6 +344,45 @@ class HistoryRun(OrdinaryRun):
                 raise ValueError('Restart replayed or lost durable history')
         private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'maxInvocations':2, 'maxObservationSecondsPerOperation':150, 'realGarminCertified':False})
 
+    def dependency_guidance(self):
+        images = self.sync_captures = []
+        for scenario in ('missing', 'unknown', 'healthy'):
+            prepare_dependency_scenario(self, scenario)
+            self.start(self.binary)
+            self.command({'type':'click', 'target':'Sync'})
+            self.wait(lambda value: value['view'] == 'Sync', 'dependency Sync')
+            if self.summary()['active']:
+                raise ValueError('Passive no-tool navigation started an integration')
+            self.wait_sync(lambda value: value['startEnabled'], 10)
+            self.command({'type':'sync', 'action':'start'})  # Once per changed scenario, never failure retry.
+            if scenario == 'healthy':
+                self.wait_sync(lambda value: value['running'] and value['progressStarted'], 15)
+                # Initial rendered log only proves the click, not server/connector admission.
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    healthy = self.summary()
+                    if healthy['active'] and healthy['operationAttempts'] >= 2:
+                        break
+                    time.sleep(.1)
+                else:
+                    private_json(self.root / 'healthy-admission-timeout.json', healthy)
+                    raise TimeoutError('Healthy synthetic connector admission not observed; no Cancel/replay')
+                self.command({'type':'sync', 'action':'cancel'})
+                self.wait_sync(lambda value: value['paused'] and not value['running'], 40)
+            else:
+                self.wait_sync(lambda value: value['failed'] and not value['running'], 15)
+            self.settle_claim()
+            for preset in ('wide', 'narrow'):
+                self.command({'type':'setViewport', 'preset':preset})
+                images.append({'scenario':'dependency-' + scenario + '-' + preset, **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            private_json(self.root / ('dependency-' + scenario + '-evidence.json'), {'captures':images, 'summary':self.summary(), 'source':self.config['source'], 'boot':self.boot, 'realGarminCertified':False})
+            self.command({'type':'setViewport', 'preset':'wide'})
+            self.command({'type':'click', 'target':'Back to chat'})
+            self.wait(lambda value: value['view'] == 'Trainer', 'saved offline Trainer')
+            self.command({'type':'click', 'target':'Health'})
+            self.wait(lambda value: value['view'] == 'Health', 'saved offline Health')
+            self.stop()
+
     def continue_once(self):
         """One explicitly selected checkpoint continuation; never replay Cancel/start."""
         self.command({'type': 'setViewport', 'preset': 'wide'})
@@ -379,15 +449,19 @@ class HistoryRun(OrdinaryRun):
         return images
 
 
+@resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--input-file', required=True)
     parser.add_argument('--bundle', required=True)
+    parser.add_argument('--dependency-guidance', action='store_true', help='Three fixed synthetic launcher scenarios, no account calls')
     parser.add_argument('--synthetic-sync', action='store_true', help='Finite authored stdio data on stopped owned copies; no account calls')
     parser.add_argument('--token-input', help='Explicit private selector; never normal-settings discovery')
     parser.add_argument('--continuation-only', action='store_true', help='One explicitly selected prior-checkpoint continuation; no repeated Cancel/start batch')
     args = parser.parse_args()
+    if args.dependency_guidance and (args.synthetic_sync or args.token_input or args.continuation_only):
+        parser.error('Dependency evidence is synthetic-only and cannot combine execution scopes')
     if args.synthetic_sync and (args.token_input or args.continuation_only):
         parser.error('Synthetic history cannot consume private tokens or legacy continuation authority')
     if args.token_input:
@@ -395,7 +469,7 @@ def main():
     if args.continuation_only and not args.token_input:
         parser.error('--continuation-only requires explicitly selected copied tokens')
     os.umask(0o077)
-    scratch = private_directory(args.scratch)
+    scratch = private_directory(resources.configure(canonical(args.scratch)))
     selection = canonical(args.input_file)
     info = selection.stat()
     if info.st_mode & 0o777 != 0o600 or info.st_nlink != 1 or info.st_uid != os.getuid() or info.st_size > 8192:
@@ -417,15 +491,21 @@ def main():
                'captures': [], 'cleanup': 'private copy-only state/captures retained to task-scratch expiry; no copy-back'}
     try:
         observer = Observer(scratch)
-        for mode in (['use-existing'] if args.continuation_only else ['create-new', 'use-existing']):
+        for mode in (['use-existing'] if args.continuation_only or args.dependency_guidance else ['create-new', 'use-existing']):
             run = HistoryRun(scratch, database, source, bundle, inventory, history_setup=mode)
             runs.append(run)
             run.observer = observer
             receipt['captures'].extend(run.onboarding())
-            receipt['captures'].append(run.optional_limit())
+            if not args.dependency_guidance:
+                receipt['captures'].append(run.optional_limit())
             run.stop()
         run = runs[-1]
-        if args.synthetic_sync:
+        if args.dependency_guidance:
+            prepare_synthetic_history(run)
+            run.dependency_guidance()
+            receipt['dependencyGuidance'] = 'actual missing/unknown/healthy synthetic launcher actions; offline navigation retained; no real sign-in/interpreter failure certification'
+            receipt['realGarmin'] = 'unavailable: no private input or fresh login authority'
+        elif args.synthetic_sync:
             prepare_synthetic_history(run)
             run.start(run.binary)
             run.synthetic_sync()

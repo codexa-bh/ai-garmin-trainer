@@ -1226,7 +1226,7 @@ describe("trusted local desktop settings UI", () => {
     ["unsupported-challenge", "unsupported or repeated"],
     ["network-service", "does not establish credential expiry"],
     ["rate-limited", "does not establish credential expiry"],
-    ["auth-unavailable", "tooling unavailable"],
+    ["auth-unavailable", "cause is unknown"],
     ["timeout", "timed out"],
     ["publication-refused", "Original stores preserved"],
   ])(
@@ -1389,29 +1389,87 @@ describe("trusted local desktop settings UI", () => {
     );
     listeners["desktop-settings-closed"]({ payload: "" });
   });
-  it("keeps unknown start outcomes visible without granting a new attempt", async () => {
-    const original = invoke.getMockImplementation()!;
-    invoke.mockImplementation(async (command, args) => {
-      if (command === "start_auth") throw new Error("unknown");
-      return original(command, args);
-    });
-    fireEvent.click(input("connect"));
-    fireEvent.submit(document.getElementById("garmin-auth")!);
-    await waitFor(() =>
-      expect(document.getElementById("auth-status")?.textContent).toContain(
-        "outcome is unknown",
-      ),
+  it("removes the blanket notice and scopes optional Ollama to its selected features", () => {
+    expect(document.querySelector("main")?.textContent).not.toContain(
+      "External uv/uvx, Python",
     );
-    expect(visible("auth-status")).toBe(true);
-    expect(visible("auth-cancel")).toBe(false);
-    expect(input("connect").disabled).toBe(true);
-    fireEvent.click(input("connect"));
-    fireEvent.submit(document.getElementById("garmin-auth")!);
-    expect(
-      invoke.mock.calls.filter(([name]) => name === "start_auth"),
-    ).toHaveLength(1);
-    listeners["desktop-settings-closed"]({ payload: "" });
+    expect(document.getElementById("catalog-ollama")?.textContent).toContain(
+      "Cloud chat does not require Ollama",
+    );
+    expect(document.getElementById("review")?.textContent).toContain(
+      "enabled Ollama embeddings",
+    );
   });
+  it.each([
+    ["dependency-uv-unavailable", "cannot execute uv"],
+    ["dependency-python-unavailable", "requires installed Python 3.12"],
+  ])(
+    "shows positively known %s at sign-in and permits only explicit retry",
+    async (code, message) => {
+      const original = invoke.getMockImplementation()!;
+      invoke.mockImplementation(async (command, args) => {
+        if (command === "start_auth") throw code;
+        return original(command, args);
+      });
+      fireEvent.click(input("connect"));
+      fireEvent.submit(document.getElementById("garmin-auth")!);
+      await waitFor(() =>
+        expect(document.getElementById("auth-status")?.textContent).toContain(
+          message,
+        ),
+      );
+      expect(document.getElementById("auth-status")?.textContent).toContain(
+        "README Installation",
+      );
+      expect(document.getElementById("auth-status")?.textContent).toContain(
+        "offline data remain available",
+      );
+      expect(input("email").value).toBe("");
+      expect(input("password").value).toBe("");
+      expect(input("sign-in").disabled).toBe(false);
+      expect(
+        invoke.mock.calls.filter(([name]) => name === "start_auth"),
+      ).toHaveLength(1);
+      fireEvent.submit(document.getElementById("garmin-auth")!);
+      await waitFor(() =>
+        expect(
+          invoke.mock.calls.filter(([name]) => name === "start_auth"),
+        ).toHaveLength(2),
+      );
+    },
+  );
+  it.each([
+    new Error("unknown"),
+    "toString",
+    "__proto__",
+    "constructor",
+    "private-secret-canary",
+  ])(
+    "keeps unknown start outcomes visible without granting a new attempt: %s",
+    async (refusal) => {
+      const original = invoke.getMockImplementation()!;
+      invoke.mockImplementation(async (command, args) => {
+        if (command === "start_auth") throw refusal;
+        return original(command, args);
+      });
+      fireEvent.click(input("connect"));
+      fireEvent.submit(document.getElementById("garmin-auth")!);
+      await waitFor(() =>
+        expect(document.getElementById("auth-status")?.textContent).toContain(
+          "outcome is unknown",
+        ),
+      );
+      expect(visible("auth-status")).toBe(true);
+      expect(visible("auth-cancel")).toBe(false);
+      expect(input("connect").disabled).toBe(true);
+      fireEvent.click(input("connect"));
+      fireEvent.submit(document.getElementById("garmin-auth")!);
+      expect(
+        invoke.mock.calls.filter(([name]) => name === "start_auth"),
+      ).toHaveLength(1);
+      listeners["desktop-settings-closed"]({ payload: "" });
+    },
+  );
   it("continues without Garmin while retaining provider draft and starting no login", async () => {
     await firstRun();
     fireEvent.input(input("OPENAI_API_KEY"), {

@@ -437,6 +437,28 @@ it.each(["capture", "captureWide", "captureNarrow"])(
     ).toBe("");
   },
 );
+it.each(["captureFooterWide", "captureFooterNarrow"])(
+  "captures the notice-free %s footer without private fields and restores",
+  (action) => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(24, 24, 200, 45),
+    );
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+    expect(getComputedStyle(document.getElementById("save")!).visibility).toBe(
+      "visible",
+    );
+    expect(
+      getComputedStyle(document.getElementById("DATABASE_PATH")!).visibility,
+    ).toBe("hidden");
+    controller.__trainerSetupSmokeRestore();
+    expect(document.querySelector('[style*="visibility"]')).toBeNull();
+    const notice = document.createElement("p");
+    notice.textContent = "External uv/uvx, Python remain operator-managed";
+    document.querySelector("main")!.append(notice);
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
+    expect(document.querySelector('[style*="visibility"]')).toBeNull();
+  },
+);
 it("captures only verified static intro text at its real geometry and restores it", () => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
     new DOMRect(24, 24, 800, 45),

@@ -2,7 +2,9 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { useState, createRef } from "react";
+import { SyncView } from "../src/app/dashboard/sync-view";
+import { emptySyncRun } from "../src/app/dashboard/contracts";
 import { AssistantContent } from "../src/app/dashboard/markdown";
 import {
   simpleTableFixture,
@@ -596,6 +598,71 @@ describe("native-installed rendered smoke boundary", () => {
     ).toBe(false);
     expect((await command({ type: "capture" })).result.ok).toBe(false);
   });
+  it.each(["dependency", "startup"] as const)(
+    "reveals only actual closed %s guidance and refuses private substitutions",
+    async (recovery) => {
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(24, 300, 300, 150),
+      );
+      smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+      vi.stubGlobal("innerWidth", 1280);
+      vi.stubGlobal("innerHeight", 850);
+      render(
+        <div className="sync-view-active">
+          <SyncView
+            closeSyncView={vi.fn()}
+            syncCloseRef={createRef()}
+            syncPillKind="error"
+            syncPillLabel="Failed"
+            runInBackground={vi.fn()}
+            syncNow={vi.fn(async () => {})}
+            isSyncing={false}
+            syncRun={{
+              ...emptySyncRun,
+              kind: "failed",
+              recovery,
+              failureSummary: "private failure hidden",
+            }}
+            syncLogRef={createRef()}
+            importSummary={null}
+            runAction={vi.fn(async () => {})}
+            refreshSummary={vi.fn(async () => {})}
+            detailGarminId=""
+            setDetailGarminId={vi.fn()}
+            backfillDetail={vi.fn(async () => {})}
+            refreshDetailCoverage={vi.fn(async () => {})}
+            status={{ kind: "idle", message: "" }}
+          />
+        </div>,
+      );
+      const help = screen.getByRole("region", { name: "Garmin action setup" });
+      help.parentElement!.scrollTop = 30;
+      help.scrollIntoView = vi.fn(() => {
+        help.parentElement!.scrollTop = 80;
+      });
+      expect(help.textContent).toContain("Saved data remains available");
+      expect(help.textContent).not.toContain("Reconnect Garmin");
+      expect(
+        (await command({ type: "captureView", view: "sync", preset: "wide" }))
+          .result.ok,
+      ).toBe(true);
+      expect(getComputedStyle(help.querySelector("p")!).visibility).toBe(
+        "visible",
+      );
+      expect(
+        getComputedStyle(screen.getByText("private failure hidden")).visibility,
+      ).toBe("hidden");
+      smoke.__trainerSmokeRestore();
+      expect(help.parentElement!.scrollTop).toBe(30);
+      help.querySelector("p")!.textContent =
+        "private-path-canary Python not found";
+      expect(
+        (await command({ type: "captureView", view: "sync", preset: "wide" }))
+          .result.ok,
+      ).toBe(false);
+      expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+    },
+  );
   it("keeps Sync scroll containers visible without exposing private descendants or direct ancestor text", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     vi.stubGlobal("innerWidth", 1280);

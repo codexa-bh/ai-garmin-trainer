@@ -83,6 +83,18 @@ from settings_smoke import capture_garmin, verify_choice_catalog, wait_settings
 
 
 class SettingsCaptureTests(unittest.TestCase):
+    def test_dependency_settings_uses_live_owner_state_not_cached_renderer_origin(self):
+        origin = 'http://127.0.0.1:19324'
+        run = Mock()
+        run.command.return_value = {'ok':True, 'capture':'unit-only.png'}
+        run.http.side_effect = [{'origin':origin}, {'origin':origin}, {'origin':origin,'runtimeReady':False,'backendPid':None}]
+        captures = []
+        with patch.object(settings_smoke, 'wait_settings'), patch.object(settings_smoke, 'listening', return_value=False):
+            settings_smoke.dependency_settings(run, captures, 'unit-only-binary')
+        self.assertEqual(len(captures), 3)
+        self.assertEqual(sum(call.args[0]['action'] == 'stopBackend' for call in run.command.call_args_list), 1)
+        self.assertFalse(any(call.args[0]['action'] in ('start_auth','submit_mfa') for call in run.command.call_args_list))
+
     def test_restart_scenario_waits_for_exact_cancel_completion_before_next_edit(self):
         with tempfile.TemporaryDirectory() as root:
             run = Mock()

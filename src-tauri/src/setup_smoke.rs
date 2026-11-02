@@ -25,6 +25,8 @@ pub enum Action {
     CaptureWide,
     CaptureNarrow,
     CaptureIntro,
+    CaptureFooterWide,
+    CaptureFooterNarrow,
     LiveCatalog,
     LiveRotate,
     LiveClear,
@@ -237,6 +239,8 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             | Action::CaptureWide
             | Action::CaptureNarrow
             | Action::CaptureIntro
+            | Action::CaptureFooterWide
+            | Action::CaptureFooterNarrow
             | Action::CaptureOpenai
             | Action::CaptureDeepseek
             | Action::CaptureOllama
@@ -260,6 +264,11 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
                 | Action::CaptureOpenrouter
         ) {
             "geometry-preserving masked authored synthetic provider section; debug Settings, synthetic DOM input, not ordinary/default/trusted input"
+        } else if matches!(
+            action,
+            Action::CaptureFooterWide | Action::CaptureFooterNarrow
+        ) {
+            "geometry-preserving masked Settings footer with blanket notice absent; debug only, no form/keys/paths or trusted input"
         } else if matches!(action, Action::CaptureIntro) {
             "geometry-preserving masked actual static Settings introduction; debug only, not ordinary or trusted input"
         } else {
@@ -272,11 +281,16 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             action,
             Action::CaptureWide
                 | Action::CaptureNarrow
+                | Action::CaptureFooterWide
+                | Action::CaptureFooterNarrow
                 | Action::CaptureRestartWide
                 | Action::CaptureRestartNarrow
                 | Action::CaptureLive
         ) {
-            let width = if matches!(action, Action::CaptureNarrow | Action::CaptureRestartNarrow) {
+            let width = if matches!(
+                action,
+                Action::CaptureNarrow | Action::CaptureFooterNarrow | Action::CaptureRestartNarrow
+            ) {
                 420.0
             } else {
                 1000.0
@@ -368,7 +382,12 @@ mod tests {
             serde_json::from_value::<Action>(json!("captureIntro")).unwrap(),
             Action::CaptureIntro
         ));
-        for text in ["captureWide", "captureNarrow"] {
+        for text in [
+            "captureWide",
+            "captureNarrow",
+            "captureFooterWide",
+            "captureFooterNarrow",
+        ] {
             assert!(serde_json::from_value::<Action>(json!(text)).is_ok());
         }
         for value in [

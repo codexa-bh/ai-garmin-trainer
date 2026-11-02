@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from history_smoke import HistoryRun, copy_tokens, selected_tokens, tokens_unchanged
+from history_smoke import HistoryRun, copy_tokens, selected_tokens, tokens_unchanged, prepare_synthetic_history, prepare_dependency_scenario
 from native_smoke import private_json
 
 
@@ -38,6 +38,32 @@ class HistoryTokenContracts(unittest.TestCase):
         self.assertTrue(tokens_unchanged(directory, hashes))
         target.write_bytes(b'copy-only token refresh simulation')
         self.assertTrue(tokens_unchanged(directory, hashes))
+
+    def test_dependency_presets_are_stopped_synthetic_only_and_do_not_install(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        (self.destination / 'config').mkdir(mode=0o700)
+        private_json(self.destination / 'config/settings-v3.json', {'version':3, 'keys':{}, 'fields':{}})
+        run = SimpleNamespace(root=self.destination, child=None, config={'port':12345})
+        with patch('history_smoke.listening', return_value=False):
+            prepare_synthetic_history(run)
+            for scenario in ('missing', 'unknown', 'healthy'):
+                prepare_dependency_scenario(run, scenario)
+                saved = json.loads((self.destination / 'config/settings-v3.json').read_text())
+                command = Path(saved['fields']['GARMIN_MCP_COMMAND'])
+                self.assertEqual(command.parent, self.destination)
+                self.assertTrue(command.is_file())
+                self.assertEqual(bool(command.stat().st_mode & 0o111), scenario != 'missing')
+            with self.assertRaises(ValueError):
+                prepare_dependency_scenario(run, 'private-command')
+            run.child = object()
+            with self.assertRaisesRegex(ValueError, 'Stopped'):
+                prepare_dependency_scenario(run, 'healthy')
+            run.child = None
+            saved['keys'] = {'OPENAI_API_KEY':'private-canary'}
+            (self.destination / 'config/settings-v3.json').write_text(json.dumps(saved))
+            with self.assertRaisesRegex(ValueError, 'synthetic-only'):
+                prepare_dependency_scenario(run, 'healthy')
 
     def test_data_capture_follows_the_actual_existing_selection(self):
         from types import SimpleNamespace

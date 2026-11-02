@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   closes: 0,
   constructions: 0,
   failStart: false,
+  dependency: null as "launcher-unavailable" | "startup-unknown" | null,
   failDetail: false,
   calls: [] as string[],
 }));
@@ -25,6 +26,11 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
     }
     async start() {
       state.starts += 1;
+      if (state.dependency) {
+        const { GarminDependencyError } =
+          await import("../src/lib/garmin/dependency-error");
+        throw new GarminDependencyError(state.dependency);
+      }
       if (state.failStart) throw new Error("startup failed");
     }
     close() {
@@ -94,6 +100,7 @@ beforeEach(() => {
     closes: 0,
     constructions: 0,
     failStart: false,
+    dependency: null,
     failDetail: false,
     calls: [],
   });
@@ -132,6 +139,41 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     state.token = true;
     expect((await route.GET()).status).toBe(200);
   });
+
+  it.each(["launcher-unavailable", "startup-unknown"] as const)(
+    "carries %s through real Sync and allows an explicit repaired retry with unchanged checkpoints",
+    async (reason) => {
+      vi.useFakeTimers();
+      state.dependency = reason;
+      const route = await import("../src/app/api/sync/route");
+      const response = await route.POST();
+      const text = await response.text();
+      const events = text
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(events.at(-1)).toMatchObject({
+        type: "result",
+        status: "failed",
+        dependency: reason,
+        storedActivities: 0,
+      });
+      expect(events.at(-1)?.detail).toContain("README Installation");
+      expect(state.calls).toEqual([]);
+      expect(state.closes).toBeGreaterThan(0);
+      expect(text).not.toContain("fake-private");
+      state.dependency = null;
+      const repaired = await route.POST();
+      const stream = repaired.text();
+      await vi.advanceTimersByTimeAsync(30_000);
+      const final = JSON.parse(
+        (await stream).trim().split("\n").at(-1)!,
+      ) as Record<string, unknown>;
+      expect(final.status).toBe("completed");
+      expect(final.dependency).toBeUndefined();
+      expect(state.starts).toBe(2);
+    },
+  );
 
   it("streams progress/result, persists normalized data and redacts archives; repeated sync preserves coverage", async () => {
     vi.useFakeTimers();

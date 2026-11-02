@@ -16,6 +16,23 @@ function SyncLoginHelp({
 }: {
   recovery: NonNullable<SyncRunState["recovery"]>;
 }) {
+  if (recovery === "dependency" || recovery === "startup")
+    return (
+      <section
+        className="sync-login-help"
+        aria-labelledby="sync-dependency-heading"
+      >
+        <h3 id="sync-dependency-heading">Garmin action setup</h3>
+        <p>{syncFailureSummary(recovery)}</p>
+        <p>
+          See README → Installation → Garmin access for setup. Check the
+          executable path in native Settings → Troubleshooting / technical
+          controls; manage uvx and compatible Python separately, then explicitly
+          retry this action. Sign-in is not a tooling fix. Saved data remains
+          available.
+        </p>
+      </section>
+    );
   return (
     <section
       className="sync-login-help"

@@ -9,7 +9,7 @@ import signal
 import time
 import uuid
 import smoke_resources as resources
-from native_smoke import Observer, Run, build, canonical, fingerprint, private_json, readonly, source_identity
+from native_smoke import Observer, Run, build, canonical, fingerprint, private_json, readonly, source_identity, listening
 from live_provider import LiveProvider
 
 
@@ -249,6 +249,33 @@ def verify_empty_restart(run, captures, binary, live_settings):
         raise ValueError('Removed choice retargeted Trainer or empty catalog did not persist')
 
 
+def dependency_settings(run, captures, binary):
+    for size in ('Wide', 'Narrow'):
+        captures.append({'scenario':'blanket-notice-absent-' + size.lower(), **run.command({'type':'settings', 'action':'captureFooter' + size})})
+    run.command({'type':'settings', 'action':'connect'})
+    wait_settings(run, lambda o: o['formVisible'], 'optional Connect, no login')
+    run.command({'type':'settings', 'action':'later'})
+    run.command({'type':'settings', 'action':'cancel'})
+    wait_settings(run, lambda o: o['ready'] and not o['formVisible'], 'cancel/reload')
+    origin = run.http('/identity')['origin']
+    run.command({'type':'settings', 'action':'save'})
+    wait_settings(run, lambda o: o['liveApplied'], 'ordinary unchanged Save acknowledgment')
+    if run.http('/identity')['origin'] != origin:
+        raise ValueError('Save restarted backend')
+    run.command({'type':'settings', 'action':'close'})
+    run.stop(); run.start(binary)
+    run.command({'type':'settings', 'action':'open'})
+    wait_settings(run, lambda o: o['ready'], 'saved Settings reload')
+    run.command({'type':'settings', 'action':'stopBackend'})
+    run.command({'type':'settings', 'action':'close'})
+    run.command({'type':'settings', 'action':'open'})
+    wait_settings(run, lambda o: o['ready'], 'native Settings without backend')
+    stopped = run.http('/identity')
+    if stopped['runtimeReady'] or stopped['backendPid'] is not None or listening(int(stopped['origin'].rsplit(':', 1)[1])):
+        raise ValueError('Backend was not stopped')
+    captures.append({'scenario':'backend-unavailable-native-settings', **run.command({'type':'settings', 'action':'captureFooterWide'})})
+
+
 @resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -256,6 +283,7 @@ def main():
     parser.add_argument('--input-file', required=True)
     parser.add_argument('--resources-ready', action='store_true')
     scenario = parser.add_mutually_exclusive_group()
+    scenario.add_argument('--dependency-guidance', action='store_true', help='Finite notice absence, normal keyless Save/reload and backend-unavailable Settings; no auth')
     scenario.add_argument('--live-settings', action='store_true', help='Finite synthetic live settings and task-owned local stream fixture; no real provider calls')
     scenario.add_argument('--provider-fields', action='store_true', help='Finite authored synthetic provider presence/edit/clear/stale-save scenario; no caller key input')
     args = parser.parse_args()
@@ -297,6 +325,13 @@ def main():
         initial = wait_settings(run, lambda o: o['ready'], 'initial setup ready')
         if not initial['notConnected'] or not initial['manualControlsAbsent'] or initial['formVisible'] or not initial['privateActionsDenied']:
             raise ValueError('Initial Garmin settings state incorrect')
+        if args.dependency_guidance:
+            dependency_settings(run, captures, binary)
+            if source_identity() != source:
+                raise ValueError('Source changed during Settings smoke')
+            receipt['dependencyGuidance'] = 'blanket notice absent, explicit optional Connect/later/cancel, ordinary Save/reload, native Settings with backend stopped'
+            passed = True
+            return
         captures.append({'scenario': 'concise-static-introduction', **run.command({'type': 'settings', 'action': 'captureIntro'})})
         capture_garmin(run, captures, 'not-connected-connect-later')
         run.command({'type': 'settings', 'action': 'connect'})

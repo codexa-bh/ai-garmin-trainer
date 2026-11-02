@@ -1,5 +1,6 @@
 import { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnGarminMcp } from "./client";
+import { GarminDependencyError } from "./dependency-error";
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -45,23 +46,34 @@ export class GarminMcpClient {
       }
       this.pending.clear();
     });
-    this.child.on("error", () => {
+    this.child.on("error", (error: NodeJS.ErrnoException) => {
       for (const pending of this.pending.values()) {
         clearTimeout(pending.timeout);
         pending.reject(
-          new Error(
-            "Garmin connector could not start; check the configured local executable.",
+          new GarminDependencyError(
+            ["ENOENT", "EACCES", "ENOEXEC"].includes(error.code ?? "")
+              ? "launcher-unavailable"
+              : "startup-unknown",
           ),
         );
       }
       this.pending.clear();
     });
 
-    await this.request("initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "ai-garmin-connect-trainer", version: "0.1.0" },
-    });
+    try {
+      await this.request("initialize", {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "ai-garmin-connect-trainer", version: "0.1.0" },
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.endsWith(safeConnectorFailure(""))
+      )
+        throw new GarminDependencyError("startup-unknown");
+      throw error;
+    }
     this.notify("notifications/initialized", {});
   }
 

@@ -396,6 +396,21 @@ describe("independent dashboard feature ownership", () => {
 
   it.each([
     {
+      name: "known dependency",
+      body: '{"type":"result","status":"failed","dependency":"launcher-unavailable"}\n',
+      recovery: "dependency",
+    },
+    {
+      name: "unknown startup",
+      body: '{"type":"result","status":"failed","dependency":"startup-unknown"}\n',
+      recovery: "startup",
+    },
+    {
+      name: "unrecognized dependency",
+      body: '{"type":"result","status":"failed","dependency":"private-canary"}\n',
+      recovery: null,
+    },
+    {
       name: "failed result without progress",
       body: '{"type":"result","status":"failed","detail":"Garmin connector request failed; upstream details are withheld to protect credentials and local paths."}\n',
       recovery: "connector",

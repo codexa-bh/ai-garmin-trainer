@@ -39,6 +39,10 @@ export function syncFailureRecovery(
 
 export function syncFailureSummary(recovery: SyncRunState["recovery"]): string {
   switch (recovery) {
+    case "dependency":
+      return "The Garmin connector launcher cannot execute. Check uvx or its configured override, then explicitly retry.";
+    case "startup":
+      return "The Garmin connector could not start. Its cause, including Python availability, is unknown.";
     case "rate-limit":
       return "Garmin rate-limited the request. Retry later, not reauthentication.";
     case "network":
