@@ -1,6 +1,7 @@
 import type { GarminReader } from "./import-ports";
 import {
   SyncPause,
+  UnrecognizedHealthReply,
   SYNC_LIMITS,
   type GarminReadControl,
   historyFailureClass,
@@ -266,6 +267,38 @@ export function createGarminReader({
           )
         );
       }
+      // Pinned curated stats/sleep also contain non-normalized metadata. A
+      // reviewed, typed metadata-only reply is successful but contributes no
+      // normalized metrics; it is not a protocol error or remote inception.
+      const metadataNumbers = [
+        /^(?:daily_step_goal|distance_meters|floors_ascended|floors_descended|highly_active_seconds|active_seconds|sedentary_seconds|sleeping_seconds|intensity_minutes_goal|min_heart_rate_bpm|max_heart_rate_bpm|last_7_days_avg_resting_hr|max_stress_level|body_battery_charged|body_battery_drained|body_battery_lowest|avg_spo2_percent|lowest_spo2_percent|avg_waking_respiration|highest_respiration|lowest_respiration)$/,
+        /^(?:sleep_start|sleep_end|awake_count|restless_moments_count|avg_sleep_stress|avg_spo2_percent|lowest_spo2_percent|deep_sleep_percent|light_sleep_percent|rem_sleep_percent|sleep_hours)$/,
+      ];
+      function curatedMetadata(value: unknown, index: number): boolean {
+        if (
+          !value ||
+          typeof value !== "object" ||
+          Array.isArray(value) ||
+          index > 1
+        )
+          return false;
+        return Object.entries(value).every(([key, item]) => {
+          if (index === 0 && key === "date") return item === date;
+          if (metadataNumbers[index].test(key))
+            return (
+              item === null ||
+              (typeof item === "number" && Number.isFinite(item))
+            );
+          if (
+            (index === 0 && key === "stress_qualifier") ||
+            (index === 1 && key === "sleep_score_qualifier")
+          )
+            return (
+              item === null || (typeof item === "string" && item.length <= 120)
+            );
+          return false;
+        });
+      }
       // The pinned battery tool can return a valid charged/drained summary
       // without any level metric. That must not discard valid stats/sleep or
       // invent a battery value; malformed summaries still remain unresolved.
@@ -297,28 +330,21 @@ export function createGarminReader({
               record.current_feedback === null)
           );
         });
+      const sources = ["stats", "sleep", "bodyBattery"] as const;
       for (const [index, payload] of [stats, sleep, bodyBattery].entries()) {
-        const key = ["stats", "sleep", "bodyBattery"][index];
-        if (
-          !recognized(payload, knownKeys[index]) &&
-          !(key === "bodyBattery" && batterySummary) &&
-          normalizeDailyHealth(date, { [key]: payload }).availability ===
-            "missing"
-        )
-          throw new Error(
-            "Garmin daily health response was unrecognized; date remains unresolved.",
-          );
-      }
-      for (const payload of [stats, sleep, bodyBattery]) {
+        const key = sources[index];
         if (
           !payload ||
           typeof payload !== "object" ||
           (!Array.isArray(payload) &&
-            ("error" in payload || "message" in payload))
+            ("error" in payload || "message" in payload)) ||
+          (!recognized(payload, knownKeys[index]) &&
+            !(key === "bodyBattery" && batterySummary) &&
+            !curatedMetadata(payload, index) &&
+            normalizeDailyHealth(date, { [key]: payload }).availability ===
+              "missing")
         )
-          throw new Error(
-            "Garmin daily health response was unrecognized; date remains unresolved.",
-          );
+          throw new UnrecognizedHealthReply(key);
       }
       archive({
         sourceTool: "get_stats",

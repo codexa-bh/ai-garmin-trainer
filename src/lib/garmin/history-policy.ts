@@ -60,6 +60,13 @@ export function historyFailureClass(
   if (/protocol|unrecognized|JSON/i.test(message)) return "protocol";
   return "connector";
 }
+export class UnrecognizedHealthReply extends Error {
+  constructor(public readonly source: "stats" | "sleep" | "bodyBattery") {
+    super(
+      `Garmin daily health ${source} response was unrecognized; date remains unresolved.`,
+    );
+  }
+}
 export class SyncPause extends Error {
   constructor(public readonly reason: "budget-limited" | "cancelled") {
     super(

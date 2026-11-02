@@ -120,6 +120,17 @@ const healthDates = () =>
     .map((call) => String(call.args.date));
 
 describe("bounded discovery through the real HTTP/composition/reader/SQLite seams", () => {
+  it("retains only a fixed health source diagnostic for unrecognized replies", async () => {
+    remote.stats.set("2026-09-21", {
+      unexpected: "synthetic-private-payload-not-errors",
+    });
+    const app = await import("../src/lib/garmin/composition");
+    const result = await app.runGarminSync();
+    expect(result.status).toBe("failed");
+    expect(result.detail).toContain("protocol, stats");
+    expect(result.detail).not.toContain("synthetic-private-payload");
+    expect(result.history?.unresolvedHealth).toContain("2026-09-21");
+  });
   it("refreshes a frozen window head for new arrivals while resuming its range-bound page", async () => {
     const activity = (id: string, day: string) => ({
       activityId: id,

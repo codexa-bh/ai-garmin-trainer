@@ -7,6 +7,7 @@ import {
   HISTORY_CHECKPOINT,
   SYNC_LIMITS,
   SyncPause,
+  UnrecognizedHealthReply,
   checked,
   healthHasMetrics,
   historyDateAllowed,
@@ -128,7 +129,9 @@ export function createGarminImports({
         if (!state.unresolvedHealth.includes(date))
           state.unresolvedHealth.push(date);
         state.failureClass = historyFailureClass(error);
-        failure = `Some Garmin health reads failed (${state.failureClass}); unresolved dates are retained for bounded retry.`;
+        const source =
+          error instanceof UnrecognizedHealthReply ? `, ${error.source}` : "";
+        failure = `Some Garmin health reads failed (${state.failureClass}${source}); unresolved dates are retained for bounded retry.`;
         save();
         // Authentication/rate limiting is not a source-empty result or a reason
         // to amplify requests. Other failures remain explicit unresolved work.

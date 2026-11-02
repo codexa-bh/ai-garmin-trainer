@@ -134,6 +134,46 @@ describe("concrete Garmin wire/FIT/archive adapter", () => {
     );
   });
   it.each([
+    { stats: { date: "2026-11-02", daily_step_goal: 10000 }, sleep: {} },
+    { stats: {}, sleep: { awake_count: 0, avg_spo2_percent: 98 } },
+  ])(
+    "accepts reviewed metadata-only curated health without inventing metrics: %j",
+    async ({ stats, sleep }) => {
+      const f = fixture();
+      vi.mocked(f.ports.connector.callTool).mockImplementation(async (name) =>
+        JSON.stringify(
+          name === "get_stats"
+            ? stats
+            : name === "get_sleep_summary"
+              ? sleep
+              : [],
+        ),
+      );
+      expect(await f.reader.dailyHealth("2026-11-02")).toMatchObject({
+        availability: "missing",
+        steps: null,
+        sleepMinutes: null,
+      });
+    },
+  );
+  it.each([
+    { date: "2026-11-01", daily_step_goal: 10000 },
+    { date: "2026-11-02", daily_step_goal: "invalid" },
+    { date: "2026-11-02", private_unknown: 1 },
+  ])(
+    "rejects wrong-date, malformed and unknown stats metadata: %j",
+    async (stats) => {
+      const f = fixture();
+      vi.mocked(f.ports.connector.callTool).mockImplementation(async (name) =>
+        JSON.stringify(name === "get_stats" ? stats : {}),
+      );
+      await expect(f.reader.dailyHealth("2026-11-02")).rejects.toThrow(
+        "unrecognized",
+      );
+      expect(f.ports.archive).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
     "Error retrieving weight measurements: network unavailable",
     "No weight measurements found between 2026-10-01 and 2026-10-30. Error retrieving data",
     "No unreviewed data found between 2026-10-01 and 2026-10-30",
