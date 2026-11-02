@@ -3,6 +3,7 @@ export type ChatEntry = {
   id: string;
   provider: ChatProvider;
   modelId: string;
+  /** Inert legacy metadata; retained for settings compatibility, never a label. */
   displayName?: string;
 };
 export type ChatCatalog = {

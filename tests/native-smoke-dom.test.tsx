@@ -110,8 +110,7 @@ const footerOptions = [
     modelId: "T0246/Long-local-model-name:exact-tag",
     displayName:
       "T0246 long descriptive local model selection for narrow composer footer",
-    label:
-      "T0246 long descriptive local model selection for narrow composer footer — ollama / T0246/Long-local-model-name:exact-tag",
+    label: "ollama / T0246/Long-local-model-name:exact-tag",
     available: true,
   },
   {
@@ -119,7 +118,7 @@ const footerOptions = [
     provider: "ollama" as const,
     modelId: "T0246/Alternate:Tag",
     displayName: "T0246 alternate",
-    label: "T0246 alternate — ollama / T0246/Alternate:Tag",
+    label: "ollama / T0246/Alternate:Tag",
     available: true,
   },
 ];
