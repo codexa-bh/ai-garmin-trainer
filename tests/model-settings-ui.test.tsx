@@ -23,7 +23,7 @@ const entries: ModelOption[] = [
     provider: "openai",
     modelId: "Custom/First:Tag",
     displayName: "Fast",
-    label: "Fast — openai / Custom/First:Tag",
+    label: "openai / Custom/First:Tag",
     available: true,
   },
   {
@@ -31,7 +31,7 @@ const entries: ModelOption[] = [
     provider: "openai",
     modelId: "Custom/Second:Tag",
     displayName: "Fast",
-    label: "Fast — openai / Custom/Second:Tag",
+    label: "openai / Custom/Second:Tag",
     available: true,
   },
   {
@@ -79,7 +79,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("refreshes safe active metadata after native activation without preference writes or focus loss", async () => {
+it("renders ID-only labels with legacy metadata and refreshes after activation without preference writes or focus loss", async () => {
   const fetcher = vi
     .fn()
     .mockResolvedValueOnce(response(snapshot()))
@@ -90,6 +90,13 @@ it("refreshes safe active metadata after native activation without preference wr
     expect(screen.queryByText("Loading model settings…")).toBeNull(),
   );
   const select = screen.getByRole("combobox", { name: "Trainer model" });
+  expect(
+    screen.getByRole("option", { name: "openai / Custom/First:Tag" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("option", { name: "openai / Custom/Second:Tag" }),
+  ).toBeTruthy();
+  expect(select.textContent).not.toContain("Fast");
   select.focus();
   await act(() =>
     window.dispatchEvent(new Event("trainer-live-settings-applied")),

@@ -33,7 +33,7 @@ class Run:
             keys = {slot: 'T0257-synthetic-' + slot + '-' + suffix for slot in ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY']} if self.action in ['liveCatalog', 'liveRotate'] else {}
             if self.fault == 'retained-key' and self.action == 'liveClear':
                 keys['OPENAI_API_KEY'] = 'old-key'
-            (self.root / 'config/settings-v3.json').write_text(json.dumps({'keys': keys, 'fields': {'MEMORY_EMBEDDING_DIMS': '2048'}, 'chatCatalog': {'defaultEntryId': None}}))
+            (self.root / 'config/settings-v3.json').write_text(json.dumps({'keys': keys, 'fields': {'MEMORY_EMBEDDING_DIMS': '2048'}, 'chatCatalog': {'defaultEntryId': None, 'entries': self.metadata(self)['options']}}))
             if self.fault == 'restart':
                 self.backend += 1
         return {'ok': True}
@@ -48,6 +48,11 @@ class Run:
                 entry['available'] = entry['provider'] == 'ollama'
         if self.action == 'liveEmpty':
             entries = []
+        for entry in entries:
+            entry['displayName'] = 'Synthetic model' if self.fault != 'lost-name' else 'changed'
+            entry['label'] = entry['provider'] + ' / ' + entry['modelId']
+            if self.fault == 'alias-label':
+                entry['label'] = 'Synthetic model — ' + entry['label']
         selected = 'entry_legacy_deepseek' if self.fault == 'remap' else self.selected
         return {'version': 3, 'options': entries, 'selected': selected, 'status': 'selected', 'available': any(entry['id'] == selected and entry['available'] for entry in entries)}
 
@@ -68,7 +73,7 @@ class LiveRunnerTests(unittest.TestCase):
         self.scenario()
 
     def test_rejects_restart_retained_key_and_preference_remap(self):
-        for fault in ['restart', 'retained-key', 'remap', 'false-restart', 'false-modal']:
+        for fault in ['restart', 'retained-key', 'remap', 'false-restart', 'false-modal', 'lost-name', 'alias-label']:
             with self.subTest(fault=fault), self.assertRaises(ValueError):
                 self.scenario(fault)
 
@@ -119,6 +124,22 @@ class SettingsCaptureTests(unittest.TestCase):
         self.assertEqual(run.command.call_count, 2)
         with patch.object(settings_smoke, 'wait_settings', return_value={'restartVisible': True}), self.assertRaises(ValueError):
             settings_smoke.no_restart(run, 'live-only')
+
+    def test_named_input_is_fixed_exclusive_and_preserves_original_v2(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = Run(root)
+            original = {'version': 2, 'fields': {'AI_PROVIDER': 'ollama'}, 'keys': {}}
+            before = json.dumps(original).encode()
+            (run.root / 'config/settings-v2.json').write_bytes(before)
+            result = settings_smoke.prepare_named_settings(run)
+            named = json.loads(result)
+            self.assertEqual((run.root / 'config/settings-v2.json').read_bytes(), before)
+            self.assertEqual(named['version'], 3)
+            self.assertEqual(named['fields'], original['fields'])
+            self.assertEqual(named['chatCatalog']['defaultEntryId'], 'entry_legacy_ollama')
+            self.assertEqual([entry['displayName'] for entry in named['chatCatalog']['entries']], ['Synthetic model'] * 4)
+            with self.assertRaises(FileExistsError):
+                settings_smoke.prepare_named_settings(run)
 
     def test_live_empty_restart_observes_without_replaying_eight_row_mutation(self):
         run = Mock()

@@ -98,6 +98,25 @@ def restart_scenario(run, captures):
     return {'startupOnly': True, 'cancel': True, 'editRevert': True, 'staleRefused': True, 'repeatedNoModal': True, 'restoreActiveNoModal': True, 'tabEscapeFocus': True, 'noAppControl': True}
 
 
+def prepare_named_settings(run):
+    """Exact authored old v3 input, never normal settings or caller metadata."""
+    initial = json.loads((run.root / 'config/settings-v2.json').read_text())
+    models = [('openai', 'gpt-6-luna'), ('deepseek', 'deepseek-flash'),
+              ('ollama', 'qwen3.5:4b'), ('openrouter', 'nvidia/nemotron-3.5-lightning:free')]
+    named = {**initial, 'version': 3, 'chatCatalog': {
+        'version': 1, 'defaultEntryId': 'entry_legacy_ollama',
+        'entries': [dict(id='entry_legacy_' + provider, provider=provider,
+                         modelId=model, displayName='Synthetic model') for provider, model in models]}}
+    private_json(run.root / 'config/settings-v3.json', named)
+    return (run.root / 'config/settings-v3.json').read_bytes()
+
+
+def verify_id_labels(value):
+    for option in value['options']:
+        if option['label'] != option['provider'] + ' / ' + option['modelId']:
+            raise ValueError('Legacy alias affected API presentation')
+
+
 def live_scenario(run, captures, fixture=None):
     before = run.http('/identity')
     if not isinstance(before.get('backendPid'), int):
@@ -121,7 +140,10 @@ def live_scenario(run, captures, fixture=None):
         elif observed['restartVisible']:
             raise ValueError('Live-only Save prompted for old unrelated pending startup state')
         active = model_settings(run)
+        verify_id_labels(active)
         saved = json.loads((run.root / 'config/settings-v3.json').read_text())
+        if any(entry.get('displayName') != 'Synthetic model' for entry in saved['chatCatalog']['entries']):
+            raise ValueError('Live ID edits lost inert legacy metadata')
         if action in ['liveCatalog', 'liveRotate']:
             suffix = 'one' if action == 'liveCatalog' else 'two'
             if saved['keys'] != {slot: 'T0257-synthetic-' + slot + '-' + suffix for slot in ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY']}:
@@ -265,6 +287,7 @@ def main():
             initial_fields = json.loads(authored.read_text())
             initial_fields['fields']['OLLAMA_BASE_URL'] = 'http://127.0.0.1:11435/v1'
             authored.write_text(json.dumps(initial_fields))
+        original_named = prepare_named_settings(run)
         observer = Observer(scratch)
         run.observer = observer
         run.start(binary)
@@ -301,10 +324,10 @@ def main():
             run.command({'type': 'settings', 'action': 'catalogExercise'})
             run.command({'type': 'settings', 'action': 'keysExercise'})
             # Same bytes, changed metadata revision: native must reject this stale form.
-            os.utime(run.root / 'config/settings-v2.json', None)
+            os.utime(run.root / 'config/settings-v3.json', None)
             run.command({'type': 'settings', 'action': 'save'})
             wait_settings(run, lambda o: o['keysRejected'] and o['keysReady'], 'stale Save refuses and clears replacement')
-            if (run.root / 'config/settings-v2.json').read_bytes() != original_settings or (run.root / 'config/settings-v3.json').exists():
+            if (run.root / 'config/settings-v2.json').read_bytes() != original_settings or (run.root / 'config/settings-v3.json').read_bytes() != original_named:
                 raise ValueError('Stale Save published settings')
             run.command({'type': 'settings', 'action': 'keysExercise'})
         run.command({'type': 'settings', 'action': 'save'})
@@ -313,8 +336,10 @@ def main():
         if any(before[key] != after[key] for key in ['pid', 'origin', 'database']):
             raise ValueError('Ordinary Save switched active backend or DB')
         saved = json.loads((run.root / 'config/settings-v3.json').read_text())
-        if saved['version'] != 3 or (run.root / 'config/settings-v2.json').read_bytes() != original_settings:
-            raise ValueError('Explicit catalog migration did not retain the original keyless settings')
+        if (saved['version'] != 3 or (run.root / 'config/settings-v2.json').read_bytes() != original_settings
+                or (run.root / 'config/settings-v3-before-single-choice.json').read_bytes() != original_named):
+            raise ValueError('Save did not retain original v2 and named v3 settings')
+        verify_id_labels(model_settings(run))
         if args.live_settings:
             if len(saved['chatCatalog']['entries']) != 4 or saved['chatCatalog']['defaultEntryId'] is not None or saved['selectionCompatibility']['catalog']['defaultEntryId'] != 'entry_legacy_ollama':
                 raise ValueError('Live scenario lost the no-default catalog or preserved prior compatibility')
@@ -335,6 +360,7 @@ def main():
         no_restart(run, 'saved grouped identities survive exact-scope restart without spontaneous modal', lambda o: o['ready'] and (args.live_settings or o['catalogReady']) and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'])
         if json.loads((run.root / 'config/settings-v3.json').read_text()) != saved:
             raise ValueError('Saved catalog/fields/keys changed across restart')
+        verify_id_labels(model_settings(run))
         if source_identity() != source:
             raise ValueError('Source changed during Settings smoke')
         captures.append({'scenario': 'concise-introduction-after-save-restart', **run.command({'type': 'settings', 'action': 'captureIntro'})})
@@ -342,7 +368,7 @@ def main():
         if args.provider_fields:
             capture_providers(run, captures, 'saved-restarted-fields')
         verify_empty_restart(run, captures, binary, args.live_settings)
-        receipt.update(connectLater=True, cancel=True, groupedCatalog=not args.live_settings, exactSavedIdentities=True, noDefaultControls=True, emptyCatalogSavedReloaded=True, oldDefaultRemovalRetainsUnavailableIdentity=True, activeBackendUnchanged=True, restart=True, syntheticProviderFields=args.provider_fields, staleSaveRefused=args.provider_fields)
+        receipt.update(legacyNamedSettingsPreserved=True, idOnlyLabels=True, connectLater=True, cancel=True, groupedCatalog=not args.live_settings, exactSavedIdentities=True, noDefaultControls=True, emptyCatalogSavedReloaded=True, oldDefaultRemovalRetainsUnavailableIdentity=True, activeBackendUnchanged=True, restart=True, syntheticProviderFields=args.provider_fields, staleSaveRefused=args.provider_fields)
         passed = True
     finally:
         with resources.preserve_failure():

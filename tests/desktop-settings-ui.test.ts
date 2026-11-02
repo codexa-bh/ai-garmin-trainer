@@ -547,9 +547,7 @@ describe("trusted local desktop settings UI", () => {
     fireEvent.input(screen.getByLabelText("Model ID — OpenAI model 1"), {
       target: { value: "Vendor/Edited:Tag" },
     });
-    fireEvent.input(screen.getByLabelText("Name (optional) — OpenAI model 1"), {
-      target: { value: "Fast" },
-    });
+    expect(screen.queryByLabelText(/Name \(optional\)/)).toBeNull();
     expect(screen.queryByLabelText("Default chat model (optional)")).toBeNull();
     expect(screen.queryByRole("button", { name: /^Default/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add Ollama model" }));
@@ -575,12 +573,16 @@ describe("trusted local desktop settings UI", () => {
           id: "entry_existing",
           provider: "openai",
           modelId: "Vendor/Edited:Tag",
-          displayName: "Fast",
         },
         { provider: "ollama", modelId: "local:Exact" },
       ],
     });
     expect(sent.chatCatalog.entries[1].id).toMatch(/^entry_[a-f0-9-]+$/);
+    expect(
+      sent.chatCatalog.entries.every(
+        (entry: object) => !("displayName" in entry),
+      ),
+    ).toBe(true);
     expect(sent.fields.AI_PROVIDER).toBe("openai");
     expect(sent.fields.AI_MODEL).toBe("gpt-6-luna");
     await waitFor(() =>
@@ -693,9 +695,7 @@ describe("trusted local desktop settings UI", () => {
     fireEvent.input(screen.getByLabelText("Model ID — Ollama model 1"), {
       target: { value: "Local/Case:Tag" },
     });
-    fireEvent.input(screen.getByLabelText("Name (optional) — Ollama model 1"), {
-      target: { value: "" },
-    });
+    expect(screen.queryByLabelText(/Name \(optional\)/)).toBeNull();
     const id = (
       screen.getByLabelText("Model ID — Ollama model 1") as HTMLInputElement
     ).id;
@@ -757,13 +757,32 @@ describe("trusted local desktop settings UI", () => {
     await waitFor(() =>
       expect(document.getElementById("entry_b-modelId")).not.toBeNull(),
     );
+    expect(document.querySelectorAll(".catalog-row input")).toHaveLength(4);
+    expect(document.body.textContent).not.toContain("Repeated");
+    expect(document.body.textContent).not.toContain("Name (optional)");
+    fireEvent.input(document.getElementById("entry_a-modelId")!, {
+      target: { value: "Vendor/Edited:TAG" },
+    });
     fireEvent.submit(document.getElementById("settings")!);
     await waitFor(() =>
       expect(document.getElementById("status")?.textContent).toContain(
         "backend unchanged",
       ),
     );
-    expect(saved).toEqual({ version: 1, entries, defaultEntryId: null });
+    expect(saved).toEqual({
+      version: 1,
+      entries: entries.map((entry) =>
+        entry.id === "entry_a"
+          ? { ...entry, modelId: "Vendor/Edited:TAG" }
+          : entry,
+      ),
+      defaultEntryId: null,
+    });
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(input("entry_a-modelId").value).toBe("Vendor/Edited:TAG"),
+    );
+    expect(document.body.textContent).not.toContain("Repeated");
     expect(document.getElementById("catalog-default")).toBeNull();
     for (const id of ["entry_o", "entry_a", "entry_r", "entry_b"]) {
       const row = document.querySelector(`[data-entry-id="${id}"]`)!;
@@ -1263,6 +1282,37 @@ describe("trusted local desktop settings UI", () => {
       expect(document.getElementById("wizard")?.hidden).toBe(false),
     );
   }
+  it("uses the same ID-only catalog for every provider on first run and Finish", async () => {
+    await firstRun();
+    fireEvent.click(input("next"));
+    const screen = within(document.body);
+    for (const provider of ["OpenAI", "DeepSeek", "Ollama", "OpenRouter"]) {
+      fireEvent.click(
+        screen.getByRole("button", { name: `Add ${provider} model` }),
+      );
+      fireEvent.input(screen.getByLabelText(`Model ID — ${provider} model 1`), {
+        target: { value: "Vendor/Exact:Tag" },
+      });
+    }
+    expect(document.querySelectorAll(".catalog-row input")).toHaveLength(4);
+    expect(document.body.textContent).not.toContain("Name (optional)");
+    fireEvent.click(input("next"));
+    fireEvent.click(input("connect-later"));
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "finish_onboarding",
+        expect.anything(),
+      ),
+    );
+    const catalog = invoke.mock.calls.find(
+      ([name]) => name === "finish_onboarding",
+    )![1].input.settings.chatCatalog;
+    expect(catalog.entries).toHaveLength(4);
+    expect(
+      catalog.entries.every((entry: object) => !("displayName" in entry)),
+    ).toBe(true);
+  });
   it("does not erase provider entry when independent optional authentication settles", async () => {
     await firstRun();
     fireEvent.input(input("OPENAI_API_KEY"), {

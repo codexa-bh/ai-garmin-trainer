@@ -186,33 +186,29 @@ function renderCatalog() {
         row.dataset.entryId = entry.id;
         row.setAttribute("role", "group");
         row.setAttribute("aria-label", context);
-        for (const [key, label] of [
-          ["modelId", "Model ID"],
-          ["displayName", "Name (optional)"],
-        ]) {
+        {
           const wrapper = document.createElement("label");
-          wrapper.textContent = label;
+          wrapper.textContent = "Model ID";
           const input = document.createElement("input");
-          input.id = `${entry.id}-${key}`;
-          input.setAttribute("aria-label", `${label} — ${context}`);
+          input.id = `${entry.id}-modelId`;
+          input.setAttribute("aria-label", `Model ID — ${context}`);
           input.type = "text";
           input.autocomplete = "off";
           input.autocapitalize = "off";
           input.setAttribute("autocorrect", "off");
           input.spellcheck = false;
-          input.maxLength = key === "modelId" ? 256 : 80;
-          input.required = key === "modelId";
+          input.maxLength = 256;
+          input.required = true;
           input.disabled = catalogLocked();
-          input.value = entry[key] ?? "";
-          if (key === "modelId")
-            input.setAttribute("aria-describedby", `${entry.id}-error`);
+          input.value = entry.modelId;
+          input.setAttribute("aria-describedby", `${entry.id}-error`);
           const edit = () => {
             if (catalogLocked()) return;
             const draft = catalog.entries.find(
               (value) => value.id === entry.id,
             );
-            if (key === "displayName" && !input.value) delete draft.displayName;
-            else draft[key] = input.value;
+            // Legacy names remain inert, untouched compatibility metadata.
+            draft.modelId = input.value;
             updateCatalogControls();
           };
           input.addEventListener("input", edit);

@@ -12,6 +12,7 @@ pub struct Entry {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "display_name"
     )]
+    // Inert legacy metadata, retained on round-trip but never used as a label.
     pub display_name: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -177,6 +178,30 @@ mod tests {
             r#"{"version":1,"entries":[],"defaultEntryId":null,"secret":"no"}"#
         )
         .is_err());
+    }
+    #[test]
+    fn named_documents_round_trip_without_relaxing_strict_admission() {
+        let document = serde_json::json!({"version":1,"defaultEntryId":null,"entries":[
+            {"id":"entry_one","provider":"openai","modelId":"Vendor/Exact:Tag","displayName":"Repeated"},
+            {"id":"entry_two","provider":"ollama","modelId":"Vendor/Exact:Tag","displayName":"Repeated"}
+        ]});
+        let mut catalog: Catalog = serde_json::from_value(document.clone()).unwrap();
+        assert!(catalog.validate().is_ok());
+        assert_eq!(serde_json::to_value(&catalog).unwrap(), document);
+        catalog.entries[0].model_id = "Vendor/Edited:TAG".into();
+        assert_eq!(catalog.entries[0].display_name.as_deref(), Some("Repeated"));
+        for invalid in [serde_json::Value::Null, serde_json::json!(5)] {
+            let mut bad = document.clone();
+            bad["entries"][0]["displayName"] = invalid;
+            assert!(serde_json::from_value::<Catalog>(bad).is_err());
+        }
+        for invalid in ["".to_string(), "x".repeat(81), "bad\nname".into()] {
+            catalog.entries[0].display_name = Some(invalid);
+            assert!(catalog.validate().is_err());
+        }
+        let mut bad = document;
+        bad["entries"][0]["unknown"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<Catalog>(bad).is_err());
     }
     #[test]
     fn legacy_keeps_custom_and_ineligible_intent_without_auto_inference_from_other_keys() {

@@ -4,6 +4,7 @@ import {
   legacyChatCatalog,
   validateChatCatalog,
 } from "../src/lib/model-settings/catalog";
+import { modelSettingsSnapshot } from "../src/lib/model-settings/policy";
 import type { ChatEntry } from "../src/lib/model-settings/contracts";
 
 const entry = (id = "entry_one", modelId = "Vendor/Model:Tag"): ChatEntry => ({
@@ -24,13 +25,44 @@ describe("bounded cross-provider catalog", () => {
       { ...entry("entry_local", "local:tag"), provider: "ollama" },
     ]);
     expect(validateChatCatalog(value)).toEqual(value);
-    expect(entryLabel(value.entries[0])).toBe(
-      "Fast — openrouter / Vendor/Model:Tag",
-    );
-    expect(entryLabel(value.entries[1])).toBe(
-      "Fast — openrouter / Vendor/Second",
-    );
+    expect(entryLabel(value.entries[0])).toBe("openrouter / Vendor/Model:Tag");
+    expect(entryLabel(value.entries[1])).toBe("openrouter / Vendor/Second");
     expect(validateChatCatalog(catalog([], null)).entries).toEqual([]);
+  });
+  it("ignores repeated legacy names in API labels without changing metadata, choice or eligibility", () => {
+    const named = catalog(
+      [
+        entry(),
+        { ...entry("entry_two"), provider: "ollama" },
+        { ...entry("entry_three", "Vendor/Second"), displayName: undefined },
+      ],
+      null,
+    );
+    const before = structuredClone(named);
+    const result = modelSettingsSnapshot(
+      { version: 1, status: "selected", entryId: "entry_two" },
+      {
+        catalog: validateChatCatalog(named),
+        configured: {
+          openai: false,
+          deepseek: false,
+          ollama: true,
+          openrouter: false,
+        },
+      },
+    );
+    expect(result.options.map(({ label }) => label)).toEqual([
+      "openrouter / Vendor/Model:Tag",
+      "ollama / Vendor/Model:Tag",
+      "openrouter / Vendor/Second",
+    ]);
+    expect(result.options[0].displayName).toBe("Fast");
+    expect(result).toMatchObject({
+      version: 3,
+      selected: "entry_two",
+      available: true,
+    });
+    expect(named).toEqual(before);
   });
   it("rejects malformed versions/identities/defaults/duplicates and controls without normalization", () => {
     for (const bad of [
@@ -46,6 +78,7 @@ describe("bounded cross-provider catalog", () => {
       catalog([entry("entry_one", " ")]),
       catalog([{ ...entry(), provider: "auto" } as unknown as ChatEntry]),
       catalog([{ ...entry(), displayName: "" }]),
+      catalog([{ ...entry(), displayName: "bad\nname" }]),
       catalog([entry("entry_one", "bad\nmodel")]),
       catalog([entry("entry_one", "bad\u007fmodel")]),
       catalog([entry("entry_one", "a".repeat(257))]),
