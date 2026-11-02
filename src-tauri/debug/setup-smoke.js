@@ -10,6 +10,7 @@
     catalogWithoutDefaults: false,
     syntheticCatalog: false,
     emptyCatalog: false,
+    failure: "none",
   });
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -147,6 +148,7 @@
           "Friendly name (optional) — chat model 1",
           "Add up to 32 entries across OpenAI, DeepSeek, Ollama and OpenRouter. Enter literal provider model IDs; names are optional. Each provider shares its key below. Local configuration is not remote availability.",
           "Choose a model explicitly in Trainer. A removed selected entry stays unavailable until you choose a replacement there.",
+          "Legacy models are shown for explicit compatibility on Save. Original settings are retained. Missing keys never choose another provider. Existing chat preferences map only to an exact provider/model match.",
           "openai",
           "deepseek",
           "ollama",
@@ -319,7 +321,16 @@
         restoreTimer = setTimeout(restore, 5000);
       } else if (action !== "observe") throw Error("Unsupported");
       return observe();
-    } catch {
+    } catch (error) {
+      const failure =
+        {
+          "Not ready": "not-ready",
+          "Noncanonical catalog capture": "catalog-state",
+          "Catalog hidden": "catalog-hidden",
+          "Unknown catalog text": "catalog-text",
+          "Catalog privacy mask ineffective": "privacy-mask",
+          "Catalog capture overflow": "viewport",
+        }[error?.message] ?? "action";
       if (
         [
           "capture",
@@ -331,7 +342,7 @@
         ].includes(action)
       )
         restore();
-      return { ...empty(), ok: false };
+      return { ...empty(), ok: false, failure };
     }
   };
 })();

@@ -14,7 +14,7 @@ def wait_settings(run, predicate, label):
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
         value = run.command({'type': 'settings', 'action': 'observe'})
-        if predicate(value):
+        if value.get('ready') and predicate(value):
             return value
         time.sleep(.1)
     private_json(run.root / ('settings-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': value})

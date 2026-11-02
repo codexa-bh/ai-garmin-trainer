@@ -1,10 +1,18 @@
 """Finite Garmin geometry runner contract, no native launches."""
 import unittest
 from unittest.mock import Mock
-from settings_smoke import capture_garmin, verify_choice_catalog
+from settings_smoke import capture_garmin, verify_choice_catalog, wait_settings
 
 
 class SettingsCaptureTests(unittest.TestCase):
+    def test_partial_not_ready_document_never_calls_state_predicate(self):
+        run = Mock()
+        run.command.side_effect = [{'ok': True, 'ready': False}, {'ok': True, 'ready': True, 'emptyCatalog': True}]
+        result = wait_settings(run, lambda state: state['emptyCatalog'], 'empty after restart')
+        self.assertTrue(result['emptyCatalog'])
+        self.assertEqual(run.command.call_count, 2)
+        self.assertTrue(all(call.args == ({'type': 'settings', 'action': 'observe'},) for call in run.command.call_args_list))
+
     def test_only_fixed_wide_and_narrow_presets(self):
         run = Mock()
         run.command.side_effect = [

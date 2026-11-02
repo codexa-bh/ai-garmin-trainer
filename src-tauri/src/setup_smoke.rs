@@ -31,6 +31,18 @@ pub enum Action {
     CaptureCatalogNarrow,
     Close,
 }
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum Failure {
+    None,
+    NotReady,
+    CatalogState,
+    CatalogHidden,
+    CatalogText,
+    PrivacyMask,
+    Viewport,
+    Action,
+}
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Observation {
@@ -43,6 +55,7 @@ struct Observation {
     catalog_without_defaults: bool,
     synthetic_catalog: bool,
     empty_catalog: bool,
+    failure: Failure,
 }
 struct Document {
     loaded: Arc<AtomicBool>,
@@ -69,7 +82,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogWithoutDefaults:false,syntheticCatalog:false,emptyCatalog:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogWithoutDefaults:false,syntheticCatalog:false,emptyCatalog:false,failure:'none'}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -213,7 +226,9 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             } else {
                 1000.0
             };
-            let height = if catalog { 820.0 } else { 1000.0 };
+            // Include the real single-row form and visible compatibility notice;
+            // this is a bounded subtree capture, not a normal-window fit claim.
+            let height = if catalog { 1200.0 } else { 1000.0 };
             window
                 .set_size(tauri::LogicalSize::new(width, height))
                 .map_err(|_| "Settings viewport refused")?;
@@ -222,7 +237,10 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         let result = (|| {
             let prepared = evaluate(&window, &action)?;
             if !prepared.ok {
-                return Err("Settings sanitizer refused".into());
+                return Err(format!(
+                    "Settings sanitizer refused: {:?}",
+                    prepared.failure
+                ));
             }
             std::thread::sleep(Duration::from_millis(150));
             let bytes = crate::dev_bridge::capture::png(&window)?;
@@ -283,7 +301,7 @@ mod tests {
                 serde_json::from_value::<Action>(json!({"action":name,"value":"private"})).is_err()
             );
         }
-        let observed = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogWithoutDefaults":true,"syntheticCatalog":true,"emptyCatalog":false});
+        let observed = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogWithoutDefaults":true,"syntheticCatalog":true,"emptyCatalog":false,"failure":"none"});
         assert!(serde_json::from_value::<Observation>(observed.clone()).is_ok());
         let mut extra = observed.clone();
         extra["modelId"] = json!("private");

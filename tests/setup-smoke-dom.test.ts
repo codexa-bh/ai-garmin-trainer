@@ -32,6 +32,7 @@ beforeEach(async () => {
     if (command === "read_settings")
       return {
         revision: "synthetic-revision",
+        storage: "catalog-migration-required",
         chatCatalog: legacyChatCatalog(
           { AI_PROVIDER: "ollama" },
           { openai: false, deepseek: false },
