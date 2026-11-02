@@ -448,11 +448,6 @@ function renderConnection() {
   byId("connect").textContent = tokenSelection
     ? "Reconnect Garmin"
     : "Connect Garmin";
-  byId("connect-later").textContent = firstRun
-    ? tokenSelection
-      ? "Continue with selected connection"
-      : "Continue without Garmin"
-    : "Connect later — keep current selection";
   renderAuthPresentation();
 }
 function renderAuthPresentation() {
@@ -463,6 +458,14 @@ function renderAuthPresentation() {
   );
   const visible = authOpen && !selected;
   byId("auth-section").hidden = !visible;
+  byId("connect-later").hidden = !firstRun && !visible;
+  byId("connect-later").textContent = firstRun
+    ? tokenSelection
+      ? "Continue with selected connection"
+      : "Continue without Garmin"
+    : tokenSelection
+      ? "Back — keep current connection"
+      : "Back";
   byId("connection-status").hidden = visible;
   byId("connect").hidden =
     visible && !["failed", "cancelled"].includes(session?.state);
