@@ -12,8 +12,6 @@ import {
   type SyncRunState,
 } from "./contracts";
 import {
-  formatAthleteBaselineSummary,
-  formatBodyMetricsSummary,
   formatDetailCoverageSummary,
   formatHealthCoverageSummary,
   formatSyncFinalMessage,
@@ -45,7 +43,7 @@ export function useSyncFeature({
     useState<AthleteBaselinePayload | null>(null);
 
   const [athleteBaselineMessage, setAthleteBaselineMessage] = useState(
-    "Garmin athlete baselines will load from the local import summary.",
+    "Loading athlete baseline…",
   );
 
   const [bodyMetrics, setBodyMetrics] = useState<BodyMetricsPayload | null>(
@@ -53,7 +51,7 @@ export function useSyncFeature({
   );
 
   const [bodyMetricsMessage, setBodyMetricsMessage] = useState(
-    "Garmin body metrics will load from the local import summary.",
+    "Loading body metrics…",
   );
 
   const [detailGarminId, setDetailGarminId] = useState("");
@@ -237,6 +235,8 @@ export function useSyncFeature({
     trigger: "startup" | "manual" | "sync",
     showStatus = true,
   ) {
+    setAthleteBaselineMessage("Loading athlete baseline…");
+    setBodyMetricsMessage("Loading body metrics…");
     if (showStatus)
       setStatus({ kind: "busy", message: "Import summary: loading…" });
     try {
@@ -253,8 +253,12 @@ export function useSyncFeature({
       setImportSummary(nextSummary);
       setAthleteBaseline(nextBaseline);
       setBodyMetrics(nextBodyMetrics);
-      setAthleteBaselineMessage(formatAthleteBaselineSummary(nextBaseline));
-      setBodyMetricsMessage(formatBodyMetricsSummary(nextBodyMetrics));
+      setAthleteBaselineMessage("");
+      setBodyMetricsMessage(
+        nextBodyMetrics.weighInAvailability === "failed"
+          ? "Weigh-in refresh failed. Open Sync to retry the import refresh."
+          : "",
+      );
       if (showStatus)
         setStatus({
           kind: "ok",

@@ -32,9 +32,7 @@ export function useProfileFeature({
 
   const [isProfileDirty, setIsProfileDirty] = useState(false);
 
-  const [profileMessage, setProfileMessage] = useState(
-    "Saved local Profile will load from local SQLite.",
-  );
+  const [profileMessage, setProfileMessage] = useState("");
 
   const profileDirtyRef = useRef(false);
 
@@ -94,7 +92,7 @@ export function useProfileFeature({
       }
       applyProfile(payload);
       setProfileSaveState("saved");
-      setProfileMessage("Saved Profile loaded from local SQLite.");
+      setProfileMessage("");
     } catch (error) {
       if (profileRequestRef.current !== requestId) return;
       setProfileFetchState("error");
