@@ -215,7 +215,7 @@ impl Command {
                     && ["wide", "narrow"].contains(&preset.as_str())
             }
             Self::Composer { action } => {
-                ["observe", "draft", "choose", "reset", "keys"].contains(&action.as_str())
+                ["observe", "draft", "choose", "keys"].contains(&action.as_str())
             }
             Self::Conversation { action } => [
                 "observe",
@@ -845,7 +845,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 "draftMatches",
                 "textareaStable",
                 "savedChoice",
-                "defaultChoice",
+                "unselectedChoice",
                 "keysNoSend",
             ];
             let mut keys = vec!["ok", "action", "trustedInput"];
@@ -1367,7 +1367,7 @@ mod tests {
     }
     #[test]
     fn composer_is_finite_ordinary_only_and_results_never_return_values() {
-        for action in ["observe", "draft", "choose", "reset", "keys"] {
+        for action in ["observe", "draft", "choose", "keys"] {
             let command = Command::Composer {
                 action: action.into(),
             };
@@ -1376,7 +1376,7 @@ mod tests {
             let value = json!({"ok":true,"action":action,"trustedInput":false,
                 "modelReady":true,"catalogKnown":true,"unavailableChoice":false,"noEligibleChoices":false,
                 "singleControl":true,"footerOrder":true,"fitsViewport":true,
-                "draftMatches":true,"textareaStable":true,"savedChoice":false,"defaultChoice":true,"keysNoSend":true});
+                "draftMatches":true,"textareaStable":true,"savedChoice":false,"unselectedChoice":true,"keysNoSend":true});
             assert!(super::safe_result(&command, &value, true));
             assert!(!safe_result(&command, &value));
             for (key, changed) in [

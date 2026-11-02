@@ -26,6 +26,7 @@ pub enum Action {
     CaptureNarrow,
     CaptureIntro,
     CatalogExercise,
+    CatalogEmpty,
     KeysExercise,
     CatalogWide,
     CatalogNarrow,
@@ -46,6 +47,8 @@ struct Observation {
     saved_for_next_launch: bool,
     catalog_ready: bool,
     catalog_exercised: bool,
+    catalog_without_defaults: bool,
+    empty_catalog: bool,
     keys_ready: bool,
     keys_edited: bool,
     keys_rejected: bool,
@@ -75,7 +78,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogReady:false,catalogExercised:false,keysReady:false,keysEdited:false,keysRejected:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogReady:false,catalogExercised:false,catalogWithoutDefaults:false,emptyCatalog:false,keysReady:false,keysEdited:false,keysRejected:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -283,6 +286,16 @@ mod tests {
     }
     #[test]
     fn actions_and_observations_exclude_private_controls_and_text() {
+        assert!(serde_json::from_value::<Action>(json!("catalogEmpty")).is_ok());
+        assert!(serde_json::from_value::<Action>(
+            json!({"action":"catalogEmpty","value":"private"})
+        )
+        .is_err());
+        let current = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":false,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":true,"keysReady":false,"keysEdited":false,"keysRejected":false});
+        assert!(serde_json::from_value::<Observation>(current.clone()).is_ok());
+        let mut invalid = current;
+        invalid["emptyCatalog"] = json!("private");
+        assert!(serde_json::from_value::<Observation>(invalid).is_err());
         assert!(matches!(
             serde_json::from_value::<Action>(json!("captureIntro")).unwrap(),
             Action::CaptureIntro
@@ -314,7 +327,7 @@ mod tests {
                     .is_err()
             );
         }
-        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true,"keysReady":false,"keysEdited":false,"keysRejected":false})).is_ok());
+        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":false,"keysReady":false,"keysEdited":false,"keysRejected":false})).is_ok());
         for action in [
             "auth", "email", "password", "mfa", "picker", "finish", "eval", "input",
         ] {
