@@ -13,6 +13,14 @@ export async function GET() {
 }
 
 export async function POST(request?: Request) {
+  // The only alternate envelope strictly lowers admission for native/API smoke.
+  // It grants no private-input/account authority and never changes normal UI Sync.
+  const budget = request?.headers.get("x-trainer-sync-budget");
+  if (budget && budget !== "finite-live-smoke")
+    return NextResponse.json(
+      { status: "blocked", detail: "Unsupported Sync budget selector." },
+      { status: 400 },
+    );
   if (isGarminSyncRunning())
     return NextResponse.json(
       {
@@ -44,7 +52,11 @@ export async function POST(request?: Request) {
       try {
         const result = await runGarminSync(
           (progress) => send({ type: "progress", ...progress }),
-          { cancelled, interactive: true },
+          {
+            cancelled,
+            interactive: true,
+            finiteLiveSmoke: budget === "finite-live-smoke",
+          },
         );
         send({ type: "result", ...result });
         if (!disconnected) controller.close();

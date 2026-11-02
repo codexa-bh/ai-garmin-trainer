@@ -6,6 +6,9 @@ export const DISCOVERY_LIMITS = {
   operations: 480,
   dispatchIntervalMs: 1_000,
 };
+// Fixed safety-reducing envelope for explicitly authorized native/API evidence.
+// Never an alternative permission grant or a configurable larger budget.
+export const LIVE_SMOKE_LIMITS = { milliseconds: 180_000, operations: 150 };
 export type StepsHint = {
   startDate: string;
   endDate: string;

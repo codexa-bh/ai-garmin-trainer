@@ -18,13 +18,13 @@ from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
 
 
-def selected_tokens(selection):
+def selected_tokens(selection, purpose='T0238 private copied-token smoke only'):
     selection = canonical(selection)
     info = selection.stat()
     if info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or info.st_nlink != 1 or info.st_size > 8192:
         raise ValueError('Private explicit bounded token selection required')
     value = json.loads(selection.read_text())
-    if set(value) != {'tokenDirectory', 'tokenFiles', 'purpose'} or value['purpose'] != 'T0238 private copied-token smoke only':
+    if set(value) != {'tokenDirectory', 'tokenFiles', 'purpose'} or value['purpose'] != purpose:
         raise ValueError('Explicit copied-token purpose required')
     directory = private_directory(value['tokenDirectory'])
     names = value['tokenFiles']
@@ -56,8 +56,8 @@ def token_bytes(directory, name):
         os.close(parent)
 
 
-def copy_tokens(selection, root):
-    directory, names = selected_tokens(selection)
+def copy_tokens(selection, root, purpose='T0238 private copied-token smoke only'):
+    directory, names = selected_tokens(selection, purpose)
     destination = private_directory(root) / 'tokens'
     destination.mkdir(mode=0o700)
     hashes = {}

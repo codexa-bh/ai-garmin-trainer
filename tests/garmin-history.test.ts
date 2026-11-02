@@ -478,6 +478,49 @@ describe("interactive operation through actual HTTP/NDJSON/SQLite", () => {
     ).toBe(false);
   });
 
+  it("strictly lowers native/API evidence to150 cumulative attempts without resetting across batches", async () => {
+    vi.useFakeTimers();
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST(
+      new Request("http://localhost/api/sync", {
+        method: "POST",
+        headers: { "x-trainer-sync-budget": "finite-live-smoke" },
+      }),
+    );
+    const stream = response.text();
+    await vi.advanceTimersByTimeAsync(200_000);
+    const result = JSON.parse((await stream).trim().split("\n").at(-1)!);
+    expect(result.status).toBe("budget-limited");
+    expect(result.discovery.operation.attempts).toBe(150);
+    expect(result.discovery.operation.batches).toBeGreaterThan(1);
+    expect(remote.calls.length).toBeLessThanOrEqual(150);
+    expect(
+      Date.parse(result.discovery.operation.updatedAt) -
+        Date.parse(result.discovery.operation.startedAt),
+    ).toBeLessThanOrEqual(180_000);
+  });
+  it("refuses arbitrary budget values before any connector operation", async () => {
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST(
+      new Request("http://localhost/api/sync", {
+        method: "POST",
+        headers: { "x-trainer-sync-budget": "unlimited" },
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(remote.calls).toEqual([]);
+  });
+  it("enforces the fixed live180-second deadline even when cumulative attempts remain", async () => {
+    remote.advanceAt = 1;
+    const app = await import("../src/lib/garmin/composition");
+    const result = await app.runGarminSync(undefined, {
+      interactive: true,
+      finiteLiveSmoke: true,
+    });
+    expect(result.status).toBe("budget-limited");
+    expect(remote.calls).toHaveLength(1);
+    expect(result.discovery?.operation?.attempts).toBe(1);
+  });
   it("caps cumulative attempts without resetting across batches and exposes resumable unknown history", async () => {
     vi.useFakeTimers();
     const route = await import("../src/app/api/sync/route");

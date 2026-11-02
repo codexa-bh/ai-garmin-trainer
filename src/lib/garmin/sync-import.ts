@@ -3,6 +3,7 @@ import {
   BatchEnd,
   DISCOVERY_CHECKPOINT,
   DISCOVERY_LIMITS,
+  LIVE_SMOKE_LIMITS,
   discoveryState,
 } from "./discovery-policy";
 import type { GarminSyncResult, ProgressReporter } from "./import-contracts";
@@ -44,7 +45,11 @@ export function createGarminImports({
 
   async function runGarminSync(
     onProgress: ProgressReporter = () => undefined,
-    options: { cancelled?: () => boolean; interactive?: boolean } = {},
+    options: {
+      cancelled?: () => boolean;
+      interactive?: boolean;
+      finiteLiveSmoke?: boolean;
+    } = {},
   ): Promise<GarminSyncResult> {
     if (running)
       throw new Error(
@@ -61,6 +66,11 @@ export function createGarminImports({
       today,
     );
     const interactive = Boolean(options.interactive);
+    const operationLimits = interactive
+      ? options.finiteLiveSmoke
+        ? LIVE_SMOKE_LIMITS
+        : DISCOVERY_LIMITS
+      : SYNC_LIMITS;
     if (interactive && !wait)
       throw new Error("Interactive sync requires an owned pacing port.");
     const discovery = interactive
@@ -98,21 +108,11 @@ export function createGarminImports({
     let lastDispatch: number | null = null;
     let readFailure: unknown;
     const overallRemaining = () =>
-      Math.max(
-        0,
-        (interactive
-          ? DISCOVERY_LIMITS.milliseconds
-          : SYNC_LIMITS.milliseconds) -
-          (clock().getTime() - started),
-      );
+      Math.max(0, operationLimits.milliseconds - (clock().getTime() - started));
     const checkStop = () => {
       if (control.cancelled()) throw new SyncPause("cancelled");
       if (readFailure) throw readFailure;
-      if (
-        overallRemaining() <= 0 ||
-        operations >=
-          (interactive ? DISCOVERY_LIMITS.operations : SYNC_LIMITS.operations)
-      )
+      if (overallRemaining() <= 0 || operations >= operationLimits.operations)
         throw new SyncPause("budget-limited");
       if (
         batchOperations >= SYNC_LIMITS.operations ||
@@ -616,10 +616,7 @@ export function createGarminImports({
           error instanceof SyncPause || error instanceof BatchEnd
             ? control.cancelled()
               ? "Sync cancelled; committed data retained."
-              : operations >=
-                  (interactive
-                    ? DISCOVERY_LIMITS.operations
-                    : SYNC_LIMITS.operations)
+              : operations >= operationLimits.operations
                 ? "Cumulative attempt limit reached; Resume explicitly to continue unknown history."
                 : overallRemaining() <= 0
                   ? "Operation deadline reached; Resume explicitly to continue unknown history."
@@ -667,7 +664,7 @@ export function createGarminImports({
         history: state,
         ...(discovery ? { discovery } : {}),
         continuationAvailable: remaining,
-        detail: `${failure ?? "Bounded sync invocation settled."} ${remaining ? "Continue explicitly for older or unresolved history." : "Chosen exploration limit checked; this does not prove remote history exhaustion."} Remote earliest-health boundary is unknown. ${operations}/${interactive ? DISCOVERY_LIMITS.operations : SYNC_LIMITS.operations} remote-operation attempts (not HTTP requests). Detail backlog is deferred to subsequent explicit sync or targeted maintenance.`,
+        detail: `${failure ?? "Bounded sync invocation settled."} ${remaining ? "Continue explicitly for older or unresolved history." : "Chosen exploration limit checked; this does not prove remote history exhaustion."} Remote earliest-health boundary is unknown. ${operations}/${operationLimits.operations} remote-operation attempts (not HTTP requests). Detail backlog is deferred to subsequent explicit sync or targeted maintenance.`,
       };
       close();
       progress(outcome === "failed" ? "failed" : "completed", result.detail);
