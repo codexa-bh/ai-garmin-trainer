@@ -32,6 +32,13 @@ pub enum Action {
     LiveClear,
     LiveEmpty,
     CaptureLive,
+    RestartChange,
+    RestartRestore,
+    RestartDismiss,
+    RestartEscape,
+    RestartTab,
+    CaptureRestartWide,
+    CaptureRestartNarrow,
     StopBackend,
     CatalogExercise,
     CatalogEmpty,
@@ -57,6 +64,14 @@ struct Observation {
     live_unknown: bool,
     saved_unapplied: bool,
     pending_restart: bool,
+    restart_visible: bool,
+    restart_focused: bool,
+    save_focused: bool,
+    edits_cancelled: bool,
+    #[serde(default)]
+    capture_feedback_rejected: bool,
+    #[serde(default)]
+    capture_mask_rejected: bool,
     catalog_ready: bool,
     catalog_exercised: bool,
     catalog_without_defaults: bool,
@@ -90,7 +105,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,saved:false,liveApplied:false,liveUnknown:false,savedUnapplied:false,pendingRestart:false,catalogReady:false,catalogExercised:false,catalogWithoutDefaults:false,emptyCatalog:false,keysReady:false,keysEdited:false,keysRejected:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,saved:false,liveApplied:false,liveUnknown:false,savedUnapplied:false,pendingRestart:false,restartVisible:false,restartFocused:false,saveFocused:false,editsCancelled:false,catalogReady:false,catalogExercised:false,catalogWithoutDefaults:false,emptyCatalog:false,keysReady:false,keysEdited:false,keysRejected:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -231,8 +246,15 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             | Action::CaptureOllama
             | Action::CaptureOpenrouter
             | Action::CaptureLive
+            | Action::CaptureRestartWide
+            | Action::CaptureRestartNarrow
     ) {
-        let boundary = if matches!(action, Action::CaptureLive) {
+        let boundary = if matches!(
+            action,
+            Action::CaptureRestartWide | Action::CaptureRestartNarrow
+        ) {
+            "geometry-preserving masked actual restart dialog, fixed wide/narrow debug viewport; synthetic DOM/focus only, no settings values or ordinary/trusted input"
+        } else if matches!(action, Action::CaptureLive) {
             "masked fixed safe Settings live-application feedback only; no form/keys/paths; debug synthetic DOM evidence"
         } else if matches!(
             action,
@@ -261,8 +283,14 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
                 | Action::CaptureNarrow
                 | Action::CaptureFooterWide
                 | Action::CaptureFooterNarrow
+                | Action::CaptureRestartWide
+                | Action::CaptureRestartNarrow
+                | Action::CaptureLive
         ) {
-            let width = if matches!(action, Action::CaptureNarrow | Action::CaptureFooterNarrow) {
+            let width = if matches!(
+                action,
+                Action::CaptureNarrow | Action::CaptureFooterNarrow | Action::CaptureRestartNarrow
+            ) {
                 420.0
             } else {
                 1000.0
@@ -275,9 +303,25 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         let result = (|| {
             let prepared = evaluate(&window, &action)?;
             if !prepared.ok {
-                return Err("Settings sanitizer refused".into());
+                return Err(if prepared.capture_feedback_rejected {
+                    "Settings sanitizer refused unreviewed live feedback"
+                } else if prepared.capture_mask_rejected {
+                    "Settings sanitizer refused ineffective live mask"
+                } else {
+                    "Settings sanitizer refused"
+                }
+                .into());
             }
-            std::thread::sleep(Duration::from_millis(150));
+            // Non-key WebKit can snapshot the prior scroll/status frame even
+            // after layout reports the new geometry. Keep this finite feedback
+            // compositor settle inside the five-second privacy-mask deadline.
+            std::thread::sleep(Duration::from_millis(
+                if matches!(action, Action::CaptureLive) {
+                    600
+                } else {
+                    150
+                },
+            ));
             let bytes = crate::dev_bridge::capture::png(&window)?;
             let path = crate::dev_bridge::capture::publish(
                 &config.root.join("screenshots"),
@@ -329,7 +373,7 @@ mod tests {
             json!({"action":"catalogEmpty","value":"private"})
         )
         .is_err());
-        let current = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":false,"liveApplied":false,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"catalogReady":false,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":true,"keysReady":false,"keysEdited":false,"keysRejected":false});
+        let current = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":false,"liveApplied":false,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"restartVisible":false,"restartFocused":false,"saveFocused":false,"editsCancelled":false,"catalogReady":false,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":true,"keysReady":false,"keysEdited":false,"keysRejected":false});
         assert!(serde_json::from_value::<Observation>(current.clone()).is_ok());
         let mut invalid = current;
         invalid["emptyCatalog"] = json!("private");
@@ -368,6 +412,13 @@ mod tests {
             "liveClear",
             "liveEmpty",
             "captureLive",
+            "restartChange",
+            "restartRestore",
+            "restartDismiss",
+            "restartEscape",
+            "restartTab",
+            "captureRestartWide",
+            "captureRestartNarrow",
             "stopBackend",
         ] {
             assert!(serde_json::from_value::<Action>(json!(action)).is_ok());
@@ -376,7 +427,7 @@ mod tests {
                     .is_err()
             );
         }
-        let observation = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":true,"liveApplied":true,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"catalogReady":true,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":false,"keysReady":false,"keysEdited":false,"keysRejected":false});
+        let observation = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":true,"liveApplied":true,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"restartVisible":false,"restartFocused":false,"saveFocused":false,"editsCancelled":false,"catalogReady":true,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":false,"keysReady":false,"keysEdited":false,"keysRejected":false});
         assert!(serde_json::from_value::<Observation>(observation.clone()).is_ok());
         let mut private = observation;
         private["password"] = json!("private-sentinel");

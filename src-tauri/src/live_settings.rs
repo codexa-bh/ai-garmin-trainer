@@ -155,37 +155,40 @@ impl LiveSettings {
         self.pending_fields(&settings.fields)
     }
     pub fn pending_fields(&self, saved: &BTreeMap<String, String>) -> bool {
-        // The real form expands omitted optional fields to the declared defaults
-        // (notably uv) and explicit empty strings. Compare effective startup
-        // inputs, not representation differences introduced by a live-only Save.
-        let Ok(fields) = serde_json::from_str::<Vec<serde_json::Value>>(include_str!(
-            "../ui/settings-fields.json"
-        )) else {
-            return true;
-        };
-        fields.iter().any(|field| {
-            let Some(key) = field["key"].as_str() else {
-                return true;
-            };
-            let default = field["default"]
-                .as_str()
-                .or_else(|| {
-                    field["options"]
-                        .as_array()
-                        .and_then(|values| values.first())
-                        .and_then(|value| value.as_str())
-                })
-                .unwrap_or("");
-            let value = |map: &BTreeMap<String, String>| {
-                map.get(key)
-                    .map(String::as_str)
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or(default)
-                    .to_owned()
-            };
-            value(&self.startup_fields) != value(saved)
-        })
+        restart_delta(&self.startup_fields, saved, None)
     }
+}
+
+// All inventory fields are startup-only. Catalog and shared keys are deliberately
+// outside this inventory and never make a live-only Save require a restart.
+// Intersect this Save's effective delta with its still-pending startup values:
+// old pending state, repeated Save and restoration to active are not new notices.
+pub fn restart_delta(
+    before: &BTreeMap<String, String>,
+    saved: &BTreeMap<String, String>,
+    active: Option<&BTreeMap<String, String>>,
+) -> bool {
+    let fields: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("../ui/settings-fields.json"))
+            .expect("compiled Settings inventory");
+    fields.iter().any(|field| {
+        let key = field["key"].as_str().expect("compiled Settings field key");
+        let default = field["default"]
+            .as_str()
+            .or_else(|| field["options"].as_array()?.first()?.as_str())
+            .unwrap_or("");
+        let value = |map: &BTreeMap<String, String>| {
+            map.get(key)
+                .map(String::as_str)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(default)
+                .to_owned()
+        };
+        value(before) != value(saved)
+            && active
+                .map(|active| value(active) != value(saved))
+                .unwrap_or(true)
+    })
 }
 
 #[cfg(test)]
@@ -267,6 +270,56 @@ mod tests {
         ));
         server.join().unwrap();
         assert_eq!(live.revision, "1-2-3");
+    }
+    #[test]
+    fn effective_restart_delta_covers_every_inventory_group_and_pending_intersection() {
+        let fields: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../ui/settings-fields.json")).unwrap();
+        let empty = BTreeMap::new();
+        for field in fields {
+            let key = field["key"].as_str().unwrap();
+            let default = field["default"]
+                .as_str()
+                .or_else(|| field["options"].as_array()?.first()?.as_str())
+                .unwrap_or("");
+            for equivalent in ["", default] {
+                let saved = BTreeMap::from([(key.into(), equivalent.into())]);
+                assert!(
+                    !restart_delta(&empty, &saved, Some(&empty)),
+                    "default {key}"
+                );
+                assert!(!restart_delta(&empty, &saved, None), "absent backend {key}");
+            }
+            // Values stand for already validated native fields; paths never leave Rust.
+            let changed = BTreeMap::from([(key.into(), "different-validated-value".into())]);
+            assert!(
+                restart_delta(&empty, &changed, Some(&empty)),
+                "changed {key}"
+            );
+            assert!(restart_delta(&empty, &changed, None), "absent/busy {key}");
+            assert!(
+                !restart_delta(&changed, &changed, Some(&empty)),
+                "repeated/live-only {key}"
+            );
+            assert!(
+                !restart_delta(&changed, &empty, Some(&empty)),
+                "restored active {key}"
+            );
+            assert!(
+                !restart_delta(&empty, &empty, Some(&empty)),
+                "edit/revert {key}"
+            );
+        }
+        let active = BTreeMap::from([("MEMORY_ENABLED".into(), "false".into())]);
+        let prior_pending = BTreeMap::from([("MEMORY_ENABLED".into(), "true".into())]);
+        let mixed = BTreeMap::from([("MEMORY_EMBEDDING_DIMS".into(), "2048".into())]);
+        // Restoring one field while introducing another must still prompt.
+        assert!(restart_delta(&prior_pending, &mixed, Some(&active)));
+        let live = BTreeMap::from([
+            ("OPENAI_API_KEY".into(), "not-an-inventory-field".into()),
+            ("chatCatalog".into(), "ignored".into()),
+        ]);
+        assert!(!restart_delta(&empty, &live, Some(&empty)));
     }
     #[test]
     fn unavailable_backend_and_restart_only_fields_are_independent() {

@@ -43,6 +43,80 @@ def model_settings(run, model_id=None, write=False):
         client.close()
 
 
+def dismiss_restart(run, captures, label, escape=False):
+    observed = wait_settings(run, lambda value: value['restartVisible'] and value['restartFocused'], label + ': modal and initial focus')
+    if not observed['saved']:
+        raise ValueError('Restart modal without confirmed Save feedback')
+    if not run.command({'type': 'settings', 'action': 'restartTab'})['restartFocused']:
+        raise ValueError('Modal keyboard focus escaped')
+    for size in ['Wide', 'Narrow']:
+        captures.append({'scenario': label + '-modal-' + size.lower(), **run.command({'type': 'settings', 'action': 'captureRestart' + size})})
+    run.command({'type': 'settings', 'action': 'restartEscape' if escape else 'restartDismiss'})
+    # WebKit queues the dialog close event (and our focus return) after this
+    # native completion. Observe settlement; never replay dismissal or Save.
+    wait_settings(run, lambda value: not value['restartVisible'] and value['saveFocused'], label + ': dismissed and focus returned')
+
+
+def no_restart(run, label, predicate=lambda value: value['liveApplied']):
+    observed = wait_settings(run, predicate, label)
+    if observed['restartVisible']:
+        raise ValueError('Unexpected restart modal: ' + label)
+    return observed
+
+
+def restart_scenario(run, captures):
+    before = run.http('/identity')
+    path = run.root / 'config/settings-v3.json'
+    original = path.read_bytes()
+    run.command({'type': 'settings', 'action': 'restartChange'})
+    run.command({'type': 'settings', 'action': 'cancel'})
+    no_restart(run, 'cancel startup draft', lambda value: value['editsCancelled'])
+    if path.read_bytes() != original:
+        raise ValueError('Cancel wrote startup draft')
+    run.command({'type': 'settings', 'action': 'restartChange'})
+    run.command({'type': 'settings', 'action': 'restartRestore'})
+    run.command({'type': 'settings', 'action': 'save'})
+    no_restart(run, 'edit and revert')
+    run.command({'type': 'settings', 'action': 'restartChange'})
+    os.utime(path, None)
+    run.command({'type': 'settings', 'action': 'save'})
+    no_restart(run, 'stale startup Save', lambda value: value['keysRejected'])
+    run.command({'type': 'settings', 'action': 'cancel'})
+    no_restart(run, 'cancel stale startup draft', lambda value: value['editsCancelled'])
+    run.command({'type': 'settings', 'action': 'restartChange'})
+    run.command({'type': 'settings', 'action': 'save'})
+    dismiss_restart(run, captures, 'startup-only', escape=True)
+    captures.append({'scenario': 'startup-only-dismissed-result', **run.command({'type': 'settings', 'action': 'captureLive'})})
+    run.command({'type': 'settings', 'action': 'save'})
+    no_restart(run, 'repeated Save with pending startup field')
+    run.command({'type': 'settings', 'action': 'restartRestore'})
+    run.command({'type': 'settings', 'action': 'save'})
+    no_restart(run, 'restore active effective startup')
+    after = run.http('/identity')
+    if any(before[key] != after[key] for key in ['pid', 'backendPid', 'origin', 'database']):
+        raise ValueError('Restart notice or dismissal changed running backend')
+    return {'startupOnly': True, 'cancel': True, 'editRevert': True, 'staleRefused': True, 'repeatedNoModal': True, 'restoreActiveNoModal': True, 'tabEscapeFocus': True, 'noAppControl': True}
+
+
+def prepare_named_settings(run):
+    """Exact authored old v3 input, never normal settings or caller metadata."""
+    initial = json.loads((run.root / 'config/settings-v2.json').read_text())
+    models = [('openai', 'gpt-6-luna'), ('deepseek', 'deepseek-flash'),
+              ('ollama', 'qwen3.5:4b'), ('openrouter', 'nvidia/nemotron-3.5-lightning:free')]
+    named = {**initial, 'version': 3, 'chatCatalog': {
+        'version': 1, 'defaultEntryId': 'entry_legacy_ollama',
+        'entries': [dict(id='entry_legacy_' + provider, provider=provider,
+                         modelId=model, displayName='Synthetic model') for provider, model in models]}}
+    private_json(run.root / 'config/settings-v3.json', named)
+    return (run.root / 'config/settings-v3.json').read_bytes()
+
+
+def verify_id_labels(value):
+    for option in value['options']:
+        if option['label'] != option['provider'] + ' / ' + option['modelId']:
+            raise ValueError('Legacy alias affected API presentation')
+
+
 def live_scenario(run, captures, fixture=None):
     before = run.http('/identity')
     if not isinstance(before.get('backendPid'), int):
@@ -59,8 +133,17 @@ def live_scenario(run, captures, fixture=None):
         observed = wait_settings(run, lambda value: value['liveApplied'], 'exact native live ack: ' + action)
         if action == 'liveCatalog' and observed['pendingRestart']:
             raise ValueError('Live-only Save falsely reports unrelated pending restart')
+        if action == 'liveRotate':
+            dismiss_restart(run, captures, 'mixed-live-startup')
+            run.command({'type': 'settings', 'action': 'save'})
+            no_restart(run, 'repeated mixed Save')
+        elif observed['restartVisible']:
+            raise ValueError('Live-only Save prompted for old unrelated pending startup state')
         active = model_settings(run)
+        verify_id_labels(active)
         saved = json.loads((run.root / 'config/settings-v3.json').read_text())
+        if any(entry.get('displayName') != 'Synthetic model' for entry in saved['chatCatalog']['entries']):
+            raise ValueError('Live ID edits lost inert legacy metadata')
         if action in ['liveCatalog', 'liveRotate']:
             suffix = 'one' if action == 'liveCatalog' else 'two'
             if saved['keys'] != {slot: 'T0257-synthetic-' + slot + '-' + suffix for slot in ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY']}:
@@ -93,7 +176,10 @@ def live_scenario(run, captures, fixture=None):
             observations[-1]['capturedWork'] = {**captured_work, 'taskCreatedConversations': conversations, 'cleanup': 'authored disposable copy only; deferred to task-scratch expiry'}
     run.command({'type': 'settings', 'action': 'stopBackend'})
     run.command({'type': 'settings', 'action': 'save'})
-    wait_settings(run, lambda value: value['savedUnapplied'], 'backend absent: saved not applied, no hidden start')
+    no_restart(run, 'backend absent unchanged: no hidden start or modal', lambda value: value['savedUnapplied'])
+    run.command({'type': 'settings', 'action': 'restartRestore'})
+    run.command({'type': 'settings', 'action': 'save'})
+    dismiss_restart(run, captures, 'absent-backend-changed-startup')
     if run.http('/identity')['backendPid'] is not None:
         raise ValueError('Save unexpectedly started a backend')
     return observations
@@ -229,6 +315,7 @@ def main():
             initial_fields = json.loads(authored.read_text())
             initial_fields['fields']['OLLAMA_BASE_URL'] = 'http://127.0.0.1:11435/v1'
             authored.write_text(json.dumps(initial_fields))
+        original_named = prepare_named_settings(run)
         observer = Observer(scratch)
         run.observer = observer
         run.start(binary)
@@ -253,7 +340,7 @@ def main():
         run.command({'type': 'settings', 'action': 'later'})
         wait_settings(run, lambda o: not o['formVisible'] and o['notConnected'], 'Connect later preserves selection')
         run.command({'type': 'settings', 'action': 'cancel'})
-        wait_settings(run, lambda o: o['ready'] and not o['formVisible'], 'Cancel reconciles saved state')
+        wait_settings(run, lambda o: o['editsCancelled'] and not o['formVisible'], 'Cancel reconciles saved state')
         if not args.live_settings:
             exercised = run.command({'type': 'settings', 'action': 'catalogExercise'})
             if not exercised['catalogReady'] or not exercised['catalogExercised'] or not exercised['catalogWithoutDefaults']:
@@ -266,16 +353,16 @@ def main():
             wait_settings(run, lambda o: o['keysEdited'], 'pending replacement/removal')
             capture_providers(run, captures, 'pending-fields')
             run.command({'type': 'settings', 'action': 'cancel'})
-            wait_settings(run, lambda o: o['keysReady'], 'cancel restores presence without writing')
+            wait_settings(run, lambda o: o['editsCancelled'] and o['keysReady'], 'cancel restores presence without writing')
             if (run.root / 'config/settings-v2.json').read_bytes() != original_settings:
                 raise ValueError('Cancel wrote provider state')
             run.command({'type': 'settings', 'action': 'catalogExercise'})
             run.command({'type': 'settings', 'action': 'keysExercise'})
             # Same bytes, changed metadata revision: native must reject this stale form.
-            os.utime(run.root / 'config/settings-v2.json', None)
+            os.utime(run.root / 'config/settings-v3.json', None)
             run.command({'type': 'settings', 'action': 'save'})
             wait_settings(run, lambda o: o['keysRejected'] and o['keysReady'], 'stale Save refuses and clears replacement')
-            if (run.root / 'config/settings-v2.json').read_bytes() != original_settings or (run.root / 'config/settings-v3.json').exists():
+            if (run.root / 'config/settings-v2.json').read_bytes() != original_settings or (run.root / 'config/settings-v3.json').read_bytes() != original_named:
                 raise ValueError('Stale Save published settings')
             run.command({'type': 'settings', 'action': 'keysExercise'})
         run.command({'type': 'settings', 'action': 'save'})
@@ -284,8 +371,10 @@ def main():
         if any(before[key] != after[key] for key in ['pid', 'origin', 'database']):
             raise ValueError('Ordinary Save switched active backend or DB')
         saved = json.loads((run.root / 'config/settings-v3.json').read_text())
-        if saved['version'] != 3 or (run.root / 'config/settings-v2.json').read_bytes() != original_settings:
-            raise ValueError('Explicit catalog migration did not retain the original keyless settings')
+        if (saved['version'] != 3 or (run.root / 'config/settings-v2.json').read_bytes() != original_settings
+                or (run.root / 'config/settings-v3-before-single-choice.json').read_bytes() != original_named):
+            raise ValueError('Save did not retain original v2 and named v3 settings')
+        verify_id_labels(model_settings(run))
         if args.live_settings:
             if len(saved['chatCatalog']['entries']) != 4 or saved['chatCatalog']['defaultEntryId'] is not None or saved['selectionCompatibility']['catalog']['defaultEntryId'] != 'entry_legacy_ollama':
                 raise ValueError('Live scenario lost the no-default catalog or preserved prior compatibility')
@@ -296,15 +385,17 @@ def main():
         if (not args.provider_fields and saved['keys']) or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
             raise ValueError('Saved settings escaped keyless copy scope')
         if args.live_settings:
+            receipt['restartModal'] = restart_scenario(run, captures)
             receipt['liveSettings'] = live_scenario(run, captures, fixture)
             saved = json.loads((run.root / 'config/settings-v3.json').read_text())
         run.command({'type': 'settings', 'action': 'close'})
         run.stop()
         run.start(binary)
         run.command({'type': 'settings', 'action': 'open'})
-        wait_settings(run, lambda o: o['ready'] and (args.live_settings or o['catalogReady']) and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'], 'saved grouped identities survive exact-scope restart')
+        no_restart(run, 'saved grouped identities survive exact-scope restart without spontaneous modal', lambda o: o['ready'] and (args.live_settings or o['catalogReady']) and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'])
         if json.loads((run.root / 'config/settings-v3.json').read_text()) != saved:
             raise ValueError('Saved catalog/fields/keys changed across restart')
+        verify_id_labels(model_settings(run))
         if source_identity() != source:
             raise ValueError('Source changed during Settings smoke')
         captures.append({'scenario': 'concise-introduction-after-save-restart', **run.command({'type': 'settings', 'action': 'captureIntro'})})
@@ -312,7 +403,7 @@ def main():
         if args.provider_fields:
             capture_providers(run, captures, 'saved-restarted-fields')
         verify_empty_restart(run, captures, binary, args.live_settings)
-        receipt.update(connectLater=True, cancel=True, groupedCatalog=not args.live_settings, exactSavedIdentities=True, noDefaultControls=True, emptyCatalogSavedReloaded=True, oldDefaultRemovalRetainsUnavailableIdentity=True, activeBackendUnchanged=True, restart=True, syntheticProviderFields=args.provider_fields, staleSaveRefused=args.provider_fields)
+        receipt.update(legacyNamedSettingsPreserved=True, idOnlyLabels=True, connectLater=True, cancel=True, groupedCatalog=not args.live_settings, exactSavedIdentities=True, noDefaultControls=True, emptyCatalogSavedReloaded=True, oldDefaultRemovalRetainsUnavailableIdentity=True, activeBackendUnchanged=True, restart=True, syntheticProviderFields=args.provider_fields, staleSaveRefused=args.provider_fields)
         passed = True
     finally:
         with resources.preserve_failure():

@@ -10,14 +10,6 @@
   <body>
     <main>
       <h1>Settings</h1>
-      <p>
-        Settings and API keys are saved locally without encryption. Saved keys
-        are hidden.
-      </p>
-      <p>
-        The app can update the selected database. Close other apps using it
-        first. Existing databases won’t be upgraded automatically.
-      </p>
       <p id="status" role="status">Checking saved settings…</p>
       <nav id="wizard" hidden aria-label="First-run setup">
         <p id="step-heading" tabindex="-1"></p>
@@ -149,15 +141,6 @@
               </p>
             </section>
           </div>
-          <p class="helper" id="keys">
-            Saved keys stay hidden behind a fixed mask. Type or paste to
-            replace; Backspace or Delete removes a saved key. Changes apply only
-            on Save.
-          </p>
-          <p>
-            Choose a model explicitly in Trainer. A removed selected entry stays
-            unavailable until you choose a replacement there.
-          </p>
         </fieldset>
         <fieldset id="garmin-fields">
           <legend>Garmin connection</legend>
@@ -346,14 +329,6 @@
             setup.
           </p>
         </section>
-        <p id="next-launch-guidance">
-          Save can apply chat catalog and provider keys now; confirm the
-          reported result. Other settings need explicit quit/reopen and never
-          switch a live database or account. Trainer keeps one independent
-          explicit choice; there is no Default/Reset. Running work retains its
-          captured settings. Local debug traces are always enabled and may
-          contain private context.
-        </p>
         <div class="actions">
           <button type="button" id="back" hidden>Back</button>
           <button type="button" id="next" hidden>Next</button>
@@ -365,5 +340,16 @@
       <form id="garmin-auth" autocomplete="off"></form>
       <form id="garmin-mfa" autocomplete="off"></form>
     </main>
+    <dialog
+      id="restart-required"
+      aria-labelledby="restart-heading"
+      aria-describedby="restart-description"
+    >
+      <h2 id="restart-heading">Restart required</h2>
+      <p id="restart-description">
+        Restart the app for these changes to take effect.
+      </p>
+      <button type="button" id="restart-dismiss" autofocus>OK</button>
+    </dialog>
   </body>
 </html>

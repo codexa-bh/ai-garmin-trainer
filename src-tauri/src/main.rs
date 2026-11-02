@@ -312,7 +312,7 @@ async fn save_settings(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     input: settings::SaveInput,
-) -> Result<String, String> {
+) -> Result<settings::SaveResult, String> {
     setup_only(&window)?;
     if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
         if run.descriptor.history_setup.is_some() && !run.accepts_history_settings(&input) {
@@ -334,7 +334,7 @@ async fn save_settings(
     }
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
-        let result = (|| -> Result<String, &'static str> {
+        let result = (|| -> Result<settings::SaveResult, &'static str> {
         let onboarding = runtime
             .onboarding
             .try_lock()
@@ -362,14 +362,20 @@ async fn save_settings(
             run.confine(&fields)?;
         }
         if runtime.quitting.load(Ordering::SeqCst) { return Err("App is quitting; no new Save committed."); }
-        let committed = settings::save(&settings_path(&app)?, settings::SaveInput { fields, ..input })?;
+        let committed = settings::save_confirmed(&settings_path(&app)?, settings::SaveInput { fields, ..input })?;
+        let mut restart_required = false;
         // Re-resolve v3 after an explicit v2 migration. Keep the write lock until
         // the exact committed authority has been projected and acknowledged.
         let result = (|| {
             let path = settings_path(&app)?;
             let revision = settings::revision(&path)?;
             let saved = settings::load(&path)?;
-            if settings::revision(&path)? != revision { return Err("Committed authority changed during projection."); }
+            if settings::revision(&path)? != revision || saved.fields != committed.fields { return Err("Committed authority changed during projection."); }
+            restart_required = committed.durable && live_settings::restart_delta(
+                &committed.previous_fields,
+                &saved.fields,
+                service.as_ref().and_then(|guard| guard.as_ref()).map(|owned| &owned.live.startup_fields),
+            );
             if runtime.quitting.load(Ordering::SeqCst) { return Ok(" Saved; live fields not applied because the app is quitting.".to_string()); }
             let Some(owned) = service.as_mut().and_then(|guard| guard.as_mut()) else {
                 return Ok(" Saved; live fields not applied: owned backend absent or busy. No start/restart or retry performed.".to_string());
@@ -393,7 +399,10 @@ async fn save_settings(
             };
             Ok::<String, &'static str>(format!("{outcome}{pending}"))
         })();
-        Ok(format!("{committed}{}", result.unwrap_or_else(|_| " Saved; committed state retained, live outcome unknown. Reload before another action; no rollback or retry.".into())))
+        Ok(settings::SaveResult {
+            message: format!("{}{}", committed.message, result.unwrap_or_else(|_| " Saved; committed state retained, live outcome unknown. Reload before another action; no rollback or retry.".into())),
+            restart_required,
+        })
         })();
         if let Ok(mut failure) = runtime.setup_failure.lock() {
             *failure = result.as_ref().err().copied();

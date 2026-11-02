@@ -12,6 +12,18 @@ beforeEach(async () => {
     "utf8",
   ).replace(/<script[^>]*>.*?<\/script>/gs, "");
   listeners = {};
+  // jsdom lacks dialog presentation. Production uses WebKit showModal/close;
+  // this shim models open/close plus focus for observable lifecycle assertions.
+  const dialog = document.getElementById(
+    "restart-required",
+  ) as HTMLDialogElement;
+  dialog.showModal = vi.fn(() => {
+    dialog.open = true;
+  });
+  dialog.close = vi.fn(() => {
+    dialog.open = false;
+    dialog.dispatchEvent(new Event("close"));
+  });
   Object.defineProperty(window, "__TAURI__", {
     configurable: true,
     value: {
@@ -58,7 +70,11 @@ beforeEach(async () => {
       };
     if (command === "setup_status") return "";
     if (command === "save_settings")
-      return "Settings committed. Live fields applied for subsequent operations; captured work is unchanged. Other saved settings are pending explicit quit/reopen.";
+      return {
+        message:
+          "Settings committed. Live fields applied for subsequent operations; captured work is unchanged. Other saved settings are pending explicit quit/reopen.",
+        restartRequired: false,
+      };
     if (command === "start_auth")
       return { id: "session-one", state: "needs-mfa" };
     if (command === "submit_mfa")
@@ -298,7 +314,7 @@ describe("trusted local desktop settings UI", () => {
     expect(visible("auth-section")).toBe(false);
   });
   it.each(["existing installation", "first run"])(
-    "keeps concise notices visible in introductory reading order for %s",
+    "removes all five redundant blocks without hiding status or key descriptions for %s",
     async (context) => {
       if (context === "first run") await firstRun();
       const main = within(document.body).getByRole("main");
@@ -306,36 +322,34 @@ describe("trusted local desktop settings UI", () => {
         level: 1,
         name: "Settings",
       });
-      const notices = Array.from(main.querySelectorAll(":scope > p")).slice(
-        0,
-        2,
-      );
-      expect(
-        notices.map((notice) =>
-          notice.textContent?.replace(/\s+/g, " ").trim(),
-        ),
-      ).toEqual([
-        "Settings and API keys are saved locally without encryption. Saved keys are hidden.",
-        "The app can update the selected database. Close other apps using it first. Existing databases won’t be upgraded automatically.",
-      ]);
-      expect(heading.nextElementSibling).toBe(notices[0]);
-      expect(notices[0].nextElementSibling).toBe(notices[1]);
-      expect(notices[1].nextElementSibling).toBe(
+      expect(heading.nextElementSibling).toBe(
         document.getElementById("status"),
       );
-      for (const notice of notices) {
-        expect(
-          notice.closest("[hidden], [aria-hidden='true'], details"),
-        ).toBeNull();
+      const copy = main.textContent?.replace(/\s+/g, " ");
+      for (const removed of [
+        "Settings and API keys are saved locally without encryption.",
+        "The app can update the selected database.",
+        "Saved keys stay hidden behind a fixed mask.",
+        "Choose a model explicitly in Trainer.",
+        "Save can apply chat catalog and provider keys now;",
+      ])
+        expect(copy).not.toContain(removed);
+      expect(document.getElementById("keys")).toBeNull();
+      expect(document.getElementById("next-launch-guidance")).toBeNull();
+      for (const slot of [
+        "OPENAI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENROUTER_API_KEY",
+      ]) {
+        expect(input(slot).getAttribute("aria-describedby")).toBe(
+          `${slot}-status`,
+        );
+        expect(document.getElementById(`${slot}-status`)).not.toBeNull();
       }
       const status = document.getElementById("status")!;
       expect(within(main).getAllByRole("status")).toContain(status);
       expect(status.closest("[hidden], [aria-hidden='true']")).toBeNull();
-      const normalCopy = [
-        ...notices,
-        status,
-        document.getElementById("storage-status")!,
-      ]
+      const normalCopy = [status, document.getElementById("storage-status")!]
         .map((element) => element.textContent)
         .join(" ");
       expect(normalCopy).not.toMatch(
@@ -345,11 +359,142 @@ describe("trusted local desktop settings UI", () => {
       expect(document.getElementById("wizard")?.hidden).toBe(
         context !== "first run",
       );
-      expect(document.getElementById("next-launch-guidance")?.hidden).toBe(
-        context === "first run",
-      );
+      expect(
+        (document.getElementById("restart-required") as HTMLDialogElement).open,
+      ).toBe(false);
     },
   );
+  it.each([
+    "Live fields applied",
+    "Saved; live fields not applied",
+    "Saved; live outcome unknown/unconfirmed",
+  ])(
+    "shows one dismissal-only modal independently of %s and restores focus without replay",
+    async (message) => {
+      const original = invoke.getMockImplementation()!;
+      invoke.mockImplementation(async (command, args) =>
+        command === "save_settings"
+          ? { message, restartRequired: true }
+          : original(command, args),
+      );
+      const dialog = document.getElementById(
+        "restart-required",
+      ) as HTMLDialogElement;
+      input("save").focus();
+      fireEvent.submit(document.getElementById("settings")!);
+      await waitFor(() => expect(dialog.open).toBe(true));
+      expect(dialog.getAttribute("aria-labelledby")).toBe("restart-heading");
+      expect(dialog.getAttribute("aria-describedby")).toBe(
+        "restart-description",
+      );
+      expect(document.activeElement).toBe(input("restart-dismiss"));
+      expect(dialog.querySelectorAll("button")).toHaveLength(1);
+      expect(input("restart-dismiss").type).toBe("button");
+      for (const shiftKey of [false, true]) {
+        fireEvent.keyDown(input("restart-dismiss"), { key: "Tab", shiftKey });
+        expect(document.activeElement).toBe(input("restart-dismiss"));
+      }
+      fireEvent.submit(document.getElementById("settings")!);
+      expect(
+        invoke.mock.calls.filter(([name]) => name === "save_settings"),
+      ).toHaveLength(1);
+      fireEvent.keyDown(input("restart-dismiss"), { key: "Escape" });
+      expect(dialog.open).toBe(false);
+      expect(document.activeElement).toBe(input("save"));
+      expect(document.getElementById("status")?.textContent).toBe(message);
+      fireEvent.submit(document.getElementById("settings")!);
+      await waitFor(() => expect(dialog.open).toBe(true));
+      fireEvent.click(input("restart-dismiss"));
+      expect(dialog.open).toBe(false);
+      expect(
+        invoke.mock.calls.filter(([name]) => name === "save_settings"),
+      ).toHaveLength(2);
+      expect(
+        invoke.mock.calls.some(([name]) => /restart|quit|launch/.test(name)),
+      ).toBe(false);
+    },
+  );
+  it("never derives a modal from pending prose, editing, Cancel, refusal or first-run Finish", async () => {
+    const dialog = document.getElementById(
+      "restart-required",
+    ) as HTMLDialogElement;
+    fireEvent.input(input("MEMORY_EMBEDDING_DIMS"), {
+      target: { value: "2048" },
+    });
+    expect(dialog.open).toBe(false);
+    fireEvent.click(input("cancel"));
+    await waitFor(() =>
+      expect(input("MEMORY_EMBEDDING_DIMS").value).toBe("1536"),
+    );
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() => expect(input("save").disabled).toBe(false));
+    expect(dialog.open).toBe(false);
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "save_settings")
+        throw "Validation/revision/private-store refusal";
+      return original(command, args);
+    });
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "refusal",
+      ),
+    );
+    expect(dialog.open).toBe(false);
+    await firstRun();
+    for (let i = 0; i < 3; i++) fireEvent.click(input("next"));
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "finish_onboarding",
+        expect.anything(),
+      ),
+    );
+    expect(dialog.open).toBe(false);
+  });
+  it("closes stale dialogs and suppresses a late modal after Settings closes or metadata reload fails", async () => {
+    const original = invoke.getMockImplementation()!;
+    let release: (value: unknown) => void = () => {};
+    let failRead = false;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "save_settings")
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      if (command === "read_settings" && failRead) throw "metadata unavailable";
+      return original(command, args);
+    });
+    const dialog = document.getElementById(
+      "restart-required",
+    ) as HTMLDialogElement;
+    fireEvent.submit(document.getElementById("settings")!);
+    listeners["desktop-settings-closed"]({ payload: "" });
+    release({ message: "Committed", restartRequired: true });
+    await waitFor(() => expect(input("save").disabled).toBe(false));
+    expect(dialog.open).toBe(false);
+    fireEvent.submit(document.getElementById("settings")!);
+    release({ message: "Committed", restartRequired: true });
+    await waitFor(() => expect(dialog.open).toBe(true));
+    listeners["desktop-settings-closed"]({ payload: "" });
+    expect(dialog.open).toBe(false);
+    fireEvent.submit(document.getElementById("settings")!);
+    failRead = true;
+    release({
+      message: "Durability uncertain; reconcile",
+      restartRequired: true,
+    });
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toContain(
+        "reload failed",
+      ),
+    );
+    expect(dialog.open).toBe(false);
+    expect(input("save").disabled).toBe(true);
+    expect(document.getElementById("status")?.textContent).toContain(
+      "Durability uncertain",
+    );
+  });
   it("reports live application separately from pending restart after Save and reload", async () => {
     fireEvent.submit(document.getElementById("settings")!);
     await waitFor(() =>
@@ -402,9 +547,7 @@ describe("trusted local desktop settings UI", () => {
     fireEvent.input(screen.getByLabelText("Model ID — OpenAI model 1"), {
       target: { value: "Vendor/Edited:Tag" },
     });
-    fireEvent.input(screen.getByLabelText("Name (optional) — OpenAI model 1"), {
-      target: { value: "Fast" },
-    });
+    expect(screen.queryByLabelText(/Name \(optional\)/)).toBeNull();
     expect(screen.queryByLabelText("Default chat model (optional)")).toBeNull();
     expect(screen.queryByRole("button", { name: /^Default/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add Ollama model" }));
@@ -430,12 +573,16 @@ describe("trusted local desktop settings UI", () => {
           id: "entry_existing",
           provider: "openai",
           modelId: "Vendor/Edited:Tag",
-          displayName: "Fast",
         },
         { provider: "ollama", modelId: "local:Exact" },
       ],
     });
     expect(sent.chatCatalog.entries[1].id).toMatch(/^entry_[a-f0-9-]+$/);
+    expect(
+      sent.chatCatalog.entries.every(
+        (entry: object) => !("displayName" in entry),
+      ),
+    ).toBe(true);
     expect(sent.fields.AI_PROVIDER).toBe("openai");
     expect(sent.fields.AI_MODEL).toBe("gpt-6-luna");
     await waitFor(() =>
@@ -548,9 +695,7 @@ describe("trusted local desktop settings UI", () => {
     fireEvent.input(screen.getByLabelText("Model ID — Ollama model 1"), {
       target: { value: "Local/Case:Tag" },
     });
-    fireEvent.input(screen.getByLabelText("Name (optional) — Ollama model 1"), {
-      target: { value: "" },
-    });
+    expect(screen.queryByLabelText(/Name \(optional\)/)).toBeNull();
     const id = (
       screen.getByLabelText("Model ID — Ollama model 1") as HTMLInputElement
     ).id;
@@ -612,13 +757,32 @@ describe("trusted local desktop settings UI", () => {
     await waitFor(() =>
       expect(document.getElementById("entry_b-modelId")).not.toBeNull(),
     );
+    expect(document.querySelectorAll(".catalog-row input")).toHaveLength(4);
+    expect(document.body.textContent).not.toContain("Repeated");
+    expect(document.body.textContent).not.toContain("Name (optional)");
+    fireEvent.input(document.getElementById("entry_a-modelId")!, {
+      target: { value: "Vendor/Edited:TAG" },
+    });
     fireEvent.submit(document.getElementById("settings")!);
     await waitFor(() =>
       expect(document.getElementById("status")?.textContent).toContain(
         "backend unchanged",
       ),
     );
-    expect(saved).toEqual({ version: 1, entries, defaultEntryId: null });
+    expect(saved).toEqual({
+      version: 1,
+      entries: entries.map((entry) =>
+        entry.id === "entry_a"
+          ? { ...entry, modelId: "Vendor/Edited:TAG" }
+          : entry,
+      ),
+      defaultEntryId: null,
+    });
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() =>
+      expect(input("entry_a-modelId").value).toBe("Vendor/Edited:TAG"),
+    );
+    expect(document.body.textContent).not.toContain("Repeated");
     expect(document.getElementById("catalog-default")).toBeNull();
     for (const id of ["entry_o", "entry_a", "entry_r", "entry_b"]) {
       const row = document.querySelector(`[data-entry-id="${id}"]`)!;
@@ -707,9 +871,9 @@ describe("trusted local desktop settings UI", () => {
       expect(document.getElementById("migration")?.hidden).toBe(false),
     );
   }
-  it("discloses plaintext risk and never auto-adopts legacy settings or retries denial", async () => {
+  it("preserves actionable legacy recovery and never auto-adopts settings or retries denial", async () => {
     await legacySettings();
-    expect(document.body.textContent).toContain("without encryption");
+    expect(document.body.textContent).not.toContain("without encryption");
     expect(document.getElementById("storage-status")?.textContent).toBe(
       "Storage: legacy settings preserved. Explicit adoption or private re-entry required.",
     );
@@ -1118,6 +1282,37 @@ describe("trusted local desktop settings UI", () => {
       expect(document.getElementById("wizard")?.hidden).toBe(false),
     );
   }
+  it("uses the same ID-only catalog for every provider on first run and Finish", async () => {
+    await firstRun();
+    fireEvent.click(input("next"));
+    const screen = within(document.body);
+    for (const provider of ["OpenAI", "DeepSeek", "Ollama", "OpenRouter"]) {
+      fireEvent.click(
+        screen.getByRole("button", { name: `Add ${provider} model` }),
+      );
+      fireEvent.input(screen.getByLabelText(`Model ID — ${provider} model 1`), {
+        target: { value: "Vendor/Exact:Tag" },
+      });
+    }
+    expect(document.querySelectorAll(".catalog-row input")).toHaveLength(4);
+    expect(document.body.textContent).not.toContain("Name (optional)");
+    fireEvent.click(input("next"));
+    fireEvent.click(input("connect-later"));
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "finish_onboarding",
+        expect.anything(),
+      ),
+    );
+    const catalog = invoke.mock.calls.find(
+      ([name]) => name === "finish_onboarding",
+    )![1].input.settings.chatCatalog;
+    expect(catalog.entries).toHaveLength(4);
+    expect(
+      catalog.entries.every((entry: object) => !("displayName" in entry)),
+    ).toBe(true);
+  });
   it("does not erase provider entry when independent optional authentication settles", async () => {
     await firstRun();
     fireEvent.input(input("OPENAI_API_KEY"), {

@@ -84,7 +84,7 @@ export function validateChatCatalog(value: unknown): ChatCatalog {
 }
 
 export function entryLabel(entry: ChatEntry): string {
-  return `${entry.displayName ? `${entry.displayName} — ` : ""}${entry.provider} / ${entry.modelId}`;
+  return `${entry.provider} / ${entry.modelId}`;
 }
 
 // Used only by legacy read-only activation/migration. Never infers catalog

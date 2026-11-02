@@ -167,15 +167,27 @@ impl Config {
             default_entry_id: None,
             ..legacy.clone()
         };
+        // Fixed old named documents prove compatibility without authoring names
+        // through the current form. No arbitrary legacy metadata is admitted.
+        let mut named = legacy.clone();
+        for entry in &mut named.entries {
+            entry.display_name = Some("Synthetic model".into());
+        }
+        let named_cleared = crate::chat_catalog::Catalog {
+            default_entry_id: None,
+            ..named.clone()
+        };
         if *catalog == legacy
             || *catalog == cleared
+            || *catalog == named
+            || *catalog == named_cleared
             || *catalog == crate::chat_catalog::Catalog::default()
         {
             return true;
         }
         #[cfg(debug_assertions)]
         {
-            let mut synthetic = crate::chat_catalog::legacy(fields, &Default::default());
+            let mut synthetic = named_cleared;
             for entry in &mut synthetic.entries {
                 if entry.provider == "openai" {
                     entry.model_id = "Synthetic/Live:one".into();
@@ -495,6 +507,9 @@ mod tests {
                 .unwrap()
                 .model_id = "Synthetic/Local:two".into();
             live.chat_catalog.default_entry_id = None;
+            for entry in &mut live.chat_catalog.entries {
+                entry.display_name = Some("Synthetic model".into());
+            }
             for slot in crate::settings::SLOTS {
                 live.keys.insert(
                     slot.into(),
@@ -546,6 +561,15 @@ mod tests {
         }
         synthetic.default_entry_id = None;
         assert!(config.accepts_catalog(&synthetic, &input.fields));
+        let mut named = crate::chat_catalog::legacy(&input.fields, &Default::default());
+        for entry in &mut named.entries {
+            entry.display_name = Some("Synthetic model".into());
+        }
+        assert!(config.accepts_catalog(&named, &input.fields));
+        named.default_entry_id = None;
+        assert!(config.accepts_catalog(&named, &input.fields));
+        named.entries[0].display_name = Some("private-text".into());
+        assert!(!config.accepts_catalog(&named, &input.fields));
         assert!(config.accepts_catalog(&crate::chat_catalog::Catalog::default(), &input.fields));
         for case in 0..7 {
             let mut rejected = synthetic.clone();

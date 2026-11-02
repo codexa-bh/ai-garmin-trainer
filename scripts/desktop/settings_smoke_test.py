@@ -33,7 +33,7 @@ class Run:
             keys = {slot: 'T0257-synthetic-' + slot + '-' + suffix for slot in ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY']} if self.action in ['liveCatalog', 'liveRotate'] else {}
             if self.fault == 'retained-key' and self.action == 'liveClear':
                 keys['OPENAI_API_KEY'] = 'old-key'
-            (self.root / 'config/settings-v3.json').write_text(json.dumps({'keys': keys, 'fields': {'MEMORY_EMBEDDING_DIMS': '2048'}, 'chatCatalog': {'defaultEntryId': None}}))
+            (self.root / 'config/settings-v3.json').write_text(json.dumps({'keys': keys, 'fields': {'MEMORY_EMBEDDING_DIMS': '2048'}, 'chatCatalog': {'defaultEntryId': None, 'entries': self.metadata(self)['options']}}))
             if self.fault == 'restart':
                 self.backend += 1
         return {'ok': True}
@@ -48,6 +48,11 @@ class Run:
                 entry['available'] = entry['provider'] == 'ollama'
         if self.action == 'liveEmpty':
             entries = []
+        for entry in entries:
+            entry['displayName'] = 'Synthetic model' if self.fault != 'lost-name' else 'changed'
+            entry['label'] = entry['provider'] + ' / ' + entry['modelId']
+            if self.fault == 'alias-label':
+                entry['label'] = 'Synthetic model — ' + entry['label']
         selected = 'entry_legacy_deepseek' if self.fault == 'remap' else self.selected
         return {'version': 3, 'options': entries, 'selected': selected, 'status': 'selected', 'available': any(entry['id'] == selected and entry['available'] for entry in entries)}
 
@@ -57,7 +62,7 @@ class LiveRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             run = Run(root, fault)
             captures = []
-            with patch.object(settings_smoke, 'model_settings', side_effect=run.metadata), patch.object(settings_smoke, 'wait_settings', side_effect=lambda *_args: {'liveApplied': True, 'pendingRestart': run.action != 'liveCatalog' or fault == 'false-restart', 'savedUnapplied': True}):
+            with patch.object(settings_smoke, 'dismiss_restart'), patch.object(settings_smoke, 'model_settings', side_effect=run.metadata), patch.object(settings_smoke, 'wait_settings', side_effect=lambda *_args: {'saved': True, 'restartVisible': fault == 'false-modal', 'liveApplied': True, 'pendingRestart': run.action != 'liveCatalog' or fault == 'false-restart', 'savedUnapplied': True}):
                 result = settings_smoke.live_scenario(run, captures)
             self.assertEqual(len(result), 4)
             self.assertEqual(len(captures), 4)
@@ -68,7 +73,7 @@ class LiveRunnerTests(unittest.TestCase):
         self.scenario()
 
     def test_rejects_restart_retained_key_and_preference_remap(self):
-        for fault in ['restart', 'retained-key', 'remap', 'false-restart']:
+        for fault in ['restart', 'retained-key', 'remap', 'false-restart', 'false-modal', 'lost-name', 'alias-label']:
             with self.subTest(fault=fault), self.assertRaises(ValueError):
                 self.scenario(fault)
 
@@ -89,6 +94,64 @@ class SettingsCaptureTests(unittest.TestCase):
         self.assertEqual(len(captures), 3)
         self.assertEqual(sum(call.args[0]['action'] == 'stopBackend' for call in run.command.call_args_list), 1)
         self.assertFalse(any(call.args[0]['action'] in ('start_auth','submit_mfa') for call in run.command.call_args_list))
+
+    def test_restart_scenario_waits_for_exact_cancel_completion_before_next_edit(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = Mock()
+            run.root = pathlib.Path(root)
+            (run.root / 'config').mkdir()
+            (run.root / 'config/settings-v3.json').write_text('{}')
+            run.http.return_value = {'pid': 1, 'backendPid': 2, 'origin': 'owned', 'database': 'copy'}
+            run.command.return_value = {'ok': True}
+            labels = []
+            def settled(_run, label, predicate=None):
+                labels.append(label)
+                if label.startswith('cancel '):
+                    self.assertFalse(predicate({'saved': False, 'editsCancelled': False}))
+                    self.assertTrue(predicate({'saved': False, 'editsCancelled': True}))
+                return {'liveApplied': True, 'restartVisible': False}
+            with patch.object(settings_smoke, 'no_restart', side_effect=settled), patch.object(settings_smoke, 'dismiss_restart'):
+                self.assertTrue(settings_smoke.restart_scenario(run, [])['staleRefused'])
+            self.assertIn('cancel startup draft', labels)
+            self.assertIn('cancel stale startup draft', labels)
+
+    def test_modal_fixed_capture_and_dismiss_never_replays_save(self):
+        for escape in [False, True]:
+            run = Mock()
+            run.command.side_effect = [{'restartFocused': True}, {'capture': 'wide.png'}, {'capture': 'narrow.png'}, {'restartVisible': False, 'saveFocused': True}]
+            captures = []
+            with patch.object(settings_smoke, 'wait_settings', return_value={'saved': True}):
+                settings_smoke.dismiss_restart(run, captures, 'startup', escape=escape)
+            self.assertEqual([call.args[0]['action'] for call in run.command.call_args_list], ['restartTab', 'captureRestartWide', 'captureRestartNarrow', 'restartEscape' if escape else 'restartDismiss'])
+            self.assertEqual(len(captures), 2)
+
+    def test_modal_refusal_and_capture_failure_do_not_retry(self):
+        run = Mock()
+        with patch.object(settings_smoke, 'wait_settings', return_value={'saved': False}), self.assertRaises(ValueError):
+            settings_smoke.dismiss_restart(run, [], 'invalid')
+        run.command.assert_not_called()
+        run.command.side_effect = [{'restartFocused': True}, RuntimeError('mask refused')]
+        with patch.object(settings_smoke, 'wait_settings', return_value={'saved': True}), self.assertRaises(RuntimeError):
+            settings_smoke.dismiss_restart(run, [], 'refused')
+        self.assertEqual(run.command.call_count, 2)
+        with patch.object(settings_smoke, 'wait_settings', return_value={'restartVisible': True}), self.assertRaises(ValueError):
+            settings_smoke.no_restart(run, 'live-only')
+
+    def test_named_input_is_fixed_exclusive_and_preserves_original_v2(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = Run(root)
+            original = {'version': 2, 'fields': {'AI_PROVIDER': 'ollama'}, 'keys': {}}
+            before = json.dumps(original).encode()
+            (run.root / 'config/settings-v2.json').write_bytes(before)
+            result = settings_smoke.prepare_named_settings(run)
+            named = json.loads(result)
+            self.assertEqual((run.root / 'config/settings-v2.json').read_bytes(), before)
+            self.assertEqual(named['version'], 3)
+            self.assertEqual(named['fields'], original['fields'])
+            self.assertEqual(named['chatCatalog']['defaultEntryId'], 'entry_legacy_ollama')
+            self.assertEqual([entry['displayName'] for entry in named['chatCatalog']['entries']], ['Synthetic model'] * 4)
+            with self.assertRaises(FileExistsError):
+                settings_smoke.prepare_named_settings(run)
 
     def test_live_empty_restart_observes_without_replaying_eight_row_mutation(self):
         run = Mock()

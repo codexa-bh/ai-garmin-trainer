@@ -19,6 +19,28 @@ let unknownOutcome = false;
 let legacyRequired = false;
 let catalog = { version: 1, entries: [], defaultEntryId: null };
 let loadedRevision = null;
+let settingsEpoch = 0;
+let restartFocus = null;
+const restartDialog = byId("restart-required");
+function closeRestart() {
+  if (restartDialog.open) restartDialog.close();
+}
+restartDialog.addEventListener("close", () => {
+  const target = restartFocus;
+  restartFocus = null;
+  if (target?.isConnected && !target.disabled && !target.closest("[hidden]"))
+    target.focus();
+});
+byId("restart-dismiss").addEventListener("click", closeRestart);
+restartDialog.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeRestart();
+  } else if (event.key === "Tab") {
+    event.preventDefault();
+    byId("restart-dismiss").focus();
+  }
+});
 
 // Presence is metadata, never an input value. Only genuine input events create
 // replacement drafts; the fixed placeholder cannot enter any native payload.
@@ -164,33 +186,29 @@ function renderCatalog() {
         row.dataset.entryId = entry.id;
         row.setAttribute("role", "group");
         row.setAttribute("aria-label", context);
-        for (const [key, label] of [
-          ["modelId", "Model ID"],
-          ["displayName", "Name (optional)"],
-        ]) {
+        {
           const wrapper = document.createElement("label");
-          wrapper.textContent = label;
+          wrapper.textContent = "Model ID";
           const input = document.createElement("input");
-          input.id = `${entry.id}-${key}`;
-          input.setAttribute("aria-label", `${label} — ${context}`);
+          input.id = `${entry.id}-modelId`;
+          input.setAttribute("aria-label", `Model ID — ${context}`);
           input.type = "text";
           input.autocomplete = "off";
           input.autocapitalize = "off";
           input.setAttribute("autocorrect", "off");
           input.spellcheck = false;
-          input.maxLength = key === "modelId" ? 256 : 80;
-          input.required = key === "modelId";
+          input.maxLength = 256;
+          input.required = true;
           input.disabled = catalogLocked();
-          input.value = entry[key] ?? "";
-          if (key === "modelId")
-            input.setAttribute("aria-describedby", `${entry.id}-error`);
+          input.value = entry.modelId;
+          input.setAttribute("aria-describedby", `${entry.id}-error`);
           const edit = () => {
             if (catalogLocked()) return;
             const draft = catalog.entries.find(
               (value) => value.id === entry.id,
             );
-            if (key === "displayName" && !input.value) delete draft.displayName;
-            else draft[key] = input.value;
+            // Legacy names remain inert, untouched compatibility metadata.
+            draft.modelId = input.value;
             updateCatalogControls();
           };
           input.addEventListener("input", edit);
@@ -404,7 +422,6 @@ function renderStep() {
   byId("normal").hidden = wizard && step !== 1;
   byId("garmin-fields").hidden = wizard && step !== 2;
   byId("review").hidden = !wizard || step !== 3;
-  byId("next-launch-guidance").hidden = wizard;
   byId("back").hidden = !wizard || step === 0 || committed;
   byId("next").hidden = !wizard || step === 3 || committed;
   byId("save").hidden = legacyRequired || (wizard && step !== 3);
@@ -562,6 +579,7 @@ function showAuth(value) {
   }
 }
 async function refresh() {
+  closeRestart();
   clearSecrets();
   invalidateMemoryStatus();
   try {
@@ -715,6 +733,7 @@ function createField(field) {
   }
 }
 async function initialize() {
+  closeRestart();
   fields = await fetch("settings-fields.json").then((response) =>
     response.json(),
   );
@@ -734,7 +753,7 @@ async function initialize() {
     input.setAttribute("autocorrect", "off");
     input.spellcheck = false;
     input.disabled = true;
-    input.setAttribute("aria-describedby", `${slot}-status keys`);
+    input.setAttribute("aria-describedby", `${slot}-status`);
     input.addEventListener("input", () => editKey(slot));
     input.addEventListener("keydown", (event) => {
       if (["Backspace", "Delete"].includes(event.key))
@@ -754,6 +773,8 @@ async function initialize() {
     status.textContent = event.payload;
   });
   await window.__TAURI__.event.listen("desktop-settings-closed", () => {
+    settingsEpoch++;
+    closeRestart();
     authEpoch++;
     authPending = false;
     successfulDestination = "";
@@ -827,6 +848,7 @@ byId("settings").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (
     busy ||
+    restartDialog.open ||
     legacyRequired ||
     loadedRevision === null ||
     authPending ||
@@ -834,6 +856,10 @@ byId("settings").addEventListener("submit", async (event) => {
   )
     return;
   if (firstRun && step !== 3) return;
+  const epoch = settingsEpoch;
+  const ordinarySave = !firstRun;
+  const priorFocus = document.activeElement;
+  let showRestart = false;
   invalidateMemoryStatus();
   setBusy(true);
   status.textContent = firstRun
@@ -843,7 +869,7 @@ byId("settings").addEventListener("submit", async (event) => {
   const catalogDraft = structuredClone(catalog);
   const keys = takeKeyUpdates();
   try {
-    const message = await invoke(
+    const result = await invoke(
       firstRun ? "finish_onboarding" : "save_settings",
       {
         input: firstRun
@@ -865,8 +891,15 @@ byId("settings").addEventListener("submit", async (event) => {
             },
       },
     );
-    await refresh();
-    status.textContent = message;
+    const refreshed = await refresh();
+    const message = ordinarySave ? result.message : result;
+    if (refreshed) {
+      status.textContent = message;
+      showRestart = ordinarySave && result.restartRequired === true;
+    } else {
+      unknownOutcome = true;
+      status.textContent = `${message} Saved metadata reload failed; quit/reopen to reconcile before another write.`;
+    }
   } catch (error) {
     if (firstRun) {
       // Errors are native allowlisted messages, never vendor output/secret values.
@@ -900,6 +933,14 @@ byId("settings").addEventListener("submit", async (event) => {
     for (const slot of slots) if (keys[slot].value) keys[slot].value = "";
     clearKeyDrafts();
     setBusy(unknownOutcome);
+  }
+  if (showRestart && epoch === settingsEpoch && !restartDialog.open) {
+    restartFocus =
+      priorFocus instanceof HTMLElement && priorFocus !== document.body
+        ? priorFocus
+        : byId("save");
+    restartDialog.showModal();
+    byId("restart-dismiss").focus();
   }
 });
 byId("back").addEventListener("click", () => {

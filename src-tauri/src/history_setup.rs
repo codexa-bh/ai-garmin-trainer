@@ -15,6 +15,7 @@ pub enum Action {
     Next,
     Finish,
     Save,
+    DismissRestart,
     Automatic,
     LegacyLimit,
     Capture,
@@ -213,6 +214,11 @@ mod tests {
         for action in ["input", "auth", "mfa", "adopt", "picker", "eval"] {
             assert!(serde_json::from_value::<Action>(json!(action)).is_err());
         }
+        assert!(serde_json::from_value::<Action>(json!("dismissRestart")).is_ok());
+        assert!(serde_json::from_value::<Action>(
+            json!({"action":"dismissRestart","value":"private"})
+        )
+        .is_err());
         assert!(document(&"tauri://localhost/index.html".parse().unwrap()));
         for path in [
             "tauri://localhost/private",
