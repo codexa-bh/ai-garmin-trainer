@@ -63,7 +63,7 @@ impl Config {
         }
         let settings = crate::settings::load(&self.settings())?;
         if ![2, 3].contains(&settings.version)
-            || !settings.keys.is_empty()
+            || !accepted_keys(&settings.keys)
             || !self.accepts_fields(&settings.fields)
             || (settings.version == 3
                 && !settings
@@ -73,7 +73,7 @@ impl Config {
                     .unwrap_or(false))
         {
             return Err(
-                "Smoke requires exact keyless run-local settings; no auth/tool overrides".into(),
+                "Smoke requires exact keyless or authored synthetic run-local settings; no auth/tool overrides".into(),
             );
         }
         let db = self.root.join("trainer.sqlite");
@@ -177,8 +177,25 @@ impl Config {
             && self.accepts_catalog(&input.chat_catalog, &input.fields)
             && input
                 .keys
+                .keys()
+                .all(|slot| crate::settings::SLOTS.contains(&slot.as_str()))
+            && (input
+                .keys
                 .values()
                 .all(|intent| matches!(intent, crate::settings::KeyUpdate::Unchanged))
+                || (crate::settings::load(&self.settings())
+                    .map(|saved| saved.keys == initial_keys())
+                    .unwrap_or(false)
+                    && input.keys.len() == 3
+                    && matches!(input.keys.get("OPENAI_API_KEY"), Some(crate::settings::KeyUpdate::Replace { value }) if value == "synthetic-openai-replacement")
+                    && matches!(
+                        input.keys.get("DEEPSEEK_API_KEY"),
+                        Some(crate::settings::KeyUpdate::Clear)
+                    )
+                    && matches!(
+                        input.keys.get("OPENROUTER_API_KEY"),
+                        Some(crate::settings::KeyUpdate::Unchanged)
+                    )))
     }
     pub fn settings(&self) -> PathBuf {
         let next = self.root.join("config/settings-v3.json");
@@ -196,6 +213,24 @@ impl Config {
         )
     }
 }
+fn initial_keys() -> std::collections::BTreeMap<String, String> {
+    std::collections::BTreeMap::from([
+        ("OPENAI_API_KEY".into(), "synthetic-openai-original".into()),
+        (
+            "DEEPSEEK_API_KEY".into(),
+            "synthetic-deepseek-original".into(),
+        ),
+    ])
+}
+fn accepted_keys(keys: &std::collections::BTreeMap<String, String>) -> bool {
+    keys.is_empty()
+        || *keys == initial_keys()
+        || *keys
+            == std::collections::BTreeMap::from([(
+                "OPENAI_API_KEY".into(),
+                "synthetic-openai-replacement".into(),
+            )])
+}
 pub fn private_dir(path: &Path) -> Result<(), String> {
     let meta = fs::symlink_metadata(path).map_err(|_| "Missing smoke directory")?;
     if !path.is_absolute()
@@ -212,6 +247,25 @@ pub fn private_dir(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    #[test]
+    fn synthetic_keys_are_finite_and_never_accept_private_or_partial_states() {
+        assert!(accepted_keys(&initial_keys()));
+        assert!(accepted_keys(&Default::default()));
+        assert!(accepted_keys(&std::collections::BTreeMap::from([(
+            "OPENAI_API_KEY".into(),
+            "synthetic-openai-replacement".into()
+        )])));
+        for (slot, value) in [
+            ("OPENAI_API_KEY", "private"),
+            ("OPENROUTER_API_KEY", "synthetic-openai-replacement"),
+            ("OPENAI_API_KEY", "synthetic-openai-original"),
+        ] {
+            assert!(!accepted_keys(&std::collections::BTreeMap::from([(
+                slot.into(),
+                value.into()
+            )])));
+        }
+    }
     #[test]
     fn admission_requires_exact_copy_settings_no_keys_and_private_paths() {
         let id = uuid::Uuid::new_v4().to_string();
@@ -258,6 +312,45 @@ mod tests {
                 value: "synthetic-not-a-key".into(),
             },
         );
+        assert!(!config.accepts_save(&input));
+        let initial = settings.clone();
+        settings["keys"] = serde_json::to_value(initial_keys()).unwrap();
+        write(&config.settings(), settings.to_string().as_bytes());
+        assert!(config.validate().is_ok());
+        input.keys = serde_json::from_value(serde_json::json!({
+            "OPENAI_API_KEY":{"intent":"replace","value":"synthetic-openai-replacement"},
+            "DEEPSEEK_API_KEY":{"intent":"clear"},
+            "OPENROUTER_API_KEY":{"intent":"unchanged"}
+        }))
+        .unwrap();
+        assert!(config.accepts_save(&input));
+        for (slot, update) in [
+            (
+                "OPENAI_API_KEY",
+                crate::settings::KeyUpdate::Replace {
+                    value: "private".into(),
+                },
+            ),
+            ("OPENROUTER_API_KEY", crate::settings::KeyUpdate::Clear),
+            ("DEEPSEEK_API_KEY", crate::settings::KeyUpdate::Unchanged),
+            ("unknown", crate::settings::KeyUpdate::Unchanged),
+        ] {
+            let mut rejected = crate::settings::SaveInput {
+                fields: input.fields.clone(),
+                chat_catalog: input.chat_catalog.clone(),
+                expected_revision: input.expected_revision.clone(),
+                keys: serde_json::from_value(serde_json::json!({
+                    "OPENAI_API_KEY":{"intent":"replace","value":"synthetic-openai-replacement"},
+                    "DEEPSEEK_API_KEY":{"intent":"clear"},
+                    "OPENROUTER_API_KEY":{"intent":"unchanged"}
+                }))
+                .unwrap(),
+            };
+            rejected.keys.insert(slot.into(), update);
+            assert!(!config.accepts_save(&rejected));
+        }
+        settings = initial;
+        write(&config.settings(), settings.to_string().as_bytes());
         assert!(!config.accepts_save(&input));
         input.keys.clear();
         input

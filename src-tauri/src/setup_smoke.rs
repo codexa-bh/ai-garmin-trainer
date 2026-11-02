@@ -26,6 +26,7 @@ pub enum Action {
     CaptureNarrow,
     CaptureIntro,
     CatalogExercise,
+    KeysExercise,
     CatalogWide,
     CatalogNarrow,
     CaptureOpenai,
@@ -45,6 +46,9 @@ struct Observation {
     saved_for_next_launch: bool,
     catalog_ready: bool,
     catalog_exercised: bool,
+    keys_ready: bool,
+    keys_edited: bool,
+    keys_rejected: bool,
 }
 struct Document {
     loaded: Arc<AtomicBool>,
@@ -71,7 +75,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogReady:false,catalogExercised:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogReady:false,catalogExercised:false,keysReady:false,keysEdited:false,keysRejected:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -296,6 +300,7 @@ mod tests {
         }
         for action in [
             "catalogExercise",
+            "keysExercise",
             "catalogWide",
             "catalogNarrow",
             "captureOpenai",
@@ -309,7 +314,7 @@ mod tests {
                     .is_err()
             );
         }
-        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true})).is_ok());
+        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true,"keysReady":false,"keysEdited":false,"keysRejected":false})).is_ok());
         for action in [
             "auth", "email", "password", "mfa", "picker", "finish", "eval", "input",
         ] {
