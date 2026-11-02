@@ -697,6 +697,31 @@
       if (pill?.textContent.trim() === "Profile saved")
         pill.setAttribute("data-smoke-reveal", "");
     }
+    if (command.view === "sync") {
+      // Like table captures, WebKit's scroll layer needs visible containers.
+      // Validate all ancestors before revealing them; siblings remain masked.
+      const containers = new Set();
+      for (const revealed of document.querySelectorAll("[data-smoke-reveal]")) {
+        for (
+          let node = revealed.parentElement;
+          node && node !== document.body;
+          node = node.parentElement
+        ) {
+          if (
+            [...node.childNodes].some(
+              (child) =>
+                child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+            )
+          ) {
+            restore();
+            throw Error("Sync capture refuses private direct ancestor text");
+          }
+          containers.add(node);
+        }
+      }
+      for (const container of containers)
+        container.setAttribute("data-smoke-reveal", "");
+    }
     if (command.view === "composer") revealComposer();
     if (command.view === "tables") revealTables();
     const style = document.createElement("style");

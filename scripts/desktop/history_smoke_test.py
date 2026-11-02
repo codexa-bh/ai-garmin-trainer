@@ -50,6 +50,30 @@ class HistoryTokenContracts(unittest.TestCase):
         self.assertEqual(run.settings_action.call_args_list[:2], [call('useExisting'), call('capture')])
         run.wait_backend.assert_called_once()
 
+    def test_failed_continuation_retains_cancel_and_captures_without_another_start(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        summary = {'active':False, 'outcome':'failed', 'operations':0, 'failureClass':'auth'}
+        cancelled = {'failed':False, 'paused':True, 'running':False}
+        failed = {'failed':True, 'paused':False, 'running':False}
+        run = SimpleNamespace(root=self.destination, config={'source':'unit-only'}, boot='unit-only',
+                              command=Mock(return_value={'ok':True, 'capture':'unit-only.png'}),
+                              wait=Mock(), summary=Mock(return_value=summary), settle_claim=Mock(),
+                              wait_sync=Mock(side_effect=[{'running':True}, cancelled,
+                                                          {'startEnabled':True}, {'running':True, 'failed':False}, failed]))
+        with self.assertRaisesRegex(ValueError, 'continuation failed'):
+            HistoryRun.real_sync(run)
+        commands = [call.args[0] for call in run.command.call_args_list]
+        self.assertEqual(sum(c.get('action') == 'start' for c in commands), 1)
+        self.assertEqual(sum(c.get('action') == 'continue' for c in commands), 1)
+        self.assertEqual(len(run.sync_captures), 2)
+        for name in ['real-sync-progress.json', 'real-sync-cancelled.json', 'real-sync-failure.json']:
+            evidence = json.loads((self.destination/name).read_text())
+            self.assertTrue(evidence['captures'])
+        evidence = json.loads((self.destination/'real-sync-failure.json').read_text())
+        self.assertEqual(evidence['cancelled'], cancelled)
+        self.assertEqual(evidence['settled'][0]['summary']['failureClass'], 'auth')
+
     def test_native_setup_failure_is_retained_without_finish_replay(self):
         from types import SimpleNamespace
         from unittest.mock import Mock, call

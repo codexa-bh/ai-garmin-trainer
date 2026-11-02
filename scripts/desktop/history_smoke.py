@@ -223,29 +223,33 @@ class HistoryRun(OrdinaryRun):
         self.command({'type': 'click', 'target': 'Sync'})
         self.wait(lambda value: value['view'] == 'Sync', 'Sync')
         before = self.summary()
-        images = []
+        images = self.sync_captures = []
         self.command({'type': 'sync', 'action': 'start'})
         self.wait_sync(lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'], 15)
         images.append({'scenario': 'real-sync-progress', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
+        private_json(self.root / 'real-sync-progress.json', {'captures': images, 'before': before,
+                     'source': self.config['source'], 'boot': self.boot})
         self.command({'type': 'sync', 'action': 'cancel'})
         cancelled = self.wait_sync(lambda value: not value['running'] and (value['paused'] or value['completed'] or value['failed']), 40)
         if cancelled['failed']:
             raise ValueError('Real copied-token Sync failed; no automatic login or retry')
         self.settle_claim()
         images.append({'scenario': 'real-sync-cancelled', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
+        private_json(self.root / 'real-sync-cancelled.json', {'captures': images, 'cancelled': cancelled,
+                     'summary': self.summary(), 'source': self.config['source'], 'boot': self.boot})
         settled = []
         for _ in range(2):  # Two explicit finite continuations, never automatic background work.
             self.wait_sync(lambda value: value['startEnabled'], 40)
             self.command({'type': 'sync', 'action': 'continue'})
             started = self.wait_sync(lambda value: value['running'] or value['failed'], 15)
             if started['failed']:
-                private_json(self.root / 'real-sync-failure.json', {'before': before, 'summary': self.summary(), 'rendered': started})
+                private_json(self.root / 'real-sync-failure.json', {'before': before, 'summary': self.summary(), 'rendered': started, 'cancelled': cancelled, 'captures': images})
                 raise ValueError('Real copied-token continuation failed during start; no login/retry')
             result = self.wait_sync(lambda value: not value['running'] and (value['paused'] or value['completed'] or value['failed']))
             self.settle_claim()
             settled.append({'rendered': result, 'summary': self.summary()})
             if result['failed']:
-                private_json(self.root / 'real-sync-failure.json', {'before': before, 'settled': settled})
+                private_json(self.root / 'real-sync-failure.json', {'before': before, 'settled': settled, 'cancelled': cancelled, 'captures': images})
                 raise ValueError('Real copied-token continuation failed; preserve error, no login/retry')
         images.append({'scenario': 'real-sync-continued', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
         private_json(self.root / 'real-sync.json', {'before': before, 'cancelled': cancelled, 'settled': settled,
@@ -303,10 +307,15 @@ def main():
             private_json(staged, saved)
             os.replace(staged, path)
             run.start(run.binary)
-            receipt['captures'].extend(run.real_sync())
+            run.real_sync()  # finally retains partial captures even when continuation refuses.
             receipt['realGarmin'] = 'copied-token native-owned Sync/cancel/two explicit continuations passed'
         else:
             receipt['realGarmin'] = 'unavailable: no explicit private copied-token input'
+            run.start(run.binary)
+            run.command({'type': 'setViewport', 'preset': 'wide'})
+            run.command({'type': 'click', 'target': 'Sync'})
+            run.wait(lambda value: value['view'] == 'Sync', 'keyless Sync view')
+            receipt['captures'].append({'scenario': 'keyless-sync-idle', **run.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
         if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
             raise ValueError('Source/artifact changed during evidence')
         receipt['scenarioPassed'] = True
@@ -325,6 +334,7 @@ def main():
         with contextlib.closing(readonly(database)) as original:
             receipt['originalDatabaseUnchanged'] = all(fingerprint(original) == run.original for run in runs)
         receipt['originalTokensUnchanged'] = tokens_unchanged(token_source, token_hashes) if token_source else (None if args.token_input else True)
+        receipt['captures'].extend(capture for run in runs for capture in getattr(run, 'sync_captures', []))
         receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors})
         private_json(scratch / ('history-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
         if errors or not receipt['originalDatabaseUnchanged'] or not receipt['originalTokensUnchanged']:
