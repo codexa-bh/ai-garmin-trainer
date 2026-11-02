@@ -11,6 +11,8 @@
     liveUnknown: false,
     savedUnapplied: false,
     pendingRestart: false,
+    catalogReady: false,
+    catalogExercised: false,
   });
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -20,6 +22,122 @@
     getComputedStyle(el).visibility !== "hidden" &&
     el.getClientRects().length > 0;
   const byId = (id) => document.getElementById(id);
+  const providers = ["openai", "deepseek", "ollama", "openrouter"];
+  let exercised = false;
+  const rows = (provider) =>
+    Array.from(byId(`catalog-${provider}-rows`).children);
+  const model = (row) => row.querySelector('input[id$="-modelId"]');
+  const name = (row) => row.querySelector('input[id$="-displayName"]');
+  function keyless() {
+    return ["OPENAI", "DEEPSEEK", "OPENROUTER"].every(
+      (provider) =>
+        byId(`${provider}_API_KEY-status`)?.textContent === "not configured" &&
+        byId(`${provider}_API_KEY-intent`)?.value === "unchanged" &&
+        byId(`${provider}_API_KEY`)?.value === "",
+    );
+  }
+  function syntheticCatalog() {
+    return (
+      keyless() &&
+      byId("catalog-default")?.value === "entry_legacy_ollama" &&
+      document.querySelectorAll(".catalog-row").length === 8 &&
+      providers.every((provider) => {
+        const group = rows(provider);
+        return (
+          group.length === 2 &&
+          group[0].dataset.entryId === `entry_legacy_${provider}` &&
+          /^entry_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+            group[1].dataset.entryId,
+          ) &&
+          model(group[0])?.value === `synthetic/${provider}:Case` &&
+          name(group[0])?.value === "Synthetic model" &&
+          model(group[1])?.value === `synthetic/${provider}:Second` &&
+          name(group[1])?.value === ""
+        );
+      })
+    );
+  }
+  function click(element) {
+    if (
+      !visible(element) ||
+      element.disabled ||
+      (element.id && document.querySelectorAll(`#${element.id}`).length !== 1)
+    )
+      throw Error("Unavailable control");
+    element.click();
+  }
+  function edit(element, value) {
+    if (!visible(element) || element.disabled) throw Error("Unavailable input");
+    element.value = value;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function exerciseCatalog() {
+    const legacyModels = [
+      "gpt-6-luna",
+      "deepseek-flash",
+      "qwen3.5:4b",
+      "nvidia/nemotron-3.5-lightning:free",
+    ];
+    if (
+      !keyless() ||
+      byId("catalog-default").value !== "entry_legacy_ollama" ||
+      document.querySelectorAll(".catalog-row").length !== 4 ||
+      !providers.every(
+        (provider, index) =>
+          rows(provider).length === 1 &&
+          rows(provider)[0].dataset.entryId === `entry_legacy_${provider}` &&
+          model(rows(provider)[0]).value === legacyModels[index] &&
+          name(rows(provider)[0]).value === "",
+      )
+    )
+      throw Error("Not exact legacy catalog");
+    // Actual app controls only. No application-state injection or caller input.
+    click(rows("ollama")[0].querySelector('button[aria-label^="Remove"]'));
+    if (
+      document.activeElement !== byId("catalog-default") ||
+      rows("ollama").length !== 1 ||
+      !byId("status").textContent.includes("explicitly clear")
+    )
+      throw Error("Default removal was not guarded");
+    for (const provider of providers) {
+      edit(model(rows(provider)[0]), `synthetic/${provider}:Case`);
+      edit(name(rows(provider)[0]), "Synthetic model");
+      click(byId(`catalog-${provider}-add`));
+      if (document.activeElement !== model(rows(provider)[1]))
+        throw Error("Add focus lost");
+      edit(model(rows(provider)[1]), `synthetic/${provider}:Second`);
+    }
+    edit(model(rows("openai")[1]), "synthetic/openai:Case");
+    if (
+      model(rows("openai")[1]).validity.valid ||
+      !rows("openai")[1]
+        .querySelector(".catalog-error")
+        .textContent.includes("Duplicate")
+    )
+      throw Error("Duplicate not explained");
+    edit(model(rows("openai")[1]), "synthetic/openai:Second");
+    click(rows("openrouter")[1].querySelector('button[aria-label^="Default"]'));
+    if (byId("catalog-default").value !== rows("openrouter")[1].dataset.entryId)
+      throw Error("Global default lost");
+    byId("catalog-default").value = "";
+    byId("catalog-default").dispatchEvent(
+      new Event("change", { bubbles: true }),
+    );
+    if (
+      document.querySelectorAll('.catalog-row [aria-pressed="true"]').length !==
+      0
+    )
+      throw Error("Clear failed");
+    click(rows("ollama")[0].querySelector('button[aria-label^="Default"]'));
+    click(byId("catalog-deepseek-add"));
+    click(rows("deepseek")[2].querySelector('button[aria-label^="Remove"]'));
+    if (
+      document.activeElement !== model(rows("deepseek")[1]) ||
+      !syntheticCatalog()
+    )
+      throw Error("Removal/draft identity lost");
+    exercised = true;
+  }
   function observe() {
     const value = empty();
     value.ready =
@@ -29,6 +147,8 @@
         byId("OPENAI_API_KEY-status")?.textContent,
       );
     if (!value.ready) return value;
+    value.catalogReady = syntheticCatalog();
+    value.catalogExercised = exercised;
     value.formVisible = visible(byId("auth"));
     value.manualControlsAbsent = [
       "GARMIN_MCP_TOKEN_DIR",
@@ -53,6 +173,7 @@
   }
   const styles = new Map();
   let restoreTimer;
+  let scrollPosition;
   function style(el, key, value) {
     if (!styles.has(el)) styles.set(el, el.style.cssText);
     el.style.setProperty(key, value, "important");
@@ -61,6 +182,103 @@
     clearTimeout(restoreTimer);
     for (const [el, original] of styles) el.style.cssText = original;
     styles.clear();
+    if (scrollPosition) window.scrollTo(...scrollPosition);
+    scrollPosition = null;
+  }
+  function captureProvider(provider) {
+    restore();
+    if (!syntheticCatalog()) throw Error("Not canonical synthetic catalog");
+    const root = byId(`catalog-${provider}`);
+    const reveal = [root.querySelector("h2"), byId(`catalog-${provider}-add`)];
+    if (
+      reveal[0].textContent !==
+        {
+          openai: "OpenAI",
+          deepseek: "DeepSeek",
+          ollama: "Ollama",
+          openrouter: "OpenRouter",
+        }[provider] ||
+      reveal[0].childElementCount !== 0 ||
+      reveal[1].textContent.trim() !== "Add model" ||
+      reveal[1].childElementCount !== 0
+    )
+      throw Error("Unexpected provider header");
+    for (const row of rows(provider)) {
+      const labels = Array.from(row.querySelectorAll("label"));
+      const buttons = Array.from(row.querySelectorAll("button"));
+      if (
+        labels.length !== 2 ||
+        buttons.length !== 2 ||
+        row.querySelectorAll("input").length !== 2 ||
+        labels.some(
+          (label, index) =>
+            label.childElementCount !== 1 ||
+            label.textContent !== ["Model ID", "Name (optional)"][index],
+        ) ||
+        buttons.some(
+          (button, index) =>
+            button.childElementCount !== 0 ||
+            button.textContent !==
+              (index === 1
+                ? "Remove"
+                : button.getAttribute("aria-pressed") === "true"
+                  ? "Default ✓"
+                  : "Default"),
+        )
+      )
+        throw Error("Unexpected row content");
+      reveal.push(...labels, model(row), name(row), ...buttons);
+    }
+    if (provider !== "ollama") {
+      const slot = `${provider.toUpperCase()}_API_KEY`;
+      const input = byId(slot),
+        intent = byId(`${slot}-intent`),
+        state = byId(`${slot}-status`),
+        label = input.parentElement;
+      if (
+        label.firstChild?.textContent !== provider.toUpperCase() ||
+        label.childElementCount !== 3 ||
+        label.textContent !==
+          `${provider.toUpperCase()}not configuredunchangedreplaceclear` ||
+        state.childElementCount !== 0 ||
+        intent.options.length !== 3 ||
+        Array.from(intent.options).some(
+          (option, index) =>
+            option.value !== ["unchanged", "replace", "clear"][index] ||
+            option.textContent !== option.value,
+        )
+      )
+        throw Error("Unexpected key control");
+      reveal.push(label, input, intent, state, ...intent.options);
+    }
+    // No layout mutation/repositioning: scroll a real section into the viewport.
+    // Reveal only individually verified nodes; unknown descendants remain masked.
+    scrollPosition = [window.scrollX, window.scrollY];
+    window.scrollTo(0, window.scrollY + root.getBoundingClientRect().top - 16);
+    for (const el of document.body.querySelectorAll("*"))
+      if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+    for (const el of reveal) style(el, "visibility", "visible");
+    if (
+      Array.from(document.body.querySelectorAll("*")).some(
+        (el) =>
+          el instanceof HTMLElement &&
+          !reveal.includes(el) &&
+          getComputedStyle(el).visibility !== "hidden",
+      )
+    )
+      throw Error("Ineffective mask");
+    for (const el of reveal.filter((el) => el.tagName !== "OPTION")) {
+      const rect = el.getBoundingClientRect();
+      if (
+        !visible(el) ||
+        rect.left < 0 ||
+        rect.right > window.innerWidth ||
+        rect.top < 0 ||
+        rect.bottom > window.innerHeight
+      )
+        throw Error("Provider overflow");
+    }
+    restoreTimer = setTimeout(restore, 5000);
   }
   globalThis.__trainerSetupSmokeRestore = restore;
   globalThis.__trainerSetupSmoke = (action) => {
@@ -93,13 +311,12 @@
           element.dispatchEvent(new Event("input", { bubbles: true }));
           element.dispatchEvent(new Event("change", { bubbles: true }));
         };
-        const rows = Array.from(
-          byId("catalog-entries").querySelectorAll("fieldset"),
+        const allRows = Array.from(document.querySelectorAll(".catalog-row"));
+        const openai = byId("entry_legacy_openai-modelId")?.closest(
+          ".catalog-row",
         );
-        const provider = (row) => row.querySelector("select")?.value;
-        const openai = rows.find((row) => provider(row) === "openai");
         if (action === "liveCatalog") {
-          if (rows.length !== 4 || !openai)
+          if (allRows.length !== 4 || !openai)
             throw Error("Preset baseline refused");
           change(openai.querySelector("input"), "Synthetic/Live:one");
           change(byId("catalog-default"), "entry_legacy_openai");
@@ -109,7 +326,7 @@
         } else {
           change(byId("catalog-default"), "");
           const remove = (row) => {
-            const button = row.querySelector("button");
+            const button = row.querySelector('button[aria-label^="Remove"]');
             if (!button || button.disabled) throw Error("Remove refused");
             button.click();
           };
@@ -117,8 +334,8 @@
             if (!openai) throw Error("Preset baseline refused");
             remove(openai);
           } else {
-            while (byId("catalog-entries").querySelector("fieldset"))
-              remove(byId("catalog-entries").querySelector("fieldset"));
+            while (document.querySelector(".catalog-row"))
+              remove(document.querySelector(".catalog-row"));
           }
         }
         for (const slot of [
@@ -159,6 +376,11 @@
           ].includes(message)
         )
           throw Error("Unreviewed live feedback");
+        scrollPosition = [window.scrollX, window.scrollY];
+        window.scrollTo(
+          0,
+          window.scrollY + feedback.getBoundingClientRect().top - 24,
+        );
         for (const el of document.body.querySelectorAll("*"))
           if (el instanceof HTMLElement) style(el, "visibility", "hidden");
         style(feedback, "visibility", "visible");
@@ -172,6 +394,17 @@
         )
           throw Error("Live mask failed");
         restoreTimer = setTimeout(restore, 5000);
+      } else if (action === "catalogExercise") {
+        exerciseCatalog();
+      } else if (
+        [
+          "captureOpenai",
+          "captureDeepseek",
+          "captureOllama",
+          "captureOpenrouter",
+        ].includes(action)
+      ) {
+        captureProvider(action.slice(7).toLowerCase());
       } else if (action === "captureIntro") {
         restore();
         const main = document.querySelector("body > main");
@@ -218,56 +451,83 @@
         )
           throw Error("Introduction sanitization did not apply");
         restoreTimer = setTimeout(restore, 5000);
-      } else if (action === "capture") {
+      } else if (["capture", "captureWide", "captureNarrow"].includes(action)) {
         if (!observe().manualControlsAbsent || !observe().notConnected)
           throw Error("Unsafe capture");
         restore();
-        // Trusted fixed CSSOM changes respect the existing CSP; no inline stylesheet
-        // injection or policy relaxation. Keep exact original styles for finally restore.
+        const root = byId("garmin-fields");
+        // Fixed static allowlist only. Never reveal arbitrary subtree text or input values.
+        const approved = new Map([
+          [root.querySelector("legend"), "Garmin connection"],
+          [
+            byId("connection-status"),
+            "Not connected. Connect now or later; chat and offline history remain available.",
+          ],
+          [
+            root.querySelector(":scope > p:not([id])"),
+            "Connect for fresh Garmin data and coaching grounded in it. Configured-provider chat and saved/offline history remain available without Garmin.",
+          ],
+          [byId("connect"), "Connect Garmin"],
+          [byId("connect-later"), "Connect later — keep current selection"],
+          [byId("sign-in"), "Sign in and verify"],
+          [
+            byId("garmin-privacy").querySelector("summary"),
+            "Sign-in and private storage details",
+          ],
+        ]);
+        for (const [element, text] of approved) {
+          if (
+            !element ||
+            element.childElementCount ||
+            element.textContent.replace(/\s+/g, " ").trim() !== text
+          )
+            throw Error("Unexpected Garmin text");
+        }
+        const labels = Array.from(byId("auth").querySelectorAll("label"));
+        if (
+          labels.length !== 2 ||
+          labels.some(
+            (el, index) =>
+              el.textContent.trim() !== ["Email", "Password"][index] ||
+              el.children.length !== 1 ||
+              el.firstElementChild !== byId(["email", "password"][index]),
+          )
+        )
+          throw Error("Unexpected credential labels");
+        if (byId("garmin-privacy").open)
+          throw Error("Disclosure must be collapsed");
+        scrollPosition = [window.scrollX, window.scrollY];
+        window.scrollTo(
+          0,
+          Math.max(0, root.getBoundingClientRect().top + window.scrollY - 24),
+        );
+        const before = root.getBoundingClientRect();
         for (const el of document.body.querySelectorAll("*"))
           if (el instanceof HTMLElement) style(el, "visibility", "hidden");
-        for (const [id, top] of [
-          ["garmin-fields", "24px"],
-          ["auth-section", "240px"],
-        ]) {
-          const root = byId(id);
-          for (const el of [root, ...root.querySelectorAll("*")])
-            if (el instanceof HTMLElement) style(el, "visibility", "visible");
-          for (const [key, value] of Object.entries({
-            position: "fixed",
-            top,
-            left: "24px",
-            width: "800px",
-            "box-sizing": "border-box",
-            "background-color": "#12251c",
-            "font-size": "14px",
-            "line-height": "1.35",
-          }))
-            style(root, key, value);
-        }
-        style(
-          byId("auth-section"),
-          "top",
-          `${Math.ceil(byId("garmin-fields").getBoundingClientRect().bottom + 16)}px`,
-        );
-        for (const el of document.querySelectorAll(
-          "#auth-section input, #auth-status",
-        ))
-          style(el, "visibility", "hidden");
+        for (const el of [root, ...approved.keys(), ...labels])
+          style(el, "visibility", "visible");
+        const after = root.getBoundingClientRect();
         if (
-          ["DATABASE_PATH", "OPENAI_API_KEY", "email", "password", "mfa"].some(
-            (id) => getComputedStyle(byId(id)).visibility !== "hidden",
+          Array.from(document.body.querySelectorAll("*")).some(
+            (el) =>
+              el instanceof HTMLElement &&
+              ![root, ...approved.keys(), ...labels].includes(el) &&
+              getComputedStyle(el).visibility !== "hidden",
           ) ||
-          getComputedStyle(byId("garmin-fields")).position !== "fixed" ||
-          byId("auth-section").getBoundingClientRect().bottom >
-            window.innerHeight - 8
+          ["left", "top", "width", "height"].some(
+            (key) => before[key] !== after[key],
+          ) ||
+          after.left < 0 ||
+          after.right > window.innerWidth ||
+          after.top < 0 ||
+          after.bottom > window.innerHeight
         )
-          throw Error("Sanitization did not apply");
+          throw Error("Garmin mask or viewport refused");
+        restoreTimer = setTimeout(restore, 5000);
       } else if (action !== "observe") throw Error("Unsupported");
       return observe();
     } catch {
-      if (["capture", "captureIntro", "captureLive"].includes(action))
-        restore();
+      if (typeof action === "string" && action.startsWith("capture")) restore();
       return { ...empty(), ok: false };
     }
   };

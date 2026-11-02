@@ -22,6 +22,8 @@ pub enum Action {
     Save,
     Cancel,
     Capture,
+    CaptureWide,
+    CaptureNarrow,
     CaptureIntro,
     LiveCatalog,
     LiveRotate,
@@ -29,6 +31,13 @@ pub enum Action {
     LiveEmpty,
     CaptureLive,
     StopBackend,
+    CatalogExercise,
+    CatalogWide,
+    CatalogNarrow,
+    CaptureOpenai,
+    CaptureDeepseek,
+    CaptureOllama,
+    CaptureOpenrouter,
     Close,
 }
 #[derive(Deserialize, Serialize)]
@@ -44,6 +53,8 @@ struct Observation {
     live_unknown: bool,
     saved_unapplied: bool,
     pending_restart: bool,
+    catalog_ready: bool,
+    catalog_exercised: bool,
 }
 struct Document {
     loaded: Arc<AtomicBool>,
@@ -70,7 +81,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,saved:false,liveApplied:false,liveUnknown:false,savedUnapplied:false,pendingRestart:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,saved:false,liveApplied:false,liveUnknown:false,savedUnapplied:false,pendingRestart:false,catalogReady:false,catalogExercised:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -181,27 +192,64 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         window.close().map_err(|_| "Settings close refused")?;
         return Ok(json!({"ok":true}));
     }
-    if matches!(
-        action,
-        Action::Save
-            | Action::LiveCatalog
-            | Action::LiveRotate
-            | Action::LiveClear
-            | Action::LiveEmpty
-    ) {
+    if !matches!(action, Action::Observe) {
         config.validate()?;
+    }
+    if matches!(action, Action::CatalogWide | Action::CatalogNarrow) {
+        let width = if matches!(action, Action::CatalogWide) {
+            1000.0
+        } else {
+            420.0
+        };
+        window
+            .set_size(tauri::LogicalSize::new(width, 850.0))
+            .map_err(|_| "Settings resize refused")?;
+        // Non-key WKWebViews can return from resize before their first compositor
+        // frame. Settle that transition before applying a scrolled privacy mask.
+        std::thread::sleep(Duration::from_millis(250));
+        return Ok(json!({"ok":true}));
     }
     if matches!(
         action,
-        Action::Capture | Action::CaptureIntro | Action::CaptureLive
+        Action::Capture
+            | Action::CaptureWide
+            | Action::CaptureNarrow
+            | Action::CaptureIntro
+            | Action::CaptureOpenai
+            | Action::CaptureDeepseek
+            | Action::CaptureOllama
+            | Action::CaptureOpenrouter
+            | Action::CaptureLive
     ) {
         let boundary = if matches!(action, Action::CaptureLive) {
             "masked fixed safe Settings live-application feedback only; no form/keys/paths; debug synthetic DOM evidence"
+        } else if matches!(
+            action,
+            Action::CaptureOpenai
+                | Action::CaptureDeepseek
+                | Action::CaptureOllama
+                | Action::CaptureOpenrouter
+        ) {
+            "geometry-preserving masked authored synthetic provider section; debug Settings, synthetic DOM input, not ordinary/default/trusted input"
         } else if matches!(action, Action::CaptureIntro) {
             "geometry-preserving masked actual static Settings introduction; debug only, not ordinary or trusted input"
         } else {
-            "sanitized actual Garmin Settings subtrees; not full-window layout or trusted input"
+            "geometry-preserving masked consolidated Garmin section at fixed debug viewport; scrolled, inputs hidden, not full-window, ordinary or trusted input"
         };
+        let original_size = window
+            .inner_size()
+            .map_err(|_| "Settings viewport unavailable")?;
+        if matches!(action, Action::CaptureWide | Action::CaptureNarrow) {
+            let width = if matches!(action, Action::CaptureNarrow) {
+                420.0
+            } else {
+                1000.0
+            };
+            window
+                .set_size(tauri::LogicalSize::new(width, 1000.0))
+                .map_err(|_| "Settings viewport refused")?;
+            std::thread::sleep(Duration::from_millis(150));
+        }
         let result = (|| {
             let prepared = evaluate(&window, &action)?;
             if !prepared.ok {
@@ -218,6 +266,9 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         })();
         let _ =
             window.eval("window.__trainerSetupSmokeRestore && window.__trainerSetupSmokeRestore()");
+        window
+            .set_size(original_size)
+            .map_err(|_| "Settings viewport restoration refused")?;
         return result;
     }
     let mut value = serde_json::to_value(evaluate(&window, &action)?)
@@ -255,13 +306,33 @@ mod tests {
             serde_json::from_value::<Action>(json!("captureIntro")).unwrap(),
             Action::CaptureIntro
         ));
+        for text in ["captureWide", "captureNarrow"] {
+            assert!(serde_json::from_value::<Action>(json!(text)).is_ok());
+        }
         for value in [
+            json!({"action":"captureWide","width":500}),
             json!({"action":"captureIntro","selector":"body"}),
             json!("captureSecret"),
             json!("capture-intro"),
         ] {
             assert!(serde_json::from_value::<Action>(value).is_err());
         }
+        for action in [
+            "catalogExercise",
+            "catalogWide",
+            "catalogNarrow",
+            "captureOpenai",
+            "captureDeepseek",
+            "captureOllama",
+            "captureOpenrouter",
+        ] {
+            assert!(serde_json::from_value::<Action>(json!(action)).is_ok());
+            assert!(
+                serde_json::from_value::<Action>(json!({"action":action,"value":"private"}))
+                    .is_err()
+            );
+        }
+        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true})).is_ok());
         for action in [
             "auth", "email", "password", "mfa", "picker", "finish", "eval", "input",
         ] {
