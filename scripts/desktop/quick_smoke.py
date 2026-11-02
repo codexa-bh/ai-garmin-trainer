@@ -78,7 +78,7 @@ def main():
     stat = scratch.stat()
     if not scratch.is_dir() or stat.st_uid != os.getuid() or stat.st_mode & 0o077:
         raise ValueError('Scratch must be an owner-private directory')
-    resources.configure(scratch)
+    scratch = resources.configure(scratch)
     allocation = resources.directory(scratch / ('seed-allocation-' + str(uuid.uuid4())))
     source = source_identity()
     name = 'ci-seed-' + str(uuid.uuid4())

@@ -51,7 +51,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     scratch = private_directory(args.scratch)
-    resources.configure(scratch)
+    scratch = resources.configure(scratch)
     screenshots = scratch / 'screenshots'
     if not screenshots.exists():
         screenshots.mkdir(mode=0o700)

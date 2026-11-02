@@ -82,7 +82,7 @@ def listening(number):
 class Observer:
     def __init__(self, scratch):
         self.log = scratch / ('focus-' + str(uuid.uuid4()) + '.log')
-        binary = scratch / ('observer-' + str(uuid.uuid4()))
+        binary = resources.runtime_path(scratch / ('observer-' + str(uuid.uuid4())))
         from smoke_build import observer_binary
         resources.copy_file(observer_binary(REPO), binary)
         with self.log.open('xb') as output:
@@ -121,8 +121,7 @@ class Run:
         if synthetic_provider_fields and ordinary:
             raise ValueError('Synthetic provider fields require admitted debug Settings')
         self.id = str(uuid.uuid4())
-        self.root = scratch / (('ordinary-' if ordinary else 'native-') + self.id)
-        resources.directory(self.root)
+        self.root = resources.run_directory(scratch / (('ordinary-' if ordinary else 'native-') + self.id))
         for name in (['app-data', 'setup-profile'] if ordinary else ['home']) + ['tmp', 'profile', 'config', 'screenshots']:
             (self.root / name).mkdir(mode=0o700)
         (self.root / 'owner').write_text(self.id)
@@ -436,7 +435,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
-    resources.configure(scratch)
+    scratch = resources.configure(scratch)
     prepared = prepare(scratch, args, 'health-comparison' if args.health_comparison else 'native')
     database = prepared.database
     source = source_identity()

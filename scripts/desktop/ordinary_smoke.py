@@ -543,7 +543,7 @@ def main():
     args.composer_footer = args.composer_footer or args.model_eligibility
     os.umask(0o077)
     scratch = private_directory(args.scratch)
-    resources.configure(scratch)
+    scratch = resources.configure(scratch)
     prepared = prepare(scratch, args, 'ordinary')
     database = prepared.database
     bundle = canonical(args.bundle)

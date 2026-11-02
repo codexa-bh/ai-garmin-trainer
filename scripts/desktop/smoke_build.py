@@ -75,7 +75,7 @@ def prepare(repo, scratch, source, source_identity, verify_resources, *, resourc
     dist.mkdir(exist_ok=True)
     if dist.is_symlink() or dist.resolve(strict=True) != dist:
         raise ValueError('Canonical worktree preparation directory required')
-    from smoke_resources import copy_file
+    from smoke_resources import copy_file, runtime_path
     with preparation_lock(dist):
         if source_identity() != source:
             raise ValueError('Source changed before preparation')
@@ -121,7 +121,7 @@ def prepare(repo, scratch, source, source_identity, verify_resources, *, resourc
             with temporary.open('x') as stream:
                 json.dump(saved, stream)
             os.replace(temporary, stamp)
-        destination = scratch / ('native-binary-' + str(uuid.uuid4()))
+        destination = runtime_path(scratch / ('native-binary-' + str(uuid.uuid4())))
         copy_file(binary, destination)
         destination.chmod(0o700)
         if digest_file(destination) != saved['binary'] or source_identity() != source:
