@@ -37,6 +37,12 @@ def verify_catalog(catalog):
         ids.add(entry['id'])
 
 
+def capture_garmin(run, captures, scenario):
+    for action, size in [('captureWide', 'wide'), ('captureNarrow', 'narrow')]:
+        captures.append({'scenario': scenario + '-' + size,
+                         **run.command({'type': 'settings', 'action': action})})
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
@@ -70,10 +76,10 @@ def main():
         if not initial['notConnected'] or not initial['manualControlsAbsent'] or initial['formVisible'] or not initial['privateActionsDenied']:
             raise ValueError('Initial Garmin settings state incorrect')
         captures.append({'scenario': 'concise-static-introduction', **run.command({'type': 'settings', 'action': 'captureIntro'})})
-        captures.append({'scenario': 'not-connected-connect-later', **run.command({'type': 'settings', 'action': 'capture'})})
+        capture_garmin(run, captures, 'not-connected-connect-later')
         run.command({'type': 'settings', 'action': 'connect'})
         wait_settings(run, lambda o: o['formVisible'], 'Connect reveals private form without login')
-        captures.append({'scenario': 'connect-form-no-login', **run.command({'type': 'settings', 'action': 'capture'})})
+        capture_garmin(run, captures, 'connect-form-no-login')
         run.command({'type': 'settings', 'action': 'later'})
         wait_settings(run, lambda o: not o['formVisible'] and o['notConnected'], 'Connect later preserves selection')
         run.command({'type': 'settings', 'action': 'cancel'})
@@ -106,6 +112,7 @@ def main():
         if source_identity() != source:
             raise ValueError('Source changed during Settings smoke')
         captures.append({'scenario': 'concise-introduction-after-save-restart', **run.command({'type': 'settings', 'action': 'captureIntro'})})
+        capture_garmin(run, captures, 'saved-reloaded-not-connected')
         receipt.update(connectLater=True, cancel=True, groupedCatalog=True, exactSavedIdentities=True, activeBackendUnchanged=True, restart=True)
         passed = True
     finally:

@@ -10,6 +10,7 @@ let tokenSelection = "";
 let savedTokenSelection = "";
 let authEpoch = 0;
 let authPending = false;
+let authOpen = false;
 let onboarding = null;
 let firstRun = false;
 let step = 0;
@@ -334,8 +335,7 @@ function renderStep() {
   ][step];
   byId("data-step").hidden = wizard && step !== 0;
   byId("normal").hidden = wizard && step !== 1;
-  byId("garmin-fields").hidden = byId("auth-section").hidden =
-    wizard && step !== 2;
+  byId("garmin-fields").hidden = wizard && step !== 2;
   byId("review").hidden = !wizard || step !== 3;
   byId("next-launch-guidance").hidden = wizard;
   byId("back").hidden = !wizard || step === 0 || committed;
@@ -368,6 +368,41 @@ function renderConnection() {
       ? "Continue with selected connection"
       : "Continue without Garmin"
     : "Connect later — keep current selection";
+  renderAuthPresentation();
+}
+function renderAuthPresentation() {
+  const focused = document.activeElement;
+  const active = authActive();
+  const selected = Boolean(
+    session?.destination && tokenSelection === session.destination,
+  );
+  const visible = authOpen && !selected;
+  byId("auth-section").hidden = !visible;
+  byId("connection-status").hidden = visible;
+  byId("connect").hidden =
+    visible && !["failed", "cancelled"].includes(session?.state);
+  byId("connect").disabled = busy || authPending || active;
+  byId("connect-later").disabled = busy || authPending || active;
+  byId("auth").hidden = !visible || authPending || Boolean(session);
+  byId("mfa-form").hidden = !visible || session?.state !== "needs-mfa";
+  byId("sign-in").disabled = busy || authPending || active;
+  byId("email").disabled = byId("password").disabled =
+    busy || authPending || active || byId("auth").hidden;
+  byId("mfa").disabled = busy || byId("mfa-form").hidden;
+  byId("auth-cancel").hidden = !visible || !active;
+  byId("auth-cancel").disabled = busy || !active;
+  byId("use-tokens").hidden =
+    !visible || session?.state !== "succeeded" || !session.destination;
+  byId("auth-status").hidden = !visible || (!session && !authPending);
+  // Move focus only when this projection retires the focused Garmin control.
+  if (byId("garmin-fields").contains(focused) && focused.closest("[hidden]")) {
+    const target = !visible
+      ? byId("connection-status")
+      : session?.state === "needs-mfa"
+        ? byId("mfa")
+        : byId("auth-status");
+    target.focus();
+  }
 }
 function setBusy(value) {
   busy = value;
@@ -384,6 +419,7 @@ function setBusy(value) {
         committed || byId(`${slot}-intent`).value !== "replace";
   for (const add of document.querySelectorAll(".catalog-add"))
     add.disabled = value || committed || catalog.entries.length >= 32;
+  renderAuthPresentation();
 }
 async function reconcileOnboarding() {
   onboarding = await invoke("read_onboarding");
@@ -400,6 +436,7 @@ function clearAuthSecrets() {
   for (const id of ["email", "password", "mfa"]) byId(id).value = "";
 }
 function showAuth(value) {
+  const previousState = session?.state;
   session = value;
   const active =
     value &&
@@ -443,12 +480,19 @@ function showAuth(value) {
     authTimer = null;
     clearAuthSecrets();
   }
-  byId("use-tokens").hidden =
-    value?.state !== "succeeded" || !value.destination;
+  renderAuthPresentation();
   if (value?.state === "succeeded" && value.destination) {
     successfulDestination = value.destination;
     byId("auth-status").textContent =
       `Connected — authenticated tokens verified during this sign-in and saved privately, not a guarantee of future validity. Choose Use this verified connection, then ${firstRun ? "Review and Finish" : "Save and explicitly quit/reopen"}. The running account is unchanged.`;
+  }
+  if (
+    authOpen &&
+    value?.state !== previousState &&
+    byId("garmin-fields").contains(document.activeElement)
+  ) {
+    if (value?.state === "needs-mfa") byId("mfa").focus();
+    else if (value?.state === "succeeded") byId("use-tokens").focus();
   }
 }
 async function refresh() {
@@ -646,7 +690,7 @@ async function initialize() {
     authPending = false;
     successfulDestination = "";
     clearSecrets();
-    byId("auth").hidden = true;
+    authOpen = false;
     invalidateMemoryStatus();
     showAuth(null);
   });
@@ -840,7 +884,7 @@ byId("cancel").addEventListener("click", async () => {
       /* Already ended; no new attempt. */
     }
   }
-  byId("auth").hidden = true;
+  authOpen = false;
   successfulDestination = "";
   showAuth(null);
   const reconciled = await refresh();
@@ -878,27 +922,33 @@ async function pollAuth(epoch, id) {
 }
 byId("connect").addEventListener("click", () => {
   if (busy || authPending || authActive()) return;
-  byId("auth").hidden = false;
-  byId("email").focus();
+  if (tokenSelection && tokenSelection === session?.destination) showAuth(null);
+  else if (session?.state !== "succeeded") showAuth(null);
+  authOpen = true;
+  renderAuthPresentation();
+  (session?.state === "succeeded" ? byId("use-tokens") : byId("email")).focus();
 });
 byId("connect-later").addEventListener("click", () => {
   if (busy || authPending || authActive()) return;
   clearAuthSecrets();
-  byId("auth").hidden = true;
+  authOpen = false;
+  renderAuthPresentation();
   if (firstRun && step === 2) {
     step = 3;
     renderStep();
+    byId("step-heading").focus();
   }
   status.textContent =
     "No new sign-in. Current connection selection and provider draft preserved; chat and offline history remain available.";
 });
-byId("auth").addEventListener("submit", async (event) => {
+byId("garmin-auth").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (busy || authPending || authActive()) return;
   const epoch = ++authEpoch;
   authPending = true;
-  byId("sign-in").disabled = byId("connect").disabled = true;
-  byId("use-tokens").hidden = true;
+  byId("auth-status").textContent =
+    "Starting private sign-in… Outcome not yet known.";
+  renderAuthPresentation();
   const input = {
     email: byId("email").value,
     password: byId("password").value,
@@ -924,7 +974,7 @@ byId("auth").addEventListener("submit", async (event) => {
     input.email = input.password = "";
   }
 });
-byId("mfa-form").addEventListener("submit", async (event) => {
+byId("garmin-mfa").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (session?.state !== "needs-mfa" || busy) return;
   const { id } = session;
@@ -932,8 +982,7 @@ byId("mfa-form").addEventListener("submit", async (event) => {
   clearTimeout(authTimer);
   const code = byId("mfa").value;
   clearAuthSecrets();
-  session.state = "submitting-mfa";
-  byId("mfa-form").hidden = true;
+  showAuth({ ...session, state: "submitting-mfa" });
   try {
     const value = await invoke("submit_mfa", { id, code });
     if (currentAuth(epoch, id) && value?.id === id) {
@@ -973,10 +1022,11 @@ byId("use-tokens").addEventListener("click", () => {
   tokenSelection = successfulDestination;
   renderConnection();
   renderStep();
-  byId("auth").hidden = true;
-  status.textContent = firstRun
-    ? "Verified connection selected in draft. Tokens committed independently; continue to Review and Finish. Cancellation never deletes them."
-    : "Verified connection selected in draft only. Save, then explicitly quit/reopen; running account unchanged.";
+  authOpen = false;
+  renderAuthPresentation();
+  byId("connection-status").focus();
+  // The focused connection summary is the sole selection announcement.
+  status.textContent = "";
 });
 initialize().catch(() => {
   status.textContent =
