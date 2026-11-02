@@ -21,6 +21,34 @@ afterEach(() => {
 });
 
 describe("independent dashboard feature ownership", () => {
+  it("reconciles an unknown Sync response and refuses replay while the server still owns work", async () => {
+    const fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url) === "/api/sync")
+        throw new TypeError("synthetic lost response");
+      return response({
+        syncActive: true,
+        activities: 0,
+        healthDays: 0,
+        detailedActivities: 0,
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() =>
+      useSyncFeature({
+        setStatus: vi.fn(),
+        refreshHealthAfterSync: vi.fn(async () => {}),
+        runAction: vi.fn(async () => {}),
+      }),
+    );
+    await act(() => result.current.syncNow());
+    expect(result.current.importSummary?.syncActive).toBe(true);
+    expect(result.current.syncRun.finalMessage).toContain("effect is unknown");
+    await act(() => result.current.syncNow());
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "/api/sync",
+      "/api/summary",
+    ]);
+  });
   it("does not fetch merely because a feature owner mounts or rerenders", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);

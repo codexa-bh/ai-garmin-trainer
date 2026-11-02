@@ -4227,6 +4227,45 @@ describe("TrainerDashboard activity charts", () => {
 });
 
 describe("TrainerDashboard dedicated Sync view", () => {
+  it("shows persisted running without a live owner as interrupted and offers explicit Resume without passive POST", async () => {
+    const { historyState } = await import("../src/lib/garmin/history-policy");
+    const saved = historyState(null, null, "2026-09-21");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/conversations/selection")
+        return selectionResponse(init);
+      if (
+        url.startsWith("/api/chat") ||
+        (url.startsWith("/api/conversations/") && init?.method === "GET")
+      )
+        return jsonResponse(emptyChat);
+      if (url === "/api/profile") return jsonResponse(profile([]));
+      if (url === "/api/summary")
+        return jsonResponse({
+          ...importSummary(),
+          history: saved,
+          syncActive: false,
+        });
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
+    await screen.findByText(/Last operation: interrupted/);
+    const resume = screen.getByRole("button", {
+      name: "Sync now — import latest Garmin data",
+    });
+    expect(resume.textContent).toBe("Resume history");
+    expect(resume.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sync" }));
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          String(input) === "/api/sync" && init?.method === "POST",
+      ),
+    ).toEqual([]);
+  });
   it("labels only failed entries, retains recovery across navigation, and resets it on the next run", async () => {
     const detail =
       "Garmin MCP exited with code 1. Garmin connector request failed; upstream details are withheld to protect credentials and local paths.";
