@@ -172,14 +172,19 @@ summary {
 }
 .provider-key {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   font-size: 14px;
   margin: 12px 0 0;
 }
-.provider-key span {
-  grid-column: 2 / -1;
+.provider-key input {
+  box-sizing: border-box;
+  width: 100%;
+}
+.provider-key input::placeholder {
+  color: #a9c9b6;
+  opacity: 1;
 }
 .catalog-provider .helper {
   margin: 8px 0 0;

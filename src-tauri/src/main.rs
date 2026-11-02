@@ -3,9 +3,9 @@ mod auth;
 mod chat_catalog;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
 mod dev_bridge;
-mod isolated_run;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
 mod history_setup;
+mod isolated_run;
 mod keychain;
 mod memory_status;
 mod onboarding;
@@ -300,7 +300,9 @@ async fn save_settings(
     if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
         if run.descriptor.history_setup.is_some() && !run.accepts_history_settings(&input) {
             let refusal = "History scope permits only unchanged keyless run-local settings and a fixed optional limit.";
-            if let Ok(mut failure) = app.state::<Runtime>().setup_failure.lock() { *failure = Some(refusal); }
+            if let Ok(mut failure) = app.state::<Runtime>().setup_failure.lock() {
+                *failure = Some(refusal);
+            }
             return Err(refusal.into());
         }
     }
@@ -316,36 +318,38 @@ async fn save_settings(
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         let result = (|| -> Result<String, &'static str> {
-        let onboarding = runtime
-            .onboarding
-            .try_lock()
-            .map_err(|_| "Onboarding is busy. Wait or cancel the current operation.")?;
-        if onboarding
-            .as_ref()
-            .map(|state| state.eligible)
-            .unwrap_or(false)
-        {
-            return Err(
-                "Use Finish for this first-run session. Ordinary saves never launch a backend.",
-            );
-        }
-        let _write = runtime
-            .settings_write
-            .lock()
-            .map_err(|_| "Settings ownership unavailable.")?;
-        if runtime.quitting.load(Ordering::SeqCst) {
-            return Err("App is quitting.");
-        }
-        let fields = settings::validate(&resources(&app)?, &input.fields)?;
-        if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
-            run.confine(&fields)?;
-        }
-        settings::save(
-            &settings_path(&app)?,
-            settings::SaveInput { fields, ..input },
-        )
+            let onboarding = runtime
+                .onboarding
+                .try_lock()
+                .map_err(|_| "Onboarding is busy. Wait or cancel the current operation.")?;
+            if onboarding
+                .as_ref()
+                .map(|state| state.eligible)
+                .unwrap_or(false)
+            {
+                return Err(
+                    "Use Finish for this first-run session. Ordinary saves never launch a backend.",
+                );
+            }
+            let _write = runtime
+                .settings_write
+                .lock()
+                .map_err(|_| "Settings ownership unavailable.")?;
+            if runtime.quitting.load(Ordering::SeqCst) {
+                return Err("App is quitting.");
+            }
+            let fields = settings::validate(&resources(&app)?, &input.fields)?;
+            if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+                run.confine(&fields)?;
+            }
+            settings::save(
+                &settings_path(&app)?,
+                settings::SaveInput { fields, ..input },
+            )
         })();
-        if let Ok(mut failure) = runtime.setup_failure.lock() { *failure = result.as_ref().err().copied(); }
+        if let Ok(mut failure) = runtime.setup_failure.lock() {
+            *failure = result.as_ref().err().copied();
+        }
         result
     })
     .await
@@ -442,7 +446,9 @@ async fn finish_onboarding(
 ) -> Result<String, String> {
     setup_only(&window)?;
     if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
-        if !run.accepts_finish(&input) { return Err("First-run history selection/configuration scope refused.".into()); }
+        if !run.accepts_finish(&input) {
+            return Err("First-run history selection/configuration scope refused.".into());
+        }
     } else {
         private_setup_only(&window)?;
     }

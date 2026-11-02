@@ -31,6 +31,28 @@ class OwnershipTests(unittest.TestCase):
                 run.verify_restart('owned', 'sentinel', kind='../private')
             self.assertEqual(run.stop.call_count, 2)
 
+    def test_synthetic_provider_preparation_and_persistence_are_finite_debug_only(self):
+        from settings_smoke import verify_keys
+        initial = {'OPENAI_API_KEY': 'synthetic-openai-original', 'DEEPSEEK_API_KEY': 'synthetic-deepseek-original'}
+        verify_keys(initial)
+        verify_keys({'OPENAI_API_KEY': 'synthetic-openai-replacement'}, edited=True)
+        for keys in [{}, {'OPENAI_API_KEY': 'private'}, {**initial, 'unknown': 'private'}]:
+            with self.assertRaises(ValueError):
+                verify_keys(keys)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / 'source.sqlite'
+            with sqlite3.connect(source) as db:
+                db.execute('create table example(id integer)')
+            with self.assertRaisesRegex(ValueError, 'debug Settings'):
+                Run(root, source, 'a' * 64, ordinary=True, synthetic_provider_fields=True)
+            run = Run(root, source, 'a' * 64, synthetic_provider_fields=True)
+            saved = json.loads((run.root / 'config/settings-v2.json').read_text())
+            verify_keys(saved['keys'])
+            self.assertEqual(saved['fields']['AI_PROVIDER'], 'ollama')
+            self.assertEqual(saved['fields']['MEMORY_ENABLED'], 'false')
+            self.assertEqual(run.launches, 0)
+
     def test_settings_grouped_save_receipt_accepts_only_exact_synthetic_catalog(self):
         from copy import deepcopy
         import uuid
