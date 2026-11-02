@@ -598,6 +598,64 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn provider_field_intents_preserve_untouched_slots_and_refuse_key_only_stale_forms() {
+        let root = root();
+        let path = selected(&root);
+        let originals = BTreeMap::from([
+            ("OPENAI_API_KEY".into(), "synthetic-openai-original".into()),
+            (
+                "DEEPSEEK_API_KEY".into(),
+                "synthetic-deepseek-original".into(),
+            ),
+            (
+                "OPENROUTER_API_KEY".into(),
+                "synthetic-openrouter-original".into(),
+            ),
+        ]);
+        let create = originals
+            .iter()
+            .map(|(slot, value): (&String, &String)| {
+                (
+                    slot.clone(),
+                    KeyUpdate::Replace {
+                        value: value.clone(),
+                    },
+                )
+            })
+            .collect();
+        save_new(&path, input(&path, BTreeMap::new(), create)).unwrap();
+        let stale = input(&path, BTreeMap::new(), replacement());
+        let updates = BTreeMap::from([
+            ("OPENAI_API_KEY".into(), KeyUpdate::Unchanged),
+            (
+                "DEEPSEEK_API_KEY".into(),
+                KeyUpdate::Replace {
+                    value: "synthetic-new-deepseek".into(),
+                },
+            ),
+            ("OPENROUTER_API_KEY".into(), KeyUpdate::Clear),
+        ]);
+        save(&path, input(&path, BTreeMap::new(), updates)).unwrap();
+        let committed = private_store::read(&path).unwrap();
+        assert_eq!(
+            load(&path).unwrap().keys,
+            BTreeMap::from([
+                ("OPENAI_API_KEY".into(), "synthetic-openai-original".into()),
+                ("DEEPSEEK_API_KEY".into(), "synthetic-new-deepseek".into()),
+            ])
+        );
+        assert!(save(&path, stale).is_err());
+        assert_eq!(private_store::read(&path).unwrap(), committed);
+        let snapshot = serde_json::to_string(&snapshot(&path, false).unwrap()).unwrap();
+        for secret in originals
+            .values()
+            .chain(std::iter::once(&"synthetic-new-deepseek".to_string()))
+        {
+            assert!(!snapshot.contains(secret));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn memory_off_on_retains_complete_custom_configuration_and_private_key() {
         let root = root();
         let path = selected(&root);

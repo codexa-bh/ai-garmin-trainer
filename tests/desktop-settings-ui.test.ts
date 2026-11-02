@@ -92,6 +92,109 @@ function visible(id: string) {
 }
 
 describe("trusted local desktop settings UI", () => {
+  async function savedKeys() {
+    let sent: unknown;
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "save_settings") sent = structuredClone(args.input.keys);
+      return original(command, args);
+    });
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() => expect(sent).toBeDefined());
+    await waitFor(() => expect(input("save").disabled).toBe(false));
+    return sent;
+  }
+  it("keeps untouched configured/absent/unavailable slots unchanged across focus and programmatic clearing", async () => {
+    expect(document.querySelectorAll('[id$="-intent"]')).toHaveLength(0);
+    for (const slot of [
+      "OPENAI_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "OPENROUTER_API_KEY",
+    ]) {
+      const key = input(slot);
+      key.focus();
+      key.setSelectionRange(0, 4);
+      key.blur();
+      key.value = "";
+      expect(key.getAttribute("value")).toBeNull();
+    }
+    expect(input("OPENROUTER_API_KEY").disabled).toBe(true);
+    expect(await savedKeys()).toEqual({
+      OPENAI_API_KEY: { intent: "unchanged" },
+      DEEPSEEK_API_KEY: { intent: "unchanged" },
+      OPENROUTER_API_KEY: { intent: "unchanged" },
+    });
+  });
+  it.each([0, 2, 8])(
+    "replaces presence at cursor %i without mask fragments and edits replacement normally",
+    async (cursor) => {
+      const key = input("OPENAI_API_KEY");
+      key.focus();
+      key.setSelectionRange(cursor, cursor + 1);
+      fireEvent.paste(key, {
+        clipboardData: { getData: () => "synthetic-paste" },
+      });
+      fireEvent.input(key, {
+        target: { value: "synthetic-paste" },
+        inputType: "insertFromPaste",
+      });
+      key.setSelectionRange(0, 9);
+      fireEvent.input(key, {
+        target: { value: "edited-paste" },
+        inputType: "insertText",
+      });
+      expect(key.placeholder).not.toContain("•");
+      expect(await savedKeys()).toMatchObject({
+        OPENAI_API_KEY: { intent: "replace", value: "edited-paste" },
+      });
+      expect(key.value).toBe("");
+      expect(key.placeholder).toBe("••••••••");
+    },
+  );
+  it.each(["Backspace", "Delete"])(
+    "%s removes configured presence but absent deletion stays unchanged",
+    async (key) => {
+      fireEvent.keyDown(input("OPENAI_API_KEY"), { key });
+      fireEvent.keyDown(input("DEEPSEEK_API_KEY"), { key });
+      expect(
+        document.getElementById("OPENAI_API_KEY-status")?.textContent,
+      ).toBe("Removal pending Save");
+      expect(await savedKeys()).toMatchObject({
+        OPENAI_API_KEY: { intent: "clear" },
+        DEEPSEEK_API_KEY: { intent: "unchanged" },
+      });
+    },
+  );
+  it("handles beforeinput deletion, configured edited-empty and absent edited-empty without destructive reset", async () => {
+    input("OPENAI_API_KEY").dispatchEvent(
+      new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "deleteContentBackward",
+      }),
+    );
+    for (const slot of ["OPENAI_API_KEY", "DEEPSEEK_API_KEY"]) {
+      fireEvent.input(input(slot), { target: { value: "new-draft" } });
+      fireEvent.input(input(slot), {
+        target: { value: "" },
+        inputType: "deleteContentBackward",
+      });
+    }
+    expect(await savedKeys()).toMatchObject({
+      OPENAI_API_KEY: { intent: "clear" },
+      DEEPSEEK_API_KEY: { intent: "unchanged" },
+    });
+  });
+  it("clears replacement references on close without converting cleanup to deletion", async () => {
+    fireEvent.input(input("OPENAI_API_KEY"), {
+      target: { value: "synthetic-close-draft" },
+    });
+    listeners["desktop-settings-closed"]({ payload: "" });
+    expect(input("OPENAI_API_KEY").value).toBe("");
+    expect(await savedKeys()).toMatchObject({
+      OPENAI_API_KEY: { intent: "unchanged" },
+    });
+  });
   it("has one Garmin owner and valid independent keyboard submit associations", () => {
     const garmin = document.getElementById("garmin-fields")!;
     expect(garmin.querySelector("#auth-section")).not.toBeNull();
@@ -277,9 +380,10 @@ describe("trusted local desktop settings UI", () => {
       "Not connected",
     );
     expect(input("OPENAI_API_KEY").value).toBe("");
-    expect(input("OPENAI_API_KEY").disabled).toBe(true);
+    expect(input("OPENAI_API_KEY").disabled).toBe(false);
+    expect(input("OPENAI_API_KEY").placeholder).toBe("••••••••");
     expect(document.getElementById("OPENAI_API_KEY-status")?.textContent).toBe(
-      "configured",
+      "Configured — saved key hidden",
     );
     expect(document.getElementById("LLM_DEBUG_TRACES")).toBeNull();
     for (const key of ["DATABASE_PATH", "AI_MODEL"]) {
@@ -379,11 +483,8 @@ describe("trusted local desktop settings UI", () => {
     expect(
       document.querySelectorAll("#catalog-entries select:not([id$='-intent'])"),
     ).toHaveLength(0);
-    fireEvent.change(input("OPENAI_API_KEY-intent"), {
-      target: { value: "replace" },
-    });
     const key = input("OPENAI_API_KEY");
-    key.value = "synthetic-draft";
+    fireEvent.input(key, { target: { value: "synthetic-draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Add DeepSeek model" }));
     fireEvent.input(screen.getByLabelText("Model ID — DeepSeek model 1"), {
       target: { value: "custom/Exact:Tag" },
@@ -553,10 +654,8 @@ describe("trusted local desktop settings UI", () => {
     await waitFor(() => expect(saved.entries).toHaveLength(0));
     expect(saved.defaultEntryId).toBeNull();
   });
-  it("passes blank explicit replacement for native rejection rather than silently keeping a key", async () => {
-    fireEvent.change(input("OPENAI_API_KEY-intent"), {
-      target: { value: "replace" },
-    });
+  it("deliberate deletion of configured presence sends clear, never blank replacement", async () => {
+    fireEvent.keyDown(input("OPENAI_API_KEY"), { key: "Backspace" });
     fireEvent.submit(document.getElementById("settings")!);
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith(
@@ -564,7 +663,7 @@ describe("trusted local desktop settings UI", () => {
         expect.objectContaining({
           input: expect.objectContaining({
             keys: expect.objectContaining({
-              OPENAI_API_KEY: { intent: "replace", value: "" },
+              OPENAI_API_KEY: { intent: "clear" },
             }),
           }),
         }),
@@ -579,11 +678,13 @@ describe("trusted local desktop settings UI", () => {
         submitted = JSON.parse(JSON.stringify(args));
       return original(command, args);
     });
-    input("DEEPSEEK_API_KEY-intent").value = "clear";
-    fireEvent.change(input("DEEPSEEK_API_KEY-intent"));
-    input("OPENAI_API_KEY-intent").value = "replace";
-    fireEvent.change(input("OPENAI_API_KEY-intent"));
-    input("OPENAI_API_KEY").value = "sentinel-secret";
+    fireEvent.input(input("DEEPSEEK_API_KEY"), {
+      target: { value: "temporary" },
+    });
+    fireEvent.input(input("DEEPSEEK_API_KEY"), { target: { value: "" } });
+    fireEvent.input(input("OPENAI_API_KEY"), {
+      target: { value: "sentinel-secret" },
+    });
     fireEvent.submit(document.getElementById("settings")!);
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("save_settings", expect.anything()),
@@ -592,7 +693,7 @@ describe("trusted local desktop settings UI", () => {
       input: {
         keys: {
           OPENAI_API_KEY: { intent: "replace", value: "sentinel-secret" },
-          DEEPSEEK_API_KEY: { intent: "clear" },
+          DEEPSEEK_API_KEY: { intent: "unchanged" },
           OPENROUTER_API_KEY: { intent: "unchanged" },
         },
       },
@@ -610,7 +711,16 @@ describe("trusted local desktop settings UI", () => {
     invoke.mockImplementation(async (command, args) => {
       const result = await original(command, args);
       if (command === "read_settings")
-        return { ...result, storage: "legacy-required", running: false };
+        return {
+          ...result,
+          storage: "legacy-required",
+          running: false,
+          keys: {
+            OPENAI_API_KEY: "legacy — adoption or re-entry required",
+            DEEPSEEK_API_KEY: "not configured",
+            OPENROUTER_API_KEY: "legacy — adoption or re-entry required",
+          },
+        };
       if (command === "adopt_provider_settings")
         throw "Legacy access denied; privately re-enter all configured slots. Originals unchanged.";
       return result;
@@ -669,10 +779,10 @@ describe("trusted local desktop settings UI", () => {
   });
   it("sends private re-entry without legacy access and clears transient values on refusal", async () => {
     await legacySettings();
-    input("OPENAI_API_KEY-intent").value = "replace";
-    fireEvent.change(input("OPENAI_API_KEY-intent"));
-    input("OPENAI_API_KEY").value = "synthetic-private-reentry";
-    input("OPENROUTER_API_KEY-intent").value = "clear";
+    fireEvent.input(input("OPENAI_API_KEY"), {
+      target: { value: "synthetic-private-reentry" },
+    });
+    fireEvent.keyDown(input("OPENROUTER_API_KEY"), { key: "Delete" });
     fireEvent.click(document.getElementById("reenter-provider")!);
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith(
@@ -824,9 +934,9 @@ describe("trusted local desktop settings UI", () => {
         submitted = JSON.parse(JSON.stringify(args));
       return command === "auth_status" ? null : original(command, args);
     });
-    input("OPENAI_API_KEY-intent").value = "replace";
-    fireEvent.change(input("OPENAI_API_KEY-intent"));
-    input("OPENAI_API_KEY").value = "synthetic-provider-draft";
+    fireEvent.input(input("OPENAI_API_KEY"), {
+      target: { value: "synthetic-provider-draft" },
+    });
     fireEvent.click(document.getElementById("connect")!);
     input("email").value = "synthetic@example.invalid";
     input("password").value = "synthetic-password";
@@ -1033,9 +1143,9 @@ describe("trusted local desktop settings UI", () => {
   }
   it("does not erase provider entry when independent optional authentication settles", async () => {
     await firstRun();
-    input("OPENAI_API_KEY-intent").value = "replace";
-    fireEvent.change(input("OPENAI_API_KEY-intent"));
-    input("OPENAI_API_KEY").value = "sentinel-provider";
+    fireEvent.input(input("OPENAI_API_KEY"), {
+      target: { value: "sentinel-provider" },
+    });
     fireEvent.click(document.getElementById("next")!);
     fireEvent.click(document.getElementById("next")!);
     fireEvent.click(document.getElementById("connect")!);
@@ -1132,9 +1242,9 @@ describe("trusted local desktop settings UI", () => {
   });
   it("continues without Garmin while retaining provider draft and starting no login", async () => {
     await firstRun();
-    input("OPENAI_API_KEY-intent").value = "replace";
-    fireEvent.change(input("OPENAI_API_KEY-intent"));
-    input("OPENAI_API_KEY").value = "synthetic-provider";
+    fireEvent.input(input("OPENAI_API_KEY"), {
+      target: { value: "synthetic-provider" },
+    });
     fireEvent.click(document.getElementById("next")!);
     fireEvent.click(document.getElementById("next")!);
     expect(document.getElementById("connect-later")?.textContent).toBe(

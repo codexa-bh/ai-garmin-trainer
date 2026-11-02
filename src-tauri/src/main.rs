@@ -394,7 +394,9 @@ async fn save_settings(
         })();
         Ok(format!("{committed}{}", result.unwrap_or_else(|_| " Saved; committed state retained, live outcome unknown. Reload before another action; no rollback or retry.".into())))
         })();
-        if let Ok(mut failure) = runtime.setup_failure.lock() { *failure = result.as_ref().err().copied(); }
+        if let Ok(mut failure) = runtime.setup_failure.lock() {
+            *failure = result.as_ref().err().copied();
+        }
         result
     })
     .await

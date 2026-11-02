@@ -20,6 +20,101 @@ let legacyRequired = false;
 let catalog = { version: 1, entries: [], defaultEntryId: null };
 let loadedRevision = null;
 
+// Presence is metadata, never an input value. Only genuine input events create
+// replacement drafts; the fixed placeholder cannot enter any native payload.
+const keyStates = new Map();
+const keyPresence = "••••••••";
+function renderKey(slot) {
+  const state = keyStates.get(slot);
+  const input = byId(slot);
+  input.placeholder =
+    state?.present && state.intent === "unchanged"
+      ? keyPresence
+      : "Enter API key";
+  input.disabled = catalogLocked() || !state?.available;
+  byId(`${slot}-status`).textContent = !state?.available
+    ? "Unavailable — reload before editing"
+    : state.intent === "replace"
+      ? "Replacement pending Save"
+      : state.intent === "clear"
+        ? "Removal pending Save"
+        : state.legacy
+          ? "Legacy key — adoption or re-entry required"
+          : state.present
+            ? "Configured — saved key hidden"
+            : "Not configured";
+}
+function resetKeys(metadata) {
+  for (const slot of slots) {
+    const presence = metadata?.[slot];
+    keyStates.set(slot, {
+      available: [
+        "configured",
+        "not configured",
+        "legacy — adoption or re-entry required",
+      ].includes(presence),
+      present:
+        presence === "configured" ||
+        presence === "legacy — adoption or re-entry required",
+      legacy: presence === "legacy — adoption or re-entry required",
+      intent: "unchanged",
+      replacement: "",
+    });
+    byId(slot).value = "";
+    renderKey(slot);
+  }
+}
+function clearKeyDrafts() {
+  for (const slot of slots) {
+    const state = keyStates.get(slot);
+    if (state) {
+      state.intent = "unchanged";
+      state.replacement = "";
+    }
+    byId(slot).value = "";
+    renderKey(slot);
+  }
+}
+function takeKeyUpdates() {
+  const keys = Object.fromEntries(
+    slots.map((slot) => {
+      const state = keyStates.get(slot);
+      return [
+        slot,
+        state?.intent === "replace"
+          ? { intent: "replace", value: state.replacement }
+          : { intent: state?.intent === "clear" ? "clear" : "unchanged" },
+      ];
+    }),
+  );
+  clearKeyDrafts();
+  return keys;
+}
+function editKey(slot) {
+  const state = keyStates.get(slot);
+  if (catalogLocked() || !state?.available) return;
+  state.replacement = byId(slot).value;
+  state.intent = state.replacement
+    ? "replace"
+    : state.present
+      ? "clear"
+      : "unchanged";
+  renderKey(slot);
+}
+function deleteKeyPresence(slot, event) {
+  const state = keyStates.get(slot);
+  if (
+    catalogLocked() ||
+    !state?.available ||
+    !state.present ||
+    state.intent !== "unchanged"
+  )
+    return;
+  event.preventDefault();
+  state.intent = "clear";
+  renderKey(slot);
+}
+
 function updateDefaultOptions() {
   const select = byId("catalog-default");
   select.replaceChildren();
@@ -430,10 +525,7 @@ function setBusy(value) {
   ))
     if (element.id !== "cancel")
       element.disabled = value || (committed && element.id !== "save");
-  if (!value)
-    for (const slot of slots)
-      byId(slot).disabled =
-        committed || byId(`${slot}-intent`).value !== "replace";
+  for (const slot of slots) renderKey(slot);
   for (const add of document.querySelectorAll(".catalog-add"))
     add.disabled = value || committed || catalog.entries.length >= 32;
   renderHistory();
@@ -447,7 +539,7 @@ async function reconcileOnboarding() {
 }
 
 function clearSecrets() {
-  for (const slot of slots) byId(slot).value = "";
+  clearKeyDrafts();
   clearAuthSecrets();
 }
 function clearAuthSecrets() {
@@ -550,11 +642,7 @@ async function refresh() {
     );
     renderHistory();
     savedMemoryEnabled = byId("MEMORY_ENABLED").value;
-    for (const slot of slots) {
-      byId(`${slot}-intent`).value = "unchanged";
-      byId(slot).disabled = true;
-      byId(`${slot}-status`).textContent = saved.keys[slot];
-    }
+    resetKeys(saved.keys);
     if (firstRun && !saved.saved) {
       byId("DATABASE_PATH").value = onboarding.database;
     }
@@ -574,6 +662,7 @@ async function refresh() {
     return true;
   } catch {
     loadedRevision = null;
+    resetKeys(null);
     status.textContent =
       "Saved settings are invalid or inaccessible. Check private settings permissions/version; no env fallback or key readback. Original data is unchanged.";
     return false;
@@ -680,26 +769,27 @@ async function initialize() {
     const state = document.createElement("span");
     state.id = `${slot}-status`;
     label.append(state);
-    const intent = document.createElement("select");
-    intent.id = `${slot}-intent`;
-    for (const value of ["unchanged", "replace", "clear"]) {
-      const option = document.createElement("option");
-      option.value = option.textContent = value;
-      intent.append(option);
-    }
+    state.setAttribute("aria-live", "polite");
     const input = document.createElement("input");
     input.type = "password";
     input.id = slot;
     input.autocomplete = "new-password";
+    input.autocapitalize = "off";
+    input.setAttribute("autocorrect", "off");
+    input.spellcheck = false;
     input.disabled = true;
-    intent.addEventListener("change", () => {
-      input.value = "";
-      input.disabled = intent.value !== "replace";
+    input.setAttribute("aria-describedby", `${slot}-status keys`);
+    input.addEventListener("input", () => editKey(slot));
+    input.addEventListener("keydown", (event) => {
+      if (["Backspace", "Delete"].includes(event.key))
+        deleteKeyPresence(slot, event);
     });
-    label.append(intent, input);
+    input.addEventListener("beforeinput", (event) => {
+      if (event.inputType?.startsWith("delete")) deleteKeyPresence(slot, event);
+    });
+    label.append(input);
     const provider = slot.replace("_API_KEY", "").toLowerCase();
-    intent.setAttribute("aria-label", `${providers[provider]} key action`);
-    input.setAttribute("aria-label", `${providers[provider]} replacement key`);
+    input.setAttribute("aria-label", `${providers[provider]} API key`);
     label.className = "provider-key";
     byId(`catalog-${provider}-config`).append(label);
   }
@@ -732,13 +822,7 @@ async function adoptProviders(readLegacy) {
   setBusy(true);
   const values = fieldValues();
   const catalogDraft = structuredClone(catalog);
-  const keys = {};
-  for (const slot of slots) {
-    const intent = byId(`${slot}-intent`).value;
-    keys[slot] =
-      intent === "replace" ? { intent, value: byId(slot).value } : { intent };
-    byId(slot).value = "";
-  }
+  const keys = takeKeyUpdates();
   status.textContent = readLegacy
     ? "Explicit adoption in progress; macOS may request access. No automatic retry."
     : "Validating private re-entry; no Keychain access.";
@@ -801,16 +885,7 @@ byId("settings").addEventListener("submit", async (event) => {
     : "Validating settings…";
   const values = fieldValues();
   const catalogDraft = structuredClone(catalog);
-  const keys = {};
-  for (const slot of slots) {
-    const intent = byId(`${slot}-intent`).value;
-    const value = byId(slot).value;
-    keys[slot] =
-      intent === "replace"
-        ? { intent, value }
-        : { intent: intent === "clear" ? "clear" : "unchanged" };
-    byId(slot).value = "";
-  }
+  const keys = takeKeyUpdates();
   try {
     const message = await invoke(
       firstRun ? "finish_onboarding" : "save_settings",
@@ -867,6 +942,7 @@ byId("settings").addEventListener("submit", async (event) => {
     }
   } finally {
     for (const slot of slots) if (keys[slot].value) keys[slot].value = "";
+    clearKeyDrafts();
     setBusy(unknownOutcome);
   }
 });

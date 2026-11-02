@@ -121,12 +121,29 @@ def capture_garmin(run, captures, scenario):
                          **run.command({'type': 'settings', 'action': action})})
 
 
+def verify_keys(keys, edited=False):
+    expected = {'OPENAI_API_KEY': 'synthetic-openai-replacement'} if edited else {
+        'OPENAI_API_KEY': 'synthetic-openai-original', 'DEEPSEEK_API_KEY': 'synthetic-deepseek-original'}
+    if keys != expected:
+        raise ValueError('Synthetic provider persistence contract failed')
+
+
+def capture_providers(run, captures, scenario):
+    for viewport in ['wide', 'narrow']:
+        run.command({'type': 'settings', 'action': 'catalog' + viewport.title()})
+        for provider in ['Openai', 'Deepseek', 'Ollama', 'Openrouter']:
+            captures.append({'scenario': scenario + '-' + viewport + '-' + provider.lower(),
+                             **run.command({'type': 'settings', 'action': 'capture' + provider})})
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--input-file', required=True)
     parser.add_argument('--resources-ready', action='store_true')
-    parser.add_argument('--live-settings', action='store_true', help='Finite synthetic catalog/default/key rotation/clear and absent-backend scenario; no provider calls')
+    scenario = parser.add_mutually_exclusive_group()
+    scenario.add_argument('--live-settings', action='store_true', help='Finite synthetic live settings and task-owned local stream fixture; no real provider calls')
+    scenario.add_argument('--provider-fields', action='store_true', help='Finite authored synthetic provider presence/edit/clear/stale-save scenario; no caller key input')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
@@ -135,7 +152,7 @@ def main():
         raise ValueError('Private selection required')
     database = canonical(json.loads(selected.read_text())['database'])
     source = source_identity()
-    run = Run(scratch, database, source)
+    run = Run(scratch, database, source, synthetic_provider_fields=args.provider_fields)
     observer = None
     fixture = None
     passed = False
@@ -176,10 +193,26 @@ def main():
             exercised = run.command({'type': 'settings', 'action': 'catalogExercise'})
             if not exercised['catalogReady'] or not exercised['catalogExercised']:
                 raise ValueError('Grouped catalog exercise incomplete')
-            for viewport in ['wide', 'narrow']:
-                run.command({'type': 'settings', 'action': 'catalog' + viewport.title()})
-                for provider in ['Openai', 'Deepseek', 'Ollama', 'Openrouter']:
-                    captures.append({'scenario': 'grouped-' + viewport + '-' + provider.lower(), **run.command({'type': 'settings', 'action': 'capture' + provider})})
+            capture_providers(run, captures, 'configured-fields' if args.provider_fields else 'grouped')
+        if args.provider_fields:
+            if not initial['keysReady']:
+                raise ValueError('Synthetic initial key metadata missing')
+            run.command({'type': 'settings', 'action': 'keysExercise'})
+            wait_settings(run, lambda o: o['keysEdited'], 'pending replacement/removal')
+            capture_providers(run, captures, 'pending-fields')
+            run.command({'type': 'settings', 'action': 'cancel'})
+            wait_settings(run, lambda o: o['keysReady'], 'cancel restores presence without writing')
+            if (run.root / 'config/settings-v2.json').read_bytes() != original_settings:
+                raise ValueError('Cancel wrote provider state')
+            run.command({'type': 'settings', 'action': 'catalogExercise'})
+            run.command({'type': 'settings', 'action': 'keysExercise'})
+            # Same bytes, changed metadata revision: native must reject this stale form.
+            os.utime(run.root / 'config/settings-v2.json', None)
+            run.command({'type': 'settings', 'action': 'save'})
+            wait_settings(run, lambda o: o['keysRejected'] and o['keysReady'], 'stale Save refuses and clears replacement')
+            if (run.root / 'config/settings-v2.json').read_bytes() != original_settings or (run.root / 'config/settings-v3.json').exists():
+                raise ValueError('Stale Save published settings')
+            run.command({'type': 'settings', 'action': 'keysExercise'})
         run.command({'type': 'settings', 'action': 'save'})
         wait_settings(run, lambda o: o['liveApplied'], 'native Save committed and live fields acknowledged')
         after = run.http('/identity')
@@ -193,7 +226,9 @@ def main():
                 raise ValueError('Live scenario requires exact legacy baseline')
         else:
             verify_catalog(saved['chatCatalog'])
-        if saved['keys'] or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
+        if args.provider_fields:
+            verify_keys(saved['keys'], edited=True)
+        if (not args.provider_fields and saved['keys']) or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
             raise ValueError('Saved settings escaped keyless copy scope')
         if args.live_settings:
             receipt['liveSettings'] = live_scenario(run, captures, fixture)
@@ -209,7 +244,9 @@ def main():
             raise ValueError('Source changed during Settings smoke')
         captures.append({'scenario': 'concise-introduction-after-save-restart', **run.command({'type': 'settings', 'action': 'captureIntro'})})
         capture_garmin(run, captures, 'saved-reloaded-not-connected')
-        receipt.update(connectLater=True, cancel=True, groupedCatalog=not args.live_settings, exactSavedIdentities=True, activeBackendUnchanged=True, restart=True)
+        if args.provider_fields:
+            capture_providers(run, captures, 'saved-restarted-fields')
+        receipt.update(connectLater=True, cancel=True, groupedCatalog=not args.live_settings, exactSavedIdentities=True, activeBackendUnchanged=True, restart=True, syntheticProviderFields=args.provider_fields, staleSaveRefused=args.provider_fields)
         passed = True
     finally:
         try:

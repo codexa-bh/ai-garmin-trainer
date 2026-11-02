@@ -32,6 +32,7 @@ pub enum Action {
     CaptureLive,
     StopBackend,
     CatalogExercise,
+    KeysExercise,
     CatalogWide,
     CatalogNarrow,
     CaptureOpenai,
@@ -55,6 +56,9 @@ struct Observation {
     pending_restart: bool,
     catalog_ready: bool,
     catalog_exercised: bool,
+    keys_ready: bool,
+    keys_edited: bool,
+    keys_rejected: bool,
 }
 struct Document {
     loaded: Arc<AtomicBool>,
@@ -81,7 +85,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,saved:false,liveApplied:false,liveUnknown:false,savedUnapplied:false,pendingRestart:false,catalogReady:false,catalogExercised:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,saved:false,liveApplied:false,liveUnknown:false,savedUnapplied:false,pendingRestart:false,catalogReady:false,catalogExercised:false,keysReady:false,keysEdited:false,keysRejected:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -319,6 +323,7 @@ mod tests {
         }
         for action in [
             "catalogExercise",
+            "keysExercise",
             "catalogWide",
             "catalogNarrow",
             "captureOpenai",
@@ -338,7 +343,7 @@ mod tests {
                     .is_err()
             );
         }
-        let observation = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":true,"liveApplied":true,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"catalogReady":true,"catalogExercised":true});
+        let observation = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":true,"liveApplied":true,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"catalogReady":true,"catalogExercised":true,"keysReady":false,"keysEdited":false,"keysRejected":false});
         assert!(serde_json::from_value::<Observation>(observation.clone()).is_ok());
         let mut private = observation;
         private["password"] = json!("private-sentinel");
