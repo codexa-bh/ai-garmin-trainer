@@ -314,7 +314,7 @@ mod tests {
             json!({"action":"catalogEmpty","value":"private"})
         )
         .is_err());
-        let current = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":false,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":true,"keysReady":false,"keysEdited":false,"keysRejected":false});
+        let current = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":false,"liveApplied":false,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"catalogReady":false,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":true,"keysReady":false,"keysEdited":false,"keysRejected":false});
         assert!(serde_json::from_value::<Observation>(current.clone()).is_ok());
         let mut invalid = current;
         invalid["emptyCatalog"] = json!("private");
