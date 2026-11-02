@@ -240,6 +240,83 @@ it("expires the intro privacy mask if native capture completion never arrives", 
     vi.useRealTimers();
   }
 });
+async function configuredProviders() {
+  const original = invoke.getMockImplementation()!;
+  invoke.mockImplementation(async (command, args) => {
+    const result = await original(command, args);
+    return command === "read_settings"
+      ? {
+          ...result,
+          keys: {
+            OPENAI_API_KEY: "configured",
+            DEEPSEEK_API_KEY: "configured",
+            OPENROUTER_API_KEY: "not configured",
+          },
+        }
+      : result;
+  });
+  controller.__trainerSetupSmoke("cancel");
+  await waitFor(() =>
+    expect(controller.__trainerSetupSmoke("observe").keysReady).toBe(true),
+  );
+}
+it("exercises finite configured/replacement/removal/absent fields and copies only genuine intent payloads", async () => {
+  await configuredProviders();
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, 300, 45),
+  );
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(true);
+  expect(controller.__trainerSetupSmoke("captureOpenai").ok).toBe(true);
+  controller.__trainerSetupSmokeRestore();
+  expect(controller.__trainerSetupSmoke("keysExercise")).toMatchObject({
+    ok: true,
+    keysEdited: true,
+  });
+  expect(controller.__trainerSetupSmoke("keysExercise").ok).toBe(false);
+  expect(controller.__trainerSetupSmoke("captureOpenai").ok).toBe(true);
+  expect(
+    getComputedStyle(document.getElementById("DATABASE_PATH")!).visibility,
+  ).toBe("hidden");
+  controller.__trainerSetupSmokeRestore();
+  let sent: unknown;
+  const original = invoke.getMockImplementation()!;
+  invoke.mockImplementation(async (command, args) => {
+    if (command === "save_settings") sent = structuredClone(args.input.keys);
+    return original(command, args);
+  });
+  controller.__trainerSetupSmoke("save");
+  await waitFor(() =>
+    expect(sent).toEqual({
+      OPENAI_API_KEY: {
+        intent: "replace",
+        value: "synthetic-openai-replacement",
+      },
+      DEEPSEEK_API_KEY: { intent: "clear" },
+      OPENROUTER_API_KEY: { intent: "unchanged" },
+    }),
+  );
+  expect(JSON.stringify(controller.__trainerSetupSmoke("observe"))).not.toMatch(
+    /synthetic-openai|••|sqlite/,
+  );
+});
+it("refuses field exercise without exact presence and extra/private action input", async () => {
+  expect(controller.__trainerSetupSmoke("keysExercise").ok).toBe(false);
+  await configuredProviders();
+  invoke.mockClear();
+  for (const action of [
+    "keysInput",
+    { action: "keysExercise", value: "private" },
+    { type: "keysExercise" },
+  ])
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
+  expect(invoke).not.toHaveBeenCalled();
+  (document.getElementById("OPENAI_API_KEY") as HTMLInputElement).value =
+    "private-sentinel";
+  expect(controller.__trainerSetupSmoke("keysExercise").ok).toBe(false);
+  expect(
+    JSON.stringify(controller.__trainerSetupSmoke("observe")),
+  ).not.toContain("private-sentinel");
+});
 it("exercises real grouped controls and masks only canonical synthetic provider sections at unchanged geometry", () => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
     new DOMRect(24, 24, 300, 45),

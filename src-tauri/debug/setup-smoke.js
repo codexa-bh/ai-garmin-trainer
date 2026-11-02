@@ -9,6 +9,9 @@
     savedForNextLaunch: false,
     catalogReady: false,
     catalogExercised: false,
+    keysReady: false,
+    keysEdited: false,
+    keysRejected: false,
   });
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -24,17 +27,74 @@
     Array.from(byId(`catalog-${provider}-rows`).children);
   const model = (row) => row.querySelector('input[id$="-modelId"]');
   const name = (row) => row.querySelector('input[id$="-displayName"]');
-  function keyless() {
-    return ["OPENAI", "DEEPSEEK", "OPENROUTER"].every(
-      (provider) =>
-        byId(`${provider}_API_KEY-status`)?.textContent === "not configured" &&
-        byId(`${provider}_API_KEY-intent`)?.value === "unchanged" &&
-        byId(`${provider}_API_KEY`)?.value === "",
+  function keyState(provider, state) {
+    const input = byId(`${provider}_API_KEY`);
+    const statuses = {
+      absent: "Not configured",
+      configured: "Configured — saved key hidden",
+      replace: "Replacement pending Save",
+      clear: "Removal pending Save",
+    };
+    return (
+      input?.type === "password" &&
+      input.value ===
+        (state === "replace" ? "synthetic-openai-replacement" : "") &&
+      input.placeholder ===
+        (state === "configured" ? "••••••••" : "Enter API key") &&
+      byId(`${provider}_API_KEY-status`)?.textContent === statuses[state]
     );
+  }
+  function keyless() {
+    return ["OPENAI", "DEEPSEEK", "OPENROUTER"].every((provider) =>
+      keyState(provider, "absent"),
+    );
+  }
+  function keysReady() {
+    return (
+      keyState("OPENAI", "configured") &&
+      keyState("DEEPSEEK", "configured") &&
+      keyState("OPENROUTER", "absent")
+    );
+  }
+  function keysEdited() {
+    return (
+      keyState("OPENAI", "replace") &&
+      keyState("DEEPSEEK", "clear") &&
+      keyState("OPENROUTER", "absent")
+    );
+  }
+  function safeKeys() {
+    return (
+      keyless() ||
+      keysReady() ||
+      keysEdited() ||
+      (keyState("OPENAI", "configured") &&
+        keyState("DEEPSEEK", "absent") &&
+        keyState("OPENROUTER", "absent"))
+    );
+  }
+  function exerciseKeys() {
+    if (!keysReady()) throw Error("Not exact synthetic provider presence");
+    const openai = byId("OPENAI_API_KEY");
+    openai.focus();
+    openai.setSelectionRange(2, 4);
+    edit(openai, "synthetic-openai-replacement");
+    const deepseek = byId("DEEPSEEK_API_KEY");
+    deepseek.focus();
+    deepseek.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Backspace",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    edit(byId("OPENROUTER_API_KEY"), "synthetic-temporary-draft");
+    edit(byId("OPENROUTER_API_KEY"), "");
+    if (!keysEdited()) throw Error("Provider edit intents failed");
   }
   function syntheticCatalog() {
     return (
-      keyless() &&
+      safeKeys() &&
       byId("catalog-default")?.value === "entry_legacy_ollama" &&
       document.querySelectorAll(".catalog-row").length === 8 &&
       providers.every((provider) => {
@@ -75,7 +135,7 @@
       "nvidia/nemotron-3.5-lightning:free",
     ];
     if (
-      !keyless() ||
+      !safeKeys() ||
       byId("catalog-default").value !== "entry_legacy_ollama" ||
       document.querySelectorAll(".catalog-row").length !== 4 ||
       !providers.every(
@@ -139,10 +199,16 @@
     value.ready =
       !!byId("AI_PROVIDER") &&
       byId("AI_PROVIDER").value === "ollama" &&
-      byId("OPENAI_API_KEY-status")?.textContent === "not configured";
+      !!byId("OPENAI_API_KEY-status");
     if (!value.ready) return value;
     value.catalogReady = syntheticCatalog();
     value.catalogExercised = exercised;
+    value.keysReady = keysReady();
+    value.keysEdited = keysEdited();
+    value.keysRejected =
+      byId("status")?.textContent.startsWith(
+        "Settings changed since this form was loaded.",
+      ) === true;
     value.formVisible = visible(byId("auth"));
     value.manualControlsAbsent = [
       "GARMIN_MCP_TOKEN_DIR",
@@ -219,24 +285,18 @@
     if (provider !== "ollama") {
       const slot = `${provider.toUpperCase()}_API_KEY`;
       const input = byId(slot),
-        intent = byId(`${slot}-intent`),
         state = byId(`${slot}-status`),
         label = input.parentElement;
       if (
         label.firstChild?.textContent !== provider.toUpperCase() ||
-        label.childElementCount !== 3 ||
-        label.textContent !==
-          `${provider.toUpperCase()}not configuredunchangedreplaceclear` ||
+        label.childElementCount !== 2 ||
+        label.textContent !== `${provider.toUpperCase()}${state.textContent}` ||
         state.childElementCount !== 0 ||
-        intent.options.length !== 3 ||
-        Array.from(intent.options).some(
-          (option, index) =>
-            option.value !== ["unchanged", "replace", "clear"][index] ||
-            option.textContent !== option.value,
-        )
+        label.querySelector("select") ||
+        !safeKeys()
       )
         throw Error("Unexpected key control");
-      reveal.push(label, input, intent, state, ...intent.options);
+      reveal.push(label, input, state);
     }
     // No layout mutation/repositioning: scroll a real section into the viewport.
     // Reveal only individually verified nodes; unknown descendants remain masked.
@@ -286,6 +346,8 @@
         )
           throw Error("Unavailable");
         el.click();
+      } else if (action === "keysExercise") {
+        exerciseKeys();
       } else if (action === "catalogExercise") {
         exerciseCatalog();
       } else if (
@@ -419,7 +481,7 @@
       } else if (action !== "observe") throw Error("Unsupported");
       return observe();
     } catch {
-      if (typeof action === "string" && action.startsWith("capture")) restore();
+      restore();
       return { ...empty(), ok: false };
     }
   };

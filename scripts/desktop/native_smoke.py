@@ -117,7 +117,9 @@ class Observer:
 
 
 class Run:
-    def __init__(self, scratch, database, source, *, ordinary=False):
+    def __init__(self, scratch, database, source, *, ordinary=False, synthetic_provider_fields=False):
+        if synthetic_provider_fields and ordinary:
+            raise ValueError('Synthetic provider fields require admitted debug Settings')
         self.id = str(uuid.uuid4())
         self.root = scratch / (('ordinary-' if ordinary else 'native-') + self.id)
         resources.directory(self.root)
@@ -139,7 +141,9 @@ class Run:
         self.config = {'runId': self.id, 'token': os.urandom(32).hex(), 'root': str(self.root), 'source': source, 'port': port()}
         if not ordinary:
             private_json(self.root / 'config.json', self.config)
-        private_json(self.root / 'config/settings-v2.json', {'version': 2, 'keys': {}, 'fields': {
+        private_json(self.root / 'config/settings-v2.json', {'version': 2, 'keys': {
+            'OPENAI_API_KEY': 'synthetic-openai-original', 'DEEPSEEK_API_KEY': 'synthetic-deepseek-original'
+        } if synthetic_provider_fields else {}, 'fields': {
             'DATABASE_PATH': str(self.database), 'AI_PROVIDER': 'ollama', 'MEMORY_ENABLED': 'false'}})
         private_json(self.root / 'provenance.json', {'source': source, 'original': self.original, 'copy': 'SQLite online backup', 'primaryWriteRequested': False})
         self.child = None
