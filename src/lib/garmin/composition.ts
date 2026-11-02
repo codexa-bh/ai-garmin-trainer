@@ -48,6 +48,8 @@ import { createActivityDetailRequests } from "./detail-requests";
 const imports = createGarminImports({
   historyStartDate: () => requireRuntimeEnv().GARMIN_HISTORY_START_DATE,
   clock: () => new Date(),
+  wait: (milliseconds) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds)),
   createReader: (control) =>
     createGarminReader({
       control,

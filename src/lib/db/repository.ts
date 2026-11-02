@@ -1645,6 +1645,7 @@ export function healthHistoryBounds(): {
 export function importSummary(): LocalImportSummary {
   const counts = dataCounts();
   const history = getCheckpoint("garmin_history_v1");
+  const discovery = getCheckpoint("garmin_discovery_v1");
   const latestActivity = getDatabase()
     .prepare("select max(started_at) as value from activity")
     .get() as { value: number | null };
@@ -1661,6 +1662,7 @@ export function importSummary(): LocalImportSummary {
     healthStartDate: healthRange.start,
     healthEndDate: healthRange.end,
     history: history ? JSON.parse(history) : null,
+    discovery: discovery ? JSON.parse(discovery) : null,
   };
 }
 

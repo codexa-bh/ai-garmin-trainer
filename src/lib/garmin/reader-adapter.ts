@@ -7,6 +7,7 @@ import {
   historyFailureClass,
 } from "./history-policy";
 import { safeConnectorFailure } from "./mcp-client";
+import { discoveryDate, weeklyStepsHint } from "./discovery-policy";
 
 type FitOptions = { signal: AbortSignal; timeout: number };
 import type { GarminReadOperation } from "./types";
@@ -83,7 +84,7 @@ export function createGarminReader({
     admit = true,
   ): Promise<T> {
     if (!control) return action();
-    if (admit) control.admit();
+    if (admit) await control.admit();
     if (control.cancelled()) throw new SyncPause("cancelled");
     const remaining = control.remainingMs();
     if (remaining <= 0) throw new SyncPause("budget-limited");
@@ -115,6 +116,9 @@ export function createGarminReader({
         action({ signal: cancellation.signal, timeout }),
         stopped,
       ]);
+    } catch (error) {
+      control.failed?.(error);
+      throw error;
     } finally {
       clearTimeout(timer);
       clearInterval(watcher);
@@ -124,19 +128,24 @@ export function createGarminReader({
     operation: GarminReadOperation,
     args: Record<string, unknown> = {},
   ) {
-    const parsed = parseToolJson(
-      await bounded(() => connector.callTool(operation, args)),
-    );
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed) &&
-      ("error" in parsed || "message" in parsed)
-    )
-      throw new Error(
-        "Garmin returned an unrecognized response; coverage was not advanced.",
+    try {
+      const parsed = parseToolJson(
+        await bounded(() => connector.callTool(operation, args)),
       );
-    return parsed;
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        ("error" in parsed || "message" in parsed)
+      )
+        throw new Error(
+          "Garmin returned an unrecognized response; coverage was not advanced.",
+        );
+      return parsed;
+    } catch (error) {
+      control?.failed?.(error);
+      throw error;
+    }
   }
 
   return {
@@ -144,6 +153,36 @@ export function createGarminReader({
     close,
     profile: () => read("get_user_profile"),
     cyclingFtp: () => read("get_cycling_ftp"),
+    async weeklySteps(endDate, weeks) {
+      if (
+        !discoveryDate(endDate) ||
+        endDate < "0002-01-01" ||
+        !Number.isInteger(weeks) ||
+        weeks < 1 ||
+        weeks > 52
+      )
+        throw new Error(
+          "Garmin weekly steps request is invalid; no read admitted.",
+        );
+      // This reviewed operation has its own exact no-data and curated schema.
+      // Do not broaden the generic parser or archive raw range/profile replies.
+      const text = await bounded(() =>
+        connector.callTool("get_weekly_steps", { end_date: endDate, weeks }),
+      );
+      const empty = `No weekly steps data found for ${weeks} weeks ending ${endDate}`;
+      return weeklyStepsHint(
+        text.trim() === empty
+          ? {
+              end_date: endDate,
+              weeks_requested: weeks,
+              weeks_returned: 0,
+              weekly_data: [],
+            }
+          : parseToolJson(text),
+        endDate,
+        weeks,
+      );
+    },
     bodyComposition: (startDate, endDate) =>
       read("get_body_composition", {
         start_date: startDate,

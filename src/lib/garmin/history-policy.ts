@@ -36,7 +36,8 @@ export type GarminHistoryState = {
   updatedAt: string;
 };
 export type GarminReadControl = {
-  admit(): void;
+  admit(): void | Promise<void>;
+  failed?(error: unknown): void;
   remainingMs(): number;
   cancelled(): boolean;
 };

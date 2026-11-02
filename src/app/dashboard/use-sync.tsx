@@ -192,6 +192,9 @@ export function useSyncFeature({
       });
       setStatus({ kind: finalKind, message: finalMessage });
     } catch {
+      // A lost response is unknown effect, never authority to replay POST.
+      // Reconcile the live claim and durable cursor even on transport failure.
+      await loadImportSummary("sync", false);
       if (abortRef.current?.signal.aborted) {
         const message =
           "Cancellation requested. Committed data is retained; refresh import summary to confirm settlement before continuing.";
@@ -203,11 +206,10 @@ export function useSyncFeature({
           recovery: null,
         });
         setStatus({ kind: "idle", message });
-        await loadImportSummary("sync", false);
         return;
       }
       const message =
-        "Sync now failed: the local app request or sync response could not be read. Check the local app and try again.";
+        "Sync response could not be read; effect is unknown. Refresh import summary and confirm no sync is active before explicitly resuming.";
       const nextLines = [
         ...logLines,
         { text: message, severity: "error" as const },

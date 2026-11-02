@@ -277,6 +277,8 @@ export type DetailCoveragePayload = {
 };
 
 export type ImportSummaryPayload = {
+  discovery?:
+    import("@/lib/garmin/discovery-policy").GarminDiscoveryState | null;
   syncActive?: boolean;
   history?: import("@/lib/garmin/history-policy").GarminHistoryState | null;
   activities: number;

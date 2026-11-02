@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import signal
 import stat
+import sys
 import time
 import urllib.request
 import uuid
@@ -17,13 +18,13 @@ from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
 
 
-def selected_tokens(selection):
+def selected_tokens(selection, purpose='T0238 private copied-token smoke only'):
     selection = canonical(selection)
     info = selection.stat()
     if info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or info.st_nlink != 1 or info.st_size > 8192:
         raise ValueError('Private explicit bounded token selection required')
     value = json.loads(selection.read_text())
-    if set(value) != {'tokenDirectory', 'tokenFiles', 'purpose'} or value['purpose'] != 'T0238 private copied-token smoke only':
+    if set(value) != {'tokenDirectory', 'tokenFiles', 'purpose'} or value['purpose'] != purpose:
         raise ValueError('Explicit copied-token purpose required')
     directory = private_directory(value['tokenDirectory'])
     names = value['tokenFiles']
@@ -55,8 +56,8 @@ def token_bytes(directory, name):
         os.close(parent)
 
 
-def copy_tokens(selection, root):
-    directory, names = selected_tokens(selection)
+def copy_tokens(selection, root, purpose='T0238 private copied-token smoke only'):
+    directory, names = selected_tokens(selection, purpose)
     destination = private_directory(root) / 'tokens'
     destination.mkdir(mode=0o700)
     hashes = {}
@@ -70,6 +71,35 @@ def copy_tokens(selection, root):
 
 def tokens_unchanged(directory, hashes):
     return all(hashlib.sha256(token_bytes(directory, name)).hexdigest() == expected for name, expected in hashes.items())
+
+
+def prepare_synthetic_history(run):
+    """Only stopped, owned, keyless run settings; never select private input."""
+    from history_connector import SENTINEL
+    root = private_directory(run.root)
+    if run.child is not None or listening(run.config['port']):
+        raise ValueError('Stopped owned synthetic run required')
+    path = root / 'config/settings-v3.json'
+    saved = json.loads(path.read_text())
+    if saved['keys'] or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
+        raise ValueError('Keyless unconnected synthetic settings required')
+    python = str(Path(sys.executable).resolve())
+    script = root / 'synthetic_history_connector.py'
+    if any(char.isspace() for char in str(script)):
+        raise ValueError('Synthetic connector arguments require a whitespace-free owned path')
+    (root / 'tokens').mkdir(mode=0o700)
+    if any(char.isspace() for char in python):
+        raise ValueError('Unambiguous Python shebang required')
+    connector = b'#!' + python.encode() + b'\n' + Path(__file__).with_name('history_connector.py').read_bytes().split(b'\n', 1)[1]
+    for target, data, mode in [(script, connector, 0o700), (root / 'tokens/garmin_tokens.json', SENTINEL, 0o600)]:
+        with open(target, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, mode)) as output:
+            output.write(data)
+    # Only an existing allowlisted executable field; reviewed package arguments
+    # remain immutable. The authored executable validates that exact argv.
+    saved['fields'].update({'GARMIN_MCP_COMMAND': str(script), 'GARMIN_MCP_TOKEN_DIR': str(root / 'tokens')})
+    staged = root / 'config/synthetic-history-settings.json'
+    private_json(staged, saved)
+    os.replace(staged, path)
 
 
 class HistoryRun(OrdinaryRun):
@@ -120,7 +150,12 @@ class HistoryRun(OrdinaryRun):
         while time.monotonic() < deadline:
             if self.child.poll() is not None:
                 raise RuntimeError('Owned native exited during Finish')
-            identity = self.http('/identity')
+            try:
+                identity = self.http('/identity')
+            except TimeoutError:
+                # Read-only identity may wait behind atomic native creation.
+                # The overall readiness deadline still binds; HTTP403 never retries.
+                continue
             if not self.accept_identity(identity):
                 raise ValueError('Owned native identity changed')
             if identity['origin']:
@@ -195,7 +230,9 @@ class HistoryRun(OrdinaryRun):
         outcome = history.get('outcome')
         if outcome is not None and outcome not in ('settled', 'failed', 'budget-limited', 'cancelled', 'running'):
             raise ValueError('Unexpected safe history outcome')
+        operation = (value.get('discovery') or {}).get('operation') or {}
         return {'outcome': outcome, 'active': value.get('syncActive') is True,
+                'batches': operation.get('batches', 0), 'operationAttempts': operation.get('attempts', 0),
                 'healthChecks': health.get('checks'), 'healthChecksWithMetrics': health.get('checksWithMetrics'),
                 'nextHealthDate': health.get('nextDate'), 'remoteLowerBound': history.get('remoteLowerBound'),
                 'operations': history.get('operations'), 'failureClass': history.get('failureClass')}
@@ -217,6 +254,62 @@ class HistoryRun(OrdinaryRun):
                 return
             time.sleep(.25)
         raise TimeoutError('Owned Sync claim did not settle; no duplicate continuation')
+
+    def synthetic_sync(self):
+        """Two explicit operations, each cancelled after two durable batches.
+
+        No product budget override, time acceleration or fabricated UI response.
+        The actual app owns SQL/NDJSON/renderer/cancel; only stdio data is authored.
+        """
+        images = self.sync_captures = []
+        self.command({'type':'setViewport', 'preset':'wide'})
+        self.command({'type':'click', 'target':'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'synthetic Sync')
+        initial = self.summary()
+        if initial['active']:
+            raise ValueError('Passive navigation unexpectedly started sync')
+        settled = []
+        for index in range(2):
+            before = self.summary()
+            self.wait_sync(lambda value: value['startEnabled'], 10)
+            self.command({'type':'sync', 'action':'start' if index == 0 else 'continue'})
+            self.wait_sync(lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'], 15)
+            # Hiding Sync must retain the exact operation rather than replay POST.
+            self.command({'type':'click', 'target':'Back to chat'})
+            if not self.summary()['active']:
+                raise ValueError('Navigation lost operation ownership')
+            self.command({'type':'click', 'target':'Sync'})
+            self.wait(lambda value: value['view'] == 'Sync', 'return to active Sync')
+            deadline = time.monotonic() + 150
+            while time.monotonic() < deadline:
+                current = self.summary()
+                if current['outcome'] == 'failed' or current['operationAttempts'] > 150:
+                    raise ValueError('Synthetic operation failed/exceeded finite evidence envelope')
+                if current['batches'] >= 2:
+                    break
+                time.sleep(.25)
+            else:
+                raise TimeoutError('Two automatic batches not observed within finite envelope')
+            for preset in ('wide', 'narrow'):
+                self.command({'type':'setViewport', 'preset':preset})
+                images.append({'scenario':f'synthetic-{index}-automatic-batches-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            self.command({'type':'sync', 'action':'cancel'})
+            self.wait_sync(lambda value: not value['running'] and value['paused'], 40)
+            self.settle_claim()
+            after = self.summary()
+            if after['active'] or after['outcome'] != 'cancelled' or after['healthChecks'] <= (before['healthChecks'] or 0):
+                raise ValueError('Synthetic cancellation/progress was not durable')
+            images.append({'scenario':f'synthetic-{index}-cancelled', **self.command({'type':'captureView', 'view':'sync', 'preset':'narrow'})})
+            settled.append({'before':before, 'after':after})
+            private_json(self.root / f'synthetic-sync-{index}.json', {'source':self.config['source'], 'boot':self.boot, 'captures':images, 'settled':settled})
+            self.stop()
+            self.start(self.binary)
+            self.command({'type':'click', 'target':'Sync'})
+            self.wait(lambda value: value['view'] == 'Sync', 'restart explicit Resume')
+            restored = self.summary()
+            if restored['active'] or restored['healthChecks'] != after['healthChecks']:
+                raise ValueError('Restart replayed or lost durable history')
+        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'maxInvocations':2, 'maxObservationSecondsPerOperation':150, 'realGarminCertified':False})
 
     def continue_once(self):
         """One explicitly selected checkpoint continuation; never replay Cancel/start."""
@@ -289,9 +382,14 @@ def main():
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--input-file', required=True)
     parser.add_argument('--bundle', required=True)
+    parser.add_argument('--synthetic-sync', action='store_true', help='Finite authored stdio data on stopped owned copies; no account calls')
     parser.add_argument('--token-input', help='Explicit private selector; never normal-settings discovery')
     parser.add_argument('--continuation-only', action='store_true', help='One explicitly selected prior-checkpoint continuation; no repeated Cancel/start batch')
     args = parser.parse_args()
+    if args.synthetic_sync and (args.token_input or args.continuation_only):
+        parser.error('Synthetic history cannot consume private tokens or legacy continuation authority')
+    if args.token_input:
+        parser.error('The historical T0238 live envelope cannot authorize the new interactive operation. Independently approve and review a finite live envelope before use; no private input opened.')
     if args.continuation_only and not args.token_input:
         parser.error('--continuation-only requires explicitly selected copied tokens')
     os.umask(0o077)
@@ -325,7 +423,13 @@ def main():
             receipt['captures'].append(run.optional_limit())
             run.stop()
         run = runs[-1]
-        if args.token_input:
+        if args.synthetic_sync:
+            prepare_synthetic_history(run)
+            run.start(run.binary)
+            run.synthetic_sync()
+            receipt['syntheticHistory'] = 'two explicit operations with automatic batches, cancel, passive navigation, restart and explicit Resume; authored stdio only'
+            receipt['realGarmin'] = 'unavailable: no current private-input or finite live account authority'
+        elif args.token_input:
             token_source, token_hashes = copy_tokens(args.token_input, run.root)
             # This is our own keyless settings, not operator/native settings or provider discovery.
             path = run.root / 'config/settings-v3.json'

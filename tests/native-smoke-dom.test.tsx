@@ -612,6 +612,7 @@ describe("native-installed rendered smoke boundary", () => {
               <h2 id="sync-action-heading">Run Garmin sync</h2>
               <span className="pill">Syncing</span>
               <button>Cancel sync</button>
+              <button>Resume history</button>
               <p data-testid="private-sync">private copied progress</p>
             </section>
           </div>
@@ -627,6 +628,10 @@ describe("native-installed rendered smoke boundary", () => {
     ).toBe(true);
     expect(
       getComputedStyle(screen.getByRole("button", { name: "Cancel sync" }))
+        .visibility,
+    ).toBe("visible");
+    expect(
+      getComputedStyle(screen.getByRole("button", { name: "Resume history" }))
         .visibility,
     ).toBe("visible");
     expect(

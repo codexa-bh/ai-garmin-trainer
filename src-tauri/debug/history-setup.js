@@ -63,10 +63,10 @@
       ),
       commandPermissionDenied: status.includes("not allowed"),
       commandArgumentsInvalid: status.startsWith("invalid args"),
-      savedForNextLaunch:
-        byId("status")?.textContent.startsWith(
-          "Settings committed. Quit and reopen to apply; the running backend is unchanged.",
-        ) === true,
+      savedForNextLaunch: [
+        "Settings committed. Quit and reopen to apply; the running backend is unchanged.",
+        "Settings committed. Live fields applied for subsequent operations; captured work is unchanged. Other saved settings are pending explicit quit/reopen.",
+      ].includes(status),
       privateControlsAbsent: [
         "GARMIN_MCP_TOKEN_DIR",
         "destination",

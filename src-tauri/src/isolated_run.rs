@@ -321,16 +321,20 @@ impl Admission {
             matches!(fs::symlink_metadata(root.join("config").join(name)), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
         })
     }
-    pub fn bind_created_database(
+    pub fn initialize_created_database<'a>(
         &self,
-        owned: &crate::onboarding::OwnedDatabase,
+        initialize: impl FnOnce() -> Result<&'a crate::onboarding::OwnedDatabase, &'static str>,
     ) -> Result<(), &'static str> {
-        let path = self.descriptor.root.join("trainer.sqlite");
-        owned.verify(&path)?;
-        let mut identity = self.database.lock().map_err(|_| DENIED)?;
         if !matches!(self.descriptor.history_setup, Some(HistorySetup::CreateNew)) {
             return Err(DENIED);
         }
+        // Identity reads must not observe the gap between exclusive publication
+        // and binding its native OwnedDatabase proof. Never adopt an arbitrary
+        // file or retry a failed admission check to hide that interval.
+        let mut identity = self.database.lock().map_err(|_| DENIED)?;
+        let owned = initialize()?;
+        let path = self.descriptor.root.join("trainer.sqlite");
+        owned.verify(&path)?;
         let current = database_identity(&path)?;
         if identity.map(|prior| prior != current).unwrap_or(false) {
             return Err(DENIED);
@@ -611,6 +615,89 @@ mod tests {
         assert!(!fresh.accepts_history_settings(&bad));
         fs::write(root.join("trainer.sqlite"), b"unbound external publication").unwrap();
         assert!(fresh.verify().is_err()); // Only native OwnedDatabase can bind a new identity.
+        drop(fresh);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn native_creation_and_identity_binding_are_one_observed_transition() {
+        let (root, path) = fixture();
+        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        fs::remove_file(root.join("trainer.sqlite")).unwrap();
+        let mut descriptor: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        descriptor["historySetup"] = serde_json::json!("create-new");
+        fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
+        let fresh = Admission::admit(&path, |_| Ok(())).unwrap();
+        let (published_tx, published_rx) = std::sync::mpsc::channel();
+        let (continue_tx, continue_rx) = std::sync::mpsc::channel();
+        let (verified_tx, verified_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let creator_admission = &fresh;
+            let creator_root = &root;
+            let creator = scope.spawn(move || {
+                let mut owned = None;
+                creator_admission.initialize_created_database(|| {
+                    fs::write(
+                        creator_root.join("trainer.sqlite"),
+                        b"owned native publication fixture",
+                    )
+                    .unwrap();
+                    fs::set_permissions(
+                        creator_root.join("trainer.sqlite"),
+                        fs::Permissions::from_mode(0o600),
+                    )
+                    .unwrap();
+                    owned = Some(crate::onboarding::OwnedDatabase::capture_test_publication(
+                        &creator_root.join("trainer.sqlite"),
+                    ));
+                    published_tx.send(()).unwrap();
+                    continue_rx.recv().unwrap();
+                    Ok(owned.as_ref().unwrap())
+                })
+            });
+            published_rx.recv().unwrap();
+            scope.spawn(|| {
+                verified_tx.send(fresh.verify()).unwrap();
+            });
+            assert!(verified_rx
+                .recv_timeout(std::time::Duration::from_millis(30))
+                .is_err());
+            continue_tx.send(()).unwrap();
+            assert!(creator.join().unwrap().is_ok());
+            assert!(verified_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap()
+                .is_ok());
+        });
+        drop(fresh);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn failed_or_out_of_scope_creation_never_binds_an_unowned_file() {
+        let (root, path) = fixture();
+        let existing = Admission::admit(&path, |_| Ok(())).unwrap();
+        assert!(existing
+            .initialize_created_database(|| panic!("Out-of-scope mutation"))
+            .is_err());
+        drop(existing);
+        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        fs::remove_file(root.join("trainer.sqlite")).unwrap();
+        let mut descriptor: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        descriptor["historySetup"] = serde_json::json!("create-new");
+        fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
+        let fresh = Admission::admit(&path, |_| Ok(())).unwrap();
+        assert!(fresh
+            .initialize_created_database(|| {
+                fs::write(
+                    root.join("trainer.sqlite"),
+                    b"failed or foreign publication",
+                )
+                .unwrap();
+                Err("Native creation failed")
+            })
+            .is_err());
+        assert!(fresh.verify().is_err());
         drop(fresh);
         fs::remove_dir_all(root).unwrap();
     }

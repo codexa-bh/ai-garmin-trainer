@@ -245,6 +245,15 @@ pub struct OwnedDatabase {
     ino: u64,
 }
 impl OwnedDatabase {
+    #[cfg(test)]
+    pub(crate) fn capture_test_publication(path: &Path) -> Self {
+        let metadata = fs::symlink_metadata(path).unwrap();
+        Self {
+            path: path.to_owned(),
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+        }
+    }
     pub fn verify(&self, requested: &Path) -> Result<(), &'static str> {
         let meta = fs::symlink_metadata(&self.path)
             .map_err(|_| "Committed database missing; inspect it before retry.")?;

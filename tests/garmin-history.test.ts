@@ -10,6 +10,11 @@ import {
 } from "../src/lib/garmin/history-policy";
 import { createGarminReader } from "../src/lib/garmin/reader-adapter";
 
+import {
+  DISCOVERY_CHECKPOINT,
+  DISCOVERY_LIMITS,
+} from "../src/lib/garmin/discovery-policy";
+
 const remote = vi.hoisted(() => ({
   calls: [] as Array<{ name: string; args: Record<string, unknown> }>,
   stats: new Map<string, unknown>(),
@@ -66,6 +71,13 @@ vi.mock("../src/lib/garmin/mcp-client", async (original) => ({
               })
             : { activities: [], has_more: false },
         );
+      if (name === "get_weekly_steps")
+        return JSON.stringify({
+          end_date: args.end_date,
+          weeks_requested: args.weeks,
+          weeks_returned: 0,
+          weekly_data: [],
+        });
       if (name === "get_user_profile")
         return '{"userData":{"weight":70,"height":180}}';
       if (name === "get_body_composition")
@@ -252,15 +264,10 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     expect(repo.getCheckpoint(HISTORY_CHECKPOINT)).toBe(bytes);
     expect(remote.calls).toEqual([]);
   });
-  it("prioritizes recent dates, counts nested operations and continues past old empty dates without claiming remote exhaustion", async () => {
-    const sync = await import("../src/app/api/sync/route");
+  it("keeps the legacy caller bounded while continuing past old empty dates without claiming remote exhaustion", async () => {
+    const app = await import("../src/lib/garmin/composition");
     const repo = await import("../src/lib/db/repository");
-    const response = await sync.POST();
-    const events = (await response.text())
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    const first = events.at(-1);
+    const first = await app.runGarminSync();
     expect(first).toMatchObject({
       status: "completed",
       continuationAvailable: true,
@@ -288,12 +295,8 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     expect(healthDates()).toHaveLength(20);
     const oldDates = healthDates().filter((date) => date < "2026-09-08");
     remote.calls = [];
-    const next = await sync.POST();
-    const nextEvents = (await next.text())
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    expect(nextEvents.at(-1).history.health.nextDate).toBe("2026-08-26");
+    const next = await app.runGarminSync();
+    expect(next.history.health.nextDate).toBe("2026-08-26");
     for (const date of oldDates) expect(healthDates()).not.toContain(date);
     const summary = repo.importSummary();
     expect(summary.history?.health.checks).toBe(12);
@@ -423,6 +426,134 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     expect(repo.getCheckpoint("activity_page")).toBe("99");
     expect(repo.getCheckpoint("health_next_date")).toBe("2030-01-01");
     expect(repo.dataCounts().healthDays).toBe(20);
+  });
+});
+
+describe("interactive operation through actual HTTP/NDJSON/SQLite", () => {
+  it("automatically commits multiple batches, refreshes common work once and resumes preserved v1 state", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-08-22");
+    const repo = await import("../src/lib/db/repository");
+    const initial = historyState(null, "2026-08-22", "2026-09-21");
+    repo.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(initial));
+    repo.saveCheckpoint("health_next_date", "retained-legacy");
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST();
+    expect((await route.POST()).status).toBe(409);
+    const stream = response.text();
+    await vi.advanceTimersByTimeAsync(250_000);
+    const events = (await stream)
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const result = events.at(-1);
+    expect(result.status).toBe("completed");
+    expect(result.discovery.operation.batches).toBeGreaterThan(2);
+    expect(result.history.health.checks).toBe(17);
+    expect(result.history.remoteLowerBound).toBeNull();
+    expect(result.history.health.nextDate).toBe("2026-08-21");
+    expect(
+      remote.calls.filter((call) => call.name === "get_user_profile"),
+    ).toHaveLength(1);
+    expect(
+      remote.calls.filter((call) => call.name === "get_cycling_ftp"),
+    ).toHaveLength(1);
+    expect(
+      remote.calls.filter((call) => call.name === "get_weekly_steps"),
+    ).toHaveLength(1);
+    expect(healthDates().filter((date) => date === "2026-09-21")).toHaveLength(
+      1,
+    );
+    expect(
+      events.some((event) =>
+        event.message?.includes("continuing within the same operation"),
+      ),
+    ).toBe(true);
+    expect(repo.getCheckpoint("health_next_date")).toBe("retained-legacy");
+    expect(
+      JSON.parse(repo.getCheckpoint(DISCOVERY_CHECKPOINT)!).operation.outcome,
+    ).toBe("settled");
+    expect(
+      (await import("../src/lib/garmin/composition")).isGarminSyncRunning(),
+    ).toBe(false);
+  });
+
+  it("strictly lowers native/API evidence to150 cumulative attempts without resetting across batches", async () => {
+    vi.useFakeTimers();
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST(
+      new Request("http://localhost/api/sync", {
+        method: "POST",
+        headers: { "x-trainer-sync-budget": "finite-live-smoke" },
+      }),
+    );
+    const stream = response.text();
+    await vi.advanceTimersByTimeAsync(200_000);
+    const result = JSON.parse((await stream).trim().split("\n").at(-1)!);
+    expect(result.status).toBe("budget-limited");
+    expect(result.discovery.operation.attempts).toBe(150);
+    expect(result.discovery.operation.batches).toBeGreaterThan(1);
+    expect(remote.calls.length).toBeLessThanOrEqual(150);
+    expect(
+      Date.parse(result.discovery.operation.updatedAt) -
+        Date.parse(result.discovery.operation.startedAt),
+    ).toBeLessThanOrEqual(180_000);
+  });
+  it("refuses arbitrary budget values before any connector operation", async () => {
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST(
+      new Request("http://localhost/api/sync", {
+        method: "POST",
+        headers: { "x-trainer-sync-budget": "unlimited" },
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(remote.calls).toEqual([]);
+  });
+  it("enforces the fixed live180-second deadline even when cumulative attempts remain", async () => {
+    remote.advanceAt = 1;
+    const app = await import("../src/lib/garmin/composition");
+    const result = await app.runGarminSync(undefined, {
+      interactive: true,
+      finiteLiveSmoke: true,
+    });
+    expect(result.status).toBe("budget-limited");
+    expect(remote.calls).toHaveLength(1);
+    expect(result.discovery?.operation?.attempts).toBe(1);
+  });
+  it("caps cumulative attempts without resetting across batches and exposes resumable unknown history", async () => {
+    vi.useFakeTimers();
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST();
+    const stream = response.text();
+    await vi.advanceTimersByTimeAsync(600_000);
+    const result = JSON.parse((await stream).trim().split("\n").at(-1)!);
+    expect(result.status).toBe("budget-limited");
+    expect(result.discovery.operation.attempts).toBe(
+      DISCOVERY_LIMITS.operations,
+    );
+    expect(result.discovery.operation.batches).toBeGreaterThan(5);
+    expect(result.history.remoteLowerBound).toBeNull();
+    expect(result.continuationAvailable).toBe(true);
+    expect(result.history.health.checks).toBeGreaterThan(60);
+    expect(remote.calls.length).toBeLessThanOrEqual(
+      DISCOVERY_LIMITS.operations,
+    );
+  });
+
+  it("stops on a protocol failure instead of automatically advancing or retrying", async () => {
+    vi.useFakeTimers();
+    remote.failure = '{"unexpected":"private"}';
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST();
+    const stream = response.text();
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = JSON.parse((await stream).trim().split("\n").at(-1)!);
+    expect(result.status).toBe("failed");
+    expect(remote.calls).toHaveLength(3);
+    expect(result.discovery.operation.batches).toBe(0);
+    expect(result.history.unresolvedHealth).toContain("2026-09-21");
+    expect(JSON.stringify(result)).not.toContain("private");
   });
 });
 

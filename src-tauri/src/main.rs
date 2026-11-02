@@ -526,9 +526,13 @@ async fn finish_onboarding(
                 let target = PathBuf::from(validated.fields.get("DATABASE_PATH").ok_or("Select a database.")?);
                 if let Some(db) = &state.database { db.verify(&target)?; }
                 if fresh {
-                    onboarding::initialize(&resources(&app)?, &target, &state.root, &mut state.database, &runtime.onboarding_cancel, &runtime.quitting)?;
                     if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
-                        run.bind_created_database(state.database.as_ref().ok_or("Created database identity unavailable.")?)?;
+                        run.initialize_created_database(|| {
+                            onboarding::initialize(&resources(&app)?, &target, &state.root, &mut state.database, &runtime.onboarding_cancel, &runtime.quitting)?;
+                            state.database.as_ref().ok_or("Created database identity unavailable.")
+                        })?;
+                    } else {
+                        onboarding::initialize(&resources(&app)?, &target, &state.root, &mut state.database, &runtime.onboarding_cancel, &runtime.quitting)?;
                     }
                 }
                 if runtime.onboarding_cancel.load(Ordering::SeqCst) || runtime.quitting.load(Ordering::SeqCst) { return Err("Setup cancelled; committed outputs remain available for explicit retry."); }
