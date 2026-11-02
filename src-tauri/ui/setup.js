@@ -35,87 +35,162 @@ function updateDefaultOptions() {
   }
   select.value = catalog.defaultEntryId ?? "";
 }
-function renderCatalog() {
-  const rows = byId("catalog-entries");
-  rows.replaceChildren();
-  catalog.entries.forEach((entry, index) => {
-    const row = document.createElement("fieldset");
-    const legend = document.createElement("legend");
-    legend.textContent = `Chat model ${index + 1}`;
-    row.append(legend);
-    for (const [key, label] of [
-      ["provider", "Provider"],
-      ["modelId", "Exact model ID"],
-      ["displayName", "Friendly name (optional)"],
-    ]) {
-      const wrapper = document.createElement("label");
-      wrapper.textContent = `${label} — chat model ${index + 1}`;
-      const input = document.createElement(
-        key === "provider" ? "select" : "input",
-      );
-      if (key === "provider") {
-        for (const provider of ["openai", "deepseek", "ollama", "openrouter"]) {
-          const option = document.createElement("option");
-          option.value = option.textContent = provider;
-          input.append(option);
-        }
-      } else {
-        input.type = "text";
-        input.autocomplete = "off";
-        input.autocapitalize = "off";
-        input.setAttribute("autocorrect", "off");
-        input.spellcheck = false;
-        input.maxLength = key === "modelId" ? 256 : 80;
-      }
-      input.value = entry[key] ?? "";
-      input.addEventListener("input", () => {
-        if (key === "displayName" && !input.value) delete entry.displayName;
-        else entry[key] = input.value;
-        updateDefaultOptions();
-      });
-      input.addEventListener("change", () => {
-        entry[key] = input.value;
-        if (key === "displayName" && !input.value) delete entry.displayName;
-        updateDefaultOptions();
-      });
-      wrapper.append(input);
-      row.append(wrapper);
-    }
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.textContent = `Remove chat model ${index + 1}`;
-    remove.addEventListener("click", () => {
-      if (catalog.defaultEntryId === entry.id) {
-        status.textContent =
-          "Choose another default or explicitly clear the default before removing this entry.";
-        byId("catalog-default").focus();
-        return;
-      }
-      catalog.entries = catalog.entries.filter(
-        (value) => value.id !== entry.id,
-      );
-      renderCatalog();
-      byId("catalog-add").focus();
-    });
-    row.append(remove);
-    rows.append(row);
-  });
+const providers = {
+  openai: "OpenAI",
+  deepseek: "DeepSeek",
+  ollama: "Ollama",
+  openrouter: "OpenRouter",
+};
+function catalogLocked() {
+  return busy || Boolean(firstRun && onboarding?.settingsCommitted);
+}
+function updateCatalogControls() {
   updateDefaultOptions();
-  byId("catalog-add").disabled = catalog.entries.length >= 32;
+  for (const entry of catalog.entries) {
+    const button = byId(`${entry.id}-default`);
+    button.setAttribute(
+      "aria-pressed",
+      String(catalog.defaultEntryId === entry.id),
+    );
+    button.textContent =
+      catalog.defaultEntryId === entry.id ? "Default ✓" : "Default";
+    const model = byId(`${entry.id}-modelId`);
+    const duplicate = catalog.entries.some(
+      (other) =>
+        other.id !== entry.id &&
+        other.provider === entry.provider &&
+        other.modelId === entry.modelId,
+    );
+    // Early correction cue only; native catalog validation remains authoritative.
+    model.setCustomValidity(
+      duplicate
+        ? "This provider and exact model ID already exist. Edit or remove this row."
+        : "",
+    );
+    model.setAttribute("aria-invalid", String(duplicate));
+    byId(`${entry.id}-error`).textContent = duplicate
+      ? "Duplicate model ID in this provider."
+      : "";
+  }
+  for (const add of document.querySelectorAll(".catalog-add"))
+    add.disabled = catalogLocked() || catalog.entries.length >= 32;
+  byId("catalog-limit").textContent =
+    `${catalog.entries.length}/32 models${catalog.entries.length >= 32 ? " — remove a model before adding another." : ""}`;
+}
+function renderCatalog() {
+  // Shared controls stay mounted: row operations never clear secret drafts.
+  // Grouping never sorts or reconstructs the serialized catalog.
+  for (const provider of Object.keys(providers)) {
+    const rows = byId(`catalog-${provider}-rows`);
+    rows.replaceChildren();
+    catalog.entries
+      .filter((entry) => entry.provider === provider)
+      .forEach((entry, index) => {
+        const context = `${providers[provider]} model ${index + 1}`;
+        const row = document.createElement("div");
+        row.className = "catalog-row";
+        row.dataset.entryId = entry.id;
+        row.setAttribute("role", "group");
+        row.setAttribute("aria-label", context);
+        for (const [key, label] of [
+          ["modelId", "Model ID"],
+          ["displayName", "Name (optional)"],
+        ]) {
+          const wrapper = document.createElement("label");
+          wrapper.textContent = label;
+          const input = document.createElement("input");
+          input.id = `${entry.id}-${key}`;
+          input.setAttribute("aria-label", `${label} — ${context}`);
+          input.type = "text";
+          input.autocomplete = "off";
+          input.autocapitalize = "off";
+          input.setAttribute("autocorrect", "off");
+          input.spellcheck = false;
+          input.maxLength = key === "modelId" ? 256 : 80;
+          input.required = key === "modelId";
+          input.disabled = catalogLocked();
+          input.value = entry[key] ?? "";
+          if (key === "modelId")
+            input.setAttribute("aria-describedby", `${entry.id}-error`);
+          const edit = () => {
+            if (catalogLocked()) return;
+            const draft = catalog.entries.find(
+              (value) => value.id === entry.id,
+            );
+            if (key === "displayName" && !input.value) delete draft.displayName;
+            else draft[key] = input.value;
+            updateCatalogControls();
+          };
+          input.addEventListener("input", edit);
+          input.addEventListener("change", edit);
+          wrapper.append(input);
+          row.append(wrapper);
+        }
+        const actions = document.createElement("div");
+        actions.className = "catalog-row-actions";
+        const choose = document.createElement("button");
+        choose.type = "button";
+        choose.id = `${entry.id}-default`;
+        choose.setAttribute("aria-label", `Default — ${context}`);
+        choose.disabled = catalogLocked();
+        choose.addEventListener("click", () => {
+          if (catalogLocked()) return;
+          catalog.defaultEntryId = entry.id;
+          updateCatalogControls();
+        });
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Remove";
+        remove.setAttribute("aria-label", `Remove — ${context}`);
+        remove.disabled = catalogLocked();
+        remove.addEventListener("click", () => {
+          if (catalogLocked()) return;
+          if (catalog.defaultEntryId === entry.id) {
+            status.textContent =
+              "Choose another default or explicitly clear the default before removing this entry.";
+            byId("catalog-default").focus();
+            return;
+          }
+          const peers = catalog.entries.filter(
+            (value) => value.provider === provider && value.id !== entry.id,
+          );
+          const neighbor = peers[Math.min(index, peers.length - 1)];
+          catalog.entries = catalog.entries.filter(
+            (value) => value.id !== entry.id,
+          );
+          renderCatalog();
+          (neighbor
+            ? byId(`${neighbor.id}-modelId`)
+            : byId(`catalog-${provider}-add`)
+          ).focus();
+          status.textContent = `${context} removed from draft; saved settings unchanged.`;
+        });
+        actions.append(choose, remove);
+        row.append(actions);
+        const error = document.createElement("span");
+        error.id = `${entry.id}-error`;
+        error.className = "catalog-error";
+        error.setAttribute("aria-live", "polite");
+        row.append(error);
+        rows.append(row);
+      });
+  }
+  updateCatalogControls();
 }
 byId("catalog-default").addEventListener("change", (event) => {
+  if (catalogLocked()) return;
   catalog.defaultEntryId = event.target.value || null;
+  updateCatalogControls();
 });
-byId("catalog-add").addEventListener("click", () => {
-  if (busy || catalog.entries.length >= 32) return;
-  catalog.entries.push({
-    id: `entry_${crypto.randomUUID()}`,
-    provider: "openai",
-    modelId: "",
+for (const provider of Object.keys(providers)) {
+  byId(`catalog-${provider}-add`).addEventListener("click", () => {
+    if (catalogLocked() || catalog.entries.length >= 32) return;
+    const entry = { id: `entry_${crypto.randomUUID()}`, provider, modelId: "" };
+    catalog.entries.push(entry);
+    renderCatalog();
+    byId(`${entry.id}-modelId`).focus();
   });
-  renderCatalog();
-  byId("catalog-entries").lastElementChild.querySelector("input").focus();
-});
+}
 
 let savedMemoryEnabled = "false";
 let memoryRead = 0;
@@ -259,7 +334,7 @@ function renderStep() {
     "Review",
   ][step];
   byId("data-step").hidden = wizard && step !== 0;
-  byId("normal").hidden = byId("keys").hidden = wizard && step !== 1;
+  byId("normal").hidden = wizard && step !== 1;
   byId("garmin-fields").hidden = wizard && step !== 2;
   byId("review").hidden = !wizard || step !== 3;
   byId("next-launch-guidance").hidden = wizard;
@@ -342,8 +417,8 @@ function setBusy(value) {
     for (const slot of slots)
       byId(slot).disabled =
         committed || byId(`${slot}-intent`).value !== "replace";
-  byId("catalog-add").disabled =
-    value || committed || catalog.entries.length >= 32;
+  for (const add of document.querySelectorAll(".catalog-add"))
+    add.disabled = value || committed || catalog.entries.length >= 32;
   renderAuthPresentation();
 }
 async function reconcileOnboarding() {
@@ -547,7 +622,7 @@ function createField(field) {
           ? "memory-fields"
           : null;
   const parent = byId(
-    memoryGroup ||
+    (field.key === "OLLAMA_BASE_URL" ? "catalog-ollama-config" : memoryGroup) ||
       (field.key.endsWith("_COMMAND")
         ? "external-tools"
         : field.advanced
@@ -600,7 +675,11 @@ async function initialize() {
       input.disabled = intent.value !== "replace";
     });
     label.append(intent, input);
-    byId("keys").append(label);
+    const provider = slot.replace("_API_KEY", "").toLowerCase();
+    intent.setAttribute("aria-label", `${providers[provider]} key action`);
+    input.setAttribute("aria-label", `${providers[provider]} replacement key`);
+    label.className = "provider-key";
+    byId(`catalog-${provider}-config`).append(label);
   }
   await refresh();
   await window.__TAURI__.event.listen("desktop-status", (event) => {
@@ -630,6 +709,7 @@ async function adoptProviders(readLegacy) {
   invalidateMemoryStatus();
   setBusy(true);
   const values = fieldValues();
+  const catalogDraft = structuredClone(catalog);
   const keys = {};
   for (const slot of slots) {
     const intent = byId(`${slot}-intent`).value;
@@ -655,6 +735,8 @@ async function adoptProviders(readLegacy) {
   } catch (error) {
     // Reconcile commit metadata, never retry the mutation or read legacy again.
     unknownOutcome = !(await refresh());
+    catalog = catalogDraft;
+    renderCatalog();
     retainDraft(values);
     status.textContent =
       (typeof error === "string"
@@ -691,6 +773,7 @@ byId("settings").addEventListener("submit", async (event) => {
     ? "Preparing setup and checking local configuration… Cancel retains already committed outputs."
     : "Validating settings…";
   const values = fieldValues();
+  const catalogDraft = structuredClone(catalog);
   const keys = {};
   for (const slot of slots) {
     const intent = byId(`${slot}-intent`).value;
@@ -743,6 +826,8 @@ byId("settings").addEventListener("submit", async (event) => {
       }
     } else {
       unknownOutcome = !(await refresh());
+      catalog = catalogDraft;
+      renderCatalog();
       retainDraft(values);
       status.textContent =
         (typeof error === "string"

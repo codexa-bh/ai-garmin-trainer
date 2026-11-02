@@ -240,6 +240,110 @@ it("expires the intro privacy mask if native capture completion never arrives", 
     vi.useRealTimers();
   }
 });
+it("exercises real grouped controls and masks only canonical synthetic provider sections at unchanged geometry", () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, 300, 45),
+  );
+  expect(controller.__trainerSetupSmoke("catalogExercise")).toMatchObject({
+    ok: true,
+    catalogReady: true,
+    catalogExercised: true,
+  });
+  expect(document.querySelectorAll(".catalog-row")).toHaveLength(8);
+  expect(
+    document.querySelectorAll('.catalog-row [aria-pressed="true"]'),
+  ).toHaveLength(1);
+  expect(
+    invoke.mock.calls.some(([command]) => command === "save_settings"),
+  ).toBe(false);
+  const values = Array.from(
+    document.querySelectorAll<HTMLInputElement>(".catalog-row input"),
+  ).map((el) => [el.id, el.value]);
+  for (const provider of ["Openai", "Deepseek", "Ollama", "Openrouter"]) {
+    expect(controller.__trainerSetupSmoke(`capture${provider}`).ok).toBe(true);
+    expect(
+      getComputedStyle(document.getElementById("DATABASE_PATH")!).visibility,
+    ).toBe("hidden");
+    expect(
+      getComputedStyle(document.getElementById("status")!).visibility,
+    ).toBe("hidden");
+    expect(
+      getComputedStyle(
+        document.getElementById(`catalog-${provider.toLowerCase()}-add`)!,
+      ).position,
+    ).not.toBe("fixed");
+    controller.__trainerSetupSmokeRestore();
+  }
+  expect(
+    Array.from(
+      document.querySelectorAll<HTMLInputElement>(".catalog-row input"),
+    ).map((el) => [el.id, el.value]),
+  ).toEqual(values);
+  for (const el of document.body.querySelectorAll<HTMLElement>("*"))
+    expect(el.style.cssText).toBe("");
+});
+it.each([
+  "private-model",
+  "private-key",
+  "private-label",
+  "trailing-text",
+  "nested",
+  "overflow",
+  "mask",
+])("refuses provider capture on %s and restores", (scenario) => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, scenario === "overflow" ? 2000 : 300, 45),
+  );
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(true);
+  const model = document.getElementById(
+    "entry_legacy_openai-modelId",
+  ) as HTMLInputElement;
+  if (scenario === "private-model") model.value = "private-sentinel";
+  if (scenario === "private-key")
+    (document.getElementById("OPENAI_API_KEY") as HTMLInputElement).value =
+      "private-sentinel";
+  if (scenario === "private-label")
+    model.parentElement!.firstChild!.textContent = "private-sentinel";
+  if (scenario === "trailing-text")
+    model.parentElement!.append(document.createTextNode("private-sentinel"));
+  if (scenario === "nested")
+    model.parentElement!.append(document.createElement("span"));
+  if (scenario === "mask") {
+    const original = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+      const computed = original(el, pseudo);
+      return el.id === "DATABASE_PATH"
+        ? new Proxy(computed, {
+            get(target, key) {
+              return key === "visibility"
+                ? "visible"
+                : Reflect.get(target, key);
+            },
+          })
+        : computed;
+    });
+  }
+  expect(controller.__trainerSetupSmoke("captureOpenai").ok).toBe(false);
+  for (const el of document.body.querySelectorAll<HTMLElement>("*"))
+    expect(el.style.cssText).toBe("");
+});
+it("expires provider masks and refuses mutation replay or noncanonical starting data", () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, 300, 45),
+  );
+  expect(controller.__trainerSetupSmoke("captureOpenai").ok).toBe(false);
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(true);
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(false);
+  vi.useFakeTimers();
+  try {
+    expect(controller.__trainerSetupSmoke("captureOpenai").ok).toBe(true);
+    vi.advanceTimersByTime(5000);
+    for (const el of document.body.querySelectorAll<HTMLElement>("*"))
+      expect(el.style.cssText).toBe("");
+  } finally {
+    vi.useRealTimers();
+  }
+});
 it.each(["captureWide", "captureNarrow"])(
   "captures %s with unchanged Garmin geometry and a finite static-only mask",
   (action) => {

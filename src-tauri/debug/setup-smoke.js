@@ -7,6 +7,8 @@
     manualControlsAbsent: false,
     notConnected: false,
     savedForNextLaunch: false,
+    catalogReady: false,
+    catalogExercised: false,
   });
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -16,6 +18,122 @@
     getComputedStyle(el).visibility !== "hidden" &&
     el.getClientRects().length > 0;
   const byId = (id) => document.getElementById(id);
+  const providers = ["openai", "deepseek", "ollama", "openrouter"];
+  let exercised = false;
+  const rows = (provider) =>
+    Array.from(byId(`catalog-${provider}-rows`).children);
+  const model = (row) => row.querySelector('input[id$="-modelId"]');
+  const name = (row) => row.querySelector('input[id$="-displayName"]');
+  function keyless() {
+    return ["OPENAI", "DEEPSEEK", "OPENROUTER"].every(
+      (provider) =>
+        byId(`${provider}_API_KEY-status`)?.textContent === "not configured" &&
+        byId(`${provider}_API_KEY-intent`)?.value === "unchanged" &&
+        byId(`${provider}_API_KEY`)?.value === "",
+    );
+  }
+  function syntheticCatalog() {
+    return (
+      keyless() &&
+      byId("catalog-default")?.value === "entry_legacy_ollama" &&
+      document.querySelectorAll(".catalog-row").length === 8 &&
+      providers.every((provider) => {
+        const group = rows(provider);
+        return (
+          group.length === 2 &&
+          group[0].dataset.entryId === `entry_legacy_${provider}` &&
+          /^entry_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+            group[1].dataset.entryId,
+          ) &&
+          model(group[0])?.value === `synthetic/${provider}:Case` &&
+          name(group[0])?.value === "Synthetic model" &&
+          model(group[1])?.value === `synthetic/${provider}:Second` &&
+          name(group[1])?.value === ""
+        );
+      })
+    );
+  }
+  function click(element) {
+    if (
+      !visible(element) ||
+      element.disabled ||
+      (element.id && document.querySelectorAll(`#${element.id}`).length !== 1)
+    )
+      throw Error("Unavailable control");
+    element.click();
+  }
+  function edit(element, value) {
+    if (!visible(element) || element.disabled) throw Error("Unavailable input");
+    element.value = value;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function exerciseCatalog() {
+    const legacyModels = [
+      "gpt-6-luna",
+      "deepseek-flash",
+      "qwen3.5:4b",
+      "nvidia/nemotron-3.5-lightning:free",
+    ];
+    if (
+      !keyless() ||
+      byId("catalog-default").value !== "entry_legacy_ollama" ||
+      document.querySelectorAll(".catalog-row").length !== 4 ||
+      !providers.every(
+        (provider, index) =>
+          rows(provider).length === 1 &&
+          rows(provider)[0].dataset.entryId === `entry_legacy_${provider}` &&
+          model(rows(provider)[0]).value === legacyModels[index] &&
+          name(rows(provider)[0]).value === "",
+      )
+    )
+      throw Error("Not exact legacy catalog");
+    // Actual app controls only. No application-state injection or caller input.
+    click(rows("ollama")[0].querySelector('button[aria-label^="Remove"]'));
+    if (
+      document.activeElement !== byId("catalog-default") ||
+      rows("ollama").length !== 1 ||
+      !byId("status").textContent.includes("explicitly clear")
+    )
+      throw Error("Default removal was not guarded");
+    for (const provider of providers) {
+      edit(model(rows(provider)[0]), `synthetic/${provider}:Case`);
+      edit(name(rows(provider)[0]), "Synthetic model");
+      click(byId(`catalog-${provider}-add`));
+      if (document.activeElement !== model(rows(provider)[1]))
+        throw Error("Add focus lost");
+      edit(model(rows(provider)[1]), `synthetic/${provider}:Second`);
+    }
+    edit(model(rows("openai")[1]), "synthetic/openai:Case");
+    if (
+      model(rows("openai")[1]).validity.valid ||
+      !rows("openai")[1]
+        .querySelector(".catalog-error")
+        .textContent.includes("Duplicate")
+    )
+      throw Error("Duplicate not explained");
+    edit(model(rows("openai")[1]), "synthetic/openai:Second");
+    click(rows("openrouter")[1].querySelector('button[aria-label^="Default"]'));
+    if (byId("catalog-default").value !== rows("openrouter")[1].dataset.entryId)
+      throw Error("Global default lost");
+    byId("catalog-default").value = "";
+    byId("catalog-default").dispatchEvent(
+      new Event("change", { bubbles: true }),
+    );
+    if (
+      document.querySelectorAll('.catalog-row [aria-pressed="true"]').length !==
+      0
+    )
+      throw Error("Clear failed");
+    click(rows("ollama")[0].querySelector('button[aria-label^="Default"]'));
+    click(byId("catalog-deepseek-add"));
+    click(rows("deepseek")[2].querySelector('button[aria-label^="Remove"]'));
+    if (
+      document.activeElement !== model(rows("deepseek")[1]) ||
+      !syntheticCatalog()
+    )
+      throw Error("Removal/draft identity lost");
+    exercised = true;
+  }
   function observe() {
     const value = empty();
     value.ready =
@@ -23,6 +141,8 @@
       byId("AI_PROVIDER").value === "ollama" &&
       byId("OPENAI_API_KEY-status")?.textContent === "not configured";
     if (!value.ready) return value;
+    value.catalogReady = syntheticCatalog();
+    value.catalogExercised = exercised;
     value.formVisible = visible(byId("auth"));
     value.manualControlsAbsent = [
       "GARMIN_MCP_TOKEN_DIR",
@@ -52,6 +172,101 @@
     if (scrollPosition) window.scrollTo(...scrollPosition);
     scrollPosition = null;
   }
+  function captureProvider(provider) {
+    restore();
+    if (!syntheticCatalog()) throw Error("Not canonical synthetic catalog");
+    const root = byId(`catalog-${provider}`);
+    const reveal = [root.querySelector("h2"), byId(`catalog-${provider}-add`)];
+    if (
+      reveal[0].textContent !==
+        {
+          openai: "OpenAI",
+          deepseek: "DeepSeek",
+          ollama: "Ollama",
+          openrouter: "OpenRouter",
+        }[provider] ||
+      reveal[0].childElementCount !== 0 ||
+      reveal[1].textContent.trim() !== "Add model" ||
+      reveal[1].childElementCount !== 0
+    )
+      throw Error("Unexpected provider header");
+    for (const row of rows(provider)) {
+      const labels = Array.from(row.querySelectorAll("label"));
+      const buttons = Array.from(row.querySelectorAll("button"));
+      if (
+        labels.length !== 2 ||
+        buttons.length !== 2 ||
+        row.querySelectorAll("input").length !== 2 ||
+        labels.some(
+          (label, index) =>
+            label.childElementCount !== 1 ||
+            label.textContent !== ["Model ID", "Name (optional)"][index],
+        ) ||
+        buttons.some(
+          (button, index) =>
+            button.childElementCount !== 0 ||
+            button.textContent !==
+              (index === 1
+                ? "Remove"
+                : button.getAttribute("aria-pressed") === "true"
+                  ? "Default ✓"
+                  : "Default"),
+        )
+      )
+        throw Error("Unexpected row content");
+      reveal.push(...labels, model(row), name(row), ...buttons);
+    }
+    if (provider !== "ollama") {
+      const slot = `${provider.toUpperCase()}_API_KEY`;
+      const input = byId(slot),
+        intent = byId(`${slot}-intent`),
+        state = byId(`${slot}-status`),
+        label = input.parentElement;
+      if (
+        label.firstChild?.textContent !== provider.toUpperCase() ||
+        label.childElementCount !== 3 ||
+        label.textContent !==
+          `${provider.toUpperCase()}not configuredunchangedreplaceclear` ||
+        state.childElementCount !== 0 ||
+        intent.options.length !== 3 ||
+        Array.from(intent.options).some(
+          (option, index) =>
+            option.value !== ["unchanged", "replace", "clear"][index] ||
+            option.textContent !== option.value,
+        )
+      )
+        throw Error("Unexpected key control");
+      reveal.push(label, input, intent, state, ...intent.options);
+    }
+    // No layout mutation/repositioning: scroll a real section into the viewport.
+    // Reveal only individually verified nodes; unknown descendants remain masked.
+    scrollPosition = [window.scrollX, window.scrollY];
+    window.scrollTo(0, window.scrollY + root.getBoundingClientRect().top - 16);
+    for (const el of document.body.querySelectorAll("*"))
+      if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+    for (const el of reveal) style(el, "visibility", "visible");
+    if (
+      Array.from(document.body.querySelectorAll("*")).some(
+        (el) =>
+          el instanceof HTMLElement &&
+          !reveal.includes(el) &&
+          getComputedStyle(el).visibility !== "hidden",
+      )
+    )
+      throw Error("Ineffective mask");
+    for (const el of reveal.filter((el) => el.tagName !== "OPTION")) {
+      const rect = el.getBoundingClientRect();
+      if (
+        !visible(el) ||
+        rect.left < 0 ||
+        rect.right > window.innerWidth ||
+        rect.top < 0 ||
+        rect.bottom > window.innerHeight
+      )
+        throw Error("Provider overflow");
+    }
+    restoreTimer = setTimeout(restore, 5000);
+  }
   globalThis.__trainerSetupSmokeRestore = restore;
   globalThis.__trainerSetupSmoke = (action) => {
     try {
@@ -71,6 +286,17 @@
         )
           throw Error("Unavailable");
         el.click();
+      } else if (action === "catalogExercise") {
+        exerciseCatalog();
+      } else if (
+        [
+          "captureOpenai",
+          "captureDeepseek",
+          "captureOllama",
+          "captureOpenrouter",
+        ].includes(action)
+      ) {
+        captureProvider(action.slice(7).toLowerCase());
       } else if (action === "captureIntro") {
         restore();
         const main = document.querySelector("body > main");
@@ -193,12 +419,7 @@
       } else if (action !== "observe") throw Error("Unsupported");
       return observe();
     } catch {
-      if (
-        ["capture", "captureWide", "captureNarrow", "captureIntro"].includes(
-          action,
-        )
-      )
-        restore();
+      if (typeof action === "string" && action.startsWith("capture")) restore();
       return { ...empty(), ok: false };
     }
   };
