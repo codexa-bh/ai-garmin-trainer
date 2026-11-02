@@ -13,6 +13,12 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 pub const SLOTS: [&str; 3] = ["OPENAI_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"];
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectionCompatibility {
+    pub database: Option<String>,
+    pub catalog: Catalog,
+}
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
@@ -25,6 +31,12 @@ pub struct Settings {
         default
     )]
     pub chat_catalog: Option<Catalog>,
+    #[serde(
+        rename = "selectionCompatibility",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub selection_compatibility: Option<SelectionCompatibility>,
 }
 #[derive(Deserialize)]
 #[serde(tag = "intent", rename_all = "lowercase", deny_unknown_fields)]
@@ -124,6 +136,18 @@ fn decode(bytes: &[u8]) -> Result<Settings, &'static str> {
             || value.chars().any(char::is_control)
     }) {
         return Err("Saved settings contain unsupported fields; no values are returned.");
+    }
+    if let Some(prior) = &settings.selection_compatibility {
+        if settings.version != 3
+            || prior
+                .database
+                .as_ref()
+                .map(|v| v.len() > 2048 || v.chars().any(char::is_control))
+                .unwrap_or(false)
+        {
+            return Err("Unsupported selection compatibility; preserve settings.");
+        }
+        prior.catalog.validate()?;
     }
     if settings.version == 3 {
         settings
@@ -313,9 +337,40 @@ fn save_inner(path: &Path, input: SaveInput, fresh: bool) -> Result<String, &'st
         return Err(LEGACY);
     }
     let migrating = exists && next.version == 2;
+    if next.selection_compatibility.is_none() {
+        // Capture before replacing catalog/DB inputs. Retain original v3 bytes
+        // before any overwrite; v1/v2 migration already preserves its source.
+        if exists && next.version == 3 {
+            let archive = path.with_file_name("settings-v3-before-single-choice.json");
+            let original = previous
+                .as_deref()
+                .ok_or("Original settings unavailable.")?;
+            if archive.exists() {
+                if private_store::read(&archive)? != original {
+                    return Err("Original settings archive differs; preserve both and reconcile before saving.");
+                }
+            } else if !private_store::publish(&archive, original, None)? {
+                return Err(
+                    "Original settings preservation durability uncertain; reconcile before saving.",
+                );
+            }
+        }
+        next.selection_compatibility = Some(SelectionCompatibility {
+            database: next.fields.get("DATABASE_PATH").cloned(),
+            catalog: if exists {
+                next.chat_catalog
+                    .clone()
+                    .unwrap_or_else(|| chat_catalog::legacy(&next.fields, &next.keys))
+            } else {
+                Catalog::default()
+            },
+        });
+    }
     next.version = 3;
     next.fields = input.fields;
-    next.chat_catalog = Some(input.chat_catalog);
+    let mut catalog = input.chat_catalog;
+    catalog.default_entry_id = None;
+    next.chat_catalog = Some(catalog);
     apply(&mut next, input.keys)?;
     let bytes = encode(&next)?;
     check_revision(path, &input.expected_revision)?;
@@ -358,7 +413,14 @@ pub fn adoption(
         version: 3,
         fields: input.fields,
         keys: BTreeMap::new(),
-        chat_catalog: Some(input.chat_catalog),
+        chat_catalog: Some(Catalog {
+            default_entry_id: None,
+            ..input.chat_catalog
+        }),
+        selection_compatibility: Some(SelectionCompatibility {
+            database: old.fields.get("DATABASE_PATH").cloned(),
+            catalog: chat_catalog::legacy(&old.fields, &old.keys),
+        }),
     };
     for (slot, account) in old.keys {
         if matches!(input.keys.get(&slot), None | Some(KeyUpdate::Unchanged)) {
@@ -393,7 +455,11 @@ pub fn commit_adoption(
 fn frame(settings: &Settings) -> Result<Vec<u8>, &'static str> {
     let value = if let Some(catalog) = &settings.chat_catalog {
         catalog.validate()?;
-        serde_json::json!({"version":2,"fields":settings.fields,"secrets":settings.keys,"chatCatalog":catalog})
+        if let Some(prior) = &settings.selection_compatibility {
+            serde_json::json!({"version":3,"fields":settings.fields,"secrets":settings.keys,"chatCatalog":catalog,"selectionCompatibility":prior})
+        } else {
+            serde_json::json!({"version":2,"fields":settings.fields,"secrets":settings.keys,"chatCatalog":catalog})
+        }
     } else {
         serde_json::json!({"version":1,"fields":settings.fields,"secrets":settings.keys})
     };
@@ -413,6 +479,7 @@ pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
         fields: input.fields.clone(),
         keys: BTreeMap::new(),
         chat_catalog: Some(input.chat_catalog.clone()),
+        selection_compatibility: None,
     };
     for (slot, update) in &input.keys {
         if !SLOTS.contains(&slot.as_str()) {
@@ -649,6 +716,7 @@ mod tests {
             version: 1,
             fields: BTreeMap::from([("AI_MODEL".into(), "custom-model".into())]),
             chat_catalog: None,
+            selection_compatibility: None,
             keys: SLOTS
                 .iter()
                 .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
@@ -715,6 +783,7 @@ mod tests {
             version: 1,
             fields: BTreeMap::new(),
             chat_catalog: None,
+            selection_compatibility: None,
             keys: SLOTS
                 .iter()
                 .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
@@ -778,6 +847,7 @@ mod tests {
             version: 1,
             fields: fields.clone(),
             chat_catalog: None,
+            selection_compatibility: None,
             keys: SLOTS
                 .iter()
                 .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
@@ -829,6 +899,7 @@ mod tests {
             fields,
             keys: BTreeMap::new(),
             chat_catalog: None,
+            selection_compatibility: None,
         };
         let mut invalid = adoption_frame(&no_keys).unwrap();
         assert!(crate::onboarding::bundled(
@@ -844,6 +915,83 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn choice_compatibility_survives_save_before_read_removal_restart_and_preserves_original_v3() {
+        let root = root();
+        let path = root.join("settings-v3.json");
+        let fields = BTreeMap::from([
+            ("DATABASE_PATH".into(), "/private/original.sqlite".into()),
+            ("AI_PROVIDER".into(), "ollama".into()),
+        ]);
+        let catalog = chat_catalog::legacy(&fields, &BTreeMap::new());
+        let original = encode(&Settings {
+            version: 3,
+            fields: fields.clone(),
+            chat_catalog: Some(catalog.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+        private_store::publish(&path, &original, None).unwrap();
+        let mut edit = input(&path, fields.clone(), BTreeMap::new());
+        edit.chat_catalog = Catalog::default(); // Includes removal of prior default.
+        save(&path, edit).unwrap();
+        assert_eq!(
+            private_store::read(&root.join("settings-v3-before-single-choice.json")).unwrap(),
+            original
+        );
+        let saved = load(&path).unwrap();
+        let prior = saved.selection_compatibility.unwrap();
+        assert_eq!(prior.database.as_deref(), Some("/private/original.sqlite"));
+        assert_eq!(prior.catalog, catalog);
+        assert!(saved.chat_catalog.unwrap().entries.is_empty());
+        let frame: serde_json::Value = serde_json::from_slice(&activation(&path).unwrap()).unwrap();
+        assert_eq!(frame["version"], 3);
+        assert_eq!(
+            frame["selectionCompatibility"]["catalog"]["defaultEntryId"],
+            "entry_legacy_ollama"
+        );
+        let mut other = input(
+            &path,
+            BTreeMap::from([("DATABASE_PATH".into(), "/private/different.sqlite".into())]),
+            BTreeMap::new(),
+        );
+        other.chat_catalog = Catalog::default();
+        save(&path, other).unwrap();
+        assert_eq!(
+            load(&path)
+                .unwrap()
+                .selection_compatibility
+                .unwrap()
+                .database,
+            prior.database
+        );
+        assert_eq!(
+            private_store::read(&root.join("settings-v3-before-single-choice.json")).unwrap(),
+            original
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn failed_original_preservation_never_discards_compatibility_inputs() {
+        let root = root();
+        let path = root.join("settings-v3.json");
+        let original = encode(&Settings {
+            version: 3,
+            chat_catalog: Some(Catalog::default()),
+            ..Default::default()
+        })
+        .unwrap();
+        private_store::publish(&path, &original, None).unwrap();
+        private_store::publish(
+            &root.join("settings-v3-before-single-choice.json"),
+            b"different-original",
+            None,
+        )
+        .unwrap();
+        assert!(save(&path, input(&path, BTreeMap::new(), BTreeMap::new())).is_err());
+        assert_eq!(private_store::read(&path).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn catalog_migration_preserves_original_and_stale_or_invalid_forms_never_publish() {
         let root = root();
         let old_path = root.join("settings-v2.json");
@@ -855,6 +1003,7 @@ mod tests {
             ]),
             keys: BTreeMap::from([("OPENAI_API_KEY".into(), "synthetic-original-key".into())]),
             chat_catalog: None,
+            selection_compatibility: None,
         };
         let original = encode(&old).unwrap();
         private_store::publish(&old_path, &original, None).unwrap();

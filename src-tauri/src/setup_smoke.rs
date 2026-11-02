@@ -23,6 +23,10 @@ pub enum Action {
     Cancel,
     Capture,
     CaptureIntro,
+    Catalog,
+    CatalogEmpty,
+    CaptureCatalog,
+    CaptureCatalogNarrow,
     Close,
 }
 #[derive(Deserialize, Serialize)]
@@ -34,6 +38,9 @@ struct Observation {
     manual_controls_absent: bool,
     not_connected: bool,
     saved_for_next_launch: bool,
+    catalog_without_defaults: bool,
+    synthetic_catalog: bool,
+    empty_catalog: bool,
 }
 struct Document {
     loaded: Arc<AtomicBool>,
@@ -60,7 +67,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogWithoutDefaults:false,syntheticCatalog:false,emptyCatalog:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -164,8 +171,33 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
     if matches!(action, Action::Save) {
         config.validate()?;
     }
-    if matches!(action, Action::Capture | Action::CaptureIntro) {
-        let boundary = if matches!(action, Action::CaptureIntro) {
+    if matches!(
+        action,
+        Action::Capture
+            | Action::CaptureIntro
+            | Action::CaptureCatalog
+            | Action::CaptureCatalogNarrow
+    ) {
+        if matches!(
+            action,
+            Action::CaptureCatalog | Action::CaptureCatalogNarrow
+        ) {
+            let width = if matches!(action, Action::CaptureCatalogNarrow) {
+                420.0
+            } else {
+                900.0
+            };
+            window
+                .set_size(tauri::LogicalSize::new(width, 820.0))
+                .map_err(|_| "Settings viewport refused")?;
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        let boundary = if matches!(
+            action,
+            Action::CaptureCatalog | Action::CaptureCatalogNarrow
+        ) {
+            "sanitized actual fixed synthetic catalog subtree; debug wide/narrow, repositioned not full-window or trusted input"
+        } else if matches!(action, Action::CaptureIntro) {
             "geometry-preserving masked actual static Settings introduction; debug only, not ordinary or trusted input"
         } else {
             "sanitized actual Garmin Settings subtrees; not full-window layout or trusted input"

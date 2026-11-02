@@ -289,10 +289,8 @@
       throw Error("Composer unavailable/ambiguous");
     return { textarea: textareas[0], select: selects[0], send: sends[0] };
   }
-  const footerUnavailable = [
-    "Unavailable saved entry",
-    "Unavailable configured default",
-  ];
+  const footerUnavailable = ["Unavailable selected model"];
+  const footerUnselected = "Choose a model";
   const footerWarning =
     "Provider key is not configured. Update native Settings, quit and reopen.";
   const footerEmpty =
@@ -319,7 +317,7 @@
           ) ||
           (option.value === "" &&
             option.disabled &&
-            [`Default · ${footerEntries[1][1]}`, ...footerUnavailable].includes(
+            [footerUnselected, ...footerUnavailable].includes(
               option.textContent,
             )),
       )
@@ -376,22 +374,19 @@
       textareaStable: textarea === composerTextarea,
       savedChoice:
         select.value === footerEntries[0][0] &&
-        Boolean(
-          document.querySelector(
-            '.chat-model-control button[aria-label="Reset to configured default"]',
-          ),
+        !document.querySelector(
+          '.chat-model-control button[aria-label="Reset to configured default"]',
         ),
-      defaultChoice:
+      unselectedChoice:
         select.value === "" &&
-        select.selectedOptions[0]?.textContent ===
-          `Default · ${footerEntries[1][1]}`,
+        select.selectedOptions[0]?.textContent === footerUnselected,
       keysNoSend,
     };
   }
   function composerAction(command) {
     if (
       Object.keys(command).sort().join(",") !== "action,type" ||
-      !["observe", "draft", "choose", "reset", "keys"].includes(command.action)
+      !["observe", "draft", "choose", "keys"].includes(command.action)
     )
       throw Error("Unsupported composer action/fields");
     const { textarea, select } = composerElements();
@@ -399,7 +394,7 @@
       command.action !== "observe" &&
       (!knownFooterCatalog(select) ||
         textarea.disabled ||
-        (select.disabled && !["draft", "reset"].includes(command.action)))
+        (select.disabled && command.action !== "draft"))
     )
       throw Error("Composer not ready or catalog private");
     if (command.action === "draft") {
@@ -418,8 +413,6 @@
         "value",
       ).set.call(select, footerEntries[0][0]);
       select.dispatchEvent(new Event("change", { bubbles: true }));
-    } else if (command.action === "reset") {
-      target("Reset to configured default").click();
     } else if (command.action === "keys") {
       if (textarea.value !== composerDraft() || textarea !== composerTextarea)
         throw Error("Synthetic draft required");
@@ -454,7 +447,14 @@
     const reveal = (el) => el.setAttribute("data-smoke-reveal", "");
     [textarea, select, ...select.options, send].forEach(reveal);
     for (const el of document.querySelectorAll(".chat-model-control p")) {
-      if ([footerWarning, footerEmpty].includes(el.textContent)) reveal(el);
+      if (
+        [
+          footerWarning,
+          footerEmpty,
+          "Choose a model explicitly to use Trainer chat.",
+        ].includes(el.textContent)
+      )
+        reveal(el);
     }
     for (const el of document.querySelectorAll(
       ".trainer-heading-row h2, .trainer-heading-row .section-kicker, .chat-model-control label, .chat-model-control button, .chat-model-save-state",
@@ -464,7 +464,6 @@
           "Chat with your private coach",
           "Daily trainer",
           "Model",
-          "Default",
           "Saved",
         ].includes(el.textContent.trim())
       )

@@ -65,6 +65,15 @@ impl Config {
         if ![2, 3].contains(&settings.version)
             || !settings.keys.is_empty()
             || !self.accepts_fields(&settings.fields)
+            || settings
+                .selection_compatibility
+                .as_ref()
+                .map(|prior| {
+                    (prior.database.is_some()
+                        && prior.database.as_ref() != settings.fields.get("DATABASE_PATH"))
+                        || !self.accepts_catalog(&prior.catalog, &settings.fields)
+                })
+                .unwrap_or(false)
             || (settings.version == 3
                 && !settings
                     .chat_catalog
@@ -139,9 +148,31 @@ impl Config {
         catalog: &crate::chat_catalog::Catalog,
         fields: &std::collections::BTreeMap<String, String>,
     ) -> bool {
-        // Same fixed keyless legacy defaults only; no arbitrary catalog, model,
-        // provider/default changes or additional setup controller authority.
-        *catalog == crate::chat_catalog::legacy(fields, &Default::default())
+        // Fixed keyless legacy/cleared and synthetic catalog states only.
+        let legacy = crate::chat_catalog::legacy(fields, &Default::default());
+        let cleared = crate::chat_catalog::Catalog {
+            default_entry_id: None,
+            ..legacy.clone()
+        };
+        let synthetic = crate::chat_catalog::Catalog {
+            version: 1,
+            default_entry_id: None,
+            entries: vec![crate::chat_catalog::Entry {
+                id: catalog
+                    .entries
+                    .first()
+                    .map(|entry| entry.id.clone())
+                    .unwrap_or_default(),
+                provider: "ollama".into(),
+                model_id: "T0258/Exact:Tag".into(),
+                display_name: Some("T0258 explicit model".into()),
+            }],
+        };
+        catalog.validate().is_ok()
+            && (*catalog == legacy
+                || *catalog == cleared
+                || *catalog == crate::chat_catalog::Catalog::default()
+                || *catalog == synthetic)
     }
     pub fn accepts_save(&self, input: &crate::settings::SaveInput) -> bool {
         self.accepts_fields(&input.fields)
@@ -261,7 +292,7 @@ mod tests {
             expected_revision: input.expected_revision.clone(),
         };
         changed_catalog.chat_catalog.default_entry_id = None;
-        assert!(!config.accepts_save(&changed_catalog));
+        assert!(config.accepts_save(&changed_catalog)); // Clearing obsolete default is normal.
         changed_catalog.chat_catalog = input.chat_catalog.clone();
         changed_catalog.chat_catalog.entries[2].model_id = "nondefault-local-model".into();
         assert!(!config.accepts_save(&changed_catalog));

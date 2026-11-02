@@ -190,6 +190,58 @@ describe("desktop editable settings", () => {
       validateSettings({ ...base.fields, CHAT_MODEL_CATALOG: "{}" }),
     ).toThrow();
   });
+  it("binds retained original intent to its selected DB across Save-before-Trainer-read and deletion", () => {
+    const base = baseline();
+    const prior = {
+      version: 1,
+      entries: [
+        { id: "entry_prior", provider: "ollama", modelId: "Prior/Exact:Tag" },
+      ],
+      defaultEntryId: "entry_prior",
+    };
+    const frame = {
+      version: 3,
+      fields: base.fields,
+      secrets: {},
+      chatCatalog: { version: 1, entries: [], defaultEntryId: null },
+      selectionCompatibility: {
+        database: base.fields.DATABASE_PATH,
+        catalog: prior,
+      },
+    };
+    expect(
+      JSON.parse(activationEnvironment(frame).CHAT_SELECTION_COMPATIBILITY),
+    ).toEqual(prior);
+    expect(
+      JSON.parse(
+        activationEnvironment({
+          ...frame,
+          selectionCompatibility: {
+            database: "/private/different.sqlite",
+            catalog: prior,
+          },
+        }).CHAT_SELECTION_COMPATIBILITY,
+      ),
+    ).toBeNull();
+    for (const bad of [
+      null,
+      {},
+      {
+        database: base.fields.DATABASE_PATH,
+        catalog: { ...prior, version: 99 },
+      },
+      { ...frame.selectionCompatibility, secret: "no" },
+    ])
+      expect(() =>
+        activationEnvironment({ ...frame, selectionCompatibility: bad }),
+      ).toThrow();
+    expect(() =>
+      validateSettings({
+        ...base.fields,
+        CHAT_SELECTION_COMPATIBILITY: "null",
+      }),
+    ).toThrow();
+  });
   it.each(["auto", "openai", "deepseek", "ollama", "openrouter"] as const)(
     "catalog changes never retarget extraction/title legacy policy %s",
     async (provider) => {

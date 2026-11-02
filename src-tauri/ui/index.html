@@ -48,20 +48,15 @@
             availability.
           </p>
           <p id="catalog-migration" hidden>
-            Legacy models and the determinable prior default are shown for
-            explicit migration on Save. Original settings are retained. Missing
-            keys never choose another provider. Existing chat preferences map
-            only to an exact provider/model match.
+            Legacy models are shown for explicit compatibility on Save. Original
+            settings are retained. Missing keys never choose another provider.
+            Existing chat preferences map only to an exact provider/model match.
           </p>
           <div id="catalog-entries"></div>
           <button type="button" id="catalog-add">Add chat model</button>
-          <label
-            >Default chat model (optional)<select id="catalog-default"></select
-          ></label>
           <p>
-            Removing a default requires clearing or reassigning it first. A
-            removed saved chat selection stays unavailable until explicitly
-            replaced or reset.
+            Choose a model explicitly in Trainer. A removed selected entry stays
+            unavailable until you choose a replacement there.
           </p>
         </fieldset>
         <fieldset id="garmin-fields">
@@ -179,12 +174,11 @@
         </section>
         <p id="next-launch-guidance">
           Saved runtime changes apply only after you explicitly quit and reopen.
-          Catalog, default, keys and connection edits are pending until that
-          next launch; they never switch the current database, account or
-          provider in place. Chat selects only from the already activated
-          catalog for future turns. Its saved model preference remains
-          independent. Local debug traces are always enabled and may contain
-          private context.
+          Catalog, keys and connection edits are pending until that next launch;
+          they never switch the current database, account or provider in place.
+          Chat selects only from the already activated catalog for future turns.
+          Its saved model preference remains independent. Local debug traces are
+          always enabled and may contain private context.
         </p>
         <div class="actions">
           <button type="button" id="back" hidden>Back</button>

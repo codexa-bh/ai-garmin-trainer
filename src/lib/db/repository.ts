@@ -114,6 +114,14 @@ export function getAppMetadata(key: string): string | null {
   return row?.value ?? null;
 }
 
+export function initializeAppMetadata(key: string, value: string): void {
+  getDatabase()
+    .prepare(
+      "insert into app_metadata (key, value, updated_at) values (?, ?, ?) on conflict(key) do nothing",
+    )
+    .run(key, value, Date.now());
+}
+
 export function setAppMetadata(key: string, value: string): void {
   getDatabase()
     .prepare(

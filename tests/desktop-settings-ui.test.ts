@@ -178,7 +178,7 @@ describe("trusted local desktop settings UI", () => {
       expect(input(key).spellcheck).toBe(false);
     }
   });
-  it("manages normal catalog rows with durable identities and explicit default removal; preserves separate extraction inputs", async () => {
+  it("manages durable catalog rows without default controls/removal guard; preserves separate extraction inputs", async () => {
     const screen = within(document.body);
     expect(input("AI_PROVIDER").closest("label")?.hidden).toBe(true);
     expect(input("AI_MODEL").closest("label")?.hidden).toBe(true);
@@ -192,22 +192,14 @@ describe("trusted local desktop settings UI", () => {
       screen.getByLabelText("Friendly name (optional) — chat model 1"),
       { target: { value: "Fast" } },
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Remove chat model 1" }),
-    );
-    expect(document.getElementById("status")?.textContent).toContain(
-      "explicitly clear",
-    );
-    expect(screen.getByLabelText("Exact model ID — chat model 1")).toBeTruthy();
+    expect(screen.queryByLabelText("Default chat model (optional)")).toBeNull();
+    expect(document.getElementById("catalog-default")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add chat model" }));
     fireEvent.change(screen.getByLabelText("Provider — chat model 2"), {
       target: { value: "ollama" },
     });
     fireEvent.input(screen.getByLabelText("Exact model ID — chat model 2"), {
       target: { value: "local:Exact" },
-    });
-    fireEvent.change(screen.getByLabelText("Default chat model (optional)"), {
-      target: { value: "" },
     });
     fireEvent.submit(document.getElementById("settings")!);
     await waitFor(() =>
@@ -238,13 +230,13 @@ describe("trusted local desktop settings UI", () => {
         "backend unchanged",
       ),
     );
-    fireEvent.change(screen.getByLabelText("Default chat model (optional)"), {
-      target: { value: "" },
-    });
     fireEvent.click(
       screen.getByRole("button", { name: "Remove chat model 1" }),
     );
     expect(screen.queryByLabelText("Exact model ID — chat model 1")).toBeNull();
+    expect(document.getElementById("status")?.textContent).not.toContain(
+      "clear the default",
+    );
   });
   it("passes blank explicit replacement for native rejection rather than silently keeping a key", async () => {
     fireEvent.change(input("OPENAI_API_KEY-intent"), {

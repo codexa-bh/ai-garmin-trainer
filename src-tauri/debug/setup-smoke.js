@@ -7,6 +7,9 @@
     manualControlsAbsent: false,
     notConnected: false,
     savedForNextLaunch: false,
+    catalogWithoutDefaults: false,
+    syntheticCatalog: false,
+    emptyCatalog: false,
   });
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -23,6 +26,11 @@
       byId("AI_PROVIDER").value === "ollama" &&
       byId("OPENAI_API_KEY-status")?.textContent === "not configured";
     if (!value.ready) return value;
+    value.catalogWithoutDefaults =
+      !byId("catalog-default") &&
+      !document.querySelector('[aria-label="Reset to configured default"]');
+    value.syntheticCatalog = syntheticCatalog();
+    value.emptyCatalog = rows().length === 0;
     value.formVisible = visible(byId("auth"));
     value.manualControlsAbsent = [
       "GARMIN_MCP_TOKEN_DIR",
@@ -37,6 +45,57 @@
         "Settings committed. Quit and reopen to apply; the running backend is unchanged.",
       ) === true;
     return value;
+  }
+  const rows = () => [
+    ...document.querySelectorAll("#catalog-entries fieldset"),
+  ];
+  const rowValues = (row) =>
+    [...row.querySelectorAll("select,input")].map((el) => el.value);
+  function syntheticCatalog() {
+    return (
+      rows().length === 1 &&
+      JSON.stringify(rowValues(rows()[0])) ===
+        JSON.stringify(["ollama", "T0258/Exact:Tag", "T0258 explicit model"])
+    );
+  }
+  function click(el) {
+    if (!visible(el) || el.disabled) throw Error("Unavailable control");
+    el.click();
+  }
+  function set(el, value) {
+    if (!visible(el) || el.disabled) throw Error("Unavailable input");
+    el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  function catalogAction(action) {
+    if (!observe().catalogWithoutDefaults)
+      throw Error("Default control remains");
+    if (action === "catalogEmpty") {
+      if (!syntheticCatalog())
+        throw Error("Only fixed synthetic catalog may be removed");
+      click(rows()[0].querySelector("button"));
+      return;
+    }
+    const expected = [
+      ["openai", "gpt-6-luna", ""],
+      ["deepseek", "deepseek-flash", ""],
+      ["ollama", "qwen3.5:4b", ""],
+      ["openrouter", "nvidia/nemotron-3.5-lightning:free", ""],
+    ];
+    if (JSON.stringify(rows().map(rowValues)) !== JSON.stringify(expected))
+      throw Error("Noncanonical input catalog");
+    // Includes removal of the old configured-default row, through real handlers.
+    for (let index = 0; index < 4; index++)
+      click(rows()[0].querySelector("button"));
+    click(byId("catalog-add"));
+    const [provider, model, name] = rows()[0].querySelectorAll("select,input");
+    set(provider, "ollama");
+    set(model, "T0258/Initial:Tag");
+    set(model, "T0258/Exact:Tag");
+    set(name, "T0258 explicit model");
+    if (!syntheticCatalog())
+      throw Error("Synthetic catalog edit did not apply");
   }
   const styles = new Map();
   let restoreTimer;
@@ -59,7 +118,75 @@
         save: "save",
         cancel: "cancel",
       };
-      if (action in clicks) {
+      if (action === "catalog" || action === "catalogEmpty") {
+        catalogAction(action);
+      } else if (
+        action === "captureCatalog" ||
+        action === "captureCatalogNarrow"
+      ) {
+        restore();
+        if (
+          !observe().catalogWithoutDefaults ||
+          (!syntheticCatalog() && rows().length !== 0)
+        )
+          throw Error("Noncanonical catalog capture");
+        const root = byId("normal");
+        if (!visible(root)) throw Error("Catalog hidden");
+        for (const el of document.body.querySelectorAll("*"))
+          if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+        const approved = new Set([
+          "Chat model catalog",
+          "Add chat model",
+          "Chat model 1",
+          "Remove chat model 1",
+          "Provider — chat model 1",
+          "Exact model ID — chat model 1",
+          "Friendly name (optional) — chat model 1",
+          "Add up to 32 entries across OpenAI, DeepSeek, Ollama and OpenRouter. Enter literal provider model IDs; names are optional. Each provider shares its key below. Local configuration is not remote availability.",
+          "Choose a model explicitly in Trainer. A removed selected entry stays unavailable until you choose a replacement there.",
+          "openai",
+          "deepseek",
+          "ollama",
+          "openrouter",
+        ]);
+        style(root, "visibility", "visible");
+        for (const el of root.querySelectorAll(
+          "legend,p,label,button,input,select,option",
+        )) {
+          if (el.closest("[hidden]")) continue;
+          const ownText = [...el.childNodes]
+            .filter((node) => node.nodeType === Node.TEXT_NODE)
+            .map((node) => node.textContent)
+            .join("")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (["INPUT", "SELECT"].includes(el.tagName) || approved.has(ownText))
+            style(el, "visibility", "visible");
+          else throw Error("Unknown catalog text");
+        }
+        for (const [key, value] of Object.entries({
+          position: "fixed",
+          top: "24px",
+          left: "24px",
+          width: "calc(100% - 48px)",
+          "box-sizing": "border-box",
+          "background-color": "#12251c",
+        }))
+          style(root, key, value);
+        if (
+          Array.from(document.body.querySelectorAll("*")).some(
+            (el) =>
+              el instanceof HTMLElement &&
+              !root.contains(el) &&
+              el !== root &&
+              getComputedStyle(el).visibility !== "hidden",
+          )
+        )
+          throw Error("Catalog privacy mask ineffective");
+        if (root.getBoundingClientRect().bottom > innerHeight - 8)
+          throw Error("Catalog capture overflow");
+        restoreTimer = setTimeout(restore, 5000);
+      } else if (action in clicks) {
         const el = byId(clicks[action]);
         if (
           !visible(el) ||
@@ -162,7 +289,15 @@
       } else if (action !== "observe") throw Error("Unsupported");
       return observe();
     } catch {
-      if (action === "capture" || action === "captureIntro") restore();
+      if (
+        [
+          "capture",
+          "captureIntro",
+          "captureCatalog",
+          "captureCatalogNarrow",
+        ].includes(action)
+      )
+        restore();
       return { ...empty(), ok: false };
     }
   };

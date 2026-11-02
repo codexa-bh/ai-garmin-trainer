@@ -243,3 +243,122 @@ it("refuses disabled, hidden or ambiguous controls before dispatch", () => {
   button.parentElement?.append(button.cloneNode(true));
   expect(controller.__trainerSetupSmoke("connect").ok).toBe(false);
 });
+it("drives finite actual catalog add/edit/old-default removal, Save and empty catalog without private input", async () => {
+  expect(controller.__trainerSetupSmoke("observe").catalogWithoutDefaults).toBe(
+    true,
+  );
+  expect(controller.__trainerSetupSmoke("catalog")).toMatchObject({
+    ok: true,
+    syntheticCatalog: true,
+  });
+  expect(controller.__trainerSetupSmoke("save").ok).toBe(true);
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("save_settings", expect.anything()),
+  );
+  const sent = invoke.mock.calls.find(([name]) => name === "save_settings")![1]
+    .input.chatCatalog;
+  expect(sent.defaultEntryId).toBeNull();
+  expect(sent.entries).toEqual([
+    {
+      id: expect.stringMatching(/^entry_/),
+      provider: "ollama",
+      modelId: "T0258/Exact:Tag",
+      displayName: "T0258 explicit model",
+    },
+  ]);
+  // The mock reloads the original record; deliberately re-author the finite state.
+  await waitFor(() =>
+    expect(controller.__trainerSetupSmoke("observe").savedForNextLaunch).toBe(
+      true,
+    ),
+  );
+  expect(controller.__trainerSetupSmoke("catalog").ok).toBe(true);
+  expect(controller.__trainerSetupSmoke("catalogEmpty")).toMatchObject({
+    ok: true,
+    emptyCatalog: true,
+  });
+  expect(JSON.stringify(controller.__trainerSetupSmoke("observe"))).not.toMatch(
+    /private|sqlite|Exact:Tag/,
+  );
+});
+it("captures only fixed synthetic catalog and restores/expiries masks, never paths or keys", () => {
+  expect(controller.__trainerSetupSmoke("catalog").ok).toBe(true);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, 360, 500),
+  );
+  vi.useFakeTimers();
+  try {
+    for (const action of ["captureCatalog", "captureCatalogNarrow"]) {
+      expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+      for (const id of [
+        "DATABASE_PATH",
+        "OPENAI_API_KEY",
+        "email",
+        "password",
+        "mfa",
+      ])
+        expect(getComputedStyle(document.getElementById(id)!).visibility).toBe(
+          "hidden",
+        );
+      expect(
+        getComputedStyle(document.querySelector("#catalog-entries input")!)
+          .visibility,
+      ).toBe("visible");
+      vi.advanceTimersByTime(5000);
+      expect(
+        (document.getElementById("normal") as HTMLElement).style.cssText,
+      ).toBe("");
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it.each(["private-model", "private-text", "ineffective-mask", "overflow"])(
+  "refuses catalog capture %s and restores all styles",
+  (scenario) => {
+    expect(controller.__trainerSetupSmoke("catalog").ok).toBe(true);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(24, 24, 360, scenario === "overflow" ? 2000 : 500),
+    );
+    if (scenario === "private-model")
+      (
+        document.querySelector("#catalog-entries input") as HTMLInputElement
+      ).value = "private-sentinel";
+    if (scenario === "private-text")
+      document.querySelector("#normal > p")!.textContent = "private-sentinel";
+    if (scenario === "ineffective-mask") {
+      const original = window.getComputedStyle.bind(window);
+      vi.spyOn(window, "getComputedStyle").mockImplementation(
+        (element, pseudo) => {
+          const computed = original(element, pseudo);
+          return element.id === "DATABASE_PATH"
+            ? new Proxy(computed, {
+                get(target, key) {
+                  return key === "visibility"
+                    ? "visible"
+                    : Reflect.get(target, key);
+                },
+              })
+            : computed;
+        },
+      );
+    }
+    expect(controller.__trainerSetupSmoke("captureCatalog").ok).toBe(false);
+    for (const element of document.body.querySelectorAll("*"))
+      expect((element as HTMLElement).style.cssText).toBe("");
+  },
+);
+it("refuses unknown catalog values and arbitrary/extra action objects before mutation", () => {
+  (document.querySelector("#catalog-entries input") as HTMLInputElement).value =
+    "private-model";
+  invoke.mockClear();
+  expect(controller.__trainerSetupSmoke("catalog").ok).toBe(false);
+  expect(controller.__trainerSetupSmoke("catalogEmpty").ok).toBe(false);
+  for (const action of [
+    "catalogSecret",
+    { action: "catalog", value: "private" },
+    { action: "captureCatalog", selector: "body" },
+  ])
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
+  expect(invoke).not.toHaveBeenCalled();
+});

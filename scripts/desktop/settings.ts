@@ -142,15 +142,24 @@ export function activationEnvironment(
     fields?: unknown;
     secrets?: unknown;
     chatCatalog?: unknown;
+    selectionCompatibility?: unknown;
   };
   if (
-    ![1, 2].includes(frame.version as number) ||
+    ![1, 2, 3].includes(frame.version as number) ||
     Object.keys(frame).some(
       (key) =>
         !(
-          frame.version === 2
-            ? ["version", "fields", "secrets", "chatCatalog"]
-            : ["version", "fields", "secrets"]
+          frame.version === 3
+            ? [
+                "version",
+                "fields",
+                "secrets",
+                "chatCatalog",
+                "selectionCompatibility",
+              ]
+            : frame.version === 2
+              ? ["version", "fields", "secrets", "chatCatalog"]
+              : ["version", "fields", "secrets"]
         ).includes(key),
     )
   )
@@ -191,12 +200,34 @@ export function activationEnvironment(
       "Required provider key unavailable. Update private settings; no provider fallback.",
     );
   const catalog =
-    frame.version === 2
+    frame.version !== 1
       ? validateChatCatalog(frame.chatCatalog)
       : legacyChatCatalog(result, {
           openai: Boolean(result.OPENAI_API_KEY),
           deepseek: Boolean(result.DEEPSEEK_API_KEY),
         });
   result.CHAT_MODEL_CATALOG = JSON.stringify(catalog);
+  if (frame.version === 3) {
+    const prior = frame.selectionCompatibility;
+    if (
+      !prior ||
+      typeof prior !== "object" ||
+      Array.isArray(prior) ||
+      Object.keys(prior).length !== 2 ||
+      !("database" in prior) ||
+      !("catalog" in prior) ||
+      !(
+        prior.database === null ||
+        (typeof prior.database === "string" &&
+          prior.database.length <= 2048 &&
+          !containsControlCharacters(prior.database))
+      )
+    )
+      throw new Error("Unsupported selection compatibility.");
+    const original = validateChatCatalog(prior.catalog);
+    result.CHAT_SELECTION_COMPATIBILITY = JSON.stringify(
+      prior.database === result.DATABASE_PATH ? original : null,
+    );
+  }
   return result;
 }

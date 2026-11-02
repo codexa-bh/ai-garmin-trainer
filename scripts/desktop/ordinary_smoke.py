@@ -65,7 +65,7 @@ class OrdinaryRun(Run):
     def prepare_composer(self, eligibility=None):
         # Run-owned keyless configuration only; original DB/settings are never edited.
         base = json.loads((self.root / 'config/settings-v2.json').read_text())
-        catalog = {'version': 1, 'defaultEntryId': 'entry_footer_other', 'entries': [
+        catalog = {'version': 1, 'defaultEntryId': None, 'entries': [
             {'id': 'entry_footer_long', 'provider': 'ollama', 'modelId': 'T0246/Long-local-model-name:exact-tag',
              'displayName': 'T0246 long descriptive local model selection for narrow composer footer'},
             {'id': 'entry_footer_other', 'provider': 'ollama', 'modelId': 'T0246/Alternate:Tag', 'displayName': 'T0246 alternate'}]}
@@ -75,14 +75,13 @@ class OrdinaryRun(Run):
             cloud = [{'id': 'entry_hidden_' + str(index), 'provider': provider, 'modelId': 'T0253/Absent:' + str(index)}
                      for index, provider in enumerate(['openai', 'openai', 'deepseek', 'openrouter'])]
             catalog['entries'] = (catalog['entries'] if eligibility == 'mixed' else []) + cloud
-            catalog['defaultEntryId'] = cloud[0]['id']
-        private_json(self.root / 'config/settings-v3.json', {**base, 'version': 3, 'chatCatalog': catalog})
+        private_json(self.root / 'config/settings-v3.json', {**base, 'version': 3, 'chatCatalog': catalog, 'selectionCompatibility': {'database': None, 'catalog': {'version': 1, 'entries': [], 'defaultEntryId': None}}})
         self.composer_eligibility = eligibility
         if eligibility:
             # Before boot, only the exclusive writable run copy; never seed the selected original.
             import sqlite3
             with contextlib.closing(sqlite3.connect(self.database)) as database:
-                if database.execute("select 1 from app_metadata where key in ('ai.chat_model.v2','ai.chat_model')").fetchone():
+                if database.execute("select 1 from app_metadata where key in ('ai.chat_model.choice','ai.chat_model.v2','ai.chat_model')").fetchone():
                     raise ValueError('Existing model preference refused; never overwrite/adopt it')
                 database.execute("insert into app_metadata(key,value,updated_at) values ('ai.chat_model.v2','entry_hidden_0',?)", (int(time.time()),))
                 database.commit()
@@ -111,13 +110,11 @@ class OrdinaryRun(Run):
             eligibility = getattr(self, 'composer_eligibility', None)
             if eligibility:
                 expected = ([] if eligibility == 'empty' else [('entry_footer_long', True), ('entry_footer_other', True)]) + [('entry_hidden_' + str(index), False) for index in range(4)]
-                if value.get('version') != 2 or value.get('defaultEntryId') != 'entry_hidden_0' or [(entry['id'], entry['available']) for entry in value['options']] != expected:
+                if value.get('version') != 3 or 'defaultEntryId' in value or [(entry['id'], entry['available']) for entry in value['options']] != expected:
                     raise ValueError('Authoritative eligibility/catalog metadata changed')
-                effective = value['effective']
-                identity = value['selected'] or 'entry_hidden_0'
-                if effective['entryId'] != identity or effective['available'] != (identity == 'entry_footer_long'):
-                    raise ValueError('Effective identity/eligibility changed unexpectedly')
-            return value.get('selected'), value.get('effective', {}).get('source')
+                if value['available'] != (value['selected'] == 'entry_footer_long'):
+                    raise ValueError('Selected identity/eligibility changed unexpectedly')
+            return value.get('selected'), value.get('status')
         finally:
             client.close()
 
@@ -135,21 +132,26 @@ class OrdinaryRun(Run):
         self.command({'type': 'setViewport', 'preset': 'wide'})
         self.command({'type': 'click', 'target': 'Close Profile & data'})
         self.wait(lambda value: value['view'] == 'Trainer', 'Trainer composer')
-        self.composer_wait(lambda value: value['modelReady'], 'catalog ready')
+        self.composer_wait(lambda value: value['modelReady'] and value['unselectedChoice'], 'fresh explicit no-selection')
+        if self.model_choice() != (None, 'unselected'):
+            raise ValueError('Fresh catalog implicitly selected a model')
         before = self.chat_hash()
         self.command({'type': 'composer', 'action': 'draft'})
         self.command({'type': 'composer', 'action': 'keys'})
+        images = []
+        for preset in ['wide', 'narrow']:
+            self.command({'type': 'setViewport', 'preset': preset})
+            observed = self.command({'type': 'composer', 'action': 'observe'})
+            if not observed['unselectedChoice']:
+                raise ValueError('Unselected placeholder changed before explicit choice')
+            image = self.command({'type': 'captureView', 'view': 'composer', 'preset': preset})
+            images.append({'state': 'unselected', 'preset': preset, **image, 'observation': observed})
+            private_json(self.root / ('composer-capture-unselected-' + preset + '.json'), images[-1])
         self.command({'type': 'composer', 'action': 'choose'})
         self.composer_wait(lambda value: value['modelReady'] and value['savedChoice'], 'saved long entry')
-        if self.model_choice() != ('entry_footer_long', 'saved'):
+        if self.model_choice() != ('entry_footer_long', 'selected'):
             raise ValueError('UI model choice did not persist')
-        images = []
-        for state in ['saved', 'default']:
-            if state == 'default':
-                self.command({'type': 'composer', 'action': 'reset'})
-                self.composer_wait(lambda value: value['modelReady'] and value['defaultChoice'], 'configured default reset')
-                if self.model_choice() != (None, 'env'):
-                    raise ValueError('UI model reset did not persist')
+        for state in ['saved']:
             for preset in ['wide', 'narrow']:
                 self.command({'type': 'setViewport', 'preset': preset})
                 observed = self.command({'type': 'composer', 'action': 'observe'})
@@ -161,7 +163,7 @@ class OrdinaryRun(Run):
         if self.chat_hash() != before:
             raise ValueError('Selector/draft actions changed saved chat data')
         private_json(self.root / 'composer-scenario.json', {'passed': True, 'captures': images,
-                     'modelChoiceAndResetPersisted': True, 'chatDataUnchanged': True,
+                     'explicitChoicePersisted': True, 'freshUnselected': True, 'chatDataUnchanged': True,
                      'keyboard': 'synthetic DOM Enter/Space on owned selector; not trusted/native/hardware input',
                      'providerSend': 'not invoked', 'cleanup': 'copy-only preference/draft/Goals deferred to task-scratch expiry'})
 
@@ -171,24 +173,19 @@ class OrdinaryRun(Run):
         self.wait(lambda value: value['view'] == 'Trainer', 'Trainer eligibility')
         empty = self.composer_eligibility == 'empty'
         self.composer_wait(lambda value: value['catalogKnown'] and value['unavailableChoice'] and value['noEligibleChoices'] == empty, 'hidden saved choice')
-        if self.model_choice() != ('entry_hidden_0', 'saved'):
+        if self.model_choice() != ('entry_hidden_0', 'selected'):
             raise ValueError('Rendering changed hidden saved preference')
         before = self.chat_hash()
         self.command({'type': 'composer', 'action': 'draft'})
         images = []
-        states = ['hidden-saved', 'unavailable-default'] if empty else ['hidden-saved', 'replacement', 'unavailable-default']
+        states = ['hidden-saved'] if empty else ['hidden-saved', 'replacement']
         for state in states:
             if state == 'replacement':
                 self.command({'type': 'composer', 'action': 'keys'})
                 self.command({'type': 'composer', 'action': 'choose'})
                 self.composer_wait(lambda value: value['modelReady'] and value['savedChoice'], 'eligible explicit replacement')
-                if self.model_choice() != ('entry_footer_long', 'saved'):
+                if self.model_choice() != ('entry_footer_long', 'selected'):
                     raise ValueError('Eligible replacement did not persist')
-            elif state == 'unavailable-default':
-                self.command({'type': 'composer', 'action': 'reset'})
-                self.composer_wait(lambda value: value['unavailableChoice'] and value['noEligibleChoices'] == empty, 'unavailable default remains unavailable')
-                if self.model_choice() != (None, 'env'):
-                    raise ValueError('Explicit reset did not persist')
             for preset in ['wide', 'narrow']:
                 self.command({'type': 'setViewport', 'preset': preset})
                 observed = self.command({'type': 'composer', 'action': 'observe'})
@@ -203,7 +200,7 @@ class OrdinaryRun(Run):
             raise ValueError('Eligibility actions changed saved chat data')
         private_json(self.root / 'eligibility-scenario.json', {'passed': True, 'scenario': self.composer_eligibility,
                      'captures': images, 'hiddenPreferencePreservedUntilExplicitAction': True,
-                     'resetRemainsUnavailable': True, 'chatDataUnchanged': True,
+                     'noResetOrFallback': True, 'chatDataUnchanged': True,
                      'keyboard': 'synthetic DOM only; no OS popup/trusted-input certification',
                      'providerSend': 'not invoked', 'cleanup': 'run-only preference/draft/Goals deferred to task-scratch expiry'})
 
@@ -524,8 +521,8 @@ def main():
     parser.add_argument('--bundle', required=True, help='Actual unmodified desktop:build .app; copied outside checkout per run')
     parser.add_argument('--prepare-only', action='store_true')
     parser.add_argument('--conversation-selection', action='store_true', help='Finite keyless synthetic conversation create/select/restart/delete on empty-chat populated copies')
-    parser.add_argument('--composer-footer', action='store_true', help='Finite keyless composer selection/reset/draft and wide/narrow masked capture; no provider send')
-    parser.add_argument('--model-eligibility', action='store_true', help='Opt-in fixed mixed/zero eligible catalogs with hidden saved/default choices; implies composer footer')
+    parser.add_argument('--composer-footer', action='store_true', help='Finite keyless explicit choice/draft/restart and wide/narrow masked capture; no provider send')
+    parser.add_argument('--model-eligibility', action='store_true', help='Opt-in fixed mixed/zero eligible catalogs with unavailable explicit choices; implies composer footer')
     args = parser.parse_args()
     args.composer_footer = args.composer_footer or args.model_eligibility
     os.umask(0o077)
@@ -575,9 +572,13 @@ def main():
             run.captures()
             if args.composer_footer:
                 run.composer_scenario()
+                expected_choice = run.model_choice()
+                run.verify_restart(run.binary, sentinel)
+                if run.model_choice() != expected_choice:
+                    raise ValueError('Exact model choice changed across owned restart')
+                private_json(run.root / 'choice-restart.json', {'exactChoiceRetained': True, 'freshBoot': True})
                 run.command({'type': 'setViewport', 'preset': 'wide'})
-                run.command({'type': 'click', 'target': 'Profile & data'})
-                run.wait(lambda value: value['profileReady'], 'Profile after composer')
+                run.wait(lambda value: value['profileReady'], 'Profile after composer restart')
             if args.conversation_selection:
                 run.conversation_scenario()
                 run.command({'type': 'click', 'target': 'Profile & data'})

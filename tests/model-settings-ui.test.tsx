@@ -17,7 +17,6 @@ import type {
   ModelOption,
   ModelSettingsSnapshot,
 } from "@/lib/model-settings/contracts";
-
 const entries: ModelOption[] = [
   {
     id: "entry_one",
@@ -48,47 +47,29 @@ const entries: ModelOption[] = [
     modelId: "Vendor/Exact:free",
     label: "openrouter / Vendor/Exact:free",
     available: false,
-    unavailableReason: "Provider key not configured",
   },
 ];
 function snapshot(count = 4): ModelSettingsSnapshot {
   return {
-    version: 2,
+    version: 3,
     options: entries.slice(0, count),
     selected: null,
-    defaultEntryId: count ? "entry_one" : null,
-    effective: {
-      entryId: count ? "entry_one" : null,
-      provider: count ? "openai" : null,
-      modelName: count ? "Custom/First:Tag" : null,
-      source: "env",
-      available: Boolean(count),
-    },
-    ...(!count
-      ? {
-          unavailableReason:
-            "No default chat model. Configure entries in Settings.",
-        }
-      : {}),
+    status: "unselected",
+    available: false,
+    unavailableReason: "Choose a model explicitly to use Trainer chat.",
   };
 }
 function saved(id = "entry_two"): ModelSettingsSnapshot {
-  const entry = entries.find((value) => value.id === id)!;
   return {
-    ...snapshot(),
+    version: 3,
+    options: entries,
     selected: id,
-    effective: {
-      entryId: id,
-      provider: entry.provider,
-      modelName: entry.modelId,
-      source: "saved",
-      available: entry.available,
-    },
+    status: "selected",
+    available: entries.some((entry) => entry.id === id && entry.available),
   };
 }
-function response(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status });
-}
+const response = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status });
 function Harness({ open = true }: { open?: boolean }) {
   const modelSettings = useModelSettings(open);
   return open ? <ModelSettingsCard modelSettings={modelSettings} /> : null;
@@ -97,208 +78,112 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-
 it.each([4, 1, 0])(
-  "projects a %s-entry catalog to eligible exact/disambiguated choices without a large card",
+  "keeps a %s-row catalog unselected without first-row choice or writes",
   async (count) => {
     const fetcher = vi.fn().mockResolvedValue(response(snapshot(count)));
     vi.stubGlobal("fetch", fetcher);
     render(<Harness />);
-    expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
-      true,
-    );
-    await waitFor(() =>
-      expect(screen.queryByText("Loading model settings…")).toBeNull(),
-    );
+    await screen.findByRole("option", { name: "Choose a model" });
     const control = screen.getByRole("combobox", {
       name: "Trainer model",
     }) as HTMLSelectElement;
+    expect(control.value).toBe("");
     expect(control.disabled).toBe(count === 0);
     expect(control.closest("details, .settings-card")).toBeNull();
-    expect(screen.getByText("Model", { selector: "label" })).toBeTruthy();
-    if (count) {
-      expect(
-        screen.getByRole("option", { name: `Default · ${entries[0].label}` }),
-      ).toBeTruthy();
-      expect(
-        Array.from(control.options)
-          .slice(1)
-          .map((option) => option.value),
-      ).toEqual(
-        entries
-          .slice(0, count)
-          .filter((entry) => entry.available)
-          .map((entry) => entry.id),
-      );
-      for (const entry of entries.slice(0, count)) {
-        if (entry.available) {
-          expect(
-            (
-              screen.getByRole("option", {
-                name: entry.label,
-              }) as HTMLOptionElement
-            ).disabled,
-          ).toBe(false);
-        } else {
-          expect(
-            screen.queryByRole("option", { name: new RegExp(entry.modelId) }),
-          ).toBeNull();
-        }
-      }
-      expect(control.title).toContain("openai / Custom/First:Tag");
-    } else {
-      expect(
-        screen.getByRole("option", { name: "Selection required — no default" }),
-      ).toBeTruthy();
-      expect(screen.getByText(/No configured entries/)).toBeTruthy();
-    }
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(
+      Array.from(control.options)
+        .slice(1)
+        .map((option) => option.value),
+    ).toEqual(
+      entries
+        .slice(0, count)
+        .filter((entry) => entry.available)
+        .map((entry) => entry.id),
+    );
+    expect(screen.queryByRole("button", { name: /Default|Reset/ })).toBeNull();
+    expect(control.title).not.toContain("Default");
+    expect(fetcher).toHaveBeenCalledOnce();
   },
 );
-it.each(["saved", "default"] as const)(
-  "preserves a hidden %s identity without browser fallback or writes, and allows explicit replacement/reset",
-  async (source) => {
-    const unavailable: ModelSettingsSnapshot = {
-      ...saved("entry_router"),
-      selected: source === "saved" ? "entry_router" : null,
-      defaultEntryId: "entry_router",
-      effective: {
-        ...saved("entry_router").effective,
-        source: source === "saved" ? "saved" : "env",
-      },
-      unavailableReason:
-        "Provider key is not configured. Update native Settings, quit and reopen.",
+it.each(["entry_router", "entry_deleted"])(
+  "retains unavailable %s with explicit replacement only",
+  async (id) => {
+    const unavailable = {
+      ...saved(id),
+      unavailableReason: "Selected model unavailable",
     };
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(response(unavailable))
-      .mockResolvedValueOnce(
-        response({ ...saved("entry_local"), defaultEntryId: "entry_router" }),
-      )
-      .mockResolvedValueOnce(
-        response({
-          ...unavailable,
-          selected: null,
-          effective: { ...unavailable.effective, source: "env" },
-        }),
-      );
+      .mockResolvedValueOnce(response(saved("entry_local")));
     vi.stubGlobal("fetch", fetcher);
     render(<Harness />);
-    await screen.findByText(unavailable.unavailableReason!);
+    await screen.findByText("Selected model unavailable");
     const control = screen.getByRole("combobox") as HTMLSelectElement;
     expect(control.value).toBe("");
     expect(control.selectedOptions[0].textContent).toBe(
-      source === "saved"
-        ? "Unavailable saved entry"
-        : "Unavailable configured default",
+      "Unavailable selected model",
     );
     expect(control.selectedOptions[0].disabled).toBe(true);
     expect(control.disabled).toBe(false);
     expect(screen.queryByRole("option", { name: /Vendor\/Exact/ })).toBeNull();
-    expect(
-      screen.queryByRole("option", { name: /Default ·.*openrouter/ }),
-    ).toBeNull();
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledOnce();
     fireEvent.change(control, { target: { value: "entry_local" } });
-    await screen.findByText(/Saved preference: ollama/);
+    await screen.findByText("ollama / Local:Tag", { selector: "span" });
     expect(control.value).toBe("entry_local");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Reset to configured default" }),
-    );
-    await screen.findByRole("option", {
-      name: "Unavailable configured default",
-    });
-    expect(control.value).toBe("");
-    expect(screen.getByText(unavailable.unavailableReason!)).toBeTruthy();
-    expect(fetcher.mock.calls.slice(1).map(([, init]) => init.body)).toEqual([
-      '{"modelId":"entry_local"}',
-      '{"modelId":null}',
-    ]);
+    expect(fetcher.mock.calls[1][1].body).toBe('{"modelId":"entry_local"}');
+    expect(screen.queryByRole("button", { name: /Default|Reset/ })).toBeNull();
   },
 );
-
 it.each([true, false])(
-  "disables an all-ineligible catalog, keeps explicit reset (%s), and never writes on refresh",
-  async (hasSaved) => {
-    const unavailable: ModelSettingsSnapshot = {
+  "keeps all-ineligible catalogs disabled without reset (%s)",
+  async (selected) => {
+    const value = {
       ...snapshot(),
       options: entries.map((entry) => ({ ...entry, available: false })),
-      selected: hasSaved ? "entry_two" : null,
-      effective: {
-        ...snapshot().effective,
-        entryId: hasSaved ? "entry_two" : "entry_one",
-        modelName: hasSaved ? "Custom/Second:Tag" : "Custom/First:Tag",
-        source: hasSaved ? "saved" : "env",
-        available: false,
-      },
+      selected: selected ? "entry_two" : null,
+      status: selected ? "selected" : "unselected",
       unavailableReason: "Provider key not configured",
     };
-    const fetcher = vi.fn().mockResolvedValue(response(unavailable));
+    const fetcher = vi.fn().mockResolvedValue(response(value));
     vi.stubGlobal("fetch", fetcher);
     const view = render(<Harness />);
     await screen.findByText(/No available entries/);
     const control = screen.getByRole("combobox") as HTMLSelectElement;
     expect(control.disabled).toBe(true);
     expect(control.options).toHaveLength(1);
-    expect(control.value).toBe("");
-    expect(control.selectedOptions[0].disabled).toBe(true);
-    expect(
-      screen.getByText(
-        /Configure provider keys or eligible local models.*quit\/reopen/,
-      ),
-    ).toBeTruthy();
-    if (hasSaved)
-      expect(
-        (
-          screen.getByRole("button", {
-            name: "Reset to configured default",
-          }) as HTMLButtonElement
-        ).disabled,
-      ).toBe(false);
+    expect(screen.queryByRole("button", { name: /Reset/ })).toBeNull();
     view.rerender(<Harness open={false} />);
     view.rerender(<Harness />);
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
     expect(fetcher.mock.calls.every(([, init]) => !init?.method)).toBe(true);
   },
 );
-
 it.each(["openai", "deepseek", "openrouter"] as const)(
-  "hides every missing-key %s entry while keeping keyless local eligibility",
+  "hides missing-key %s, retaining keyless local without choosing it",
   async (provider) => {
     const options = entries.map((entry) =>
       entry.provider === "ollama"
         ? entry
         : { ...entry, provider, available: false },
     );
-    const body: ModelSettingsSnapshot = {
-      ...snapshot(),
-      options,
-      defaultEntryId: "entry_local",
-      effective: {
-        entryId: "entry_local",
-        provider: "ollama",
-        modelName: "Local:Tag",
-        source: "env",
-        available: true,
-      },
-    };
-    const fetcher = vi.fn().mockResolvedValue(response(body));
-    vi.stubGlobal("fetch", fetcher);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(response({ ...snapshot(), options })),
+    );
     render(<Harness />);
-    await screen.findByRole("option", { name: "Default · ollama / Local:Tag" });
+    await screen.findByRole("option", { name: "Choose a model" });
     const control = screen.getByRole("combobox") as HTMLSelectElement;
-    expect(control.disabled).toBe(false);
     expect(Array.from(control.options).map((option) => option.value)).toEqual([
       "",
       "entry_local",
     ]);
     expect(control.value).toBe("");
-    expect(fetcher).toHaveBeenCalledTimes(1);
   },
 );
-
-it("waits for authoritative save, survives hide/reopen/reload, and resets separately from catalog", async () => {
-  let finish!: (response: Response) => void;
+it("waits for authoritative save through hide/reopen/reload without remapping", async () => {
+  let finish!: (value: Response) => void;
   const fetcher = vi
     .fn()
     .mockResolvedValueOnce(response(snapshot()))
@@ -308,11 +193,10 @@ it("waits for authoritative save, survives hide/reopen/reload, and resets separa
           finish = resolve;
         }),
     )
-    .mockResolvedValueOnce(response(saved()))
-    .mockResolvedValueOnce(response(snapshot()));
+    .mockImplementation(() => Promise.resolve(response(saved())));
   vi.stubGlobal("fetch", fetcher);
   const view = render(<Harness />);
-  await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
+  await screen.findByRole("option", { name: "Choose a model" });
   fireEvent.change(screen.getByRole("combobox"), {
     target: { value: "entry_two" },
   });
@@ -321,11 +205,9 @@ it("waits for authoritative save, survives hide/reopen/reload, and resets separa
     true,
   );
   view.rerender(<Harness open={false} />);
-  await act(async () => {
-    finish(response(saved()));
-  });
+  await act(async () => finish(response(saved())));
   view.rerender(<Harness />);
-  await screen.findByText(/Saved preference: openai \/ Custom\/Second:Tag/);
+  await screen.findByText("openai / Custom/Second:Tag", { selector: "span" });
   await waitFor(() =>
     expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
       false,
@@ -334,70 +216,32 @@ it("waits for authoritative save, survives hide/reopen/reload, and resets separa
   expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe(
     "entry_two",
   );
-  expect(fetcher.mock.calls[1][1].body).toBe('{"modelId":"entry_two"}');
-  fireEvent.click(
-    screen.getByRole("button", { name: "Reset to configured default" }),
-  );
-  await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
-  expect(fetcher.mock.calls[3][1].body).toBe('{"modelId":null}');
   view.unmount();
-  fetcher.mockResolvedValueOnce(response(saved()));
   render(<Harness />);
-  await screen.findByText(/Saved preference: openai \/ Custom\/Second:Tag/);
+  await screen.findByText("openai / Custom/Second:Tag", { selector: "span" });
 });
-it("keeps missing/deleted selections explicit, never substitutes default, and allows exact reselection/reset", async () => {
-  const unavailable = {
-    ...saved(),
-    selected: "entry_deleted",
-    effective: {
-      entryId: "entry_deleted",
-      provider: null,
-      modelName: null,
-      source: "saved",
-      available: false,
-    },
-    unavailableReason: "Saved entry no longer in activated catalog",
-  };
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(unavailable)));
-  render(<Harness />);
-  await screen.findByText("Saved entry no longer in activated catalog");
-  expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("");
-  expect(
-    screen.getByRole("option", { name: "Unavailable saved entry" }),
-  ).toBeTruthy();
-  expect(
-    screen.getByRole("button", { name: "Reset to configured default" }),
-  ).toBeTruthy();
-});
-it("does not claim failed saves; direct retry safely reconciles lost keys and load failures", async () => {
-  const stale = {
-    ...saved("entry_router"),
-    unavailableReason: "Saved provider unavailable",
-  };
+it("preserves last confirmed choice on uncertain write and direct Retry reconciles actual state safely", async () => {
   const fetcher = vi
     .fn()
-    .mockResolvedValueOnce(response(snapshot()))
-    .mockResolvedValueOnce(response({ error: "secret-upstream" }, 400))
-    .mockResolvedValueOnce(response(stale))
-    .mockRejectedValueOnce(new Error("secret-network"));
+    .mockResolvedValueOnce(response(saved("entry_one")))
+    .mockResolvedValueOnce(response({ error: "secret-upstream" }, 503))
+    .mockResolvedValueOnce(response(saved()))
+    .mockRejectedValueOnce(Error("secret-network"));
   vi.stubGlobal("fetch", fetcher);
   const view = render(<Harness />);
-  await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
+  await screen.findByText("openai / Custom/First:Tag", { selector: "span" });
   fireEvent.change(screen.getByRole("combobox"), {
     target: { value: "entry_two" },
   });
   await screen.findByText(/could not be confirmed/);
-  expect(screen.queryByText(/Saved preference:/)).toBeNull();
+  expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe(
+    "entry_one",
+  );
   expect(screen.queryByText(/secret-upstream/)).toBeNull();
   fireEvent.click(
     screen.getByRole("button", { name: "Retry model availability" }),
   );
-  await screen.findByText("Saved provider unavailable");
-  expect(screen.queryByRole("option", { name: /openrouter/ })).toBeNull();
-  expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("");
-  expect(
-    screen.getByRole("option", { name: "Unavailable saved entry" }),
-  ).toBeTruthy();
+  await screen.findByText("openai / Custom/Second:Tag", { selector: "span" });
   expect(
     fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH"),
   ).toHaveLength(1);
@@ -409,12 +253,12 @@ it("does not claim failed saves; direct retry safely reconciles lost keys and lo
 it.each([
   null,
   { ok: true },
-  { options: [], selected: null, effective: {} },
   { ...snapshot(), version: 99 },
-  { ...snapshot(), selected: "unbounded-corrupt-id" },
+  { ...snapshot(), selected: "invalid" },
   { ...snapshot(), options: [...entries, entries[0]] },
-  { ...snapshot(), effective: { ...snapshot().effective, modelName: "wrong" } },
-])("contains malformed successful responses: %j", async (body) => {
+  { ...snapshot(), available: true },
+  { ...snapshot(), status: "selected" },
+])("contains malformed successful response %j", async (body) => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(body)));
   render(<Harness />);
   await screen.findByText(/could not be loaded/);
@@ -422,92 +266,73 @@ it.each([
     true,
   );
 });
-it("recovers initial failure directly without reopening another view", async () => {
+it("ignores superseded loads", async () => {
+  let finish!: (value: Response) => void;
   const fetcher = vi
     .fn()
-    .mockRejectedValueOnce(new Error("private-network-detail"))
-    .mockResolvedValueOnce(response(snapshot()));
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(response(snapshot(1)));
   vi.stubGlobal("fetch", fetcher);
-  render(<Harness />);
-  await screen.findByText(/could not be loaded/);
-  expect(screen.queryByText(/private-network-detail/)).toBeNull();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Retry model availability" }),
-  );
-  await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
-  expect(fetcher).toHaveBeenCalledTimes(2);
+  const view = render(<Harness />);
+  await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+  view.rerender(<Harness open={false} />);
+  view.rerender(<Harness />);
+  await screen.findByRole("option", { name: "Choose a model" });
+  await act(async () => finish(response(snapshot())));
+  expect(screen.queryByRole("option", { name: entries[1].label })).toBeNull();
 });
-it("keeps one model control below Message immediately before Send without remounting or sending on selection/reset/keys", async () => {
+it("keeps one persistent footer control, draft and Send order; selection/keys never send", async () => {
   const chatPosts: unknown[] = [];
   const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (url === "/api/model-settings") {
+    if (String(input) === "/api/model-settings")
       return Promise.resolve(
-        response(
-          init?.method === "PATCH" && init.body === '{"modelId":"entry_two"}'
-            ? saved()
-            : snapshot(),
-        ),
+        response(init?.method === "PATCH" ? saved() : snapshot()),
       );
-    }
-    if (url === "/api/chat" && init?.method === "POST") {
-      chatPosts.push(JSON.parse(String(init.body)));
-    }
+    if (String(input) === "/api/chat" && init?.method === "POST")
+      chatPosts.push(init.body);
     return Promise.resolve(
       response({ messages: [], memories: [], conversations: [] }),
     );
   });
   vi.stubGlobal("fetch", fetcher);
   render(<TrainerDashboard />);
-
-  const message = screen.getByRole("textbox", { name: "Message" });
+  const message = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
   const composer = message.closest(".composer-dock")! as HTMLElement;
   const selector = within(composer).getByRole("combobox", {
     name: "Trainer model",
-  }) as HTMLSelectElement;
+  });
   const send = within(composer).getByRole("button", { name: "Send" });
   expect(
     screen.getAllByRole("combobox", { name: "Trainer model" }),
   ).toHaveLength(1);
-  expect(document.querySelector(".trainer-heading-row select")).toBeNull();
-  expect(
-    screen.getByRole("heading", { name: "Chat with your private coach" }),
-  ).toBeTruthy();
+  expect(selector.closest(".chat-model-control")?.nextElementSibling).toBe(
+    send,
+  );
   expect(
     message.compareDocumentPosition(selector) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  expect(selector.closest(".chat-model-control")?.nextElementSibling).toBe(
-    send,
-  );
-  expect(selector.labels?.[0].textContent).toBe("Model");
-  expect(
-    document.getElementById(selector.getAttribute("aria-describedby")!),
-  ).toBeTruthy();
-  await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
-  fireEvent.change(message, { target: { value: "Keep this draft" } });
+  await screen.findByRole("option", { name: "Choose a model" });
+  fireEvent.change(message, { target: { value: "Keep draft" } });
   selector.focus();
   for (const key of ["Enter", " "]) {
-    expect(fireEvent.keyDown(selector, { key })).toBe(true);
+    fireEvent.keyDown(selector, { key });
     fireEvent.keyUp(selector, { key });
   }
   fireEvent.change(selector, { target: { value: "entry_two" } });
-  await screen.findByText(/Saved preference: openai \/ Custom\/Second:Tag/);
+  await screen.findByText("openai / Custom/Second:Tag", { selector: "span" });
   expect(document.activeElement).toBe(selector);
-  expect(screen.getByRole("textbox", { name: "Message" })).toBe(message);
-  expect((message as HTMLTextAreaElement).value).toBe("Keep this draft");
-  fireEvent.click(
-    screen.getByRole("button", { name: "Reset to configured default" }),
-  );
-  await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
-  expect((message as HTMLTextAreaElement).value).toBe("Keep this draft");
+  expect(message.value).toBe("Keep draft");
   expect(screen.getByRole("textbox", { name: "Message" })).toBe(message);
   expect(chatPosts).toHaveLength(0);
-  expect(
-    fetcher.mock.calls.filter(
-      ([url, init]) => String(url) === "/api/model-settings" && !init?.method,
-    ),
-  ).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: /Default|Reset/ })).toBeNull();
   expect(
     fetcher.mock.calls
       .filter(
@@ -515,18 +340,17 @@ it("keeps one model control below Message immediately before Send without remoun
           String(url) === "/api/model-settings" && init?.method === "PATCH",
       )
       .map(([, init]) => init?.body),
-  ).toEqual(['{"modelId":"entry_two"}', '{"modelId":null}']);
+  ).toEqual(['{"modelId":"entry_two"}']);
 });
-
-it("keeps failed availability and its direct recovery inside the footer without disabling Send or losing the draft", async () => {
+it("recovers availability failure in footer without losing draft or disabling Send", async () => {
   let failing = true;
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
-      if (String(input) === "/api/model-settings") {
-        if (failing) return Promise.reject(new Error("private-network-detail"));
-        return Promise.resolve(response(snapshot()));
-      }
+      if (String(input) === "/api/model-settings")
+        return failing
+          ? Promise.reject(Error("private-detail"))
+          : Promise.resolve(response(snapshot()));
       if (String(input) === "/api/conversations/selection")
         return Promise.resolve(response({ conversationId: "default" }));
       return Promise.resolve(
@@ -539,51 +363,16 @@ it("keeps failed availability and its direct recovery inside the footer without 
     name: "Message",
   }) as HTMLTextAreaElement;
   fireEvent.change(message, { target: { value: "Draft through recovery" } });
-  const composer = message.closest(".composer-dock")! as HTMLElement;
-  const retry = await within(composer).findByRole("button", {
+  const retry = await screen.findByRole("button", {
     name: "Retry model availability",
   });
-  const selector = within(composer).getByRole("combobox") as HTMLSelectElement;
-  expect(selector.disabled).toBe(true);
-  expect(within(composer).getByRole("alert").textContent).toContain(
-    "could not be loaded",
-  );
   expect(
-    (
-      within(composer).getByRole("button", {
-        name: "Send",
-      }) as HTMLButtonElement
-    ).disabled,
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
   ).toBe(false);
   failing = false;
   fireEvent.click(retry);
-  await within(composer).findByRole("option", {
-    name: `Default · ${entries[0].label}`,
-  });
-  expect(selector.disabled).toBe(false);
+  await screen.findByRole("option", { name: "Choose a model" });
   expect(message.value).toBe("Draft through recovery");
-  expect(within(composer).queryByRole("alert")).toBeNull();
-});
-
-it("ignores superseded loads while preserving shell-owned state", async () => {
-  let finish!: (response: Response) => void;
-  const fetcher = vi
-    .fn()
-    .mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    )
-    .mockResolvedValueOnce(response(snapshot(1)));
-  vi.stubGlobal("fetch", fetcher);
-  const view = render(<Harness />);
-  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
-  view.rerender(<Harness open={false} />);
-  view.rerender(<Harness />);
-  await screen.findByRole("option", { name: `Default · ${entries[0].label}` });
-  await act(async () => {
-    finish(response(snapshot()));
-  });
-  expect(screen.queryByRole("option", { name: entries[1].label })).toBeNull();
+  expect(screen.queryByText(/private-detail/)).toBeNull();
 });

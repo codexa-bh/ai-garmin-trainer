@@ -212,7 +212,8 @@ class OrdinaryContracts(unittest.TestCase):
         self.assertEqual(value['version'], 3)
         self.assertEqual(value['keys'], {})
         self.assertEqual(value['fields']['DATABASE_PATH'], str(run.database))
-        self.assertEqual(value['chatCatalog']['defaultEntryId'], 'entry_footer_other')
+        self.assertIsNone(value['chatCatalog']['defaultEntryId'])
+        self.assertEqual(value['selectionCompatibility']['catalog']['entries'], [])
         self.assertEqual([entry['id'] for entry in value['chatCatalog']['entries']], ['entry_footer_long', 'entry_footer_other'])
         self.assertTrue(all(entry['provider'] == 'ollama' for entry in value['chatCatalog']['entries']))
         self.assertEqual(configured.stat().st_mode & 0o777, 0o600)
@@ -232,7 +233,7 @@ class OrdinaryContracts(unittest.TestCase):
             run.prepare_composer(scenario)
             value = json.loads((run.root / 'config/settings-v3.json').read_text())
             self.assertEqual(value['keys'], {})
-            self.assertEqual(value['chatCatalog']['defaultEntryId'], 'entry_hidden_0')
+            self.assertIsNone(value['chatCatalog']['defaultEntryId'])
             providers = [entry['provider'] for entry in value['chatCatalog']['entries']]
             self.assertEqual(providers, (['ollama', 'ollama'] if scenario == 'mixed' else []) + ['openai', 'openai', 'deepseek', 'openrouter'])
             with contextlib.closing(sqlite3.connect(run.database)) as db:
@@ -262,15 +263,15 @@ class OrdinaryContracts(unittest.TestCase):
             run.command = lambda command: calls.append(command) or observation
             run.wait = lambda predicate, label: None
             run.composer_wait = lambda predicate, label: None
-            choices = [('entry_hidden_0', 'saved')] + ([] if scenario == 'empty' else [('entry_footer_long', 'saved')]) + [(None, 'env')]
+            choices = [('entry_hidden_0', 'selected')] + ([] if scenario == 'empty' else [('entry_footer_long', 'selected')])
             with patch.object(run, 'chat_hash', return_value='unchanged'), patch.object(run, 'model_choice', side_effect=choices):
                 run.composer_scenario()
             actions = [command['action'] for command in calls if command['type'] == 'composer' and command['action'] != 'observe']
-            self.assertEqual(actions, ['draft', 'reset'] if scenario == 'empty' else ['draft', 'keys', 'choose', 'reset'])
-            self.assertEqual(len([command for command in calls if command['type'] == 'captureView']), 4 if scenario == 'empty' else 6)
+            self.assertEqual(actions, ['draft'] if scenario == 'empty' else ['draft', 'keys', 'choose'])
+            self.assertEqual(len([command for command in calls if command['type'] == 'captureView']), 2 if scenario == 'empty' else 4)
             receipt = json.loads((run.root / 'eligibility-scenario.json').read_text())
             self.assertTrue(receipt['hiddenPreferencePreservedUntilExplicitAction'])
-            self.assertTrue(receipt['resetRemainsUnavailable'])
+            self.assertTrue(receipt['noResetOrFallback'])
             self.assertTrue(receipt['chatDataUnchanged'])
             self.assertNotIn('modelId', repr(calls))
         run = self.run_fixture()
@@ -288,14 +289,14 @@ class OrdinaryContracts(unittest.TestCase):
     def test_composer_scenario_uses_finite_ui_actions_four_captures_and_persisted_choice(self):
         run = self.run_fixture()
         calls = []
-        observation = {key: True for key in ['modelReady', 'singleControl', 'footerOrder', 'fitsViewport', 'draftMatches', 'textareaStable', 'keysNoSend']}
+        observation = {key: True for key in ['modelReady', 'unselectedChoice', 'singleControl', 'footerOrder', 'fitsViewport', 'draftMatches', 'textareaStable', 'keysNoSend']}
         run.command = lambda command: calls.append(command) or observation
         run.wait = lambda predicate, label: None
         run.composer_wait = lambda predicate, label: None
-        with patch.object(run, 'chat_hash', return_value='unchanged'), patch.object(run, 'model_choice', side_effect=[('entry_footer_long', 'saved'), (None, 'env')]):
+        with patch.object(run, 'chat_hash', return_value='unchanged'), patch.object(run, 'model_choice', side_effect=[(None, 'unselected'), ('entry_footer_long', 'selected')]):
             run.composer_scenario()
-        self.assertEqual([command['action'] for command in calls if command['type'] == 'composer' and command['action'] != 'observe'], ['draft', 'keys', 'choose', 'reset'])
-        self.assertEqual([(command['view'], command['preset']) for command in calls if command['type'] == 'captureView'], [('composer', preset) for _state in ['saved', 'default'] for preset in ['wide', 'narrow']])
+        self.assertEqual([command['action'] for command in calls if command['type'] == 'composer' and command['action'] != 'observe'], ['draft', 'keys', 'choose'])
+        self.assertEqual([(command['view'], command['preset']) for command in calls if command['type'] == 'captureView'], [('composer', preset) for _state in ['unselected', 'saved'] for preset in ['wide', 'narrow']])
         receipt = json.loads((run.root / 'composer-scenario.json').read_text())
         self.assertTrue(receipt['chatDataUnchanged'])
         self.assertEqual(receipt['providerSend'], 'not invoked')
@@ -304,14 +305,14 @@ class OrdinaryContracts(unittest.TestCase):
     def test_composer_persistence_failure_does_not_replay_choice_or_continue_capture(self):
         run = self.run_fixture()
         calls = []
-        run.command = lambda command: calls.append(command) or {}
+        run.command = lambda command: calls.append(command) or {'unselectedChoice': True}
         run.wait = lambda predicate, label: None
         run.composer_wait = lambda predicate, label: None
-        with patch.object(run, 'chat_hash', return_value='unchanged'), patch.object(run, 'model_choice', return_value=('entry_wrong', 'saved')):
+        with patch.object(run, 'chat_hash', return_value='unchanged'), patch.object(run, 'model_choice', side_effect=[(None, 'unselected'), ('entry_wrong', 'selected')]):
             with self.assertRaisesRegex(ValueError, 'did not persist'):
                 run.composer_scenario()
         self.assertEqual(sum(command == {'type': 'composer', 'action': 'choose'} for command in calls), 1)
-        self.assertFalse(any(command['type'] == 'captureView' for command in calls))
+        self.assertEqual(sum(command['type'] == 'captureView' for command in calls), 2) # Initial no-selection captures only.
         self.assertFalse((run.root / 'composer-scenario.json').exists())
 
     def test_private_scratch_alias_and_foreign_inventory_denied(self):

@@ -1,6 +1,7 @@
 """Nonactivating keyless native Settings smoke; no credential input, auth or general controller."""
 import argparse
 import contextlib
+import http.client
 import json
 import os
 import signal
@@ -61,6 +62,10 @@ def main():
         wait_settings(run, lambda o: not o['formVisible'] and o['notConnected'], 'Connect later preserves selection')
         run.command({'type': 'settings', 'action': 'cancel'})
         wait_settings(run, lambda o: o['ready'] and not o['formVisible'], 'Cancel reconciles saved state')
+        run.command({'type': 'settings', 'action': 'catalog'})
+        wait_settings(run, lambda o: o['syntheticCatalog'] and o['catalogWithoutDefaults'], 'actual add/edit/remove without default guard')
+        for action in ['captureCatalog', 'captureCatalogNarrow']:
+            captures.append({'scenario': action + '-explicit-entry', **run.command({'type': 'settings', 'action': action})})
         run.command({'type': 'settings', 'action': 'save'})
         wait_settings(run, lambda o: o['savedForNextLaunch'], 'native Save committed next-launch-only')
         after = run.http('/identity')
@@ -69,19 +74,43 @@ def main():
         saved = json.loads((run.root / 'config/settings-v3.json').read_text())
         if saved['version'] != 3 or (run.root / 'config/settings-v2.json').read_bytes() != original_settings:
             raise ValueError('Explicit catalog migration did not retain the original keyless settings')
-        if saved['chatCatalog']['defaultEntryId'] != 'entry_legacy_ollama' or len(saved['chatCatalog']['entries']) != 4:
-            raise ValueError('Fixed keyless catalog defaults changed')
+        if saved['chatCatalog']['defaultEntryId'] is not None or [entry['modelId'] for entry in saved['chatCatalog']['entries']] != ['T0258/Exact:Tag']:
+            raise ValueError('Explicit synthetic catalog Save changed')
+        if saved['selectionCompatibility']['catalog']['defaultEntryId'] != 'entry_legacy_ollama':
+            raise ValueError('Prior exact default compatibility lost before Trainer restart')
         if saved['keys'] or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
             raise ValueError('Saved settings escaped keyless copy scope')
         run.command({'type': 'settings', 'action': 'close'})
         run.stop()
         run.start(binary)
         run.command({'type': 'settings', 'action': 'open'})
-        wait_settings(run, lambda o: o['ready'] and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'], 'saved defaults survive exact-scope restart')
+        wait_settings(run, lambda o: o['ready'] and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'] and o['syntheticCatalog'] and o['catalogWithoutDefaults'], 'explicit catalog survives exact-scope restart')
         if source_identity() != source:
             raise ValueError('Source changed during Settings smoke')
         captures.append({'scenario': 'concise-introduction-after-save-restart', **run.command({'type': 'settings', 'action': 'captureIntro'})})
-        receipt.update(connectLater=True, cancel=True, savedKeylessDefaults=True, activeBackendUnchanged=True, restart=True)
+        client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
+        try:
+            client.request('GET', '/api/model-settings')
+            response = client.getresponse()
+            raw = response.read(32769)
+            if response.status != 200 or len(raw) > 32768:
+                raise ValueError('Owned choice metadata read failed')
+            choice = json.loads(raw)
+            if choice['version'] != 3 or choice['selected'] != 'entry_legacy_ollama' or choice['available']:
+                raise ValueError('Removing old default retargeted Trainer instead of retaining unavailable identity')
+        finally:
+            client.close()
+        run.command({'type': 'settings', 'action': 'catalogEmpty'})
+        wait_settings(run, lambda o: o['emptyCatalog'], 'empty catalog removal')
+        run.command({'type': 'settings', 'action': 'save'})
+        wait_settings(run, lambda o: o['savedForNextLaunch'], 'empty catalog saved')
+        for action in ['captureCatalog', 'captureCatalogNarrow']:
+            captures.append({'scenario': action + '-empty', **run.command({'type': 'settings', 'action': action})})
+        run.command({'type': 'settings', 'action': 'close'})
+        run.stop(); run.start(binary)
+        run.command({'type': 'settings', 'action': 'open'})
+        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'empty catalog reload after restart')
+        receipt.update(connectLater=True, cancel=True, explicitCatalogSaved=True, oldDefaultRemovalRetainsUnavailableIdentity=True, emptyCatalogSavedAndReloaded=True, activeBackendUnchanged=True, restart=True)
         passed = True
     finally:
         try:

@@ -24,6 +24,7 @@ const optionalEnvSchema = z.object({
   AI_MODEL: z.string().default("gpt-6-luna"),
   // Private startup adapter only; never an editable scalar/build configuration.
   CHAT_MODEL_CATALOG: z.string().optional(),
+  CHAT_SELECTION_COMPATIBILITY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   DEEPSEEK_API_KEY: z.string().optional(),
   DEEPSEEK_MODEL: z.string().default("deepseek-flash"),

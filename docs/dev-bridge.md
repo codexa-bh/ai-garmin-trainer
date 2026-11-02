@@ -26,58 +26,15 @@ The baseline is keyless. No real provider/Garmin success is implied; separately 
 
 ### Opt-in composer-footer evidence
 
-Add `--composer-footer` to `smoke:ordinary` for the finite keyless footer scenario. It
-prepares only run-native v3 settings with two fixed synthetic Ollama catalog entries
-(one long friendly/provider/exact-ID label), leaving originals and the existing v2
-run configuration intact. No new DB seed, provider/daemon request or live credentials.
-The ordinary-only `composer` command accepts only `observe`, `draft`, `choose`,
-`reset`, `keys`, with no caller input/ID/key/selector. It uses a fixed run-ID draft,
-actual React selection and Default handlers, and synthetic DOM Enter/Space on the
-selector. Boolean-only results describe readiness, single-control/DOM order, real
-viewport fit, draft/node identity, saved/default choice and key-no-send observation;
-no copied text or model identity is returned. These keys are **not native-generated,
-trusted or hardware input**; active-window routing/focus styling remains uncertified.
+Add `--composer-footer` to `smoke:ordinary` for finite keyless explicit-choice evidence. It prepares run-native v3 settings with two fixed synthetic Ollama entries (one long label), no configured default and empty prior compatibility. Original input/v2 configuration remain unchanged. The ordinary-only `composer` command accepts only `observe`, `draft`, `choose`, `keys`, with no caller value/ID/key/selector. Reset is refused. Actual React handlers and a fixed run-ID draft prove initial no-selection, explicit choice, preserved draft, order/viewport fit and owned restart persistence through authoritative DTO-v3 reads. Boolean-only observations include `savedChoice` and `unselectedChoice`; no model identity/copied text is returned. Synthetic DOM Enter/Space is not native-generated/trusted/hardware input.
 
-The runner verifies saved/reset metadata through its verified owned backend and
-unchanged saved chat data, then captures saved-long-label and reset-default states
-at the existing wide/narrow presets using `captureView` with fixed `view:composer`.
-The mask reveals only validated known synthetic catalog/draft, static heading/Model/
-Send/Default and fixed Saved text at their real geometry. All copied conversations,
-transcripts, facts, diagnostics and unknown values remain hidden. Capture requires the
-canonical synthetic state, with normal restoration/expiry on every outcome. Inspect
-actual images separately. Error/loading layout remains deterministic coverage when
-not exercised natively; no provider send/streaming or trusted keyboard claim follows.
-Copies/preferences/draft/Goals/images are task-attributed and scratch-expiry deferred.
-Default ordinary/debug/quick scenarios gain no extra workload or privileges.
+Four fixed `view:composer` wide/narrow captures show initial unselected and saved-long-label states. The mask reveals only validated synthetic catalog/draft, static heading/Model/Send, safe selection guidance and Saved text at actual geometry. Copied conversations/transcripts/facts/diagnostics and unknown values remain hidden; restoration/expiry is unconditional. Inspect every image separately. No provider/daemon request, streaming or normal-singleton claim follows. Copies/preferences/draft/Goals/images remain task-attributed and scratch-expiry deferred. Default ordinary/debug/quick workload is unchanged.
 
 #### Missing-key eligibility evidence
 
-`--model-eligibility` implies composer-footer evidence, leaving the baseline scenario
-unchanged. The existing two run-owned copies instead receive fixed keyless v3
-catalogs: two eligible synthetic Ollama entries plus four missing-key cloud entries
-(two OpenAI, one DeepSeek, one OpenRouter), and four cloud entries only. Both have
-an unavailable cloud default and an initially saved matching identity. Preparation
-seeds only the exclusive disposable copy before boot and refuses an existing
-legacy/v2 model preference; original input and v2 settings remain unchanged. No
-provider call, private input or Settings/auth grant is added.
+`--model-eligibility` implies composer-footer evidence. Fixed run-owned catalogs contain two eligible synthetic Ollama entries plus four missing-key cloud entries, and a second all-cloud/ineligible catalog. Both retain a synthetic unavailable saved identity; neither has a default. Preparation seeds only the exclusive disposable copy before boot and refuses existing current/legacy/v2 preferences; originals remain unchanged.
 
-The same closed actions prove hidden saved choices, explicit eligible replacement
-(mixed run only) and reset to an unavailable default. Draft/reset may operate on a
-canonical disabled zero-choice control; choose/keys still refuse it. Three additional
-boolean results (`catalogKnown`, `unavailableChoice`, `noEligibleChoices`) expose no
-IDs, labels, keys or copied content. Native exact-field/type/mode validation and all
-existing run/boot/origin/request/time bounds remain binding. Unknown/extra actions,
-caller values and noncanonical catalogs/placeholders refuse.
-
-Mixed hidden-saved/replacement/unavailable-default and all-ineligible saved/default
-states each receive wide/narrow `composer` captures (ten total). Masks additionally
-reveal only generic unavailable placeholders and exact fixed safe key/empty guidance;
-all other unknown/copied text stays hidden, with unconditional restoration/expiry.
-The runner verifies full authoritative eligibility/default metadata, exact saved/reset
-identity and unchanged chat fingerprints. This proves native control/DOM option
-omission, not OS popup rendering, trusted input, real provider/Garmin readiness or
-normal-singleton behavior. Inspect every actual PNG. All run-only preferences,
-drafts, Goals and captures remain task-attributed and scratch-expiry deferred.
+Closed actions prove unavailable intent without fallback, eligible replacement (mixed run only), all-ineligible disablement and exact owned-restart persistence. Draft may operate on a canonical disabled control; choose/keys refuse it. `catalogKnown`, `unavailableChoice`, `noEligibleChoices` expose only booleans. Six wide/narrow captures cover mixed unavailable/replacement and all-ineligible states. Masks reveal only approved synthetic/static content and exact safe key/empty guidance; restoration/expiry, native exact fields/modes and run/boot/origin/request/deadline denials remain binding. Reset/unknown/extra/private values refuse. Inspect every image. This is not OS-popup/trusted-input, provider/Garmin or default-window certification; copy-only artifacts are expiry-deferred.
 
 ### Opt-in conversation selection evidence
 
@@ -198,9 +155,9 @@ A read-only Swift observer samples frontmost PID/pointer every 10ms and refuses 
 
 `npm run smoke:settings -- --scratch <canonical-task-scratch> --input-file <private-explicit-db-selection.json>` reuses the same online-backup, source/build, nonactivation observer and live-handle shutdown owners. `--resources-ready` verifies exact same-source assembled resources rather than rebuilding the backend. This is a debug-only changed-surface scenario, not ordinary-artifact or live-login certification.
 
-The authenticated closed `settings` command has only `open`, `observe`, `connect`, `later`, `save`, `cancel`, `capture`, `captureIntro`, `close` actions. Native creates its own nonfocused incognito local setup document. A fixed bootstrap drives actual semantic controls; native WKWebView completion returns a strict bounded boolean DTO directly, with no new renderer IPC/result grant. The trainer still has no settings/auth privileges. No arbitrary input/value, selector, script, path or invoke is accepted. Observations exclude copied text/control values/secrets/paths.
+The authenticated closed `settings` command has only `open`, `observe`, `connect`, `later`, `save`, `cancel`, `capture`, `captureIntro`, `catalog`, `catalogEmpty`, `captureCatalog`, `captureCatalogNarrow`, `close` actions. The added finite catalog action removes the four canonical keyless legacy rows (including its former default), adds/edits one fixed synthetic Ollama entry through actual form handlers; catalogEmpty removes only that exact synthetic row. Native Save admits only validated legacy/cleared, empty or this fixed synthetic catalog; no arbitrary model/value is accepted. Boolean-only observations report default-control absence and canonical synthetic/empty state. Save/reload/restart verifies retained old unavailable Trainer identity with no fallback, and empty catalog persistence. Wide/narrow catalog captures reveal only verified synthetic inputs and approved static text in an explicitly repositioned actual subtree, hiding every other path/key/field; native finally restoration plus five-second renderer expiry applies. They are debug subtree evidence, not full-window/first-run/ordinary/trusted input. Native creates its own nonfocused incognito local setup document. A fixed bootstrap drives actual semantic controls; native WKWebView completion returns a strict bounded boolean DTO directly, with no new renderer IPC/result grant. The trainer still has no settings/auth privileges. No arbitrary input/value, selector, script, path or invoke is accepted. Observations exclude copied text/control values/secrets/paths.
 
-Admitted runs permit only the exact keyless online-backup DB, Ollama, disabled memory and fixed history plus unchanged catalog defaults filled by the real form. Native Save rejects keys, token selections and nondefault path/tool/model/endpoint changes. Authentication/MFA, Keychain adoption, native pickers and first-run Finish are explicitly refused for admitted smoke even in local setup. Connect only reveals the form; no credentials are entered or login/sync started. The scenario verifies Connect/later/cancel, manual-control absence, real Save-next-launch with the current backend unchanged and exact-scope restart.
+Admitted runs permit only the exact keyless online-backup DB, Ollama, disabled memory and fixed history plus the narrowly admitted legacy/cleared/empty/fixed synthetic catalog filled by the real form. Native Save rejects keys, token selections and nondefault path/tool/model/endpoint changes. Authentication/MFA, Keychain adoption, native pickers and first-run Finish are explicitly refused for admitted smoke even in local setup. Connect only reveals the form; no credentials are entered or login/sync started. The scenario verifies Connect/later/cancel, manual-control absence, real Save-next-launch with the current backend unchanged and exact-scope restart.
 
 `captureIntro` reveals only the verified static Settings H1 and two approved introductory paragraphs at their unchanged geometry; unexpected text, nested elements, hidden/overflowing notices or an ineffective privacy mask refuse. Every other element (including status, paths and all form values) is hidden. The mask restores on native success/failure and independently expires after five seconds. The runner captures the intro initially and after Save/restart; this proves only debug keyless existing-installation copy, not ordinary/default Settings, first-run or trusted input. It accepts no selector/value/text input or private readback and retains exact debug-run/window/document admission and closed native boolean completion.
 
