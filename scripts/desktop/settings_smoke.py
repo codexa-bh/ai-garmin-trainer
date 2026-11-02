@@ -9,6 +9,7 @@ import signal
 import time
 import uuid
 from native_smoke import Observer, Run, build, canonical, fingerprint, private_json, readonly, source_identity
+from live_provider import LiveProvider
 
 
 def wait_settings(run, predicate, label):
@@ -41,12 +42,16 @@ def model_settings(run, model_id=None, write=False):
         client.close()
 
 
-def live_scenario(run, captures):
+def live_scenario(run, captures, fixture=None):
     before = run.http('/identity')
     if not isinstance(before.get('backendPid'), int):
         raise ValueError('Exact owned backend PID required')
     model_settings(run, 'entry_legacy_ollama', write=True)
     observations = []
+    conversations = [str(uuid.uuid4()), str(uuid.uuid4())]
+    if fixture:
+        fixture.begin(run, conversations[0])
+    captured_work = None
     for action in ['liveCatalog', 'liveRotate', 'liveClear', 'liveEmpty']:
         run.command({'type': 'settings', 'action': action})
         run.command({'type': 'settings', 'action': 'save'})
@@ -76,11 +81,15 @@ def live_scenario(run, captures):
                 raise ValueError('Cleared cloud credentials remained eligible')
             if action == 'liveEmpty' and active['options']:
                 raise ValueError('Explicit empty catalog not active')
+        if fixture and action == 'liveCatalog':
+            captured_work = fixture.finish(run, conversations[1])
         after = run.http('/identity')
         if any(before[key] != after[key] for key in ['pid', 'backendPid', 'origin', 'database']):
             raise ValueError('Live Save restarted/switched owned backend')
         captures.append({'scenario': action + '-acknowledged-feedback', **run.command({'type': 'settings', 'action': 'captureLive'})})
         observations.append({'preset': action, 'liveApplied': True, 'pendingRestart': observed['pendingRestart'], 'backendPidUnchanged': True, 'compiledNextUptake': True})
+        if captured_work and action == 'liveCatalog':
+            observations[-1]['capturedWork'] = {**captured_work, 'taskCreatedConversations': conversations, 'cleanup': 'authored disposable copy only; deferred to task-scratch expiry'}
     model_settings(run, write=True)  # Explicit reset, not native preference mutation.
     run.command({'type': 'settings', 'action': 'stopBackend'})
     run.command({'type': 'settings', 'action': 'save'})
@@ -128,6 +137,7 @@ def main():
     source = source_identity()
     run = Run(scratch, database, source)
     observer = None
+    fixture = None
     passed = False
     captures = []
     errors = []
@@ -136,6 +146,14 @@ def main():
                'cleanup': 'Task-owned online backup/settings/images/logs deferred to scratch expiry; no copy-back or primary mutation.'}
     try:
         binary = build(scratch, source, resources_ready=args.resources_ready)
+        if args.live_settings:
+            fixture = LiveProvider()  # Exclusive fixed loopback bind or fail; no daemon reuse.
+            with open(run.root / 'live-provider', 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as marker:
+                marker.write(run.id)
+            authored = run.root / 'config/settings-v2.json'
+            initial_fields = json.loads(authored.read_text())
+            initial_fields['fields']['OLLAMA_BASE_URL'] = 'http://127.0.0.1:11435/v1'
+            authored.write_text(json.dumps(initial_fields))
         observer = Observer(scratch)
         run.observer = observer
         run.start(binary)
@@ -178,7 +196,7 @@ def main():
         if saved['keys'] or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
             raise ValueError('Saved settings escaped keyless copy scope')
         if args.live_settings:
-            receipt['liveSettings'] = live_scenario(run, captures)
+            receipt['liveSettings'] = live_scenario(run, captures, fixture)
             saved = json.loads((run.root / 'config/settings-v3.json').read_text())
         run.command({'type': 'settings', 'action': 'close'})
         run.stop()
@@ -198,6 +216,12 @@ def main():
             run.stop()
         except Exception as error:
             errors.append(type(error).__name__)
+        if fixture:
+            try:
+                fixture.stop()
+                receipt['syntheticProviderStopped'] = True
+            except Exception as error:
+                errors.append(type(error).__name__)
         if observer:
             try:
                 receipt['noninterference'] = observer.stop(run.pids)

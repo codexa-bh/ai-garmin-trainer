@@ -113,6 +113,12 @@ impl Config {
         };
         fields.iter().all(|(key, value)| {
             #[cfg(debug_assertions)]
+            if key == "OLLAMA_BASE_URL" && value == "http://127.0.0.1:11435/v1" {
+                let marker = self.root.join("live-provider");
+                return crate::settings::private_file(&marker).is_ok()
+                    && fs::read_to_string(marker).ok().as_deref() == Some(self.run_id.as_str());
+            }
+            #[cfg(debug_assertions)]
             if key == "MEMORY_EMBEDDING_DIMS" && value == "2048" {
                 return true;
             }
@@ -156,6 +162,8 @@ impl Config {
             for entry in &mut synthetic.entries {
                 if entry.provider == "openai" {
                     entry.model_id = "Synthetic/Live:one".into();
+                } else if entry.provider == "ollama" {
+                    entry.model_id = "Synthetic/Local:two".into();
                 }
             }
             for default in [Some("entry_legacy_openai"), Some("entry_legacy_deepseek")] {
@@ -369,6 +377,12 @@ mod tests {
                 .find(|entry| entry.provider == "openai")
                 .unwrap()
                 .model_id = "Synthetic/Live:one".into();
+            live.chat_catalog
+                .entries
+                .iter_mut()
+                .find(|entry| entry.provider == "ollama")
+                .unwrap()
+                .model_id = "Synthetic/Local:two".into();
             live.chat_catalog.default_entry_id = Some("entry_legacy_openai".into());
             for slot in crate::settings::SLOTS {
                 live.keys.insert(
@@ -432,6 +446,17 @@ mod tests {
                 _ => rejected.entries[5].id = rejected.entries[4].id.clone(),
             }
             assert!(!config.accepts_catalog(&rejected, &input.fields));
+        }
+        #[cfg(debug_assertions)]
+        {
+            let mut provider_fields = input.fields.clone();
+            provider_fields.insert("OLLAMA_BASE_URL".into(), "http://127.0.0.1:11435/v1".into());
+            assert!(!config.accepts_fields(&provider_fields));
+            write(&root.join("live-provider"), id.as_bytes());
+            assert!(config.accepts_fields(&provider_fields));
+            provider_fields.insert("OLLAMA_BASE_URL".into(), "http://127.0.0.1:11436/v1".into());
+            assert!(!config.accepts_fields(&provider_fields));
+            fs::remove_file(root.join("live-provider")).unwrap();
         }
         let next = root.join("config/settings-v3.json");
         let projected = crate::chat_catalog::legacy(&input.fields, &Default::default());

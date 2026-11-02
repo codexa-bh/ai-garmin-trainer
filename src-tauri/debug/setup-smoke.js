@@ -319,6 +319,7 @@
           if (allRows.length !== 4 || !openai)
             throw Error("Preset baseline refused");
           change(openai.querySelector("input"), "Synthetic/Live:one");
+          change(byId("entry_legacy_ollama-modelId"), "Synthetic/Local:two");
           change(byId("catalog-default"), "entry_legacy_openai");
         } else if (action === "liveRotate") {
           change(byId("catalog-default"), "entry_legacy_deepseek");
