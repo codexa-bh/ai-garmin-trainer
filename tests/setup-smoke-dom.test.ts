@@ -436,7 +436,7 @@ it.each(["capture", "captureWide", "captureNarrow"])(
     expect(document.querySelector('[style*="visibility"]')).toBeNull();
   },
 );
-it.each(["capture", "captureWide", "captureNarrow"])(
+it.each(["capture", "captureWide", "captureNarrow", "capturePrivacy"])(
   "refuses %s and restores styles when the privacy mask is not effective",
   (action) => {
     const original = window.getComputedStyle.bind(window);
@@ -846,6 +846,53 @@ it.each(["text", "nested", "disclosure", "overflow"])(
     expect(controller.__trainerSetupSmoke("captureNarrow").ok).toBe(false);
     for (const element of document.body.querySelectorAll("*"))
       expect((element as HTMLElement).style.cssText).toBe("");
+  },
+);
+it.each([false, true])(
+  "captures only reviewed expanded privacy copy and restores prior open=%s on expiry",
+  (open) => {
+    vi.useFakeTimers();
+    try {
+      const disclosure = document.getElementById(
+        "garmin-privacy",
+      ) as HTMLDetailsElement;
+      disclosure.open = open;
+      expect(controller.__trainerSetupSmoke("capturePrivacy").ok).toBe(true);
+      expect(disclosure.open).toBe(true);
+      for (const paragraph of disclosure.querySelectorAll("p"))
+        expect(getComputedStyle(paragraph).visibility).toBe("visible");
+      expect(
+        getComputedStyle(document.getElementById("DATABASE_PATH")!).visibility,
+      ).toBe("hidden");
+      vi.advanceTimersByTime(5000);
+      expect(disclosure.open).toBe(open);
+      expect(document.querySelector('[style*="visibility"]')).toBeNull();
+      expect(invoke.mock.calls.some(([name]) => name === "start_auth")).toBe(
+        false,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it.each(["text", "nested", "extra", "overflow"])(
+  "refuses expanded privacy capture on %s and restores collapse/styles",
+  (scenario) => {
+    const disclosure = document.getElementById(
+      "garmin-privacy",
+    ) as HTMLDetailsElement;
+    if (scenario === "text")
+      disclosure.querySelector("p")!.textContent += " private";
+    if (scenario === "nested")
+      disclosure.querySelector("p")!.append(document.createElement("span"));
+    if (scenario === "extra") disclosure.append(document.createElement("p"));
+    if (scenario === "overflow")
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(24, 24, 2000, 600),
+      );
+    expect(controller.__trainerSetupSmoke("capturePrivacy").ok).toBe(false);
+    expect(disclosure.open).toBe(false);
+    expect(document.querySelector('[style*="visibility"]')).toBeNull();
   },
 );
 it("refuses disabled, hidden or ambiguous controls before dispatch", () => {

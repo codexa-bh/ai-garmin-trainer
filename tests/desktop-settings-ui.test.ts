@@ -245,7 +245,7 @@ describe("trusted local desktop settings UI", () => {
     expect(visible("connection-status")).toBe(true);
     expect(document.activeElement?.id).toBe("connection-status");
   });
-  it("removes only the specified storage paragraph even in the expanded disclosure", () => {
+  it("preserves adjacent copy without the removed storage paragraph or authentication disclaimer", () => {
     const disclosure = document.getElementById(
       "garmin-privacy",
     ) as HTMLDetailsElement;
@@ -263,7 +263,20 @@ describe("trusted local desktop settings UI", () => {
     expect(copy).toContain(
       "Email, password and one supported MFA code stay transient",
     );
-    expect(copy).toContain("Cancellation and the 180-second deadline");
+    expect(copy).toContain(
+      "Account challenges and rate limits may prevent sign-in. Only your explicit action starts login; no automatic retries.",
+    );
+    expect(
+      disclosure
+        .querySelectorAll("p")[1]
+        .textContent!.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe(
+      "Email, password and one supported MFA code stay transient in native sign-in, never saved, logged or sent to AI. Do not enter credentials in chat.",
+    );
+    expect(copy).not.toContain(
+      "Cancellation and the 180-second deadline stop owned authentication; perfect memory zeroization is not guaranteed.",
+    );
   });
   it("projects pending, MFA, verification, success and selected states without stale accessible controls", async () => {
     const original = invoke.getMockImplementation()!;

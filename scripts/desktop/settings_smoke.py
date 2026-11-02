@@ -333,6 +333,7 @@ def main():
             passed = True
             return
         captures.append({'scenario': 'concise-static-introduction', **run.command({'type': 'settings', 'action': 'captureIntro'})})
+        captures.append({'scenario': 'expanded-static-privacy-disclosure', **run.command({'type': 'settings', 'action': 'capturePrivacy'})})
         capture_garmin(run, captures, 'not-connected-back-hidden')
         run.command({'type': 'settings', 'action': 'connect'})
         wait_settings(run, lambda o: o['formVisible'], 'Connect reveals private form without login')
