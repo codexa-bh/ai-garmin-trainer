@@ -71,7 +71,7 @@ async function setup(firstRun: boolean, historyLimit = "") {
         savedFields =
           args?.input?.settings?.fields ?? args?.input?.fields ?? {};
         saved = true;
-        return "Settings committed. Quit and reopen to apply; the running backend is unchanged.";
+        return "Settings committed. Live fields applied for subsequent operations; captured work is unchanged. Other saved settings are pending explicit quit/reopen.";
       }
       throw Error("Unexpected native capability");
     },
@@ -233,6 +233,24 @@ it("nonempty invalid saved dates remain Limited until explicitly corrected or ch
   expect(choice.checked).toBe(false);
   expect(date.disabled).toBe(true);
   expect(window.__trainerHistorySetup("observe").automaticHistory).toBe(true);
+});
+it("never confuses live-only, unknown, unapplied or arbitrary Save feedback with pending history restart", async () => {
+  await setup(false);
+  const status = document.getElementById("status")!;
+  for (const message of [
+    "Settings committed. Live fields applied for subsequent operations; captured work is unchanged.",
+    "Settings committed. Live outcome unknown. Other saved settings are pending explicit quit/reopen.",
+    "Settings committed. Live fields not applied. Other saved settings are pending explicit quit/reopen.",
+    "Settings committed. Arbitrary private text pending explicit quit/reopen.",
+  ]) {
+    status.textContent = message;
+    expect(window.__trainerHistorySetup("observe").savedForNextLaunch).toBe(
+      false,
+    );
+  }
+  status.textContent =
+    "Settings committed. Quit and reopen to apply; the running backend is unchanged.";
+  expect(window.__trainerHistorySetup("observe").savedForNextLaunch).toBe(true);
 });
 it("supports only fixed optional-limit/automatic actions, next-launch Save and reversible private capture", async () => {
   const invoke = await setup(false);
