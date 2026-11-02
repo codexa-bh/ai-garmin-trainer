@@ -347,7 +347,7 @@ class Run:
         if self.other_profile_fields() != other_fields:
             raise ValueError('Non-Goals copied Profile fields changed')
         self.other_profile_hash = other_fields
-        private_json(self.root / 'scenario.json', {'navigation': 'passed' if capture else 'not enrolled: quick Profile only', 'goalsSave': 'passed', 'otherProfileFieldsUnchanged': True, 'sentinel': sentinel, 'capture': image, 'commands': self.commands, 'cleanup': 'copy-only Profile sentinel retained until scratch expiry; never copied back'})
+        private_json(self.root / 'scenario.json', {'navigation': 'passed' if capture else 'not enrolled: quick Profile only', 'goalsSave': 'passed', 'otherProfileFieldsUnchanged': True, 'sentinel': sentinel, 'capture': image, 'commands': self.commands, 'cleanup': 'copy-only Profile sentinel; final owned-disposal/retention receipt is authoritative; never copied back'})
         return sentinel
 
     def verify_restart(self, binary, sentinel):
@@ -485,7 +485,7 @@ def main():
             prepared.verify_current()
             with contextlib.closing(readonly(database)) as original:
                 unchanged = all(fingerprint(original) == run.original for run in runs)
-            receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'runs': [str(run.root) for run in runs], 'primaryUnchanged': unchanged, 'shutdownErrors': errors, 'noninterference': noninterference, 'providerAndGarmin': 'not exercised; keyless offline representative flow'}
+            receipt = {'source': source, 'resourceDisposition': resources.disposition(), 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'runs': [str(run.root) for run in runs], 'primaryUnchanged': unchanged, 'shutdownErrors': errors, 'noninterference': noninterference, 'providerAndGarmin': 'not exercised; keyless offline representative flow'}
             private_json(scratch / ('native-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
             if not unchanged or errors:
                 raise RuntimeError('Original integrity/shutdown gate failed; retained evidence')

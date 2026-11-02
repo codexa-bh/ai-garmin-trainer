@@ -74,6 +74,7 @@ class Disposables:
         self.guards = []
         self.retention = None
         self.scratch = None
+        self.receipt = None
 
     def configure(self, scratch):
         scratch = Path(scratch)
@@ -83,6 +84,8 @@ class Disposables:
         if self.scratch is not None and self.scratch != scratch:
             raise ValueError('One invocation scratch required')
         self.scratch = scratch
+        if self.receipt is None:
+            self.receipt = scratch / ('resource-disposition-' + str(uuid.uuid4()) + '.json')
         self.pin(scratch)
 
     def pin(self, directory):
@@ -214,7 +217,7 @@ class Disposables:
         for entry in self.items:
             if not entry['tree']:
                 entry['bytes'] = os.fstat(entry['fd']).st_size
-        receipt = self.scratch / ('resource-disposition-' + str(uuid.uuid4()) + '.json')
+        receipt = self.receipt
         def report():
             return {'invocationFailed': failed, 'retentionReason': reason,
                     'allocationRoots': [str(root) for root in self.roots],
@@ -295,6 +298,11 @@ def configure(scratch):
     ledger = _CURRENT.get()
     if ledger:
         ledger.configure(scratch)
+
+
+def disposition():
+    ledger = _CURRENT.get()
+    return str(ledger.receipt) if ledger and ledger.receipt else None
 
 
 def retain(reason):

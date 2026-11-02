@@ -97,7 +97,8 @@ def main():
         'runId': run.id, 'platform': platform.platform(),
         'coverage': 'Authenticated native/backend/hydrated renderer, normal Goals save, same-state owned restart, persistence, owned shutdown.',
         'exclusions': 'No private inputs, provider/Garmin/Keychain calls, parallel/navigation matrix, hardware/global input, native dialogs, release packaging or ordinary-artifact certification. Captures only with explicit --llm-debug.',
-        'cleanup': 'Synthetic seed/copy/logs deferred to scratch expiry; no copy-back or primary mutation.',
+        'resourceDisposition': resources.disposition(),
+        'cleanup': 'Final owned-disposal receipt records seed/copy removal or retention; compact logs/PNG remain; no copy-back or primary mutation.',
     }
     try:
         binary = build(scratch, source, resources_ready=args.resources_ready)

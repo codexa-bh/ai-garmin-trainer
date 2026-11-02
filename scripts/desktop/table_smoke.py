@@ -75,7 +75,8 @@ def main():
     receipt = {'source': source, 'scenario': 'synthetic-Markdown-tables', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
                'passed': False, 'run': str(run.root), 'privateInputs': 'none; fresh synthetic seed', 'providerAndGarmin': 'not invoked',
                'limits': 'Actual unmodified ordinary isolated WebView; canonical synthetic table-only geometry-preserving masks; synthetic DOM navigation, not trusted input or normal singleton certification.',
-               'cleanup': 'Synthetic seed/copy/Goals/documents/captures/logs deferred to task-scratch expiry; no primary access or copy-back.'}
+               'resourceDisposition': resources.disposition(),
+               'cleanup': 'Final owned-disposal receipt records seed/copy/bundle removal or retention; captures/logs remain; no primary access or copy-back.'}
     try:
         observer = Observer(scratch)
         run.observer = observer

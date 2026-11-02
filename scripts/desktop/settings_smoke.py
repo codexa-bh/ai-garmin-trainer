@@ -66,7 +66,8 @@ def main():
     errors = []
     receipt = {'source': source, 'scenario': 'populated-copy-keyless-native-Settings', 'runId': run.id,
                'exclusions': 'Debug Settings only; geometry-preserving synthetic provider sections, not unmasked full-window/default/ordinary Settings, first-run Finish, real provider/auth or trusted OS input.',
-               'cleanup': 'Task-owned online backup/settings/images/logs deferred to scratch expiry; no copy-back or primary mutation.'}
+               'resourceDisposition': resources.disposition(),
+               'cleanup': 'Final owned-disposal receipt records online-copy removal or retention; settings/images/logs remain; no copy-back or primary mutation.'}
     try:
         binary = build(scratch, source, resources_ready=args.resources_ready)
         observer = Observer(scratch)

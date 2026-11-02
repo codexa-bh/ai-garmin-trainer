@@ -119,7 +119,7 @@ def main():
                 raise RuntimeError('Release probe preservation/shutdown failed; retain diagnosis')
     if audit(APP) != inventory:
         raise ValueError('Ordinary artifact changed during separate probe build/launch')
-    result = {'source': source, 'ordinaryArtifactAudit': 'passed', 'ordinaryArtifactHash': artifact, 'ordinaryArtifactLaunched': False, 'instrumentedReleaseModeDenial': report, 'noDebugListener': True, 'noninterference': noninterference, 'ownedShutdown': 'passed', 'run': str(run.root)}
+    result = {'source': source, 'resourceDisposition': resources.disposition(), 'ordinaryArtifactAudit': 'passed', 'ordinaryArtifactHash': artifact, 'ordinaryArtifactLaunched': False, 'instrumentedReleaseModeDenial': report, 'noDebugListener': True, 'noninterference': noninterference, 'ownedShutdown': 'passed', 'run': str(run.root)}
     private_json(run.root / 'release-result.json', result)
     print(json.dumps(result))
 

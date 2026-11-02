@@ -561,7 +561,8 @@ def main():
                'scenarioPassed': False, 'conversationSelectionRequested': args.conversation_selection, 'composerFooterRequested': args.composer_footer, 'modelEligibilityRequested': args.model_eligibility, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
                'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
                'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
-               'cleanup': 'copy-only Goals and fixtures deferred to private task-scratch expiry; no copy-back'}
+               'resourceDisposition': resources.disposition(),
+               'cleanup': 'Final owned-disposal receipt records removed/retained copies; compact diagnostics/PNG remain; no copy-back'}
     errors = []
     try:
         for index in range(2):

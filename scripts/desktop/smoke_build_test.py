@@ -56,16 +56,24 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(sorted(report['reused'] for report in reports), [False, True])
 
     def test_changed_key_binary_resources_stamp_or_mode_cannot_hit(self):
-        for change in ('key', 'binary', 'resources', 'stamp', 'mode'):
+        for change in ('key', 'missing-binary', 'resources', 'stamp', 'mode'):
             with self.subTest(change=change):
                 self.prepare()
                 before = len(self.calls)
                 if change == 'key': self.key += 'changed'
-                if change == 'binary': self.binary.write_bytes(b'corrupt')
+                if change == 'missing-binary': self.binary.unlink()
                 if change == 'resources': self.resource.write_bytes(b'corrupt')
                 if change == 'stamp': (self.repo / 'dist/smoke-build-debug.json').write_text('{incomplete')
                 self.prepare(mode='release-probe' if change == 'mode' else 'debug')
                 self.assertEqual(len(self.calls) - before, 2)
+
+    def test_corrupted_existing_binary_refuses_instead_of_adopting_cargo_freshness(self):
+        self.prepare()
+        self.binary.write_bytes(b'corrupt existing executable')
+        before = len(self.calls)
+        with self.assertRaisesRegex(RuntimeError, 'executable changed'):
+            self.prepare()
+        self.assertEqual(len(self.calls), before)
 
     def test_explicit_resources_ready_mismatch_refuses_without_build_fallback(self):
         self.prepare()

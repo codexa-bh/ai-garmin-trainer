@@ -223,7 +223,7 @@ def prepare(scratch, args, scenario):
             original = fingerprint(db)
         details = {'route': 'authored-synthetic', 'recipeVersion': result['recipeVersion'], 'anchor': anchor, 'personalInputRead': False}
     private_json(root / 'selection.json', {'database': str(prepared)})
-    provenance = {'schemaVersion': 1, 'task': args.task_id, 'preparationRun': root.name, 'scenario': scenario, **details, 'checks': checks, 'original': original, 'publication': 'exclusive 0700/0600', 'cleanup': 'task-attributed scratch-expiry deferral; no primary copy-back'}
+    provenance = {'schemaVersion': 1, 'task': args.task_id, 'preparationRun': root.name, 'scenario': scenario, **details, 'checks': checks, 'original': original, 'publication': 'exclusive 0700/0600', 'cleanup': 'Standalone/prepare-only outputs retained; actual owning invocation disposition records copy removal or retention; no primary copy-back'}
     return PreparedInput(prepared, root, original, grant_check or (lambda: None), provenance)
 
 

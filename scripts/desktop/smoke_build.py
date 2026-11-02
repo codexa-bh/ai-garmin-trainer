@@ -91,9 +91,14 @@ def prepare(repo, scratch, source, source_identity, verify_resources, *, resourc
             raise ValueError('Prepared output alias refused')
         try:
             saved = json.loads(stamp.read_text())
+            current_binary = digest_file(binary)
+            if isinstance(saved, dict) and saved.get('key') == key and saved.get('binary') != current_binary:
+                # Cargo may call a manually corrupted existing output "fresh". Do not
+                # turn its unchanged timestamp cache into a new integrity certificate.
+                raise RuntimeError('Prepared native executable changed; refuse unverified incremental output')
             verify_resources(source)
             resource_hash = tree_digest(repo / 'src-tauri/resources')
-            hit = saved == {'key': key, 'binary': digest_file(binary), 'resources': resource_hash}
+            hit = saved == {'key': key, 'binary': current_binary, 'resources': resource_hash}
             reason = 'verified compatible preparation' if hit else 'input/mode/toolchain/output changed'
         except (OSError, ValueError, KeyError, TypeError):
             reason = 'missing, stale or corrupt preparation'
