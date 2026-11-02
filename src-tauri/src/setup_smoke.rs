@@ -325,6 +325,12 @@ mod tests {
             "captureDeepseek",
             "captureOllama",
             "captureOpenrouter",
+            "liveCatalog",
+            "liveRotate",
+            "liveClear",
+            "liveEmpty",
+            "captureLive",
+            "stopBackend",
         ] {
             assert!(serde_json::from_value::<Action>(json!(action)).is_ok());
             assert!(
@@ -332,7 +338,12 @@ mod tests {
                     .is_err()
             );
         }
-        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true})).is_ok());
+        let observation = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":true,"liveApplied":true,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"catalogReady":true,"catalogExercised":true});
+        assert!(serde_json::from_value::<Observation>(observation.clone()).is_ok());
+        let mut private = observation;
+        private["password"] = json!("private-sentinel");
+        assert!(serde_json::from_value::<Observation>(private).is_err());
+        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true})).is_err());
         for action in [
             "auth", "email", "password", "mfa", "picker", "finish", "eval", "input",
         ] {

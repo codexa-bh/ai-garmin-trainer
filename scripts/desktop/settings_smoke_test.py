@@ -58,7 +58,7 @@ class LiveRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             run = Run(root, fault)
             captures = []
-            with patch.object(settings_smoke, 'model_settings', side_effect=run.metadata), patch.object(settings_smoke, 'wait_settings', return_value={'liveApplied': True, 'pendingRestart': True, 'savedUnapplied': True}):
+            with patch.object(settings_smoke, 'model_settings', side_effect=run.metadata), patch.object(settings_smoke, 'wait_settings', side_effect=lambda *_args: {'liveApplied': True, 'pendingRestart': run.action != 'liveCatalog' or fault == 'false-restart', 'savedUnapplied': True}):
                 result = settings_smoke.live_scenario(run, captures)
             self.assertEqual(len(result), 4)
             self.assertEqual(len(captures), 4)
@@ -69,7 +69,7 @@ class LiveRunnerTests(unittest.TestCase):
         self.scenario()
 
     def test_rejects_restart_retained_key_and_preference_remap(self):
-        for fault in ['restart', 'retained-key', 'remap']:
+        for fault in ['restart', 'retained-key', 'remap', 'false-restart']:
             with self.subTest(fault=fault), self.assertRaises(ValueError):
                 self.scenario(fault)
 

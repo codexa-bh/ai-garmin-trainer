@@ -152,7 +152,39 @@ impl LiveSettings {
         }
     }
     pub fn pending_restart(&self, settings: &Settings) -> bool {
-        self.startup_fields != settings.fields
+        self.pending_fields(&settings.fields)
+    }
+    pub fn pending_fields(&self, saved: &BTreeMap<String, String>) -> bool {
+        // The real form expands omitted optional fields to the declared defaults
+        // (notably uv) and explicit empty strings. Compare effective startup
+        // inputs, not representation differences introduced by a live-only Save.
+        let Ok(fields) = serde_json::from_str::<Vec<serde_json::Value>>(include_str!(
+            "../ui/settings-fields.json"
+        )) else {
+            return true;
+        };
+        fields.iter().any(|field| {
+            let Some(key) = field["key"].as_str() else {
+                return true;
+            };
+            let default = field["default"]
+                .as_str()
+                .or_else(|| {
+                    field["options"]
+                        .as_array()
+                        .and_then(|values| values.first())
+                        .and_then(|value| value.as_str())
+                })
+                .unwrap_or("");
+            let value = |map: &BTreeMap<String, String>| {
+                map.get(key)
+                    .map(String::as_str)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(default)
+                    .to_owned()
+            };
+            value(&self.startup_fields) != value(saved)
+        })
     }
 }
 
@@ -249,6 +281,16 @@ mod tests {
             chat_catalog: Some(Default::default()),
             ..Default::default()
         };
+        assert!(!live.pending_restart(&settings));
+        settings
+            .fields
+            .insert("GARMIN_FIT_BASELINE_COMMAND".into(), "uv".into());
+        settings
+            .fields
+            .insert("GARMIN_MCP_TOKEN_DIR".into(), String::new());
+        settings
+            .fields
+            .insert("MEMORY_EMBEDDING_BASE_URL".into(), String::new());
         assert!(!live.pending_restart(&settings));
         settings
             .fields

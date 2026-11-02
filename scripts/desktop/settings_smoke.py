@@ -51,6 +51,8 @@ def live_scenario(run, captures):
         run.command({'type': 'settings', 'action': action})
         run.command({'type': 'settings', 'action': 'save'})
         observed = wait_settings(run, lambda value: value['liveApplied'], 'exact native live ack: ' + action)
+        if action == 'liveCatalog' and observed['pendingRestart']:
+            raise ValueError('Live-only Save falsely reports unrelated pending restart')
         active = model_settings(run)
         saved = json.loads((run.root / 'config/settings-v3.json').read_text())
         if action in ['liveCatalog', 'liveRotate']:

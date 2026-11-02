@@ -271,7 +271,7 @@ async fn read_settings(
                 snapshot.activation = format!("{}{}", if service.live.revision == snapshot.revision {
                     "Saved live revision is active for subsequent operations."
                 } else { "Saved live revision is not active; no automatic retry. Explicit reopen can apply saved settings." },
-                if service.live.startup_fields != snapshot.fields { " Other saved settings are pending explicit quit/reopen." } else { "" });
+                if service.live.pending_fields(&snapshot.fields) { " Other saved settings are pending explicit quit/reopen." } else { "" });
             }
         } else if service.is_some() {
             snapshot.activation = "Owned backend not running; saved settings apply on explicit reopen.".into();
