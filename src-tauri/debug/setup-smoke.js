@@ -11,6 +11,12 @@
     liveUnknown: false,
     savedUnapplied: false,
     pendingRestart: false,
+    restartVisible: false,
+    restartFocused: false,
+    saveFocused: false,
+    editsCancelled: false,
+    captureFeedbackRejected: false,
+    captureMaskRejected: false,
     catalogReady: false,
     catalogExercised: false,
     catalogWithoutDefaults: false,
@@ -213,6 +219,7 @@
       byId("connection-status")?.textContent.startsWith("Not connected.") ===
       true;
     const feedback = byId("status")?.textContent ?? "";
+    value.editsCancelled = feedback.startsWith("Edits cancelled.");
     value.saved = feedback.startsWith("Settings committed.");
     value.liveApplied =
       value.saved &&
@@ -223,6 +230,11 @@
       value.saved && feedback.includes("live fields not applied");
     value.pendingRestart =
       value.saved && feedback.includes("pending explicit quit/reopen");
+    value.restartVisible = byId("restart-required")?.open === true;
+    value.restartFocused =
+      value.restartVisible &&
+      document.activeElement === byId("restart-dismiss");
+    value.saveFocused = document.activeElement === byId("save");
     return value;
   }
   const styles = new Map();
@@ -329,6 +341,16 @@
   globalThis.__trainerSetupSmoke = (action) => {
     try {
       if (!observe().ready) throw Error("Not ready");
+      const modalActions = [
+        "observe",
+        "restartDismiss",
+        "restartEscape",
+        "restartTab",
+        "captureRestartWide",
+        "captureRestartNarrow",
+      ];
+      if (observe().restartVisible && !modalActions.includes(action))
+        throw Error("Dismiss modal before another Settings action");
       const clicks = {
         connect: "connect",
         later: "connect-later",
@@ -343,7 +365,94 @@
           document.querySelectorAll(`#${el.id}`).length !== 1
         )
           throw Error("Unavailable");
+        if (action === "save") el.focus();
         el.click();
+      } else if (["restartChange", "restartRestore"].includes(action)) {
+        if (byId("save").disabled) throw Error("Settings busy");
+        const dimensions = byId("MEMORY_EMBEDDING_DIMS");
+        if (!["1536", "2048"].includes(dimensions?.value))
+          throw Error("Not fixed dimensions");
+        dimensions.value = action === "restartChange" ? "2048" : "1536";
+        dimensions.dispatchEvent(new Event("input", { bubbles: true }));
+      } else if (
+        ["restartDismiss", "restartEscape", "restartTab"].includes(action)
+      ) {
+        if (!observe().restartFocused) throw Error("Modal focus missing");
+        const button = byId("restart-dismiss");
+        if (action === "restartDismiss") click(button);
+        else {
+          for (const shiftKey of action === "restartTab"
+            ? [false, true]
+            : [false]) {
+            button.dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: action === "restartEscape" ? "Escape" : "Tab",
+                shiftKey,
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+            if (action === "restartTab" && !observe().restartFocused)
+              throw Error("Focus escaped modal");
+          }
+        }
+      } else if (
+        ["captureRestartWide", "captureRestartNarrow"].includes(action)
+      ) {
+        restore();
+        const dialog = byId("restart-required");
+        const heading = byId("restart-heading");
+        const description = byId("restart-description");
+        const button = byId("restart-dismiss");
+        const reveal = [dialog, heading, description, button];
+        if (
+          !observe().restartFocused ||
+          dialog.tagName !== "DIALOG" ||
+          dialog.getAttribute("aria-labelledby") !== heading.id ||
+          dialog.getAttribute("aria-describedby") !== description.id ||
+          dialog.children.length !== 3 ||
+          dialog.children[0] !== heading ||
+          dialog.children[1] !== description ||
+          dialog.children[2] !== button ||
+          button.type !== "button" ||
+          [heading, description, button].some(
+            (el, index) =>
+              el.childElementCount ||
+              el.textContent.replace(/\s+/g, " ").trim() !==
+                [
+                  "Restart required",
+                  "Restart the app for these changes to take effect.",
+                  "OK",
+                ][index],
+          )
+        )
+          throw Error("Unreviewed modal");
+        for (const el of document.body.querySelectorAll("*"))
+          if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+        for (const el of reveal) style(el, "visibility", "visible");
+        if (
+          Array.from(document.body.querySelectorAll("*")).some(
+            (el) =>
+              el instanceof HTMLElement &&
+              !reveal.includes(el) &&
+              getComputedStyle(el).visibility !== "hidden",
+          )
+        )
+          throw Error("Modal mask failed");
+        for (const el of reveal) {
+          const rect = el.getBoundingClientRect();
+          if (
+            !visible(el) ||
+            rect.width <= 0 ||
+            rect.height <= 0 ||
+            rect.left < 0 ||
+            rect.top < 0 ||
+            rect.right > innerWidth ||
+            rect.bottom > innerHeight
+          )
+            throw Error("Modal overflow");
+        }
+        restoreTimer = setTimeout(restore, 5000);
       } else if (
         ["liveCatalog", "liveRotate", "liveClear", "liveEmpty"].includes(action)
       ) {
@@ -428,6 +537,10 @@
           ].includes(message)
         )
           throw Error("Unreviewed live feedback");
+        // The background WebView may otherwise scroll its retained Save focus
+        // back into view after we position the feedback. Focus-return evidence
+        // was already observed before this separate masked capture.
+        if (document.activeElement === byId("save")) byId("save").blur();
         scrollPosition = [window.scrollX, window.scrollY];
         window.scrollTo(
           0,
@@ -436,12 +549,27 @@
         for (const el of document.body.querySelectorAll("*"))
           if (el instanceof HTMLElement) style(el, "visibility", "hidden");
         style(feedback, "visibility", "visible");
+        const rect = feedback.getBoundingClientRect();
+        if (
+          !visible(feedback) ||
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          rect.left < 0 ||
+          rect.top < 0 ||
+          rect.right > innerWidth ||
+          rect.bottom > innerHeight
+        )
+          throw Error("Live feedback overflow");
         if (
           Array.from(document.body.querySelectorAll("*")).some(
             (el) =>
               el instanceof HTMLElement &&
               el !== feedback &&
-              getComputedStyle(el).visibility !== "hidden",
+              getComputedStyle(el).visibility !== "hidden" &&
+              // WebKit can retain computed visibility on the just-closed dialog
+              // subtree until layout. Non-rendered nodes cannot leak into PNGs;
+              // every rendered node other than reviewed feedback must be hidden.
+              el.getClientRects().length > 0,
           )
         )
           throw Error("Live mask failed");
@@ -473,14 +601,13 @@
       } else if (action === "captureIntro") {
         restore();
         const main = document.querySelector("body > main");
-        const intro = main ? Array.from(main.children).slice(0, 3) : [];
-        const expected = [
-          "Settings",
-          "Settings and API keys are saved locally without encryption. Saved keys are hidden.",
-          "The app can update the selected database. Close other apps using it first. Existing databases won’t be upgraded automatically.",
-        ];
+        const intro = main ? Array.from(main.children).slice(0, 1) : [];
+        const expected = ["Settings"];
         if (
-          intro.length !== 3 ||
+          intro.length !== 1 ||
+          main.children[1] !== byId("status") ||
+          byId("keys") ||
+          byId("next-launch-guidance") ||
           intro.some(
             (el, index) =>
               el.tagName !== (index === 0 ? "H1" : "P") ||
@@ -490,6 +617,19 @@
           )
         )
           throw Error("Unexpected introduction");
+        // The removed prose must be absent, not hidden/moved elsewhere.
+        if (
+          [
+            "Settings and API keys are saved locally without encryption.",
+            "The app can update the selected database.",
+            "Saved keys stay hidden behind a fixed mask.",
+            "Choose a model explicitly in Trainer.",
+            "Save can apply chat catalog and provider keys now;",
+          ].some((text) => main.textContent.replace(/\s+/g, " ").includes(text))
+        )
+          throw Error("Removed copy remains");
+        scrollPosition = [window.scrollX, window.scrollY];
+        window.scrollTo(0, 0);
         // Reveal only verified static text at its actual geometry, never status/form values.
         for (const el of document.body.querySelectorAll("*"))
           if (el instanceof HTMLElement) style(el, "visibility", "hidden");
@@ -591,9 +731,14 @@
         restoreTimer = setTimeout(restore, 5000);
       } else if (action !== "observe") throw Error("Unsupported");
       return observe();
-    } catch {
+    } catch (error) {
       restore();
-      return { ...empty(), ok: false };
+      return {
+        ...empty(),
+        ok: false,
+        captureFeedbackRejected: error.message === "Unreviewed live feedback",
+        captureMaskRejected: error.message === "Live mask failed",
+      };
     }
   };
 })();
