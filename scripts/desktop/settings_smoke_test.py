@@ -78,6 +78,18 @@ from settings_smoke import capture_garmin, verify_choice_catalog, wait_settings
 
 
 class SettingsCaptureTests(unittest.TestCase):
+    def test_live_empty_restart_observes_without_replaying_eight_row_mutation(self):
+        run = Mock()
+        state = {'version': 3, 'selected': 'entry_legacy_openai', 'available': False, 'options': []}
+        with patch.object(settings_smoke, 'wait_settings'), patch.object(settings_smoke, 'model_settings', return_value=state):
+            settings_smoke.verify_empty_restart(run, [], 'unused-live-binary', True)
+        run.command.assert_not_called()
+        run.stop.assert_not_called()
+        run.start.assert_not_called()
+        state['selected'] = 'entry_legacy_ollama'
+        with patch.object(settings_smoke, 'wait_settings'), patch.object(settings_smoke, 'model_settings', return_value=state), self.assertRaises(ValueError):
+            settings_smoke.verify_empty_restart(run, [], 'unused-live-binary', True)
+
     def test_partial_not_ready_document_never_calls_state_predicate(self):
         run = Mock()
         run.command.side_effect = [{'ok': True, 'ready': False}, {'ok': True, 'ready': True, 'emptyCatalog': True}]

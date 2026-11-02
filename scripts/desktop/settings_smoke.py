@@ -142,6 +142,27 @@ def capture_providers(run, captures, scenario):
                              **run.command({'type': 'settings', 'action': 'capture' + provider})})
 
 
+def verify_empty_restart(run, captures, binary, live_settings):
+    # catalogEmpty is a finite eight-row exercise, not an idempotent clear API.
+    # The live scenario already removed every row and explicitly restarted it.
+    if not live_settings:
+        run.command({'type': 'settings', 'action': 'catalogEmpty'})
+        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'all rows removable without default reassignment')
+        run.command({'type': 'settings', 'action': 'save'})
+        wait_settings(run, lambda o: o['liveApplied'], 'empty catalog saved and acknowledged')
+        for viewport in ['wide', 'narrow']:
+            run.command({'type': 'settings', 'action': 'catalog' + viewport.title()})
+            captures.append({'scenario': 'empty-catalog-' + viewport, **run.command({'type': 'settings', 'action': 'captureOllama'})})
+        run.command({'type': 'settings', 'action': 'close'})
+        run.stop(); run.start(binary)
+        run.command({'type': 'settings', 'action': 'open'})
+    wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'empty catalog survives owned restart')
+    choice = model_settings(run)
+    expected = 'entry_legacy_openai' if live_settings else 'entry_legacy_ollama'
+    if choice['selected'] != expected or choice['available'] or choice['options']:
+        raise ValueError('Removed choice retargeted Trainer or empty catalog did not persist')
+
+
 @resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -255,28 +276,7 @@ def main():
         capture_garmin(run, captures, 'saved-reloaded-not-connected')
         if args.provider_fields:
             capture_providers(run, captures, 'saved-restarted-fields')
-        run.command({'type': 'settings', 'action': 'catalogEmpty'})
-        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'all rows removable without default reassignment')
-        run.command({'type': 'settings', 'action': 'save'})
-        wait_settings(run, lambda o: o['liveApplied'], 'empty catalog saved and acknowledged')
-        for viewport in ['wide', 'narrow']:
-            run.command({'type': 'settings', 'action': 'catalog' + viewport.title()})
-            captures.append({'scenario': 'empty-catalog-' + viewport, **run.command({'type': 'settings', 'action': 'captureOllama'})})
-        run.command({'type': 'settings', 'action': 'close'})
-        run.stop(); run.start(binary)
-        run.command({'type': 'settings', 'action': 'open'})
-        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'empty catalog survives owned restart')
-        client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
-        try:
-            client.request('GET', '/api/model-settings')
-            response = client.getresponse(); raw = response.read(32769)
-            if response.status != 200 or len(raw) > 32768:
-                raise ValueError('Owned model metadata read failed')
-            choice = json.loads(raw)
-            if choice['version'] != 3 or choice['selected'] != ('entry_legacy_openai' if args.live_settings else 'entry_legacy_ollama') or choice['available'] or choice['options']:
-                raise ValueError('Removed prior default retargeted Trainer or empty catalog did not persist')
-        finally:
-            client.close()
+        verify_empty_restart(run, captures, binary, args.live_settings)
         receipt.update(connectLater=True, cancel=True, groupedCatalog=not args.live_settings, exactSavedIdentities=True, noDefaultControls=True, emptyCatalogSavedReloaded=True, oldDefaultRemovalRetainsUnavailableIdentity=True, activeBackendUnchanged=True, restart=True, syntheticProviderFields=args.provider_fields, staleSaveRefused=args.provider_fields)
         passed = True
     finally:
