@@ -11,6 +11,26 @@ from native_smoke import Run, canonical, fingerprint, readonly
 
 
 class OwnershipTests(unittest.TestCase):
+    def test_profile_and_model_restart_evidence_remain_exclusive_and_distinct(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            run = object.__new__(Run)
+            run.root = Path(directory).resolve()
+            run.pids = [10, 11]
+            run.other_profile_hash = 'unchanged'
+            for name in ['stop', 'start', 'command', 'wait']:
+                setattr(run, name, Mock())
+            run.other_profile_fields = Mock(return_value='unchanged')
+            run.verify_restart('owned', 'sentinel')
+            first = (run.root / 'restart.json').read_bytes()
+            run.verify_restart('owned', 'sentinel', kind='model')
+            self.assertEqual((run.root / 'restart.json').read_bytes(), first)
+            self.assertTrue((run.root / 'model-restart.json').exists())
+            self.assertEqual((run.root / 'model-restart.json').stat().st_mode & 0o777, 0o600)
+            with self.assertRaisesRegex(ValueError, 'Unknown finite'):
+                run.verify_restart('owned', 'sentinel', kind='../private')
+            self.assertEqual(run.stop.call_count, 2)
+
     def test_settings_grouped_save_receipt_accepts_only_exact_synthetic_catalog(self):
         from copy import deepcopy
         import uuid

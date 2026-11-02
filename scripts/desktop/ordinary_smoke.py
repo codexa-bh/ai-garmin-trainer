@@ -573,7 +573,7 @@ def main():
             if args.composer_footer:
                 run.composer_scenario()
                 expected_choice = run.model_choice()
-                run.verify_restart(run.binary, sentinel)
+                run.verify_restart(run.binary, sentinel, kind='model')
                 if run.model_choice() != expected_choice:
                     raise ValueError('Exact model choice changed across owned restart')
                 private_json(run.root / 'choice-restart.json', {'exactChoiceRetained': True, 'freshBoot': True})
