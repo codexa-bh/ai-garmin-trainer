@@ -30,7 +30,11 @@ class SettingsCaptureTests(unittest.TestCase):
 
     def test_only_exact_no_default_catalog_and_retained_prior_intent_pass(self):
         import copy
-        saved = {'chatCatalog': {'defaultEntryId': None, 'entries': [{'modelId': 'T0258/Exact:Tag'}]}, 'selectionCompatibility': {'catalog': {'defaultEntryId': 'entry_legacy_ollama'}}}
+        import uuid
+        providers = ['openai', 'deepseek', 'ollama', 'openrouter']
+        entries = [dict(id='entry_legacy_' + p, provider=p, modelId=f'synthetic/{p}:Case', displayName='Synthetic model') for p in providers]
+        entries += [dict(id='entry_' + str(uuid.uuid4()), provider=p, modelId=f'synthetic/{p}:Second') for p in providers]
+        saved = {'chatCatalog': {'version': 1, 'defaultEntryId': None, 'entries': entries}, 'selectionCompatibility': {'catalog': {'defaultEntryId': 'entry_legacy_ollama'}}}
         verify_choice_catalog(saved)
         for kind in ['new-default', 'substitution', 'lost-original']:
             changed = copy.deepcopy(saved)

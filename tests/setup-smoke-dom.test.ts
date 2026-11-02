@@ -32,7 +32,6 @@ beforeEach(async () => {
     if (command === "read_settings")
       return {
         revision: "synthetic-revision",
-        storage: "catalog-migration-required",
         chatCatalog: legacyChatCatalog(
           { AI_PROVIDER: "ollama" },
           { openai: false, deepseek: false },
@@ -241,6 +240,136 @@ it("expires the intro privacy mask if native capture completion never arrives", 
     vi.useRealTimers();
   }
 });
+it("exercises real grouped controls and masks only canonical synthetic provider sections at unchanged geometry", () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, 300, 45),
+  );
+  expect(controller.__trainerSetupSmoke("catalogExercise")).toMatchObject({
+    ok: true,
+    catalogReady: true,
+    catalogExercised: true,
+  });
+  expect(document.querySelectorAll(".catalog-row")).toHaveLength(8);
+  expect(
+    document.querySelectorAll('.catalog-row [aria-pressed="true"]'),
+  ).toHaveLength(0);
+  expect(document.getElementById("catalog-default")).toBeNull();
+  expect(
+    invoke.mock.calls.some(([command]) => command === "save_settings"),
+  ).toBe(false);
+  const values = Array.from(
+    document.querySelectorAll<HTMLInputElement>(".catalog-row input"),
+  ).map((el) => [el.id, el.value]);
+  for (const provider of ["Openai", "Deepseek", "Ollama", "Openrouter"]) {
+    expect(controller.__trainerSetupSmoke(`capture${provider}`).ok).toBe(true);
+    expect(
+      getComputedStyle(document.getElementById("DATABASE_PATH")!).visibility,
+    ).toBe("hidden");
+    expect(
+      getComputedStyle(document.getElementById("status")!).visibility,
+    ).toBe("hidden");
+    expect(
+      getComputedStyle(
+        document.getElementById(`catalog-${provider.toLowerCase()}-add`)!,
+      ).position,
+    ).not.toBe("fixed");
+    controller.__trainerSetupSmokeRestore();
+  }
+  expect(
+    Array.from(
+      document.querySelectorAll<HTMLInputElement>(".catalog-row input"),
+    ).map((el) => [el.id, el.value]),
+  ).toEqual(values);
+  for (const el of document.body.querySelectorAll<HTMLElement>("*"))
+    expect(el.style.cssText).toBe("");
+});
+it.each([
+  "private-model",
+  "private-key",
+  "private-label",
+  "trailing-text",
+  "nested",
+  "overflow",
+  "mask",
+])("refuses provider capture on %s and restores", (scenario) => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, scenario === "overflow" ? 2000 : 300, 45),
+  );
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(true);
+  const model = document.getElementById(
+    "entry_legacy_openai-modelId",
+  ) as HTMLInputElement;
+  if (scenario === "private-model") model.value = "private-sentinel";
+  if (scenario === "private-key")
+    (document.getElementById("OPENAI_API_KEY") as HTMLInputElement).value =
+      "private-sentinel";
+  if (scenario === "private-label")
+    model.parentElement!.firstChild!.textContent = "private-sentinel";
+  if (scenario === "trailing-text")
+    model.parentElement!.append(document.createTextNode("private-sentinel"));
+  if (scenario === "nested")
+    model.parentElement!.append(document.createElement("span"));
+  if (scenario === "mask") {
+    const original = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+      const computed = original(el, pseudo);
+      return el.id === "DATABASE_PATH"
+        ? new Proxy(computed, {
+            get(target, key) {
+              return key === "visibility"
+                ? "visible"
+                : Reflect.get(target, key);
+            },
+          })
+        : computed;
+    });
+  }
+  expect(controller.__trainerSetupSmoke("captureOpenai").ok).toBe(false);
+  for (const el of document.body.querySelectorAll<HTMLElement>("*"))
+    expect(el.style.cssText).toBe("");
+});
+it("expires provider masks and refuses mutation replay or noncanonical starting data", () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(24, 24, 300, 45),
+  );
+  expect(controller.__trainerSetupSmoke("captureOpenai").ok).toBe(false);
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(true);
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(false);
+  vi.useFakeTimers();
+  try {
+    expect(controller.__trainerSetupSmoke("captureOpenai").ok).toBe(true);
+    vi.advanceTimersByTime(5000);
+    for (const el of document.body.querySelectorAll<HTMLElement>("*"))
+      expect(el.style.cssText).toBe("");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it("removes every fixed synthetic row including prior default through actual handlers and refuses unknown starting states", async () => {
+  expect(controller.__trainerSetupSmoke("catalogEmpty").ok).toBe(false);
+  expect(
+    controller.__trainerSetupSmoke("catalogExercise").catalogWithoutDefaults,
+  ).toBe(true);
+  expect(controller.__trainerSetupSmoke("catalogEmpty")).toMatchObject({
+    ok: true,
+    emptyCatalog: true,
+    catalogWithoutDefaults: true,
+  });
+  expect(document.querySelectorAll(".catalog-row")).toHaveLength(0);
+  expect(controller.__trainerSetupSmoke("save").ok).toBe(true);
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("save_settings", expect.anything()),
+  );
+  const sent = invoke.mock.calls.find(([name]) => name === "save_settings")![1]
+    .input.chatCatalog;
+  expect(sent).toEqual({ version: 1, entries: [], defaultEntryId: null });
+  for (const action of [
+    "catalog",
+    "captureCatalog",
+    { action: "catalogEmpty", value: "private" },
+  ])
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
+});
 it.each(["captureWide", "captureNarrow"])(
   "captures %s with unchanged Garmin geometry and a finite static-only mask",
   (action) => {
@@ -289,123 +418,4 @@ it("refuses disabled, hidden or ambiguous controls before dispatch", () => {
   button.hidden = false;
   button.parentElement?.append(button.cloneNode(true));
   expect(controller.__trainerSetupSmoke("connect").ok).toBe(false);
-});
-it("drives finite actual catalog add/edit/old-default removal, Save and empty catalog without private input", async () => {
-  expect(controller.__trainerSetupSmoke("observe").catalogWithoutDefaults).toBe(
-    true,
-  );
-  expect(controller.__trainerSetupSmoke("catalog")).toMatchObject({
-    ok: true,
-    syntheticCatalog: true,
-  });
-  expect(controller.__trainerSetupSmoke("save").ok).toBe(true);
-  await waitFor(() =>
-    expect(invoke).toHaveBeenCalledWith("save_settings", expect.anything()),
-  );
-  const sent = invoke.mock.calls.find(([name]) => name === "save_settings")![1]
-    .input.chatCatalog;
-  expect(sent.defaultEntryId).toBeNull();
-  expect(sent.entries).toEqual([
-    {
-      id: expect.stringMatching(/^entry_/),
-      provider: "ollama",
-      modelId: "T0258/Exact:Tag",
-      displayName: "T0258 explicit model",
-    },
-  ]);
-  // The mock reloads the original record; deliberately re-author the finite state.
-  await waitFor(() =>
-    expect(controller.__trainerSetupSmoke("observe").savedForNextLaunch).toBe(
-      true,
-    ),
-  );
-  expect(controller.__trainerSetupSmoke("catalog").ok).toBe(true);
-  expect(controller.__trainerSetupSmoke("catalogEmpty")).toMatchObject({
-    ok: true,
-    emptyCatalog: true,
-  });
-  expect(JSON.stringify(controller.__trainerSetupSmoke("observe"))).not.toMatch(
-    /private|sqlite|Exact:Tag/,
-  );
-});
-it("captures only fixed synthetic catalog and restores/expiries masks, never paths or keys", () => {
-  expect(controller.__trainerSetupSmoke("catalog").ok).toBe(true);
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
-    new DOMRect(24, 24, 360, 500),
-  );
-  vi.useFakeTimers();
-  try {
-    for (const action of ["captureCatalog", "captureCatalogNarrow"]) {
-      expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
-      for (const id of [
-        "DATABASE_PATH",
-        "OPENAI_API_KEY",
-        "email",
-        "password",
-        "mfa",
-      ])
-        expect(getComputedStyle(document.getElementById(id)!).visibility).toBe(
-          "hidden",
-        );
-      expect(
-        getComputedStyle(document.querySelector("#catalog-entries input")!)
-          .visibility,
-      ).toBe("visible");
-      vi.advanceTimersByTime(5000);
-      expect(
-        (document.getElementById("normal") as HTMLElement).style.cssText,
-      ).toBe("");
-    }
-  } finally {
-    vi.useRealTimers();
-  }
-});
-it.each(["private-model", "private-text", "ineffective-mask", "overflow"])(
-  "refuses catalog capture %s and restores all styles",
-  (scenario) => {
-    expect(controller.__trainerSetupSmoke("catalog").ok).toBe(true);
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
-      new DOMRect(24, 24, 360, scenario === "overflow" ? 2000 : 500),
-    );
-    if (scenario === "private-model")
-      (
-        document.querySelector("#catalog-entries input") as HTMLInputElement
-      ).value = "private-sentinel";
-    if (scenario === "private-text")
-      document.querySelector("#normal > p")!.textContent = "private-sentinel";
-    if (scenario === "ineffective-mask") {
-      const original = window.getComputedStyle.bind(window);
-      vi.spyOn(window, "getComputedStyle").mockImplementation(
-        (element, pseudo) => {
-          const computed = original(element, pseudo);
-          return element.id === "DATABASE_PATH"
-            ? new Proxy(computed, {
-                get(target, key) {
-                  return key === "visibility"
-                    ? "visible"
-                    : Reflect.get(target, key);
-                },
-              })
-            : computed;
-        },
-      );
-    }
-    expect(controller.__trainerSetupSmoke("captureCatalog").ok).toBe(false);
-    for (const element of document.body.querySelectorAll("*"))
-      expect((element as HTMLElement).style.cssText).toBe("");
-  },
-);
-it("refuses unknown catalog values and arbitrary/extra action objects before mutation", () => {
-  (document.querySelector("#catalog-entries input") as HTMLInputElement).value =
-    "private-model";
-  invoke.mockClear();
-  expect(controller.__trainerSetupSmoke("catalog").ok).toBe(false);
-  expect(controller.__trainerSetupSmoke("catalogEmpty").ok).toBe(false);
-  for (const action of [
-    "catalogSecret",
-    { action: "catalog", value: "private" },
-    { action: "captureCatalog", selector: "body" },
-  ])
-    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
-  expect(invoke).not.toHaveBeenCalled();
 });

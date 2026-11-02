@@ -4,6 +4,7 @@ import contextlib
 import http.client
 import json
 import os
+import re
 import signal
 import time
 import uuid
@@ -21,17 +22,32 @@ def wait_settings(run, predicate, label):
     raise TimeoutError('Settings observation deadline: ' + label)
 
 
+def verify_catalog(catalog):
+    providers = ['openai', 'deepseek', 'ollama', 'openrouter']
+    if set(catalog) != {'version', 'entries', 'defaultEntryId'} or catalog['version'] != 1 or catalog['defaultEntryId'] is not None or len(catalog['entries']) != 8:
+        raise ValueError('Not exact synthetic catalog')
+    ids = set()
+    for index, entry in enumerate(catalog['entries']):
+        provider = providers[index % 4]
+        first = index < 4
+        expected = {'id': entry['id'], 'provider': provider, 'modelId': f'synthetic/{provider}:' + ('Case' if first else 'Second')}
+        if first:
+            expected['displayName'] = 'Synthetic model'
+        if entry != expected or entry['id'] in ids or (first and entry['id'] != f'entry_legacy_{provider}') or (not first and not re.fullmatch(r'entry_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}', entry['id'])):
+            raise ValueError('Synthetic catalog identity/order/content changed')
+        ids.add(entry['id'])
+
+
+def verify_choice_catalog(saved):
+    verify_catalog(saved['chatCatalog'])
+    if saved['selectionCompatibility']['catalog']['defaultEntryId'] != 'entry_legacy_ollama':
+        raise ValueError('Prior exact default compatibility lost before Trainer restart')
+
+
 def capture_garmin(run, captures, scenario):
     for action, size in [('captureWide', 'wide'), ('captureNarrow', 'narrow')]:
         captures.append({'scenario': scenario + '-' + size,
                          **run.command({'type': 'settings', 'action': action})})
-
-
-def verify_choice_catalog(saved):
-    if saved['chatCatalog']['defaultEntryId'] is not None or [entry['modelId'] for entry in saved['chatCatalog']['entries']] != ['T0258/Exact:Tag']:
-        raise ValueError('Explicit synthetic catalog Save changed')
-    if saved['selectionCompatibility']['catalog']['defaultEntryId'] != 'entry_legacy_ollama':
-        raise ValueError('Prior exact default compatibility lost before Trainer restart')
 
 
 def main():
@@ -53,7 +69,7 @@ def main():
     captures = []
     errors = []
     receipt = {'source': source, 'scenario': 'populated-copy-keyless-native-Settings', 'runId': run.id,
-               'exclusions': 'No ordinary artifact, full-window layout, first-run Finish, provider/token credentials, login/MFA, real integrations or OS input.',
+               'exclusions': 'Debug Settings only; geometry-preserving synthetic provider sections, not unmasked full-window/default/ordinary Settings, first-run Finish, real provider/auth or trusted OS input.',
                'cleanup': 'Task-owned online backup/settings/images/logs deferred to scratch expiry; no copy-back or primary mutation.'}
     try:
         binary = build(scratch, source, resources_ready=args.resources_ready)
@@ -75,10 +91,13 @@ def main():
         wait_settings(run, lambda o: not o['formVisible'] and o['notConnected'], 'Connect later preserves selection')
         run.command({'type': 'settings', 'action': 'cancel'})
         wait_settings(run, lambda o: o['ready'] and not o['formVisible'], 'Cancel reconciles saved state')
-        run.command({'type': 'settings', 'action': 'catalog'})
-        wait_settings(run, lambda o: o['syntheticCatalog'] and o['catalogWithoutDefaults'], 'actual add/edit/remove without default guard')
-        for action in ['captureCatalog', 'captureCatalogNarrow']:
-            captures.append({'scenario': action + '-explicit-entry', **run.command({'type': 'settings', 'action': action})})
+        exercised = run.command({'type': 'settings', 'action': 'catalogExercise'})
+        if not exercised['catalogReady'] or not exercised['catalogExercised'] or not exercised['catalogWithoutDefaults']:
+            raise ValueError('Grouped catalog exercise incomplete')
+        for viewport in ['wide', 'narrow']:
+            run.command({'type': 'settings', 'action': 'catalog' + viewport.title()})
+            for provider in ['Openai', 'Deepseek', 'Ollama', 'Openrouter']:
+                captures.append({'scenario': 'grouped-' + viewport + '-' + provider.lower(), **run.command({'type': 'settings', 'action': 'capture' + provider})})
         run.command({'type': 'settings', 'action': 'save'})
         wait_settings(run, lambda o: o['savedForNextLaunch'], 'native Save committed next-launch-only')
         after = run.http('/identity')
@@ -94,34 +113,36 @@ def main():
         run.stop()
         run.start(binary)
         run.command({'type': 'settings', 'action': 'open'})
-        wait_settings(run, lambda o: o['ready'] and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'] and o['syntheticCatalog'] and o['catalogWithoutDefaults'], 'explicit catalog survives exact-scope restart')
+        wait_settings(run, lambda o: o['ready'] and o['catalogReady'] and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'], 'saved grouped identities survive exact-scope restart')
+        if json.loads((run.root / 'config/settings-v3.json').read_text()) != saved:
+            raise ValueError('Saved catalog/fields/keys changed across restart')
         if source_identity() != source:
             raise ValueError('Source changed during Settings smoke')
         captures.append({'scenario': 'concise-introduction-after-save-restart', **run.command({'type': 'settings', 'action': 'captureIntro'})})
         capture_garmin(run, captures, 'saved-reloaded-not-connected')
-        client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
-        try:
-            client.request('GET', '/api/model-settings')
-            response = client.getresponse()
-            raw = response.read(32769)
-            if response.status != 200 or len(raw) > 32768:
-                raise ValueError('Owned choice metadata read failed')
-            choice = json.loads(raw)
-            if choice['version'] != 3 or choice['selected'] != 'entry_legacy_ollama' or choice['available']:
-                raise ValueError('Removing old default retargeted Trainer instead of retaining unavailable identity')
-        finally:
-            client.close()
         run.command({'type': 'settings', 'action': 'catalogEmpty'})
-        wait_settings(run, lambda o: o['emptyCatalog'], 'empty catalog removal')
+        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'all rows removable without default reassignment')
         run.command({'type': 'settings', 'action': 'save'})
         wait_settings(run, lambda o: o['savedForNextLaunch'], 'empty catalog saved')
-        for action in ['captureCatalog', 'captureCatalogNarrow']:
-            captures.append({'scenario': action + '-empty', **run.command({'type': 'settings', 'action': action})})
+        for viewport in ['wide', 'narrow']:
+            run.command({'type': 'settings', 'action': 'catalog' + viewport.title()})
+            captures.append({'scenario': 'empty-catalog-' + viewport, **run.command({'type': 'settings', 'action': 'captureOllama'})})
         run.command({'type': 'settings', 'action': 'close'})
         run.stop(); run.start(binary)
         run.command({'type': 'settings', 'action': 'open'})
-        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'empty catalog reload after restart')
-        receipt.update(connectLater=True, cancel=True, explicitCatalogSaved=True, oldDefaultRemovalRetainsUnavailableIdentity=True, emptyCatalogSavedAndReloaded=True, activeBackendUnchanged=True, restart=True)
+        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'empty catalog survives owned restart')
+        client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
+        try:
+            client.request('GET', '/api/model-settings')
+            response = client.getresponse(); raw = response.read(32769)
+            if response.status != 200 or len(raw) > 32768:
+                raise ValueError('Owned model metadata read failed')
+            choice = json.loads(raw)
+            if choice['version'] != 3 or choice['selected'] != 'entry_legacy_ollama' or choice['available'] or choice['options']:
+                raise ValueError('Removed prior default retargeted Trainer or empty catalog did not persist')
+        finally:
+            client.close()
+        receipt.update(connectLater=True, cancel=True, groupedCatalog=True, exactSavedIdentities=True, noDefaultControls=True, emptyCatalogSavedReloaded=True, oldDefaultRemovalRetainsUnavailableIdentity=True, activeBackendUnchanged=True, restart=True)
         passed = True
     finally:
         try:

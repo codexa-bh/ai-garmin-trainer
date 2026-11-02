@@ -148,31 +148,45 @@ impl Config {
         catalog: &crate::chat_catalog::Catalog,
         fields: &std::collections::BTreeMap<String, String>,
     ) -> bool {
-        // Fixed keyless legacy/cleared and synthetic catalog states only.
+        // Closed legacy/cleared, empty or authored grouped UI states only.
+        // Added identities, model/name/order/providers are exact, not caller text.
         let legacy = crate::chat_catalog::legacy(fields, &Default::default());
         let cleared = crate::chat_catalog::Catalog {
             default_entry_id: None,
             ..legacy.clone()
         };
-        let synthetic = crate::chat_catalog::Catalog {
-            version: 1,
-            default_entry_id: None,
-            entries: vec![crate::chat_catalog::Entry {
-                id: catalog
-                    .entries
-                    .first()
-                    .map(|entry| entry.id.clone())
-                    .unwrap_or_default(),
-                provider: "ollama".into(),
-                model_id: "T0258/Exact:Tag".into(),
-                display_name: Some("T0258 explicit model".into()),
-            }],
-        };
-        catalog.validate().is_ok()
-            && (*catalog == legacy
-                || *catalog == cleared
-                || *catalog == crate::chat_catalog::Catalog::default()
-                || *catalog == synthetic)
+        if *catalog == legacy
+            || *catalog == cleared
+            || *catalog == crate::chat_catalog::Catalog::default()
+        {
+            return true;
+        }
+        if catalog.validate().is_err()
+            || catalog.entries.len() != 8
+            || catalog.default_entry_id.is_some()
+        {
+            return false;
+        }
+        ["openai", "deepseek", "ollama", "openrouter"]
+            .iter()
+            .enumerate()
+            .all(|(index, provider)| {
+                let first = &catalog.entries[index];
+                let second = &catalog.entries[index + 4];
+                first.id == format!("entry_legacy_{provider}")
+                    && first.provider == *provider
+                    && first.model_id == format!("synthetic/{provider}:Case")
+                    && first.display_name.as_deref() == Some("Synthetic model")
+                    && second.provider == *provider
+                    && second.model_id == format!("synthetic/{provider}:Second")
+                    && second.display_name.is_none()
+                    && second
+                        .id
+                        .strip_prefix("entry_")
+                        .and_then(|id| uuid::Uuid::parse_str(id).ok())
+                        .map(|id| id.get_version_num() == 4 && second.id == format!("entry_{id}"))
+                        == Some(true)
+            })
     }
     pub fn accepts_save(&self, input: &crate::settings::SaveInput) -> bool {
         self.accepts_fields(&input.fields)
@@ -292,27 +306,39 @@ mod tests {
             expected_revision: input.expected_revision.clone(),
         };
         changed_catalog.chat_catalog.default_entry_id = None;
-        assert!(config.accepts_save(&changed_catalog)); // Clearing obsolete default is normal.
+        assert!(config.accepts_save(&changed_catalog));
         changed_catalog.chat_catalog = input.chat_catalog.clone();
         changed_catalog.chat_catalog.entries[2].model_id = "nondefault-local-model".into();
         assert!(!config.accepts_save(&changed_catalog));
-        changed_catalog.chat_catalog = crate::chat_catalog::Catalog::default();
-        assert!(config.accepts_save(&changed_catalog));
-        changed_catalog
-            .chat_catalog
-            .entries
-            .push(crate::chat_catalog::Entry {
-                id: "entry_synthetic".into(),
-                provider: "ollama".into(),
-                model_id: "T0258/Exact:Tag".into(),
-                display_name: Some("T0258 explicit model".into()),
+        let mut synthetic = crate::chat_catalog::legacy(&input.fields, &Default::default());
+        for entry in &mut synthetic.entries {
+            entry.model_id = format!("synthetic/{}:Case", entry.provider);
+            entry.display_name = Some("Synthetic model".into());
+        }
+        for provider in ["openai", "deepseek", "ollama", "openrouter"] {
+            synthetic.entries.push(crate::chat_catalog::Entry {
+                id: format!("entry_{}", uuid::Uuid::new_v4()),
+                provider: provider.into(),
+                model_id: format!("synthetic/{provider}:Second"),
+                display_name: None,
             });
-        assert!(config.accepts_save(&changed_catalog));
-        changed_catalog.chat_catalog.entries[0].display_name = Some("private-name".into());
-        assert!(!config.accepts_save(&changed_catalog));
-        changed_catalog.chat_catalog.entries[0].display_name = Some("T0258 explicit model".into());
-        changed_catalog.chat_catalog.entries[0].provider = "openai".into();
-        assert!(!config.accepts_save(&changed_catalog));
+        }
+        synthetic.default_entry_id = None;
+        assert!(config.accepts_catalog(&synthetic, &input.fields));
+        assert!(config.accepts_catalog(&crate::chat_catalog::Catalog::default(), &input.fields));
+        for case in 0..7 {
+            let mut rejected = synthetic.clone();
+            match case {
+                0 => rejected.entries[4].model_id = "private-text".into(),
+                1 => rejected.entries[4].id = "entry_not_a_uuid".into(),
+                2 => rejected.entries[0].display_name = Some("private-text".into()),
+                3 => rejected.entries[4].provider = "deepseek".into(),
+                4 => rejected.default_entry_id = Some("entry_legacy_ollama".into()),
+                5 => rejected.entries.swap(0, 1),
+                _ => rejected.entries[5].id = rejected.entries[4].id.clone(),
+            }
+            assert!(!config.accepts_catalog(&rejected, &input.fields));
+        }
         let next = root.join("config/settings-v3.json");
         let projected = crate::chat_catalog::legacy(&input.fields, &Default::default());
         let version3 = serde_json::json!({"version":3,"keys":{},"fields":input.fields,"chatCatalog":projected});

@@ -25,23 +25,15 @@ pub enum Action {
     CaptureWide,
     CaptureNarrow,
     CaptureIntro,
-    Catalog,
+    CatalogExercise,
     CatalogEmpty,
-    CaptureCatalog,
-    CaptureCatalogNarrow,
+    CatalogWide,
+    CatalogNarrow,
+    CaptureOpenai,
+    CaptureDeepseek,
+    CaptureOllama,
+    CaptureOpenrouter,
     Close,
-}
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-enum Failure {
-    None,
-    NotReady,
-    CatalogState,
-    CatalogHidden,
-    CatalogText,
-    PrivacyMask,
-    Viewport,
-    Action,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -52,10 +44,10 @@ struct Observation {
     manual_controls_absent: bool,
     not_connected: bool,
     saved_for_next_launch: bool,
+    catalog_ready: bool,
+    catalog_exercised: bool,
     catalog_without_defaults: bool,
-    synthetic_catalog: bool,
     empty_catalog: bool,
-    failure: Failure,
 }
 struct Document {
     loaded: Arc<AtomicBool>,
@@ -82,7 +74,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
         return Err("Wrong isolated Settings document".into());
     }
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogWithoutDefaults:false,syntheticCatalog:false,emptyCatalog:false,failure:'none'}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerSetupSmoke ? window.__trainerSetupSmoke({}) : {{ok:true,ready:false,formVisible:false,manualControlsAbsent:false,notConnected:false,savedForNextLaunch:false,catalogReady:false,catalogExercised:false,catalogWithoutDefaults:false,emptyCatalog:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -183,8 +175,22 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         window.close().map_err(|_| "Settings close refused")?;
         return Ok(json!({"ok":true}));
     }
-    if matches!(action, Action::Save) {
+    if !matches!(action, Action::Observe) {
         config.validate()?;
+    }
+    if matches!(action, Action::CatalogWide | Action::CatalogNarrow) {
+        let width = if matches!(action, Action::CatalogWide) {
+            1000.0
+        } else {
+            420.0
+        };
+        window
+            .set_size(tauri::LogicalSize::new(width, 850.0))
+            .map_err(|_| "Settings resize refused")?;
+        // Non-key WKWebViews can return from resize before their first compositor
+        // frame. Settle that transition before applying a scrolled privacy mask.
+        std::thread::sleep(Duration::from_millis(250));
+        return Ok(json!({"ok":true}));
     }
     if matches!(
         action,
@@ -192,14 +198,19 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             | Action::CaptureWide
             | Action::CaptureNarrow
             | Action::CaptureIntro
-            | Action::CaptureCatalog
-            | Action::CaptureCatalogNarrow
+            | Action::CaptureOpenai
+            | Action::CaptureDeepseek
+            | Action::CaptureOllama
+            | Action::CaptureOpenrouter
     ) {
         let boundary = if matches!(
             action,
-            Action::CaptureCatalog | Action::CaptureCatalogNarrow
+            Action::CaptureOpenai
+                | Action::CaptureDeepseek
+                | Action::CaptureOllama
+                | Action::CaptureOpenrouter
         ) {
-            "sanitized actual fixed synthetic catalog subtree; debug wide/narrow, repositioned not full-window or trusted input"
+            "geometry-preserving masked authored synthetic provider section; debug Settings, synthetic DOM input, not ordinary/default/trusted input"
         } else if matches!(action, Action::CaptureIntro) {
             "geometry-preserving masked actual static Settings introduction; debug only, not ordinary or trusted input"
         } else {
@@ -208,39 +219,21 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         let original_size = window
             .inner_size()
             .map_err(|_| "Settings viewport unavailable")?;
-        if matches!(
-            action,
-            Action::CaptureWide
-                | Action::CaptureNarrow
-                | Action::CaptureCatalog
-                | Action::CaptureCatalogNarrow
-        ) {
-            let catalog = matches!(
-                action,
-                Action::CaptureCatalog | Action::CaptureCatalogNarrow
-            );
-            let width = if matches!(action, Action::CaptureNarrow | Action::CaptureCatalogNarrow) {
+        if matches!(action, Action::CaptureWide | Action::CaptureNarrow) {
+            let width = if matches!(action, Action::CaptureNarrow) {
                 420.0
-            } else if catalog {
-                900.0
             } else {
                 1000.0
             };
-            // Include the real single-row form and visible compatibility notice;
-            // this is a bounded subtree capture, not a normal-window fit claim.
-            let height = if catalog { 1200.0 } else { 1000.0 };
             window
-                .set_size(tauri::LogicalSize::new(width, height))
+                .set_size(tauri::LogicalSize::new(width, 1000.0))
                 .map_err(|_| "Settings viewport refused")?;
             std::thread::sleep(Duration::from_millis(150));
         }
         let result = (|| {
             let prepared = evaluate(&window, &action)?;
             if !prepared.ok {
-                return Err(format!(
-                    "Settings sanitizer refused: {:?}",
-                    prepared.failure
-                ));
+                return Err("Settings sanitizer refused".into());
             }
             std::thread::sleep(Duration::from_millis(150));
             let bytes = crate::dev_bridge::capture::png(&window)?;
@@ -289,26 +282,16 @@ mod tests {
     }
     #[test]
     fn actions_and_observations_exclude_private_controls_and_text() {
-        for name in [
-            "catalog",
-            "catalogEmpty",
-            "captureCatalog",
-            "captureCatalogNarrow",
-        ] {
-            let action: Action = serde_json::from_value(json!(name)).unwrap();
-            assert_eq!(serde_json::to_value(action).unwrap(), json!(name));
-            assert!(
-                serde_json::from_value::<Action>(json!({"action":name,"value":"private"})).is_err()
-            );
-        }
-        let observed = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogWithoutDefaults":true,"syntheticCatalog":true,"emptyCatalog":false,"failure":"none"});
-        assert!(serde_json::from_value::<Observation>(observed.clone()).is_ok());
-        let mut extra = observed.clone();
-        extra["modelId"] = json!("private");
-        assert!(serde_json::from_value::<Observation>(extra).is_err());
-        let mut text = observed;
-        text["syntheticCatalog"] = json!("private");
-        assert!(serde_json::from_value::<Observation>(text).is_err());
+        assert!(serde_json::from_value::<Action>(json!("catalogEmpty")).is_ok());
+        assert!(serde_json::from_value::<Action>(
+            json!({"action":"catalogEmpty","value":"private"})
+        )
+        .is_err());
+        let current = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":false,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":true});
+        assert!(serde_json::from_value::<Observation>(current.clone()).is_ok());
+        let mut invalid = current;
+        invalid["emptyCatalog"] = json!("private");
+        assert!(serde_json::from_value::<Observation>(invalid).is_err());
         assert!(matches!(
             serde_json::from_value::<Action>(json!("captureIntro")).unwrap(),
             Action::CaptureIntro
@@ -324,6 +307,22 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<Action>(value).is_err());
         }
+        for action in [
+            "catalogExercise",
+            "catalogWide",
+            "catalogNarrow",
+            "captureOpenai",
+            "captureDeepseek",
+            "captureOllama",
+            "captureOpenrouter",
+        ] {
+            assert!(serde_json::from_value::<Action>(json!(action)).is_ok());
+            assert!(
+                serde_json::from_value::<Action>(json!({"action":action,"value":"private"}))
+                    .is_err()
+            );
+        }
+        assert!(serde_json::from_value::<Observation>(json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"savedForNextLaunch":false,"catalogReady":true,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":false})).is_ok());
         for action in [
             "auth", "email", "password", "mfa", "picker", "finish", "eval", "input",
         ] {

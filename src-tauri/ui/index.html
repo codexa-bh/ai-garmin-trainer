@@ -43,17 +43,115 @@
           <legend>Chat model catalog</legend>
           <p>
             Add up to 32 entries across OpenAI, DeepSeek, Ollama and OpenRouter.
-            Enter literal provider model IDs; names are optional. Each provider
-            shares its key below. Local configuration is not remote
-            availability.
+            Enter exact model IDs; names are optional. Keys are shared per
+            provider. Local configuration is not remote availability.
           </p>
           <p id="catalog-migration" hidden>
             Legacy models are shown for explicit compatibility on Save. Original
             settings are retained. Missing keys never choose another provider.
             Existing chat preferences map only to an exact provider/model match.
           </p>
-          <div id="catalog-entries"></div>
-          <button type="button" id="catalog-add">Add chat model</button>
+          <p id="catalog-limit" class="helper" role="status"></p>
+          <div id="catalog-entries">
+            <section
+              class="catalog-provider"
+              id="catalog-openai"
+              aria-labelledby="catalog-openai-heading"
+            >
+              <header>
+                <h2 id="catalog-openai-heading">OpenAI</h2>
+                <button
+                  type="button"
+                  class="catalog-add"
+                  id="catalog-openai-add"
+                  aria-label="Add OpenAI model"
+                >
+                  Add model
+                </button>
+              </header>
+              <div id="catalog-openai-rows"></div>
+              <div id="catalog-openai-config"></div>
+              <p class="helper">
+                One key for OpenAI chat and independently configured
+                embeddings/extraction.
+              </p>
+            </section>
+            <section
+              class="catalog-provider"
+              id="catalog-deepseek"
+              aria-labelledby="catalog-deepseek-heading"
+            >
+              <header>
+                <h2 id="catalog-deepseek-heading">DeepSeek</h2>
+                <button
+                  type="button"
+                  class="catalog-add"
+                  id="catalog-deepseek-add"
+                  aria-label="Add DeepSeek model"
+                >
+                  Add model
+                </button>
+              </header>
+              <div id="catalog-deepseek-rows"></div>
+              <div id="catalog-deepseek-config"></div>
+              <p class="helper">
+                One key for DeepSeek chat and independently configured
+                extraction.
+              </p>
+            </section>
+            <section
+              class="catalog-provider"
+              id="catalog-ollama"
+              aria-labelledby="catalog-ollama-heading"
+            >
+              <header>
+                <h2 id="catalog-ollama-heading">Ollama</h2>
+                <button
+                  type="button"
+                  class="catalog-add"
+                  id="catalog-ollama-add"
+                  aria-label="Add Ollama model"
+                >
+                  Add model
+                </button>
+              </header>
+              <div id="catalog-ollama-rows"></div>
+              <details>
+                <summary>Chat connection</summary>
+                <div id="catalog-ollama-config"></div>
+              </details>
+              <p class="helper">
+                No key. Manage the local daemon/models separately; embeddings
+                stay independent.
+              </p>
+            </section>
+            <section
+              class="catalog-provider"
+              id="catalog-openrouter"
+              aria-labelledby="catalog-openrouter-heading"
+            >
+              <header>
+                <h2 id="catalog-openrouter-heading">OpenRouter</h2>
+                <button
+                  type="button"
+                  class="catalog-add"
+                  id="catalog-openrouter-add"
+                  aria-label="Add OpenRouter model"
+                >
+                  Add model
+                </button>
+              </header>
+              <div id="catalog-openrouter-rows"></div>
+              <div id="catalog-openrouter-config"></div>
+              <p class="helper">
+                Optional cloud routing; no automatic fallback.
+              </p>
+            </section>
+          </div>
+          <p class="helper">
+            Existing keys stay hidden. Unchanged keeps the saved key; Replace or
+            Clear is explicit.
+          </p>
           <p>
             Choose a model explicitly in Trainer. A removed selected entry stays
             unavailable until you choose a replacement there.
@@ -135,13 +233,6 @@
             </p>
           </details>
         </fieldset>
-        <fieldset id="keys">
-          <legend>Provider keys — private file</legend>
-          <p>
-            Existing keys are never displayed. Blank inputs keep the existing
-            key. Choose Clear explicitly to remove its reference.
-          </p>
-        </fieldset>
         <section id="migration" hidden aria-labelledby="migration-heading">
           <h2 id="migration-heading">Legacy settings need one-time adoption</h2>
           <p>
@@ -216,7 +307,7 @@
             <legend>External tool executables</legend>
           </fieldset>
           <fieldset id="advanced">
-            <legend>Local chat connection</legend>
+            <legend>Preserved extraction and title configuration</legend>
             <p id="extraction-compatibility"></p>
           </fieldset>
         </details>

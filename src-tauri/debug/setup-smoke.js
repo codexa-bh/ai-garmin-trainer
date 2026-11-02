@@ -7,10 +7,10 @@
     manualControlsAbsent: false,
     notConnected: false,
     savedForNextLaunch: false,
+    catalogReady: false,
+    catalogExercised: false,
     catalogWithoutDefaults: false,
-    syntheticCatalog: false,
     emptyCatalog: false,
-    failure: "none",
   });
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -20,6 +20,104 @@
     getComputedStyle(el).visibility !== "hidden" &&
     el.getClientRects().length > 0;
   const byId = (id) => document.getElementById(id);
+  const providers = ["openai", "deepseek", "ollama", "openrouter"];
+  let exercised = false;
+  const rows = (provider) =>
+    Array.from(byId(`catalog-${provider}-rows`).children);
+  const model = (row) => row.querySelector('input[id$="-modelId"]');
+  const name = (row) => row.querySelector('input[id$="-displayName"]');
+  function keyless() {
+    return ["OPENAI", "DEEPSEEK", "OPENROUTER"].every(
+      (provider) =>
+        byId(`${provider}_API_KEY-status`)?.textContent === "not configured" &&
+        byId(`${provider}_API_KEY-intent`)?.value === "unchanged" &&
+        byId(`${provider}_API_KEY`)?.value === "",
+    );
+  }
+  function syntheticCatalog() {
+    return (
+      keyless() &&
+      !byId("catalog-default") &&
+      !document.querySelector('.catalog-row [aria-label^="Default"]') &&
+      document.querySelectorAll(".catalog-row").length === 8 &&
+      providers.every((provider) => {
+        const group = rows(provider);
+        return (
+          group.length === 2 &&
+          group[0].dataset.entryId === `entry_legacy_${provider}` &&
+          /^entry_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+            group[1].dataset.entryId,
+          ) &&
+          model(group[0])?.value === `synthetic/${provider}:Case` &&
+          name(group[0])?.value === "Synthetic model" &&
+          model(group[1])?.value === `synthetic/${provider}:Second` &&
+          name(group[1])?.value === ""
+        );
+      })
+    );
+  }
+  function click(element) {
+    if (
+      !visible(element) ||
+      element.disabled ||
+      (element.id && document.querySelectorAll(`#${element.id}`).length !== 1)
+    )
+      throw Error("Unavailable control");
+    element.click();
+  }
+  function edit(element, value) {
+    if (!visible(element) || element.disabled) throw Error("Unavailable input");
+    element.value = value;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function exerciseCatalog() {
+    const legacyModels = [
+      "gpt-6-luna",
+      "deepseek-flash",
+      "qwen3.5:4b",
+      "nvidia/nemotron-3.5-lightning:free",
+    ];
+    if (
+      !keyless() ||
+      byId("catalog-default") ||
+      document.querySelector('.catalog-row [aria-label^="Default"]') ||
+      document.querySelectorAll(".catalog-row").length !== 4 ||
+      !providers.every(
+        (provider, index) =>
+          rows(provider).length === 1 &&
+          rows(provider)[0].dataset.entryId === `entry_legacy_${provider}` &&
+          model(rows(provider)[0]).value === legacyModels[index] &&
+          name(rows(provider)[0]).value === "",
+      )
+    )
+      throw Error("Not exact legacy catalog");
+    // Actual app controls only. No application-state injection or caller input.
+    for (const provider of providers) {
+      edit(model(rows(provider)[0]), `synthetic/${provider}:Case`);
+      edit(name(rows(provider)[0]), "Synthetic model");
+      click(byId(`catalog-${provider}-add`));
+      if (document.activeElement !== model(rows(provider)[1]))
+        throw Error("Add focus lost");
+      edit(model(rows(provider)[1]), `synthetic/${provider}:Second`);
+    }
+    edit(model(rows("openai")[1]), "synthetic/openai:Case");
+    if (
+      model(rows("openai")[1]).validity.valid ||
+      !rows("openai")[1]
+        .querySelector(".catalog-error")
+        .textContent.includes("Duplicate")
+    )
+      throw Error("Duplicate not explained");
+    edit(model(rows("openai")[1]), "synthetic/openai:Second");
+    click(byId("catalog-deepseek-add"));
+    click(rows("deepseek")[2].querySelector('button[aria-label^="Remove"]'));
+    if (
+      document.activeElement !== model(rows("deepseek")[1]) ||
+      !syntheticCatalog()
+    )
+      throw Error("Removal/draft identity lost");
+    exercised = true;
+  }
   function observe() {
     const value = empty();
     value.ready =
@@ -27,11 +125,13 @@
       byId("AI_PROVIDER").value === "ollama" &&
       byId("OPENAI_API_KEY-status")?.textContent === "not configured";
     if (!value.ready) return value;
+    value.catalogReady = syntheticCatalog();
+    value.catalogExercised = exercised;
     value.catalogWithoutDefaults =
       !byId("catalog-default") &&
-      !document.querySelector('[aria-label="Reset to configured default"]');
-    value.syntheticCatalog = syntheticCatalog();
-    value.emptyCatalog = rows().length === 0;
+      !document.querySelector('.catalog-row [aria-label^="Default"]');
+    value.emptyCatalog =
+      keyless() && document.querySelectorAll(".catalog-row").length === 0;
     value.formVisible = visible(byId("auth"));
     value.manualControlsAbsent = [
       "GARMIN_MCP_TOKEN_DIR",
@@ -47,57 +147,6 @@
       ) === true;
     return value;
   }
-  const rows = () => [
-    ...document.querySelectorAll("#catalog-entries fieldset"),
-  ];
-  const rowValues = (row) =>
-    [...row.querySelectorAll("select,input")].map((el) => el.value);
-  function syntheticCatalog() {
-    return (
-      rows().length === 1 &&
-      JSON.stringify(rowValues(rows()[0])) ===
-        JSON.stringify(["ollama", "T0258/Exact:Tag", "T0258 explicit model"])
-    );
-  }
-  function click(el) {
-    if (!visible(el) || el.disabled) throw Error("Unavailable control");
-    el.click();
-  }
-  function set(el, value) {
-    if (!visible(el) || el.disabled) throw Error("Unavailable input");
-    el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-  function catalogAction(action) {
-    if (!observe().catalogWithoutDefaults)
-      throw Error("Default control remains");
-    if (action === "catalogEmpty") {
-      if (!syntheticCatalog())
-        throw Error("Only fixed synthetic catalog may be removed");
-      click(rows()[0].querySelector("button"));
-      return;
-    }
-    const expected = [
-      ["openai", "gpt-6-luna", ""],
-      ["deepseek", "deepseek-flash", ""],
-      ["ollama", "qwen3.5:4b", ""],
-      ["openrouter", "nvidia/nemotron-3.5-lightning:free", ""],
-    ];
-    if (JSON.stringify(rows().map(rowValues)) !== JSON.stringify(expected))
-      throw Error("Noncanonical input catalog");
-    // Includes removal of the old configured-default row, through real handlers.
-    for (let index = 0; index < 4; index++)
-      click(rows()[0].querySelector("button"));
-    click(byId("catalog-add"));
-    const [provider, model, name] = rows()[0].querySelectorAll("select,input");
-    set(provider, "ollama");
-    set(model, "T0258/Initial:Tag");
-    set(model, "T0258/Exact:Tag");
-    set(name, "T0258 explicit model");
-    if (!syntheticCatalog())
-      throw Error("Synthetic catalog edit did not apply");
-  }
   const styles = new Map();
   let restoreTimer;
   let scrollPosition;
@@ -112,6 +161,99 @@
     if (scrollPosition) window.scrollTo(...scrollPosition);
     scrollPosition = null;
   }
+  function captureProvider(provider) {
+    restore();
+    if (
+      !syntheticCatalog() &&
+      !(observe().emptyCatalog && observe().catalogWithoutDefaults)
+    )
+      throw Error("Not canonical synthetic catalog");
+    const root = byId(`catalog-${provider}`);
+    const reveal = [root.querySelector("h2"), byId(`catalog-${provider}-add`)];
+    if (
+      reveal[0].textContent !==
+        {
+          openai: "OpenAI",
+          deepseek: "DeepSeek",
+          ollama: "Ollama",
+          openrouter: "OpenRouter",
+        }[provider] ||
+      reveal[0].childElementCount !== 0 ||
+      reveal[1].textContent.trim() !== "Add model" ||
+      reveal[1].childElementCount !== 0
+    )
+      throw Error("Unexpected provider header");
+    for (const row of rows(provider)) {
+      const labels = Array.from(row.querySelectorAll("label"));
+      const buttons = Array.from(row.querySelectorAll("button"));
+      if (
+        labels.length !== 2 ||
+        buttons.length !== 1 ||
+        row.querySelectorAll("input").length !== 2 ||
+        labels.some(
+          (label, index) =>
+            label.childElementCount !== 1 ||
+            label.textContent !== ["Model ID", "Name (optional)"][index],
+        ) ||
+        buttons.some(
+          (button) =>
+            button.childElementCount !== 0 || button.textContent !== "Remove",
+        )
+      )
+        throw Error("Unexpected row content");
+      reveal.push(...labels, model(row), name(row), ...buttons);
+    }
+    if (provider !== "ollama") {
+      const slot = `${provider.toUpperCase()}_API_KEY`;
+      const input = byId(slot),
+        intent = byId(`${slot}-intent`),
+        state = byId(`${slot}-status`),
+        label = input.parentElement;
+      if (
+        label.firstChild?.textContent !== provider.toUpperCase() ||
+        label.childElementCount !== 3 ||
+        label.textContent !==
+          `${provider.toUpperCase()}not configuredunchangedreplaceclear` ||
+        state.childElementCount !== 0 ||
+        intent.options.length !== 3 ||
+        Array.from(intent.options).some(
+          (option, index) =>
+            option.value !== ["unchanged", "replace", "clear"][index] ||
+            option.textContent !== option.value,
+        )
+      )
+        throw Error("Unexpected key control");
+      reveal.push(label, input, intent, state, ...intent.options);
+    }
+    // No layout mutation/repositioning: scroll a real section into the viewport.
+    // Reveal only individually verified nodes; unknown descendants remain masked.
+    scrollPosition = [window.scrollX, window.scrollY];
+    window.scrollTo(0, window.scrollY + root.getBoundingClientRect().top - 16);
+    for (const el of document.body.querySelectorAll("*"))
+      if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+    for (const el of reveal) style(el, "visibility", "visible");
+    if (
+      Array.from(document.body.querySelectorAll("*")).some(
+        (el) =>
+          el instanceof HTMLElement &&
+          !reveal.includes(el) &&
+          getComputedStyle(el).visibility !== "hidden",
+      )
+    )
+      throw Error("Ineffective mask");
+    for (const el of reveal.filter((el) => el.tagName !== "OPTION")) {
+      const rect = el.getBoundingClientRect();
+      if (
+        !visible(el) ||
+        rect.left < 0 ||
+        rect.right > window.innerWidth ||
+        rect.top < 0 ||
+        rect.bottom > window.innerHeight
+      )
+        throw Error("Provider overflow");
+    }
+    restoreTimer = setTimeout(restore, 5000);
+  }
   globalThis.__trainerSetupSmokeRestore = restore;
   globalThis.__trainerSetupSmoke = (action) => {
     try {
@@ -122,76 +264,7 @@
         save: "save",
         cancel: "cancel",
       };
-      if (action === "catalog" || action === "catalogEmpty") {
-        catalogAction(action);
-      } else if (
-        action === "captureCatalog" ||
-        action === "captureCatalogNarrow"
-      ) {
-        restore();
-        if (
-          !observe().catalogWithoutDefaults ||
-          (!syntheticCatalog() && rows().length !== 0)
-        )
-          throw Error("Noncanonical catalog capture");
-        const root = byId("normal");
-        if (!visible(root)) throw Error("Catalog hidden");
-        for (const el of document.body.querySelectorAll("*"))
-          if (el instanceof HTMLElement) style(el, "visibility", "hidden");
-        const approved = new Set([
-          "Chat model catalog",
-          "Add chat model",
-          "Chat model 1",
-          "Remove chat model 1",
-          "Provider — chat model 1",
-          "Exact model ID — chat model 1",
-          "Friendly name (optional) — chat model 1",
-          "Add up to 32 entries across OpenAI, DeepSeek, Ollama and OpenRouter. Enter literal provider model IDs; names are optional. Each provider shares its key below. Local configuration is not remote availability.",
-          "Choose a model explicitly in Trainer. A removed selected entry stays unavailable until you choose a replacement there.",
-          "Legacy models are shown for explicit compatibility on Save. Original settings are retained. Missing keys never choose another provider. Existing chat preferences map only to an exact provider/model match.",
-          "openai",
-          "deepseek",
-          "ollama",
-          "openrouter",
-        ]);
-        style(root, "visibility", "visible");
-        for (const el of root.querySelectorAll(
-          "legend,p,label,button,input,select,option",
-        )) {
-          if (el.closest("[hidden]")) continue;
-          const ownText = [...el.childNodes]
-            .filter((node) => node.nodeType === Node.TEXT_NODE)
-            .map((node) => node.textContent)
-            .join("")
-            .replace(/\s+/g, " ")
-            .trim();
-          if (["INPUT", "SELECT"].includes(el.tagName) || approved.has(ownText))
-            style(el, "visibility", "visible");
-          else throw Error("Unknown catalog text");
-        }
-        for (const [key, value] of Object.entries({
-          position: "fixed",
-          top: "24px",
-          left: "24px",
-          width: "calc(100% - 48px)",
-          "box-sizing": "border-box",
-          "background-color": "#12251c",
-        }))
-          style(root, key, value);
-        if (
-          Array.from(document.body.querySelectorAll("*")).some(
-            (el) =>
-              el instanceof HTMLElement &&
-              !root.contains(el) &&
-              el !== root &&
-              getComputedStyle(el).visibility !== "hidden",
-          )
-        )
-          throw Error("Catalog privacy mask ineffective");
-        if (root.getBoundingClientRect().bottom > innerHeight - 8)
-          throw Error("Catalog capture overflow");
-        restoreTimer = setTimeout(restore, 5000);
-      } else if (action in clicks) {
+      if (action in clicks) {
         const el = byId(clicks[action]);
         if (
           !visible(el) ||
@@ -200,6 +273,28 @@
         )
           throw Error("Unavailable");
         el.click();
+      } else if (action === "catalogExercise") {
+        exerciseCatalog();
+      } else if (action === "catalogEmpty") {
+        if (!syntheticCatalog())
+          throw Error("Only canonical synthetic catalog may be removed");
+        for (const provider of providers) {
+          while (rows(provider).length)
+            click(
+              rows(provider)[0].querySelector('button[aria-label^="Remove"]'),
+            );
+        }
+        if (!observe().emptyCatalog)
+          throw Error("Catalog removal did not apply");
+      } else if (
+        [
+          "captureOpenai",
+          "captureDeepseek",
+          "captureOllama",
+          "captureOpenrouter",
+        ].includes(action)
+      ) {
+        captureProvider(action.slice(7).toLowerCase());
       } else if (action === "captureIntro") {
         restore();
         const main = document.querySelector("body > main");
@@ -321,28 +416,9 @@
         restoreTimer = setTimeout(restore, 5000);
       } else if (action !== "observe") throw Error("Unsupported");
       return observe();
-    } catch (error) {
-      const failure =
-        {
-          "Not ready": "not-ready",
-          "Noncanonical catalog capture": "catalog-state",
-          "Catalog hidden": "catalog-hidden",
-          "Unknown catalog text": "catalog-text",
-          "Catalog privacy mask ineffective": "privacy-mask",
-          "Catalog capture overflow": "viewport",
-        }[error?.message] ?? "action";
-      if (
-        [
-          "capture",
-          "captureWide",
-          "captureNarrow",
-          "captureIntro",
-          "captureCatalog",
-          "captureCatalogNarrow",
-        ].includes(action)
-      )
-        restore();
-      return { ...empty(), ok: false, failure };
+    } catch {
+      if (typeof action === "string" && action.startsWith("capture")) restore();
+      return { ...empty(), ok: false };
     }
   };
 })();
