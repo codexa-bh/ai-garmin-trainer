@@ -75,18 +75,30 @@ class Disposables:
         self.retention = None
         self.scratch = None
         self.receipt = None
+        self.categories = None
 
     def configure(self, scratch):
         scratch = Path(scratch)
         info = scratch.stat()
-        if not scratch.is_absolute() or scratch.resolve(strict=True) != scratch or scratch.is_symlink() or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-            raise ValueError('Canonical owner-private invocation scratch required')
+        if not scratch.is_absolute() or scratch.resolve(strict=True) != scratch or scratch.is_symlink() or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+            raise ValueError('Canonical owner-controlled invocation scratch required')
         if self.scratch is not None and self.scratch != scratch:
             raise ValueError('One invocation scratch required')
         self.scratch = scratch
+        if self.categories is None:
+            from smoke_categories import CategoryPaths
+            self.categories = CategoryPaths(scratch)
+        for target in (self.categories.evidence, self.categories.disposable):
+            target_info = target.lstat()
+            if (not stat.S_ISDIR(target_info.st_mode) or target_info.st_uid != os.getuid()
+                    or target_info.st_mode & 0o077 or target.resolve(strict=True) != target):
+                raise ValueError('Canonical owner-private invocation storage required; never chmod/adopt')
         if self.receipt is None:
-            self.receipt = scratch / ('resource-disposition-' + str(uuid.uuid4()) + '.json')
+            self.receipt = self.categories.evidence / ('resource-disposition-' + str(uuid.uuid4()) + '.json')
         self.pin(scratch)
+        self.pin(self.categories.evidence)
+        self.pin(self.categories.disposable)
+        return self.categories.evidence
 
     def pin(self, directory):
         directory = Path(directory)
@@ -219,6 +231,13 @@ class Disposables:
                     self.verify(entry, self.roots[entry['path'].parent][0], entry['path'].name)
             except Exception as error:
                 reason = type(error).__name__ + ': ' + str(error)
+        try:
+            if self.categories:
+                self.categories.archive(self)  # Evidence before owned bulk disposal.
+        except Exception as error:
+            reason = type(error).__name__ + ': ' + str(error)
+        if reason and self.categories:
+            self.categories.preserve()  # No data deletion or closure-clock renewal.
         for entry in self.items:
             if not entry['tree']:
                 if entry['fd'] is not None:
@@ -234,11 +253,18 @@ class Disposables:
         def report():
             return {'invocationFailed': failed, 'retentionReason': reason,
                     'allocationRoots': [str(root) for root in self.roots],
+                    'evidenceRoot': str(self.categories.evidence) if self.categories else None,
+                    'disposableRoot': str(self.categories.disposable) if self.categories else None,
+                    'recoveryHold': bool(reason and self.categories and self.categories.task),
                     'preserved': 'Run roots, compact evidence/PNG/logs, dynamic WebView/home state and unknown sidecars; never historical, borrowed or worktree cleanup.',
                     'artifacts': [{key: str(value) if isinstance(value, Path) else value for key, value in entry.items() if key in ('path', 'status', 'bytes', 'quarantine')} for entry in self.items]}
         # Evidence must be writable before deletion; exclusive manifest survives partial disposal.
-        with receipt.open('x') as output:
+        self.check_root(receipt.parent)
+        parent = self.roots[receipt.parent][0]
+        with os.fdopen(os.open(receipt.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent), 'w') as output:
             json.dump(report(), output, indent=2)
+            output.flush()
+            os.fsync(output.fileno())
         cleanup_error = None
         if not reason:
             for entry in self.items:
@@ -248,10 +274,15 @@ class Disposables:
                     cleanup_error = error
                     reason = type(error).__name__ + ': ' + str(error)
                     break
+        if cleanup_error and self.categories:
+            self.categories.preserve()
         temporary = receipt.with_suffix('.partial')
-        with temporary.open('x') as output:
+        self.check_root(receipt.parent)
+        with os.fdopen(os.open(temporary.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent), 'w') as output:
             json.dump(report(), output, indent=2)
-        os.replace(temporary, receipt)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary.name, receipt.name, src_dir_fd=parent, dst_dir_fd=parent)
         print(json.dumps({'resourceDisposition': str(receipt), 'removedBytes': sum(entry['bytes'] for entry in self.items if entry['status'] == 'removed'), 'retentionReason': reason}))
         if not failed and (cleanup_error or (reason and not self.retention)):
             raise RuntimeError('Owned disposal deferred/failed; inspect disposition receipt') from cleanup_error
@@ -298,6 +329,11 @@ def invocation(main):
             try:
                 ledger.finish(failed)
             except BaseException:
+                if ledger.categories:
+                    try:
+                        ledger.categories.preserve()
+                    except Exception:
+                        print('Recovery hold unavailable; keep task open and reconcile exact allocation before closure.', file=sys.stderr)
                 if not failed:
                     raise
                 # Never replace an original scenario/cancellation/preservation/receipt failure.
@@ -310,8 +346,20 @@ def invocation(main):
 
 def configure(scratch):
     ledger = _CURRENT.get()
-    if ledger:
-        ledger.configure(scratch)
+    return ledger.configure(scratch) if ledger else scratch
+
+
+def runtime_path(path):
+    ledger = _CURRENT.get()
+    return ledger.categories.runtime_path(path) if ledger and ledger.categories else path
+
+
+def run_directory(path):
+    result = directory(runtime_path(path))
+    ledger = _CURRENT.get()
+    if ledger and ledger.categories:
+        ledger.categories.runs.append(result)
+    return result
 
 
 def disposition():

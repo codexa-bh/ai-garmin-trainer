@@ -60,7 +60,7 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
-    resources.configure(scratch)
+    scratch = resources.configure(scratch)
     selected = canonical(args.input_file)
     if selected.stat().st_mode & 0o077:
         raise ValueError('Input selection must be private')
