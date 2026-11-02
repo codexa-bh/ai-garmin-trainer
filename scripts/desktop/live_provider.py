@@ -12,6 +12,10 @@ NEW = 'Synthetic/Local:two'
 ANSWER = 'Synthetic local snapshot retained.'
 
 
+def terminal_arguments():
+    return {'completion': {'kind': 'coaching', 'answer': ANSWER, 'claims': [], 'missingEvidence': []}}
+
+
 class LiveProvider:
     def __init__(self, port=PORT):
         if port not in [0, PORT]:
@@ -19,6 +23,8 @@ class LiveProvider:
         self.entered = threading.Event()
         self.release = threading.Event()
         self.models = []
+        self.observations = []
+        self.conversations = []
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -48,9 +54,8 @@ class LiveProvider:
                     if not owner.release.wait(20):
                         self.send_error(504)
                         return
-                completion = {'kind': 'coaching', 'answer': ANSWER, 'claims': [], 'missingEvidence': []}
                 value = {'id': 'synthetic-completion', 'object': 'chat.completion', 'created': 1, 'model': model,
-                         'choices': [{'index': 0, 'finish_reason': 'tool_calls', 'message': {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'synthetic-terminal', 'type': 'function', 'function': {'name': 'completeTrainerTurn', 'arguments': json.dumps(completion)}}]}}],
+                         'choices': [{'index': 0, 'finish_reason': 'tool_calls', 'message': {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'synthetic-terminal', 'type': 'function', 'function': {'name': 'completeTrainerTurn', 'arguments': json.dumps(terminal_arguments())}}]}}],
                          'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}}
                 raw = json.dumps(value).encode()
                 self.send_response(200)
@@ -80,6 +85,7 @@ class LiveProvider:
             client.request('POST', '/api/chat', json.dumps({'conversationId': conversation, 'message': 'T0257 synthetic local configuration retention check.', 'stream': stream}), {'Content-Type': 'application/json'})
             response = client.getresponse()
             raw = response.read(256 * 1024 + 1)
+            self.observations.append({'httpStatus': response.status, 'bounded': len(raw) <= 256 * 1024, 'syntheticAnswerPresent': ANSWER.encode() in raw, 'stream': stream})
             if response.status != 200 or len(raw) > 256 * 1024 or ANSWER.encode() not in raw:
                 raise ValueError('Actual synthetic chat did not complete')
             if stream:
@@ -91,6 +97,7 @@ class LiveProvider:
             client.close()
 
     def begin(self, run, conversation):
+        self.conversations.append(conversation)
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.pending = self.pool.submit(self.chat, run, conversation, True)
         if not self.entered.wait(8):
@@ -101,6 +108,7 @@ class LiveProvider:
             raise ValueError('First operation did not capture startup model')
 
     def finish(self, run, second_conversation):
+        self.conversations.append(second_conversation)
         try:
             if not self.chat(run, second_conversation, False) or self.models != [OLD, NEW]:
                 raise ValueError('Subsequent native generation did not use new model')

@@ -254,6 +254,7 @@ def main():
         except Exception as error:
             errors.append(type(error).__name__)
         if fixture:
+            receipt['syntheticProvider'] = {'models': fixture.models, 'responses': fixture.observations, 'taskCreatedConversations': fixture.conversations}
             try:
                 fixture.stop()
                 receipt['syntheticProviderStopped'] = True
