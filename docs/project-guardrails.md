@@ -191,9 +191,13 @@ blanket ignores, suppressions, baseline files or hotspot limits to avoid remedia
 ## Runtime remediation and verification
 
 Navigation effects use React Effect Events to read current handlers without
-restarting requests when render-local functions change identity. Browser active
-conversation selection is a hydration-safe external store with tab-local change
-notifications, not an effect-maintained state copy. Chart selection and paging
+restarting requests when render-local functions change identity. Active conversation
+selection is transient React state with explicit unresolved/empty/selected states.
+The persistent chat owner resolves and saves it through the conversation application
+in the selected SQLite DB, independent of WebView origin; no browser storage is read.
+History waits for a selected ID and a missing page never creates a conversation.
+Selection/bootstrap/create/delete requests are serialized, while intent generations
+reject superseded history/page/list completions. Chart selection and paging
 are clamped during render; mode changes reset paging in their event handler.
 Route changes reset map state before commit. These preserve existing UI contracts;
 focused dashboard/hydration tests and local app smoke accompany the change.

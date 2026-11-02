@@ -158,6 +158,52 @@ class OrdinaryContracts(unittest.TestCase):
                 self.assertEqual(preset, command['preset'])
         self.assertEqual(captures, [(view, preset) for view in ['trainer', 'sync', 'profile'] for preset in ['wide', 'narrow']])
 
+    def test_conversation_scenario_uses_finite_actions_fresh_origin_and_only_run_copy(self):
+        run = self.run_fixture()
+        run.origin, run.boot = 'http://127.0.0.1:11111', 'old-boot'
+        commands = []
+        run.command = lambda command: commands.append(command) or {'ok': True}
+        run.wait = lambda predicate, label: None
+        run.conversation_wait = lambda predicate, label: None
+        run.conversation_open_history = lambda: commands.append({'type': 'conversation', 'action': 'open-history'})
+        run.stop = lambda: commands.append({'type': 'owned-stop'})
+        def start(binary):
+            self.assertEqual(binary, run.binary)
+            run.origin, run.boot = 'http://127.0.0.1:22222', 'fresh-boot'
+        run.start = start
+        run.conversation_state = lambda: {'onlySynthetic': True, 'messagesEmpty': True, 'defaultAbsent': True}
+        original = self.source.read_bytes()
+        run.conversation_scenario()
+        actions = [c['action'] for c in commands if c['type'] == 'conversation']
+        self.assertEqual([action for action in actions if action in ['new', 'choose-first', 'delete-second', 'delete-first']], ['new', 'new', 'choose-first', 'delete-second', 'new', 'delete-second', 'delete-first'])
+        self.assertEqual(actions.count('save-title'), 3)
+        self.assertEqual(actions.count('menu-second'), 2)
+        self.assertEqual(actions.count('menu-first'), 1)
+        self.assertEqual(sum(c['type'] == 'owned-stop' for c in commands), 1)
+        self.assertTrue(all(set(c) <= {'type', 'action', 'target', 'view', 'preset'} for c in commands))
+        captures = [c for c in commands if c['type'] == 'captureView']
+        self.assertEqual([c['preset'] for c in captures], ['wide', 'narrow', 'wide'])
+        receipt = json.loads((run.root / 'conversation-scenario.json').read_text())
+        self.assertTrue(receipt['passed'])
+        self.assertTrue(receipt['freshOriginAndBoot'])
+        self.assertNotIn('conversationId', repr(receipt))
+        self.assertEqual(self.source.read_bytes(), original)
+
+    def test_conversation_readback_exposes_only_bounded_synthetic_booleans(self):
+        run = self.run_fixture()
+        with contextlib.closing(sqlite3.connect(run.database)) as db:
+            db.executescript('create table conversation(id text, title text); create table message(id text); create table app_metadata(key text, value text);')
+            title = 'T0250-first-' + run.id.replace('-', '')
+            db.execute('insert into conversation values (?,?)', ('private-generated-id', title))
+            db.execute('insert into app_metadata values (?,?)', ('chat.active_conversation.v1', 'private-generated-id'))
+            db.commit()
+        state = run.conversation_state()
+        self.assertTrue(state['savedFirst'])
+        self.assertTrue(state['onlySynthetic'])
+        self.assertTrue(state['messagesEmpty'])
+        self.assertNotIn('private-generated-id', repr(state))
+        self.assertNotIn(title, repr(state))
+
     def test_opt_in_composer_config_is_fixed_keyless_private_and_preserves_source(self):
         original = self.source.read_bytes()
         run = self.run_fixture()
@@ -176,6 +222,70 @@ class OrdinaryContracts(unittest.TestCase):
         self.assertEqual(self.source.read_bytes(), original)
         with self.assertRaises(FileExistsError):
             run.prepare_composer()  # Never replace/adopt existing config on replay.
+
+    def test_eligibility_preparation_is_finite_keyless_copy_only_and_refuses_existing_preferences(self):
+        original = self.source.read_bytes()
+        for scenario in ['mixed', 'empty']:
+            run = self.run_fixture()
+            with contextlib.closing(sqlite3.connect(run.database)) as db:
+                db.execute('create table app_metadata(key text primary key, value text, updated_at integer not null)')
+                db.commit()
+            prior = (run.root / 'config/settings-v2.json').read_bytes()
+            run.prepare_composer(scenario)
+            value = json.loads((run.root / 'config/settings-v3.json').read_text())
+            self.assertEqual(value['keys'], {})
+            self.assertEqual(value['chatCatalog']['defaultEntryId'], 'entry_hidden_0')
+            providers = [entry['provider'] for entry in value['chatCatalog']['entries']]
+            self.assertEqual(providers, (['ollama', 'ollama'] if scenario == 'mixed' else []) + ['openai', 'openai', 'deepseek', 'openrouter'])
+            with contextlib.closing(sqlite3.connect(run.database)) as db:
+                self.assertEqual(db.execute('select key,value from app_metadata').fetchall(), [('ai.chat_model.v2', 'entry_hidden_0')])
+            self.assertEqual((run.root / 'config/settings-v2.json').read_bytes(), prior)
+        self.assertEqual(self.source.read_bytes(), original)
+        run = self.run_fixture()
+        with self.assertRaisesRegex(ValueError, 'Unknown finite'):
+            run.prepare_composer('private')
+        self.assertFalse((run.root / 'config/settings-v3.json').exists())
+        with contextlib.closing(sqlite3.connect(run.database)) as db:
+            db.execute('create table app_metadata(key text, value text, updated_at integer)')
+            db.execute("insert into app_metadata values ('ai.chat_model.v2','existing',0)")
+            db.commit()
+        with self.assertRaisesRegex(ValueError, 'Existing model preference refused'):
+            run.prepare_composer('mixed')
+        with contextlib.closing(sqlite3.connect(run.database)) as db:
+            self.assertEqual(db.execute('select value from app_metadata').fetchall(), [('existing',)])
+
+    def test_eligibility_scenarios_have_finite_actions_exact_state_and_no_mutation_replay(self):
+        for scenario in ['mixed', 'empty']:
+            run = self.run_fixture()
+            run.composer_eligibility = scenario
+            calls = []
+            observation = {key: True for key in ['catalogKnown', 'unavailableChoice', 'singleControl', 'footerOrder', 'fitsViewport', 'draftMatches', 'textareaStable']}
+            observation['noEligibleChoices'] = scenario == 'empty'
+            run.command = lambda command: calls.append(command) or observation
+            run.wait = lambda predicate, label: None
+            run.composer_wait = lambda predicate, label: None
+            choices = [('entry_hidden_0', 'saved')] + ([] if scenario == 'empty' else [('entry_footer_long', 'saved')]) + [(None, 'env')]
+            with patch.object(run, 'chat_hash', return_value='unchanged'), patch.object(run, 'model_choice', side_effect=choices):
+                run.composer_scenario()
+            actions = [command['action'] for command in calls if command['type'] == 'composer' and command['action'] != 'observe']
+            self.assertEqual(actions, ['draft', 'reset'] if scenario == 'empty' else ['draft', 'keys', 'choose', 'reset'])
+            self.assertEqual(len([command for command in calls if command['type'] == 'captureView']), 4 if scenario == 'empty' else 6)
+            receipt = json.loads((run.root / 'eligibility-scenario.json').read_text())
+            self.assertTrue(receipt['hiddenPreferencePreservedUntilExplicitAction'])
+            self.assertTrue(receipt['resetRemainsUnavailable'])
+            self.assertTrue(receipt['chatDataUnchanged'])
+            self.assertNotIn('modelId', repr(calls))
+        run = self.run_fixture()
+        run.composer_eligibility = 'mixed'
+        calls = []
+        run.command = lambda command: calls.append(command) or {}
+        run.wait = lambda predicate, label: None
+        run.composer_wait = lambda predicate, label: None
+        with patch.object(run, 'model_choice', return_value=(None, 'env')):
+            with self.assertRaisesRegex(ValueError, 'Rendering changed'):
+                run.composer_scenario()
+        self.assertFalse(any(command['type'] == 'captureView' for command in calls))
+        self.assertFalse(any(command['type'] == 'composer' for command in calls))
 
     def test_composer_scenario_uses_finite_ui_actions_four_captures_and_persisted_choice(self):
         run = self.run_fixture()

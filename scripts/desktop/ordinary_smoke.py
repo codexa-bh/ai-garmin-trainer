@@ -70,14 +70,30 @@ class OrdinaryRun(Run):
                      'artifactInventoryHash': self.artifact, 'files': len(inventory),
                      'bundleBytesRewritten': False, 'bundleIdentityRewritten': False})
 
-    def prepare_composer(self):
+    def prepare_composer(self, eligibility=None):
         # Run-owned keyless configuration only; original DB/settings are never edited.
         base = json.loads((self.root / 'config/settings-v2.json').read_text())
         catalog = {'version': 1, 'defaultEntryId': 'entry_footer_other', 'entries': [
             {'id': 'entry_footer_long', 'provider': 'ollama', 'modelId': 'T0246/Long-local-model-name:exact-tag',
              'displayName': 'T0246 long descriptive local model selection for narrow composer footer'},
             {'id': 'entry_footer_other', 'provider': 'ollama', 'modelId': 'T0246/Alternate:Tag', 'displayName': 'T0246 alternate'}]}
+        if eligibility not in [None, 'mixed', 'empty']:
+            raise ValueError('Unknown finite eligibility scenario')
+        if eligibility:
+            cloud = [{'id': 'entry_hidden_' + str(index), 'provider': provider, 'modelId': 'T0253/Absent:' + str(index)}
+                     for index, provider in enumerate(['openai', 'openai', 'deepseek', 'openrouter'])]
+            catalog['entries'] = (catalog['entries'] if eligibility == 'mixed' else []) + cloud
+            catalog['defaultEntryId'] = cloud[0]['id']
         private_json(self.root / 'config/settings-v3.json', {**base, 'version': 3, 'chatCatalog': catalog})
+        self.composer_eligibility = eligibility
+        if eligibility:
+            # Before boot, only the exclusive writable run copy; never seed the selected original.
+            import sqlite3
+            with contextlib.closing(sqlite3.connect(self.database)) as database:
+                if database.execute("select 1 from app_metadata where key in ('ai.chat_model.v2','ai.chat_model')").fetchone():
+                    raise ValueError('Existing model preference refused; never overwrite/adopt it')
+                database.execute("insert into app_metadata(key,value,updated_at) values ('ai.chat_model.v2','entry_hidden_0',?)", (int(time.time()),))
+                database.commit()
 
     def composer_wait(self, predicate, label):
         deadline = time.monotonic() + 8
@@ -100,6 +116,15 @@ class OrdinaryRun(Run):
             if response.status != 200 or len(raw) > 32 * 1024:
                 raise ValueError('Owned model metadata read failed/bounded')
             value = json.loads(raw)
+            eligibility = getattr(self, 'composer_eligibility', None)
+            if eligibility:
+                expected = ([] if eligibility == 'empty' else [('entry_footer_long', True), ('entry_footer_other', True)]) + [('entry_hidden_' + str(index), False) for index in range(4)]
+                if value.get('version') != 2 or value.get('defaultEntryId') != 'entry_hidden_0' or [(entry['id'], entry['available']) for entry in value['options']] != expected:
+                    raise ValueError('Authoritative eligibility/catalog metadata changed')
+                effective = value['effective']
+                identity = value['selected'] or 'entry_hidden_0'
+                if effective['entryId'] != identity or effective['available'] != (identity == 'entry_footer_long'):
+                    raise ValueError('Effective identity/eligibility changed unexpectedly')
             return value.get('selected'), value.get('effective', {}).get('source')
         finally:
             client.close()
@@ -113,6 +138,8 @@ class OrdinaryRun(Run):
             return digest.hexdigest()
 
     def composer_scenario(self):
+        if getattr(self, 'composer_eligibility', None):
+            return self.eligibility_scenario()
         self.command({'type': 'setViewport', 'preset': 'wide'})
         self.command({'type': 'click', 'target': 'Close Profile & data'})
         self.wait(lambda value: value['view'] == 'Trainer', 'Trainer composer')
@@ -145,6 +172,155 @@ class OrdinaryRun(Run):
                      'modelChoiceAndResetPersisted': True, 'chatDataUnchanged': True,
                      'keyboard': 'synthetic DOM Enter/Space on owned selector; not trusted/native/hardware input',
                      'providerSend': 'not invoked', 'cleanup': 'copy-only preference/draft/Goals deferred to task-scratch expiry'})
+
+    def eligibility_scenario(self):
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Close Profile & data'})
+        self.wait(lambda value: value['view'] == 'Trainer', 'Trainer eligibility')
+        empty = self.composer_eligibility == 'empty'
+        self.composer_wait(lambda value: value['catalogKnown'] and value['unavailableChoice'] and value['noEligibleChoices'] == empty, 'hidden saved choice')
+        if self.model_choice() != ('entry_hidden_0', 'saved'):
+            raise ValueError('Rendering changed hidden saved preference')
+        before = self.chat_hash()
+        self.command({'type': 'composer', 'action': 'draft'})
+        images = []
+        states = ['hidden-saved', 'unavailable-default'] if empty else ['hidden-saved', 'replacement', 'unavailable-default']
+        for state in states:
+            if state == 'replacement':
+                self.command({'type': 'composer', 'action': 'keys'})
+                self.command({'type': 'composer', 'action': 'choose'})
+                self.composer_wait(lambda value: value['modelReady'] and value['savedChoice'], 'eligible explicit replacement')
+                if self.model_choice() != ('entry_footer_long', 'saved'):
+                    raise ValueError('Eligible replacement did not persist')
+            elif state == 'unavailable-default':
+                self.command({'type': 'composer', 'action': 'reset'})
+                self.composer_wait(lambda value: value['unavailableChoice'] and value['noEligibleChoices'] == empty, 'unavailable default remains unavailable')
+                if self.model_choice() != (None, 'env'):
+                    raise ValueError('Explicit reset did not persist')
+            for preset in ['wide', 'narrow']:
+                self.command({'type': 'setViewport', 'preset': preset})
+                observed = self.command({'type': 'composer', 'action': 'observe'})
+                image = self.command({'type': 'captureView', 'view': 'composer', 'preset': preset})
+                images.append({'state': state, 'preset': preset, **image, 'observation': observed})
+                private_json(self.root / ('eligibility-capture-' + state + '-' + preset + '.json'), images[-1])
+                if not all(observed[key] for key in ['catalogKnown', 'singleControl', 'footerOrder', 'fitsViewport', 'draftMatches', 'textareaStable']):
+                    raise ValueError('Eligibility geometry/draft gate failed; inspect capture/boolean receipt')
+                if observed['noEligibleChoices'] != empty or (state != 'replacement' and not observed['unavailableChoice']):
+                    raise ValueError('Eligibility state changed during capture')
+        if self.chat_hash() != before:
+            raise ValueError('Eligibility actions changed saved chat data')
+        private_json(self.root / 'eligibility-scenario.json', {'passed': True, 'scenario': self.composer_eligibility,
+                     'captures': images, 'hiddenPreferencePreservedUntilExplicitAction': True,
+                     'resetRemainsUnavailable': True, 'chatDataUnchanged': True,
+                     'keyboard': 'synthetic DOM only; no OS popup/trusted-input certification',
+                     'providerSend': 'not invoked', 'cleanup': 'run-only preference/draft/Goals deferred to task-scratch expiry'})
+
+    def conversation_state(self):
+        # Only bounded booleans/counts leave the run-owned disposable DB.
+        with contextlib.closing(readonly(self.database)) as database:
+            rows = database.execute('select id,title from conversation').fetchall()
+            saved = database.execute("select value from app_metadata where key='chat.active_conversation.v1'").fetchone()
+            titles = {identifier: title for identifier, title in rows}
+            chosen = titles.get(saved[0]) if saved else None
+            first = 'T0250-first-' + self.id.replace('-', '')
+            second = 'T0250-second-' + self.id.replace('-', '')
+            return {'count': len(rows), 'savedFirst': chosen == first, 'savedSecond': chosen == second,
+                    'savedNew': chosen == 'New chat', 'messagesEmpty': database.execute('select count(*) from message').fetchone()[0] == 0,
+                    'onlySynthetic': all(title in [first, second, 'New chat'] for title in titles.values()),
+                    'defaultAbsent': 'default' not in titles}
+
+    def conversation_wait(self, predicate, label):
+        deadline = time.monotonic() + 8
+        observed = {}
+        while time.monotonic() < deadline:
+            observed = self.command({'type': 'conversation', 'action': 'observe'})
+            state = self.conversation_state()
+            if predicate(observed, state):
+                return observed
+            time.sleep(.1)  # Read-only bounded observation; never retry a mutation.
+        private_json(self.root / ('conversation-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': observed, 'state': state})
+        raise TimeoutError('Conversation assertion deadline: ' + label)
+
+    def conversation_open_history(self):
+        ui = self.command({'type': 'conversation', 'action': 'observe'})
+        if not ui['historyVisible']:
+            if not ui['historyExpanded']:
+                if not ui['historyToggleVisible']:
+                    self.command({'type': 'conversation', 'action': 'open-menu'})
+                    self.conversation_wait(lambda ui, db: ui['historyToggleVisible'], 'mobile history toggle')
+                self.command({'type': 'conversation', 'action': 'open-history'})
+                self.conversation_wait(lambda ui, db: ui['historyExpanded'], 'history open intent')
+            self.command({'type': 'conversation', 'action': 'settle-history'})
+            self.conversation_wait(lambda ui, db: ui['historyVisible'], 'visible history')
+
+    def conversation_create(self, slot):
+        if slot not in ['first', 'second']:
+            raise ValueError('Finite synthetic slot required')
+        self.conversation_open_history()
+        self.command({'type': 'conversation', 'action': 'new'})
+        self.conversation_wait(lambda ui, db: ui['newSelected'] and db['savedNew'], 'explicit New committed')
+        self.command({'type': 'conversation', 'action': 'menu-new'})
+        self.conversation_wait(lambda ui, db: ui['menuReady'], 'New menu')
+        self.command({'type': 'conversation', 'action': 'rename-new'})
+        self.conversation_wait(lambda ui, db: ui['renameReady'], 'New rename dialog')
+        self.command({'type': 'conversation', 'action': 'title-' + slot})
+        self.conversation_wait(lambda ui, db: ui['renameDraftReady'], 'fixed synthetic title draft')
+        self.command({'type': 'conversation', 'action': 'save-title'})
+        self.conversation_wait(lambda ui, db: ui[slot + 'Selected'] and db['saved' + slot.title()] and not ui['renameReady'], 'synthetic title saved')
+
+    def conversation_delete(self, slot):
+        if slot not in ['first', 'second']:
+            raise ValueError('Finite synthetic slot required')
+        self.conversation_open_history()
+        self.command({'type': 'conversation', 'action': 'menu-' + slot})
+        self.conversation_wait(lambda ui, db: ui['menuReady'], 'synthetic delete menu')
+        self.command({'type': 'conversation', 'action': 'delete-' + slot})
+
+    def conversation_scenario(self):
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Close Profile & data'})
+        self.wait(lambda value: value['view'] == 'Trainer', 'Trainer conversations')
+        self.conversation_open_history()
+        self.conversation_wait(lambda ui, db: ui['selectionReady'] and ui['empty'] and db['count'] == 0, 'non-creating empty startup')
+        self.conversation_create('first')
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and db['savedFirst'], 'explicit first saved')
+        self.conversation_create('second')
+        self.conversation_wait(lambda ui, db: ui['secondSelected'] and db['savedSecond'], 'explicit second saved')
+        self.command({'type': 'conversation', 'action': 'choose-first'})
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and db['savedFirst'], 'older first saved')
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'Sync while selection retained')
+        self.command({'type': 'click', 'target': 'Back to chat'})
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and db['savedFirst'], 'selection after navigation')
+        origin, boot = self.origin, self.boot
+        self.stop()
+        self.start(self.binary)
+        if self.origin == origin or self.boot == boot:
+            raise ValueError('Conversation restart did not use a fresh native origin/boot')
+        self.conversation_wait(lambda ui, db: ui['selectionReady'] and ui['firstSelected'] and ui['secondPresent'] and db['savedFirst'], 'restored older first on new origin')
+        images = []
+        for preset in ['wide', 'narrow']:
+            self.command({'type': 'setViewport', 'preset': preset})
+            self.conversation_open_history()
+            image = self.command({'type': 'captureView', 'view': 'conversation', 'preset': preset})
+            images.append({'state': 'restored-first', 'preset': preset, **image})
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.conversation_delete('second')
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and not ui['secondPresent'] and db['savedFirst'], 'non-active delete preserves first')
+        self.conversation_create('second')
+        self.conversation_wait(lambda ui, db: ui['secondSelected'] and db['savedSecond'], 'second recreated explicitly')
+        self.conversation_delete('second')
+        self.conversation_wait(lambda ui, db: ui['firstSelected'] and db['savedFirst'], 'active delete falls back to first')
+        self.conversation_delete('first')
+        self.conversation_wait(lambda ui, db: ui['newSelected'] and not ui['firstPresent'] and not ui['secondPresent'] and db['savedNew'] and db['count'] == 1, 'delete-last normal replacement')
+        images.append({'state': 'delete-last-replacement', 'preset': 'wide', **self.command({'type': 'captureView', 'view': 'conversation', 'preset': 'wide'})})
+        state = self.conversation_state()
+        if not all(state[key] for key in ['onlySynthetic', 'messagesEmpty', 'defaultAbsent']):
+            raise ValueError('Conversation privacy/non-resurrection gate failed')
+        private_json(self.root / 'conversation-scenario.json', {'passed': True, 'freshOriginAndBoot': True,
+                     'restoredOlderSelection': True, 'emptyStartupNonCreating': True, 'navigationAndDeletes': True,
+                     'state': state, 'captures': images, 'input': 'synthetic DOM actions and exact task-created confirmation; not native/hardware input or dialog certification',
+                     'cleanup': 'task-created copy-only chats/selection/Goals/captures deferred to scratch expiry; no copy-back'})
 
     def renew_capability(self):
         # Pin our original private root and hold its lifetime namespace lease while
@@ -336,6 +512,8 @@ def security(run, other):
         run.request({'type': 'settings', 'action': 'open'}, str(uuid.uuid4())),
         run.request({'type': 'historySettings', 'action': 'open'}, str(uuid.uuid4())),
         run.request({'type': 'sync', 'action': 'start'}, str(uuid.uuid4())),
+        run.request({'type': 'conversation', 'action': 'delete-all'}, str(uuid.uuid4())),
+        run.request({'type': 'conversation', 'action': 'choose-first', 'id': 'private'}, str(uuid.uuid4())),
         run.request({'type': 'click', 'target': 'LLM debug traces'}, str(uuid.uuid4())),
         run.request({'type': 'click', 'target': 'First LLM trace'}, str(uuid.uuid4())),
     ]:
@@ -355,8 +533,11 @@ def main():
     arguments(parser)
     parser.add_argument('--bundle', required=True, help='Actual unmodified desktop:build .app; copied outside checkout per run')
     parser.add_argument('--prepare-only', action='store_true')
+    parser.add_argument('--conversation-selection', action='store_true', help='Finite keyless synthetic conversation create/select/restart/delete on empty-chat populated copies')
     parser.add_argument('--composer-footer', action='store_true', help='Finite keyless composer selection/reset/draft and wide/narrow masked capture; no provider send')
+    parser.add_argument('--model-eligibility', action='store_true', help='Opt-in fixed mixed/zero eligible catalogs with hidden saved/default choices; implies composer footer')
     args = parser.parse_args()
+    args.composer_footer = args.composer_footer or args.model_eligibility
     os.umask(0o077)
     scratch = private_directory(args.scratch)
     prepared = prepare(scratch, args, 'ordinary')
@@ -370,18 +551,18 @@ def main():
     runs = []
     observer = None
     receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
-               'scenarioPassed': False, 'composerFooterRequested': args.composer_footer, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
+               'scenarioPassed': False, 'conversationSelectionRequested': args.conversation_selection, 'composerFooterRequested': args.composer_footer, 'modelEligibilityRequested': args.model_eligibility, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
                'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
                'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
                'cleanup': 'copy-only Goals and fixtures deferred to private task-scratch expiry; no copy-back'}
     errors = []
     try:
-        for _ in range(2):
+        for index in range(2):
             prepared.verify_current()
             runs.append(OrdinaryRun(scratch, database, source, bundle, inventory))
             runs[-1].before_start = prepared.verify_current
             if args.composer_footer:
-                runs[-1].prepare_composer()
+                runs[-1].prepare_composer(('mixed' if index == 0 else 'empty') if args.model_eligibility else None)
         if args.prepare_only:
             receipt['preparedOnly'] = True
             return
@@ -407,6 +588,10 @@ def main():
                 run.command({'type': 'setViewport', 'preset': 'wide'})
                 run.command({'type': 'click', 'target': 'Profile & data'})
                 run.wait(lambda value: value['profileReady'], 'Profile after composer')
+            if args.conversation_selection:
+                run.conversation_scenario()
+                run.command({'type': 'click', 'target': 'Profile & data'})
+                run.wait(lambda value: value['profileReady'], 'Profile after conversations')
             run.verify_parent_death(sentinel)
         if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
             raise ValueError('Source/artifact changed during execution')

@@ -206,7 +206,14 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
           if (
             typeof value !== "number" ||
             !Number.isFinite(value) ||
-            (column.type === "INTEGER" && !Number.isInteger(value))
+            (column.type === "INTEGER" &&
+              // The importer preserves fractional duration/average-HR metrics;
+              // SQLite INTEGER affinity does not make those domain values counters.
+              !(
+                name === "activity" &&
+                ["duration_sec", "avg_heart_rate"].includes(column.name)
+              ) &&
+              !Number.isInteger(value))
           )
             throw new Error("Nonnumeric/nonfinite smoke value refused.");
         } else if (typeof value !== "string" || value.length > 12000)

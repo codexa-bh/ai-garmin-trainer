@@ -22,6 +22,8 @@ export function ChatView({
   startNewChat,
   conversationRows,
   conversationId,
+  selectionError,
+  retryConversationSelection,
   closeConversationMenu,
   selectConversation,
   openConversationMenuId,
@@ -65,9 +67,12 @@ export function ChatView({
   closeConversationDrawer: () => void;
   runInBackground: (work: Promise<unknown>) => void;
   startNewChat: () => Promise<void>;
-  conversationRows:
-    ConversationSummary[] | { id: string; title: string; updatedAt: null }[];
-  conversationId: string;
+  conversationRows: (
+    ConversationSummary | { id: string; title: string; updatedAt: null }
+  )[];
+  conversationId: string | null | undefined;
+  selectionError: string;
+  retryConversationSelection: () => Promise<void>;
   closeConversationMenu: () => void;
   selectConversation: (id: string) => Promise<void>;
   openConversationMenuId: string | null;
@@ -78,7 +83,7 @@ export function ChatView({
     | undefined;
   conversationMenuPosition: { top: number; left: number } | null;
   conversationMenuRef: RefObject<HTMLDivElement | null>;
-  loadChatHistory: (showStatus?: boolean, id?: string) => Promise<void>;
+  loadChatHistory: (showStatus?: boolean, id?: string | null) => Promise<void>;
   isChatLoading: boolean;
   startConversationRename: (
     target: Pick<ConversationSummary, "id" | "title">,
@@ -318,6 +323,21 @@ export function ChatView({
           <h2 id="trainer-heading">Chat with your private coach</h2>
         </div>
 
+        {selectionError ? (
+          <div role="alert">
+            <p>{selectionError}</p>
+            <button
+              type="button"
+              onClick={() => runInBackground(retryConversationSelection())}
+            >
+              Retry selection
+            </button>
+          </div>
+        ) : conversationId === undefined ? (
+          <p role="status">Loading conversation selection…</p>
+        ) : conversationId === null ? (
+          <p>No saved conversation. Choose New chat to begin.</p>
+        ) : null}
         <div
           className="transcript"
           ref={transcriptRef}
@@ -464,7 +484,7 @@ export function ChatView({
                 type="button"
                 className="primary-action"
                 onClick={() => runInBackground(sendChat())}
-                disabled={isChatLoading || !message.trim()}
+                disabled={isChatLoading || !conversationId || !message.trim()}
               >
                 {isChatLoading ? "Streaming…" : "Send"}
               </button>
