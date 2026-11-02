@@ -15,17 +15,13 @@ export function ModelSettingsCard({
   )
     ? snapshot!.selected!
     : "";
-  const defaultEntry = snapshot?.options.find(
-    (entry) => entry.id === snapshot.defaultEntryId,
+  const entry = snapshot?.options.find(
+    (option) => option.id === snapshot.selected,
   );
-  const inheritedLabel = snapshot
-    ? snapshot.effective.source === "env"
-      ? defaultEntry?.available
-        ? `Default · ${defaultEntry.label}`
-        : defaultEntry
-          ? "Unavailable configured default"
-          : "Selection required — no default"
-      : "Unavailable saved entry"
+  const placeholder = snapshot
+    ? snapshot.status === "unselected"
+      ? "Choose a model"
+      : "Unavailable selected model"
     : state === "error"
       ? "Model unavailable"
       : "Loading…";
@@ -36,14 +32,14 @@ export function ModelSettingsCard({
         id="trainer-model"
         aria-label="Trainer model"
         aria-describedby="trainer-model-status"
-        title={`${snapshot?.effective.provider ?? "Model"} / ${snapshot?.effective.modelName ?? "unavailable"}. Default: ${defaultEntry?.label ?? "none"}. Applies to subsequent turns; running turns, memory extraction and embeddings are unchanged. Native catalog/key edits need quit/reopen.`}
+        title={`${entry?.provider ?? "Model"} / ${entry?.modelId ?? "unavailable"}. Applies to subsequent turns; running turns, memory extraction and embeddings are unchanged. Confirm native catalog/key live application; other settings remain restart-only.`}
         value={selected}
         disabled={busy || !eligibleOptions.length || state === "error"}
         onChange={(event) => choose(event.target.value as ChatModelId)}
       >
         {!selected ? (
           <option value="" disabled>
-            {inheritedLabel}
+            {placeholder}
           </option>
         ) : null}
         {eligibleOptions.map((option) => (
@@ -52,28 +48,10 @@ export function ModelSettingsCard({
           </option>
         ))}
       </select>
-      {snapshot?.effective.source === "saved" ? (
-        <button
-          type="button"
-          aria-label="Reset to configured default"
-          title="Reset to configured default"
-          disabled={busy || state === "error"}
-          onClick={() => choose(null)}
-        >
-          Default
-        </button>
-      ) : null}
       <span id="trainer-model-status" className="visually-hidden" role="status">
-        {snapshot ? (
-          <>
-            {snapshot.effective.source === "env"
-              ? "Configured default (environment)"
-              : "Saved preference"}
-            : {snapshot.effective.provider ?? "unavailable"} /{" "}
-            {snapshot.effective.modelName ?? "unavailable"}
-            {!snapshot.effective.available ? " — unavailable" : ""}
-          </>
-        ) : null}
+        {snapshot
+          ? `${entry ? `${entry.provider} / ${entry.modelId}` : placeholder}${!snapshot.available ? " — unavailable" : ""}`
+          : null}
       </span>
       {busy || (state === "ready" && message) ? (
         <span
@@ -94,8 +72,8 @@ export function ModelSettingsCard({
       {snapshot && !eligibleOptions.length ? (
         <p>
           {snapshot.options.length
-            ? "No available entries. Configure provider keys or eligible local models in native Settings, then quit/reopen."
-            : "No configured entries. Add chat models in native Settings, then quit/reopen."}
+            ? "No available entries. Configure provider keys or eligible local models in native Settings, confirm live application and retry availability."
+            : "No configured entries. Add chat models in native Settings, confirm live application and retry availability."}
         </p>
       ) : null}
       {state === "error" ? (

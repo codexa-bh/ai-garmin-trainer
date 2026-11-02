@@ -1,16 +1,79 @@
 import type { ModelConfiguration, ModelSettingsSnapshot } from "./contracts";
 import { entryLabel, isChatEntryId } from "./catalog";
 
-export function isChatModelId(value: unknown): value is string {
-  return isChatEntryId(value);
+export const isChatModelId = isChatEntryId;
+export type TrainerChoice =
+  | { version: 1; status: "selected"; entryId: string }
+  | { version: 1; status: "unselected" | "unresolved" };
+
+// Presence is authoritative, including unsupported/corrupt records. Never repair
+// those by silently reading legacy inputs or overwriting them on explicit Save.
+export function decodeChoice(raw: string): TrainerChoice {
+  let value: unknown;
+  try {
+    if (raw.length > 256) throw new Error();
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "Saved Trainer choice invalid. Preserve it and use a compatible build.",
+    );
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const v = value as Record<string, unknown>;
+    if (
+      v.version === 1 &&
+      ((v.status === "selected" &&
+        isChatEntryId(v.entryId) &&
+        Object.keys(v).length === 3) ||
+        (["unselected", "unresolved"].includes(v.status as string) &&
+          Object.keys(v).length === 2))
+    )
+      return value as TrainerChoice;
+  }
+  throw new Error(
+    "Saved Trainer choice unsupported. Preserve it and use a compatible build.",
+  );
 }
 
-// New metadata presence, including the explicit empty reset sentinel, wins.
-// Original legacy bytes stay untouched; only exact provider/model maps once.
-export function modelSettingsSnapshot(
+// One-time, original-preserving compatibility, not the normal resolver.
+export function priorChoice(
   stored: string | null,
+  legacy: string | null,
   config: ModelConfiguration,
-  legacy: string | null = null,
+): TrainerChoice {
+  const selected = (entryId: string): TrainerChoice => ({
+    version: 1,
+    status: "selected",
+    entryId,
+  });
+  const unresolved: TrainerChoice = { version: 1, status: "unresolved" };
+  if (stored !== null && stored !== "")
+    return isChatEntryId(stored) ? selected(stored) : unresolved;
+  const prior =
+    config.compatibilityCatalog === undefined
+      ? config.catalog
+      : config.compatibilityCatalog;
+  if (stored === null && legacy) {
+    const provider =
+      legacy === "gpt-6-luna"
+        ? "openai"
+        : legacy === "deepseek-flash"
+          ? "deepseek"
+          : null;
+    const matches =
+      prior?.entries.filter(
+        (entry) => entry.provider === provider && entry.modelId === legacy,
+      ) ?? [];
+    return matches.length === 1 ? selected(matches[0].id) : unresolved;
+  }
+  return prior?.defaultEntryId
+    ? selected(prior.defaultEntryId)
+    : { version: 1, status: "unselected" };
+}
+
+export function modelSettingsSnapshot(
+  choice: TrainerChoice,
+  config: ModelConfiguration,
 ): ModelSettingsSnapshot {
   const options = config.catalog.entries.map((entry) => {
     const available = config.configured[entry.provider];
@@ -26,49 +89,23 @@ export function modelSettingsSnapshot(
         : {}),
     };
   });
-  let selected: string | null = null;
-  let unresolved = false;
-  const saved = stored !== null ? Boolean(stored) : Boolean(legacy);
-  if (stored !== null && stored !== "") {
-    if (isChatEntryId(stored)) selected = stored;
-    else unresolved = true;
-  } else if (stored === null && legacy) {
-    const provider =
-      legacy === "gpt-6-luna"
-        ? "openai"
-        : legacy === "deepseek-flash"
-          ? "deepseek"
-          : null;
-    const matches = options.filter(
-      (entry) => entry.provider === provider && entry.modelId === legacy,
-    );
-    if (matches.length === 1) selected = matches[0].id;
-    else unresolved = true;
-  }
-  const identity = saved ? selected : config.catalog.defaultEntryId;
-  const entry = unresolved
-    ? undefined
-    : options.find((option) => option.id === identity);
+  const selected = choice.status === "selected" ? choice.entryId : null;
+  const entry = options.find((option) => option.id === selected);
   const available = Boolean(entry?.available);
-  const reason = unresolved
-    ? "The preserved legacy or invalid preference cannot resolve exactly. Add its exact provider/model in Settings and confirm application, choose another entry, or reset explicitly."
-    : !entry
-      ? saved
-        ? "The saved entry is no longer in the activated catalog. Choose another entry or reset explicitly."
-        : "No default chat model. Choose an entry, or save the catalog/default in native Settings and confirm application."
-      : entry.unavailableReason;
+  const reason =
+    choice.status === "unresolved"
+      ? "The preserved prior choice cannot resolve exactly. Choose an available model explicitly."
+      : choice.status === "unselected"
+        ? "Choose a model explicitly to use Trainer chat."
+        : !entry
+          ? "The selected entry is no longer in the activated catalog. Choose another model explicitly."
+          : entry.unavailableReason;
   return {
-    version: 2,
+    version: 3,
     options,
     selected,
-    defaultEntryId: config.catalog.defaultEntryId,
-    effective: {
-      entryId: identity,
-      provider: entry?.provider ?? null,
-      modelName: entry?.modelId ?? null,
-      source: saved ? "saved" : "env",
-      available,
-    },
+    status: choice.status,
+    available,
     ...(!available ? { unavailableReason: reason } : {}),
   };
 }

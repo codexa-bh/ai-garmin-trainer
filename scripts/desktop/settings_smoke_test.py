@@ -33,7 +33,7 @@ class Run:
             keys = {slot: 'T0257-synthetic-' + slot + '-' + suffix for slot in ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY']} if self.action in ['liveCatalog', 'liveRotate'] else {}
             if self.fault == 'retained-key' and self.action == 'liveClear':
                 keys['OPENAI_API_KEY'] = 'old-key'
-            (self.root / 'config/settings-v3.json').write_text(json.dumps({'keys': keys, 'fields': {'MEMORY_EMBEDDING_DIMS': '2048'}}))
+            (self.root / 'config/settings-v3.json').write_text(json.dumps({'keys': keys, 'fields': {'MEMORY_EMBEDDING_DIMS': '2048'}, 'chatCatalog': {'defaultEntryId': None}}))
             if self.fault == 'restart':
                 self.backend += 1
         return {'ok': True}
@@ -48,9 +48,8 @@ class Run:
                 entry['available'] = entry['provider'] == 'ollama'
         if self.action == 'liveEmpty':
             entries = []
-        default = None if self.action in ['liveClear', 'liveEmpty'] else 'entry_legacy_openai'
         selected = 'entry_legacy_deepseek' if self.fault == 'remap' else self.selected
-        return {'version': 2, 'options': entries, 'selected': selected, 'defaultEntryId': default, 'effective': {'entryId': selected, 'available': any(entry['id'] == selected and entry['available'] for entry in entries)}}
+        return {'version': 3, 'options': entries, 'selected': selected, 'status': 'selected', 'available': any(entry['id'] == selected and entry['available'] for entry in entries)}
 
 
 class LiveRunnerTests(unittest.TestCase):
@@ -75,10 +74,18 @@ class LiveRunnerTests(unittest.TestCase):
 
 
 from unittest.mock import Mock
-from settings_smoke import capture_garmin
+from settings_smoke import capture_garmin, verify_choice_catalog, wait_settings
 
 
 class SettingsCaptureTests(unittest.TestCase):
+    def test_partial_not_ready_document_never_calls_state_predicate(self):
+        run = Mock()
+        run.command.side_effect = [{'ok': True, 'ready': False}, {'ok': True, 'ready': True, 'emptyCatalog': True}]
+        result = wait_settings(run, lambda state: state['emptyCatalog'], 'empty after restart')
+        self.assertTrue(result['emptyCatalog'])
+        self.assertEqual(run.command.call_count, 2)
+        self.assertTrue(all(call.args == ({'type': 'settings', 'action': 'observe'},) for call in run.command.call_args_list))
+
     def test_only_fixed_wide_and_narrow_presets(self):
         run = Mock()
         run.command.side_effect = [
@@ -93,6 +100,25 @@ class SettingsCaptureTests(unittest.TestCase):
                          ({'type': 'settings', 'action': 'captureNarrow'},))
         self.assertEqual([c['scenario'] for c in captures],
                          ['connect-no-login-wide', 'connect-no-login-narrow'])
+
+    def test_only_exact_no_default_catalog_and_retained_prior_intent_pass(self):
+        import copy
+        import uuid
+        providers = ['openai', 'deepseek', 'ollama', 'openrouter']
+        entries = [dict(id='entry_legacy_' + p, provider=p, modelId=f'synthetic/{p}:Case', displayName='Synthetic model') for p in providers]
+        entries += [dict(id='entry_' + str(uuid.uuid4()), provider=p, modelId=f'synthetic/{p}:Second') for p in providers]
+        saved = {'chatCatalog': {'version': 1, 'defaultEntryId': None, 'entries': entries}, 'selectionCompatibility': {'catalog': {'defaultEntryId': 'entry_legacy_ollama'}}}
+        verify_choice_catalog(saved)
+        for kind in ['new-default', 'substitution', 'lost-original']:
+            changed = copy.deepcopy(saved)
+            if kind == 'new-default':
+                changed['chatCatalog']['defaultEntryId'] = 'entry_other'
+            elif kind == 'substitution':
+                changed['chatCatalog']['entries'][0]['modelId'] = 'another-model'
+            else:
+                changed['selectionCompatibility']['catalog']['defaultEntryId'] = None
+            with self.assertRaises(ValueError):
+                verify_choice_catalog(changed)
 
     def test_capture_refusal_never_retries_or_advances(self):
         run = Mock()

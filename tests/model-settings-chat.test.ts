@@ -96,6 +96,56 @@ it.each([
   },
 );
 
+it("initializes a late-read explicit choice only from frozen startup compatibility, not the live catalog", async () => {
+  vi.stubEnv(
+    "DATABASE_PATH",
+    join(mkdtempSync(join(tmpdir(), "live-choice-")), "trainer.sqlite"),
+  );
+  vi.stubEnv("OPENAI_API_KEY", "synthetic-choice-key");
+  const prior = {
+    version: 1,
+    entries: [
+      { id: "entry_original", provider: "openai", modelId: "Original/Exact" },
+    ],
+    defaultEntryId: "entry_original",
+  };
+  vi.stubEnv("CHAT_MODEL_CATALOG", JSON.stringify(prior));
+  vi.stubEnv("CHAT_SELECTION_COMPATIBILITY", JSON.stringify(prior));
+  const env = await import("@/lib/env");
+  const boot = "12345678-1234-1234-1234-123456789abc";
+  env.initializeLiveConfiguration(boot);
+  const metadata = await import("@/lib/db/repository");
+  expect(metadata.getAppMetadata("ai.chat_model.choice")).toBeNull();
+  env.applyLiveConfiguration({
+    version: 1,
+    boot,
+    generation: 1,
+    revision: "1-2-3",
+    chatCatalog: {
+      version: 1,
+      entries: [{ id: "entry_new", provider: "openai", modelId: "New/Exact" }],
+      defaultEntryId: null,
+    },
+    secrets: { OPENAI_API_KEY: "synthetic-next-choice-key" },
+  });
+  expect(metadata.getAppMetadata("ai.chat_model.choice")).toBeNull();
+  const { modelSettings } = await import("@/lib/model-settings/composition");
+  expect(modelSettings.read()).toMatchObject({
+    version: 3,
+    selected: "entry_original",
+    status: "selected",
+    available: false,
+  });
+  expect(metadata.getAppMetadata("ai.chat_model.v2")).toBeNull();
+  expect(metadata.getAppMetadata("ai.chat_model")).toBeNull();
+  expect(() => modelSettings.save({ modelId: null })).toThrow();
+  expect(modelSettings.save({ modelId: "entry_new" })).toMatchObject({
+    selected: "entry_new",
+    available: true,
+  });
+  (await import("@/lib/db/connection")).getDatabase().close();
+});
+
 it("retains the admitted live revision for production turn retrieval, post-answer ingestion and delayed titles", async () => {
   vi.stubEnv(
     "DATABASE_PATH",

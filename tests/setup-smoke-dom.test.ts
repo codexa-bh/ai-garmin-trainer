@@ -152,7 +152,8 @@ it.each(["liveCatalog", "liveRotate", "liveClear", "liveEmpty"])(
           (entry: { provider: string }) => entry.provider === "openai",
         )?.modelId,
       ).toBe("Synthetic/Live:one");
-      expect(payload.chatCatalog.defaultEntryId).toBe("entry_legacy_openai");
+      expect(payload.chatCatalog.defaultEntryId).toBeNull();
+      expect(document.getElementById("catalog-default")).toBeNull();
     }
     if (action === "liveRotate")
       expect(payload.fields.MEMORY_EMBEDDING_DIMS).toBe("2048");
@@ -388,6 +389,19 @@ it("exercises finite configured/replacement/removal/absent fields and copies onl
     /synthetic-openai|••|sqlite/,
   );
 });
+it("removes the complete no-default catalog while preserving synthetic pending key intents", async () => {
+  await configuredProviders();
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(true);
+  expect(controller.__trainerSetupSmoke("keysExercise").keysEdited).toBe(true);
+  expect(controller.__trainerSetupSmoke("catalogEmpty")).toMatchObject({
+    ok: true,
+    emptyCatalog: true,
+    catalogWithoutDefaults: true,
+    keysEdited: true,
+  });
+  expect(document.querySelectorAll(".catalog-row")).toHaveLength(0);
+  expect(document.getElementById("catalog-default")).toBeNull();
+});
 it("refuses field exercise without exact presence and extra/private action input", async () => {
   expect(controller.__trainerSetupSmoke("keysExercise").ok).toBe(false);
   await configuredProviders();
@@ -418,7 +432,8 @@ it("exercises real grouped controls and masks only canonical synthetic provider 
   expect(document.querySelectorAll(".catalog-row")).toHaveLength(8);
   expect(
     document.querySelectorAll('.catalog-row [aria-pressed="true"]'),
-  ).toHaveLength(1);
+  ).toHaveLength(0);
+  expect(document.getElementById("catalog-default")).toBeNull();
   expect(
     invoke.mock.calls.some(([command]) => command === "save_settings"),
   ).toBe(false);
@@ -509,6 +524,31 @@ it("expires provider masks and refuses mutation replay or noncanonical starting 
   } finally {
     vi.useRealTimers();
   }
+});
+it("removes every fixed synthetic row including prior default through actual handlers and refuses unknown starting states", async () => {
+  expect(controller.__trainerSetupSmoke("catalogEmpty").ok).toBe(false);
+  expect(
+    controller.__trainerSetupSmoke("catalogExercise").catalogWithoutDefaults,
+  ).toBe(true);
+  expect(controller.__trainerSetupSmoke("catalogEmpty")).toMatchObject({
+    ok: true,
+    emptyCatalog: true,
+    catalogWithoutDefaults: true,
+  });
+  expect(document.querySelectorAll(".catalog-row")).toHaveLength(0);
+  expect(controller.__trainerSetupSmoke("save").ok).toBe(true);
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("save_settings", expect.anything()),
+  );
+  const sent = invoke.mock.calls.find(([name]) => name === "save_settings")![1]
+    .input.chatCatalog;
+  expect(sent).toEqual({ version: 1, entries: [], defaultEntryId: null });
+  for (const action of [
+    "catalog",
+    "captureCatalog",
+    { action: "catalogEmpty", value: "private" },
+  ])
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
 });
 it.each(["captureWide", "captureNarrow"])(
   "captures %s with unchanged Garmin geometry and a finite static-only mask",

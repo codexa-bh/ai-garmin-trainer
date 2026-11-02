@@ -115,21 +115,6 @@ function deleteKeyPresence(slot, event) {
   renderKey(slot);
 }
 
-function updateDefaultOptions() {
-  const select = byId("catalog-default");
-  select.replaceChildren();
-  const empty = document.createElement("option");
-  empty.value = "";
-  empty.textContent = "No default — select a model in chat";
-  select.append(empty);
-  for (const entry of catalog.entries) {
-    const option = document.createElement("option");
-    option.value = entry.id;
-    option.textContent = `${entry.displayName ? `${entry.displayName} — ` : ""}${entry.provider} / ${entry.modelId || "(enter model ID)"}`;
-    select.append(option);
-  }
-  select.value = catalog.defaultEntryId ?? "";
-}
 const providers = {
   openai: "OpenAI",
   deepseek: "DeepSeek",
@@ -140,15 +125,7 @@ function catalogLocked() {
   return busy || Boolean(firstRun && onboarding?.settingsCommitted);
 }
 function updateCatalogControls() {
-  updateDefaultOptions();
   for (const entry of catalog.entries) {
-    const button = byId(`${entry.id}-default`);
-    button.setAttribute(
-      "aria-pressed",
-      String(catalog.defaultEntryId === entry.id),
-    );
-    button.textContent =
-      catalog.defaultEntryId === entry.id ? "Default ✓" : "Default";
     const model = byId(`${entry.id}-modelId`);
     const duplicate = catalog.entries.some(
       (other) =>
@@ -223,16 +200,6 @@ function renderCatalog() {
         }
         const actions = document.createElement("div");
         actions.className = "catalog-row-actions";
-        const choose = document.createElement("button");
-        choose.type = "button";
-        choose.id = `${entry.id}-default`;
-        choose.setAttribute("aria-label", `Default — ${context}`);
-        choose.disabled = catalogLocked();
-        choose.addEventListener("click", () => {
-          if (catalogLocked()) return;
-          catalog.defaultEntryId = entry.id;
-          updateCatalogControls();
-        });
         const remove = document.createElement("button");
         remove.type = "button";
         remove.textContent = "Remove";
@@ -240,12 +207,6 @@ function renderCatalog() {
         remove.disabled = catalogLocked();
         remove.addEventListener("click", () => {
           if (catalogLocked()) return;
-          if (catalog.defaultEntryId === entry.id) {
-            status.textContent =
-              "Choose another default or explicitly clear the default before removing this entry.";
-            byId("catalog-default").focus();
-            return;
-          }
           const peers = catalog.entries.filter(
             (value) => value.provider === provider && value.id !== entry.id,
           );
@@ -260,7 +221,7 @@ function renderCatalog() {
           ).focus();
           status.textContent = `${context} removed from draft; saved settings unchanged.`;
         });
-        actions.append(choose, remove);
+        actions.append(remove);
         row.append(actions);
         const error = document.createElement("span");
         error.id = `${entry.id}-error`;
@@ -272,11 +233,6 @@ function renderCatalog() {
   }
   updateCatalogControls();
 }
-byId("catalog-default").addEventListener("change", (event) => {
-  if (catalogLocked()) return;
-  catalog.defaultEntryId = event.target.value || null;
-  updateCatalogControls();
-});
 for (const provider of Object.keys(providers)) {
   byId(`catalog-${provider}-add`).addEventListener("click", () => {
     if (catalogLocked() || catalog.entries.length >= 32) return;
@@ -463,7 +419,7 @@ function renderStep() {
   renderMemory();
   renderHistory();
   byId("review-summary").textContent =
-    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Chat catalog: ${catalog.entries.length} entries, ${catalog.defaultEntryId ? "explicit default selected" : "no default (choose in chat)"}. Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("MEMORY_ENABLED")?.value || "false"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
+    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Chat catalog: ${catalog.entries.length} entries (choose a model explicitly in Trainer). Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("MEMORY_ENABLED")?.value || "false"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
 }
 function renderConnection() {
   const verified = tokenSelection && tokenSelection === successfulDestination;
@@ -612,7 +568,7 @@ async function refresh() {
     const saved = await invoke("read_settings");
     if (!saved.chatCatalog || typeof saved.revision !== "string")
       throw new Error("Unsupported settings snapshot");
-    catalog = structuredClone(saved.chatCatalog);
+    catalog = { ...structuredClone(saved.chatCatalog), defaultEntryId: null };
     loadedRevision = saved.revision;
     renderCatalog();
     onboarding = await invoke("read_onboarding");

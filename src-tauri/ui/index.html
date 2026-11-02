@@ -47,14 +47,10 @@
             provider. Local configuration is not remote availability.
           </p>
           <p id="catalog-migration" hidden>
-            Legacy models and the determinable prior default are shown for
-            explicit migration on Save. Original settings are retained. Missing
-            keys never choose another provider. Existing chat preferences map
-            only to an exact provider/model match.
+            Legacy models are shown for explicit compatibility on Save. Original
+            settings are retained. Missing keys never choose another provider.
+            Existing chat preferences map only to an exact provider/model match.
           </p>
-          <label
-            >Default chat model (optional)<select id="catalog-default"></select
-          ></label>
           <p id="catalog-limit" class="helper" role="status"></p>
           <div id="catalog-entries">
             <section
@@ -158,9 +154,8 @@
             on Save.
           </p>
           <p>
-            Removing a default requires clearing or reassigning it first. A
-            removed saved chat selection stays unavailable until explicitly
-            replaced or reset.
+            Choose a model explicitly in Trainer. A removed selected entry stays
+            unavailable until you choose a replacement there.
           </p>
         </fieldset>
         <fieldset id="garmin-fields">
@@ -351,19 +346,17 @@
           </p>
         </section>
         <p id="next-launch-guidance">
-          Save can apply chat catalog, default and provider keys now. Other
-          runtime changes need explicit quit/reopen; check the reported result.
-          Catalog, default, keys and connection edits are pending until that
-          next launch; they never switch the current database, account or
-          provider in place. Chat selects only from the already activated
-          catalog for future turns. Its saved model preference remains
-          independent. Local debug traces are always enabled and may contain
-          private context.
+          Save can apply chat catalog and provider keys now; confirm the
+          reported result. Other settings need explicit quit/reopen and never
+          switch a live database or account. Trainer keeps one independent
+          explicit choice; there is no Default/Reset. Running work retains its
+          captured settings. Local debug traces are always enabled and may
+          contain private context.
         </p>
         <div class="actions">
           <button type="button" id="back" hidden>Back</button>
           <button type="button" id="next" hidden>Next</button>
-          <button type="submit" id="save">Save for next launch</button
+          <button type="submit" id="save">Save settings</button
           ><button type="button" id="cancel">Cancel edits</button>
         </div>
       </form>

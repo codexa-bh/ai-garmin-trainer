@@ -65,6 +65,15 @@ impl Config {
         if ![2, 3].contains(&settings.version)
             || !(accepted_keys(&settings.keys) || self.synthetic_keys(&settings.keys))
             || !self.accepts_fields(&settings.fields)
+            || settings
+                .selection_compatibility
+                .as_ref()
+                .map(|prior| {
+                    (prior.database.is_some()
+                        && prior.database.as_ref() != settings.fields.get("DATABASE_PATH"))
+                        || !self.accepts_catalog(&prior.catalog, &settings.fields)
+                })
+                .unwrap_or(false)
             || (settings.version == 3
                 && !settings
                     .chat_catalog
@@ -151,9 +160,17 @@ impl Config {
         catalog: &crate::chat_catalog::Catalog,
         fields: &std::collections::BTreeMap<String, String>,
     ) -> bool {
-        // Only finite authored live, grouped-UI, or legacy presets; no arbitrary
-        // provider/model/key/path authority.
-        if *catalog == crate::chat_catalog::legacy(fields, &Default::default()) {
+        // Closed legacy/cleared, empty or authored grouped UI states only.
+        // Added identities, model/name/order/providers are exact, not caller text.
+        let legacy = crate::chat_catalog::legacy(fields, &Default::default());
+        let cleared = crate::chat_catalog::Catalog {
+            default_entry_id: None,
+            ..legacy.clone()
+        };
+        if *catalog == legacy
+            || *catalog == cleared
+            || *catalog == crate::chat_catalog::Catalog::default()
+        {
             return true;
         }
         #[cfg(debug_assertions)]
@@ -166,11 +183,9 @@ impl Config {
                     entry.model_id = "Synthetic/Local:two".into();
                 }
             }
-            for default in [Some("entry_legacy_openai"), Some("entry_legacy_deepseek")] {
-                synthetic.default_entry_id = default.map(str::to_owned);
-                if *catalog == synthetic {
-                    return true;
-                }
+            synthetic.default_entry_id = None;
+            if *catalog == synthetic {
+                return true;
             }
             synthetic.entries.retain(|entry| entry.provider != "openai");
             synthetic.default_entry_id = None;
@@ -181,7 +196,7 @@ impl Config {
         // Preserve delivered grouped-provider evidence and its exact UUID/content bounds.
         if catalog.validate().is_err()
             || catalog.entries.len() != 8
-            || catalog.default_entry_id.as_deref() != Some("entry_legacy_ollama")
+            || catalog.default_entry_id.is_some()
         {
             return false;
         }
@@ -455,7 +470,7 @@ mod tests {
             expected_revision: input.expected_revision.clone(),
         };
         changed_catalog.chat_catalog.default_entry_id = None;
-        assert!(!config.accepts_save(&changed_catalog));
+        assert!(config.accepts_save(&changed_catalog));
         changed_catalog.chat_catalog = input.chat_catalog.clone();
         changed_catalog.chat_catalog.entries[2].model_id = "nondefault-local-model".into();
         assert!(!config.accepts_save(&changed_catalog));
@@ -479,7 +494,7 @@ mod tests {
                 .find(|entry| entry.provider == "ollama")
                 .unwrap()
                 .model_id = "Synthetic/Local:two".into();
-            live.chat_catalog.default_entry_id = Some("entry_legacy_openai".into());
+            live.chat_catalog.default_entry_id = None;
             for slot in crate::settings::SLOTS {
                 live.keys.insert(
                     slot.into(),
@@ -529,7 +544,9 @@ mod tests {
                 display_name: None,
             });
         }
+        synthetic.default_entry_id = None;
         assert!(config.accepts_catalog(&synthetic, &input.fields));
+        assert!(config.accepts_catalog(&crate::chat_catalog::Catalog::default(), &input.fields));
         for case in 0..7 {
             let mut rejected = synthetic.clone();
             match case {
@@ -537,7 +554,7 @@ mod tests {
                 1 => rejected.entries[4].id = "entry_not_a_uuid".into(),
                 2 => rejected.entries[0].display_name = Some("private-text".into()),
                 3 => rejected.entries[4].provider = "deepseek".into(),
-                4 => rejected.default_entry_id = None,
+                4 => rejected.default_entry_id = Some("entry_legacy_ollama".into()),
                 5 => rejected.entries.swap(0, 1),
                 _ => rejected.entries[5].id = rejected.entries[4].id.clone(),
             }

@@ -21,9 +21,8 @@ async function readSettings(
     typeof text === "string" &&
     text.length <= max &&
     !containsControlCharacters(text);
-  const nullableString = (text: unknown) => text === null || bounded(text, 256);
   if (
-    value.version !== 2 ||
+    value.version !== 3 ||
     !Array.isArray(value.options) ||
     value.options.length > 32 ||
     !value.options.every(
@@ -36,21 +35,18 @@ async function readSettings(
           bounded(option.unavailableReason, 400)),
     ) ||
     !(value.selected === null || modelId(value.selected)) ||
-    !value.effective ||
-    !["saved", "env"].includes(value.effective.source) ||
-    typeof value.effective.available !== "boolean" ||
-    !(value.effective.entryId === null || modelId(value.effective.entryId)) ||
-    ![null, "openai", "deepseek", "ollama", "openrouter"].includes(
-      value.effective.provider,
+    !["selected", "unselected", "unresolved"].includes(
+      value.status as string,
     ) ||
-    !nullableString(value.effective.modelName) ||
+    (value.status === "selected") !== (value.selected !== null) ||
+    typeof value.available !== "boolean" ||
     (value.unavailableReason !== undefined &&
       !bounded(value.unavailableReason, 400))
   )
     throw new Error("invalid settings");
   validateChatCatalog({
     version: 1,
-    defaultEntryId: value.defaultEntryId,
+    defaultEntryId: null,
     entries: value.options.map(({ id, provider, modelId, displayName }) => ({
       id,
       provider,
@@ -59,13 +55,9 @@ async function readSettings(
     })),
   });
   if (
-    value.effective.available &&
-    !value.options.some(
-      (entry) =>
-        entry.id === value.effective?.entryId &&
-        entry.available &&
-        entry.provider === value.effective.provider &&
-        entry.modelId === value.effective.modelName,
+    value.available !==
+    value.options.some(
+      (entry) => entry.id === value.selected && entry.available,
     )
   )
     throw new Error("inconsistent settings");
@@ -131,7 +123,7 @@ export function useModelSettings(open: boolean) {
       window.removeEventListener("trainer-live-settings-applied", refresh);
   }, []);
 
-  async function save(modelId: ChatModelId | null) {
+  async function save(modelId: ChatModelId) {
     if (saving.current) return;
     saving.current = true;
     generation.current += 1;
@@ -162,7 +154,7 @@ export function useModelSettings(open: boolean) {
       }
     }
   }
-  function choose(modelId: ChatModelId | null) {
+  function choose(modelId: ChatModelId) {
     save(modelId).catch(() => {
       setState("error");
       setMessage("Model setting could not be confirmed.");

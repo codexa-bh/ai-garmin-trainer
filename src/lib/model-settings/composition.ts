@@ -1,5 +1,9 @@
 import { isLoopbackAiBaseUrl, selectedModel } from "@/lib/ai/providers";
-import { getAppMetadata, setAppMetadata } from "@/lib/db/repository";
+import {
+  getAppMetadata,
+  initializeAppMetadata,
+  setAppMetadata,
+} from "@/lib/db/repository";
 import { getOptionalEnv, hasConfiguredSecret, type AppEnv } from "@/lib/env";
 import { createModelSettings } from "./application";
 import { legacyChatCatalog, validateChatCatalog } from "./catalog";
@@ -15,6 +19,16 @@ function configuration(env: AppEnv): ModelConfiguration {
   try {
     return {
       configured,
+      ...(env.CHAT_SELECTION_COMPATIBILITY !== undefined
+        ? {
+            compatibilityCatalog:
+              env.CHAT_SELECTION_COMPATIBILITY === "null"
+                ? null
+                : validateChatCatalog(
+                    JSON.parse(env.CHAT_SELECTION_COMPATIBILITY) as unknown,
+                  ),
+          }
+        : {}),
       catalog:
         env.CHAT_MODEL_CATALOG === undefined
           ? legacyChatCatalog(env, configured)
@@ -26,11 +40,14 @@ function configuration(env: AppEnv): ModelConfiguration {
     );
   }
 }
-// Lazy binding; preserve original ai.chat_model. Empty v2 is explicit reset.
+// Lazy binding; both original preference keys remain byte-for-byte intact.
 export const modelSettings = createModelSettings({
+  readChoice: () => getAppMetadata("ai.chat_model.choice"),
+  initializeChoice: (value) =>
+    initializeAppMetadata("ai.chat_model.choice", value),
+  writeChoice: (value) => setAppMetadata("ai.chat_model.choice", value),
   readPreference: () => getAppMetadata("ai.chat_model.v2"),
   readLegacyPreference: () => getAppMetadata("ai.chat_model"),
-  writePreference: (value) => setAppMetadata("ai.chat_model.v2", value),
   configuration: () => configuration(getOptionalEnv()),
 });
 

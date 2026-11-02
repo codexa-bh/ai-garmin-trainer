@@ -273,6 +273,7 @@ async function entry(): Promise<void> {
       if (!fresh) assertDesktopDatabase(fields.DATABASE_PATH);
       for (const slot of SECRET_SLOTS) delete fields[slot];
       delete fields.CHAT_MODEL_CATALOG;
+      delete fields.CHAT_SELECTION_COMPATIBILITY;
       report({ ok: true, fields });
       process.exit(0);
     } catch {
