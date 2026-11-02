@@ -150,7 +150,12 @@ class HistoryRun(OrdinaryRun):
         while time.monotonic() < deadline:
             if self.child.poll() is not None:
                 raise RuntimeError('Owned native exited during Finish')
-            identity = self.http('/identity')
+            try:
+                identity = self.http('/identity')
+            except TimeoutError:
+                # Read-only identity may wait behind atomic native creation.
+                # The overall readiness deadline still binds; HTTP403 never retries.
+                continue
             if not self.accept_identity(identity):
                 raise ValueError('Owned native identity changed')
             if identity['origin']:

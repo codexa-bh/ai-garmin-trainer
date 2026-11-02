@@ -122,7 +122,7 @@ class HistoryTokenContracts(unittest.TestCase):
         origin = 'http://127.0.0.1:12346'
         run = SimpleNamespace(root=self.destination, child=SimpleNamespace(poll=lambda:None),
                               config={'port':12345}, launches=1,
-                              http=Mock(side_effect=[{'origin':origin,'runtimeReady':False,'rendererDiagnostic':{'dashboard':True,'bootstrap':True,'ipc':True}},
+                              http=Mock(side_effect=[TimeoutError('Atomic creation still owns identity'), {'origin':origin,'runtimeReady':False,'rendererDiagnostic':{'dashboard':True,'bootstrap':True,'ipc':True}},
                                                      {'origin':origin,'runtimeReady':True,'rendererDiagnostic':{'dashboard':True,'bootstrap':True,'ipc':True}}]),
                               accept_identity=Mock(return_value=True), settings_action=Mock(),
                               command=Mock(return_value={'dashboard':True,'hydrated':True}))
@@ -130,6 +130,31 @@ class HistoryTokenContracts(unittest.TestCase):
         run.command.assert_called_once_with({'type':'observe'})
         run.settings_action.assert_not_called()
         self.assertTrue(json.loads((self.destination/'readiness-1.json').read_text())['rendererRoundTrip'])
+
+    def test_admission_refusal_is_never_retried_as_readiness(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        run = SimpleNamespace(child=SimpleNamespace(poll=lambda:None),
+                              http=Mock(side_effect=RuntimeError('Bridge status 403: Run authority changed')),
+                              settings_action=Mock(), command=Mock())
+        with self.assertRaisesRegex(RuntimeError, '403'):
+            HistoryRun.wait_backend(run)
+        self.assertEqual(run.http.call_count, 1)
+        run.settings_action.assert_not_called()
+        run.command.assert_not_called()
+
+    def test_identity_transport_timeout_still_obeys_overall_readiness_deadline(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        run = SimpleNamespace(child=SimpleNamespace(poll=lambda:None),
+                              http=Mock(side_effect=TimeoutError('Identity pending')),
+                              settings_action=Mock(), command=Mock())
+        with patch('history_smoke.time.monotonic', side_effect=[0, 0, 101]):
+            with self.assertRaisesRegex(TimeoutError, 'Finish/backend deadline'):
+                HistoryRun.wait_backend(run)
+        self.assertEqual(run.http.call_count, 1)
+        run.settings_action.assert_not_called()
+        run.command.assert_not_called()
 
     def test_insecure_alias_and_unknown_selections_are_refused(self):
         self.selection.chmod(0o644)
