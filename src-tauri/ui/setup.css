@@ -1,9 +1,23 @@
+/* Local Settings stays available without the backend or main app stylesheet. */
+:root {
+  --canvas: #05070b;
+  --panel-strong: #101723;
+  --overlay: rgba(7, 11, 18, 0.78);
+  --line: rgba(148, 163, 184, 0.18);
+  --line-strong: rgba(148, 163, 184, 0.34);
+  --text: #edf5ff;
+  --muted: #9aa8bb;
+  --accent: #49d6c8;
+  --accent-ink: #021618;
+  --focus: #f8d566;
+}
+
 body {
   font:
     17px/1.5 system-ui,
     sans-serif;
-  color: #e9f1ed;
-  background: #12231c;
+  color: var(--text);
+  background: var(--canvas);
   margin: 0;
 }
 main {
@@ -16,12 +30,12 @@ h1 {
 }
 h2 {
   font-size: 20px;
-  color: #a9c9b6;
+  color: var(--muted);
 }
 button {
   font: inherit;
-  background: #b0efca;
-  color: #10291b;
+  background: var(--accent);
+  color: var(--accent-ink);
   padding: 12px 18px;
   border: 0;
   border-radius: 8px;
@@ -31,11 +45,11 @@ button:disabled {
 }
 #status,
 #auth-status {
-  color: #f5d793;
+  color: var(--focus);
 }
 fieldset,
 section {
-  border: 1px solid #5e7c6a;
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 16px;
   margin: 20px 0;
@@ -50,9 +64,10 @@ input,
 select {
   font: inherit;
   padding: 8px;
-  color: #e9f1ed;
-  background: #19382a;
-  border: 1px solid #779986;
+  color: var(--text);
+  background: var(--panel-strong);
+  accent-color: var(--accent);
+  border: 1px solid var(--line-strong);
   border-radius: 5px;
   min-width: 0;
 }
@@ -72,14 +87,14 @@ select {
 }
 label span {
   font-size: 14px;
-  color: #a9c9b6;
+  color: var(--muted);
 }
 button {
   margin: 6px 8px 6px 0;
   cursor: pointer;
 }
 .helper {
-  color: #a9c9b6;
+  color: var(--muted);
   font-size: 14px;
 }
 #memory-section p,
@@ -97,11 +112,11 @@ button {
   max-width: 100%;
 }
 #garmin-privacy {
-  border-top: 1px solid #5e7c6a;
+  border-top: 1px solid var(--line);
   margin-top: 12px;
 }
 #memory-section details {
-  border-top: 1px solid #5e7c6a;
+  border-top: 1px solid var(--line);
 }
 .actions {
   display: flex;
@@ -160,11 +175,11 @@ summary {
   flex-wrap: wrap;
 }
 .catalog-row [aria-pressed="true"] {
-  background: #f5d793;
+  background: var(--focus);
 }
 .catalog-error {
   grid-column: 1 / -1;
-  color: #f5d793;
+  color: var(--focus);
   font-size: 14px;
 }
 .catalog-error:empty {
@@ -183,7 +198,7 @@ summary {
   width: 100%;
 }
 .provider-key input::placeholder {
-  color: #a9c9b6;
+  color: var(--muted);
   opacity: 1;
 }
 .catalog-provider .helper {
@@ -215,13 +230,13 @@ summary {
   overflow: auto;
   overflow-wrap: anywhere;
   padding: 24px;
-  border: 1px solid #779986;
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
-  color: #e9f1ed;
-  background: #19382a;
+  color: var(--text);
+  background: var(--panel-strong);
 }
 #restart-required::backdrop {
-  background: rgb(0 0 0 / 65%);
+  background: var(--overlay);
 }
 #restart-required h2 {
   margin-top: 0;
@@ -230,6 +245,6 @@ summary {
   display: none !important;
 }
 :focus-visible {
-  outline: 3px solid #f5d793;
+  outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
