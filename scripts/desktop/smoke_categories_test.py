@@ -66,6 +66,22 @@ class CategoryTests(unittest.TestCase):
         self.assertTrue(all(item['status'] == 'removed' for item in receipt['artifacts']))
         self.assertFalse(any(command[2] == 'preserve' for command in self.commands))
 
+    def test_readable_root_gets_private_categories_without_chmod_or_generic_adoption(self):
+        self.scratch.chmod(0o755)
+        self.invoke(lambda scratch: self.assertEqual(scratch.stat().st_mode & 0o777, 0o700))
+        self.assertEqual(self.scratch.stat().st_mode & 0o777, 0o755)
+        standalone = self.root / 'nonprivate'
+        standalone.mkdir(mode=0o755)
+        ledger = resources.Disposables()
+        try:
+            with self.assertRaisesRegex(ValueError, 'owner-private'):
+                ledger.configure(standalone)
+        finally:
+            ledger.close()
+        self.scratch.chmod(0o777)
+        with self.assertRaisesRegex(ValueError, 'owner-controlled'):
+            self.invoke(lambda scratch: None)
+
     def test_failed_or_prepare_only_allocations_hold_original_recovery_not_duplicate_bulk(self):
         state = {}
         def body(scratch):

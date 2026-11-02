@@ -9,7 +9,7 @@ import subprocess
 import uuid
 import smoke_resources as resources
 
-from native_smoke import REPO, Observer, fingerprint, private_json, readonly, source_identity
+from native_smoke import REPO, Observer, canonical, fingerprint, private_json, readonly, source_identity
 from ordinary_smoke import OrdinaryRun, inventory_hash, private_directory
 from release_smoke import audit
 
@@ -50,8 +50,7 @@ def main():
     parser.add_argument('--bundle', required=True)
     args = parser.parse_args()
     os.umask(0o077)
-    scratch = private_directory(args.scratch)
-    scratch = resources.configure(scratch)
+    scratch = private_directory(resources.configure(canonical(args.scratch)))
     screenshots = scratch / 'screenshots'
     if not screenshots.exists():
         screenshots.mkdir(mode=0o700)

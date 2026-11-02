@@ -80,14 +80,19 @@ class Disposables:
     def configure(self, scratch):
         scratch = Path(scratch)
         info = scratch.stat()
-        if not scratch.is_absolute() or scratch.resolve(strict=True) != scratch or scratch.is_symlink() or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-            raise ValueError('Canonical owner-private invocation scratch required')
+        if not scratch.is_absolute() or scratch.resolve(strict=True) != scratch or scratch.is_symlink() or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+            raise ValueError('Canonical owner-controlled invocation scratch required')
         if self.scratch is not None and self.scratch != scratch:
             raise ValueError('One invocation scratch required')
         self.scratch = scratch
         if self.categories is None:
             from smoke_categories import CategoryPaths
             self.categories = CategoryPaths(scratch)
+        for target in (self.categories.evidence, self.categories.disposable):
+            target_info = target.lstat()
+            if (not stat.S_ISDIR(target_info.st_mode) or target_info.st_uid != os.getuid()
+                    or target_info.st_mode & 0o077 or target.resolve(strict=True) != target):
+                raise ValueError('Canonical owner-private invocation storage required; never chmod/adopt')
         if self.receipt is None:
             self.receipt = self.categories.evidence / ('resource-disposition-' + str(uuid.uuid4()) + '.json')
         self.pin(scratch)
