@@ -77,10 +77,122 @@ describe("concrete Garmin wire/FIT/archive adapter", () => {
     );
   });
 
+  it("accepts the pinned connector's exact between-date empty battery/body/weight replies", async () => {
+    const f = fixture();
+    vi.mocked(f.ports.connector.callTool).mockImplementation(async (name) => {
+      if (name === "get_stats") return "No stats found for 2026-11-02";
+      if (name === "get_sleep_summary")
+        return "No sleep data found for 2026-11-02";
+      if (name === "get_body_battery")
+        return "No body battery data found between 2026-11-02 and 2026-11-02";
+      if (name === "get_body_composition")
+        return "No body composition data found between 2026-10-01 and 2026-10-30";
+      return "No weight measurements found between 2026-10-01 and 2026-10-30.";
+    });
+    expect(await f.reader.dailyHealth("2026-11-02")).toMatchObject({
+      availability: "missing",
+    });
+    expect(await f.reader.bodyComposition("2026-10-01", "2026-10-30")).toEqual(
+      {},
+    );
+    expect(await f.reader.weighIns("2026-10-01", "2026-10-30")).toEqual({});
+  });
+  it("keeps valid stats when a pinned curated battery summary has no level metric", async () => {
+    const f = fixture();
+    vi.mocked(f.ports.connector.callTool).mockImplementation(async (name) =>
+      JSON.stringify(
+        name === "get_stats"
+          ? { total_steps: 20 }
+          : name === "get_sleep_summary"
+            ? {}
+            : [{ date: "2026-11-02", charged: 0, drained: null, events: [] }],
+      ),
+    );
+    expect(await f.reader.dailyHealth("2026-11-02")).toMatchObject({
+      steps: 20,
+      bodyBatteryMorning: null,
+      bodyBatteryEvening: null,
+    });
+    vi.mocked(f.ports.connector.callTool).mockImplementation(async (name) =>
+      JSON.stringify(
+        name === "get_stats"
+          ? { total_steps: 20 }
+          : name === "get_sleep_summary"
+            ? {}
+            : [
+                {
+                  date: "2026-11-02",
+                  charged: "Error",
+                  drained: null,
+                  events: [],
+                },
+              ],
+      ),
+    );
+    await expect(f.reader.dailyHealth("2026-11-02")).rejects.toThrow(
+      "unrecognized",
+    );
+  });
+  it.each([
+    { stats: { date: "2026-11-02", daily_step_goal: 10000 }, sleep: {} },
+    { stats: {}, sleep: { awake_count: 0, avg_spo2_percent: 98 } },
+  ])(
+    "accepts reviewed metadata-only curated health without inventing metrics: %j",
+    async ({ stats, sleep }) => {
+      const f = fixture();
+      vi.mocked(f.ports.connector.callTool).mockImplementation(async (name) =>
+        JSON.stringify(
+          name === "get_stats"
+            ? stats
+            : name === "get_sleep_summary"
+              ? sleep
+              : [],
+        ),
+      );
+      expect(await f.reader.dailyHealth("2026-11-02")).toMatchObject({
+        availability: "missing",
+        steps: null,
+        sleepMinutes: null,
+      });
+    },
+  );
+  it.each([
+    { date: "2026-11-01", daily_step_goal: 10000 },
+    { date: "2026-11-02", daily_step_goal: "invalid" },
+    { date: "2026-11-02", private_unknown: 1 },
+  ])(
+    "rejects wrong-date, malformed and unknown stats metadata: %j",
+    async (stats) => {
+      const f = fixture();
+      vi.mocked(f.ports.connector.callTool).mockImplementation(async (name) =>
+        JSON.stringify(name === "get_stats" ? stats : {}),
+      );
+      await expect(f.reader.dailyHealth("2026-11-02")).rejects.toThrow(
+        "unrecognized",
+      );
+      expect(f.ports.archive).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    "Error retrieving weight measurements: network unavailable",
+    "No weight measurements found between 2026-10-01 and 2026-10-30. Error retrieving data",
+    "No unreviewed data found between 2026-10-01 and 2026-10-30",
+    "No weight measurements found between unknown and unknown",
+  ])(
+    "does not reinterpret errors or unreviewed empty text as successful coverage: %s",
+    async (text) => {
+      const f = fixture();
+      vi.mocked(f.ports.connector.callTool).mockResolvedValue(text);
+      await expect(
+        f.reader.weighIns("2026-10-01", "2026-10-30"),
+      ).rejects.toThrow();
+      expect(f.ports.archive).not.toHaveBeenCalled();
+    },
+  );
   it("archives an activity page before normalization can fail and retains page size/continuation", async () => {
     const f = fixture();
     vi.mocked(f.ports.connector.callTool).mockResolvedValueOnce(
-      '{"activities":[null]}',
+      '{"activities":[null],"has_more":false}',
     );
     await expect(
       f.reader.activityPage("2026-09-19", "2026-09-21", 3),
@@ -187,12 +299,14 @@ describe("concrete Garmin wire/FIT/archive adapter", () => {
     expect(f.ports.fit.baseline).not.toHaveBeenCalled();
   });
 
-  it("retains non-JSON text as a message object and treats array detail as unrecognized", async () => {
+  it("rejects unrecognized text without reflecting it and treats array detail as unrecognized", async () => {
     const f = fixture();
     vi.mocked(f.ports.connector.callTool).mockResolvedValueOnce(
       "  not supported  ",
     );
-    expect(await f.reader.profile()).toEqual({ message: "not supported" });
+    await expect(f.reader.profile()).rejects.toThrow(
+      "upstream details are withheld",
+    );
     vi.mocked(f.ports.connector.callTool).mockResolvedValueOnce("[]");
     expect(await f.reader.activityDetail("1")).toMatchObject({
       recognized: false,

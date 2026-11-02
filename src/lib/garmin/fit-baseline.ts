@@ -25,6 +25,7 @@ function hasZonesTarget(value: unknown): value is FitBaselinePayload {
 
 export async function fetchFitBaselineWithLocalWrapper(
   activityIds: string[],
+  options?: { signal: AbortSignal; timeout: number },
 ): Promise<unknown> {
   if (activityIds.length === 0) return undefined;
   const scriptPath = join(process.cwd(), "scripts", "garmin_fit_baseline.py");
@@ -44,7 +45,10 @@ export async function fetchFitBaselineWithLocalWrapper(
   ];
   try {
     const { stdout } = await execFileAsync(command, args, {
-      timeout: 120_000,
+      timeout: options?.timeout ?? 120_000,
+      signal: options?.signal,
+      // uv forwards TERM to Python; killing the launcher directly can orphan it.
+      killSignal: "SIGTERM",
       maxBuffer: 1024 * 1024,
       env: garminTokenEnvironment(),
     });

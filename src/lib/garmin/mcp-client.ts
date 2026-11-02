@@ -81,8 +81,23 @@ export class GarminMcpClient {
 
   close(): void {
     if (!this.child) return;
-    this.child.kill("SIGTERM");
+    const child = this.child;
     this.child = undefined;
+    child.kill("SIGTERM");
+    const escalation = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null)
+        child.kill("SIGKILL");
+    }, 500);
+    escalation.unref();
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(
+        new Error(
+          "Garmin connector closed; interrupted work remains retryable.",
+        ),
+      );
+    }
+    this.pending.clear();
   }
 
   private onStdout(chunk: string): void {

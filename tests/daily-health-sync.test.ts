@@ -39,6 +39,8 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
           has_more: false,
         });
       }
+      if (operation === "get_body_composition" || operation === "get_weigh_ins")
+        return "{}";
       if (operation === "get_stats") {
         return JSON.stringify(
           mcpState.statsByDate.get(String(args.date)) ?? {},
@@ -229,11 +231,11 @@ describe("Garmin daily health adaptive freshness", () => {
         .get(),
     ).toMatchObject({
       status: "completed",
-      coverageStart: "2026-07-01",
+      coverageStart: "2026-07-10",
       coverageEnd: "2026-07-23",
     });
     expect(fetchedHealthDates("get_stats")).toEqual(
-      dateRange("2026-07-10", "2026-07-23"),
+      dateRange("2026-07-10", "2026-07-23").reverse(),
     );
     expect(fetchedHealthDates("get_sleep_summary")).toEqual(
       fetchedHealthDates("get_stats"),
@@ -271,7 +273,7 @@ describe("Garmin daily health adaptive freshness", () => {
     expect(result.status).toBe("completed");
     expect(result.healthDaysImported).toBe(14);
     expect(fetchedHealthDates("get_stats")).toEqual(
-      dateRange("2026-07-10", "2026-07-23"),
+      dateRange("2026-07-10", "2026-07-23").reverse(),
     );
     expect(fetchedHealthDates("get_sleep_summary")).toEqual(
       fetchedHealthDates("get_stats"),
@@ -325,7 +327,7 @@ describe("Garmin daily health adaptive freshness", () => {
     expect(result.status).toBe("completed");
     expect(result.healthDaysImported).toBe(14);
     expect(fetchedHealthDates("get_stats")).toEqual(
-      dateRange("2026-07-10", "2026-07-23"),
+      dateRange("2026-07-10", "2026-07-23").reverse(),
     );
     expect(getCheckpoint("health_next_date")).toBe("2026-07-24");
     expect(
@@ -335,7 +337,9 @@ describe("Garmin daily health adaptive freshness", () => {
         )
         .get("2026-07-21"),
     ).toMatchObject({ availability: "complete", steps: 8200, hrvMs: 62 });
-    expect(result.detail).toContain("mutable trailing daily-health candidates");
+    expect(result.detail).toContain(
+      "Remote earliest-health boundary is unknown",
+    );
   });
 
   it("does not retry non-trailing source-empty rows with terminal raw evidence", async () => {
@@ -385,7 +389,7 @@ describe("Garmin daily health adaptive freshness", () => {
     const result = await runGarminSync();
 
     expect(result.status).toBe("failed");
-    expect(result.coverageStart).toBe("2026-07-01");
+    expect(result.coverageStart).toBe("2026-07-10");
     expect(result.coverageEnd).toBe("2026-07-23");
     expect(
       getDatabase()
@@ -395,9 +399,10 @@ describe("Garmin daily health adaptive freshness", () => {
         .get(),
     ).toMatchObject({
       status: "failed",
-      coverageStart: "2026-07-01",
+      coverageStart: "2026-07-10",
       coverageEnd: "2026-07-23",
-      lastError: "connector start failed",
+      lastError:
+        "Garmin sync stopped after a connector or storage failure; committed data and unresolved history are retained.",
     });
   });
 
@@ -416,10 +421,10 @@ describe("Garmin daily health adaptive freshness", () => {
     expect(result.status).toBe("completed");
     expect(result.healthDaysImported).toBe(14);
     expect(fetchedHealthDates("get_stats")).toEqual(
-      dateRange("2026-07-10", "2026-07-23"),
+      dateRange("2026-07-10", "2026-07-23").reverse(),
     );
     expect(new Set(fetchedHealthDates("get_stats")).size).toBe(14);
-    expect(getCheckpoint("health_next_date")).toBe("2026-07-24");
+    expect(getCheckpoint("health_next_date")).toBe("2026-07-20");
   });
 
   it("repairs missing rows that have no raw daily-health payload evidence", async () => {
@@ -524,7 +529,7 @@ describe("Garmin daily health adaptive freshness", () => {
       1,
     );
     expect(result.detail).toContain(
-      "daily intensity coverage repair candidates",
+      "Remote earliest-health boundary is unknown",
     );
   });
 
@@ -551,8 +556,8 @@ describe("Garmin daily health adaptive freshness", () => {
       "get_body_battery",
     ] as const) {
       expect(fetchedHealthDates(operation)).toEqual([
-        "2026-07-22",
         "2026-07-23",
+        "2026-07-22",
       ]);
     }
   });
@@ -585,8 +590,8 @@ describe("Garmin daily health adaptive freshness", () => {
     });
     await runGarminSync();
     expect(fetchedHealthDates("get_stats")).toEqual([
-      "2026-07-22",
       "2026-07-23",
+      "2026-07-22",
     ]);
     expect(stored("2026-07-23")).toMatchObject({
       steps: 9000,
@@ -612,8 +617,8 @@ describe("Garmin daily health adaptive freshness", () => {
     });
     await runGarminSync();
     expect(fetchedHealthDates("get_stats")).toEqual([
-      "2026-07-23",
       "2026-07-24",
+      "2026-07-23",
     ]);
     expect(stored("2026-07-23")).toMatchObject({
       steps: 9500,
@@ -731,7 +736,7 @@ describe("Garmin daily health adaptive freshness", () => {
         "get_sleep_summary",
         "get_body_battery",
       ] as const)
-        expect(fetchedHealthDates(operation)).toEqual([yesterday, today]);
+        expect(fetchedHealthDates(operation)).toEqual([today, yesterday]);
       expect(
         getDatabase()
           .prepare("select date, steps from daily_health order by date")

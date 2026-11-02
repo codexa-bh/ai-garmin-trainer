@@ -24,6 +24,7 @@ const allowed = new Set([
   "garmin/types.ts",
   "garmin/detail-types.ts",
   "garmin/import-contracts.ts",
+  "garmin/history-policy.ts",
   "garmin/normalize.ts",
   "analytics/activity-dashboard-calculations.ts",
   "analytics/terrain-sections.ts",

@@ -1,3 +1,4 @@
+import type { GarminReadControl } from "./history-policy";
 import type { HealthCoverage } from "./import-contracts";
 import type {
   GarminAthleteBaselineDto,
@@ -65,6 +66,7 @@ export interface BaselineStore {
     preservedPrevious: boolean;
   }): void;
   writeGarminBodyMetricsRefresh(input: {
+    historyOnly?: boolean;
     snapshot: GarminBodyMetricsSnapshot | null;
     status: GarminBodyMetricsSnapshot["availability"];
     attemptedAt: Date;
@@ -103,6 +105,10 @@ export interface GarminImportStore extends BaselineStore, DetailStore {
     status: "completed" | "failed",
     lastError?: string,
   ): void;
+  healthHistoryBounds?(): {
+    oldestStored: string | null;
+    oldestWithMetrics: string | null;
+  };
   getCheckpoint(key: string): string | null;
   saveCheckpoint(key: string, value: string): void;
   listRecentActivities(limit: number): { garminId: string }[];
@@ -121,7 +127,7 @@ export interface GarminImportStore extends BaselineStore, DetailStore {
 
 export type GarminImportPorts = {
   store: GarminImportStore;
-  createReader: () => GarminReader;
-  historyStartDate: () => string;
+  createReader: (control?: GarminReadControl) => GarminReader;
+  historyStartDate: () => string | undefined;
   clock: () => Date;
 };

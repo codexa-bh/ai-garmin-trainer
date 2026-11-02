@@ -59,9 +59,13 @@ export function useSyncFeature({
   const [detailGarminId, setDetailGarminId] = useState("");
 
   const isSyncingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  function cancelSync() {
+    abortRef.current?.abort();
+  }
 
   async function syncNow() {
-    if (isSyncingRef.current) return;
+    if (isSyncingRef.current || importSummary?.syncActive) return;
     isSyncingRef.current = true;
     setIsSyncing(true);
     let logLines: SyncRunState["lines"] = [
@@ -78,7 +82,12 @@ export function useSyncFeature({
     });
     setStatus({ kind: "busy", message: "Sync now: starting…" });
     try {
-      const response = await fetch("/api/sync", { method: "POST" });
+      const abort = new AbortController();
+      abortRef.current = abort;
+      const response = await fetch("/api/sync", {
+        method: "POST",
+        signal: abort.signal,
+      });
       if (!response.ok || !response.body) {
         const body = await readResponse(response);
         const message = `Sync now: failed (${response.status})\n${body}`;
@@ -103,6 +112,8 @@ export function useSyncFeature({
       const decoder = new TextDecoder();
       let buffer = "";
       let finalKind: Status["kind"] = "ok";
+      let receivedResult = false;
+      let paused = false;
       let finalMessage = "Sync in progress…";
 
       const appendLine = (
@@ -137,7 +148,7 @@ export function useSyncFeature({
           const event = JSON.parse(line) as SyncProgressEvent;
           const failed =
             event.type === "result"
-              ? event.status !== "completed"
+              ? event.status === "failed"
               : event.stage === "failed";
           if (failed) {
             finalKind = "error";
@@ -147,7 +158,10 @@ export function useSyncFeature({
             failureSummary = syncFailureSummary(recovery);
           }
           if (event.type === "result") {
-            finalKind = event.status === "completed" ? "ok" : "error";
+            receivedResult = true;
+            paused =
+              event.status === "cancelled" || event.status === "budget-limited";
+            finalKind = failed ? "error" : "ok";
             if (!failed) {
               recovery = null;
               failureSummary = null;
@@ -165,10 +179,12 @@ export function useSyncFeature({
           }
         }
       }
+      if (!receivedResult)
+        throw new Error("Sync stream ended without a durable result.");
       await loadImportSummary("sync", false);
       if (finalKind === "ok") await refreshHealthAfterSync();
       setSyncRun({
-        kind: finalKind === "ok" ? "completed" : "failed",
+        kind: finalKind === "ok" ? (paused ? "paused" : "completed") : "failed",
         lines: logLines,
         finalMessage,
         failureSummary,
@@ -176,6 +192,20 @@ export function useSyncFeature({
       });
       setStatus({ kind: finalKind, message: finalMessage });
     } catch {
+      if (abortRef.current?.signal.aborted) {
+        const message =
+          "Cancellation requested. Committed data is retained; refresh import summary to confirm settlement before continuing.";
+        setSyncRun({
+          kind: "paused",
+          lines: logLines,
+          finalMessage: message,
+          failureSummary: null,
+          recovery: null,
+        });
+        setStatus({ kind: "idle", message });
+        await loadImportSummary("sync", false);
+        return;
+      }
       const message =
         "Sync now failed: the local app request or sync response could not be read. Check the local app and try again.";
       const nextLines = [
@@ -191,6 +221,7 @@ export function useSyncFeature({
       });
       setStatus({ kind: "error", message });
     } finally {
+      abortRef.current = null;
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
@@ -280,7 +311,9 @@ export function useSyncFeature({
       ? "Complete"
       : syncRun.kind === "failed"
         ? "Failed"
-        : "Ready";
+        : syncRun.kind === "paused"
+          ? "Paused"
+          : "Ready";
   return {
     loadImportSummary,
     syncRun,
@@ -288,6 +321,7 @@ export function useSyncFeature({
     syncPillKind,
     syncPillLabel,
     syncNow,
+    cancelSync,
     importSummary,
     refreshSummary,
     athleteBaselineMessage,

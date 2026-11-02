@@ -42,6 +42,34 @@ afterEach(() => {
 });
 
 describe("desktop editable settings", () => {
+  it("activates existing or new configurations without a date, preserves a valid legacy limit and clears it explicitly", () => {
+    const base = baseline();
+    const automatic: Record<string, string> = { ...base.fields };
+    delete automatic.GARMIN_HISTORY_START_DATE;
+    for (const fields of [
+      automatic,
+      { ...automatic, GARMIN_HISTORY_START_DATE: "" },
+    ]) {
+      expect(
+        validateSettings(fields).GARMIN_HISTORY_START_DATE,
+      ).toBeUndefined();
+      for (const mode of ["existing", "new"] as const) {
+        const active = activationEnvironment(
+          {
+            version: 1,
+            fields,
+            secrets: { OPENAI_API_KEY: "sentinel-configured-only" },
+          },
+          mode,
+        );
+        expect(active.GARMIN_HISTORY_START_DATE).toBeUndefined();
+        expect(active.DATABASE_PATH).toBe(base.fields.DATABASE_PATH);
+      }
+    }
+    expect(validateSettings(base.fields).GARMIN_HISTORY_START_DATE).toBe(
+      "2025-01-01",
+    );
+  });
   it("uses authoritative defaults and exposes exactly the supported field inventory", () => {
     const base = baseline();
     const result = validateSettings(base.fields);

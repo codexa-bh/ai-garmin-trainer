@@ -955,6 +955,7 @@ function normalizeWeighInAvailability(
 }
 
 export function writeGarminBodyMetricsRefresh(input: {
+  historyOnly?: boolean;
   snapshot: GarminBodyMetricsSnapshot | null;
   status: Exclude<GarminBodyMetricsAvailability, "failed">;
   attemptedAt: Date;
@@ -964,29 +965,40 @@ export function writeGarminBodyMetricsRefresh(input: {
 }): void {
   const db = getDatabase();
   db.transaction(() => {
-    db.prepare("delete from garmin_body_metrics").run();
-    db.prepare("delete from garmin_body_weight_history").run();
     if (input.snapshot && input.snapshot.availability !== "unavailable") {
-      db.prepare(
-        `insert into garmin_body_metrics (id, fetched_at, source, availability, weight_kg, height_cm, history_availability, history_range_start, history_range_end, history_count, history_source, current_weight_source, weigh_in_availability)
-         values ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        input.snapshot.fetchedAt.getTime(),
-        input.snapshot.source,
-        input.snapshot.availability,
-        input.snapshot.values.weightKg,
-        input.snapshot.values.heightCm,
-        input.snapshot.history.availability,
-        input.snapshot.history.rangeStart,
-        input.snapshot.history.rangeEnd,
-        input.snapshot.history.count,
-        input.snapshot.history.source ?? null,
-        input.snapshot.currentWeightSource ?? null,
-        input.snapshot.weighInAvailability ?? null,
-      );
+      if (
+        !input.historyOnly ||
+        !db
+          .prepare("select 1 from garmin_body_metrics where id = 'default'")
+          .get()
+      )
+        db.prepare(
+          `insert into garmin_body_metrics (id, fetched_at, source, availability, weight_kg, height_cm, history_availability, history_range_start, history_range_end, history_count, history_source, current_weight_source, weigh_in_availability)
+         values ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         on conflict(id) do update set fetched_at=excluded.fetched_at,
+           availability=excluded.availability,
+           weight_kg=coalesce(excluded.weight_kg, garmin_body_metrics.weight_kg),
+           height_cm=coalesce(excluded.height_cm, garmin_body_metrics.height_cm),
+           current_weight_source=coalesce(excluded.current_weight_source, garmin_body_metrics.current_weight_source),
+           weigh_in_availability=excluded.weigh_in_availability`,
+        ).run(
+          input.snapshot.fetchedAt.getTime(),
+          input.snapshot.source,
+          input.snapshot.availability,
+          input.snapshot.values.weightKg,
+          input.snapshot.values.heightCm,
+          input.snapshot.history.availability,
+          input.snapshot.history.rangeStart,
+          input.snapshot.history.rangeEnd,
+          input.snapshot.history.count,
+          input.snapshot.history.source ?? null,
+          input.snapshot.currentWeightSource ?? null,
+          input.snapshot.weighInAvailability ?? null,
+        );
       const insertHistory = db.prepare(
         `insert into garmin_body_weight_history (date, weight_kg, source, fetched_at)
-         values (?, ?, ?, ?)`,
+         values (?, ?, ?, ?) on conflict(date) do update set
+           weight_kg=excluded.weight_kg, source=excluded.source, fetched_at=excluded.fetched_at`,
       );
       for (const row of input.snapshot.historyRows) {
         insertHistory.run(
@@ -997,6 +1009,14 @@ export function writeGarminBodyMetricsRefresh(input: {
         );
       }
     }
+    db.prepare(
+      `update garmin_body_metrics set
+      history_count=(select count(*) from garmin_body_weight_history),
+      history_range_start=(select min(date) from garmin_body_weight_history),
+      history_range_end=(select max(date) from garmin_body_weight_history),
+      history_availability=case when exists(select 1 from garmin_body_weight_history) then 'available' else history_availability end
+      where id='default'`,
+    ).run();
     db.prepare(
       `insert into garmin_body_metric_attempt (id, attempted_at, completed_at, status, error_message, preserved_previous)
        values ('default', ?, ?, ?, ?, ?)
@@ -1611,8 +1631,20 @@ export function dataCounts(): LocalDataCounts {
   };
 }
 
+export function healthHistoryBounds(): {
+  oldestStored: string | null;
+  oldestWithMetrics: string | null;
+} {
+  return getDatabase()
+    .prepare(
+      "select min(date) as oldestStored, min(case when availability <> 'missing' then date end) as oldestWithMetrics from daily_health",
+    )
+    .get() as { oldestStored: string | null; oldestWithMetrics: string | null };
+}
+
 export function importSummary(): LocalImportSummary {
   const counts = dataCounts();
+  const history = getCheckpoint("garmin_history_v1");
   const latestActivity = getDatabase()
     .prepare("select max(started_at) as value from activity")
     .get() as { value: number | null };
@@ -1628,6 +1660,7 @@ export function importSummary(): LocalImportSummary {
       : null,
     healthStartDate: healthRange.start,
     healthEndDate: healthRange.end,
+    history: history ? JSON.parse(history) : null,
   };
 }
 

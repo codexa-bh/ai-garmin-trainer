@@ -638,6 +638,7 @@ vi.mock("@/lib/db/conversation-repository", () => ({
   ),
 }));
 vi.mock("@/lib/db/repository", () => ({
+  importSummary: () => ({ history: null }),
   activityDetailCoverage: () => coverage,
   dataCounts: () => ({
     activities: 3,
