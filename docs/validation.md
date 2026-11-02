@@ -56,7 +56,7 @@ Routine superseded PR/ref runs cancel; nightly runs serialize without cancelling
 an allocated native attempt. Actions are SHA-pinned, installs locked, and the only
 shared cache is npm download tarballs keyed by lockfile. No node_modules/build/app
 state cache or binary/SQLite/image uploads. Fresh synthetic state is job-private,
-retained only until runner expiry (local reproduction: task-scratch expiry).
+disposed only through [verified invocation ownership](dev-bridge.md#preparation-reuse-and-owned-disposal) after final settlement/evidence; retained diagnostics expire with the runner or local task scratch.
 Failures retain bounded receipt/source/owned shutdown facts; never dump private
 config, DOM or database contents. Pivan registers PR/main CI asynchronously;
 no polling loop or skipped/pending-as-green claim. Ordinary checked merge/protection

@@ -7,6 +7,7 @@ import platform
 import signal
 import subprocess
 import uuid
+import smoke_resources as resources
 
 from native_smoke import REPO, Observer, Run, build, canonical, fingerprint, private_json, readonly, source_identity
 
@@ -64,6 +65,7 @@ def debug_scenario(run):
     return evidence
 
 
+@resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
@@ -76,13 +78,16 @@ def main():
     stat = scratch.stat()
     if not scratch.is_dir() or stat.st_uid != os.getuid() or stat.st_mode & 0o077:
         raise ValueError('Scratch must be an owner-private directory')
+    resources.configure(scratch)
+    allocation = resources.directory(scratch / ('seed-allocation-' + str(uuid.uuid4())))
     source = source_identity()
     name = 'ci-seed-' + str(uuid.uuid4())
-    seed_command = ['npm', 'run', 'ci:seed', '--', str(scratch), name]
+    seed_command = ['npm', 'run', 'ci:seed', '--', str(allocation), name]
     if args.llm_debug:
         seed_command.append('--llm-debug')
     subprocess.run(seed_command, cwd=REPO, check=True, timeout=60)
-    database = scratch / name / 'synthetic.sqlite'
+    database = allocation / name / 'synthetic.sqlite'
+    resources.file_created(database)
     run = Run(scratch, database, source)
     observer = None
     errors = []
@@ -92,7 +97,8 @@ def main():
         'runId': run.id, 'platform': platform.platform(),
         'coverage': 'Authenticated native/backend/hydrated renderer, normal Goals save, same-state owned restart, persistence, owned shutdown.',
         'exclusions': 'No private inputs, provider/Garmin/Keychain calls, parallel/navigation matrix, hardware/global input, native dialogs, release packaging or ordinary-artifact certification. Captures only with explicit --llm-debug.',
-        'cleanup': 'Synthetic seed/copy/logs deferred to scratch expiry; no copy-back or primary mutation.',
+        'resourceDisposition': resources.disposition(),
+        'cleanup': 'Final owned-disposal receipt records seed/copy removal or retention; compact logs/PNG remain; no copy-back or primary mutation.',
     }
     try:
         binary = build(scratch, source, resources_ready=args.resources_ready)
@@ -107,24 +113,25 @@ def main():
             raise ValueError('Source changed during quick smoke')
         passed = True
     finally:
-        try:
-            run.stop()
-        except Exception as error:
-            errors.append(type(error).__name__)
-        if observer:
+        with resources.preserve_failure():
             try:
-                receipt['noninterference'] = observer.stop(run.pids)
+                run.stop()
             except Exception as error:
                 errors.append(type(error).__name__)
-        with contextlib.closing(readonly(database)) as original:
-            receipt['syntheticInputUnchanged'] = fingerprint(original) == run.original
-        receipt.update(passed=passed and not errors and receipt['syntheticInputUnchanged'], shutdownErrors=errors,
-                       readiness=run.launches == 2, saveRestart=passed, run=str(run.root))
-        path = scratch / ('quick-receipt-' + str(uuid.uuid4()) + '.json')
-        private_json(path, receipt)
-        print(json.dumps({'passed': receipt['passed'], 'receipt': str(path), 'source': source, 'runId': run.id}))
-        if not receipt['passed']:
-            raise RuntimeError('Quick smoke failed; retained original logs/receipt, no fallback or replay')
+            if observer:
+                try:
+                    receipt['noninterference'] = observer.stop(run.pids)
+                except Exception as error:
+                    errors.append(type(error).__name__)
+            with contextlib.closing(readonly(database)) as original:
+                receipt['syntheticInputUnchanged'] = fingerprint(original) == run.original
+            receipt.update(passed=passed and not errors and receipt['syntheticInputUnchanged'], shutdownErrors=errors,
+                           readiness=run.launches == 2, saveRestart=passed, run=str(run.root))
+            path = scratch / ('quick-receipt-' + str(uuid.uuid4()) + '.json')
+            private_json(path, receipt)
+            print(json.dumps({'passed': receipt['passed'], 'receipt': str(path), 'source': source, 'runId': run.id}))
+            if not receipt['passed']:
+                raise RuntimeError('Quick smoke failed; retained original logs/receipt, no fallback or replay')
 
 
 if __name__ == '__main__':
