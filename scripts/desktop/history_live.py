@@ -69,19 +69,29 @@ def private_selector(path):
     return json.loads(path.read_text())
 
 
-def capture_settled(run, label):
-    run.command({'type': 'click', 'target': 'Sync'})
+def show_sync(run):
+    if run.command({'type':'observe'})['view'] != 'Sync':
+        run.command({'type': 'click', 'target': 'Sync'})
     run.wait(lambda value: value['view'] == 'Sync', 'owned Sync summary')
+
+
+def capture_settled(run, label):
+    run.command({'type':'setViewport', 'preset':'wide'})
+    show_sync(run)
     run.command({'type': 'sync', 'action': 'refresh'})
     return {'scenario':label, **run.command({'type':'captureView', 'view':'sync', 'preset':'wide'})}
 
 
-def exercise(run, claim_root):
-    # Admission to this two-effect envelope is exclusive; presence means inspect
-    # existing outcomes, never launch another run to evade consumed authority.
-    private_json(claim_root / 'live-envelope-claim.json', {'run':str(run.root), 'maxOperations':2, 'maxAttempts':300, 'maxOperationSeconds':360})
+def exercise(run, claim_root, start_index=0):
+    # Admission is exclusive. A diagnosed repair may consume only the still-unused
+    # second effect; it never removes/replaces a claim or replays operation0.
+    if start_index == 0:
+        private_json(claim_root / 'live-envelope-claim.json', {'run':str(run.root), 'maxOperations':2, 'maxAttempts':300, 'maxOperationSeconds':360})
+    elif start_index != 1 or not (claim_root / 'live-envelope-claim.json').is_file() or not (claim_root / 'live-operation-0-started.json').is_file() or (claim_root / 'live-operation-1-started.json').exists():
+        raise ValueError('Exactly one unused second effect required; no envelope reset')
     stages = []
-    for index in range(2):
+    for index in range(start_index, 2):
+        show_sync(run)
         before = run.summary()
         if before['active']:
             raise ValueError('Live owner exists; no overlapping account test')
@@ -105,9 +115,33 @@ def exercise(run, claim_root):
             restored = run.summary()
             if restored['active'] or restored['healthChecks'] != after['healthChecks']:
                 raise ValueError('Native restart lost progress or passively started account work')
-    if stages[1]['after']['batches'] < 2:
+    if stages[-1]['after']['batches'] < 2:
         raise ValueError('Live evidence did not reach multiple internal batches')
     return stages
+
+
+def remaining_input(scratch, claim_root):
+    claim = private_selector(claim_root / 'live-envelope-claim.json')
+    if set(claim) != {'run','maxOperations','maxAttempts','maxOperationSeconds'} or [claim['maxOperations'],claim['maxAttempts'],claim['maxOperationSeconds']] != [2,300,360] or not (claim_root / 'live-operation-0-started.json').is_file() or (claim_root / 'live-operation-1-started.json').exists():
+        raise ValueError('Existing exact envelope has no unclaimed second operation')
+    first = private_selector(claim_root / 'live-operation-0-started.json')
+    if first != {'run':claim['run'], 'operation':0, 'maxAttempts':150, 'maxSeconds':180}:
+        raise ValueError('First effect does not match exact envelope')
+    old_root = private_directory(canonical(claim['run']))
+    if old_root.parent != scratch or old_root.name != 'ordinary-' + (old_root / 'owner').read_text():
+        raise ValueError('Recorded task-owned run identity refused')
+    database = canonical(old_root / 'trainer.sqlite')
+    if Path(str(database) + '.trainer-writer').exists():
+        raise ValueError('Prior copy still has writer ownership; do not recover by PID')
+    with contextlib.closing(readonly(database)) as copy:
+        row = copy.execute("select value from sync_checkpoint where key='garmin_discovery_v1'").fetchone()
+        operation_state = json.loads(row[0]).get('operation') if row else None
+        if not operation_state or operation_state['outcome'] != 'cancelled' or not 0 <= operation_state['attempts'] <= 150:
+            raise ValueError('Prior effect not durably cancelled; reconcile unknown outcome')
+        if fingerprint(copy)['integrity'] != 'ok':
+            raise ValueError('Prior cancelled-copy integrity refused')
+    provenance = private_selector(old_root / 'provenance.json')
+    return database, provenance['original']
 
 
 def main():
@@ -117,13 +151,15 @@ def main():
     parser.add_argument('--token-input', required=True, help='Current T0260 explicit copied-token selector')
     parser.add_argument('--settings-integrity', required=True, help='Private selected-settings hash and optional saved history limit; no provider values')
     parser.add_argument('--bundle', required=True)
+    parser.add_argument('--remaining-envelope', action='store_true', help='Diagnosed repair only: reconcile cancelled first effect and consume only unused operation1')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = private_directory(args.scratch)
     selection = private_selector(Path(args.input_file))
     if set(selection) != {'database'}:
         raise ValueError('Database-only selection required')
-    database = canonical(selection['database'])
+    production_database = canonical(selection['database'])
+    database = production_database
     integrity = private_selector(Path(args.settings_integrity))
     if set(integrity) != {'settings','settingsSha256','historyLimit','authority'}:
         raise ValueError('Exact metadata-only settings integrity record required')
@@ -132,7 +168,13 @@ def main():
     if settings_hash() != integrity['settingsSha256']:
         raise ValueError('Selected production settings changed; do not reselect silently')
     claim_root = private_directory(Path(args.token_input).parent)
-    if (claim_root / 'live-envelope-claim.json').exists():
+    expected_production = None
+    if args.remaining_envelope:
+        database, expected_production = remaining_input(scratch, claim_root)
+        with contextlib.closing(readonly(production_database)) as original:
+            if fingerprint(original) != expected_production:
+                raise ValueError('Original production DB changed since first effect; retain provenance')
+    elif (claim_root / 'live-envelope-claim.json').exists():
         raise ValueError('Live envelope already claimed; inspect outcomes, never blindly retry')
     bundle = canonical(args.bundle)
     source = source_identity()
@@ -161,7 +203,8 @@ def main():
         private_json(staged, saved)
         os.replace(staged, path)
         run.start(run.binary)
-        receipt['stages'] = exercise(run, claim_root)
+        receipt['stages'] = exercise(run, claim_root, start_index=1 if args.remaining_envelope else 0)
+        receipt['resumedExistingEnvelope'] = args.remaining_envelope
         if source_identity() != source or audit(bundle) != inventory or audit(run.bundle) != inventory:
             raise ValueError('Source/artifact changed during live evidence')
         receipt['scenarioPassed'] = True
@@ -178,11 +221,14 @@ def main():
             receipt['run'] = str(run.root)
         if observer:
             receipt['noninterference'] = observer.stop(run.pids if run else [])
+        if expected_production:
+            with contextlib.closing(readonly(production_database)) as original:
+                receipt['productionDatabaseUnchanged'] = fingerprint(original) == expected_production
         receipt['originalTokensUnchanged'] = tokens_unchanged(token_source, token_hashes) if token_source else True
         receipt['originalSettingsUnchanged'] = settings_hash() == integrity['settingsSha256']
         receipt['shutdownErrors'] = errors
         private_json(scratch / ('history-live-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
-        if errors or receipt.get('originalDatabaseUnchanged') is False or not receipt['originalTokensUnchanged'] or not receipt['originalSettingsUnchanged']:
+        if errors or receipt.get('originalDatabaseUnchanged') is False or receipt.get('productionDatabaseUnchanged') is False or not receipt['originalTokensUnchanged'] or not receipt['originalSettingsUnchanged']:
             raise RuntimeError('Live preservation/owned shutdown gate failed; private evidence retained')
     print(json.dumps({'scenarioPassed':receipt['scenarioPassed'], 'source':source, 'operations':len(receipt['stages']), 'originalsPreserved':True, 'captures':len(receipt['captures']), 'realGarmin':True}))
 
