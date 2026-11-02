@@ -271,7 +271,7 @@ function renderMemory() {
     `Draft: ${on ? "On" : "Off"}. Saved startup setting: ${savedMemoryEnabled === "true" ? "On" : "Off"}. ` +
     (firstRun
       ? "Finish applies the committed startup configuration."
-      : "Save applies only after explicit quit/reopen; the active runtime is unchanged.");
+      : "Memory topology changes need explicit quit/reopen. Shared provider-key changes can apply now; status is not a readiness check.");
   const provider = byId("MEMORY_EMBEDDING_PROVIDER").value;
   const embedding =
     {
@@ -413,7 +413,7 @@ function renderStep() {
     ? onboarding?.settingsCommitted
       ? "Retry opening saved Trainer"
       : "Finish and open Trainer"
-    : "Save for next launch";
+    : "Save settings";
   byId("memory-section").hidden = wizard && step !== 3;
   byId("advanced-settings").hidden = wizard && step !== 3;
   renderMemory();
@@ -613,7 +613,7 @@ async function refresh() {
     status.textContent = firstRun
       ? "First run: choose new or existing data, configure a provider, connect Garmin now or later, then Finish and open Trainer."
       : saved.saved
-        ? "Saved settings loaded; keys are masked. Changes require explicit quit/reopen."
+        ? `Saved settings loaded; keys are masked. ${saved.activation || "Live status unknown; no automatic retry."}`
         : "Existing installation recovery: settings are inaccessible or unsupported. Preserve them and reopen with a compatible build; no blank-install overwrite.";
     return true;
   } catch {
@@ -890,7 +890,7 @@ byId("settings").addEventListener("submit", async (event) => {
       status.textContent =
         (typeof error === "string"
           ? error
-          : "Save outcome unknown; live backend unchanged.") +
+          : "Save outcome unknown; saved and live state must be reconciled before another action.") +
         " Non-secret draft retained; check expanded controls. Keys were cleared from the form. " +
         (unknownOutcome
           ? "Reload failed: quit/reopen to reconcile before another write."

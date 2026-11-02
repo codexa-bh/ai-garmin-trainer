@@ -450,8 +450,7 @@ Owns semantic retrieval, concise user-derived extraction and inspectable lifecyc
 policy, separately from SQLite, embedding transport and SDK adapters. Application
 factories receive feature-owned ports and plain values; composition alone binds
 storage/providers/configuration/time/identity and retains lazy singleton/reset
-behavior. Configuration is snapshotted per singleton; extraction selection remains
-invocation-time. Ranking/filter order, lazy migration partial writes/marker timing,
+behavior. Startup topology is retained across live key revisions. Current lazy stores rotate credentials without mutating old work; parent chat context, ingestion and deferred titles retain one admitted snapshot. Native extraction/title topology is fixed at boot; key clear never selects another cloud provider. Ranking/filter order, lazy migration partial writes/marker timing,
 null-only fallback and health probe ordering are compatibility contracts.
 
 Profile normalization/read/save lives in `src/lib/profile`, independent of AI

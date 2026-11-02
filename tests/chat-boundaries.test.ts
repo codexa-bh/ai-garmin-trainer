@@ -35,7 +35,10 @@ vi.mock("@/lib/chat/title-adapter", () => ({
 vi.mock("@/lib/weekly/composition", () => ({
   weekly: { context: f.weeklyContext, bindDisplayed: f.bindWeekly },
 }));
-vi.mock("@/lib/env", () => ({ isLlmDebugTraceEnabled: () => f.debug }));
+vi.mock("@/lib/env", async (original) => ({
+  ...(await original<typeof import("@/lib/env")>()),
+  isLlmDebugTraceEnabled: () => f.debug,
+}));
 vi.mock("@/lib/model-settings/composition", () => ({
   selectedTrainerModel: f.selected,
 }));

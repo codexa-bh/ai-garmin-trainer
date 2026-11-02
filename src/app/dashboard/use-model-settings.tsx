@@ -72,6 +72,7 @@ export function useModelSettings(open: boolean) {
   const [message, setMessage] = useState("");
   const generation = useRef(0);
   const saving = useRef(false);
+  const activationPending = useRef(false);
 
   async function load() {
     if (saving.current) return;
@@ -110,6 +111,17 @@ export function useModelSettings(open: boolean) {
       generation.current += 1;
     };
   }, [open]);
+  useEffect(() => {
+    // Native emits no keys, paths or preference mutation. Existing request
+    // generations reject older reads; stream/transcript/focus remain untouched.
+    const refresh = () => {
+      if (saving.current) activationPending.current = true;
+      else loadOnOpen();
+    };
+    window.addEventListener("trainer-live-settings-applied", refresh);
+    return () =>
+      window.removeEventListener("trainer-live-settings-applied", refresh);
+  }, []);
 
   async function save(modelId: ChatModelId) {
     if (saving.current) return;
@@ -136,6 +148,10 @@ export function useModelSettings(open: boolean) {
       );
     } finally {
       saving.current = false;
+      if (activationPending.current) {
+        activationPending.current = false;
+        retry();
+      }
     }
   }
   function choose(modelId: ChatModelId) {

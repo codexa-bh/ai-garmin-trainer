@@ -6,7 +6,11 @@
     formVisible: false,
     manualControlsAbsent: false,
     notConnected: false,
-    savedForNextLaunch: false,
+    saved: false,
+    liveApplied: false,
+    liveUnknown: false,
+    savedUnapplied: false,
+    pendingRestart: false,
     catalogReady: false,
     catalogExercised: false,
     catalogWithoutDefaults: false,
@@ -207,10 +211,17 @@
     value.notConnected =
       byId("connection-status")?.textContent.startsWith("Not connected.") ===
       true;
-    value.savedForNextLaunch =
-      byId("status")?.textContent.startsWith(
-        "Settings committed. Quit and reopen to apply; the running backend is unchanged.",
-      ) === true;
+    const feedback = byId("status")?.textContent ?? "";
+    value.saved = feedback.startsWith("Settings committed.");
+    value.liveApplied =
+      value.saved &&
+      feedback.includes("Live fields applied for subsequent operations");
+    value.liveUnknown =
+      value.saved && feedback.includes("live outcome unknown");
+    value.savedUnapplied =
+      value.saved && feedback.includes("live fields not applied");
+    value.pendingRestart =
+      value.saved && feedback.includes("pending explicit quit/reopen");
     return value;
   }
   const styles = new Map();
@@ -333,6 +344,108 @@
         )
           throw Error("Unavailable");
         el.click();
+      } else if (
+        ["liveCatalog", "liveRotate", "liveClear", "liveEmpty"].includes(action)
+      ) {
+        // Finite authored presets, actual semantic form events, never arbitrary
+        // values/selectors, private readback, state injection or provider requests.
+        if (byId("save").disabled) throw Error("Settings busy");
+        const change = (element, value) => {
+          if (!element || element.disabled) throw Error("Preset unavailable");
+          element.value = value;
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+          element.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        const allRows = Array.from(document.querySelectorAll(".catalog-row"));
+        const openai = byId("entry_legacy_openai-modelId")?.closest(
+          ".catalog-row",
+        );
+        if (action === "liveCatalog") {
+          if (allRows.length !== 4 || !openai)
+            throw Error("Preset baseline refused");
+          change(openai.querySelector("input"), "Synthetic/Live:one");
+          change(byId("entry_legacy_ollama-modelId"), "Synthetic/Local:two");
+        } else if (action === "liveRotate") {
+          change(byId("MEMORY_EMBEDDING_DIMS"), "2048");
+        } else {
+          const remove = (row) => {
+            const button = row.querySelector('button[aria-label^="Remove"]');
+            if (!button || button.disabled) throw Error("Remove refused");
+            button.click();
+          };
+          if (action === "liveClear") {
+            if (!openai) throw Error("Preset baseline refused");
+            remove(openai);
+          } else {
+            while (document.querySelector(".catalog-row"))
+              remove(document.querySelector(".catalog-row"));
+          }
+        }
+        for (const slot of [
+          "OPENAI_API_KEY",
+          "DEEPSEEK_API_KEY",
+          "OPENROUTER_API_KEY",
+        ]) {
+          const clear = action === "liveClear" || action === "liveEmpty";
+          if (clear) {
+            byId(slot).dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: "Backspace",
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+            change(byId(slot), "");
+          } else {
+            change(
+              byId(slot),
+              `T0257-synthetic-${slot}-${action === "liveCatalog" ? "one" : "two"}`,
+            );
+          }
+        }
+      } else if (action === "captureLive") {
+        restore();
+        const feedback = byId("status");
+        const outcome = observe();
+        // Reveal only an exact allowlisted fixed message, never arbitrary status
+        // text or draft fields. Unknown/vendor/private text fails closed.
+        const allowed = [
+          "Settings committed. Live fields applied for subsequent operations; captured work is unchanged.",
+          "Settings committed. Live fields applied for subsequent operations; captured work is unchanged. Other saved settings are pending explicit quit/reopen.",
+          "Settings committed. Live fields applied for subsequent operations; captured work is unchanged. Catalog migration committed; original v2 retained unchanged.",
+        ];
+        const message = feedback.textContent;
+        // Migration suffix precedes the live result in native commit reporting.
+        const migrated =
+          "Settings committed. Catalog migration committed; original v2 retained unchanged. Live fields applied for subsequent operations; captured work is unchanged.";
+        if (
+          !outcome.liveApplied ||
+          ![
+            ...allowed,
+            migrated,
+            migrated +
+              " Other saved settings are pending explicit quit/reopen.",
+          ].includes(message)
+        )
+          throw Error("Unreviewed live feedback");
+        scrollPosition = [window.scrollX, window.scrollY];
+        window.scrollTo(
+          0,
+          window.scrollY + feedback.getBoundingClientRect().top - 24,
+        );
+        for (const el of document.body.querySelectorAll("*"))
+          if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+        style(feedback, "visibility", "visible");
+        if (
+          Array.from(document.body.querySelectorAll("*")).some(
+            (el) =>
+              el instanceof HTMLElement &&
+              el !== feedback &&
+              getComputedStyle(el).visibility !== "hidden",
+          )
+        )
+          throw Error("Live mask failed");
+        restoreTimer = setTimeout(restore, 5000);
       } else if (action === "keysExercise") {
         exerciseKeys();
       } else if (action === "catalogExercise") {

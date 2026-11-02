@@ -16,6 +16,7 @@ pub struct Service {
     pub tooling_available: bool,
     stopped: bool,
     nonce: String,
+    pub live: crate::live_settings::LiveSettings,
 }
 #[derive(Deserialize)]
 struct Ready {
@@ -67,6 +68,11 @@ impl Service {
         quitting: &AtomicBool,
         cancelled: &AtomicBool,
     ) -> Result<Self, &'static str> {
+        let frame: serde_json::Value =
+            serde_json::from_slice(snapshot).map_err(|_| "Startup frame invalid.")?;
+        let fields = serde_json::from_value(frame["fields"].clone())
+            .map_err(|_| "Startup fields invalid.")?;
+        let startup_fields = crate::settings::validate(resources, &fields)?;
         let nonce = uuid::Uuid::new_v4().to_string();
         let mut command = Command::new(resources.join("node"));
         command
@@ -133,6 +139,7 @@ impl Service {
             tooling_available: false,
             stopped: false,
             nonce: nonce.clone(),
+            live: crate::live_settings::LiveSettings::new(startup_fields),
         };
         let result = (|| {
             let deadline = Instant::now() + Duration::from_secs(90);
@@ -210,6 +217,22 @@ impl Service {
         }
         crate::memory_status::decode(&response, &self.nonce)
     }
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+    pub fn reconcile_live(&mut self) -> bool {
+        !self.stopped && !self.exited() && self.live.reconcile(self.port, &self.nonce)
+    }
+    pub fn apply_live(
+        &mut self,
+        settings: &crate::settings::Settings,
+        revision: &str,
+    ) -> Result<(), crate::live_settings::Failure> {
+        if self.stopped || self.exited() {
+            return Err(crate::live_settings::Failure::Unapplied);
+        }
+        self.live.apply(self.port, &self.nonce, settings, revision)
+    }
     pub fn exited(&mut self) -> bool {
         self.child
             .try_wait()
@@ -264,6 +287,7 @@ mod tests {
             tooling_available: false,
             stopped: false,
             nonce: String::new(),
+            live: Default::default(),
         };
         service.stop();
         assert!(service.child.try_wait().unwrap().is_some());
@@ -306,6 +330,7 @@ mod tests {
             tooling_available: false,
             stopped: false,
             nonce: "owned-test".into(),
+            live: Default::default(),
         };
         assert!(service.memory_status().is_ok());
         server.join().unwrap();

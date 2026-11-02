@@ -10,6 +10,7 @@ import time
 import uuid
 import smoke_resources as resources
 from native_smoke import Observer, Run, build, canonical, fingerprint, private_json, readonly, source_identity
+from live_provider import LiveProvider
 
 
 def wait_settings(run, predicate, label):
@@ -21,6 +22,81 @@ def wait_settings(run, predicate, label):
         time.sleep(.1)
     private_json(run.root / ('settings-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': value})
     raise TimeoutError('Settings observation deadline: ' + label)
+
+
+def model_settings(run, model_id=None, write=False):
+    if not run.origin or not run.origin.startswith('http://127.0.0.1:'):
+        raise ValueError('Exact owned backend origin required')
+    client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
+    try:
+        body = json.dumps({'modelId': model_id}) if write else None
+        client.request('PATCH' if write else 'GET', '/api/model-settings', body, {'Content-Type': 'application/json'})
+        response = client.getresponse()
+        raw = response.read(32769)
+        if response.status != 200 or len(raw) > 32768:
+            raise ValueError('Owned model metadata request failed/bounded')
+        value = json.loads(raw)
+        if value.get('version') != 3 or not isinstance(value.get('options'), list):
+            raise ValueError('Owned model metadata schema')
+        return value
+    finally:
+        client.close()
+
+
+def live_scenario(run, captures, fixture=None):
+    before = run.http('/identity')
+    if not isinstance(before.get('backendPid'), int):
+        raise ValueError('Exact owned backend PID required')
+    model_settings(run, 'entry_legacy_ollama', write=True)
+    observations = []
+    conversations = [str(uuid.uuid4()), str(uuid.uuid4())]
+    if fixture:
+        fixture.begin(run, conversations[0])
+    captured_work = None
+    for action in ['liveCatalog', 'liveRotate', 'liveClear', 'liveEmpty']:
+        run.command({'type': 'settings', 'action': action})
+        run.command({'type': 'settings', 'action': 'save'})
+        observed = wait_settings(run, lambda value: value['liveApplied'], 'exact native live ack: ' + action)
+        if action == 'liveCatalog' and observed['pendingRestart']:
+            raise ValueError('Live-only Save falsely reports unrelated pending restart')
+        active = model_settings(run)
+        saved = json.loads((run.root / 'config/settings-v3.json').read_text())
+        if action in ['liveCatalog', 'liveRotate']:
+            suffix = 'one' if action == 'liveCatalog' else 'two'
+            if saved['keys'] != {slot: 'T0257-synthetic-' + slot + '-' + suffix for slot in ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY']}:
+                raise ValueError('Synthetic complete-key projection mismatch')
+            if not all(option['available'] for option in active['options']):
+                raise ValueError('New fixed synthetic credentials not visible to compiled Next route')
+            if active['selected'] != 'entry_legacy_ollama' or not active['available']:
+                raise ValueError('Native catalog change rewrote the explicit choice')
+            if next(option for option in active['options'] if option['provider'] == 'openai')['modelId'] != 'Synthetic/Live:one':
+                raise ValueError('Compiled Next route retained startup catalog')
+            if action == 'liveRotate':
+                if not observed['pendingRestart'] or saved['fields']['MEMORY_EMBEDDING_DIMS'] != '2048':
+                    raise ValueError('Mixed restart-only settings feedback missing')
+                model_settings(run, 'entry_legacy_openai', write=True)
+        else:
+            if saved['keys'] or saved['chatCatalog']['defaultEntryId'] is not None or active['available'] or active['selected'] != 'entry_legacy_openai':
+                raise ValueError('Clear/deletion silently retained keys/default or remapped preference')
+            if action == 'liveClear' and (len(active['options']) != 3 or any(option['available'] for option in active['options'] if option['provider'] != 'ollama')):
+                raise ValueError('Cleared cloud credentials remained eligible')
+            if action == 'liveEmpty' and active['options']:
+                raise ValueError('Explicit empty catalog not active')
+        if fixture and action == 'liveCatalog':
+            captured_work = fixture.finish(run, conversations[1])
+        after = run.http('/identity')
+        if any(before[key] != after[key] for key in ['pid', 'backendPid', 'origin', 'database']):
+            raise ValueError('Live Save restarted/switched owned backend')
+        captures.append({'scenario': action + '-acknowledged-feedback', **run.command({'type': 'settings', 'action': 'captureLive'})})
+        observations.append({'preset': action, 'liveApplied': True, 'pendingRestart': observed['pendingRestart'], 'backendPidUnchanged': True, 'compiledNextUptake': True})
+        if captured_work and action == 'liveCatalog':
+            observations[-1]['capturedWork'] = {**captured_work, 'taskCreatedConversations': conversations, 'cleanup': 'authored disposable copy only; deferred to task-scratch expiry'}
+    run.command({'type': 'settings', 'action': 'stopBackend'})
+    run.command({'type': 'settings', 'action': 'save'})
+    wait_settings(run, lambda value: value['savedUnapplied'], 'backend absent: saved not applied, no hidden start')
+    if run.http('/identity')['backendPid'] is not None:
+        raise ValueError('Save unexpectedly started a backend')
+    return observations
 
 
 def verify_catalog(catalog):
@@ -66,13 +142,36 @@ def capture_providers(run, captures, scenario):
                              **run.command({'type': 'settings', 'action': 'capture' + provider})})
 
 
+def verify_empty_restart(run, captures, binary, live_settings):
+    # catalogEmpty is a finite eight-row exercise, not an idempotent clear API.
+    # The live scenario already removed every row and explicitly restarted it.
+    if not live_settings:
+        run.command({'type': 'settings', 'action': 'catalogEmpty'})
+        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'all rows removable without default reassignment')
+        run.command({'type': 'settings', 'action': 'save'})
+        wait_settings(run, lambda o: o['liveApplied'], 'empty catalog saved and acknowledged')
+        for viewport in ['wide', 'narrow']:
+            run.command({'type': 'settings', 'action': 'catalog' + viewport.title()})
+            captures.append({'scenario': 'empty-catalog-' + viewport, **run.command({'type': 'settings', 'action': 'captureOllama'})})
+        run.command({'type': 'settings', 'action': 'close'})
+        run.stop(); run.start(binary)
+        run.command({'type': 'settings', 'action': 'open'})
+    wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'empty catalog survives owned restart')
+    choice = model_settings(run)
+    expected = 'entry_legacy_openai' if live_settings else 'entry_legacy_ollama'
+    if choice['selected'] != expected or choice['available'] or choice['options']:
+        raise ValueError('Removed choice retargeted Trainer or empty catalog did not persist')
+
+
 @resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--input-file', required=True)
     parser.add_argument('--resources-ready', action='store_true')
-    parser.add_argument('--provider-fields', action='store_true', help='Finite authored synthetic provider presence/edit/clear/stale-save scenario; no caller key input')
+    scenario = parser.add_mutually_exclusive_group()
+    scenario.add_argument('--live-settings', action='store_true', help='Finite synthetic live settings and task-owned local stream fixture; no real provider calls')
+    scenario.add_argument('--provider-fields', action='store_true', help='Finite authored synthetic provider presence/edit/clear/stale-save scenario; no caller key input')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
@@ -84,6 +183,7 @@ def main():
     source = source_identity()
     run = Run(scratch, database, source, synthetic_provider_fields=args.provider_fields)
     observer = None
+    fixture = None
     passed = False
     captures = []
     errors = []
@@ -93,6 +193,14 @@ def main():
                'cleanup': 'Final owned-disposal receipt records online-copy removal or retention; settings/images/logs remain; no copy-back or primary mutation.'}
     try:
         binary = build(scratch, source, resources_ready=args.resources_ready)
+        if args.live_settings:
+            fixture = LiveProvider()  # Exclusive fixed loopback bind or fail; no daemon reuse.
+            with open(run.root / 'live-provider', 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as marker:
+                marker.write(run.id)
+            authored = run.root / 'config/settings-v2.json'
+            initial_fields = json.loads(authored.read_text())
+            initial_fields['fields']['OLLAMA_BASE_URL'] = 'http://127.0.0.1:11435/v1'
+            authored.write_text(json.dumps(initial_fields))
         observer = Observer(scratch)
         run.observer = observer
         run.start(binary)
@@ -111,10 +219,11 @@ def main():
         wait_settings(run, lambda o: not o['formVisible'] and o['notConnected'], 'Connect later preserves selection')
         run.command({'type': 'settings', 'action': 'cancel'})
         wait_settings(run, lambda o: o['ready'] and not o['formVisible'], 'Cancel reconciles saved state')
-        exercised = run.command({'type': 'settings', 'action': 'catalogExercise'})
-        if not exercised['catalogReady'] or not exercised['catalogExercised'] or not exercised['catalogWithoutDefaults']:
-            raise ValueError('Grouped catalog exercise incomplete')
-        capture_providers(run, captures, 'configured-fields' if args.provider_fields else 'grouped')
+        if not args.live_settings:
+            exercised = run.command({'type': 'settings', 'action': 'catalogExercise'})
+            if not exercised['catalogReady'] or not exercised['catalogExercised'] or not exercised['catalogWithoutDefaults']:
+                raise ValueError('Grouped catalog exercise incomplete')
+            capture_providers(run, captures, 'configured-fields' if args.provider_fields else 'grouped')
         if args.provider_fields:
             if not initial['keysReady']:
                 raise ValueError('Synthetic initial key metadata missing')
@@ -135,23 +244,30 @@ def main():
                 raise ValueError('Stale Save published settings')
             run.command({'type': 'settings', 'action': 'keysExercise'})
         run.command({'type': 'settings', 'action': 'save'})
-        wait_settings(run, lambda o: o['savedForNextLaunch'], 'native Save committed next-launch-only')
+        wait_settings(run, lambda o: o['liveApplied'], 'native Save committed and live fields acknowledged')
         after = run.http('/identity')
         if any(before[key] != after[key] for key in ['pid', 'origin', 'database']):
             raise ValueError('Ordinary Save switched active backend or DB')
         saved = json.loads((run.root / 'config/settings-v3.json').read_text())
         if saved['version'] != 3 or (run.root / 'config/settings-v2.json').read_bytes() != original_settings:
             raise ValueError('Explicit catalog migration did not retain the original keyless settings')
-        verify_choice_catalog(saved)
+        if args.live_settings:
+            if len(saved['chatCatalog']['entries']) != 4 or saved['chatCatalog']['defaultEntryId'] is not None or saved['selectionCompatibility']['catalog']['defaultEntryId'] != 'entry_legacy_ollama':
+                raise ValueError('Live scenario lost the no-default catalog or preserved prior compatibility')
+        else:
+            verify_choice_catalog(saved)
         if args.provider_fields:
             verify_keys(saved['keys'], edited=True)
         if (not args.provider_fields and saved['keys']) or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
             raise ValueError('Saved settings escaped keyless copy scope')
+        if args.live_settings:
+            receipt['liveSettings'] = live_scenario(run, captures, fixture)
+            saved = json.loads((run.root / 'config/settings-v3.json').read_text())
         run.command({'type': 'settings', 'action': 'close'})
         run.stop()
         run.start(binary)
         run.command({'type': 'settings', 'action': 'open'})
-        wait_settings(run, lambda o: o['ready'] and o['catalogReady'] and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'], 'saved grouped identities survive exact-scope restart')
+        wait_settings(run, lambda o: o['ready'] and (args.live_settings or o['catalogReady']) and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'], 'saved grouped identities survive exact-scope restart')
         if json.loads((run.root / 'config/settings-v3.json').read_text()) != saved:
             raise ValueError('Saved catalog/fields/keys changed across restart')
         if source_identity() != source:
@@ -160,29 +276,8 @@ def main():
         capture_garmin(run, captures, 'saved-reloaded-not-connected')
         if args.provider_fields:
             capture_providers(run, captures, 'saved-restarted-fields')
-        run.command({'type': 'settings', 'action': 'catalogEmpty'})
-        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'all rows removable without default reassignment')
-        run.command({'type': 'settings', 'action': 'save'})
-        wait_settings(run, lambda o: o['savedForNextLaunch'], 'empty catalog saved')
-        for viewport in ['wide', 'narrow']:
-            run.command({'type': 'settings', 'action': 'catalog' + viewport.title()})
-            captures.append({'scenario': 'empty-catalog-' + viewport, **run.command({'type': 'settings', 'action': 'captureOllama'})})
-        run.command({'type': 'settings', 'action': 'close'})
-        run.stop(); run.start(binary)
-        run.command({'type': 'settings', 'action': 'open'})
-        wait_settings(run, lambda o: o['emptyCatalog'] and o['catalogWithoutDefaults'], 'empty catalog survives owned restart')
-        client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
-        try:
-            client.request('GET', '/api/model-settings')
-            response = client.getresponse(); raw = response.read(32769)
-            if response.status != 200 or len(raw) > 32768:
-                raise ValueError('Owned model metadata read failed')
-            choice = json.loads(raw)
-            if choice['version'] != 3 or choice['selected'] != 'entry_legacy_ollama' or choice['available'] or choice['options']:
-                raise ValueError('Removed prior default retargeted Trainer or empty catalog did not persist')
-        finally:
-            client.close()
-        receipt.update(connectLater=True, cancel=True, groupedCatalog=True, exactSavedIdentities=True, noDefaultControls=True, emptyCatalogSavedReloaded=True, oldDefaultRemovalRetainsUnavailableIdentity=True, activeBackendUnchanged=True, restart=True, syntheticProviderFields=args.provider_fields, staleSaveRefused=args.provider_fields)
+        verify_empty_restart(run, captures, binary, args.live_settings)
+        receipt.update(connectLater=True, cancel=True, groupedCatalog=not args.live_settings, exactSavedIdentities=True, noDefaultControls=True, emptyCatalogSavedReloaded=True, oldDefaultRemovalRetainsUnavailableIdentity=True, activeBackendUnchanged=True, restart=True, syntheticProviderFields=args.provider_fields, staleSaveRefused=args.provider_fields)
         passed = True
     finally:
         with resources.preserve_failure():
@@ -190,6 +285,13 @@ def main():
                 run.stop()
             except Exception as error:
                 errors.append(type(error).__name__)
+            if fixture:
+                receipt['syntheticProvider'] = {'models': fixture.models, 'responses': fixture.observations, 'taskCreatedConversations': fixture.conversations}
+                try:
+                    fixture.stop()
+                    receipt['syntheticProviderStopped'] = True
+                except Exception as error:
+                    errors.append(type(error).__name__)
             if observer:
                 try:
                     receipt['noninterference'] = observer.stop(run.pids)
