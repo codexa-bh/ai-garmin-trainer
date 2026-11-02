@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   verifyGarminConnection as verifyConnectorToken,
   runGarminSync,
+  isGarminSyncRunning,
 } from "@/lib/garmin/composition";
 
 export async function GET() {
@@ -11,7 +12,16 @@ export async function GET() {
   });
 }
 
-export async function POST() {
+export async function POST(request?: Request) {
+  if (isGarminSyncRunning())
+    return NextResponse.json(
+      {
+        status: "blocked",
+        detail:
+          "A Garmin sync is still running; refresh summary before retrying.",
+      },
+      { status: 409 },
+    );
   const verification = await verifyConnectorToken();
   if (!verification.ok) {
     return NextResponse.json(
@@ -23,16 +33,33 @@ export async function POST() {
     );
   }
   const encoder = new TextEncoder();
+  let disconnected = false;
+  const cancelled = () => disconnected || Boolean(request?.signal.aborted);
   const stream = new ReadableStream({
     async start(controller) {
       const send = (event: unknown) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        if (!cancelled())
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       };
-      const result = await runGarminSync((progress) =>
-        send({ type: "progress", ...progress }),
-      );
-      send({ type: "result", ...result });
-      controller.close();
+      try {
+        const result = await runGarminSync(
+          (progress) => send({ type: "progress", ...progress }),
+          { cancelled },
+        );
+        send({ type: "result", ...result });
+        if (!disconnected) controller.close();
+      } catch {
+        send({
+          type: "result",
+          status: "failed",
+          detail:
+            "Sync could not settle; refresh durable summary before retrying.",
+        });
+        if (!disconnected) controller.close();
+      }
+    },
+    cancel() {
+      disconnected = true;
     },
   });
 

@@ -1,3 +1,4 @@
+import type { GarminHistoryState } from "./history-policy";
 import type { GarminAthleteBaselineDto, GarminBodyMetricsDto } from "./types";
 import type { ActivityDetailCoverage } from "./detail-types";
 
@@ -19,7 +20,9 @@ export type HealthCoverage = {
 };
 
 export type GarminSyncResult = {
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "budget-limited" | "cancelled";
+  history: GarminHistoryState;
+  continuationAvailable: boolean;
   activitiesImported: number;
   healthDaysImported: number;
   activitiesProcessed: number;

@@ -201,6 +201,82 @@ function composerFixture(eligibility?: "mixed" | "empty") {
 }
 
 describe("native-installed rendered smoke boundary", () => {
+  it("drives only visible Sync semantics, rejects duplicate/private inputs and returns booleans", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    function Fixture() {
+      const [running, setRunning] = useState(false);
+      const [paused, setPaused] = useState(false);
+      return (
+        <div className="sync-view-content">
+          <section
+            aria-labelledby="sync-action-heading"
+            data-sync-running={running}
+            data-sync-kind={paused ? "paused" : "idle"}
+          >
+            <button
+              aria-label="Sync now — import latest Garmin data"
+              disabled={running}
+              onClick={() => {
+                setRunning(true);
+                setPaused(false);
+              }}
+            >
+              Sync now
+            </button>
+            {running && (
+              <button
+                onClick={() => {
+                  setRunning(false);
+                  setPaused(true);
+                }}
+              >
+                Cancel sync
+              </button>
+            )}
+            <pre className="sync-log">
+              <span className="sync-log-entry">Synthetic progress only</span>
+            </pre>
+          </section>
+          <button>Refresh import summary</button>
+        </div>
+      );
+    }
+    render(<Fixture />);
+    expect((await command({ type: "sync", action: "start" })).result.ok).toBe(
+      true,
+    );
+    expect(
+      (await command({ type: "sync", action: "observe" })).result,
+    ).toMatchObject({
+      running: true,
+      cancelEnabled: true,
+      startEnabled: false,
+      progressStarted: true,
+    });
+    expect((await command({ type: "sync", action: "start" })).result.ok).toBe(
+      false,
+    );
+    expect((await command({ type: "sync", action: "cancel" })).result.ok).toBe(
+      true,
+    );
+    expect(
+      (await command({ type: "sync", action: "observe" })).result,
+    ).toMatchObject({ paused: true, running: false, startEnabled: true });
+    expect(
+      (await command({ type: "sync", action: "continue", value: "secret" }))
+        .result.ok,
+    ).toBe(false);
+    expect((await command({ type: "sync", action: "auth" })).result.ok).toBe(
+      false,
+    );
+    expect(
+      (await command({ type: "sync", action: "continue" })).result.ok,
+    ).toBe(true);
+    for (const value of Object.values(
+      (await command({ type: "sync", action: "observe" })).result,
+    ))
+      expect(typeof value).toBe("boolean");
+  });
   it("drives fixed actual model owner selection/reset and synthetic draft/keys, returning only booleans and masking all copied content", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     vi.stubGlobal("innerWidth", 1280);
@@ -527,6 +603,52 @@ describe("native-installed rendered smoke boundary", () => {
       ).result.ok,
     ).toBe(false);
     expect((await command({ type: "capture" })).result.ok).toBe(false);
+  });
+  it("keeps Sync scroll containers visible without exposing private descendants or direct ancestor text", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 850);
+    render(
+      <div className="sync-view-active">
+        <section className="sync-view-panel">
+          <div className="sync-view-header">
+            <h1>Sync</h1>
+          </div>
+          <div className="sync-view-content" data-testid="scroller">
+            <section aria-labelledby="sync-action-heading">
+              <h2 id="sync-action-heading">Run Garmin sync</h2>
+              <span className="pill">Syncing</span>
+              <button>Cancel sync</button>
+              <p data-testid="private-sync">private copied progress</p>
+            </section>
+          </div>
+        </section>
+      </div>,
+    );
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(true);
+    expect(
+      screen.getByTestId("scroller").hasAttribute("data-smoke-reveal"),
+    ).toBe(true);
+    expect(
+      getComputedStyle(screen.getByRole("button", { name: "Cancel sync" }))
+        .visibility,
+    ).toBe("visible");
+    expect(
+      getComputedStyle(screen.getByTestId("private-sync")).visibility,
+    ).toBe("hidden");
+    smoke.__trainerSmokeRestore();
+    screen
+      .getByTestId("scroller")
+      .append(document.createTextNode("private direct ancestor text"));
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
   });
   it("masks private content without reflow and restores on callback rejection", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createGarminImports } from "../src/lib/garmin/sync-import";
+import {
+  HISTORY_CHECKPOINT,
+  historyState,
+} from "../src/lib/garmin/history-policy";
 import type {
   GarminImportPorts,
   GarminImportStore,
@@ -220,109 +224,82 @@ describe("Garmin imports with supplied capabilities, no infrastructure mocks", (
     const result = await f.app.runGarminSync((event) => {
       f.journal.push(`event:${event.stage}`);
     });
-    expect(f.journal).toEqual([
-      "config",
-      "clock",
-      "record:running",
-      "create",
-      "event:starting",
-      "start",
-      "event:athlete",
-      "clock",
-      "profile",
-      "ftp",
-      "clock",
-      "write:athlete",
-      "event:athlete",
-      "event:body_metrics",
-      "clock",
-      "profile",
-      "body",
-      "weigh",
-      "clock",
-      "write:body",
-      "event:body_metrics",
-      "event:activities",
-      "page:0",
-      "write:activities",
-      "checkpoint:activity_page:0",
-      "event:activities",
-      "event:activities",
-      "page:1",
-      "write:activities",
-      "checkpoint:activity_page:1",
-      "event:activities",
-      "fit:baseline",
-      "event:health",
-      "health:2026-09-19",
-      "write:health:2026-09-19",
-      "event:health",
-      "event:health",
-      "health:2026-09-21",
-      "write:health:2026-09-21",
-      "checkpoint:health_next_date:2026-09-22",
-      "event:health",
-      "event:detail",
-      "attempt:running",
-      "read:detail",
-      "write:detail",
-      "read:zones",
-      "attempt:succeeded",
-      "checkpoint:activity_detail_last_id:1",
-      "checkpoint:activity_page:0",
-      "finish:completed",
-      "event:completed",
-      "close",
-    ]);
+    expect(f.journal.indexOf("record:running")).toBeLessThan(
+      f.journal.indexOf("create"),
+    );
+    expect(f.journal.indexOf("health:2026-09-21")).toBeLessThan(
+      f.journal.indexOf("page:0"),
+    );
+    expect(f.journal.indexOf("write:body")).toBeLessThan(
+      f.journal.indexOf("read:detail"),
+    );
+    expect(
+      vi.mocked(f.reader.dailyHealth).mock.calls.map(([date]) => date),
+    ).toEqual(["2026-09-21", "2026-09-20", "2026-09-19"]);
+    expect(f.journal.at(-1)).toBe("event:completed");
+    expect(f.reader.close).toHaveBeenCalledOnce();
+    expect(f.store.saveCheckpoint).not.toHaveBeenCalledWith(
+      "activity_page",
+      expect.anything(),
+    );
+    expect(f.store.saveCheckpoint).not.toHaveBeenCalledWith(
+      "health_next_date",
+      expect.anything(),
+    );
     expect(result).toMatchObject({
       status: "completed",
       activitiesImported: 1,
       activitiesProcessed: 1,
-      healthDaysImported: 2,
-      healthDaysRefreshed: 2,
+      healthDaysImported: 3,
+      healthDaysRefreshed: 3,
       detailsProcessed: 1,
       storedActivities: 99,
       storedHealthRows: 50,
     });
     expect(f.store.listActivityIdsNeedingEffortBackfill).toHaveBeenCalledWith(
-      50,
+      1,
     );
-    expect(f.store.listRecentActivities).toHaveBeenCalledWith(6);
+    expect(f.store.listRecentActivities).toHaveBeenCalledWith(1);
     expect(f.store.writeGarminAthleteBaselineRefresh).toHaveBeenCalledWith(
       expect.objectContaining({ attemptedAt: now }),
     );
   });
 
-  it("preserves a nonsequential page cursor and partial health writes on failure", async () => {
+  it("uses range-bound nonsequential pages, retains unresolved health and never adopts old global cursors", async () => {
     const f = fixture();
+    vi.mocked(f.ports.historyStartDate).mockReturnValue(undefined);
     f.checkpoints.set("activity_page", "3");
     f.checkpoints.set("health_next_date", "2026-09-20");
+    const saved = historyState(null, null, "2026-09-21");
+    saved.activities.page = 0;
+    f.checkpoints.set(HISTORY_CHECKPOINT, JSON.stringify(saved));
     vi.mocked(f.reader.activityPage)
+      .mockResolvedValueOnce({ activities: [], hasMore: false })
       .mockResolvedValueOnce({ activities: [], hasMore: true, nextPage: 9 })
       .mockResolvedValueOnce({ activities: [], hasMore: false });
-    vi.mocked(f.reader.dailyHealth)
-      .mockResolvedValueOnce(normalizeDailyHealth("2026-09-20", {}))
-      .mockRejectedValueOnce(new Error("health failed"));
+    vi.mocked(f.reader.dailyHealth).mockRejectedValueOnce(
+      new Error("private source error"),
+    );
     const result = await f.app.runGarminSync();
     expect(f.reader.activityPage).toHaveBeenNthCalledWith(
       2,
-      "2026-09-19",
-      "2026-09-21",
+      "2026-08-09",
+      "2026-09-07",
+      0,
+    );
+    expect(f.reader.activityPage).toHaveBeenNthCalledWith(
+      3,
+      "2026-08-09",
+      "2026-09-07",
       9,
     );
-    expect(result).toMatchObject({
-      status: "failed",
-      healthDaysImported: 1,
-      detail: "health failed",
-    });
-    expect(f.checkpoints.get("activity_page")).toBe("9");
-    expect(f.checkpoints.get("health_next_date")).toBe("2026-09-21");
-    expect(f.store.finishSyncRun).toHaveBeenCalledWith(
-      "run",
-      "failed",
-      "health failed",
-    );
-    expect(f.journal.at(-1)).toBe("close");
+    expect(result.status).toBe("failed");
+    expect(result.history.unresolvedHealth).toContain("2026-09-21");
+    expect(result.detail).not.toContain("private source error");
+    expect(f.checkpoints.get("activity_page")).toBe("3");
+    expect(f.checkpoints.get("health_next_date")).toBe("2026-09-20");
+    expect(result.history.activities.windowEnd).toBe("2026-08-08");
+    expect(f.reader.close).toHaveBeenCalledOnce();
   });
 
   it("retains distinct startup failures for sync, effort and targeted detail", async () => {
@@ -332,7 +309,7 @@ describe("Garmin imports with supplied capabilities, no infrastructure mocks", (
       if (operation === "sync")
         expect(await f.app.runGarminSync()).toMatchObject({
           status: "failed",
-          detail: "startup",
+          detail: expect.stringContaining("connector or storage failure"),
         });
       if (operation === "effort")
         expect(await f.app.backfillActivityEffortFields()).toMatchObject({
@@ -370,11 +347,11 @@ describe("Garmin imports with supplied capabilities, no infrastructure mocks", (
         if (event.stage === "completed" || event.stage === "failed")
           throw new Error(event.stage);
       }),
-    ).rejects.toThrow("failed");
-    expect(events.slice(-2)).toEqual(["completed", "failed"]);
+    ).rejects.toThrow("completed");
+    expect(events.at(-1)).toBe("completed");
     expect(
       vi.mocked(f.store.finishSyncRun).mock.calls.map((args) => args[1]),
-    ).toEqual(["completed", "failed"]);
+    ).toEqual(["completed"]);
     expect(f.reader.close).toHaveBeenCalledOnce();
   });
 

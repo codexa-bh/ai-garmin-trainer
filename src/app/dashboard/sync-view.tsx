@@ -52,6 +52,7 @@ export function SyncView({
   syncPillLabel,
   runInBackground,
   syncNow,
+  cancelSync,
   isSyncing,
   syncRun,
   syncLogRef,
@@ -70,6 +71,7 @@ export function SyncView({
   syncPillLabel: string;
   runInBackground: (work: Promise<unknown>) => void;
   syncNow: () => Promise<void>;
+  cancelSync?: () => void;
   isSyncing: boolean;
   syncRun: SyncRunState;
   syncLogRef: RefObject<HTMLPreElement | null>;
@@ -103,6 +105,8 @@ export function SyncView({
       <div className="sync-view-content">
         <section
           className="sync-action-card"
+          data-sync-kind={syncRun.kind}
+          data-sync-running={isSyncing}
           aria-labelledby="sync-action-heading"
         >
           <div className="card-title-row">
@@ -121,12 +125,45 @@ export function SyncView({
               type="button"
               className="primary-action"
               onClick={() => runInBackground(syncNow())}
-              disabled={isSyncing}
+              disabled={isSyncing || importSummary?.syncActive}
               aria-label="Sync now — import latest Garmin data"
             >
-              {isSyncing ? "Sync already in progress" : "Sync now"}
+              {isSyncing
+                ? "Sync already in progress"
+                : importSummary?.history
+                  ? "Sync / continue history"
+                  : "Sync now"}
             </button>
+            {isSyncing && cancelSync ? (
+              <button type="button" onClick={cancelSync}>
+                Cancel sync
+              </button>
+            ) : null}
           </div>
+          <p className="helper-text">
+            Each explicit run admits at most 96 remote-operation attempts and
+            180 seconds, including nested reads; these are not exact Garmin HTTP
+            counts. Recent data comes first. Remote earliest history remains
+            unknown; no automatic background continuation.
+          </p>
+          {importSummary?.history ? (
+            <p className="helper-text" role="status">
+              Last invocation: {importSummary.history.outcome}.{" "}
+              {importSummary.syncActive
+                ? "A sync is currently active."
+                : "No sync is active; continuation is explicit."}{" "}
+              Historical health dates checked:{" "}
+              {importSummary.history.health.checks}; dates with metrics:{" "}
+              {importSummary.history.health.checksWithMetrics}; oldest imported:{" "}
+              {importSummary.history.health.oldestImported ?? "unknown"};
+              unresolved dates: {importSummary.history.unresolvedHealth.length}.
+              Next older health date:{" "}
+              {importSummary.history.health.nextDate ??
+                "chosen exploration boundary reached"}
+              . Refresh summary after cancellation or a lost response before
+              continuing.
+            </p>
+          ) : null}
           {isSyncing ? (
             <p className="helper-text" role="status" aria-live="polite">
               Sync already in progress. Keep this view open or navigate

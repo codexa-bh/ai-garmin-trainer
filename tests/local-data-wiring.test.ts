@@ -230,7 +230,10 @@ it("wires list/dashboard/health/summary/reference/tool reads to the same populat
     days: [{ steps: 0 }],
   });
   const summary = await import("../src/app/api/summary/route");
-  expect(await (await summary.GET()).json()).toEqual(storage.importSummary());
+  expect(await (await summary.GET()).json()).toEqual({
+    ...storage.importSummary(),
+    syncActive: false,
+  });
   const app = await import("../src/lib/local-data/composition");
   expect(app.verifyActivityReference({ garminId: "1" })).toEqual(
     storage.verifyActivityReference({ garminId: "1" }),
