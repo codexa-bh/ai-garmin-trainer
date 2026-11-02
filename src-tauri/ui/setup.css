@@ -111,6 +111,104 @@ summary {
   cursor: pointer;
   padding: 12px 0;
 }
+/* Catalog density is scoped; other Settings/wizard fieldsets retain their layout. */
+#normal {
+  min-width: 0;
+}
+#normal > p,
+.catalog-provider {
+  overflow-wrap: anywhere;
+}
+.catalog-provider {
+  padding: 12px;
+  margin: 12px 0;
+  min-width: 0;
+}
+.catalog-provider header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.catalog-provider h2 {
+  margin: 0;
+}
+.catalog-provider button {
+  padding: 8px 12px;
+  margin: 0;
+  min-height: 40px;
+}
+.catalog-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 10px;
+}
+.catalog-row label {
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+}
+.catalog-row input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.catalog-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.catalog-row [aria-pressed="true"] {
+  background: #f5d793;
+}
+.catalog-error {
+  grid-column: 1 / -1;
+  color: #f5d793;
+  font-size: 14px;
+}
+.catalog-error:empty {
+  display: none;
+}
+.provider-key {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin: 12px 0 0;
+}
+.provider-key span {
+  grid-column: 2 / -1;
+}
+.catalog-provider .helper {
+  margin: 8px 0 0;
+}
+@media (max-width: 720px) {
+  .catalog-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .catalog-row-actions {
+    grid-column: 1 / -1;
+  }
+  .provider-key {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .provider-key span {
+    grid-column: auto;
+  }
+}
+@media (max-width: 440px) {
+  main {
+    padding: 0 12px;
+  }
+  #normal {
+    padding: 10px;
+  }
+  .catalog-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 [hidden] {
   display: none !important;
 }

@@ -3,6 +3,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import signal
 import time
 import uuid
@@ -18,6 +19,22 @@ def wait_settings(run, predicate, label):
         time.sleep(.1)
     private_json(run.root / ('settings-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': value})
     raise TimeoutError('Settings observation deadline: ' + label)
+
+
+def verify_catalog(catalog):
+    providers = ['openai', 'deepseek', 'ollama', 'openrouter']
+    if set(catalog) != {'version', 'entries', 'defaultEntryId'} or catalog['version'] != 1 or catalog['defaultEntryId'] != 'entry_legacy_ollama' or len(catalog['entries']) != 8:
+        raise ValueError('Not exact synthetic catalog')
+    ids = set()
+    for index, entry in enumerate(catalog['entries']):
+        provider = providers[index % 4]
+        first = index < 4
+        expected = {'id': entry['id'], 'provider': provider, 'modelId': f'synthetic/{provider}:' + ('Case' if first else 'Second')}
+        if first:
+            expected['displayName'] = 'Synthetic model'
+        if entry != expected or entry['id'] in ids or (first and entry['id'] != f'entry_legacy_{provider}') or (not first and not re.fullmatch(r'entry_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}', entry['id'])):
+            raise ValueError('Synthetic catalog identity/order/content changed')
+        ids.add(entry['id'])
 
 
 def capture_garmin(run, captures, scenario):
@@ -45,7 +62,7 @@ def main():
     captures = []
     errors = []
     receipt = {'source': source, 'scenario': 'populated-copy-keyless-native-Settings', 'runId': run.id,
-               'exclusions': 'No ordinary artifact, full-window layout, first-run Finish, provider/token credentials, login/MFA, real integrations or OS input.',
+               'exclusions': 'Debug Settings only; geometry-preserving synthetic provider sections, not unmasked full-window/default/ordinary Settings, first-run Finish, real provider/auth or trusted OS input.',
                'cleanup': 'Task-owned online backup/settings/images/logs deferred to scratch expiry; no copy-back or primary mutation.'}
     try:
         binary = build(scratch, source, resources_ready=args.resources_ready)
@@ -67,6 +84,13 @@ def main():
         wait_settings(run, lambda o: not o['formVisible'] and o['notConnected'], 'Connect later preserves selection')
         run.command({'type': 'settings', 'action': 'cancel'})
         wait_settings(run, lambda o: o['ready'] and not o['formVisible'], 'Cancel reconciles saved state')
+        exercised = run.command({'type': 'settings', 'action': 'catalogExercise'})
+        if not exercised['catalogReady'] or not exercised['catalogExercised']:
+            raise ValueError('Grouped catalog exercise incomplete')
+        for viewport in ['wide', 'narrow']:
+            run.command({'type': 'settings', 'action': 'catalog' + viewport.title()})
+            for provider in ['Openai', 'Deepseek', 'Ollama', 'Openrouter']:
+                captures.append({'scenario': 'grouped-' + viewport + '-' + provider.lower(), **run.command({'type': 'settings', 'action': 'capture' + provider})})
         run.command({'type': 'settings', 'action': 'save'})
         wait_settings(run, lambda o: o['savedForNextLaunch'], 'native Save committed next-launch-only')
         after = run.http('/identity')
@@ -75,20 +99,21 @@ def main():
         saved = json.loads((run.root / 'config/settings-v3.json').read_text())
         if saved['version'] != 3 or (run.root / 'config/settings-v2.json').read_bytes() != original_settings:
             raise ValueError('Explicit catalog migration did not retain the original keyless settings')
-        if saved['chatCatalog']['defaultEntryId'] != 'entry_legacy_ollama' or len(saved['chatCatalog']['entries']) != 4:
-            raise ValueError('Fixed keyless catalog defaults changed')
+        verify_catalog(saved['chatCatalog'])
         if saved['keys'] or saved['fields']['DATABASE_PATH'] != str(run.database) or saved['fields']['AI_PROVIDER'] != 'ollama' or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
             raise ValueError('Saved settings escaped keyless copy scope')
         run.command({'type': 'settings', 'action': 'close'})
         run.stop()
         run.start(binary)
         run.command({'type': 'settings', 'action': 'open'})
-        wait_settings(run, lambda o: o['ready'] and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'], 'saved defaults survive exact-scope restart')
+        wait_settings(run, lambda o: o['ready'] and o['catalogReady'] and o['notConnected'] and o['manualControlsAbsent'] and not o['formVisible'], 'saved grouped identities survive exact-scope restart')
+        if json.loads((run.root / 'config/settings-v3.json').read_text()) != saved:
+            raise ValueError('Saved catalog/fields/keys changed across restart')
         if source_identity() != source:
             raise ValueError('Source changed during Settings smoke')
         captures.append({'scenario': 'concise-introduction-after-save-restart', **run.command({'type': 'settings', 'action': 'captureIntro'})})
         capture_garmin(run, captures, 'saved-reloaded-not-connected')
-        receipt.update(connectLater=True, cancel=True, savedKeylessDefaults=True, activeBackendUnchanged=True, restart=True)
+        receipt.update(connectLater=True, cancel=True, groupedCatalog=True, exactSavedIdentities=True, activeBackendUnchanged=True, restart=True)
         passed = True
     finally:
         try:
