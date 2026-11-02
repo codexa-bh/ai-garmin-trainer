@@ -144,6 +144,11 @@ class Disposables:
         safe(info)
         if identity(info) != entry['identity'] or entry['inventory'] is None:
             raise ValueError('Replaced or incomplete disposable allocation')
+        if entry['fd'] is None:
+            # Mutable SQLite is never held open while native writer admission runs.
+            entry['fd'] = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            if identity(os.fstat(entry['fd'])) != entry['identity']:
+                raise ValueError('Disposable changed while reopening after settlement')
         if snapshot(entry['fd'], entry['tree'], entry['path'].suffix == '.sqlite') != entry['inventory']:
             raise ValueError('Mixed, replaced or changed immutable disposable inventory')
         # Unknown sidecars/leases are not adopted and must remain available for diagnosis.
@@ -216,7 +221,15 @@ class Disposables:
                 reason = type(error).__name__ + ': ' + str(error)
         for entry in self.items:
             if not entry['tree']:
-                entry['bytes'] = os.fstat(entry['fd']).st_size
+                if entry['fd'] is not None:
+                    entry['bytes'] = os.fstat(entry['fd']).st_size
+                else:
+                    try:
+                        info = os.stat(entry['path'].name, dir_fd=self.roots[entry['path'].parent][0], follow_symlinks=False)
+                        if identity(info) == entry['identity']:
+                            entry['bytes'] = info.st_size
+                    except OSError:
+                        pass  # Missing/replaced failed allocations remain a truthful retained deferral.
         receipt = self.receipt
         def report():
             return {'invocationFailed': failed, 'retentionReason': reason,
@@ -245,7 +258,8 @@ class Disposables:
 
     def close(self):
         for entry in self.items:
-            os.close(entry['fd'])
+            if entry['fd'] is not None:
+                os.close(entry['fd'])
         for fd, _ in self.roots.values():
             os.close(fd)
 
@@ -330,6 +344,10 @@ def file_created(path):
     if ledger:
         entry = ledger.register(path)
         ledger.seal(entry)  # Writable files pin inode/type only, never require unchanged DB bytes.
+        if path.suffix == '.sqlite':
+            # An open runner descriptor would correctly fail native lsof writer admission.
+            os.close(entry['fd'])
+            entry['fd'] = None
 
 
 def copy_file(source, destination):

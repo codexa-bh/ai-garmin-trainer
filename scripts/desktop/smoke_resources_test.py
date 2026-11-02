@@ -65,6 +65,21 @@ class DisposableTests(unittest.TestCase):
         self.assertEqual(self.original.read_bytes(), self.original_bytes)
         self.assertTrue(all(item['status'] == 'removed' for item in self.receipts()[0]['artifacts']))
 
+    def test_mutable_database_descriptor_is_released_before_native_writer_admission(self):
+        import subprocess
+        import sys
+        def body():
+            run = Run(self.scratch, self.original, 'a' * 64)
+            ledger = resources._CURRENT.get()
+            entry = next(item for item in ledger.items if item['path'] == run.database)
+            self.assertIsNone(entry['fd'])
+            if sys.platform == 'darwin':
+                ownership = subprocess.run(['/usr/sbin/lsof', '-t', str(run.database)], capture_output=True, timeout=10)
+                self.assertEqual(ownership.returncode, 1)
+                self.assertFalse(ownership.stdout)
+            run.verify_settled()
+        self.invoke(body)
+
     def test_failure_cancellation_prepare_only_and_receipt_failure_retain(self):
         for mode in ('error', 'cancel', 'prepare-only', 'receipt'):
             state = {}
