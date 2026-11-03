@@ -3,6 +3,9 @@ import { getOptionalEnv, withConfiguration, type AppEnv } from "../env";
 import type { PreparedChatTurn } from "./turn";
 import { fallbackLlmDebugTrace } from "@/lib/ai/debug-trace";
 import { orchestrateTrainerChat } from "@/lib/ai/composition";
+import { conversationHistory } from "@/lib/db/conversation-history";
+import { createConversationCompactionGeneration } from "@/lib/ai/provider-generation";
+import type { ChatGenerator } from "./ports";
 import { selectedTrainerModel } from "@/lib/model-settings/composition";
 import {
   appendChatMessage,
@@ -48,6 +51,7 @@ const buildSystemContext = createChatContext({
 });
 
 const turns = createChatTurns({
+  history: conversationHistory,
   claimConversationTitle,
   finishConversationTitle,
   generateConversationTitle,
@@ -59,9 +63,13 @@ const turns = createChatTurns({
   buildSystemContext,
   fallbackDebugTrace: fallbackLlmDebugTrace,
   addCompletedTurn: (input) => trainerMemoryStore().addCompletedTurn(input),
-  selectGeneration: () => {
-    const { model, provider, modelName } = selectedTrainerModel();
-    return ({
+  selectGeneration: (assertCurrent) => {
+    const { model, provider, modelName, conversationCount } =
+      selectedTrainerModel(assertCurrent);
+    const generate: ChatGenerator = ({
+      executionLimit,
+      conversation,
+      assertCurrent,
       system,
       userRequest,
       weeklyTurn,
@@ -71,6 +79,9 @@ const turns = createChatTurns({
     }) =>
       orchestrateTrainerChat({
         model,
+        ...(executionLimit ? { executionLimit } : {}),
+        ...(conversation ? { conversation } : {}),
+        ...(assertCurrent ? { assertCurrent } : {}),
         system,
         userRequest,
         weeklyTurn,
@@ -78,29 +89,38 @@ const turns = createChatTurns({
         ...(onStatus ? { onStatus } : {}),
         debug: { enabled: debugTraceEnabled, provider, model: modelName },
       });
+    if (conversationCount)
+      generate.compaction = createConversationCompactionGeneration(
+        model,
+        conversationCount,
+      );
+    return generate;
   },
 });
 
 // Prepared work owns credentials through retrieval, answer ingestion and deferred
 // title completion even when delivery invokes those phases after a newer Save.
 // The WeakMap retains no transcript/configuration after the prepared turn dies.
-const admitted = new WeakMap<PreparedChatTurn, AppEnv>();
+// Delivery may spread PreparedChatTurn for streaming; its userRecord identity
+// survives that copy, unlike the outer object. Keep the admitted config bound.
+const admitted = new WeakMap<PreparedChatTurn["userRecord"], AppEnv>();
 export const prepareChatTurn: typeof turns.prepareChatTurn = (...args) => {
   const env = getOptionalEnv();
   const prepared = withConfiguration(env, () => turns.prepareChatTurn(...args));
-  admitted.set(prepared, env);
+  admitted.set(prepared.userRecord, env);
   return prepared;
 };
 export const generateChatTurn: typeof turns.generateChatTurn = (...args) =>
-  withConfiguration(admitted.get(args[0]) ?? getOptionalEnv(), () =>
+  withConfiguration(admitted.get(args[0].userRecord) ?? getOptionalEnv(), () =>
     turns.generateChatTurn(...args),
   );
 export const completeChatTurn: typeof turns.completeChatTurn = (...args) =>
-  withConfiguration(admitted.get(args[0]) ?? getOptionalEnv(), () =>
+  withConfiguration(admitted.get(args[0].userRecord) ?? getOptionalEnv(), () =>
     turns.completeChatTurn(...args),
   );
 export const completeConversationTitle: typeof turns.completeConversationTitle =
   (...args) =>
-    withConfiguration(admitted.get(args[0]) ?? getOptionalEnv(), () =>
-      turns.completeConversationTitle(...args),
+    withConfiguration(
+      admitted.get(args[0].userRecord) ?? getOptionalEnv(),
+      () => turns.completeConversationTitle(...args),
     );

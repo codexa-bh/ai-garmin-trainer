@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 17;
+export const LATEST_SCHEMA_VERSION = 18;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -239,6 +239,41 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       `create table if not exists conversation_title_attempt (conversation_id text primary key, message_id text, claimed integer not null default 1, pending integer not null default 0)`,
     ],
   },
+  {
+    version: 18,
+    name: "conversation_completion_and_segments",
+    statements: [
+      `create table conversation_history_control (id integer primary key check(id=1), privacy_generation integer not null default 0)`,
+      `insert into conversation_history_control(id) values (1)`,
+      `create table conversation_turn (admission_seq integer primary key autoincrement, turn_id text not null unique, conversation_id text not null, user_id text not null unique, assistant_id text unique, source_version integer not null default 1, summary_eligible integer not null default 0, status text not null check(status in ('admitted','completed','aborted')), boot_id text not null, privacy_generation integer not null)`,
+      `create index conversation_turn_order on conversation_turn(conversation_id,admission_seq)`,
+      `create table conversation_completion (event_seq integer primary key autoincrement, turn_id text not null unique)`,
+      `create table conversation_segment (conversation_id text primary key, format_version integer not null default 1, revision integer not null default 0, privacy_generation integer not null, covered_through integer not null default 0, compact text not null default '', compact_sha256 text not null default '', compact_characters integer not null default 0, policy_identity text not null)`,
+      `create table conversation_compaction_spend (day text primary key, attempts integer not null, reserved_usd real not null)`,
+      `create trigger conversation_history_invalidation after update of privacy_generation on conversation_history_control begin
+        update conversation_segment set compact='', compact_sha256='', compact_characters=0, covered_through=0, revision=revision+1, privacy_generation=new.privacy_generation;
+        update conversation_turn set status='aborted' where status='admitted';
+       end`,
+      ...["delete", "update"].map(
+        (action) =>
+          `create trigger conversation_message_${action} after ${action}${action === "update" ? " of id,content,role,conversation_id" : ""} on message begin
+          update conversation_turn set source_version=source_version+1,status='aborted' where user_id=old.id or assistant_id=old.id;
+          update conversation_history_control set privacy_generation=privacy_generation+1 where id=1;
+         end`,
+      ),
+      ...["insert", "update", "delete"].map(
+        (action) =>
+          `create trigger conversation_profile_${action} after ${action} on trainer_profile begin update conversation_history_control set privacy_generation=privacy_generation+1 where id=1; end`,
+      ),
+      `create trigger conversation_memory_edit after update of text,status on semantic_memory when old.text<>new.text or old.status<>new.status begin update conversation_history_control set privacy_generation=privacy_generation+1 where id=1; end`,
+      `create trigger conversation_memory_disable after update of value on app_metadata when new.key='memory.user_disabled' and old.value<>new.value begin update conversation_history_control set privacy_generation=privacy_generation+1 where id=1; end`,
+      `create trigger conversation_memory_control_create after insert on app_metadata when new.key='memory.user_disabled' begin update conversation_history_control set privacy_generation=privacy_generation+1 where id=1; end`,
+      ...["activity", "daily_health", "semantic_memory"].map(
+        (table) =>
+          `create trigger conversation_${table}_delete after delete on ${table} begin update conversation_history_control set privacy_generation=privacy_generation+1 where id=1; end`,
+      ),
+    ],
+  },
 ];
 
 function hasTable(db: Database.Database, table: string): boolean {
@@ -268,6 +303,10 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "training_plan",
     "weekly_artifact",
     "weekly_proposal",
+    "conversation_turn",
+    "conversation_completion",
+    "conversation_segment",
+    "conversation_compaction_spend",
   ];
   return tables.some((table) => {
     if (!hasTable(db, table)) return false;
@@ -314,7 +353,24 @@ export type MigrationResult = {
 };
 
 export function migrateDatabase(db: Database.Database): MigrationResult {
+  if (hasTable(db, "app_metadata")) {
+    const raw = db
+      .prepare("select value from app_metadata where key=?")
+      .get(SCHEMA_VERSION_KEY) as { value: string } | undefined;
+    if (raw && !/^(0|[1-9][0-9]*)$/.test(raw.value))
+      throw new Error(
+        "Unsupported SQLite schema version; preserve data and use a compatible build.",
+      );
+  }
   const fromVersion = currentSchemaVersion(db);
+  if (
+    !Number.isSafeInteger(fromVersion) ||
+    fromVersion < 0 ||
+    fromVersion > LATEST_SCHEMA_VERSION
+  )
+    throw new Error(
+      "Unsupported SQLite schema version; preserve data and use a compatible build.",
+    );
   const applied: string[] = [];
   db.transaction(() => {
     for (const migration of SCHEMA_MIGRATIONS) {

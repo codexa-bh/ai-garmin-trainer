@@ -65,6 +65,9 @@ const allowed = new Set([
   "chat/contracts.ts",
   "chat/conversations.ts",
   "chat/conversation-policy.ts",
+  // H-owned pure replay contracts and supplied-port compaction; no adapter/SDK.
+  "chat/conversation-replay.ts",
+  "chat/conversation-compaction.ts",
   "ai/context.ts",
   "ai/debug-types.ts",
   "ai/tool-types.ts",
@@ -74,6 +77,7 @@ const allowed = new Set([
   "analytics/activity-label.ts",
   "garmin/types.ts",
   "memory/types.ts",
+  "memory/filters.ts",
   "memory/legacy-contracts.ts",
   "profile/contracts.ts",
   "training-plan/contracts.ts",

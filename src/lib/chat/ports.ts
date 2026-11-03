@@ -5,6 +5,11 @@ import type { TrainerToolStep } from "@/lib/ai/tool-types";
 import type { TrainerProgressCounters } from "@/lib/ai/trainer-progress";
 import type { CompletedTurn } from "@/lib/memory/types";
 import type {
+  ConversationRequest,
+  ConversationCompactionGeneration,
+  ConversationHistoryPorts,
+} from "./conversation-replay";
+import type {
   ChatGrounding,
   ChatRole,
   StoredChatMessage,
@@ -12,6 +17,9 @@ import type {
 } from "./contracts";
 
 export type ChatGenerationInput = {
+  executionLimit?: 3;
+  conversation?: ConversationRequest;
+  assertCurrent?: () => void;
   system: TrainerSystemPrompt;
   userRequest: string;
   weeklyTurn?: WeeklyTurn;
@@ -28,7 +36,14 @@ export type ChatGenerationResult = {
   debugTrace?: LlmDebugTrace;
 };
 
+export type ChatGenerator = ((
+  input: ChatGenerationInput,
+) => Promise<ChatGenerationResult>) & {
+  compaction?: ConversationCompactionGeneration;
+};
+
 export type ChatTurnPorts = {
+  history?: ConversationHistoryPorts;
   claimConversationTitle?(message: StoredChatMessage): boolean;
   generateConversationTitle?(firstPrompt: string): Promise<string | null>;
   finishConversationTitle?(
@@ -46,9 +61,7 @@ export type ChatTurnPorts = {
     grounding?: ChatGrounding | null;
   }): StoredChatMessage;
   // Selection is request-time and precedes context reads; no SDK model crosses this port.
-  selectGeneration(): (
-    input: ChatGenerationInput,
-  ) => Promise<ChatGenerationResult>;
+  selectGeneration(assertCurrent?: () => void): ChatGenerator;
   buildSystemContext(
     message: string,
     history: StoredChatMessage[],

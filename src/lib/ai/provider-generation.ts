@@ -1,5 +1,12 @@
 import { generateText, tool, type LanguageModelUsage } from "ai";
 import { trainerCompletionSchema } from "./tool-contracts";
+import { CONVERSATION_BUDGET_HEADER } from "./conversation-transport";
+import {
+  CONVERSATION_OUTPUT_LIMIT,
+  COMPACTION_OUTPUT_LIMIT,
+  ConversationCapacityError,
+} from "../chat/conversation-replay";
+import type { ConversationCompactionGeneration } from "../chat/conversation-replay";
 import { COMPLETION_TOOL } from "./turn-completion";
 
 const completionTool = tool({
@@ -108,9 +115,53 @@ function explicitCaching(model: unknown): boolean {
   );
 }
 
+function reviewedConversationModel(model: unknown): boolean {
+  const identity = model as { provider?: string; modelId?: string } | null;
+  return Boolean(
+    identity &&
+    identity.provider === "openai.responses" &&
+    identity.modelId === "gpt-6-luna",
+  );
+}
+
+export function createConversationCompactionGeneration(
+  model: unknown,
+  count: ConversationCompactionGeneration["count"],
+): ConversationCompactionGeneration {
+  if (!reviewedConversationModel(model))
+    throw new Error("conversation_model_capability_unavailable");
+  return {
+    count,
+    async generate(system, prompt, signal) {
+      const result = await generateText({
+        model: model as Parameters<typeof generateText>[0]["model"],
+        system,
+        prompt,
+        maxRetries: 0,
+        maxOutputTokens: COMPACTION_OUTPUT_LIMIT,
+        abortSignal: signal,
+        headers: {
+          [CONVERSATION_BUDGET_HEADER]: JSON.stringify({ kind: "compaction" }),
+        },
+        providerOptions: {
+          openai: {
+            store: false,
+            forceReasoning: true,
+            reasoningEffort: "none",
+            systemMessageMode: "developer",
+          },
+        },
+      });
+      return result.text;
+    },
+  };
+}
+
 /** Bind the already-selected model; no selection, retries or disconnect signal. */
 export function createTrainerGeneration(model: unknown): TrainerGeneration {
   return async (request) => {
+    if (request.conversation && !reviewedConversationModel(model))
+      throw new Error("conversation_model_capability_unavailable");
     const controller = new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
@@ -137,10 +188,75 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
                 { role: "system", content: request.system.context },
               ]
             : `${request.system.policy}\n\n${request.system.context}`;
+      const conversation = request.conversation;
+      const structured =
+        typeof request.system !== "string"
+          ? request.system
+          : { policy: request.system, context: "" };
       const options = {
         model,
-        system,
-        prompt: request.prompt,
+        system: conversation
+          ? [
+              {
+                role: "system",
+                content: structured.policy,
+                ...(cachePolicy
+                  ? {
+                      providerOptions: {
+                        openai: { promptCacheBreakpoint: { mode: "explicit" } },
+                      },
+                    }
+                  : {}),
+              },
+            ]
+          : system,
+        ...(conversation
+          ? {
+              messages: [
+                ...conversation.history,
+                {
+                  role: "user",
+                  content: `Fresh current-turn server grounding (historical prose never verifies this turn):\n${structured.context}`,
+                },
+                { role: "user", content: request.prompt },
+                ...(request.exchanges ?? []).flatMap((exchange) => [
+                  {
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "tool-call",
+                        toolCallId: exchange.callId,
+                        toolName: exchange.toolName,
+                        input: exchange.input,
+                      },
+                    ],
+                  },
+                  {
+                    role: "tool",
+                    content: [
+                      {
+                        type: "tool-result",
+                        toolCallId: exchange.callId,
+                        toolName: exchange.toolName,
+                        output: { type: "text", value: exchange.output },
+                      },
+                    ],
+                  },
+                ]),
+              ],
+              maxOutputTokens: CONVERSATION_OUTPUT_LIMIT,
+              maxRetries: 0,
+              headers: {
+                [CONVERSATION_BUDGET_HEADER]: JSON.stringify({
+                  kind: "history",
+                  historyMessages: conversation.history.length,
+                  allowSoftLimit:
+                    conversation.allowSoftLimit ||
+                    Boolean(request.exchanges?.length),
+                }),
+              },
+            }
+          : { prompt: request.prompt }),
         ...(request.purpose === "planner"
           ? {
               tools: {
@@ -174,6 +290,22 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
                   }
                 : {}),
             }),
+        ...(conversation
+          ? {
+              providerOptions: {
+                openai: {
+                  store: false,
+                  forceReasoning: true,
+                  reasoningEffort: "none",
+                  systemMessageMode: "developer",
+                  parallelToolCalls: false,
+                  ...(cachePolicy
+                    ? { promptCacheOptions: { mode: "explicit", ttl: "30m" } }
+                    : {}),
+                },
+              },
+            }
+          : {}),
         abortSignal: controller.signal,
       };
       // Preserve the existing SDK compatibility boundary and raw call shapes.
@@ -188,6 +320,23 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
         toolCalls: generated.toolCalls,
         tokenUsage: tokenUsage(generated.usage),
       };
+    } catch (error) {
+      if (
+        !request.conversation ||
+        error instanceof ConversationCapacityError ||
+        (error instanceof Error &&
+          [
+            "conversation_context_invalidated",
+            "conversation_token_accounting_invalid",
+            "conversation_token_accounting_unavailable",
+            "conversation_transport_unsupported",
+            "conversation_serialization_unsupported",
+            "provider_timeout",
+          ].includes(error.message))
+      )
+        throw error;
+      // New replay must not put an upstream echoed prompt/body into local traces.
+      throw new Error("conversation_provider_unavailable");
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
     }

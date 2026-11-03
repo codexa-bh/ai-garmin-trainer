@@ -10,6 +10,19 @@ import {
   runIntegrityCheck,
 } from "../src/lib/db/migrations";
 
+// These historical column-focused fixtures previously omitted unrelated baseline
+// tables. Schema18's privacy triggers require those real historical owners too;
+// complete setup here, never auto-heal missing source tables in production.
+function completeHistoricalFoundation(db: Database.Database): void {
+  db.exec(`
+    create table if not exists message (id text primary key, conversation_id text not null, role text not null, content text not null, grounding_json text, created_at integer not null);
+    create table if not exists trainer_profile (id text primary key, goals_json text not null default '[]', sports_json text not null default '[]', preferences_json text not null default '{}', constraints_json text not null default '[]', updated_at integer not null);
+    create table if not exists activity (id text primary key, garmin_id text not null unique, sport text not null, started_at integer not null);
+    create table if not exists daily_health (date text primary key, sleep_minutes integer);
+    create table if not exists semantic_memory (id text primary key, text text not null, status text not null);
+  `);
+}
+
 describe("versioned SQLite migration foundation", () => {
   it("creates an explicit schema version and verifies integrity", () => {
     const db = new Database(":memory:");
@@ -117,6 +130,7 @@ describe("versioned SQLite migration foundation", () => {
       insert into garmin_athlete_baseline_attempt (id, attempted_at, completed_at, status, error_message, preserved_previous) values ('default', 1784707200000, 1784707200000, 'partial', null, 0);
     `);
 
+    completeHistoricalFoundation(db);
     const result = migrateDatabase(db);
     expect(result.applied).toContain("6:prune_athlete_baseline_fields");
     const columns = db
@@ -159,6 +173,7 @@ describe("versioned SQLite migration foundation", () => {
       insert into conversation (id, title, manual_title, created_at, updated_at) values ('default', 'Existing chat', 0, 1, 1);
     `);
 
+    completeHistoricalFoundation(db);
     const result = migrateDatabase(db);
 
     expect(result.applied).toContain("11:training_plan_singleton");
@@ -184,6 +199,7 @@ describe("versioned SQLite migration foundation", () => {
       insert into garmin_body_weight_history (date, weight_kg, source, fetched_at) values ('2026-08-10', 70.4, 'garmin_mcp', 1784707200000);
     `);
 
+    completeHistoricalFoundation(db);
     const result = migrateDatabase(db);
     expect(result.applied).toContain("14:garmin_weigh_in_sources");
     const columns = db
@@ -222,6 +238,7 @@ describe("versioned SQLite migration foundation", () => {
       insert into daily_health (date, sleep_minutes, resting_heart_rate, availability) values ('2026-07-21', 444, 52, 'partial');
     `);
 
+    completeHistoricalFoundation(db);
     const result = migrateDatabase(db);
     expect(result.applied).toContain("15:daily_health_sleep_details");
     const columns = db

@@ -1,6 +1,11 @@
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
+  countedConversationFetch,
+  conversationTextCounter,
+} from "./conversation-transport";
+import type { ReplayMessage } from "../chat/conversation-replay";
+import {
   configuredSecret,
   extractionConfiguration,
   getOptionalEnv,
@@ -32,6 +37,10 @@ export type SelectedAiModel = {
   selectionMode: AiProviderSelectionMode | null;
   modelName: string;
   model: unknown;
+  conversationCount?: (
+    messages: ReplayMessage[],
+    signal: AbortSignal,
+  ) => Promise<number>;
 };
 
 export function isLoopbackAiBaseUrl(rawUrl: string): boolean {
@@ -210,6 +219,7 @@ export function aiProviderStatus(
 function selectedCloudModel(
   env: AppEnv,
   status: Pick<AiProviderStatus, "selected" | "selectionMode" | "remediation">,
+  assertCurrent?: () => void,
 ): SelectedAiModel {
   if (!status.selected)
     throw new Error(status.remediation ?? "No configured AI provider key.");
@@ -229,19 +239,37 @@ function selectedCloudModel(
   if (status.selected === "openai") {
     const apiKey = configuredSecret(env.OPENAI_API_KEY);
     if (!apiKey) throw new Error("OpenAI provider key is missing.");
-    const openai = createOpenAI({ apiKey });
+    const conversation = env.AI_MODEL === "gpt-6-luna";
+    const openai = createOpenAI({
+      apiKey,
+      ...(conversation
+        ? { fetch: countedConversationFetch(undefined, assertCurrent) }
+        : {}),
+    });
     return {
       provider: "openai",
       selectionMode: status.selectionMode,
       modelName: env.AI_MODEL,
       model: openai(env.AI_MODEL),
+      ...(conversation
+        ? {
+            conversationCount: conversationTextCounter(
+              apiKey,
+              undefined,
+              assertCurrent,
+            ),
+          }
+        : {}),
     };
   }
 
   throw new Error("Memory extraction requires a DeepSeek or OpenAI provider.");
 }
 
-export function selectedModel(env: AppEnv = getOptionalEnv()): SelectedAiModel {
+export function selectedModel(
+  env: AppEnv = getOptionalEnv(),
+  assertCurrent?: () => void,
+): SelectedAiModel {
   const status = aiProviderStatus(env);
   if (!status.selected)
     throw new Error(status.remediation ?? "No configured AI provider key.");
@@ -274,7 +302,7 @@ export function selectedModel(env: AppEnv = getOptionalEnv()): SelectedAiModel {
     };
   }
 
-  return selectedCloudModel(env, status);
+  return selectedCloudModel(env, status, assertCurrent);
 }
 
 export function memoryExtractionSelection(env: AppEnv = getOptionalEnv()) {

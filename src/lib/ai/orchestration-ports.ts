@@ -1,12 +1,21 @@
 import type { TrainerTokenUsage } from "./debug-types";
+import type { ConversationRequest } from "../chat/conversation-replay";
 import type { TrainerSystemPrompt } from "./trainer-instructions";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolStep } from "./tool-types";
 
+export type TrainerNativeExchange = {
+  callId: string;
+  toolName: string;
+  input: unknown;
+  output: string;
+};
 export type TrainerGenerationRequest = {
   purpose: "planner" | "final_synthesis";
   system: TrainerSystemPrompt;
   prompt: string;
+  conversation?: ConversationRequest;
+  exchanges?: TrainerNativeExchange[];
 };
 
 // Raw call aliases and malformed inputs remain application-validated. Do not

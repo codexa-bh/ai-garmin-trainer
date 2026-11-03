@@ -9,11 +9,14 @@ export const TRAINER_EXECUTION_POLICY = {
 export function trainerExecutionBudget(
   providerAttempts: number,
   toolAttempts: number,
+  hardLimit: 3 | 30 = TRAINER_EXECUTION_POLICY.hardLimit,
 ) {
   const consumed = providerAttempts + toolAttempts;
-  const remaining = Math.max(0, TRAINER_EXECUTION_POLICY.hardLimit - consumed);
+  const remaining = Math.max(0, hardLimit - consumed);
   return {
     ...TRAINER_EXECUTION_POLICY,
+    hardLimit,
+    softTarget: Math.min(TRAINER_EXECUTION_POLICY.softTarget, hardLimit),
     providerAttempts,
     toolAttempts,
     consumed,

@@ -1,4 +1,5 @@
-//! Explicit ordinary-artifact admission. No normal-state lookup or enabling environment.
+//! Explicit ordinary-artifact admission. No ambient enabling environment or default-state lookup.
+//! Only the named, separately authorized provider preset delegates opaque key use to its native owner.
 use crate::{private_store, settings};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -40,6 +41,8 @@ pub struct Descriptor {
     pub capability: String,
     #[serde(default)]
     pub history_setup: Option<HistorySetup>,
+    #[serde(default)]
+    pub provider_smoke: Option<crate::provider_smoke::Mode>,
 }
 
 pub struct Admission {
@@ -49,6 +52,7 @@ pub struct Admission {
     database: std::sync::Mutex<Option<(u64, u64)>>,
     descriptor_capture: (u64, u64, Vec<u8>),
     owner_capture: (u64, u64, Vec<u8>),
+    provider_source: std::sync::Mutex<Option<crate::provider_smoke::Capture>>,
 }
 
 fn hex(value: &str) -> bool {
@@ -78,7 +82,8 @@ pub fn intent(args: &[std::ffi::OsString]) -> Result<Option<PathBuf>, &'static s
 
 impl Descriptor {
     fn validate(&self, path: &Path) -> Result<(), &'static str> {
-        if self.schema_version != 1
+        if (self.provider_smoke.is_some() && self.history_setup.is_some())
+            || self.schema_version != 1
             || uuid::Uuid::parse_str(&self.run_id)
                 .map(|id| id.to_string())
                 .ok()
@@ -249,8 +254,8 @@ impl Admission {
             return Err(DENIED);
         }
         let admission = Self::admit(path, verify_artifact)?;
-        if admission.descriptor.history_setup.is_some() {
-            // History automation must retain a real ownership pipe, not a terminal,
+        if admission.descriptor.history_setup.is_some() || admission.descriptor.provider_smoke.is_some() {
+            // History/provider automation must retain a real ownership pipe, not a terminal,
             // file, environment marker or stored parent PID.
             let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
             if unsafe { libc::fstat(libc::STDIN_FILENO, metadata.as_mut_ptr()) } != 0
@@ -312,6 +317,7 @@ impl Admission {
             database: std::sync::Mutex::new(database),
             descriptor_capture,
             owner_capture,
+            provider_source: std::sync::Mutex::new(None),
         };
         admission.verify_settings()?;
         Ok(admission)
@@ -502,6 +508,18 @@ impl Admission {
         }
         Ok(())
     }
+    pub fn provider_activation(&self, path: &Path) -> Result<Vec<u8>, &'static str> {
+        self.verify_settings()?;
+        if self.descriptor.provider_smoke.is_none() {
+            return settings::activation(path);
+        }
+        let (frame, capture) = crate::provider_smoke::activation(path, &crate::provider_smoke::production_directory()?)?;
+        *self.provider_source.lock().map_err(|_| DENIED)? = Some(capture);
+        Ok(frame)
+    }
+    pub fn provider_source_unchanged(&self) -> bool {
+        self.provider_source.lock().ok().and_then(|source| source.as_ref().map(|source| source.unchanged())).unwrap_or(false)
+    }
     pub fn verify_settings(&self) -> Result<(), &'static str> {
         self.verify()?;
         if self.descriptor.history_setup.is_some()
@@ -523,6 +541,15 @@ impl Admission {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    #[test]
+    fn finite_provider_scope_never_combines_with_history_setup() {
+        let (_root, path) = fixture();
+        let mut descriptor: Descriptor = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        descriptor.provider_smoke = Some(crate::provider_smoke::Mode::OpenaiLuna025);
+        assert!(descriptor.validate(&path).is_ok());
+        descriptor.history_setup = Some(HistorySetup::UseExisting);
+        assert!(descriptor.validate(&path).is_err());
+    }
     fn fixture() -> (PathBuf, PathBuf) {
         let id = uuid::Uuid::new_v4().to_string();
         let root = std::env::temp_dir()

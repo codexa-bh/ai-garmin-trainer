@@ -615,6 +615,53 @@ vi.mock("@/lib/garmin/composition", () => ({
   backfillActivityDetail,
 }));
 
+// Bind new admission/completion to the existing supplied message store, not a
+// real default-path DB. Durable semantics have separate actual SQLite coverage.
+vi.mock("@/lib/db/conversation-history", async () => {
+  const store = await import("@/lib/db/conversation-repository");
+  return {
+    conversationHistory: {
+      admit(conversationId: string, content: string) {
+        const userRecord = store.appendChatMessage({
+          conversationId,
+          role: "user",
+          content,
+        });
+        return {
+          userRecord,
+          admission: {
+            turnId: userRecord.id,
+            conversationId,
+            sourceAdmissionSeq: 0,
+            privacyGeneration: 0,
+          },
+        };
+      },
+      complete(
+        admission: { conversationId: string },
+        answer: {
+          content: string;
+          grounding: import("@/lib/chat/contracts").ChatGrounding | null;
+        },
+      ) {
+        return store.appendChatMessage({
+          conversationId: admission.conversationId,
+          role: "assistant",
+          ...answer,
+        });
+      },
+      assertCurrent: vi.fn(),
+      abandon: vi.fn(),
+      reserveCompaction: () => false,
+      publish: () => false,
+      read() {
+        throw new Error(
+          "Legacy route regression must not request qualified replay",
+        );
+      },
+    },
+  };
+});
 vi.mock("@/lib/db/conversation-repository", () => ({
   claimConversationTitle: () => false,
   finishConversationTitle: vi.fn(),

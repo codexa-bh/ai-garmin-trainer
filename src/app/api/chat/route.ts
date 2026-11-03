@@ -78,6 +78,12 @@ export async function DELETE(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const finiteBudget = request.headers.get("x-trainer-turn-budget");
+    if (finiteBudget !== null && finiteBudget !== "finite-live-smoke")
+      return NextResponse.json(
+        { error: "Unsupported finite turn budget" },
+        { status: 400 },
+      );
     const body = (await request.json()) as {
       conversationId?: string;
       message?: string;
@@ -98,6 +104,7 @@ export async function POST(request: Request) {
     if (body.timeZone !== undefined && !validTimeZone(body.timeZone))
       return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
     const turn = prepareChatTurn(conversationId, latestMessage, body.timeZone);
+    if (finiteBudget) turn.executionLimit = 3;
     if (turn.titleAdmitted)
       after(async () => {
         try {
@@ -117,7 +124,7 @@ export async function POST(request: Request) {
         debugTraceEnabled,
       });
     } else {
-      response = await jsonResponse(turn, debugTraceEnabled);
+      response = await jsonResponse(turn, debugTraceEnabled, request.signal);
     }
     if (turn.titleAdmitted)
       response.headers.set("x-chat-title-pending", "true");
@@ -125,7 +132,15 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json(
       { error: safeChatFailureMessage(error) },
-      { status: 500 },
+      {
+        status:
+          error instanceof Error && error.message === "conversation_text_limit"
+            ? 400
+            : error instanceof Error &&
+                error.message === "conversation_busy_retry_after_current_turn"
+              ? 409
+              : 500,
+      },
     );
   }
 }

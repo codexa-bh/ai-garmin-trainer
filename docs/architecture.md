@@ -202,8 +202,10 @@ follows the reviewed type-inclusive closure (only existing Zod schema use is an
 external exception), with negative SDK/DB/connector/composition/ambient fixtures.
 Existing schema snapshots, real SQLite tool suites, provider-mocked production
 chat, budget/plan and overlapping-turn suites retain integration coverage.
-No schema/data/wire/UI changes: migration/back-sync is a no-op, source revert is
-rollback, and private API smoke uses a disposable populated DB.
+Provider/tool ownership stays separate. H adds schema18 journal/segments and role
+replay at the wire boundary; its [copy rehearsal, compatibility fence and native
+evidence](conversation-history.md) replace a blanket migration no-op for that slice.
+No UI redesign or primary activation is implied.
 
 ### Structured chat completion and evidence
 
@@ -406,8 +408,17 @@ connector and AI tool suites retain compatibility coverage. `garmin-history.test
 
 The [proposed memory-redesign contract](memory-redesign-contract.md) and linked
 [acceptance scenarios](memory-redesign-acceptance.md) describe future role-preserving
-history, local compaction and incremental global summaries. They are not implemented;
-the ownership and runtime behavior below remain the shipped baseline.
+history, local compaction and incremental global summaries. The full global/UI
+redesign remains proposed; the bounded H source implementation is documented
+separately below. Semantic-memory ownership/behavior remains unchanged.
+
+[Linked conversation replay/local compaction](conversation-history.md) is chat-owned,
+not a second global-memory producer. Pure replay/compaction consumes narrow history
+and generation ports; `db/conversation-history.ts` owns schema18 journal/segment/CAS,
+privacy and spend transactions. `ai/conversation-transport.ts` counts exact SDK
+Responses input before reviewed Luna inference; provider credentials remain with
+existing selection. Null global summary and legacy/unavailable memory are supported
+independently. Unknown models retain explicit legacy mode; none is substituted.
 
 Memory follows `api/memory → memory/composition → management/application`.
 `createMemoryStore` consumes feature-owned `MemoryPorts`: synchronous semantic
@@ -491,9 +502,13 @@ composition binds existing storage, semantic memory and provider/orchestrator
 adapters. Selection returns a plain generation operation before context reads,
 not an SDK model. Factories bind functions without opening storage or selecting
 providers at import time. Application owners have no HTTP/stream, environment,
-SQLite, singleton memory or SDK dependency, including erased type dependencies. Preparation saves the user; generation produces a typed answer
-and progress; completion saves the assistant, awaits best-effort memory and
-reloads history. JSON and NDJSON share those operations, while delivery owns DTOs,
+SQLite, singleton memory or SDK dependency, including erased type dependencies. Preparation atomically admits the user/source identity; generation produces a typed
+answer and progress. Schema18 completion atomically links assistant and completion
+journal, then awaits existing best-effort legacy memory and reloads display history.
+Reviewed Luna uses role replay with exact preflight accounting and bounded local
+compaction; display paging/legacy mode remain independent. Per-use privacy checks
+stop stale work and final delivery; owned failure/abort releases its admission.
+[The current contract](conversation-history.md) records limits and evidence boundaries. JSON and NDJSON share those operations, while delivery owns DTOs,
 debug visibility and the existing stream abort-before-completion boundary.
 
 `src/lib/chat/{context,turn,conversations}.ts` expose application factories
@@ -548,6 +563,10 @@ and `tests/tool-runtime-ownership.test.ts` / `tests/tool-boundaries.test.ts`.
   migrations and existing compatibility DDL. All storage owners use it directly.
 - `conversation-repository.ts` owns conversation/message persistence, pagination,
   grounding serialization and the single monotonic message timestamp state.
+- `conversation-history.ts` owns schema18 source admission/completion sequence,
+  segment/revision/boundary/integrity compare-publication, privacy invalidation and
+  conservative durable local-compaction spend. It reuses the lazy connection and
+  existing message/title writes; generation never holds its transaction.
   It imports pure chat-owned ID/title policy and contracts; compatibility exports
   remain for existing callers.
 - `training-plan-repository.ts` owns singleton plan SQL and row/ISO conversion.
@@ -570,9 +589,11 @@ Dependency direction is delivery → outer composition → application ports, wi
 storage adapters implementing those capabilities and depending on chat-owned
 contracts/policy. Storage I/O flows through connection → env/migrations. Lifecycle
 uses pure conversation ID validation, not the reverse. Debug/tool metadata use
-plain AI contracts, not implementation-owned types. No SQL, schema, migration, transaction
-scope or bulk-deletion behavior changes. In particular bulk chat/Profile clearing
-continues to preserve semantic memory, unlike single-conversation deletion.
+plain AI contracts, not implementation-owned types. Schema18 adds H journal/segment
+transactions and derivative invalidation to existing lifecycle owners, without
+widening other deletion scopes. In particular bulk chat/Profile clearing continues
+to preserve semantic memory, unlike single-conversation deletion. Rehearse explicit
+copy migration; older desktop admission refuses the new schema.
 `tests/persistence-ownership.test.ts` covers shared connection visibility, edge
 contracts, deletion scope/rollback and route fallback; existing history, memory,
 plan, summary and migration suites remain integration evidence.

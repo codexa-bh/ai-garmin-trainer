@@ -5,9 +5,15 @@ import {
 } from "./turn-completion";
 import type { WeeklyRead, WeeklyTurn } from "../weekly/contracts";
 import {
+  ConversationCapacityError,
+  conversationInterruption,
+  type ConversationRequest,
+} from "../chat/conversation-replay";
+import {
   TRAINER_PROVIDER_CALL_TIMEOUT_MS,
   type TrainerGenerationResult,
   type TrainerOrchestrationPorts,
+  type TrainerNativeExchange,
 } from "./orchestration-ports";
 import { TrainerToolExecutionContext } from "./tool-execution-context";
 import { providerFailureMessage } from "./provider-errors";
@@ -65,6 +71,9 @@ type OrchestrateTrainerStatus = (
 ) => void;
 
 export type OrchestrateTrainerChatInput = {
+  executionLimit?: 3;
+  conversation?: ConversationRequest;
+  assertCurrent?: () => void;
   system: TrainerSystemPrompt;
   userRequest: string;
   turnContext?: ChatTurnContext;
@@ -95,7 +104,9 @@ function bounded(value: string, max = 2200): string {
     : compact;
 }
 
-function extractToolCall(raw: unknown): TrainerToolCall | null {
+function extractToolCall(
+  raw: unknown,
+): (TrainerToolCall & { toolCallId?: string }) | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
   const toolName = record.toolName ?? record.tool ?? record.name;
@@ -109,7 +120,23 @@ function extractToolCall(raw: unknown): TrainerToolCall | null {
       parsedInput = input;
     }
   }
-  return { toolName, input: parsedInput };
+  const id = record.toolCallId ?? record.id;
+  return {
+    toolName,
+    input: parsedInput,
+    ...(typeof id === "string" ? { toolCallId: id } : {}),
+  };
+}
+
+function assertConversationCurrent(
+  input: OrchestrateTrainerChatInput,
+  steps: TrainerToolStep[],
+): void {
+  try {
+    input.assertCurrent?.();
+  } catch (error) {
+    throw conversationInterruption(error, steps);
+  }
 }
 
 function systemWithTurnContext(
@@ -335,10 +362,15 @@ async function synthesizeFinalAnswer(
   generate: TrainerOrchestrationPorts["generate"],
   budgetStopped = false,
   rejection?: CompletionRejection,
+  exchanges: TrainerNativeExchange[] = [],
 ): Promise<string | null> {
   let result: TrainerGenerationResult;
   try {
+    assertConversationCurrent(input, steps);
     result = await generate({
+      ...(input.conversation
+        ? { conversation: input.conversation, exchanges }
+        : {}),
       purpose: "final_synthesis",
       system: finalAnswerSystem(
         systemWithTurnContext(input),
@@ -349,6 +381,11 @@ async function synthesizeFinalAnswer(
       prompt: input.userRequest,
     });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "conversation_context_invalidated"
+    )
+      throw conversationInterruption(error, steps);
     recordProviderCall?.(
       debugProviderCall({
         index: 0,
@@ -367,7 +404,7 @@ async function synthesizeFinalAnswer(
   const text = result.text?.trim() ?? "";
   const toolCalls = (result.toolCalls ?? [])
     .map(extractToolCall)
-    .filter((call): call is TrainerToolCall => Boolean(call));
+    .filter((call) => call !== null);
   const assessment = assessCompletion(
     toolCalls.find((call) => call.toolName === COMPLETION_TOOL)?.input,
     steps,
@@ -409,6 +446,7 @@ async function orchestrateTurn(
   ports: TrainerOrchestrationPorts,
 ): Promise<OrchestrateTrainerChatResult> {
   const steps: TrainerToolStep[] = [];
+  const exchanges: TrainerNativeExchange[] = [];
   const analysisToolCounts = new Map<TrainerToolName, number>();
   let providerCalls = 0;
   let toolAttempts = 0;
@@ -420,7 +458,8 @@ async function orchestrateTurn(
       toolsSucceeded,
       toolsUnsuccessful,
     });
-  const budget = () => trainerExecutionBudget(providerCalls, toolAttempts);
+  const budget = () =>
+    trainerExecutionBudget(providerCalls, toolAttempts, input.executionLimit);
   const debugEnabled = input.debug?.enabled === true;
   const debugProviderCalls: LlmDebugProviderCall[] = [];
   const recordProviderCall = (call: LlmDebugProviderCall) => {
@@ -478,6 +517,7 @@ async function orchestrateTurn(
       ports.generate,
       budgetStopped,
       rejection,
+      exchanges,
     );
   };
   const finishAtBudget = async (skipped = 0) => {
@@ -524,7 +564,11 @@ async function orchestrateTurn(
     progress(modelWaitMessage(steps));
     let result: TrainerGenerationResult;
     try {
+      assertConversationCurrent(input, steps);
       result = await ports.generate({
+        ...(input.conversation
+          ? { conversation: input.conversation, exchanges }
+          : {}),
         purpose: "planner",
         system: plannerSystem(
           systemWithTurnContext(input),
@@ -535,6 +579,13 @@ async function orchestrateTurn(
         prompt: input.userRequest,
       });
     } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "conversation_context_invalidated"
+      )
+        throw conversationInterruption(error, steps);
+      if (error instanceof ConversationCapacityError && steps.length === 0)
+        throw error;
       recordProviderCall(
         debugProviderCall({
           index: 0,
@@ -570,6 +621,7 @@ async function orchestrateTurn(
       );
     }
 
+    assertConversationCurrent(input, steps);
     if (!result) result = {};
     if (result.toolCalls !== undefined && !Array.isArray(result.toolCalls)) {
       return finish(
@@ -584,7 +636,7 @@ async function orchestrateTurn(
     }
     const toolCalls = (result.toolCalls ?? [])
       .map(extractToolCall)
-      .filter((call): call is TrainerToolCall => Boolean(call));
+      .filter((call) => call !== null);
     const terminal = toolCalls.find(
       (call) => call.toolName === COMPLETION_TOOL,
     );
@@ -725,6 +777,19 @@ async function orchestrateTurn(
           "deterministic_fallback",
         );
       }
+      assertConversationCurrent(input, steps);
+      const native = input.conversation
+        ? toolCalls.find(
+            (call) =>
+              call.toolName === accepted.toolName &&
+              call.toolCallId &&
+              !exchanges.some(
+                (exchange) => exchange.callId === call.toolCallId,
+              ),
+          )
+        : undefined;
+      if (input.conversation && !native?.toolCallId)
+        throw new Error("conversation_native_call_identity_missing");
       progress(toolProgressMessage(accepted.toolName));
       toolAttempts += 1;
       const step = await ports.executeTool({
@@ -735,6 +800,18 @@ async function orchestrateTurn(
         weeklyTurn: input.weeklyTurn,
         weeklySnapshots: weeklySnapshots,
       });
+      assertConversationCurrent(input, [...steps, step]);
+      if (native?.toolCallId)
+        exchanges.push({
+          callId: native.toolCallId,
+          toolName: native.toolName,
+          input: native.input,
+          output: JSON.stringify({
+            status: step.status,
+            stepIndex: step.index,
+            evidence: synthesisEvidenceForSteps([step]),
+          }),
+        });
       if (selected.metadata) step.selection = selected.metadata;
       if (
         step.status === "succeeded" &&

@@ -47,6 +47,10 @@ const allowed = new Set([
   "analytics/activity-dashboard-calculations.ts",
   "analytics/terrain-sections.ts",
   "chat/contracts.ts",
+  // Neutral H continuity and capacity error, no storage/model dependency.
+  "chat/conversation-replay.ts",
+  "memory/filters.ts",
+  "memory/types.ts",
   "garmin/detail-types.ts",
   "garmin/dependency-error.ts",
   "garmin/import-contracts.ts",

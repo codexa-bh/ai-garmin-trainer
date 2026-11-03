@@ -6,6 +6,7 @@ mod dev_bridge;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
 mod history_setup;
 mod isolated_run;
+mod provider_smoke;
 mod keychain;
 mod live_settings;
 mod memory_status;
@@ -144,7 +145,11 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     }
     let path = settings_path(app)?;
     let startup_revision = settings::revision(&path)?;
-    let mut snapshot = settings::activation(&path)?;
+    let mut snapshot = if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+        run.provider_activation(&path)?
+    } else {
+        settings::activation(&path)?
+    };
     drop(_write); // Saves remain available during backend startup; activation is immutable.
     let result = supervisor::Service::start(
         &resources(app)?,
@@ -869,7 +874,7 @@ fn main() {
             });
             let signal_handle = app.handle().clone();
             ctrlc::set_handler(move || { stop_runtime(&signal_handle); signal_handle.exit(0); })?;
-            if app.try_state::<std::sync::Arc<isolated_run::Admission>>().map(|run| run.descriptor.history_setup.is_some()).unwrap_or(false) {
+            if app.try_state::<std::sync::Arc<isolated_run::Admission>>().map(|run| run.descriptor.history_setup.is_some() || run.descriptor.provider_smoke.is_some()).unwrap_or(false) {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
                     // A retained runner pipe owns this instance. EOF/invalid data means

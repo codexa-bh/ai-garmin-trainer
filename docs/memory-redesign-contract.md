@@ -145,7 +145,8 @@ select whole lower-priority items out of the pinned projection and disclose that
 bounded projection. Do not overwrite the global revision or sever provenance.
 For large CJK/emoji/source inputs, enforce both budgets independently.
 
-Compaction runs at a boundary before the next answer, under a 5-second deadline,
+Compaction runs at a boundary before the next answer, under a 30-second total deadline
+(T0269 explicit operator amendment after measured five-second live timeouts; other bounds unchanged),
 no automatic retry, no tools, same admitted chat provider only if its text-only
 capability/cost profile is approved. Reserve at most USD 0.01 per call and USD 0.10
 per local day in a separate durable compaction budget (including unknown outcomes);

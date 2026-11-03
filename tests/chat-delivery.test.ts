@@ -134,3 +134,50 @@ it("does not complete when enqueue/encoding fails during delta delivery", async 
     spy.mockRestore();
   }
 });
+
+it("suppresses invalidated undelivered prose while reporting only actual completed effect names", async () => {
+  const abandon = vi.fn();
+  f.generate.mockResolvedValue({
+    ...answer,
+    text: "PRIVATE DELETED CONTENT",
+    toolSteps: [
+      {
+        index: 1,
+        tool: "saveTrainingPlan",
+        status: "succeeded",
+        result: { private: "must not be in error" },
+      },
+      { index: 2, tool: "saveWeeklyDocuments", status: "failed" },
+    ],
+  });
+  let checks = 0;
+  const response = streamingResponse({
+    ...turn,
+    assertCurrent: () => {
+      if (++checks > 1) throw new Error("conversation_context_invalidated");
+    },
+    abandon,
+    debugTraceEnabled: false,
+    memoryProposal: { status: "none" },
+    requestSignal: new AbortController().signal,
+  });
+  const text = await response.text();
+  expect(text).not.toContain("PRIVATE DELETED CONTENT");
+  expect(text).not.toContain("must not be in error");
+  expect(text).toContain("saveTrainingPlan");
+  expect(text).not.toContain("saveWeeklyDocuments");
+  expect(text).not.toContain('"type":"done"');
+  expect(f.complete).not.toHaveBeenCalled();
+  expect(abandon).toHaveBeenCalledOnce();
+});
+
+it("does not commit an aborted JSON request and releases only its own admission", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const abandon = vi.fn();
+  await expect(
+    jsonResponse({ ...turn, abandon }, false, controller.signal),
+  ).rejects.toThrow("conversation_delivery_aborted");
+  expect(f.complete).not.toHaveBeenCalled();
+  expect(abandon).toHaveBeenCalledOnce();
+});
