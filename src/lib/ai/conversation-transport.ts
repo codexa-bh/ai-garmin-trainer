@@ -8,7 +8,7 @@ import {
 /** Internal per-request declaration; removed before either provider call. */
 export const CONVERSATION_BUDGET_HEADER = "x-pivan-conversation-budget";
 
-async function countInput(
+export async function countResponseInput(
   transport: typeof fetch,
   init: RequestInit,
   payload: Record<string, unknown>,
@@ -55,7 +55,7 @@ export function conversationTextCounter(
     signal: AbortSignal,
   ): Promise<number> => {
     assertCurrent?.();
-    const count = await countInput(
+    const count = await countResponseInput(
       transport,
       {
         signal,
@@ -123,7 +123,7 @@ export function countedConversationFetch(
     );
     const countedInit = { ...init, headers };
     assertCurrent?.();
-    const tokens = await countInput(transport, countedInit, payload);
+    const tokens = await countResponseInput(transport, countedInit, payload);
     assertCurrent?.();
     const declaration = JSON.parse(budget) as {
       kind: "history" | "compaction";
@@ -138,7 +138,7 @@ export function countedConversationFetch(
     if (declaration.kind === "history" && declaration.historyMessages) {
       if (!Array.isArray(payload.input))
         throw new Error("conversation_serialization_unsupported");
-      const current = await countInput(transport, countedInit, {
+      const current = await countResponseInput(transport, countedInit, {
         model: payload.model,
         input: payload.input.slice(1 + declaration.historyMessages),
         reasoning: payload.reasoning,
@@ -159,7 +159,7 @@ export function countedConversationFetch(
       )
         throw new Error("conversation_serialization_unsupported");
       // Same policy/tools/fresh tail, removing only the neutral historical input.
-      const base = await countInput(transport, countedInit, {
+      const base = await countResponseInput(transport, countedInit, {
         ...payload,
         input: [
           payload.input[0],

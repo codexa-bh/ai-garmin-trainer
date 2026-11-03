@@ -80,6 +80,41 @@ export function assertDesktopDatabase(path: string): void {
         ],
       ],
       ["conversation_compaction_spend", ["day", "attempts", "reserved_usd"]],
+      [
+        "summary_state",
+        [
+          "format_version",
+          "revision",
+          "frontier",
+          "payload",
+          "checksum",
+          "privacy_generation",
+          "published_at",
+        ],
+      ],
+      [
+        "summary_control",
+        [
+          "enabled",
+          "configured_enabled",
+          "generation",
+          "manual_revision",
+          "cutoff",
+          "job_id",
+          "lease_until",
+          "model",
+          "cap",
+          "retry_at",
+        ],
+      ],
+      ["summary_disposition", ["event_seq", "source_id", "reason", "revision"]],
+      ["summary_item_disposition", ["item_id", "revision", "reason"]],
+      [
+        "summary_attempt",
+        ["job_id", "started_at", "outcome", "reserved", "usage_json"],
+      ],
+      ["summary_spend", ["day", "attempts", "reserved_usd"]],
+      ["summary_suppression", ["source_id"]],
     ] as const) {
       const actual = db.prepare(`pragma table_info(${table})`).all() as {
         name: string;

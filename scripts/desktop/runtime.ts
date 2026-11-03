@@ -14,6 +14,7 @@ import {
 import { freshDatabase } from "./initialize";
 import { initializeLiveConfiguration } from "../../src/lib/env";
 import { serveLiveSettings } from "./live-settings";
+import { stopSummaryLifetime } from "../../src/lib/memory/summary-lifetime";
 
 const protocol = process.stdout.write.bind(process.stdout);
 const report = (value: object) => protocol(`${JSON.stringify(value)}\n`);
@@ -146,10 +147,32 @@ async function main(): Promise<void> {
     });
   });
   let stopping = false;
+  let summaryTimer: ReturnType<typeof setTimeout> | undefined;
+  const summaryTick = async () => {
+    if (stopping) return;
+    try {
+      const result = await fetch(`${origin}/api/cross-chat-summary`, {
+        method: "POST",
+        headers: { "x-trainer-identity": nonce },
+        signal: AbortSignal.timeout(17000),
+      });
+      await result.arrayBuffer();
+    } catch {
+      /* Status remains honest; never infer success or replay paid work. */
+    }
+    if (!stopping)
+      summaryTimer = setTimeout(() => {
+        summaryTick().catch(() => {
+          /* Fixed tick failure remains visible in status. */
+        });
+      }, 30000);
+  };
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
     ready = false;
+    clearTimeout(summaryTimer);
+    stopSummaryLifetime();
     // Drain HTTP and Next after() for at most 5s; native kills the owned group
     // after 8s. Interrupted provider/import writes are not rolled back/retried.
     const deadline = setTimeout(() => {
@@ -194,6 +217,9 @@ async function main(): Promise<void> {
   ) as { pid?: number; version?: number };
   if (lease.pid !== process.pid || lease.version !== 1)
     throw new Error("Selected database writer ownership was not established.");
+  // Install source eligibility before admitting chat. This fixed private route
+  // owns no answer work and never creates a second launcher/daemon.
+  await summaryTick();
   stage = "ready";
   ready = true;
   report({ type: "ready", version: 1, port: address.port, tooling });

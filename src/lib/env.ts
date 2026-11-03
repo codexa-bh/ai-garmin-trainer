@@ -44,6 +44,16 @@ const optionalEnvSchema = z.object({
     .default("nvidia/nemotron-3.5-lightning:free"),
   OLLAMA_MODEL: z.string().default("qwen3.5:4b"),
   OLLAMA_BASE_URL: z.string().url().default("http://127.0.0.1:11434/v1"),
+  SUMMARY_ENABLED: z.enum(["false", "true"]).default("false"),
+  SUMMARY_MODEL: z.enum(["unselected", "gpt-6-luna"]).default("unselected"),
+  SUMMARY_CHAR_LIMIT: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .refine(
+      (value) => Number(value) >= 1000 && Number(value) <= 20000,
+      "Summary character limit must be 1000–20000.",
+    )
+    .default("6000"),
   MEMORY_ENABLED: z.string().default("false"),
   MEMORY_EMBEDDING_PROVIDER: z
     .enum(["openai", "deterministic", "ollama"])

@@ -409,8 +409,13 @@ connector and AI tool suites retain compatibility coverage. `garmin-history.test
 The [proposed memory-redesign contract](memory-redesign-contract.md) and linked
 [acceptance scenarios](memory-redesign-acceptance.md) describe future role-preserving
 history, local compaction and incremental global summaries. The full global/UI
-redesign remains proposed; the bounded H source implementation is documented
-separately below. Semantic-memory ownership/behavior remains unchanged.
+pin/UI/legacy redesign remains proposed; H and the independent default-Off
+[S producer](cross-chat-summary.md) are separate source slices. S publishes no chat
+pins and never calls embeddings. Summary policy/application owns minimized item patches;
+`db/summary-storage` owns schema19 eligibility/lease/CAS/coverage/spend, the provider
+adapter owns exact Luna transport and composition binds admitted native config.
+One launcher lifetime invokes its private tick route; passive reads create no work.
+Semantic-memory ownership/behavior remains unchanged.
 
 [Linked conversation replay/local compaction](conversation-history.md) is chat-owned,
 not a second global-memory producer. Pure replay/compaction consumes narrow history

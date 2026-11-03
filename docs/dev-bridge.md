@@ -24,6 +24,36 @@ Two authenticated release-native/source/artifact/boot/selected-copy identities a
 
 The baseline is keyless. No real provider/Garmin success is implied; separately provisioned run-native settings and explicit token copies are required for available real integration checks through the verified owned backend. Never read back keys, copy normal settings, generate env files or automate sign-in/MFA. Existing debug, quick and release-probe regressions remain independent. Focus is sampled every 10ms without activation/restoration; absence of a live operator instance must be disclosed, not manufactured. Only live child handles authorize shutdown; verify native reaping, backend/control endpoints and DB/run lease settlement. Copies/Goals are task-attributed and subject to [evidence-first owned disposal](#preparation-reuse-and-owned-disposal); no primary mutation/copy-back or worktree disposal.
 
+## Keyless summary producer lifecycle
+
+`npm run smoke:ordinary -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app> --summary-engine`
+adds one finite keyless S scenario, incompatible with composer/conversation presets.
+Before launch it preserves each run's original keyless v2 configuration, exclusively
+publishes run-local v3 with independent Luna summary On/6000 and empty chat catalog,
+and seeds exactly four authored completed source turns plus one incomplete turn through
+production journal ports on only the stopped private current-schema run DB. Existing
+synthetic transcripts/Profile/normalized data remain intact; no old-history linkage,
+provider credential lookup, clock override, fake inference or product bundle rewrite.
+The recipe verifier accepts only exact empty/Off/unselected summary singleton metadata
+on source inputs and refuses populated/enabled/corrupt summary data. `summary_seed.ts`
+refuses unknown/aliased/active/replayed targets through ownership/schema/writer guards.
+
+Actual native startup/polling must expose independent Luna and scheduled missing-key
+failure without a provider reservation or checkpoint advance. Explicit owned restart
+must preserve backlog/failure with no blind replay. Fixed normal-app Clear/Disable
+controls then prove cutoff includes the incomplete source, original message counts
+survive and immediate Off persists across restart. Explicit configured Enable/Disable
+recovery is also checked without applying pending native topology. Only fixed bounded metadata is
+retained. These API observations run through the exact native-owned backend, not a
+new controller/proxy or standalone server. Ordinary parallel/security/Goals/captures/
+parent-death/original-integrity/settlement and evidence-first disposition remain required.
+Validate summary seed/recipe/runner contracts plus current aggregate/native artifact
+before use. This is keyless failure/lifecycle proof, **not successful generation,
+real-provider quality, native Settings input or full global pin/UI integration**.
+Ordinary PNGs prove adjacent masked geometry only; inspect each separately. Live
+summary evidence needs separately scoped native opaque credentials and a metered
+provider envelope; do not reuse T0269's task-specific provider presets/approvals.
+
 ## Authorized finite Luna-history integration
 
 `npm run smoke:conversation:live -- --scratch <canonical-task-scratch> --bundle <current-canonical-ordinary-app> --approved-luna-test-usd025` is a task-specific **real-service** scenario, not a routine/CI default. It requires actual operator approval for up to USD0.25 and opaque use of the production app's existing OpenAI key. The flag/receipt is not a permission grant. Data is entirely authored; no production DB, chat, Garmin tokens, preferences or complete settings copy is used.

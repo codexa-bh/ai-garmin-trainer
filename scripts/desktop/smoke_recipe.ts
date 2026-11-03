@@ -178,6 +178,8 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
     "trainer_profile",
     "app_metadata",
     "conversation_history_control",
+    "summary_control",
+    "summary_state",
     ...(route === "synthetic" ? ["conversation", "message"] : []),
   ]);
   const tables = db
@@ -234,6 +236,58 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
     controls[0]!.generation < 0
   )
     throw new Error("Smoke conversation control refused.");
+  const summary = db.prepare("select * from summary_state").all() as {
+    id: number;
+    format_version: number;
+    revision: number;
+    frontier: number;
+    payload: string;
+    checksum: string;
+    privacy_generation: number;
+    published_at: number | null;
+  }[];
+  const summaryControl = db
+    .prepare("select * from summary_control")
+    .all() as Record<string, unknown>[];
+  if (
+    summary.length !== 1 ||
+    summary[0]!.id !== 1 ||
+    summary[0]!.format_version !== 1 ||
+    summary[0]!.revision !== controls[0]!.generation ||
+    summary[0]!.frontier !== 0 ||
+    summary[0]!.payload !== '{"version":1,"items":[],"text":""}' ||
+    summary[0]!.checksum !== "" ||
+    summary[0]!.published_at !== null ||
+    summary[0]!.privacy_generation !== controls[0]!.generation ||
+    summaryControl.length !== 1 ||
+    Object.entries(summaryControl[0]!).some(
+      ([key, value]) =>
+        value !==
+        (
+          {
+            id: 1,
+            enabled: 0,
+            configured_enabled: 0,
+            model: "",
+            cap: 6000,
+            generation: controls[0]!.generation,
+            manual_revision: 0,
+            cutoff: 0,
+            job_id: null,
+            lease_until: 0,
+            pending_since: null,
+            last_started: 0,
+            retry_at: 0,
+            failures: 0,
+            reason: controls[0]!.generation ? "summary_invalidated" : null,
+            day: "",
+          } as Record<string, unknown>
+        )[key],
+    )
+  )
+    throw new Error(
+      "Smoke summary state must be empty, disabled and unselected.",
+    );
   const profile = db.prepare("select * from trainer_profile").all() as Record<
     string,
     unknown

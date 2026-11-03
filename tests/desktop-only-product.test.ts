@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { LATEST_SCHEMA_VERSION } from "../src/lib/db/migrations";
-import { removeConversationHistoryFixtureSchema } from "./conversation-migration-fixture";
+import { removeGlobalSummaryFixtureSchema } from "./conversation-migration-fixture";
 
 const root = process.cwd();
 const directories: string[] = [];
@@ -165,7 +165,7 @@ describe("explicit non-serving source setup", () => {
     db.prepare(
       "insert into conversation(id,title,created_at,updated_at) values (?,?,?,?)",
     ).run("preserved", "Setup continuity", 1, 1);
-    removeConversationHistoryFixtureSchema(db);
+    removeGlobalSummaryFixtureSchema(db);
     db.prepare(
       "update app_metadata set value=? where key='schema_version'",
     ).run(String(LATEST_SCHEMA_VERSION - 1));
