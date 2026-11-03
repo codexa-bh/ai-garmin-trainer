@@ -13,7 +13,10 @@ import {
   listRecentChatMessages,
 } from "@/lib/db/conversation-repository";
 import { fallbackLlmDebugTrace } from "@/lib/ai/debug-trace";
-import { ConversationCapacityError } from "@/lib/chat/conversation-replay";
+import {
+  COMPACTION_TIMEOUT_MS,
+  ConversationCapacityError,
+} from "@/lib/chat/conversation-replay";
 import {
   replayMessages,
   unsafeCompactionSource,
@@ -301,8 +304,11 @@ describe("actual SQLite completion journal, segments and privacy", () => {
     const observe = vi.fn();
     const work = compactConversation(history, replay, late, observe);
     await vi.advanceTimersByTimeAsync(5001);
+    expect(observe).not.toHaveBeenCalled(); // The former 5s threshold no longer aborts valid work.
+    await vi.advanceTimersByTimeAsync(COMPACTION_TIMEOUT_MS - 5000);
     expect(await work).toBe(false);
     expect(observe).toHaveBeenCalledTimes(1);
+    expect(COMPACTION_TIMEOUT_MS).toBe(30_000);
     expect(observe).toHaveBeenCalledWith("timeout", "counted-generation");
     release(
       JSON.stringify({
@@ -409,7 +415,7 @@ describe("actual SQLite completion journal, segments and privacy", () => {
     );
     const observe = vi.fn();
     const work = compactConversation(history, replay, late, observe);
-    await vi.advanceTimersByTimeAsync(5001);
+    await vi.advanceTimersByTimeAsync(COMPACTION_TIMEOUT_MS + 1);
     expect(await work).toBe(false);
     expect(observe).toHaveBeenCalledTimes(1);
     expect(observe).toHaveBeenCalledWith("timeout", "candidate-accounting");

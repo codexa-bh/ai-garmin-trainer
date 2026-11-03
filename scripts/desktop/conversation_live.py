@@ -17,21 +17,28 @@ from smoke_input import prepare, json_document
 import smoke_resources as resources
 
 PRESET = 't0269-openai-luna-025'
+DOLLAR_PRESET = 't0269-openai-luna-100'
 HEADER = {'x-trainer-turn-budget': 'finite-live-smoke'}
 MAX_EFFECTS = 3
 RESERVE_USD = 0.08
 
 
+def original_approval():
+    return {'purpose': PRESET, 'maximumUsd': 0.25,
+            'maximumEffects': MAX_EFFECTS, 'reservePerEffectUsd': RESERVE_USD,
+            'source': 'operator approval retained in T0269 plan/trace; not authority invented by this file',
+            'unknownOutcomesRemainReserved': True, 'credentialReadback': False}
+
+
 class PaidEnvelope:
+    maximum_effects = MAX_EFFECTS
+
     def __init__(self, evidence, zero_effect_receipt=None, reserved_effect_receipt=None):
         if zero_effect_receipt and reserved_effect_receipt:
             raise ValueError('Choose one exact reconciliation mode')
         self.root = evidence / 't0269-luna-approved-025'
         prior_effects = 0
-        expected = {'purpose': PRESET, 'maximumUsd': 0.25,
-                    'maximumEffects': MAX_EFFECTS, 'reservePerEffectUsd': RESERVE_USD,
-                    'source': 'operator approval retained in T0269 plan/trace; not authority invented by this file',
-                    'unknownOutcomesRemainReserved': True, 'credentialReadback': False}
+        expected = original_approval()
         if zero_effect_receipt is None and reserved_effect_receipt is None:
             # Refuse any pre-existing/unknown claim; never renew approval by rerunning.
             self.root.mkdir(mode=0o700)
@@ -59,13 +66,68 @@ class PaidEnvelope:
         self.effects = prior_effects
 
     def claim(self):
-        if self.effects >= MAX_EFFECTS:
+        if self.effects >= self.maximum_effects:
             raise ValueError('Approved total provider-test envelope exhausted')
         index = self.effects
         private_json(self.root / ('effect-' + str(index) + '.json'),
                      {'effect': index, 'reservedUsd': RESERVE_USD, 'outcome': 'submitted-or-unknown; never refunded automatically'})
         self.effects += 1
         return index
+
+
+class DollarEnvelope(PaidEnvelope):
+    """Additive explicit USD1 approval; original exhausted ledger remains immutable."""
+    maximum_effects = 12  # 12 * 0.08 = 0.96 total, INCLUDING the prior three claims.
+
+    def __init__(self, evidence, prior_receipt, continuation=None):
+        old = private_directory(evidence / 't0269-luna-approved-025')
+        if set(os.listdir(old)) != {'approval.json', 'effect-0.json', 'effect-1.json', 'effect-2.json'}:
+            raise ValueError('Exact original exhausted ledger required')
+        _, approval, approval_hash, _ = json_document(old / 'approval.json')
+        if approval != original_approval():
+            raise ValueError('Original authority changed; never rewrite it')
+        hashes = []
+        for index in range(3):
+            _, claim, digest, _ = json_document(old / ('effect-' + str(index) + '.json'))
+            if claim != {'effect': index, 'reservedUsd': RESERVE_USD, 'outcome': 'submitted-or-unknown; never refunded automatically'}:
+                raise ValueError('Original claim modified; no refund/reset')
+            hashes.append(digest)
+        path, proof, proof_hash, _ = json_document(prior_receipt)
+        required = {'purpose': PRESET, 'claimedEffects': 3, 'reservedUsd': 0.24, 'scenarioPassed': False,
+                    'syntheticOnly': True, 'credentialValueReadback': False, 'inputUnchanged': True,
+                    'productionCredentialSourceUnchanged': True}
+        if path.parent != evidence or not path.name.startswith('conversation-live-') or any(proof.get(key) != value for key, value in required.items()):
+            raise ValueError('Exact retained prior failure/authority required')
+        expected = {'purpose': DOLLAR_PRESET, 'maximumUsd': 1.0, 'maximumEffectsIncludingPrior': 12,
+                    'priorEffects': 3, 'priorReservedUsd': 0.24, 'reservePerEffectUsd': RESERVE_USD,
+                    'priorApprovalSha256': approval_hash, 'priorClaimSha256': hashes, 'priorReceiptSha256': proof_hash,
+                    'source': 'explicit operator USD1 approval retained in T0269 plan/trace',
+                    'unknownOutcomesRemainReserved': True, 'credentialReadback': False}
+        self.root = evidence / 't0269-luna-approved-100'
+        self.effects = 3
+        if continuation is None:
+            self.root.mkdir(mode=0o700)  # Existing/unknown scope never renews by replay.
+            private_json(self.root / 'approval.json', expected)
+        else:
+            private_directory(self.root)
+            entries = set(os.listdir(self.root))
+            self.effects = 3 + len(entries) - 1
+            if not 3 <= self.effects < self.maximum_effects or entries != {'approval.json', *('effect-' + str(i) + '.json' for i in range(3, self.effects))}:
+                raise ValueError('Unknown/exhausted incremental claims')
+            if json_document(self.root / 'approval.json')[1] != expected:
+                raise ValueError('Incremental authority chain changed')
+            for index in range(3, self.effects):
+                if json_document(self.root / ('effect-' + str(index) + '.json'))[1] != {
+                        'effect': index, 'reservedUsd': RESERVE_USD, 'outcome': 'submitted-or-unknown; never refunded automatically'}:
+                    raise ValueError('Modified incremental claim')
+            continued_path, continued, _, _ = json_document(continuation)
+            if continued_path.parent != evidence or not continued_path.name.startswith('conversation-live-') or any(continued.get(key) != value for key, value in {
+                    **required, 'purpose': DOLLAR_PRESET, 'claimedEffects': self.effects,
+                    'reservedUsd': round(self.effects * RESERVE_USD, 2)}.items()):
+                raise ValueError('Exact incremental failure receipt required')
+            private_json(evidence / ('dollar-reconciliation-' + str(uuid.uuid4()) + '.json'),
+                         {'priorReceipt': continued_path.name, 'effectsStillReserved': self.effects,
+                          'totalReservedUsd': round(self.effects * RESERVE_USD, 2), 'approvalRenewed': False})
 
 
 def api(run, method, path, body=None, *, paid=None):
@@ -144,12 +206,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--bundle', required=True)
-    parser.add_argument('--approved-luna-test-usd025', action='store_true')
+    approval = parser.add_mutually_exclusive_group(required=True)
+    approval.add_argument('--approved-luna-test-usd025', action='store_true')
+    approval.add_argument('--approved-luna-test-usd100', action='store_true')
+    parser.add_argument('--prior-envelope-receipt', help='Exact exhausted original0.25 receipt for explicit cumulative USD1 approval')
     parser.add_argument('--reconcile-zero-effect-receipt', help='Exact retained settled preflight receipt; refuses any prior paid claim, never resets budget')
     parser.add_argument('--continue-reserved-effects-receipt', help='Exact diagnosed failure receipt; carries every prior immutable claim, never refunds unknowns or renews approval')
     args = parser.parse_args()
-    if not args.approved_luna_test_usd025:
-        raise ValueError('Explicit actual operator approval required; no automatic credential access')
+    if args.approved_luna_test_usd100 and (not args.prior_envelope_receipt or args.reconcile_zero_effect_receipt):
+        raise ValueError('USD1 approval must chain the exhausted original receipt; never reset it')
+    if not args.approved_luna_test_usd100 and args.prior_envelope_receipt:
+        raise ValueError('Original0.25 mode cannot consume extended approval')
     os.umask(0o077)
     evidence = private_directory(resources.configure(canonical(args.scratch)))
     bundle = canonical(args.bundle)
@@ -157,7 +224,10 @@ def main():
     source = source_identity()
     if json.loads((bundle / 'Contents/Resources/resources/provenance.json').read_text()).get('sourceFingerprint') != source:
         raise ValueError('Current exact-source ordinary artifact required')
-    envelope = PaidEnvelope(evidence, args.reconcile_zero_effect_receipt, args.continue_reserved_effects_receipt)
+    envelope = (DollarEnvelope(evidence, args.prior_envelope_receipt, args.continue_reserved_effects_receipt)
+                if args.approved_luna_test_usd100 else PaidEnvelope(evidence, args.reconcile_zero_effect_receipt, args.continue_reserved_effects_receipt))
+    preset = DOLLAR_PRESET if args.approved_luna_test_usd100 else PRESET
+    maximum_usd = 1.0 if args.approved_luna_test_usd100 else 0.25
     selection = argparse.Namespace(task_id='T0269', input_file=None, grant_file=None, provenance_file=None, anchor=None)
     prepared = prepare(evidence, selection, 'ordinary', synthetic_empty_chat=True)
     run = None
@@ -165,8 +235,8 @@ def main():
     provider_run = None
     provider_stopped = False
     observer = None
-    receipt = {'source': source, 'purpose': PRESET, 'syntheticOnly': True, 'credentialValueReadback': False,
-               'maximumReservedUsd': 0.25, 'scenarioPassed': False, 'provider': 'real direct OpenAI gpt-6-luna',
+    receipt = {'source': source, 'purpose': preset, 'syntheticOnly': True, 'credentialValueReadback': False,
+               'maximumReservedUsd': maximum_usd, 'scenarioPassed': False, 'provider': 'real direct OpenAI gpt-6-luna',
                'realGarmin': 'not authorized/exercised; empty run-local token directory', 'captures': []}
     try:
         run = OrdinaryRun(evidence, prepared.database, source, bundle, inventory)
@@ -174,7 +244,7 @@ def main():
         provider_run = run
         run.before_start = prepared.verify_current
         prepare_luna_config(run)
-        run.descriptor['providerSmoke'] = PRESET
+        run.descriptor['providerSmoke'] = preset
         authored = seed(run, 'initial')
         conversation = authored['conversationId']
         receipt['authored'] = authored

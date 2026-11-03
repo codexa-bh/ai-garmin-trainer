@@ -119,7 +119,8 @@ export const CONVERSATION_INPUT_LIMIT = 27033;
 export const CONVERSATION_OUTPUT_LIMIT = 4096;
 export const COMPACTION_INPUT_LIMIT = 8192;
 export const COMPACTION_OUTPUT_LIMIT = 2048;
-export const COMPACTION_TIMEOUT_MS = 5000;
+// T0269 operator-approved whole-operation ceiling after measured 5s live timeouts.
+export const COMPACTION_TIMEOUT_MS = 30_000;
 export const CONTEXT_CAPACITY_MESSAGE =
   "This conversation cannot fit safely within the model context budget. Its transcript has been preserved. Retry when compaction is available, or explicitly start a New chat; shorten the current request/required evidence if it also cannot fit. No earlier context was silently dropped.";
 

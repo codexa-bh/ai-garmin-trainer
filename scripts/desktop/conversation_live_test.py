@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from conversation_live import PaidEnvelope, api, observe_answer, prepare_luna_config, PRESET
+from conversation_live import PaidEnvelope, DollarEnvelope, api, observe_answer, prepare_luna_config, PRESET, DOLLAR_PRESET
 from types import SimpleNamespace
 from native_smoke import private_json
 
@@ -57,6 +57,39 @@ class ConversationLiveTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 PaidEnvelope(evidence, reserved_effect_receipt=proof)
             self.assertEqual(sum(json.loads(p.read_text())['reservedUsd'] for p in first.root.glob('effect-*.json')), 0.24)
+
+    def test_dollar_extension_chains_unknown_prior_claims_without_reset_and_caps_total(self):
+        with tempfile.TemporaryDirectory() as root:
+            evidence = Path(root).resolve()
+            old = PaidEnvelope(evidence)
+            for _ in range(3):
+                old.claim()
+            originals = {path.name: path.read_bytes() for path in old.root.iterdir()}
+            prior = evidence / 'conversation-live-original-unit.json'
+            proof = {'purpose': PRESET, 'claimedEffects': 3, 'reservedUsd': 0.24, 'scenarioPassed': False,
+                     'syntheticOnly': True, 'credentialValueReadback': False, 'inputUnchanged': True,
+                     'productionCredentialSourceUnchanged': True}
+            private_json(prior, proof)
+            extended = DollarEnvelope(evidence, prior)
+            self.assertEqual(extended.effects, 3)
+            self.assertEqual(extended.claim(), 3)
+            with self.assertRaises(FileExistsError):
+                DollarEnvelope(evidence, prior)
+            continued = evidence / 'conversation-live-dollar-unit.json'
+            private_json(continued, {**proof, 'purpose': DOLLAR_PRESET, 'claimedEffects': 4, 'reservedUsd': 0.32})
+            resumed = DollarEnvelope(evidence, prior, continued)
+            for index in range(4, 12):
+                self.assertEqual(resumed.claim(), index)
+            with self.assertRaises(ValueError):
+                resumed.claim()
+            with self.assertRaises(ValueError):
+                DollarEnvelope(evidence, prior, continued)
+            self.assertEqual({path.name: path.read_bytes() for path in old.root.iterdir()}, originals)
+            self.assertEqual(round(0.24 + sum(json.loads(path.read_text())['reservedUsd'] for path in resumed.root.glob('effect-*.json')), 2), 0.96)
+            # Even before exhausted incremental-state checks, a modified historical claim refuses.
+            (old.root / 'effect-0.json').write_text('{}')
+            with self.assertRaisesRegex(ValueError, 'Original claim modified'):
+                DollarEnvelope(evidence, prior, continued)
 
     def test_keyless_lifecycle_configuration_has_no_provider_authority_or_secret(self):
         with tempfile.TemporaryDirectory() as root:

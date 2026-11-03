@@ -9,6 +9,8 @@ const DENIED: &str = "Finite OpenAI test credential handoff refused; production 
 pub enum Mode {
     #[serde(rename = "t0269-openai-luna-025")]
     OpenaiLuna025,
+    #[serde(rename = "t0269-openai-luna-100")]
+    OpenaiLuna100,
 }
 
 pub struct Capture {
@@ -182,6 +184,7 @@ mod tests {
         assert_eq!(fs::read(&source).unwrap(), before);
         assert!(serde_json::from_value::<Mode>(serde_json::json!("arbitrary-export")).is_err());
         assert!(serde_json::from_value::<Mode>(serde_json::json!("t0269-openai-luna-025")).is_ok());
+        assert!(serde_json::from_value::<Mode>(serde_json::json!("t0269-openai-luna-100")).is_ok());
         // No arbitrary input/catalog/secret map can opt into this native-only handoff.
         let other = directory();
         let invalid = publish(

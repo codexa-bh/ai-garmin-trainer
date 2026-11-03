@@ -63,8 +63,8 @@ Compact when history reaches 80 percent of its current allocation or the whole
 request would overflow. One boundary processes one oldest contiguous batch (at
 most twenty completed turns) plus previous **conversation-only** compact state,
 retaining at least two exact recent pairs. No global snapshot/current tool payload
-is new compaction source. Generation has no tools, a five-second abortable,
-monotonic deadline, 8192 serialized input/2048 output tokens and no automatic retry.
+is new compaction source. Generation has no tools, a 30-second total abortable,
+monotonic deadline (explicit T0269 operator override after measured five-second live timeouts), 8192 serialized input/2048 output tokens and no automatic retry.
 The rendered compact is independently counted at at most 2048 tokens and bounded
 to 6000 UTF-16 units. Closed item/source validation rejects missing/unknown source
 references, malformed, unsafe and overlong output; this is not a semantic-quality
