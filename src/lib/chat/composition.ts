@@ -67,6 +67,7 @@ const turns = createChatTurns({
     const { model, provider, modelName, conversationCount } =
       selectedTrainerModel(assertCurrent);
     const generate: ChatGenerator = ({
+      executionLimit,
       conversation,
       assertCurrent,
       system,
@@ -78,6 +79,7 @@ const turns = createChatTurns({
     }) =>
       orchestrateTrainerChat({
         model,
+        ...(executionLimit ? { executionLimit } : {}),
         ...(conversation ? { conversation } : {}),
         ...(assertCurrent ? { assertCurrent } : {}),
         system,

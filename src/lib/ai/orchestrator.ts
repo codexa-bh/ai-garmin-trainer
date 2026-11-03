@@ -71,6 +71,7 @@ type OrchestrateTrainerStatus = (
 ) => void;
 
 export type OrchestrateTrainerChatInput = {
+  executionLimit?: 3;
   conversation?: ConversationRequest;
   assertCurrent?: () => void;
   system: TrainerSystemPrompt;
@@ -457,7 +458,8 @@ async function orchestrateTurn(
       toolsSucceeded,
       toolsUnsuccessful,
     });
-  const budget = () => trainerExecutionBudget(providerCalls, toolAttempts);
+  const budget = () =>
+    trainerExecutionBudget(providerCalls, toolAttempts, input.executionLimit);
   const debugEnabled = input.debug?.enabled === true;
   const debugProviderCalls: LlmDebugProviderCall[] = [];
   const recordProviderCall = (call: LlmDebugProviderCall) => {

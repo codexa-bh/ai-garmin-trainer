@@ -25,6 +25,7 @@ export const CHAT_HISTORY_LIMIT = 40;
 export type MemoryProposalResult = { status: "none" };
 
 export type PreparedChatTurn = {
+  executionLimit?: 3;
   conversationId: string;
   latestMessage: string;
   timeZone?: string;
@@ -158,6 +159,7 @@ export function createChatTurns(ports: ChatTurnPorts) {
       .map((message) => `${message.role}: ${message.content.slice(0, 1000)}`)
       .join("\n");
     const request = (allowSoftLimit: boolean) => ({
+      ...(input.executionLimit ? { executionLimit: input.executionLimit } : {}),
       ...(replay
         ? { conversation: { history: replayMessages(replay), allowSoftLimit } }
         : {}),

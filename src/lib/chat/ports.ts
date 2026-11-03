@@ -17,6 +17,7 @@ import type {
 } from "./contracts";
 
 export type ChatGenerationInput = {
+  executionLimit?: 3;
   conversation?: ConversationRequest;
   assertCurrent?: () => void;
   system: TrainerSystemPrompt;
