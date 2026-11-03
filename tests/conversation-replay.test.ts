@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createTrainerGeneration } from "@/lib/ai/provider-generation";
 import { countedConversationFetch } from "@/lib/ai/conversation-transport";
 import {
@@ -194,6 +195,101 @@ describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
     );
   });
 
+  it("keeps the planner prefix through multiple steps and separates final policy/tools", async () => {
+    const { requests, generate } = fixture();
+    const first = {
+      callId: "status-step-1",
+      toolName: "getGarminStatus",
+      input: {},
+      output: JSON.stringify({ status: "failed", stepIndex: 1 }),
+    };
+    const second = {
+      callId: "status-step-2",
+      toolName: "getGarminStatus",
+      input: {},
+      output: JSON.stringify({ status: "failed", stepIndex: 2 }),
+    };
+    await generate(request);
+    await generate({ ...request, exchanges: [first] });
+    await generate({
+      ...request,
+      purpose: "final_synthesis",
+      system: { ...request.system, policy: "Separate final synthesis policy." },
+      exchanges: [first, second],
+    });
+    const bodies = requests
+      .filter((item) => item.url.endsWith("/responses"))
+      .map((item) => item.body);
+    const initial = bodies[0]!.input as Record<string, unknown>[];
+    const planner = bodies[1]!.input as Record<string, unknown>[];
+    const final = bodies[2]!.input as Record<string, unknown>[];
+    expect(planner.slice(0, 1 + history.length)).toEqual(
+      initial.slice(0, 1 + history.length),
+    );
+    expect(final.slice(1, 1 + history.length)).toEqual(
+      initial.slice(1, 1 + history.length),
+    );
+    expect(final[0]).not.toEqual(initial[0]);
+    expect(bodies[1]!.tools).toEqual(bodies[0]!.tools);
+    expect(
+      (bodies[2]!.tools as { name: string }[]).map((item) => item.name),
+    ).toEqual(["completeTrainerTurn"]);
+    expect(
+      final
+        .filter((item) => item.type === "function_call")
+        .map((item) => item.call_id),
+    ).toEqual([first.callId, second.callId]);
+    expect(
+      final
+        .filter((item) => item.type === "function_call_output")
+        .map((item) => item.call_id),
+    ).toEqual([first.callId, second.callId]);
+    expect(
+      final
+        .filter((item) => item.type === "function_call_output")
+        .every((item) => String(item.output).includes('"status":"failed"')),
+    ).toBe(true);
+  });
+
+  it("deliberately replaces the serialized opening after compaction/correction or policy reset", async () => {
+    const { requests, generate } = fixture();
+    await generate(request);
+    const resetHistory = [
+      {
+        role: "user" as const,
+        content:
+          "Untrusted compact revision 2: weekdays short; current correction supersedes old alternatives.",
+      },
+    ];
+    await generate({
+      ...request,
+      conversation: { history: resetHistory, allowSoftLimit: false },
+    });
+    await generate({
+      ...request,
+      system: { ...request.system, policy: "Updated stable policy identity." },
+      conversation: { history: resetHistory, allowSoftLimit: false },
+    });
+    const bodies = requests
+      .filter((item) => item.url.endsWith("/responses"))
+      .map((item) => item.body);
+    const original = bodies[0]!.input as unknown[];
+    const compacted = bodies[1]!.input as unknown[];
+    const policyReset = bodies[2]!.input as unknown[];
+    expect(compacted[0]).toEqual(original[0]);
+    expect(compacted.slice(0, 1 + history.length)).not.toEqual(
+      original.slice(0, 1 + history.length),
+    );
+    expect(JSON.stringify(compacted)).toContain("Untrusted compact revision 2");
+    expect(JSON.stringify(compacted)).not.toContain(
+      "Option one: long weekdays",
+    );
+    expect(policyReset[0]).not.toEqual(compacted[0]);
+    expect(policyReset.slice(1)).toEqual(compacted.slice(1));
+    for (const body of bodies)
+      expect(body).not.toHaveProperty("previous_response_id");
+  });
+
   it("refuses an over-budget exact count before inference, with no SDK retries", async () => {
     const { requests, generate } = fixture(() => 27034);
     await expect(generate(request)).rejects.toThrow(ConversationCapacityError);
@@ -249,6 +345,111 @@ describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
       await expect(
         createTrainerGeneration({ provider, modelId })(request),
       ).rejects.toThrow("conversation_model_capability_unavailable");
+    },
+  );
+});
+
+describe("actual locked SDK legacy transports remain explicitly unqualified", () => {
+  it.each(["deepseek", "openrouter", "ollama"] as const)(
+    "preserves legacy planner/synthesis wire on %s without token preflight or new replay",
+    async (provider) => {
+      const requests: {
+        url: string;
+        body: Record<string, unknown>;
+        headers: Headers;
+      }[] = [];
+      const transport: typeof fetch = async (url, init) => {
+        requests.push({
+          url: String(url),
+          body: JSON.parse(String(init?.body)),
+          headers: new Headers(init?.headers),
+        });
+        return new Response(
+          JSON.stringify({
+            id: "synthetic-chat-1",
+            object: "chat.completion",
+            created: 0,
+            model: "synthetic-legacy",
+            choices: [
+              {
+                index: 0,
+                finish_reason: "tool_calls",
+                message: {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: "legacy-call-1",
+                      type: "function",
+                      function: {
+                        name: "completeTrainerTurn",
+                        arguments: JSON.stringify(terminal),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+            usage: {
+              prompt_tokens: 100,
+              completion_tokens: 20,
+              total_tokens: 120,
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      };
+      const model =
+        provider === "deepseek"
+          ? createDeepSeek({ apiKey: "synthetic-not-a-key", fetch: transport })(
+              "deepseek-flash",
+            )
+          : createOpenAI({
+              apiKey: "synthetic-not-a-key",
+              name: provider,
+              baseURL:
+                provider === "ollama"
+                  ? "http://127.0.0.1:11434/v1"
+                  : "https://openrouter.ai/api/v1",
+              fetch: transport,
+            }).chat("synthetic-legacy");
+      const generate = createTrainerGeneration(model);
+      for (const purpose of ["planner", "final_synthesis"] as const) {
+        const result = await generate({
+          purpose,
+          system: request.system,
+          prompt: request.prompt,
+        });
+        expect(result.toolCalls).toEqual([
+          expect.objectContaining({ toolName: "completeTrainerTurn" }),
+        ]);
+      }
+      expect(requests).toHaveLength(2);
+      for (const item of requests) {
+        expect(item.url).toMatch(/\/chat\/completions$/);
+        expect(item.body.messages).toEqual([
+          {
+            role: "system",
+            content: request.system.policy + "\n\n" + request.system.context,
+          },
+          { role: "user", content: request.prompt },
+        ]);
+        expect(item.headers.has("x-pivan-conversation-budget")).toBe(false);
+        expect(item.body).not.toHaveProperty("store");
+        expect(JSON.stringify(item.body)).not.toContain(
+          "Option one: long weekdays",
+        );
+      }
+      expect(
+        (requests[1]!.body.tools as { function: { name: string } }[]).map(
+          (item) => item.function.name,
+        ),
+      ).toEqual(["completeTrainerTurn"]);
+      const before = requests.length;
+      await expect(generate(request)).rejects.toThrow(
+        "conversation_model_capability_unavailable",
+      );
+      expect(requests).toHaveLength(before);
     },
   );
 });
