@@ -175,6 +175,44 @@ describe("global summary closed policy and authored meaning oracles", () => {
       ),
     ).toBeNull();
   });
+  it("distinguishes unchanged repeated meaning from explicit new-source lineage and reports only closed rejection codes", () => {
+    const previous = validateSummaryPatch(
+      patch(),
+      batch(),
+      inputs(),
+      now,
+    )!.value;
+    const source = { ...batch().sources[0]!, sourceId: "new:1" };
+    const next = { ...batch(), previous, sources: [source] };
+    const admitted = [minimizeSummarySource(source)!];
+    const repetition = {
+      version: 1,
+      keep: ["decision"],
+      upsert: [],
+      remove: [],
+      coverage: [{ sourceId: "new:1", reason: "represented" }],
+    };
+    const refusals: string[] = [];
+    expect(
+      validateSummaryPatch(repetition, next, admitted, now, (code) => {
+        refusals.push(code);
+      }),
+    ).toBeNull();
+    expect(refusals).toEqual(["coverage_lineage"]);
+    repetition.coverage[0]!.reason = "duplicate";
+    const retained = validateSummaryPatch(repetition, next, admitted, now)!;
+    expect(retained.value).toEqual(previous);
+    expect(retained.dispositions[0]!.reason).toBe("duplicate");
+    const reused = patch();
+    reused.upsert[0]!.sourceIds = ["new:1"];
+    reused.upsert[0]!.replaces = ["decision"];
+    expect(
+      validateSummaryPatch(reused, next, admitted, now, (code) => {
+        refusals.push(code);
+      }),
+    ).toBeNull();
+    expect(refusals).toEqual(["coverage_lineage", "upsert_shape"]);
+  });
   it("applies temporary expiry and review cues, never accepts false expiry removal", () => {
     const candidate = patch();
     candidate.upsert[0]!.category = "temporary";

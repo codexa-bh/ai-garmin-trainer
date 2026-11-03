@@ -6,6 +6,7 @@ import {
   type SummaryStorage,
   type SummaryCandidate,
   type MinimizedSource,
+  type SummaryPatchRejection,
 } from "./summary-policy";
 
 export type SummaryGeneration = {
@@ -120,13 +121,19 @@ export function createSummaryEngine(ports: {
                 ports.generation.generate(SUMMARY_SYSTEM, prompt, signal),
                 signal,
               );
-              storage.usage(job, output.usage);
+              let rejection: SummaryPatchRejection | undefined;
               candidate = validateSummaryPatch(
                 output.patch,
                 job,
                 admitted,
                 ports.now(),
+                (code) => {
+                  rejection = code;
+                },
               );
+              // Record actual counters once and only a closed rejection category;
+              // never retain the provider patch, source text or arbitrary errors.
+              storage.usage(job, output.usage, rejection);
               break;
             } catch (error) {
               if (

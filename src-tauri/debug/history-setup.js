@@ -49,6 +49,14 @@
       legacyLimit:
         byId("history-limited")?.checked === true &&
         date?.value === "2024-01-01",
+      summaryOn:
+        byId("SUMMARY_ENABLED")?.value === "true" &&
+        byId("SUMMARY_MODEL")?.value === "gpt-6-luna" &&
+        byId("SUMMARY_CHAR_LIMIT")?.value === "6000",
+      summaryOff:
+        byId("SUMMARY_ENABLED")?.value === "false" &&
+        ["unselected", "gpt-6-luna"].includes(byId("SUMMARY_MODEL")?.value) &&
+        byId("SUMMARY_CHAR_LIMIT")?.value === "6000",
       saveSubmitted,
       saveRequested,
       historyValidationBlocked,
@@ -107,6 +115,67 @@
     const details = byId("advanced-settings");
     if (!details.open) details.querySelector(":scope > summary").click();
   };
+  const summarySection = () => {
+    const section = byId("memory-configuration");
+    if (!section.open) section.querySelector(":scope > summary").click();
+  };
+  function summaryLabels() {
+    const specs = [
+      [
+        "SUMMARY_ENABLED",
+        "Cross-chat summary processing — separate from legacy memory; not used by chat",
+        [
+          ["false", "Off (preserves stored summary)"],
+          ["true", "On — after explicit quit/reopen"],
+        ],
+      ],
+      [
+        "SUMMARY_MODEL",
+        "Independent summary model — sends minimized user context to selected cloud provider; no fallback",
+        [
+          ["unselected", "Unselected — no summary calls"],
+          ["gpt-6-luna", "OpenAI · gpt-6-luna (independent)"],
+        ],
+      ],
+      [
+        "SUMMARY_CHAR_LIMIT",
+        "Summary character limit (Unicode scalars, 1000–20000)",
+        null,
+      ],
+    ];
+    return specs.map(([id, text, options]) => {
+      const control = byId(id),
+        label = control?.parentElement;
+      if (
+        !label ||
+        label.tagName !== "LABEL" ||
+        label.childNodes.length !== 2 ||
+        label.firstChild.textContent !== text ||
+        label.childElementCount !== 1 ||
+        label.firstElementChild !== control
+      )
+        throw Error("Unknown summary copy/nesting");
+      if (options) {
+        if (
+          !(control instanceof HTMLSelectElement) ||
+          control.options.length !== options.length ||
+          [...control.options].some(
+            (option, index) =>
+              option.childElementCount ||
+              option.value !== options[index][0] ||
+              option.textContent !== options[index][1],
+          )
+        )
+          throw Error("Unknown summary options");
+      } else if (
+        !(control instanceof HTMLInputElement) ||
+        control.type !== "number" ||
+        control.value !== "6000"
+      )
+        throw Error("Noncanonical summary cap");
+      return label;
+    });
+  }
   globalThis.__trainerHistoryRestore = restore;
   globalThis.__trainerHistorySetup = (action) => {
     try {
@@ -165,6 +234,18 @@
             form.requestSubmit(button);
           }
           break;
+        case "summaryOn":
+        case "summaryOff":
+          if (observe().firstRun)
+            throw Error("Existing-installation summary scope required");
+          summarySection();
+          set(
+            byId("SUMMARY_ENABLED"),
+            action === "summaryOn" ? "true" : "false",
+          );
+          set(byId("SUMMARY_MODEL"), "gpt-6-luna");
+          set(byId("SUMMARY_CHAR_LIMIT"), "6000");
+          break;
         case "automatic":
         case "legacyLimit":
           technical();
@@ -173,6 +254,37 @@
           if (action === "legacyLimit")
             set(byId("GARMIN_HISTORY_START_DATE"), "2024-01-01");
           break;
+        case "captureSummaryWide":
+        case "captureSummaryNarrow": {
+          const state = observe();
+          if (
+            !state.privateControlsAbsent ||
+            state.firstRun ||
+            (!state.summaryOn && !state.summaryOff)
+          )
+            throw Error("Noncanonical summary capture");
+          restore();
+          scroll = window.scrollY;
+          summarySection();
+          const labels = summaryLabels();
+          labels[0].scrollIntoView({ block: "start" });
+          for (const el of document.body.querySelectorAll("*"))
+            if (el instanceof HTMLElement) style(el, "visibility", "hidden");
+          for (const label of labels)
+            for (const el of [label, ...label.querySelectorAll("*")])
+              style(el, "visibility", "visible");
+          if (
+            [...document.body.querySelectorAll("*")].some(
+              (el) =>
+                el instanceof HTMLElement &&
+                visible(el) &&
+                !labels.some((label) => el === label || label.contains(el)),
+            )
+          )
+            throw Error("Summary mask refused");
+          timer = setTimeout(restore, 10000);
+          break;
+        }
         case "capture": {
           const state = observe();
           if (
@@ -213,7 +325,12 @@
       }
       return observe();
     } catch {
-      if (action === "capture") restore();
+      if (
+        ["capture", "captureSummaryWide", "captureSummaryNarrow"].includes(
+          action,
+        )
+      )
+        restore();
       return { ...observe(), ok: false };
     }
   };

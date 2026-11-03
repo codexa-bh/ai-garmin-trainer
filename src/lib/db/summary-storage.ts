@@ -6,6 +6,7 @@ import {
   renderSummary,
   validSummaryValue,
   SUMMARY_POLICY,
+  SUMMARY_PATCH_REJECTIONS,
   type SummaryBatch,
   type SummarySource,
   type SummaryStatus,
@@ -445,8 +446,10 @@ export const summaryStorage: SummaryStorage = {
       return true;
     })();
   },
-  usage(batch, usage) {
+  usage(batch, usage, rejection) {
     if (
+      (rejection !== undefined &&
+        !SUMMARY_PATCH_REJECTIONS.includes(rejection)) ||
       Object.values(usage).some(
         (value) =>
           value !== null && (!Number.isSafeInteger(value) || value < 0),
@@ -457,7 +460,10 @@ export const summaryStorage: SummaryStorage = {
       .prepare(
         "update summary_attempt set usage_json=? where job_id=? and outcome='admitted'",
       )
-      .run(JSON.stringify(usage), batch.jobId);
+      .run(
+        JSON.stringify({ ...usage, ...(rejection ? { rejection } : {}) }),
+        batch.jobId,
+      );
   },
   fail(batch, reason, now, retryDelay) {
     const db = getDatabase();

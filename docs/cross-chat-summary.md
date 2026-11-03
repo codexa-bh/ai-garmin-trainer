@@ -145,5 +145,12 @@ restart/no replay, Clear/Off and preserved originals on ordinary outside-checkou
 artifacts. It does **not** prove successful live synthesis or native Settings input.
 Separately authorized opaque native provider use and a metered test envelope are
 required for that stronger evidence; a dollar ceiling alone is not credential readback
-or primary-state permission. Inspect ordinary captures and state their masking limits.
+or primary-state permission. The [finite authorized Luna summary recipe](dev-bridge.md#authorized-finite-luna-summary-integration)
+adds task-specific opaque routing, immutable cumulative reservations and a credential-free
+clone for restart/privacy checks; it is never a default or recurring test.
+Inspect ordinary captures and state their masking limits.
+Rejected proposals remain uncommitted. Attempt usage may include only a closed
+structural rejection category (shape, prior item, upsert shape, lineage, stance,
+expiry, value or coverage); no rejected provider text, arbitrary error or source
+payload is retained for diagnostics. Source/old-item/lineage checks stay fail-closed.
 No screenshot upload, private payload archive or recurring heavy CI is added.

@@ -127,6 +127,42 @@ function engine(generation: SummaryGeneration | null = fakeGeneration()) {
 }
 
 describe("real SQLite incremental coverage, leases, atomicity and control", () => {
+  it("retains usage once and only a closed invalid-patch diagnostic, never the rejected proposal", async () => {
+    complete();
+    let reads = 0;
+    const service = engine({
+      generate: async () => ({
+        patch: { rejected: "synthetic-untrusted-body-never-retained" },
+        get usage() {
+          reads++;
+          return { input: 120, output: 24, cached: null };
+        },
+      }),
+    });
+    await service.tick(new AbortController().signal);
+    now += 120001;
+    await service.tick(new AbortController().signal);
+    expect(reads).toBe(1);
+    const row = db
+      .prepare("select outcome,usage_json from summary_attempt")
+      .get() as { outcome: string; usage_json: string };
+    expect(row.outcome).toBe("summary_invalid_output");
+    expect(JSON.parse(row.usage_json)).toEqual({
+      input: 120,
+      output: 24,
+      cached: null,
+      rejection: "shape",
+    });
+    expect(row.usage_json).not.toContain("untrusted-body");
+    expect(storage.status(now).frontier).toBe(0);
+    expect(() =>
+      storage.usage(
+        { jobId: "unused" } as SummaryBatch,
+        { input: null, output: null, cached: null },
+        "arbitrary-error-text" as never,
+      ),
+    ).toThrow("summary_invalid_usage");
+  });
   it("orders late/equal-time completions, excludes abandoned and old history, and never repeats covered source", () => {
     const a = history.admit("A", "Mornings chosen for time.");
     const b = history.admit("B", "Evenings considered, not chosen.");

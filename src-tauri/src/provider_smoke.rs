@@ -11,6 +11,8 @@ pub enum Mode {
     OpenaiLuna025,
     #[serde(rename = "t0269-openai-luna-100")]
     OpenaiLuna100,
+    #[serde(rename = "t0270-summary-luna-100")]
+    SummaryLuna100,
 }
 
 pub struct Capture {
@@ -34,13 +36,18 @@ pub fn production_directory() -> Result<PathBuf, &'static str> {
     Ok(path)
 }
 
-pub fn activation(run_path: &Path, production: &Path) -> Result<(Vec<u8>, Capture), &'static str> {
+pub fn activation(run_path: &Path, production: &Path, mode: Mode) -> Result<(Vec<u8>, Capture), &'static str> {
     let mut run = settings::load(run_path).map_err(|_| DENIED)?;
-    let expected = serde_json::json!({"version":1,"entries":[{"id":"entry_t0269_luna","provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null});
+    let summary = matches!(mode, Mode::SummaryLuna100);
+    let entry = if summary { "entry_t0270_chat_luna" } else { "entry_t0269_luna" };
+    let expected = serde_json::json!({"version":1,"entries":[{"id":entry,"provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null});
     if run.version != 3
         || !run.keys.is_empty()
         || run.selection_compatibility.is_some()
-        || run.fields.len() != 5
+        || run.fields.len() != if summary { 8 } else { 5 }
+        || (summary && (run.fields.get("SUMMARY_ENABLED").map(String::as_str) != Some("true")
+            || run.fields.get("SUMMARY_MODEL").map(String::as_str) != Some("gpt-6-luna")
+            || run.fields.get("SUMMARY_CHAR_LIMIT").map(String::as_str) != Some("6000")))
         || run.fields.get("AI_PROVIDER").map(String::as_str) != Some("openai")
         || run.fields.get("AI_MODEL").map(String::as_str) != Some("gpt-6-luna")
         || run.fields.get("MEMORY_ENABLED").map(String::as_str) != Some("false")
@@ -112,6 +119,40 @@ mod tests {
         path
     }
     #[test]
+    fn summary_preset_is_exact_independent_keyless_and_never_grants_other_scopes() {
+        let production = directory();
+        let run = directory();
+        let config = run.join("config");
+        for path in [&config, &run.join("tokens")] {
+            fs::create_dir(path).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let source = publish(&production, "settings-v2.json", &serde_json::json!({"version":2,"fields":{},"keys":{"OPENAI_API_KEY":"synthetic-openai-only","DEEPSEEK_API_KEY":"synthetic-unrelated"}}));
+        let base = serde_json::json!({"version":3,"fields":{"DATABASE_PATH":run.join("trainer.sqlite"),"AI_PROVIDER":"openai","AI_MODEL":"gpt-6-luna","MEMORY_ENABLED":"false","GARMIN_MCP_TOKEN_DIR":run.join("tokens"),"SUMMARY_ENABLED":"true","SUMMARY_MODEL":"gpt-6-luna","SUMMARY_CHAR_LIMIT":"6000"},"keys":{},"chatCatalog":{"version":1,"entries":[{"id":"entry_t0270_chat_luna","provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null}});
+        let path = publish(&config, "settings-v3.json", &base);
+        let before = fs::read(&source).unwrap();
+        let (mut frame, capture) = activation(&path, &production, Mode::SummaryLuna100).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+        assert_eq!(parsed["fields"]["SUMMARY_MODEL"], "gpt-6-luna");
+        assert_eq!(parsed["secrets"], serde_json::json!({"OPENAI_API_KEY":"synthetic-openai-only"}));
+        assert_eq!(fs::read(&path).unwrap(), serde_json::to_vec(&base).unwrap());
+        assert!(capture.unchanged());
+        frame.fill(0);
+        assert!(activation(&path, &production, Mode::OpenaiLuna100).is_err());
+        for (field, value) in [("SUMMARY_ENABLED", "false"), ("SUMMARY_MODEL", "unselected"), ("SUMMARY_CHAR_LIMIT", "20000"), ("MEMORY_ENABLED", "true"), ("AI_MODEL", "other")] {
+            let mut invalid = base.clone(); invalid["fields"][field] = serde_json::json!(value);
+            fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
+            assert!(activation(&path, &production, Mode::SummaryLuna100).is_err());
+            assert_eq!(fs::read(&source).unwrap(), before);
+        }
+        fs::write(&path, serde_json::to_vec(&base).unwrap()).unwrap();
+        fs::write(run.join("tokens/unexpected"), b"synthetic-not-a-token").unwrap();
+        assert!(activation(&path, &production, Mode::SummaryLuna100).is_err());
+        assert_eq!(fs::read(&source).unwrap(), before);
+        assert!(serde_json::from_value::<Mode>(serde_json::json!("t0270-summary-luna-100")).is_ok());
+        assert!(serde_json::from_value::<Mode>(serde_json::json!("t0270-arbitrary")).is_err());
+    }
+    #[test]
     fn opaque_single_slot_frame_preserves_original_and_keyless_run_bytes() {
         let production = directory();
         let run = directory();
@@ -133,7 +174,7 @@ mod tests {
         );
         let before = fs::read(&source).unwrap();
         let run_before = fs::read(&path).unwrap();
-        let (mut frame, capture) = activation(&path, &production).unwrap();
+        let (mut frame, capture) = activation(&path, &production, Mode::OpenaiLuna025).unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&frame).unwrap();
         assert_eq!(
             parsed["secrets"],
@@ -175,12 +216,12 @@ mod tests {
                 }
             }
             fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
-            assert!(activation(&path, &production).is_err(), "{mutation}");
+            assert!(activation(&path, &production, Mode::OpenaiLuna025).is_err(), "{mutation}");
             assert_eq!(fs::read(&source).unwrap(), before);
         }
         fs::write(&path, &run_before).unwrap();
         fs::write(tokens.join("unexpected"), b"synthetic-not-a-token").unwrap();
-        assert!(activation(&path, &production).is_err());
+        assert!(activation(&path, &production, Mode::OpenaiLuna025).is_err());
         assert_eq!(fs::read(&source).unwrap(), before);
         assert!(serde_json::from_value::<Mode>(serde_json::json!("arbitrary-export")).is_err());
         assert!(serde_json::from_value::<Mode>(serde_json::json!("t0269-openai-luna-025")).is_ok());
@@ -192,7 +233,7 @@ mod tests {
             "settings-v2.json",
             &serde_json::json!({"version":2,"fields":{},"keys":{}}),
         );
-        assert!(activation(&invalid, &production).is_err());
+        assert!(activation(&invalid, &production, Mode::OpenaiLuna025).is_err());
         fs::write(&source, b"unsupported changed source").unwrap();
         assert!(!capture.unchanged());
     }
