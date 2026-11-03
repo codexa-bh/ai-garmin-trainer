@@ -404,6 +404,11 @@ connector and AI tool suites retain compatibility coverage. `garmin-history.test
 
 ## Personalization application and adapters
 
+The [proposed memory-redesign contract](memory-redesign-contract.md) and linked
+[acceptance scenarios](memory-redesign-acceptance.md) describe future role-preserving
+history, local compaction and incremental global summaries. They are not implemented;
+the ownership and runtime behavior below remain the shipped baseline.
+
 Memory follows `api/memory → memory/composition → management/application`.
 `createMemoryStore` consumes feature-owned `MemoryPorts`: synchronous semantic
 storage, embeddings, extraction, identity, clock and a secret-free configuration

@@ -1,5 +1,10 @@
 # Embedded SQLite semantic memory
 
+This guide describes shipped behavior. The [proposed memory-redesign contract](memory-redesign-contract.md)
+and [synthetic acceptance scenarios](memory-redesign-acceptance.md) specify an
+unimplemented direction; they do not activate a summary engine, change deletion
+scopes or authorize migration/embedding retirement.
+
 The trainer uses an app-owned semantic-memory adapter under `src/lib/memory`. The operator-approved T039 pivot stores memory text, metadata, lifecycle state, and embedding vectors directly in the local SQLite database (`DATABASE_PATH`). No Qdrant, Docker sidecar, hosted vector database, Mem0 Platform account, or public service is required.
 
 SQLite remains the canonical store for transcript, Profile, Garmin facts, and derived semantic memory. Chat transcripts provide same-chat continuity only for the active conversation and are selected under a safe context budget; starting a New chat is the reset boundary for that short-term transcript context. Semantic memory is a separate bounded retrieval layer for concise cross-session user facts: Garmin measurements must come from local SQLite/tools at answer time, not from model-extracted memory.
