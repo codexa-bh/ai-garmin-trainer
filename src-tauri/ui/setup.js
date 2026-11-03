@@ -659,6 +659,14 @@ function createField(field) {
       option.textContent =
         {
           MEMORY_ENABLED: { true: "On", false: "Off" },
+          SUMMARY_ENABLED: {
+            true: "On — after explicit quit/reopen",
+            false: "Off (preserves stored summary)",
+          },
+          SUMMARY_MODEL: {
+            unselected: "Unselected — no summary calls",
+            "gpt-6-luna": "OpenAI · gpt-6-luna (independent)",
+          },
           MEMORY_EMBEDDING_PROVIDER: {
             openai: "OpenAI-compatible",
             ollama: "Local Ollama",
@@ -676,8 +684,18 @@ function createField(field) {
     input.type = ["date", "number"].includes(field.type) ? field.type : "text";
     if (field.type === "number") {
       input.required = true;
-      input.min = field.key === "MEMORY_EMBEDDING_DIMS" ? "8" : "1";
-      input.max = field.key === "MEMORY_EMBEDDING_DIMS" ? "65536" : "300000";
+      input.min =
+        field.key === "SUMMARY_CHAR_LIMIT"
+          ? "1000"
+          : field.key === "MEMORY_EMBEDDING_DIMS"
+            ? "8"
+            : "1";
+      input.max =
+        field.key === "SUMMARY_CHAR_LIMIT"
+          ? "20000"
+          : field.key === "MEMORY_EMBEDDING_DIMS"
+            ? "65536"
+            : "300000";
       input.step = "1";
     }
     if (field.key.endsWith("_MODEL")) input.required = true;
@@ -695,8 +713,9 @@ function createField(field) {
   label.append(input);
   if (field.key.startsWith("MEMORY_"))
     input.addEventListener("change", renderMemory);
-  const memoryGroup =
-    field.key === "MEMORY_ENABLED"
+  const memoryGroup = field.key.startsWith("SUMMARY_")
+    ? "memory-control"
+    : field.key === "MEMORY_ENABLED"
       ? "memory-control"
       : [
             "MEMORY_EMBEDDING_DIMS",

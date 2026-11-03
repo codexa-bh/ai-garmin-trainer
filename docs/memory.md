@@ -4,7 +4,9 @@ This guide describes semantic-memory behavior. [Conversation replay and bounded
 local compaction](conversation-history.md) is the separately gated source
 implementation for linked new conversations on reviewed OpenAI Luna Responses.
 The [full redesign contract](memory-redesign-contract.md) and [synthetic scenarios](memory-redesign-acceptance.md)
-still include unimplemented global-summary/UI/legacy-transition work. None of
+still include unimplemented integrated pin/UI/legacy-transition work. The independent
+[global-summary producer](cross-chat-summary.md) is a separate default-Off source
+slice, explicitly not used by chat; it has no embedding prerequisite. None of
 these documents activates primary data, a global engine or embedding retirement.
 
 The trainer uses an app-owned semantic-memory adapter under `src/lib/memory`. The operator-approved T039 pivot stores memory text, metadata, lifecycle state, and embedding vectors directly in the local SQLite database (`DATABASE_PATH`). No Qdrant, Docker sidecar, hosted vector database, Mem0 Platform account, or public service is required.

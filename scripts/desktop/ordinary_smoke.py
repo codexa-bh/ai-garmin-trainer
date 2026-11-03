@@ -539,7 +539,10 @@ def main():
     parser.add_argument('--conversation-selection', action='store_true', help='Finite keyless synthetic conversation create/select/restart/delete on empty-chat populated copies')
     parser.add_argument('--composer-footer', action='store_true', help='Finite keyless explicit choice/draft/restart and wide/narrow masked capture; no provider send')
     parser.add_argument('--model-eligibility', action='store_true', help='Opt-in fixed mixed/zero eligible catalogs with unavailable explicit choices; implies composer footer')
+    parser.add_argument('--summary-engine', action='store_true', help='Finite keyless independent summary selection/scheduler/backlog/clear/Off/restart; no provider credential lookup')
     args = parser.parse_args()
+    if args.summary_engine and (args.composer_footer or args.model_eligibility or args.conversation_selection):
+        parser.error('Summary scenario cannot combine with other configuration presets')
     args.composer_footer = args.composer_footer or args.model_eligibility
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
@@ -554,7 +557,7 @@ def main():
     runs = []
     observer = None
     receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
-               'scenarioPassed': False, 'conversationSelectionRequested': args.conversation_selection, 'composerFooterRequested': args.composer_footer, 'modelEligibilityRequested': args.model_eligibility, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
+               'scenarioPassed': False, 'summaryEngineKeylessRequested': args.summary_engine, 'conversationSelectionRequested': args.conversation_selection, 'composerFooterRequested': args.composer_footer, 'modelEligibilityRequested': args.model_eligibility, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
                'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
                'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
                'resourceDisposition': resources.disposition(),
@@ -565,6 +568,9 @@ def main():
             prepared.verify_current()
             runs.append(OrdinaryRun(scratch, database, source, bundle, inventory))
             runs[-1].before_start = prepared.verify_current
+            if args.summary_engine:
+                from summary_smoke import prepare_summary
+                prepare_summary(runs[-1])
             if args.composer_footer:
                 runs[-1].prepare_composer(('mixed' if index == 0 else 'empty') if args.model_eligibility else None)
         if args.prepare_only:
@@ -580,6 +586,9 @@ def main():
             raise ValueError('Parallel native/backend namespace collision')
         for run, other in [(runs[0], runs[1]), (runs[1], runs[0])]:
             prepared.verify_current()
+            if args.summary_engine:
+                from summary_smoke import scenario as summary_scenario
+                summary_scenario(run)
             security(run, other)
             run.verify_admission_denials()
             sentinel = run.scenario()

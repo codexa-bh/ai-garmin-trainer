@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 18;
+export const LATEST_SCHEMA_VERSION = 19;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -274,6 +274,36 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       ),
     ],
   },
+  {
+    version: 19,
+    name: "incremental_global_summary",
+    statements: [
+      `create table summary_state(id integer primary key check(id=1),format_version integer not null default 1,revision integer not null default 0,frontier integer not null default 0,payload text not null default '{"version":1,"items":[],"text":""}',checksum text not null default '',privacy_generation integer not null,published_at integer)`,
+      `insert into summary_state(id,privacy_generation) select 1,privacy_generation from conversation_history_control where id=1`,
+      `create table summary_control(id integer primary key check(id=1),enabled integer not null default 0,configured_enabled integer not null default 0,model text not null default '',cap integer not null default 6000,generation integer not null default 0,manual_revision integer not null default 0,cutoff integer not null default 0,job_id text,lease_until integer not null default 0,pending_since integer,last_started integer not null default 0,retry_at integer not null default 0,failures integer not null default 0,reason text,day text not null default '')`,
+      `insert into summary_control(id,cutoff) select 1,coalesce(max(admission_seq),0) from conversation_turn`,
+      `create table summary_disposition(event_seq integer primary key,source_id text not null,reason text not null,revision integer not null)`,
+      `create table summary_item_disposition(item_id text not null,revision integer not null,reason text not null,primary key(item_id,revision))`,
+      `create table summary_attempt(job_id text primary key,started_at integer not null,finished_at integer,outcome text not null,reserved integer not null,policy_identity text,usage_json text,source_ids_json text not null,upper_event integer not null,prior_revision integer not null,privacy_generation integer not null,control_generation integer not null)`,
+      `create table summary_spend(day text primary key,attempts integer not null,reserved_usd real not null)`,
+      `create table summary_suppression(source_id text primary key)`,
+      `create trigger summary_completion after insert on conversation_completion begin
+        update conversation_turn set summary_eligible=(select enabled from summary_control where id=1) where turn_id=new.turn_id;
+       end`,
+      `create trigger summary_privacy after update of privacy_generation on conversation_history_control begin
+        update summary_state set payload='{"version":1,"items":[],"text":""}',checksum='',published_at=null,revision=revision+1,privacy_generation=new.privacy_generation where id=1;
+        update summary_control set generation=generation+1,job_id=null,lease_until=0,reason='summary_invalidated' where id=1;
+        update summary_attempt set outcome='invalidated' where outcome='admitted';
+       end`,
+      // A narrow explicit correction signal, not an arbitrary-language classifier.
+      // H has no global consumer; its own accepted answer must not invalidate itself.
+      `create trigger summary_explicit_correction after insert on conversation_completion when exists(select 1 from conversation_turn t join message m on m.id=t.user_id where t.turn_id=new.turn_id and (lower(m.content) like 'actually %' or lower(m.content) like 'correction:%')) begin
+        update summary_state set payload='{"version":1,"items":[],"text":""}',checksum='',published_at=null,revision=revision+1 where id=1;
+        update summary_control set generation=generation+1,job_id=null,lease_until=0,reason='summary_correction_pending' where id=1;
+        update summary_attempt set outcome='superseded' where outcome='admitted';
+       end`,
+    ],
+  },
 ];
 
 function hasTable(db: Database.Database, table: string): boolean {
@@ -307,6 +337,9 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "conversation_completion",
     "conversation_segment",
     "conversation_compaction_spend",
+    "summary_disposition",
+    "summary_attempt",
+    "summary_spend",
   ];
   return tables.some((table) => {
     if (!hasTable(db, table)) return false;

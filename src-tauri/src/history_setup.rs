@@ -19,6 +19,10 @@ pub enum Action {
     Automatic,
     LegacyLimit,
     Capture,
+    SummaryOn,
+    SummaryOff,
+    CaptureSummaryWide,
+    CaptureSummaryNarrow,
     Close,
 }
 #[derive(Default, Deserialize, Serialize)]
@@ -46,6 +50,8 @@ struct Observation {
     command_permission_denied: bool,
     command_arguments_invalid: bool,
     private_controls_absent: bool,
+    summary_on: bool,
+    summary_off: bool,
 }
 pub fn document(url: &tauri::Url) -> bool {
     url.scheme() == "tauri"
@@ -58,7 +64,7 @@ pub fn document(url: &tauri::Url) -> bool {
 fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, String> {
     use objc2::{class, msg_send, runtime::AnyObject};
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerHistorySetup ? window.__trainerHistorySetup({}) : {{ok:true,ready:false,formValid:false,firstRun:false,dataStep:false,reviewStep:false,automaticHistory:false,legacyLimit:false,savedForNextLaunch:false,saveSubmitted:false,saveRequested:false,historyValidationBlocked:false,historyBadInput:false,historyValueMissing:false,otherValidationBlocked:false,documentVisible:false,formConnected:false,saveRejected:false,settingsUnavailable:false,commandPermissionDenied:false,commandArgumentsInvalid:false,privateControlsAbsent:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerHistorySetup ? window.__trainerHistorySetup({}) : {{ok:true,ready:false,formValid:false,firstRun:false,dataStep:false,reviewStep:false,automaticHistory:false,legacyLimit:false,savedForNextLaunch:false,saveSubmitted:false,saveRequested:false,historyValidationBlocked:false,historyBadInput:false,historyValueMissing:false,otherValidationBlocked:false,documentVisible:false,formConnected:false,saveRejected:false,settingsUnavailable:false,commandPermissionDenied:false,commandArgumentsInvalid:false,privateControlsAbsent:false,summaryOn:false,summaryOff:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -164,7 +170,13 @@ pub fn execute(app: &tauri::AppHandle, action: Action) -> Result<Value, String> 
     {
         return Err("Wrong first-run selection scope".into());
     }
-    if matches!(action, Action::Capture) {
+    if matches!(action, Action::Capture | Action::CaptureSummaryWide | Action::CaptureSummaryNarrow) {
+        let previous = if matches!(action, Action::Capture) { None } else {
+            let previous = window.inner_size().map_err(|_| "Summary viewport unavailable")?;
+            let width = if matches!(action, Action::CaptureSummaryWide) { 1000.0 } else { 420.0 };
+            window.set_size(tauri::LogicalSize::new(width, 1000.0)).map_err(|_| "Summary viewport refused")?;
+            Some(previous)
+        };
         let result = (|| {
             if !evaluate(&window, &action)?.ok {
                 return Err("History setup sanitizer refused".into());
@@ -181,6 +193,8 @@ pub fn execute(app: &tauri::AppHandle, action: Action) -> Result<Value, String> 
             )
         })();
         let _ = window.eval("window.__trainerHistoryRestore && window.__trainerHistoryRestore()");
+        let restored = previous.map(|size| window.set_size(size)).transpose().map_err(|_| "Summary viewport restoration refused");
+        if result.is_ok() { restored?; }
         return result;
     }
     let mut value = serde_json::to_value(evaluate(&window, &action)?)
@@ -215,6 +229,10 @@ mod tests {
             assert!(serde_json::from_value::<Action>(json!(action)).is_err());
         }
         assert!(serde_json::from_value::<Action>(json!("dismissRestart")).is_ok());
+        for action in ["summaryOn", "summaryOff", "captureSummaryWide", "captureSummaryNarrow"] {
+            assert!(serde_json::from_value::<Action>(json!(action)).is_ok());
+            assert!(serde_json::from_value::<Action>(json!({"action":action,"value":"unapproved"})).is_err());
+        }
         assert!(serde_json::from_value::<Action>(
             json!({"action":"dismissRestart","value":"private"})
         )

@@ -2,11 +2,12 @@ import type Database from "better-sqlite3";
 
 /** Only for exclusively owned synthetic migration fixtures, never app recovery.
  * Relabelling today's full schema as an older version is not a valid fixture:
- * remove the exact H-owned additions before rehearsing their creation again.
+ * remove the exact H/S-owned additions before rehearsing their creation again.
  */
 export function removeConversationHistoryFixtureSchema(
   db: Database.Database,
 ): void {
+  removeGlobalSummaryFixtureSchema(db);
   const triggers = [
     "conversation_history_invalidation",
     "conversation_message_delete",
@@ -29,6 +30,28 @@ export function removeConversationHistoryFixtureSchema(
       "conversation_segment",
       "conversation_compaction_spend",
       "conversation_history_control",
+    ])
+      db.exec(`drop table ${name}`);
+  })();
+}
+
+/** Reconstruct exactly the pre-S/schema18 shape on an exclusive synthetic fixture. */
+export function removeGlobalSummaryFixtureSchema(db: Database.Database): void {
+  db.transaction(() => {
+    for (const name of [
+      "summary_completion",
+      "summary_privacy",
+      "summary_explicit_correction",
+    ])
+      db.exec(`drop trigger ${name}`);
+    for (const name of [
+      "summary_state",
+      "summary_control",
+      "summary_disposition",
+      "summary_item_disposition",
+      "summary_attempt",
+      "summary_spend",
+      "summary_suppression",
     ])
       db.exec(`drop table ${name}`);
   })();

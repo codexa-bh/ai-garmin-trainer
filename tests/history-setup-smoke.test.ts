@@ -105,6 +105,66 @@ async function setup(firstRun: boolean, historyLimit = "") {
   );
   return invoke;
 }
+it("changes only the three summary scalars through real form Save and masks everything else", async () => {
+  const invoke = await setup(false);
+  const before = Object.fromEntries(
+    fields
+      .filter((field) => field.key !== "GARMIN_MCP_TOKEN_DIR")
+      .map((field) => [
+        field.key,
+        (document.getElementById(field.key) as HTMLInputElement).value,
+      ]),
+  );
+  expect(window.__trainerHistorySetup("observe").summaryOff).toBe(true);
+  expect(window.__trainerHistorySetup("summaryOn").summaryOn).toBe(true);
+  expect(window.__trainerHistorySetup("captureSummaryWide").ok).toBe(true);
+  for (const key of ["SUMMARY_ENABLED", "SUMMARY_MODEL", "SUMMARY_CHAR_LIMIT"])
+    expect(getComputedStyle(document.getElementById(key)!).visibility).toBe(
+      "visible",
+    );
+  expect(
+    getComputedStyle(document.getElementById("DATABASE_PATH")!).visibility,
+  ).toBe("hidden");
+  expect(
+    getComputedStyle(document.getElementById("OPENAI_API_KEY")!).visibility,
+  ).toBe("hidden");
+  window.__trainerHistoryRestore();
+  expect(window.__trainerHistorySetup("save").ok).toBe(true);
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("save_settings", expect.anything()),
+  );
+  const sent = invoke.mock.calls.find(
+    ([command]) => command === "save_settings",
+  )![1]!.input!.fields!;
+  expect(sent).toMatchObject({
+    SUMMARY_ENABLED: "true",
+    SUMMARY_MODEL: "gpt-6-luna",
+    SUMMARY_CHAR_LIMIT: "6000",
+  });
+  for (const [key, value] of Object.entries(before))
+    if (!key.startsWith("SUMMARY_")) expect(sent[key]).toBe(value);
+  expect(
+    invoke.mock.calls.some(([command]) =>
+      ["start_auth", "adopt_provider_settings", "choose_path"].includes(
+        command,
+      ),
+    ),
+  ).toBe(false);
+});
+it("summary capture refuses unknown copy/options/nesting and noncanonical cap without private readback", async () => {
+  await setup(false);
+  window.__trainerHistorySetup("summaryOn");
+  const model = document.getElementById("SUMMARY_MODEL") as HTMLSelectElement;
+  model.append(new Option("Unexpected private label", "unknown"));
+  expect(window.__trainerHistorySetup("captureSummaryNarrow").ok).toBe(false);
+  model.lastElementChild!.remove();
+  const label = model.parentElement!;
+  label.firstChild!.textContent = "Unexpected private copy";
+  expect(window.__trainerHistorySetup("captureSummaryWide").ok).toBe(false);
+  expect(model.style.visibility).toBe("");
+  expect(window.__trainerHistorySetup("summary:any").ok).toBe(false);
+  expect(window.__trainerHistorySetup("summaryOff").summaryOff).toBe(true);
+});
 it("reports pending readiness without authorizing a premature mutation", () => {
   document.documentElement.innerHTML = readFileSync(
     "src-tauri/ui/index.html",

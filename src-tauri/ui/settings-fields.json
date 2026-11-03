@@ -53,6 +53,22 @@
     "advanced": true
   },
   {
+    "key": "SUMMARY_ENABLED",
+    "label": "Cross-chat summary processing — separate from legacy memory; not used by chat",
+    "options": ["false", "true"]
+  },
+  {
+    "key": "SUMMARY_MODEL",
+    "label": "Independent summary model — sends minimized user context to selected cloud provider; no fallback",
+    "options": ["unselected", "gpt-6-luna"]
+  },
+  {
+    "key": "SUMMARY_CHAR_LIMIT",
+    "label": "Summary character limit (Unicode scalars, 1000–20000)",
+    "type": "number",
+    "default": "6000"
+  },
+  {
     "key": "MEMORY_ENABLED",
     "label": "Remember useful details",
     "options": ["false", "true"],

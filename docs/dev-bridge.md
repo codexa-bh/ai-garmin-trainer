@@ -24,6 +24,111 @@ Two authenticated release-native/source/artifact/boot/selected-copy identities a
 
 The baseline is keyless. No real provider/Garmin success is implied; separately provisioned run-native settings and explicit token copies are required for available real integration checks through the verified owned backend. Never read back keys, copy normal settings, generate env files or automate sign-in/MFA. Existing debug, quick and release-probe regressions remain independent. Focus is sampled every 10ms without activation/restoration; absence of a live operator instance must be disclosed, not manufactured. Only live child handles authorize shutdown; verify native reaping, backend/control endpoints and DB/run lease settlement. Copies/Goals are task-attributed and subject to [evidence-first owned disposal](#preparation-reuse-and-owned-disposal); no primary mutation/copy-back or worktree disposal.
 
+## Keyless summary producer lifecycle
+
+`npm run smoke:ordinary -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app> --summary-engine`
+adds one finite keyless S scenario, incompatible with composer/conversation presets.
+Before launch it preserves each run's original keyless v2 configuration, exclusively
+publishes run-local v3 with independent Luna summary On/6000 and empty chat catalog,
+and seeds exactly four authored completed source turns plus one incomplete turn through
+production journal ports on only the stopped private current-schema run DB. Existing
+synthetic transcripts/Profile/normalized data remain intact; no old-history linkage,
+provider credential lookup, clock override, fake inference or product bundle rewrite.
+The recipe verifier accepts only exact empty/Off/unselected summary singleton metadata
+on source inputs and refuses populated/enabled/corrupt summary data. `summary_seed.ts`
+refuses unknown/aliased/active/replayed targets through ownership/schema/writer guards.
+
+Actual native startup/polling must expose independent Luna and scheduled missing-key
+failure without a provider reservation or checkpoint advance. Explicit owned restart
+must preserve backlog/failure with no blind replay. Fixed normal-app Clear/Disable
+controls then prove cutoff includes the incomplete source, original message counts
+survive and immediate Off persists across restart. Explicit configured Enable/Disable
+recovery is also checked without applying pending native topology. Only fixed bounded metadata is
+retained. These API observations run through the exact native-owned backend, not a
+new controller/proxy or standalone server. Ordinary parallel/security/Goals/captures/
+parent-death/original-integrity/settlement and evidence-first disposition remain required.
+Validate summary seed/recipe/runner contracts plus current aggregate/native artifact
+before use. This is keyless failure/lifecycle proof, **not successful generation,
+real-provider quality, native Settings input or full global pin/UI integration**.
+Ordinary PNGs prove adjacent masked geometry only; inspect each separately. Live
+summary evidence needs separately scoped native opaque credentials and a metered
+provider envelope; do not reuse T0269's task-specific provider presets/approvals.
+
+## Authorized finite Luna-summary integration
+
+`npm run smoke:summary:live -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app> --approved-summary-tests-usd100`
+requires actual scoped operator approval for T0270 opaque native OpenAI-slot use and
+USD1 cumulative synthetic tests. The flag is not authority. The closed descriptor
+`providerSmoke:t0270-summary-luna-100` admits only run-local keyless v3 with fixed
+OpenAI/Luna chat catalog, independent Luna summary On/6000, disabled legacy memory,
+run DB and empty run token directory. It cannot combine with history/setup controls.
+Native's existing Settings owner passes only saved OpenAI via the existing private
+stdin frame; no key/renderer readback, generated env/secret copy, original write or
+normal-app access/control. Source revision must remain unchanged before/after use.
+Default/keyless/T0269 routes gain no new lookup or consent.
+
+A task-local immutable envelope records the original approval and exclusively
+claims USD0.20 **before each native provider case**, covering one provider boot
+over a300-second monotonic scenario, plus at most100 seconds for an already
+admitted60-second API call, native source check and owned shutdown tail. Launcher
+admission is at most one startup plus one tick per30 monotonic seconds; fewer than
+sixteen S admissions including startup, each reserving at most USD0.01, fit
+within USD0.20 even across a civil-day change. The standard S
+15s/8000-input/2048-output/day-spend caps remain unchanged. Each of at most two paid
+chat effects separately reserves USD0.08 before opening its socket under the existing
+fixed three-attempt header, covering both orchestration passes and any bounded local
+compaction at reviewed worst-case prices. Unknown effects stay fully reserved; totals
+never exceed USD1. Existing envelopes refuse blind replay; explicit diagnosed continuation
+requires the exact retained failure receipt and unchanged contiguous approval/claims,
+without refunds, claim resets or approval renewal. This is not automatic retry.
+
+The existing synthetic preparation gains only a fixed live-summary source variant:
+four original linked messages across two fictional chats with an option referent,
+choice/time rationale, rejected long-weekday approach and unchosen poles/bag question;
+one incomplete turn stays ineligible. Real foreground generation must publish exact
+coverage, retain required meaning/stance and expose actual usage. One authored JSON
+follow-up then forces a second incremental S batch without old-source replay; native
+metadata remains readable during generation and original chat/title/selection behavior
+is preserved. After the last native source-revision check, the provider instance stops.
+The existing online-copy owner clones its stopped actual summary state into a new
+ordinary credential-free run with no provider descriptor/lookup; zero eligible models
+and exact retained payload/frontier/usage must be verified before Clear/Disable.
+Those lifecycle controls remove derived content only on the clone, preserve original
+messages/pre-clear cutoff and leave the stopped provider copy unchanged. No replica-wide
+erasure or second private-key lookup is claimed.
+No current summary is injected into chat. Captures retain ordinary hide-by-default masks;
+they cannot prove hidden semantics. Real S quality/usage, actual native/API state,
+synthetic transport and inspected geometry remain separate evidence classes. Validate
+handoff/admission/envelope/seed/projection/denial contracts plus current aggregate,
+ARM64 artifact and native tests before use. Owned shutdown, unchanged inputs/credential
+source, bounded telemetry and evidence-first disposition remain mandatory.
+
+## Keyless ordinary summary Settings round-trip
+
+`npm run smoke:summary:settings -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app>`
+uses existing explicit ordinary keyless local Settings/history admission on a fresh
+built-in synthetic online copy. No provider descriptor, private-slot lookup, keys,
+connector or paid call is admitted. The existing native-local controller adds only
+`summaryOn` / `summaryOff` (fixed independent Luna/6000, enabled true/false) and
+`captureSummaryWide` / `captureSummaryNarrow` (fixed1000x1000/420x1000). No caller
+value/selector/path/eval/invoke is accepted; original document/run/boot/request,
+visibility, keyless-save, bounds/deadline/unknown-effect guards remain. Observations
+add only fixed `summaryOn` / `summaryOff` booleans. Normal/default/provider modes
+still deny these Settings actions; T0270's paid preset cannot combine with this scope.
+
+Synthetic form events exercise the real existing Save owner, pending restart notice
+and reload. On and Off remain unapplied until owned restart; chat catalog/eligibility
+stays unchanged, zero source backlog/attempts forbids inference, and saved fields/empty
+keys/original data remain verified. Captures reveal only verified static three-scalar
+labels and exact On/Off/Luna/6000 controls, preserving their geometry; all private
+paths, credentials/status/other form data stay hidden. Unknown copy/nesting/options,
+noncanonical values or ineffective masks refuse; native finally and renderer expiry
+restore viewport/styles. Inspect both widths/states. This is actual unmodified ordinary
+artifact/keyless Settings behavior with synthetic DOM input, not trusted input,
+primary settings, live keys or normal-singleton activation. Validate native/DOM/runner
+contracts, affected aggregate/current artifact before use; retain originals and settle
+only owned processes through existing resource owners.
+
 ## Authorized finite Luna-history integration
 
 `npm run smoke:conversation:live -- --scratch <canonical-task-scratch> --bundle <current-canonical-ordinary-app> --approved-luna-test-usd025` is a task-specific **real-service** scenario, not a routine/CI default. It requires actual operator approval for up to USD0.25 and opaque use of the production app's existing OpenAI key. The flag/receipt is not a permission grant. Data is entirely authored; no production DB, chat, Garmin tokens, preferences or complete settings copy is used.
