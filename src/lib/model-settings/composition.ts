@@ -53,10 +53,10 @@ export const modelSettings = createModelSettings({
 
 // Resolve catalog, preference, credentials and connection once synchronously,
 // before context awaits. No process/global mutation or extractor retargeting.
-export function selectedTrainerModel() {
+export function selectedTrainerModel(assertCurrent?: () => void) {
   const env = getOptionalEnv();
   const entry = modelSettings.selection(configuration(env));
-  return selectedModel({
+  const selected = {
     ...env,
     AI_PROVIDER: entry.provider,
     AI_MODEL: entry.provider === "openai" ? entry.modelId : env.AI_MODEL,
@@ -66,5 +66,8 @@ export function selectedTrainerModel() {
       entry.provider === "openrouter" ? entry.modelId : env.OPENROUTER_MODEL,
     OLLAMA_MODEL:
       entry.provider === "ollama" ? entry.modelId : env.OLLAMA_MODEL,
-  });
+  };
+  return assertCurrent
+    ? selectedModel(selected, assertCurrent)
+    : selectedModel(selected);
 }

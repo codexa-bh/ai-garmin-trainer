@@ -3,19 +3,50 @@ import type {
   TrainerProgress,
   TrainerProgressCounters,
 } from "@/lib/ai/trainer-progress";
-import type { ChatGrounding, StoredChatMessage } from "@/lib/chat/contracts";
+import type {
+  ChatGrounding,
+  StoredChatMessage,
+  ConversationContextObservation,
+} from "@/lib/chat/contracts";
 import { activeTranscriptContext } from "@/lib/chat/context";
 import {
   CHAT_HISTORY_LIMIT,
   type PreparedChatTurn,
   type MemoryProposalResult,
+  type ChatTurnAnswer,
 } from "@/lib/chat/turn";
 import { generateChatTurn, completeChatTurn } from "@/lib/chat/composition";
+import {
+  ConversationInterruptionError,
+  conversationInterruption,
+} from "@/lib/chat/conversation-replay";
 
 const SAFE_CHAT_FAILURE_MESSAGE =
   "Trainer chat failed before a safe answer was persisted. Run npm run doctor to check local provider readiness, then retry.";
 
 export function safeChatFailureMessage(error: unknown): string {
+  if (
+    error instanceof ConversationInterruptionError &&
+    error.completedActions.length
+  )
+    return `Conversation context changed and the undelivered answer was interrupted. Completed actions before interruption: ${error.completedActions.join(", ")}. Those effects were not rolled back or replayed; inspect saved state before retrying.`;
+  if (
+    error instanceof Error &&
+    error.message === "conversation_delivery_aborted"
+  )
+    return "The request ended before a complete assistant answer was committed. The user message is preserved; retry explicitly.";
+  if (
+    error instanceof Error &&
+    error.message === "conversation_context_invalidated"
+  )
+    return "Conversation context changed during this answer. The undelivered answer was interrupted. Inspect any already saved plan documents before retrying; no save will be replayed automatically.";
+  if (
+    error instanceof Error &&
+    error.message === "conversation_busy_retry_after_current_turn"
+  )
+    return "This conversation already has an active turn. Wait for it to finish or cancel it, then retry.";
+  if (error instanceof Error && error.message === "conversation_text_limit")
+    return "This message cannot be stored safely. Use nonempty valid text of at most 12000 UTF-16 units; nothing was silently truncated.";
   if (
     error instanceof Error &&
     /provider|api key|AI_PROVIDER/i.test(error.message)
@@ -63,6 +94,7 @@ type ChatStreamEvent =
       contextWindow: number;
       historyLimit: number;
       memoryProposal: MemoryProposalResult;
+      conversationContext?: ConversationContextObservation;
       llmDebugTracesEnabled?: boolean;
     }
   | { type: "error"; code: string; message: string; retryable: boolean };
@@ -100,7 +132,9 @@ export function streamingResponse(
 ) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let answer: ChatTurnAnswer | undefined;
       try {
+        input.assertCurrent?.();
         streamJsonEvent(controller, {
           type: "start",
           conversationId: input.conversationId,
@@ -111,13 +145,14 @@ export function streamingResponse(
           "Preparing local data, conversation, and trainer context…",
         );
         let latestCounters: TrainerProgressCounters | undefined;
-        const answer = await generateChatTurn(input, {
+        answer = await generateChatTurn(input, {
           debugTraceEnabled: input.debugTraceEnabled,
           onStatus: (message, counters) => {
             latestCounters = counters;
             streamStatus(controller, message, counters);
           },
         });
+        input.assertCurrent?.();
         if (answer.kind === "generated") {
           latestCounters = answer.progressCounters;
           streamJsonEvent(controller, {
@@ -133,6 +168,7 @@ export function streamingResponse(
         );
         for (const textDelta of visibleDeltas(answer.text)) {
           if (input.requestSignal.aborted) throw new Error("stream aborted");
+          input.assertCurrent?.();
           streamJsonEvent(controller, { type: "delta", textDelta });
         }
         if (input.requestSignal.aborted) throw new Error("stream aborted");
@@ -140,6 +176,7 @@ export function streamingResponse(
           input,
           answer,
         );
+        input.assertCurrent?.();
         streamJsonEvent(controller, {
           type: "done",
           assistantMessage: apiMessage(
@@ -150,20 +187,29 @@ export function streamingResponse(
           contextWindow: activeTranscriptContext(messages).length,
           historyLimit: CHAT_HISTORY_LIMIT,
           memoryProposal: input.memoryProposal,
+          ...(answer.kind === "generated" && answer.conversationContext
+            ? { conversationContext: answer.conversationContext }
+            : {}),
           llmDebugTracesEnabled: input.debugTraceEnabled,
         });
         controller.close();
       } catch (error) {
+        const failure = conversationInterruption(
+          error,
+          answer?.kind === "generated" ? answer.toolSteps : [],
+        );
         streamJsonEvent(controller, {
           type: "error",
           code: input.requestSignal.aborted ? "aborted" : "chat_failed",
           message:
             error instanceof Error && error.message === "stream aborted"
               ? "Chat stream stopped before a complete assistant answer was persisted."
-              : safeChatFailureMessage(error),
+              : safeChatFailureMessage(failure),
           retryable: true,
         });
         controller.close();
+      } finally {
+        input.abandon?.();
       }
     },
   });
@@ -178,39 +224,63 @@ export function streamingResponse(
 export async function jsonResponse(
   input: PreparedChatTurn,
   debugTraceEnabled: boolean,
+  requestSignal?: AbortSignal,
 ) {
-  const answer = await generateChatTurn(input, { debugTraceEnabled });
-  const { assistantRecord, messages } = await completeChatTurn(input, answer, {
-    failureDebugTraceEnabled: debugTraceEnabled,
-  });
-  const messagesForContext =
-    answer.kind === "previous-failure"
-      ? messages
-      : [...input.previousMessages, input.userRecord];
-  return NextResponse.json({
-    conversationId: input.conversationId,
-    messages: messages.map((message) => apiMessage(message, debugTraceEnabled)),
-    assistant: apiMessage(assistantRecord, debugTraceEnabled),
-    contextWindow: activeTranscriptContext(messagesForContext).length,
-    historyLimit: CHAT_HISTORY_LIMIT,
-    toolEvidence:
+  let answer: ChatTurnAnswer | undefined;
+  try {
+    answer = await generateChatTurn(input, { debugTraceEnabled });
+    input.assertCurrent?.();
+    if (requestSignal?.aborted)
+      throw new Error("conversation_delivery_aborted");
+    const { assistantRecord, messages } = await completeChatTurn(
+      input,
+      answer,
+      {
+        failureDebugTraceEnabled: debugTraceEnabled,
+      },
+    );
+    const messagesForContext =
       answer.kind === "previous-failure"
-        ? answer.grounding
-        : answer.toolEvidence,
-    toolSteps:
-      answer.kind === "previous-failure"
-        ? []
-        : answer.toolSteps.map((step) => ({
-            index: step.index,
-            tool: step.tool,
-            status: step.status,
-            summary: step.summary,
-            activityIds: step.activityIds,
-            privacy: step.privacy,
-            reason: step.reason,
-            selection: step.selection,
-          })),
-    memoryProposal: { status: "none" },
-    llmDebugTracesEnabled: debugTraceEnabled,
-  });
+        ? messages
+        : [...input.previousMessages, input.userRecord];
+    input.assertCurrent?.();
+    return NextResponse.json({
+      conversationId: input.conversationId,
+      messages: messages.map((message) =>
+        apiMessage(message, debugTraceEnabled),
+      ),
+      assistant: apiMessage(assistantRecord, debugTraceEnabled),
+      contextWindow: activeTranscriptContext(messagesForContext).length,
+      historyLimit: CHAT_HISTORY_LIMIT,
+      toolEvidence:
+        answer.kind === "previous-failure"
+          ? answer.grounding
+          : answer.toolEvidence,
+      toolSteps:
+        answer.kind === "previous-failure"
+          ? []
+          : answer.toolSteps.map((step) => ({
+              index: step.index,
+              tool: step.tool,
+              status: step.status,
+              summary: step.summary,
+              activityIds: step.activityIds,
+              privacy: step.privacy,
+              reason: step.reason,
+              selection: step.selection,
+            })),
+      memoryProposal: { status: "none" },
+      ...(answer.kind === "generated" && answer.conversationContext
+        ? { conversationContext: answer.conversationContext }
+        : {}),
+      llmDebugTracesEnabled: debugTraceEnabled,
+    });
+  } catch (error) {
+    throw conversationInterruption(
+      error,
+      answer?.kind === "generated" ? answer.toolSteps : [],
+    );
+  } finally {
+    input.abandon?.();
+  }
 }

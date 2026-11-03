@@ -112,6 +112,12 @@ Non-responsibilities:
 
 ### Chat application and HTTP delivery
 
+[Reviewed Luna conversation replay/local compaction](conversation-history.md) adds
+schema18 admission/completion, privacy and segment ownership through supplied ports,
+without a global producer. The bounded transcript details below describe the
+legacy/unqualified path; H instead sends ordered user/assistant messages, fresh
+turn grounding and actual paired current tool envelopes with exact accounting.
+
 `src/lib/chat/context.ts` receives `ChatContextPorts` through `createChatContext`
 and loads bounded local context (40-message history,
 6000-character transcript budget, eight semantic matches and 12 detail summaries)
@@ -172,8 +178,10 @@ malformed conversation route behavior are covered by
 request-time ordering;
 `tests/chat-delivery.test.ts` tests delivery against the application contract.
 `tests/chat-route.test.ts` retains integrated real-orchestrator regressions.
-No schema, stored shape, prompt, provider/tool policy or UI contract changes;
-migration/back-sync is a no-op and source revert is sufficient rollback.
+The earlier application/delivery separation did not itself change storage or UI.
+The current H slice does add schema18 and replay wire behavior; follow its explicit
+copy-rehearsal, compatibility-fence and forward-fix contract rather than treating
+migration as a blanket no-op.
 
 ### `src/lib/ai/context.ts`
 

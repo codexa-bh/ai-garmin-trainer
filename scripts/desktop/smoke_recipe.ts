@@ -177,6 +177,7 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
     "daily_health",
     "trainer_profile",
     "app_metadata",
+    "conversation_history_control",
     ...(route === "synthetic" ? ["conversation", "message"] : []),
   ]);
   const tables = db
@@ -221,6 +222,18 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
       }
     }
   }
+  const controls = db
+    .prepare(
+      "select id,privacy_generation as generation from conversation_history_control",
+    )
+    .all() as { id: number; generation: number }[];
+  if (
+    controls.length !== 1 ||
+    controls[0]!.id !== 1 ||
+    !Number.isSafeInteger(controls[0]!.generation) ||
+    controls[0]!.generation < 0
+  )
+    throw new Error("Smoke conversation control refused.");
   const profile = db.prepare("select * from trainer_profile").all() as Record<
     string,
     unknown

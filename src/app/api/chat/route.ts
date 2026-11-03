@@ -117,7 +117,7 @@ export async function POST(request: Request) {
         debugTraceEnabled,
       });
     } else {
-      response = await jsonResponse(turn, debugTraceEnabled);
+      response = await jsonResponse(turn, debugTraceEnabled, request.signal);
     }
     if (turn.titleAdmitted)
       response.headers.set("x-chat-title-pending", "true");
@@ -125,7 +125,15 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json(
       { error: safeChatFailureMessage(error) },
-      { status: 500 },
+      {
+        status:
+          error instanceof Error && error.message === "conversation_text_limit"
+            ? 400
+            : error instanceof Error &&
+                error.message === "conversation_busy_retry_after_current_turn"
+              ? 409
+              : 500,
+      },
     );
   }
 }

@@ -1,9 +1,11 @@
 # Embedded SQLite semantic memory
 
-This guide describes shipped behavior. The [proposed memory-redesign contract](memory-redesign-contract.md)
-and [synthetic acceptance scenarios](memory-redesign-acceptance.md) specify an
-unimplemented direction; they do not activate a summary engine, change deletion
-scopes or authorize migration/embedding retirement.
+This guide describes semantic-memory behavior. [Conversation replay and bounded
+local compaction](conversation-history.md) is the separately gated source
+implementation for linked new conversations on reviewed OpenAI Luna Responses.
+The [full redesign contract](memory-redesign-contract.md) and [synthetic scenarios](memory-redesign-acceptance.md)
+still include unimplemented global-summary/UI/legacy-transition work. None of
+these documents activates primary data, a global engine or embedding retirement.
 
 The trainer uses an app-owned semantic-memory adapter under `src/lib/memory`. The operator-approved T039 pivot stores memory text, metadata, lifecycle state, and embedding vectors directly in the local SQLite database (`DATABASE_PATH`). No Qdrant, Docker sidecar, hosted vector database, Mem0 Platform account, or public service is required.
 

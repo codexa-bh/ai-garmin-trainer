@@ -1,8 +1,10 @@
 import { getDatabase } from "./connection";
+import { invalidateConversationHistory } from "./conversation-history";
 
 export function clearChatAndProfile(): string[] {
   const db = getDatabase();
   db.transaction(() => {
+    invalidateConversationHistory();
     db.prepare(
       `insert into conversation_title_attempt (conversation_id)
       select id from conversation where true
@@ -19,6 +21,7 @@ export function clearChatAndProfile(): string[] {
 export function clearGarminData(): string[] {
   const db = getDatabase();
   db.transaction(() => {
+    invalidateConversationHistory();
     db.prepare("delete from garmin_raw_payload").run();
     db.prepare("delete from activity_stream_point").run();
     db.prepare("delete from activity_lap").run();

@@ -22,7 +22,15 @@ export function assertDesktopDatabase(path: string): void {
     );
   const db = new Database(path, { readonly: true, fileMustExist: true });
   try {
-    if (currentSchemaVersion(db) !== LATEST_SCHEMA_VERSION)
+    const versionRecord =
+      currentSchemaVersion(db) === LATEST_SCHEMA_VERSION
+        ? (db
+            .prepare(
+              "select value from app_metadata where key='schema_version'",
+            )
+            .get() as { value?: string } | undefined)
+        : undefined;
+    if (versionRecord?.value !== String(LATEST_SCHEMA_VERSION))
       throw new Error(
         "Database schema is not supported. Back up and explicitly upgrade a disposable copy using the source tools first.",
       );
@@ -41,6 +49,37 @@ export function assertDesktopDatabase(path: string): void {
         ],
       ],
       ["activity_detail_attempt", ["garmin_id", "status"]],
+      ["conversation_history_control", ["id", "privacy_generation"]],
+      [
+        "conversation_turn",
+        [
+          "admission_seq",
+          "turn_id",
+          "conversation_id",
+          "user_id",
+          "assistant_id",
+          "source_version",
+          "summary_eligible",
+          "status",
+          "boot_id",
+          "privacy_generation",
+        ],
+      ],
+      ["conversation_completion", ["event_seq", "turn_id"]],
+      [
+        "conversation_segment",
+        [
+          "format_version",
+          "revision",
+          "privacy_generation",
+          "covered_through",
+          "compact",
+          "compact_sha256",
+          "compact_characters",
+          "policy_identity",
+        ],
+      ],
+      ["conversation_compaction_spend", ["day", "attempts", "reserved_usd"]],
     ] as const) {
       const actual = db.prepare(`pragma table_info(${table})`).all() as {
         name: string;
@@ -52,6 +91,20 @@ export function assertDesktopDatabase(path: string): void {
           "Database compatibility structure is incomplete; repair a backed-up copy before adoption.",
         );
     }
+    const controls = db
+      .prepare(
+        "select id,privacy_generation as generation from conversation_history_control",
+      )
+      .all() as { id: number; generation: number }[];
+    if (
+      controls.length !== 1 ||
+      controls[0]!.id !== 1 ||
+      !Number.isSafeInteger(controls[0]!.generation) ||
+      controls[0]!.generation < 0
+    )
+      throw new Error(
+        "Database conversation control is inconsistent; preserve data and use compatible recovery.",
+      );
   } finally {
     db.close();
   }

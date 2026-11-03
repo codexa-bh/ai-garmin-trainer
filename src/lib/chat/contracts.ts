@@ -2,7 +2,36 @@ import type { LlmDebugTrace } from "@/lib/ai/debug-types";
 
 export type ChatRole = "user" | "assistant";
 
+export type ConversationContextObservation = {
+  mode: "active" | "legacy" | "limited";
+  reason:
+    | "reviewed-luna"
+    | "legacy-unlinked"
+    | "unqualified-route"
+    | "context-capacity";
+  publication: "not-needed" | "published" | "retained";
+  segmentBoundary?: "initial" | "compaction" | "privacy-or-source";
+  compactionReason?:
+    | "published"
+    | "no-eligible-prefix"
+    | "unsafe-source"
+    | "budget-exhausted"
+    | "timeout"
+    | "input-oversize"
+    | "output-oversize"
+    | "invalid-output"
+    | "accounting-unavailable"
+    | "provider-unavailable"
+    | "invalidated"
+    | "conflict";
+  revision?: number;
+  coveredThrough?: number;
+  inputBudget?: number;
+  tokenAccounting: "Responses/input_tokens" | "legacy";
+};
+
 export type ChatGrounding = {
+  conversationContext?: ConversationContextObservation;
   debugTrace?: LlmDebugTrace;
   tool?: string;
   activityId?: string;

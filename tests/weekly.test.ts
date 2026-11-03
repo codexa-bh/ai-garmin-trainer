@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { removeConversationHistoryFixtureSchema } from "./conversation-migration-fixture";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import type { TrainerToolExecutionInput } from "../src/lib/ai/tool-execution-input";
 import { executeWeeklyTool } from "../src/lib/ai/tool-weekly";
@@ -122,8 +123,9 @@ describe("weekly calendar", () => {
   });
 });
 it("preserves migration data, creates no history, is idempotent and detects weekly-only user data", () => {
+  removeConversationHistoryFixtureSchema(db);
   db.exec(
-    "drop table weekly_artifact; drop table weekly_proposal; update app_metadata set value='15' where key='schema_version'",
+    "drop table weekly_artifact; drop table weekly_proposal; drop table conversation_title_attempt; update app_metadata set value='15' where key='schema_version'",
   );
   db.prepare(
     "insert into training_plan values ('default','General','Operator template',1,1)",
@@ -132,7 +134,11 @@ it("preserves migration data, creates no history, is idempotent and detects week
   expect(migrateDatabase(db).applied).toEqual([
     "16:weekly_plans_and_reviews",
     "17:conversation_title_attempt",
+    "18:conversation_completion_and_segments",
   ]);
+  expect(
+    db.prepare("select count(*) as count from conversation_completion").get(),
+  ).toEqual({ count: 0 });
   expect(db.prepare("select * from training_plan").all()).toEqual(before);
   expect(app.history("2026-09-28").items).toEqual([]);
   expect(migrateDatabase(db).applied).toEqual([]);

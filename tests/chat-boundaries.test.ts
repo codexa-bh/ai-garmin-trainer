@@ -85,6 +85,51 @@ vi.mock("@/lib/memory/composition", () => ({
 vi.mock("@/lib/db/conversation-lifecycle", () => ({
   clearConversationHistory: vi.fn(),
 }));
+// Existing delivery characterization uses a supplied message store. Bind the
+// new storage seam to that same store; real journal/CAS/privacy is tested in
+// conversation-history.test.ts rather than accidentally opening a default DB.
+vi.mock("@/lib/db/conversation-history", async () => {
+  const store = await import("@/lib/db/conversation-repository");
+  return {
+    conversationHistory: {
+      admit(conversationId: string, content: string) {
+        const userRecord = store.appendChatMessage({
+          conversationId,
+          role: "user",
+          content,
+        });
+        return {
+          userRecord,
+          admission: {
+            turnId: userRecord.id,
+            conversationId,
+            sourceAdmissionSeq: 0,
+            privacyGeneration: 0,
+          },
+        };
+      },
+      complete(
+        admission: { conversationId: string },
+        answer: { content: string; grounding: ChatGrounding | null },
+      ) {
+        return store.appendChatMessage({
+          conversationId: admission.conversationId,
+          role: "assistant",
+          ...answer,
+        });
+      },
+      assertCurrent: vi.fn(),
+      abandon: vi.fn(),
+      reserveCompaction: () => false,
+      publish: () => false,
+      read() {
+        throw new Error(
+          "Legacy characterization must not request qualified replay",
+        );
+      },
+    },
+  };
+});
 vi.mock("@/lib/db/conversation-repository", () => ({
   claimConversationTitle: f.titleClaim,
   finishConversationTitle: f.titleFinish,

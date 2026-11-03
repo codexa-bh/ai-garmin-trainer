@@ -1,4 +1,5 @@
 import { getDatabase } from "./connection";
+import { invalidateConversationHistory } from "./conversation-history";
 import {
   DEFAULT_CONVERSATION_ID,
   safeConversationId,
@@ -8,6 +9,7 @@ export function deleteConversation(id = DEFAULT_CONVERSATION_ID): boolean {
   const conversationId = safeConversationId(id);
   const db = getDatabase();
   const changes = db.transaction(() => {
+    invalidateConversationHistory();
     // Keep a small tombstone: clearing/deleting history must not re-admit titles.
     db.prepare(
       `insert into conversation_title_attempt (conversation_id) values (?)
