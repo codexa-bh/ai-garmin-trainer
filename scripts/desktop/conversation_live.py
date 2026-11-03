@@ -70,14 +70,17 @@ class PaidEnvelope:
 
 def api(run, method, path, body=None, *, paid=None):
     identity = run.http('/identity')
-    if identity.get('providerSourceUnchanged') is not True or not run.accept_identity(identity):
+    if (paid is not None and identity.get('providerSourceUnchanged') is not True) or not run.accept_identity(identity):
         raise ValueError('Exact native source/credential preservation admission required')
-    if paid:
+    if method == 'POST' and path.split('?', 1)[0] == '/api/chat' and paid is None:
+        if not getattr(run, 'keyless_lifecycle', False) or run.descriptor.get('providerSmoke') is not None or identity.get('providerSourceUnchanged') is True:
+            raise ValueError('Unreserved chat requires verified credential-free lifecycle scope')
+    if paid is not None:
         paid.claim()  # Durable reserve before opening the request socket.
     connection = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=240)
     try:
         connection.request(method, path, json.dumps(body) if body is not None else None,
-                           {'Content-Type': 'application/json', **(HEADER if paid else {})})
+                           {'Content-Type': 'application/json', **(HEADER if paid is not None else {})})
         response = connection.getresponse()
         raw = response.read(512 * 1024 + 1)
         if len(raw) > 512 * 1024:
@@ -89,6 +92,16 @@ def api(run, method, path, body=None, *, paid=None):
         return response.status, result
     finally:
         connection.close()
+
+
+def prepare_luna_config(run):
+    # Both scopes persist no credentials. Only the separate closed descriptor may borrow one.
+    (run.root / 'tokens').mkdir(mode=0o700)
+    private_json(run.root / 'config/settings-v3.json', {'version': 3, 'keys': {},
+                 'fields': {'DATABASE_PATH': str(run.database), 'AI_PROVIDER': 'openai', 'AI_MODEL': 'gpt-6-luna',
+                            'MEMORY_ENABLED': 'false', 'GARMIN_MCP_TOKEN_DIR': str(run.root / 'tokens')},
+                 'chatCatalog': {'version': 1, 'defaultEntryId': None, 'entries': [
+                     {'id': 'entry_t0269_luna', 'provider': 'openai', 'modelId': 'gpt-6-luna'}]}})
 
 
 def seed(run, action):
@@ -148,19 +161,19 @@ def main():
     selection = argparse.Namespace(task_id='T0269', input_file=None, grant_file=None, provenance_file=None, anchor=None)
     prepared = prepare(evidence, selection, 'ordinary', synthetic_empty_chat=True)
     run = None
+    runs = []
+    provider_run = None
+    provider_stopped = False
     observer = None
     receipt = {'source': source, 'purpose': PRESET, 'syntheticOnly': True, 'credentialValueReadback': False,
                'maximumReservedUsd': 0.25, 'scenarioPassed': False, 'provider': 'real direct OpenAI gpt-6-luna',
                'realGarmin': 'not authorized/exercised; empty run-local token directory', 'captures': []}
     try:
         run = OrdinaryRun(evidence, prepared.database, source, bundle, inventory)
+        runs.append(run)
+        provider_run = run
         run.before_start = prepared.verify_current
-        (run.root / 'tokens').mkdir(mode=0o700)  # Fresh empty scope, never adopt a personal token directory.
-        private_json(run.root / 'config/settings-v3.json', {'version': 3, 'keys': {},
-                     'fields': {'DATABASE_PATH': str(run.database), 'AI_PROVIDER': 'openai', 'AI_MODEL': 'gpt-6-luna',
-                                'MEMORY_ENABLED': 'false', 'GARMIN_MCP_TOKEN_DIR': str(run.root / 'tokens')},
-                     'chatCatalog': {'version': 1, 'defaultEntryId': None, 'entries': [
-                         {'id': 'entry_t0269_luna', 'provider': 'openai', 'modelId': 'gpt-6-luna'}]}})
+        prepare_luna_config(run)
         run.descriptor['providerSmoke'] = PRESET
         authored = seed(run, 'initial')
         conversation = authored['conversationId']
@@ -189,8 +202,26 @@ def main():
         if state(run, conversation) != first:
             raise ValueError('Compact boundary/revision changed across owned restart')
         receipt['restartRetainsExactSegment'] = True
-        # Authored Unicode storage overflow rejects before any inference, not a fake provider result.
-        status, _ = api(run, 'POST', '/api/chat', {'conversationId': conversation, 'message': '界' * 12001}, paid=envelope)
+        receipt['productionCredentialSourceUnchanged'] = run.http('/identity').get('providerSourceUnchanged') is True
+        if not receipt['productionCredentialSourceUnchanged']:
+            raise ValueError('Credential source changed before provider shutdown')
+        run.stop()
+        provider_stopped = True
+        # Lifecycle needs no model authority: clone the stopped actual compact state into normal keyless scope.
+        run = OrdinaryRun(evidence, provider_run.database, source, bundle, inventory)
+        runs.append(run)
+        run.before_start = prepared.verify_current
+        run.observer = observer
+        prepare_luna_config(run)  # No providerSmoke descriptor, keys, fallback model or source lookup.
+        run.start(run.binary)
+        status, models = api(run, 'GET', '/api/model-settings')
+        options = models.get('options', [])
+        if status != 200 or models.get('available') is not False or len(options) != 1 or options[0].get('available') is not False or options[0].get('id') != 'entry_t0269_luna' or state(run, conversation) != first:
+            raise ValueError('Credential-free exact compact clone/no eligible model required')
+        run.keyless_lifecycle = True
+        receipt['keylessLifecycle'] = {'sourceRun': provider_run.id, 'run': run.id, 'sameCompactState': True, 'eligibleModels': 0, 'providerEffectClaims': 0}
+        # Authored Unicode storage overflow rejects with no eligible provider, not a canned provider result.
+        status, _ = api(run, 'POST', '/api/chat', {'conversationId': conversation, 'message': '界' * 12001})
         receipt['overflowHttpStatus'] = status
         if status != 400:
             raise ValueError('Visible-input overflow did not reject honestly')
@@ -200,25 +231,27 @@ def main():
         receipt['afterClear'] = after
         if status != 200 or (after['segment'] and (after['segment'][1] != 0 or after['segment'][3] != 0)):
             raise ValueError('Native clear did not invalidate compact content')
-        receipt['productionCredentialSourceUnchanged'] = run.http('/identity').get('providerSourceUnchanged') is True
-        if not receipt['productionCredentialSourceUnchanged'] or source_identity() != source or audit(bundle) != inventory:
+        with contextlib.closing(readonly(provider_run.database)) as db:
+            receipt['providerCopyUnchangedByLifecycle'] = fingerprint(db) == run.original
+        if not receipt['providerCopyUnchangedByLifecycle'] or source_identity() != source or audit(bundle) != inventory:
             raise ValueError('Final source/artifact/credential original preservation failed')
         receipt['scenarioPassed'] = True
     finally:
         with resources.preserve_failure():
             receipt['claimedEffects'] = envelope.effects
             receipt['reservedUsd'] = round(envelope.effects * RESERVE_USD, 2)
-            if run:
+            if provider_run and not provider_stopped:
                 try:
-                    identity = run.http('/identity')
-                    receipt['productionCredentialSourceUnchanged'] = run.accept_identity(identity) and identity.get('providerSourceUnchanged') is True
+                    identity = provider_run.http('/identity')
+                    receipt['productionCredentialSourceUnchanged'] = provider_run.accept_identity(identity) and identity.get('providerSourceUnchanged') is True
                 except Exception:
                     receipt['productionCredentialSourceUnchanged'] = 'unavailable-before-owned-shutdown'
                 if receipt['productionCredentialSourceUnchanged'] is not True:
                     receipt['scenarioPassed'] = False
-                run.stop()
+            for owned in reversed(runs):
+                owned.stop()
             if observer:
-                receipt['noninterference'] = observer.stop(run.pids if run else [])
+                receipt['noninterference'] = observer.stop([pid for owned in runs for pid in owned.pids])
             prepared.verify_current()
             with contextlib.closing(readonly(prepared.database)) as db:
                 receipt['inputUnchanged'] = fingerprint(db) == prepared.original

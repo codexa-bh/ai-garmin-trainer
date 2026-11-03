@@ -4,7 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from conversation_live import PaidEnvelope, api, observe_answer, PRESET
+from conversation_live import PaidEnvelope, api, observe_answer, prepare_luna_config, PRESET
+from types import SimpleNamespace
 from native_smoke import private_json
 
 
@@ -57,6 +58,22 @@ class ConversationLiveTests(unittest.TestCase):
                 PaidEnvelope(evidence, reserved_effect_receipt=proof)
             self.assertEqual(sum(json.loads(p.read_text())['reservedUsd'] for p in first.root.glob('effect-*.json')), 0.24)
 
+    def test_keyless_lifecycle_configuration_has_no_provider_authority_or_secret(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root).resolve()
+            (directory / 'config').mkdir(mode=0o700)
+            run = SimpleNamespace(root=directory, database=directory / 'trainer.sqlite', descriptor={})
+            prepare_luna_config(run)
+            saved = json.loads((directory / 'config/settings-v3.json').read_text())
+            self.assertEqual(saved['keys'], {})
+            self.assertEqual(saved['fields']['MEMORY_ENABLED'], 'false')
+            self.assertEqual(saved['chatCatalog']['entries'], [{'id': 'entry_t0269_luna', 'provider': 'openai', 'modelId': 'gpt-6-luna'}])
+            self.assertIsNone(saved['chatCatalog']['defaultEntryId'])
+            self.assertEqual(list((directory / 'tokens').iterdir()), [])
+            self.assertEqual(run.descriptor, {})
+            with self.assertRaises(FileExistsError):
+                prepare_luna_config(run)
+
     def test_refused_native_source_identity_never_reserves_or_opens_request_socket(self):
         class Run:
             def http(self, _path):
@@ -66,6 +83,17 @@ class ConversationLiveTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 api(Run(), 'POST', '/api/chat', {}, paid=envelope)
             self.assertEqual(envelope.effects, 0)
+            connection.assert_not_called()
+
+    def test_unreserved_chat_cannot_run_in_provider_or_unverified_scope(self):
+        run = SimpleNamespace(http=lambda _: {'providerSourceUnchanged': True},
+                              accept_identity=lambda _: True, descriptor={'providerSmoke': PRESET})
+        with patch('conversation_live.http.client.HTTPConnection') as connection:
+            with self.assertRaises(ValueError):
+                api(run, 'POST', '/api/chat', {})
+            run.keyless_lifecycle = True
+            with self.assertRaises(ValueError):
+                api(run, 'POST', '/api/chat', {})
             connection.assert_not_called()
 
     def test_projection_drops_source_prompts_provider_text_inputs_and_unrestricted_tool_results(self):
