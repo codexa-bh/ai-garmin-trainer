@@ -157,12 +157,14 @@ def arguments(parser):
     parser.add_argument('--anchor', help='Synthetic UTC YYYY-MM-DD; default resolves once to current UTC date')
 
 
-def prepare(scratch, args, scenario):
+def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
     scratch = private_directory(scratch)
     if not re.fullmatch(r'T\d{4,}|local', args.task_id):
         raise ValueError('Consuming task identity required')
     if scenario not in SCENARIOS:
         raise ValueError('Unknown smoke scenario')
+    if type(synthetic_empty_chat) is not bool or (synthetic_empty_chat and scenario != 'ordinary'):
+        raise ValueError('Empty-chat synthetic input is ordinary-conversation only')
     root = scratch / ('prepared-' + str(uuid.uuid4()))
     grant_check = None
     if args.input_file:
@@ -214,14 +216,18 @@ def prepare(scratch, args, scenario):
             raise ValueError('Private options without explicit selection refused')
         anchor = args.anchor or datetime.now(timezone.utc).date().isoformat()
         allocation = resources.directory(scratch / ('input-allocation-' + str(uuid.uuid4())))
-        result = recipe_command(['create', str(allocation), 'smoke-input-' + str(uuid.uuid4()), anchor])
+        result = recipe_command(['create-empty-chat' if synthetic_empty_chat else 'create', str(allocation), 'smoke-input-' + str(uuid.uuid4()), anchor])
         prepared = Path(result.pop('path'))
         root = prepared.parent
         resources.file_created(prepared)
-        checks = recipe_command(['verify', str(prepared), 'synthetic'])
+        checks = recipe_command(['verify', str(prepared), 'private' if synthetic_empty_chat else 'synthetic'])
         with contextlib.closing(readonly(prepared)) as db:
             original = fingerprint(db)
         details = {'route': 'authored-synthetic', 'recipeVersion': result['recipeVersion'], 'anchor': anchor, 'personalInputRead': False}
+        if synthetic_empty_chat:
+            if result.get('syntheticVariant') != 'empty-chat':
+                raise ValueError('Exact empty-chat authored variant required')
+            details['syntheticVariant'] = 'empty-chat'
     private_json(root / 'selection.json', {'database': str(prepared)})
     provenance = {'schemaVersion': 1, 'task': args.task_id, 'preparationRun': root.name, 'scenario': scenario, **details, 'checks': checks, 'original': original, 'publication': 'exclusive 0700/0600', 'cleanup': 'Standalone/prepare-only outputs retained; actual owning invocation disposition records copy removal or retention; no primary copy-back'}
     return PreparedInput(prepared, root, original, grant_check or (lambda: None), provenance)

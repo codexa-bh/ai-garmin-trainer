@@ -358,7 +358,12 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
   };
 }
 
-export function recipe(scratch: string, name: string, anchor: string) {
+export function recipe(
+  scratch: string,
+  name: string,
+  anchor: string,
+  emptyChat = false,
+) {
   anchorTime(anchor);
   const info = lstatSync(scratch);
   if (
@@ -378,6 +383,11 @@ export function recipe(scratch: string, name: string, anchor: string) {
   try {
     populate(db, anchor);
     const checks = verify(db, "synthetic");
+    if (emptyChat) {
+      // Author only this new in-memory fixture; never clear a published/selected input.
+      db.exec("delete from message;delete from conversation");
+      verify(db, "private"); // Existing empty-chat data-shape checks, not private authority.
+    }
     const path = join(root, "synthetic.sqlite");
     const fd = openSync(path, "wx", 0o600);
     try {
@@ -385,7 +395,13 @@ export function recipe(scratch: string, name: string, anchor: string) {
     } finally {
       closeSync(fd);
     }
-    return { path, recipeVersion: RECIPE_VERSION, anchor, ...checks };
+    return {
+      path,
+      recipeVersion: RECIPE_VERSION,
+      anchor,
+      ...checks,
+      ...(emptyChat ? { syntheticVariant: "empty-chat" } : {}),
+    };
   } finally {
     db.close();
   }
@@ -395,9 +411,19 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  if (process.argv.length === 6 && process.argv[2] === "create")
+  if (
+    process.argv.length === 6 &&
+    ["create", "create-empty-chat"].includes(process.argv[2])
+  )
     console.log(
-      JSON.stringify(recipe(process.argv[3], process.argv[4], process.argv[5])),
+      JSON.stringify(
+        recipe(
+          process.argv[3],
+          process.argv[4],
+          process.argv[5],
+          process.argv[2] === "create-empty-chat",
+        ),
+      ),
     );
   else if (
     process.argv.length === 5 &&
@@ -418,6 +444,6 @@ if (
     }
   } else
     throw new Error(
-      "Usage: smoke_recipe.ts create <private-scratch> <smoke-input-UUID> <UTC-date> | verify <database> synthetic|private",
+      "Usage: smoke_recipe.ts create|create-empty-chat <private-scratch> <smoke-input-UUID> <UTC-date> | verify <database> synthetic|private",
     );
 }

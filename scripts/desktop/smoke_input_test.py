@@ -65,6 +65,21 @@ class InputTests(unittest.TestCase):
             self.assertEqual(set(json_document(a.root / 'selection.json')[1]), {'database'})
             launch.assert_not_called()
 
+    def test_empty_chat_variant_is_authored_only_and_preserves_default_input_without_private_authority(self):
+        with patch('native_smoke.Run.start') as launch, patch('smoke_input.authorize', side_effect=AssertionError('no private route')):
+            baseline = prepare(self.root, self.args, 'ordinary')
+            empty = prepare(self.root, self.args, 'ordinary', synthetic_empty_chat=True)
+            baseline.verify_current(); empty.verify_current()
+            self.assertEqual(empty.provenance['route'], 'authored-synthetic')
+            self.assertEqual(empty.provenance['syntheticVariant'], 'empty-chat')
+            self.assertFalse(empty.provenance['personalInputRead'])
+            for value, expected in [(baseline, (3, 12)), (empty, (0, 0))]:
+                with contextlib.closing(readonly(value.database)) as db:
+                    self.assertEqual(tuple(db.execute('select (select count(*) from conversation),(select count(*) from message)').fetchone()), expected)
+            with self.assertRaises(ValueError):
+                prepare(self.root, self.args, 'native', synthetic_empty_chat=True)
+            launch.assert_not_called()
+
     def test_valid_standing_grant_reuses_across_tasks_preserves_original_and_rechecks_revocation_before_boot(self):
         path, grant, database, original = self.standin()
         first = prepare(self.root, self.args, 'native')

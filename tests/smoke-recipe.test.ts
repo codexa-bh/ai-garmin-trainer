@@ -102,6 +102,48 @@ describe("finite representative authored smoke recipe", () => {
       expect(() => anchorTime(invalid)).toThrow();
   });
 
+  it("authors an opt-in empty-chat variant without changing default history or normalized coverage", () => {
+    const root = scratch();
+    const baseline = recipe(root, `smoke-input-${randomUUID()}`, "2026-11-01");
+    const empty = recipe(
+      root,
+      `smoke-input-${randomUUID()}`,
+      "2026-11-01",
+      true,
+    );
+    const original = new Database(baseline.path, { readonly: true });
+    const copy = new Database(empty.path, { readonly: true });
+    try {
+      expect(empty).toMatchObject({
+        syntheticVariant: "empty-chat",
+        activities: 8,
+        healthDays: 20,
+      });
+      expect(verify(copy, "private").coverage).toBe("ok");
+      expect(
+        copy.prepare("select count(*) as n from conversation").get(),
+      ).toEqual({ n: 0 });
+      expect(copy.prepare("select count(*) as n from message").get()).toEqual({
+        n: 0,
+      });
+      for (const table of ["trainer_profile", "activity", "daily_health"])
+        expect(copy.prepare(`select * from ${table} order by 1`).all()).toEqual(
+          original.prepare(`select * from ${table} order by 1`).all(),
+        );
+      expect(
+        original.prepare("select count(*) as n from conversation").get(),
+      ).toEqual({ n: 3 });
+      expect(
+        original.prepare("select count(*) as n from message").get(),
+      ).toEqual({ n: 12 });
+      expect(verify(original, "synthetic").coverage).toBe("ok");
+      expect(statSync(empty.path).mode & 0o777).toBe(0o600);
+    } finally {
+      original.close();
+      copy.close();
+    }
+  });
+
   it("is read by the existing conversation repository with distinct list/history ordering", async () => {
     const output = recipe(
       scratch(),
