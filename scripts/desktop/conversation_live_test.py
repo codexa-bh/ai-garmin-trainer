@@ -4,7 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from conversation_live import PaidEnvelope, api, observe_answer
+from conversation_live import PaidEnvelope, api, observe_answer, PRESET
+from native_smoke import private_json
 
 
 class ConversationLiveTests(unittest.TestCase):
@@ -19,6 +20,20 @@ class ConversationLiveTests(unittest.TestCase):
                 envelope.claim()
             self.assertEqual(len(list(envelope.root.glob('effect-*.json'))), 3)
             self.assertEqual(sum(json.loads(p.read_text())['reservedUsd'] for p in envelope.root.glob('effect-*.json')), 0.24)
+
+    def test_reconciles_only_exact_zero_effect_preflight_without_resetting_paid_claims(self):
+        with tempfile.TemporaryDirectory() as root:
+            evidence = Path(root).resolve()
+            PaidEnvelope(evidence)
+            proof = evidence / 'conversation-live-synthetic-unit.json'
+            private_json(proof, {'purpose': PRESET, 'claimedEffects': 0, 'reservedUsd': 0.0,
+                         'scenarioPassed': False, 'syntheticOnly': True, 'credentialValueReadback': False,
+                         'inputUnchanged': True})
+            resumed = PaidEnvelope(evidence, proof)
+            self.assertEqual(resumed.claim(), 0)
+            with self.assertRaises(ValueError):
+                PaidEnvelope(evidence, proof)
+            self.assertTrue((resumed.root / 'effect-0.json').exists())
 
     def test_refused_native_source_identity_never_reserves_or_opens_request_socket(self):
         class Run:

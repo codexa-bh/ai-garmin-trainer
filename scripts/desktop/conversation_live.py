@@ -13,7 +13,7 @@ import uuid
 
 from native_smoke import Observer, canonical, fingerprint, private_json, readonly, source_identity
 from ordinary_smoke import OrdinaryRun, audit, private_directory
-from smoke_input import prepare
+from smoke_input import prepare, json_document
 import smoke_resources as resources
 
 PRESET = 't0269-openai-luna-025'
@@ -23,14 +23,27 @@ RESERVE_USD = 0.08
 
 
 class PaidEnvelope:
-    def __init__(self, evidence):
+    def __init__(self, evidence, zero_effect_receipt=None):
         self.root = evidence / 't0269-luna-approved-025'
-        # Refuse any pre-existing/unknown claimed envelope; never renew approval by rerunning.
-        self.root.mkdir(mode=0o700)
-        private_json(self.root / 'approval.json', {'purpose': PRESET, 'maximumUsd': 0.25,
-                     'maximumEffects': MAX_EFFECTS, 'reservePerEffectUsd': RESERVE_USD,
-                     'source': 'operator approval retained in T0269 plan/trace; not authority invented by this file',
-                     'unknownOutcomesRemainReserved': True, 'credentialReadback': False})
+        expected = {'purpose': PRESET, 'maximumUsd': 0.25,
+                    'maximumEffects': MAX_EFFECTS, 'reservePerEffectUsd': RESERVE_USD,
+                    'source': 'operator approval retained in T0269 plan/trace; not authority invented by this file',
+                    'unknownOutcomesRemainReserved': True, 'credentialReadback': False}
+        if zero_effect_receipt is None:
+            # Refuse any pre-existing/unknown claim; never renew approval by rerunning.
+            self.root.mkdir(mode=0o700)
+            private_json(self.root / 'approval.json', expected)
+        else:
+            private_directory(self.root)
+            proof_path, proof, _, _ = json_document(zero_effect_receipt)
+            if proof_path.parent != evidence or not proof_path.name.startswith('conversation-live-') or set(os.listdir(self.root)) != {'approval.json'}:
+                raise ValueError('Exact zero-effect envelope reconciliation required')
+            if json_document(self.root / 'approval.json')[1] != expected or any(proof.get(key) != value for key, value in {
+                    'purpose': PRESET, 'claimedEffects': 0, 'reservedUsd': 0.0, 'scenarioPassed': False,
+                    'syntheticOnly': True, 'credentialValueReadback': False, 'inputUnchanged': True}.items()):
+                raise ValueError('Prior paid/unknown effect or mismatched authority refuses reconciliation')
+            private_json(evidence / ('zero-effect-reconciliation-' + str(uuid.uuid4()) + '.json'),
+                         {'priorReceipt': proof_path.name, 'approvalRenewed': False, 'priorEffects': 0, 'maximumUsd': 0.25})
         self.effects = 0
 
     def claim(self):
@@ -107,6 +120,7 @@ def main():
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--approved-luna-test-usd025', action='store_true')
+    parser.add_argument('--reconcile-zero-effect-receipt', help='Exact retained settled preflight receipt; refuses any prior paid claim, never resets budget')
     args = parser.parse_args()
     if not args.approved_luna_test_usd025:
         raise ValueError('Explicit actual operator approval required; no automatic credential access')
@@ -117,7 +131,7 @@ def main():
     source = source_identity()
     if json.loads((bundle / 'Contents/Resources/resources/provenance.json').read_text()).get('sourceFingerprint') != source:
         raise ValueError('Current exact-source ordinary artifact required')
-    envelope = PaidEnvelope(evidence)
+    envelope = PaidEnvelope(evidence, args.reconcile_zero_effect_receipt)
     selection = argparse.Namespace(task_id='T0269', input_file=None, grant_file=None, provenance_file=None, anchor=None)
     prepared = prepare(evidence, selection, 'ordinary', synthetic_empty_chat=True)
     run = None
@@ -128,6 +142,7 @@ def main():
     try:
         run = OrdinaryRun(evidence, prepared.database, source, bundle, inventory)
         run.before_start = prepared.verify_current
+        (run.root / 'tokens').mkdir(mode=0o700)  # Fresh empty scope, never adopt a personal token directory.
         private_json(run.root / 'config/settings-v3.json', {'version': 3, 'keys': {},
                      'fields': {'DATABASE_PATH': str(run.database), 'AI_PROVIDER': 'openai', 'AI_MODEL': 'gpt-6-luna',
                                 'MEMORY_ENABLED': 'false', 'GARMIN_MCP_TOKEN_DIR': str(run.root / 'tokens')},

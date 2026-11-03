@@ -254,8 +254,8 @@ impl Admission {
             return Err(DENIED);
         }
         let admission = Self::admit(path, verify_artifact)?;
-        if admission.descriptor.history_setup.is_some() {
-            // History automation must retain a real ownership pipe, not a terminal,
+        if admission.descriptor.history_setup.is_some() || admission.descriptor.provider_smoke.is_some() {
+            // History/provider automation must retain a real ownership pipe, not a terminal,
             // file, environment marker or stored parent PID.
             let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
             if unsafe { libc::fstat(libc::STDIN_FILENO, metadata.as_mut_ptr()) } != 0

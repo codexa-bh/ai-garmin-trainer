@@ -56,6 +56,20 @@ pub fn activation(run_path: &Path, production: &Path) -> Result<(Vec<u8>, Captur
     {
         return Err(DENIED);
     }
+    let tokens = run_path
+        .parent()
+        .and_then(Path::parent)
+        .ok_or(DENIED)?
+        .join("tokens");
+    let token_scope = crate::private_store::PinnedDirectory::open(&tokens).map_err(|_| DENIED)?;
+    if std::fs::read_dir(&tokens)
+        .map_err(|_| DENIED)?
+        .next()
+        .is_some()
+    {
+        return Err(DENIED); // This provider-only scope never admits copied Garmin credentials.
+    }
+    token_scope.verify().map_err(|_| DENIED)?;
     // Existing native owner enforces pinned no-follow private-file reads. Nothing is copied to disk.
     let source = settings::selected(production);
     let revision = settings::revision(&source).map_err(|_| DENIED)?;
@@ -100,6 +114,9 @@ mod tests {
         let production = directory();
         let run = directory();
         let config = run.join("config");
+        let tokens = run.join("tokens");
+        fs::create_dir(&tokens).unwrap();
+        fs::set_permissions(&tokens, fs::Permissions::from_mode(0o700)).unwrap();
         fs::create_dir(&config).unwrap();
         fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
         let source = publish(
@@ -160,6 +177,9 @@ mod tests {
             assert_eq!(fs::read(&source).unwrap(), before);
         }
         fs::write(&path, &run_before).unwrap();
+        fs::write(tokens.join("unexpected"), b"synthetic-not-a-token").unwrap();
+        assert!(activation(&path, &production).is_err());
+        assert_eq!(fs::read(&source).unwrap(), before);
         assert!(serde_json::from_value::<Mode>(serde_json::json!("arbitrary-export")).is_err());
         assert!(serde_json::from_value::<Mode>(serde_json::json!("t0269-openai-luna-025")).is_ok());
         // No arbitrary input/catalog/secret map can opt into this native-only handoff.
