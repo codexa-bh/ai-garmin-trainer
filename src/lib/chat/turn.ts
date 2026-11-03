@@ -129,6 +129,7 @@ export function createChatTurns(ports: ChatTurnPorts) {
     let publication: ConversationContextObservation["publication"] =
       "not-needed";
     let compactionReason: ConversationContextObservation["compactionReason"];
+    let compactionStage: ConversationContextObservation["compactionStage"];
     let limited = false;
     if (generate.compaction && ports.history && input.admission) {
       replay = ports.history.read(input.admission);
@@ -195,8 +196,9 @@ export function createChatTurns(ports: ChatTurnPorts) {
         ports.history,
         replay,
         generate.compaction,
-        (reason) => {
+        (reason, stage) => {
           compactionReason = reason;
+          compactionStage = stage;
         },
       );
       publication = published ? "published" : "retained";
@@ -237,6 +239,7 @@ export function createChatTurns(ports: ChatTurnPorts) {
             reason: limited ? "context-capacity" : contextReason,
             publication,
             ...(compactionReason ? { compactionReason } : {}),
+            ...(compactionStage ? { compactionStage } : {}),
             ...(replay
               ? {
                   revision: replay.segment.revision,

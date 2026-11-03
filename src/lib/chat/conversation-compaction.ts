@@ -21,14 +21,19 @@ export async function compactConversation(
   history: ConversationHistoryPorts,
   replay: ConversationReplay,
   generation: ConversationCompactionGeneration,
-  observe?: (reason: CompactionReason) => void,
+  observe?: (
+    reason: CompactionReason,
+    stage: NonNullable<ConversationContextObservation["compactionStage"]>,
+  ) => void,
 ): Promise<boolean> {
+  let stage: NonNullable<ConversationContextObservation["compactionStage"]> =
+    "eligibility";
   let reported = false;
   const report = (reason: CompactionReason) => {
     if (reported) return;
     reported = true;
     try {
-      observe?.(reason);
+      observe?.(reason, stage);
     } catch {
       /* Observation cannot change an already committed publication. */
     }
@@ -77,6 +82,7 @@ export async function compactConversation(
           assistant,
         })),
       });
+      stage = "candidate-accounting";
       const input = await generation.count(
         [{ role: "user", content: POLICY + "\n" + prompt }],
         controller.signal,
@@ -90,6 +96,7 @@ export async function compactConversation(
     if (!size) return fail("input-oversize");
     const sources = eligible.slice(0, size);
     history.assertCurrent(replay.admission);
+    stage = "counted-generation";
     const result = await generation.generate(POLICY, prompt, controller.signal);
     if (expired()) return fail("timeout");
     if (result.length > 65536) return fail("output-oversize");
@@ -99,6 +106,7 @@ export async function compactConversation(
       replay.segment.compact,
     );
     if (!compact) return fail("invalid-output");
+    stage = "output-accounting";
     if (
       (await generation.count(
         [{ role: "user", content: compact }],
@@ -108,6 +116,7 @@ export async function compactConversation(
       return fail("output-oversize");
     if (expired()) return fail("timeout");
     history.assertCurrent(replay.admission);
+    stage = "publication";
     const published = history.publish(replay, sources, compact);
     report(published ? "published" : "conflict");
     return published;

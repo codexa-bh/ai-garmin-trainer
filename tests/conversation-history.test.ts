@@ -298,9 +298,12 @@ describe("actual SQLite completion journal, segments and privacy", () => {
           release = resolve;
         }),
     );
-    const work = compactConversation(history, replay, late);
+    const observe = vi.fn();
+    const work = compactConversation(history, replay, late, observe);
     await vi.advanceTimersByTimeAsync(5001);
     expect(await work).toBe(false);
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(observe).toHaveBeenCalledWith("timeout", "counted-generation");
     release(
       JSON.stringify({
         version: 1,
@@ -404,9 +407,12 @@ describe("actual SQLite completion journal, segments and privacy", () => {
           release = resolve;
         }),
     );
-    const work = compactConversation(history, replay, late);
+    const observe = vi.fn();
+    const work = compactConversation(history, replay, late, observe);
     await vi.advanceTimersByTimeAsync(5001);
     expect(await work).toBe(false);
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(observe).toHaveBeenCalledWith("timeout", "candidate-accounting");
     release(100);
     await vi.runAllTimersAsync();
     expect(late.generate).not.toHaveBeenCalled();

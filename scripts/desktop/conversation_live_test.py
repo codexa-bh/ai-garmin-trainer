@@ -35,6 +35,28 @@ class ConversationLiveTests(unittest.TestCase):
                 PaidEnvelope(evidence, proof)
             self.assertTrue((resumed.root / 'effect-0.json').exists())
 
+    def test_diagnostic_continuation_keeps_unknown_claim_and_total_cap(self):
+        with tempfile.TemporaryDirectory() as root:
+            evidence = Path(root).resolve()
+            first = PaidEnvelope(evidence)
+            first.claim()
+            claim = first.root / 'effect-0.json'
+            original = claim.read_bytes()
+            proof = evidence / 'conversation-live-synthetic-reserved.json'
+            private_json(proof, {'purpose': PRESET, 'claimedEffects': 1, 'reservedUsd': 0.08,
+                         'scenarioPassed': False, 'syntheticOnly': True, 'credentialValueReadback': False,
+                         'inputUnchanged': True})
+            resumed = PaidEnvelope(evidence, reserved_effect_receipt=proof)
+            self.assertEqual(resumed.effects, 1)
+            self.assertEqual(resumed.claim(), 1)
+            self.assertEqual(resumed.claim(), 2)
+            self.assertEqual(claim.read_bytes(), original)
+            with self.assertRaises(ValueError):
+                resumed.claim()
+            with self.assertRaises(ValueError):
+                PaidEnvelope(evidence, reserved_effect_receipt=proof)
+            self.assertEqual(sum(json.loads(p.read_text())['reservedUsd'] for p in first.root.glob('effect-*.json')), 0.24)
+
     def test_refused_native_source_identity_never_reserves_or_opens_request_socket(self):
         class Run:
             def http(self, _path):

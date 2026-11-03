@@ -23,28 +23,40 @@ RESERVE_USD = 0.08
 
 
 class PaidEnvelope:
-    def __init__(self, evidence, zero_effect_receipt=None):
+    def __init__(self, evidence, zero_effect_receipt=None, reserved_effect_receipt=None):
+        if zero_effect_receipt and reserved_effect_receipt:
+            raise ValueError('Choose one exact reconciliation mode')
         self.root = evidence / 't0269-luna-approved-025'
+        prior_effects = 0
         expected = {'purpose': PRESET, 'maximumUsd': 0.25,
                     'maximumEffects': MAX_EFFECTS, 'reservePerEffectUsd': RESERVE_USD,
                     'source': 'operator approval retained in T0269 plan/trace; not authority invented by this file',
                     'unknownOutcomesRemainReserved': True, 'credentialReadback': False}
-        if zero_effect_receipt is None:
+        if zero_effect_receipt is None and reserved_effect_receipt is None:
             # Refuse any pre-existing/unknown claim; never renew approval by rerunning.
             self.root.mkdir(mode=0o700)
             private_json(self.root / 'approval.json', expected)
         else:
             private_directory(self.root)
-            proof_path, proof, _, _ = json_document(zero_effect_receipt)
-            if proof_path.parent != evidence or not proof_path.name.startswith('conversation-live-') or set(os.listdir(self.root)) != {'approval.json'}:
-                raise ValueError('Exact zero-effect envelope reconciliation required')
+            proof_path, proof, _, _ = json_document(zero_effect_receipt or reserved_effect_receipt)
+            entries = set(os.listdir(self.root))
+            prior_effects = len(entries) - 1
+            if not 0 <= prior_effects < MAX_EFFECTS or proof_path.parent != evidence or not proof_path.name.startswith('conversation-live-') or entries != {'approval.json', *('effect-' + str(i) + '.json' for i in range(prior_effects))}:
+                raise ValueError('Exact retained envelope/receipt required')
+            if (zero_effect_receipt is not None and prior_effects != 0) or (reserved_effect_receipt is not None and not 1 <= prior_effects < MAX_EFFECTS):
+                raise ValueError('Reconciliation mode/remaining budget mismatch')
+            for index in range(prior_effects):
+                if json_document(self.root / ('effect-' + str(index) + '.json'))[1] != {
+                        'effect': index, 'reservedUsd': RESERVE_USD, 'outcome': 'submitted-or-unknown; never refunded automatically'}:
+                    raise ValueError('Unknown or modified claim; no refund/reset')
             if json_document(self.root / 'approval.json')[1] != expected or any(proof.get(key) != value for key, value in {
-                    'purpose': PRESET, 'claimedEffects': 0, 'reservedUsd': 0.0, 'scenarioPassed': False,
+                    'purpose': PRESET, 'claimedEffects': prior_effects, 'reservedUsd': round(prior_effects * RESERVE_USD, 2), 'scenarioPassed': False,
                     'syntheticOnly': True, 'credentialValueReadback': False, 'inputUnchanged': True}.items()):
-                raise ValueError('Prior paid/unknown effect or mismatched authority refuses reconciliation')
-            private_json(evidence / ('zero-effect-reconciliation-' + str(uuid.uuid4()) + '.json'),
-                         {'priorReceipt': proof_path.name, 'approvalRenewed': False, 'priorEffects': 0, 'maximumUsd': 0.25})
-        self.effects = 0
+                raise ValueError('Mismatched prior receipt; no authority renewal')
+            private_json(evidence / ('effect-reconciliation-' + str(uuid.uuid4()) + '.json'),
+                         {'priorReceipt': proof_path.name, 'approvalRenewed': False, 'priorEffects': prior_effects,
+                          'priorReservedUsd': round(prior_effects * RESERVE_USD, 2), 'unknownsStillReserved': True, 'maximumUsd': 0.25})
+        self.effects = prior_effects
 
     def claim(self):
         if self.effects >= MAX_EFFECTS:
@@ -121,6 +133,7 @@ def main():
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--approved-luna-test-usd025', action='store_true')
     parser.add_argument('--reconcile-zero-effect-receipt', help='Exact retained settled preflight receipt; refuses any prior paid claim, never resets budget')
+    parser.add_argument('--continue-reserved-effects-receipt', help='Exact diagnosed failure receipt; carries every prior immutable claim, never refunds unknowns or renews approval')
     args = parser.parse_args()
     if not args.approved_luna_test_usd025:
         raise ValueError('Explicit actual operator approval required; no automatic credential access')
@@ -131,7 +144,7 @@ def main():
     source = source_identity()
     if json.loads((bundle / 'Contents/Resources/resources/provenance.json').read_text()).get('sourceFingerprint') != source:
         raise ValueError('Current exact-source ordinary artifact required')
-    envelope = PaidEnvelope(evidence, args.reconcile_zero_effect_receipt)
+    envelope = PaidEnvelope(evidence, args.reconcile_zero_effect_receipt, args.continue_reserved_effects_receipt)
     selection = argparse.Namespace(task_id='T0269', input_file=None, grant_file=None, provenance_file=None, anchor=None)
     prepared = prepare(evidence, selection, 'ordinary', synthetic_empty_chat=True)
     run = None
@@ -163,7 +176,7 @@ def main():
         receipt['firstAnswer'] = observe_answer(status, body)
         first = state(run, conversation)
         receipt['afterFirst'] = first
-        if status != 200 or not first['segment'] or first['segment'][1] <= 0 or not receipt['firstAnswer']['retainsShortWeekdays'] or not receipt['firstAnswer']['retainsTimeRationale']:
+        if status != 200 or not first['segment'] or first['segment'][1] <= 0 or not receipt['firstAnswer']['retainsShortWeekdays'] or not receipt['firstAnswer']['retainsTimeRationale'] or not receipt['firstAnswer']['retainsRejectedAlternative']:
             raise ValueError('Live native continuity/compaction assertion failed; inspect bounded receipt, no blind retry')
         for preset in ['wide', 'narrow']:
             run.command({'type': 'setViewport', 'preset': preset})
@@ -196,6 +209,13 @@ def main():
             receipt['claimedEffects'] = envelope.effects
             receipt['reservedUsd'] = round(envelope.effects * RESERVE_USD, 2)
             if run:
+                try:
+                    identity = run.http('/identity')
+                    receipt['productionCredentialSourceUnchanged'] = run.accept_identity(identity) and identity.get('providerSourceUnchanged') is True
+                except Exception:
+                    receipt['productionCredentialSourceUnchanged'] = 'unavailable-before-owned-shutdown'
+                if receipt['productionCredentialSourceUnchanged'] is not True:
+                    receipt['scenarioPassed'] = False
                 run.stop()
             if observer:
                 receipt['noninterference'] = observer.stop(run.pids if run else [])

@@ -24,6 +24,12 @@ export type ConversationContextObservation = {
     | "provider-unavailable"
     | "invalidated"
     | "conflict";
+  compactionStage?:
+    | "eligibility"
+    | "candidate-accounting"
+    | "counted-generation"
+    | "output-accounting"
+    | "publication";
   revision?: number;
   coveredThrough?: number;
   inputBudget?: number;
