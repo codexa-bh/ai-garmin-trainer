@@ -22,8 +22,9 @@ class CapacityLiveContracts(unittest.TestCase):
 
     def test_current_allowances_cadence_and_exact_measured_chat_fit_finite_budget(self):
         result = live.qualify(self.seed())
-        self.assertEqual(result['maximumSummaryAttemptsPerBoot'], 97)
-        self.assertLessEqual(result['summaryWorstUsdPerBoot'], 12)
+        self.assertEqual(result['maximumSummaryAttemptsPerBoot'], 67)
+        self.assertLessEqual(result['summaryWorstUsdPerBoot'], 9)
+        self.assertEqual(2 * live.COSTS['boundedBoot'] + 2 * live.COSTS['chat'], 22000)
         self.assertLessEqual(result['chatWorstUsd'], 2)
         self.assertEqual(2 * live.APPROVAL['bootMilliUsd'] + 3 * live.APPROVAL['chatMilliUsd'], 30000)
         for key, value in [('input', 8000), ('output', 2048), ('debounceMs', 1000), ('priceBasis', 'old')]:
@@ -147,6 +148,28 @@ class CapacityLiveContracts(unittest.TestCase):
                 _, passed = live.answer(run, 'owned', live.QUESTION, Mock(), facts=True)
             self.assertEqual(passed, expected)
 
+    def test_retained_source_refuses_foreign_or_unknown_case_before_database_selection(self):
+        with tempfile.TemporaryDirectory() as root:
+            evidence = Path(root).resolve()
+            base = {'purpose': live.PRESET, 'scenarioPassed': False, 'lastStage': 'single-small-ordinary-turn',
+                    'syntheticOnly': True, 'credentialReadback': False, 'allOwnedProcessesSettled': True,
+                    'inputUnchanged': True, 'runId': '11111111-1111-4111-8111-111111111111'}
+            for key, value in [('purpose', 't0272-integrated-memory-luna-200'), ('lastStage', 'large-prior-maintenance'),
+                               ('allOwnedProcessesSettled', False), ('inputUnchanged', False), ('syntheticOnly', False)]:
+                with patch.object(live, 'document', side_effect=[(evidence / 'prefix.json', {**base, key: value}),
+                     (evidence / 'disposition.json', {'invocationFailed': True, 'evidenceRoot': str(evidence)})]), patch.object(live.resources, 'runtime_path') as runtime:
+                    with self.assertRaises(ValueError): live.RetainedCapacity(evidence, evidence / 'prefix.json', evidence / 'disposition.json')
+                    runtime.assert_not_called()
+
+    def test_retained_source_never_opens_or_stops_a_writer(self):
+        with tempfile.TemporaryDirectory() as root:
+            carrier = live.RetainedCapacity.__new__(live.RetainedCapacity)
+            carrier.database = Path(root).resolve() / 'authored.sqlite'
+            Path(str(carrier.database) + '.trainer-writer').write_text('unknown writer')
+            with patch.object(live, 'database_state') as state:
+                with self.assertRaises(ValueError): carrier.verify_current()
+                state.assert_not_called()
+
     def test_whole_boot_alarm_and_owned_stop_survive_failure_without_stale_pid_actions(self):
         run = self.fake_run(); run.binary = Path('/authored/not-executed')
         run.start, run.stop, run.verify_settled = Mock(), Mock(), Mock()
@@ -158,8 +181,8 @@ class CapacityLiveContracts(unittest.TestCase):
         with patch.object(live, 'request_deadline', deadline), patch.object(live, 'api', return_value=(200, {})):
             with self.assertRaisesRegex(ValueError, 'authored failure'):
                 live.boot(run, envelope, receipt, lambda: (_ for _ in ()).throw(ValueError('authored failure')))
-        self.assertEqual(observed, [120])
-        envelope.claim.assert_called_once_with('boot', run.id)
+        self.assertEqual(observed, [60])
+        envelope.claim.assert_called_once_with('boundedBoot', run.id)
         run.stop.assert_called_once(); run.verify_settled.assert_called_once()
 
 

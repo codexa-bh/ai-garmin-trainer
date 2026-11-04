@@ -16,19 +16,20 @@ import uuid
 
 from native_smoke import Observer, canonical, fingerprint, private_json, readonly, source_identity
 from ordinary_smoke import OrdinaryRun, audit, private_directory
-from smoke_input import prepare, private_file
+from smoke_input import prepare, private_file, database_state
 from integrated_memory_live import durable_claim, request_deadline, pin, answer_observation
 import smoke_resources as resources
 
 PRESET = 't0274-memory-capacity-luna-5000'
 CATALOG = 'entry_t0274_chat_luna'
-BOOT_SECONDS = 120
+BOOT_SECONDS = 60
 SETTLEMENT_SECONDS = 40
-ACTIVITY_SECONDS = 90
+ACTIVITY_SECONDS = 50
 ADOPTIONS = 4
 APPROVAL = {'purpose': PRESET, 'maximumMilliUsd': 50000, 'bootMilliUsd': 12000,
             'chatMilliUsd': 2000, 'unknownsRemainReserved': True, 'credentialReadback': False,
             'authority': 'T0274 operator chat: 50$ budget, approved go', 'syntheticOnly': True}
+COSTS = {'boot': 12000, 'chat': 2000, 'boundedBoot': 9000}
 POLICY = {'input': 258304, 'output': 112768, 'reservedUsd': .12096, 'debounceMs': 2000,
           'catchupMs': 8000, 'deadlineMs': 60000, 'modelContext': 1050000,
           'priceBasis': 'luna-standard-2026-11-04/usd-per-million:0.10-input,0.50-output;reserve:0.25-input'}
@@ -75,7 +76,7 @@ class Envelope:
             if len(self.claims) > 25 or set(p.name for p in self.root.iterdir()) != {'approval.json', *('claim-%03d.json' % (i + 1) for i in range(len(self.claims)))}:
                 raise ValueError('Partial/unaccounted claim retained; reconcile without replay')
             for index, claim in enumerate(self.claims, 1):
-                expected = APPROVAL.get(claim.get('kind', '') + 'MilliUsd')
+                expected = COSTS.get(claim.get('kind'))
                 if (claim.get('purpose') != PRESET or claim.get('sequence') != index or type(claim.get('reservedMilliUsd')) is not int
                         or expected is None or claim['reservedMilliUsd'] != expected
                         or document(self.root / ('claim-%03d.json' % index))[1] != claim):
@@ -85,7 +86,7 @@ class Envelope:
                 raise ValueError('Prior cumulative reservation mismatch')
 
     def claim(self, kind, run_id):
-        cost = APPROVAL.get(kind + 'MilliUsd')
+        cost = COSTS.get(kind)
         if cost is None or self.total + cost > APPROVAL['maximumMilliUsd']:
             raise ValueError('Cumulative USD50 exhausted; retain all unknowns, no effect')
         claim = {'sequence': len(self.claims) + 1, 'kind': kind, 'reservedMilliUsd': cost,
@@ -108,14 +109,91 @@ def qualify(seed):
     # Reserve the whole model context for three finite calls at worst long-input
     # cache-write/output prices, plus independent H/title. Never guess its count.
     chat_usd = 3 * (POLICY['modelContext'] * .50 + 4096 * .75) / 1_000_000 + .011
-    if summary_usd * 1000 > APPROVAL['bootMilliUsd'] or chat_usd * 1000 > APPROVAL['chatMilliUsd']:
+    if summary_usd * 1000 > COSTS['boundedBoot'] or chat_usd * 1000 > APPROVAL['chatMilliUsd']:
         raise ValueError('Changed finite effects/prices require requalification before use')
     return {'maximumSummaryAttemptsPerBoot': maximum_attempts, 'summaryWorstUsdPerBoot': summary_usd,
             'chatWorstUsd': chat_usd, 'wholeBootSeconds': BOOT_SECONDS, 'settlementTailSeconds': SETTLEMENT_SECONDS,
             'maximumAdoptionsPerBoot': ADOPTIONS, 'policy': POLICY}
 
 
-def configure(run):
+class RetainedCapacity:
+    """Only the settled T0274 successful-summary/small-turn prefix; never an unknown job."""
+    def __init__(self, evidence, receipt_path, disposition_path):
+        proof_path, proof = document(receipt_path)
+        disposition_file, disposition = document(disposition_path)
+        run_id = proof.get('runId')
+        if (proof_path.parent != evidence or disposition_file.parent != evidence
+                or proof.get('purpose') != PRESET or proof.get('scenarioPassed') is not False
+                or proof.get('lastStage') != 'single-small-ordinary-turn'
+                or proof.get('syntheticOnly') is not True or proof.get('credentialReadback') is not False
+                or proof.get('allOwnedProcessesSettled') is not True or proof.get('inputUnchanged') is not True
+                or not isinstance(run_id, str) or str(uuid.UUID(run_id)) != run_id
+                or disposition.get('invocationFailed') is not True or disposition.get('evidenceRoot') != str(evidence)):
+            raise ValueError('Exact settled authored successful prefix required')
+        root = private_directory(resources.runtime_path(evidence / ('ordinary-' + run_id)))
+        self.database = root / 'trainer.sqlite'
+        if (str(root) not in disposition.get('allocationRoots', [])
+                or not any(a.get('path') == str(self.database) and a.get('status') == 'retained' for a in disposition.get('artifacts', []))
+                or private_file(root / 'owner', 64)[1].decode() != run_id):
+            raise ValueError('Retained invocation-owned input required')
+        self.metadata = []
+        for path in (proof_path, disposition_file):
+            self.metadata.append((path, hashlib.sha256(private_file(path, 64 * 1024)[1]).hexdigest()))
+        docs = {}
+        for name in ('artifact.json', 'provenance.json', 'shutdown-1.json', 'capacity-seed.json'):
+            path, raw, _ = private_file(root / name, 64 * 1024)
+            digest = hashlib.sha256(raw).hexdigest()
+            if hashlib.sha256(private_file(evidence / ('ordinary-' + run_id) / name, 64 * 1024)[1]).hexdigest() != digest:
+                raise ValueError('Retained metadata/evidence mismatch')
+            self.metadata.append((path, digest)); docs[name] = json.loads(raw)
+        if (docs['artifact.json'].get('sourceFingerprint') != proof.get('source')
+                or docs['provenance.json'].get('source') != proof.get('source')
+                or docs['provenance.json'].get('primaryWriteRequested') is not False
+                or docs['shutdown-1.json'].get('nativeReaped') is not True
+                or docs['shutdown-1.json'].get('endpointsAndLeaseSettled') is not True):
+            raise ValueError('Unknown retained source/settlement; never adopt')
+        self.seed = docs['capacity-seed.json']
+        qualify(self.seed)
+        lease = Path(str(self.database) + '.trainer-writer')
+        if lease.exists() or lease.is_symlink():
+            raise ValueError('Retained source still has a writer; refuse before SQLite')
+        self.database, self.database_identity = database_state(self.database)
+        self.conversation = 'T0274-' + run_id + '-capacity-1'
+        self.small_turn = proof.get('smallTurn', {})
+        self.snapshot = self.small_turn.get('pin')
+        observed = summary(self)
+        if (observed != proof.get('lastSummary') or observed.get('frontier') != 1
+                or len(observed['attempts']) != 1 or observed['attempts'][0]['outcome'] != 'committed'
+                or not observed['attempts'][0]['usage'] or self.small_turn.get('httpStatus') != 200
+                or [c.get('purpose') for c in self.small_turn.get('providerCalls', [])] != ['direct_answer']
+                or not isinstance(self.snapshot, dict) or self.snapshot.get('tokens', 0) <= 2048
+                or pin(self, self.conversation) != self.snapshot):
+            raise ValueError('Unknown/interrupted/changed prefix cannot be resumed')
+        with contextlib.closing(readonly(self.database)) as db:
+            if (db.execute('select count(*) from conversation_completion').fetchone()[0] != 2
+                    or db.execute("select content from message where conversation_id=? and role='user' order by created_at,rowid desc limit 1", (self.conversation,)).fetchone()[0] != SMALL_TURN):
+                raise ValueError('Exact completed small turn required; never resubmit it')
+            self.original = fingerprint(db)
+        self.first_summary = proof['firstSummary']
+        self.proof = {'sourceReceipt': proof_path.name, 'disposition': disposition_file.name, 'runId': run_id,
+                      'source': proof['source'], 'reseeded': False, 'smallTurnResubmitted': False,
+                      'unknownAttemptsResumed': False}
+        self.verify_current()
+        resources.guard(self.verify_current)  # Borrowed input is never enrolled for deletion.
+
+    def verify_current(self):
+        lease = Path(str(self.database) + '.trainer-writer')
+        if lease.exists() or lease.is_symlink() or database_state(self.database)[1] != self.database_identity:
+            raise ValueError('Retained input changed or has a writer; no stopping/adoption')
+        for path, digest in self.metadata:
+            if hashlib.sha256(private_file(path, 64 * 1024)[1]).hexdigest() != digest:
+                raise ValueError('Retained metadata changed')
+        with contextlib.closing(readonly(self.database)) as db:
+            if fingerprint(db) != self.original:
+                raise ValueError('Borrowed input changed; never copy back')
+
+
+def configure(run, *, retained_seed=None):
     (run.root / 'tokens').mkdir(mode=0o700)
     private_json(run.root / 'config/settings-v3.json', {'version': 3, 'keys': {}, 'fields': {
         'DATABASE_PATH': str(run.database), 'GARMIN_MCP_TOKEN_DIR': str(run.root / 'tokens'),
@@ -125,6 +203,10 @@ def configure(run):
         'MEMORY_EMBEDDING_MODEL': 'nomic-embed-text', 'MEMORY_EMBEDDING_BASE_URL': 'http://127.0.0.1:1',
         'MEMORY_EMBEDDING_DIMS': '768'}, 'chatCatalog': {'version': 1, 'defaultEntryId': None,
         'entries': [{'id': CATALOG, 'provider': 'openai', 'modelId': 'gpt-6-luna'}]}})
+    run.descriptor['providerSmoke'] = PRESET
+    run.capacity_conversations = set()
+    if retained_seed is not None:
+        return qualify(retained_seed)
     result = subprocess.run(['npm', 'run', '--silent', 'smoke:summary:seed', '--', str(run.root), 'capacity'],
                             cwd=Path(__file__).resolve().parents[2], capture_output=True, timeout=30, check=True)
     if len(result.stdout) > 2048:
@@ -134,8 +216,6 @@ def configure(run):
         raise ValueError('Exact owned seed required')
     qualified = qualify(seed)
     private_json(run.root / 'capacity-seed.json', seed)
-    run.descriptor['providerSmoke'] = PRESET
-    run.capacity_conversations = set()
     return qualified
 
 
@@ -260,7 +340,7 @@ def answer(run, conversation, message, envelope, *, facts=False):
 
 
 def boot(run, envelope, receipt, action):
-    envelope.claim('boot', run.id)
+    envelope.claim('boundedBoot', run.id)
     try:
         # One alarm bounds startup, all reads/slow trickles, SQLite/renderer work
         # and activity. No competing nested timer or unbounded helper runs.
@@ -293,6 +373,8 @@ def main():
     parser.add_argument('--approved-t0274-synthetic-luna-usd50', action='store_true', required=True,
                         help='Flag records actual scoped operator consent, never supplies it')
     parser.add_argument('--continue-receipt', help='Diagnosed settled failure only; every immutable prior reservation retained')
+    parser.add_argument('--resume-capacity-receipt', help='Exact first successful-summary/small-turn prefix; never an unknown attempt')
+    parser.add_argument('--resume-capacity-disposition', help='Its exact retained invocation resource disposition')
     args = parser.parse_args()
     os.umask(0o077)
     evidence = private_directory(resources.configure(canonical(args.scratch)))
@@ -302,9 +384,13 @@ def main():
         raise ValueError('Exact current-source ordinary artifact required')
     artifact = hashlib.sha256(json.dumps(inventory, sort_keys=True).encode()).hexdigest()
     envelope = Envelope(evidence, {'source': source, 'artifact': artifact}, args.continue_receipt)
-    if envelope.total + 2 * APPROVAL['bootMilliUsd'] + 3 * APPROVAL['chatMilliUsd'] > APPROVAL['maximumMilliUsd']:
+    resuming = args.resume_capacity_receipt is not None
+    if resuming != (args.resume_capacity_disposition is not None) or (resuming and not args.continue_receipt):
+        raise ValueError('Exact successful prefix/disposition and cumulative ledger continuation required')
+    if envelope.total + 2 * COSTS['boundedBoot'] + (2 if resuming else 3) * COSTS['chat'] > APPROVAL['maximumMilliUsd']:
         raise ValueError('Insufficient cumulative budget for complete case; no partial relaunch')
-    prepared = prepare(evidence, argparse.Namespace(task_id='T0274', input_file=None, grant_file=None, provenance_file=None, anchor=None), 'ordinary')
+    prepared = (RetainedCapacity(evidence, args.resume_capacity_receipt, args.resume_capacity_disposition) if resuming else
+                prepare(evidence, argparse.Namespace(task_id='T0274', input_file=None, grant_file=None, provenance_file=None, anchor=None), 'ordinary'))
     receipt = {'purpose': PRESET, 'source': source, 'artifact': artifact, 'scenarioPassed': False, 'syntheticOnly': True,
                'credentialReadback': False, 'credentialSourceUnchanged': 'unavailable-before-activation', 'captures': [],
                'notProved': ['primary activation/private history', 'trusted OS input', 'invoice accuracy or cache savings',
@@ -316,24 +402,36 @@ def main():
         run = OrdinaryRun(evidence, prepared.database, source, bundle, inventory)
         receipt['runId'] = run.id
         run.before_start = prepared.verify_current
-        receipt['qualifiedEnvelope'] = configure(run)
+        if resuming and run.original != prepared.original:
+            raise ValueError('Online copy differs from verified retained source')
+        receipt['qualifiedEnvelope'] = configure(run, retained_seed=prepared.seed if resuming else None)
+        if resuming:
+            receipt['retainedPrefix'] = prepared.proof
+            receipt['firstSummary'] = prepared.first_summary
+            receipt['smallTurn'] = prepared.small_turn
+            snapshots['first'] = (prepared.conversation, prepared.snapshot)
+            run.capacity_conversations.add(prepared.conversation)
         observer = Observer(evidence)
         run.observer = observer
 
         def first():
             nonlocal stage
             stage = 'large-prior-maintenance'
-            receipt['firstSummary'] = wait_summary(run, 1)
+            if not resuming:
+                receipt['firstSummary'] = wait_summary(run, 1)
             initial = receipt['firstSummary']['summary']
             committed = [a for a in initial['attempts'] if a['outcome'] == 'committed']
             if not 12000 < initial['characters'] <= 20000 or not committed or not any((a['usage'] or {}).get('input', 0) > 8000 for a in committed):
                 raise ValueError('Actual above-old-input-cap maintenance/usage proof failed')
-            conversation, receipt['firstNewChat'] = new_chat(run, 1)
-            stage = 'single-small-ordinary-turn'
-            receipt['smallTurn'], passed = answer(run, conversation, SMALL_TURN, envelope)
-            if not passed:
-                raise ValueError('Small-turn actual direct-answer consumption failed')
-            snapshots['first'] = (conversation, large_pin(run, conversation))
+            if not resuming:
+                conversation, receipt['firstNewChat'] = new_chat(run, 1)
+                stage = 'single-small-ordinary-turn'
+                receipt['smallTurn'], passed = answer(run, conversation, SMALL_TURN, envelope)
+                if not passed:
+                    raise ValueError('Small-turn actual direct-answer consumption failed')
+                snapshots['first'] = (conversation, large_pin(run, conversation))
+            elif pin(run, prepared.conversation) != prepared.snapshot:
+                raise ValueError('Retained consumed prefix changed at owned reopen')
             conversation, receipt['catchUpNewChat'] = new_chat(run, 2)
             frozen = pin(run, conversation)
             receipt['singleTurnCatchUp'] = wait_summary(run, 2)

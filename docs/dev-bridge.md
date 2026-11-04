@@ -355,12 +355,14 @@ mislabel a healthy no-tool direct answer as failed planner/synthesis. Publicatio
 second actual opaque-native boot must preserve both sealed snapshots; the restarted
 chat must actually consume its existing pin again.
 
-One120-second whole-boot alarm bounds startup, reads/slow trickles, SQLite and UI
+One60-second whole-boot alarm bounds startup, reads/slow trickles, SQLite and UI
 work; allow40seconds for owned shutdown/parent-loss settlement. At two-second
 native spacing plus at most four adoption commands/four opportunities each, at
-most97 summary attempts cost at mostUSD11.73312 under the qualified20000 policy
+most67 summary attempts cost at mostUSD8.10432 under the qualified20000 policy
 (input258304/output112768, conservativeUSD0.25/0.50 per million). ReserveUSD12
-before each boot. New-chat pins are intentionally unmeasured until their first
+before each historical120-second boot; that immutable claim is never reduced.
+New60-second boots use a distinct qualified `boundedBoot` claim ofUSD9.
+New-chat pins are intentionally unmeasured until their first
 actual turn. ReserveUSD2 before each chat socket: three finite calls at the entire
 1050000 context ceiling, worst long-input cache-write/output rates and unchanged
 4096 output/H/title allowances cost at mostUSD1.595216. The real turn owner then
@@ -368,7 +370,7 @@ counts/persists the whole pin; assert the measured above2048 consumption afterwa
 not a fake pre-count or a new independent memory cap. The seed exports actual
 policy values; any changed allowance/cadence/price basis refuses before paid use.
 
-Two planned boots and three chats reserveUSD30 under the separately approved
+A fresh two-boot/three-chat case reservesUSD24 under the separately approved
 USD50 **cumulative** ceiling. The fixed private ledger durably/exclusively records
 claims before effects, including failed/unknown outcomes; never refund/reset them
 or infer an invoice. `--continue-receipt <exact-settled-failure>` requires prior
@@ -384,7 +386,24 @@ settlement. Wide/narrow ordinary Trainer captures remain hide-by-default and loc
 they do not expose/verify masked memory/cost/transcript text or certify trusted OS
 input. Keyless outage/privacy coverage remains separately attributed. This case
 establishes neither live service-outage behavior, cache savings, billing accuracy,
-private history nor installed activation. Primary backup/rehearsal/write/settings,
+private history nor installed activation.
+
+For a diagnosed routing-only failure after a genuinely successful summary/small
+turn, `--resume-capacity-receipt <that-exact-receipt>` plus
+`--resume-capacity-disposition <its-exact-retained-disposition>` can reuse only
+that existing authored prefix. It also requires the latest `--continue-receipt`
+for the whole immutable budget. Verify source/seed/shutdown metadata against the
+compact evidence mirror, private file/WAL identity, full logical fingerprint,
+exact committed-attempt frontier, completed small turn and measured sealed pin.
+Reject any unknown/interrupted attempt, live lease, changed/foreign source or
+other task; no generic DB selector, reseed, small-turn resubmission or copy-back.
+The existing owner makes an independent online copy; the borrowed source is
+read-only, guarded and never enrolled for deletion. Two bounded boots/two remaining
+chats reserveUSD22. All earlierUSD26 claims remain consumed, so this continuation
+reservesUSD48 total, not a reset/refund. An independent timed-out copy stays frozen
+and is not replayed. Product operation deadlines and assertions are unchanged.
+
+Primary backup/rehearsal/write/settings,
 bundle replacement and normal-app stop/restart still require separate exact approval.
 
 ## Keyless ordinary summary Settings round-trip
