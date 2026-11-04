@@ -1642,6 +1642,15 @@ export function healthHistoryBounds(): {
     .get() as { oldestStored: string | null; oldestWithMetrics: string | null };
 }
 
+function summaryCheckpoint<T>(raw: string | null): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function importSummary(): LocalImportSummary {
   const counts = dataCounts();
   const history = getCheckpoint("garmin_history_v1");
@@ -1661,8 +1670,10 @@ export function importSummary(): LocalImportSummary {
       : null,
     healthStartDate: healthRange.start,
     healthEndDate: healthRange.end,
-    history: history ? JSON.parse(history) : null,
-    discovery: discovery ? JSON.parse(discovery) : null,
+    // Application projection reports recovery for unsupported bytes; summary
+    // counts remain readable and never repair or overwrite checkpoints.
+    history: summaryCheckpoint(history),
+    discovery: summaryCheckpoint(discovery),
   };
 }
 

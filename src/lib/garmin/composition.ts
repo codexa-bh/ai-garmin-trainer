@@ -94,6 +94,7 @@ const imports = createGarminImports({
 
 export const {
   runGarminSync,
+  syncSummary,
   backfillActivityDetail,
   backfillActivityEffortFields,
 } = imports;

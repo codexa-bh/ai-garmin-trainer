@@ -126,6 +126,17 @@ export function formatSyncResultLine(event: SyncProgressEvent): string {
 }
 
 export function formatSyncFinalMessage(event: SyncProgressEvent): string {
+  if (event.intent) {
+    const label =
+      event.intent === "latest" ? "Latest refresh" : "Historical import";
+    const outcome =
+      event.status === "completed"
+        ? "finished"
+        : event.status === "failed"
+          ? "failed"
+          : "paused";
+    return `${label} ${outcome}. Activity records processed: ${event.activitiesProcessed ?? 0}; health dates refreshed: ${event.healthDaysRefreshed ?? 0}. ${event.sync?.historical.reason ?? "Refresh summary to confirm saved work."}`;
+  }
   if (event.status === "cancelled" || event.status === "budget-limited")
     return `Sync paused. ${event.detail ?? "Continue explicitly; history remains incomplete."}`;
   if (event.status !== "completed") {

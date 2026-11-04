@@ -1,5 +1,15 @@
 import type { GarminImportPorts } from "./import-ports";
 import {
+  historicalAction,
+  latestSyncState,
+  LATEST_CHECKPOINT,
+  nextHistoricalWork,
+  type SyncIntent,
+  type SyncState,
+} from "./sync-policy";
+import type { GarminHistoryState } from "./history-policy";
+import type { GarminDiscoveryState } from "./discovery-policy";
+import {
   BatchEnd,
   DISCOVERY_CHECKPOINT,
   DISCOVERY_LIMITS,
@@ -28,6 +38,13 @@ import {
   shiftDate,
 } from "./history-policy";
 
+type SyncOptions = {
+  cancelled?: () => boolean;
+  interactive?: boolean;
+  finiteLiveSmoke?: boolean;
+  intent?: SyncIntent;
+};
+
 class NoHistoryProgress extends Error {
   constructor() {
     super(
@@ -47,13 +64,116 @@ export function createGarminImports({
   const details = createDetailImports(store, createReader);
   let running = false;
 
+  function repairCandidates(
+    state: GarminHistoryState,
+    today: string,
+    recentStart: string,
+    handled = new Set<string>(),
+  ) {
+    const range = {
+      startDate:
+        state.limit ??
+        [
+          store.healthHistoryBounds?.().oldestStored,
+          state.health.oldestChecked,
+          ...state.unresolvedHealth,
+        ]
+          .filter((date): date is string => Boolean(date))
+          .sort()[0] ??
+        recentStart,
+      endDate: shiftDate(recentStart, -1),
+    };
+    function select(startDate: string) {
+      const search = { ...range, startDate };
+      if (startDate > range.endDate) return [];
+      return [
+        ...new Set([
+          ...state.unresolvedHealth,
+          ...store.listDailyHealthMissingGapDates(search),
+          ...store.listDailyHealthRepairCandidateDates(search),
+          ...store.listDailyHealthIntensityRepairCandidateDates(search),
+        ]),
+      ]
+        .filter(
+          (date) =>
+            date >= startDate &&
+            date <= range.endDate &&
+            date <= today &&
+            !handled.has(date),
+        )
+        .sort();
+    }
+    const next = select(
+      state.repairAfter ? shiftDate(state.repairAfter, 1) : range.startDate,
+    );
+    return next.length || !state.repairAfter ? next : select(range.startDate);
+  }
+
+  function syncSummary(active = running) {
+    const limit = historyStartDate() || null;
+    const today = isoDate(clock());
+    const recentStart =
+      limit && limit > shiftDate(today, -13) ? limit : shiftDate(today, -13);
+    const rawHistory = store.getCheckpoint(HISTORY_CHECKPOINT);
+    const rawDiscovery = store.getCheckpoint(DISCOVERY_CHECKPOINT);
+    let history: GarminHistoryState = historyState(null, limit, today);
+    let discovery: GarminDiscoveryState | null = null;
+    let invalid = false;
+    try {
+      // Validate against the saved scope first: reads never reset a changed limit.
+      if (rawHistory)
+        history = historyState(
+          rawHistory,
+          (JSON.parse(rawHistory) as GarminHistoryState).limit,
+          today,
+        );
+      discovery = discoveryState(
+        rawDiscovery,
+        rawDiscovery
+          ? (JSON.parse(rawDiscovery) as GarminDiscoveryState).limit
+          : limit,
+        history.health.nextDate,
+      );
+      if (rawDiscovery && !rawHistory) invalid = true;
+    } catch {
+      invalid = true;
+    }
+    let latest: SyncState["latest"] = null;
+    try {
+      latest = latestSyncState(store.getCheckpoint(LATEST_CHECKPOINT));
+    } catch {
+      /* Preserve unsupported bytes; no refresh result is claimed. */
+    }
+    const sync: SyncState = {
+      latest,
+      historical: historicalAction({
+        history,
+        discovery,
+        repairs: invalid ? [] : repairCandidates(history, today, recentStart),
+        exists: Boolean(rawHistory),
+        active,
+        limit,
+        invalid,
+      }),
+    };
+    return {
+      sync,
+      history: rawHistory && !invalid ? history : null,
+      discovery: rawDiscovery && !invalid ? discovery : null,
+    };
+  }
+
+  function runGarminSync(
+    onProgress?: ProgressReporter,
+    options?: SyncOptions & { intent?: undefined },
+  ): Promise<GarminSyncResult & { history: GarminHistoryState }>;
+  function runGarminSync(
+    onProgress: ProgressReporter | undefined,
+    options: SyncOptions,
+  ): Promise<GarminSyncResult>;
   async function runGarminSync(
     onProgress: ProgressReporter = () => undefined,
-    options: {
-      cancelled?: () => boolean;
-      interactive?: boolean;
-      finiteLiveSmoke?: boolean;
-    } = {},
+    options: SyncOptions = {},
   ): Promise<GarminSyncResult> {
     if (running)
       throw new Error(
@@ -64,11 +184,19 @@ export function createGarminImports({
     const today = isoDate(clock());
     const recentStart =
       limit && limit > shiftDate(today, -13) ? limit : shiftDate(today, -13);
-    const state = historyState(
-      store.getCheckpoint(HISTORY_CHECKPOINT),
-      limit,
-      today,
-    );
+    const historical = options.intent !== "latest";
+    if (!historical) latestSyncState(store.getCheckpoint(LATEST_CHECKPOINT));
+    if (
+      options.intent === "history" &&
+      syncSummary().sync.historical.state !== "available"
+    )
+      throw new Error(
+        "Historical work is not actionable; refresh summary and preserve saved state for recovery.",
+      );
+    // Latest work has independent settlement and never writes family/discovery state.
+    const state = historical
+      ? historyState(store.getCheckpoint(HISTORY_CHECKPOINT), limit, today)
+      : historyState(null, limit, today);
     const interactive = Boolean(options.interactive);
     const operationLimits = interactive
       ? options.finiteLiveSmoke
@@ -77,13 +205,14 @@ export function createGarminImports({
       : SYNC_LIMITS;
     if (interactive && !wait)
       throw new Error("Interactive sync requires an owned pacing port.");
-    const discovery = interactive
-      ? discoveryState(
-          store.getCheckpoint(DISCOVERY_CHECKPOINT),
-          limit,
-          state.health.nextDate,
-        )
-      : undefined;
+    const discovery =
+      interactive && historical
+        ? discoveryState(
+            store.getCheckpoint(DISCOVERY_CHECKPOINT),
+            limit,
+            state.health.nextDate,
+          )
+        : undefined;
     if (discovery)
       discovery.operation = {
         phase: "recent",
@@ -196,6 +325,19 @@ export function createGarminImports({
     const save = () => {
       state.operations = operations;
       state.updatedAt = clock().toISOString();
+      if (!historical) {
+        store.saveCheckpoint(
+          LATEST_CHECKPOINT,
+          JSON.stringify({
+            version: 1,
+            outcome: state.outcome,
+            updatedAt: state.updatedAt,
+            activitiesProcessed: activitiesImported,
+            healthDaysRefreshed: healthDaysImported,
+          }),
+        );
+        return;
+      }
       store.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(state));
       if (discovery?.operation) {
         discovery.operation.attempts = operations;
@@ -470,47 +612,12 @@ export function createGarminImports({
           }
         }
         async function repairBatch() {
-          const range = {
-            startDate:
-              limit ??
-              [
-                localHealth?.oldestStored,
-                state.health.oldestChecked,
-                ...state.unresolvedHealth,
-              ]
-                .filter((date): date is string => Boolean(date))
-                .sort()[0] ??
-              recentStart,
-            endDate: today,
-          };
-          function repairCandidates(startDate: string) {
-            const search = { ...range, startDate };
-            return [
-              ...new Set([
-                ...state.unresolvedHealth,
-                ...store.listDailyHealthMissingGapDates(search),
-                ...store.listDailyHealthRepairCandidateDates(search),
-                ...store.listDailyHealthIntensityRepairCandidateDates(search),
-              ]),
-            ]
-              .filter(
-                (date) =>
-                  date >= startDate &&
-                  date <= today &&
-                  !handledHealth.has(date),
-              )
-              .sort();
-          }
-          // Move the SQL selection window too: rotating only a capped returned
-          // prefix would starve candidates beyond the first 500/1000 rows.
-          let repairs = repairCandidates(
-            state.repairAfter
-              ? shiftDate(state.repairAfter, 1)
-              : range.startDate,
-          );
-          if (!repairs.length && state.repairAfter)
-            repairs = repairCandidates(range.startDate);
-          for (const date of repairs.slice(0, 2)) {
+          for (const date of repairCandidates(
+            state,
+            today,
+            options.intent ? recentStart : shiftDate(today, 1),
+            handledHealth,
+          ).slice(0, 2)) {
             await health(date, date < recentStart);
             state.repairAfter = date;
             save();
@@ -558,54 +665,53 @@ export function createGarminImports({
         }
         const refreshedWindows = new Set<string>();
         if (interactive) await supplements();
-        do {
-          const before = JSON.stringify([
-            state.health.nextDate,
-            state.activities.nextDate,
-            state.activities.page,
-            state.body.nextDate,
-            discovery?.nextHintEnd,
-            discovery?.positiveDates,
-            state.repairAfter,
-          ]);
-          try {
-            await historyBatch();
-          } catch (error) {
-            if (!(error instanceof BatchEnd)) throw error;
-          }
-          if (!interactive) break;
-          discovery!.operation!.batches += 1;
-          save();
-          if (failure)
-            throw new Error(
-              "Garmin history failed; automatic admission stopped.",
-            );
-          if (
-            !historyDateAllowed(state.health.nextDate, limit) &&
-            !historyDateAllowed(state.activities.nextDate, limit) &&
-            !historyDateAllowed(state.body.nextDate, limit) &&
-            !state.unresolvedHealth.length &&
-            !discovery!.positiveDates.length
-          )
-            break;
-          const after = JSON.stringify([
-            state.health.nextDate,
-            state.activities.nextDate,
-            state.activities.page,
-            state.body.nextDate,
-            discovery?.nextHintEnd,
-            discovery?.positiveDates,
-            state.repairAfter,
-          ]);
-          if (before === after) throw new NoHistoryProgress();
-          progress(
-            "health",
-            `Historical batch ${discovery!.operation!.batches} committed; continuing within the same operation. Total history remains unknown.`,
+        const work = () =>
+          nextHistoricalWork(
+            state,
+            discovery ?? null,
+            repairCandidates(state, today, recentStart),
           );
-          batchOperations = 0;
-          batchStarted = clock().getTime();
-          checkStop();
-        } while (interactive);
+        const signature = () =>
+          JSON.stringify([
+            state.health.nextDate,
+            state.activities.nextDate,
+            state.activities.page,
+            state.body.nextDate,
+            discovery?.nextHintEnd,
+            discovery?.positiveDates,
+            state.unresolvedHealth,
+            repairCandidates(
+              { ...state, repairAfter: null },
+              today,
+              recentStart,
+            ),
+          ]);
+        if (historical)
+          do {
+            const before = signature();
+            try {
+              await historyBatch();
+            } catch (error) {
+              if (!(error instanceof BatchEnd)) throw error;
+            }
+            if (!interactive) break;
+            discovery!.operation!.batches += 1;
+            save();
+            if (failure)
+              throw new Error(
+                "Garmin history failed; automatic admission stopped.",
+              );
+            if (!work()) break;
+            const after = signature();
+            if (before === after) throw new NoHistoryProgress();
+            progress(
+              "health",
+              `Historical batch ${discovery!.operation!.batches} committed; continuing within the same operation. Total history remains unknown.`,
+            );
+            batchOperations = 0;
+            batchStarted = clock().getTime();
+            checkStop();
+          } while (interactive);
         if (!interactive) await supplements();
         if (failure) outcome = "failed";
       } catch (error) {
@@ -618,6 +724,8 @@ export function createGarminImports({
               : "failed";
         if (!(error instanceof SyncPause) && !(error instanceof BatchEnd))
           state.failureClass = historyFailureClass(error);
+        if (error instanceof NoHistoryProgress)
+          state.recoveryReason = "no-progress";
         failure =
           error instanceof SyncPause || error instanceof BatchEnd
             ? control.cancelled()
@@ -647,13 +755,12 @@ export function createGarminImports({
         failure,
       );
       const totals = store.dataCounts();
-      const remaining =
-        historyDateAllowed(state.health.nextDate, limit) ||
-        historyDateAllowed(state.activities.nextDate, limit) ||
-        historyDateAllowed(state.body.nextDate, limit) ||
-        state.unresolvedHealth.length > 0;
+      const summary = syncSummary(false);
+      const remaining = summary.sync.historical.state === "available";
       const result: GarminSyncResult = {
         status: outcome === "settled" ? "completed" : outcome,
+        intent: options.intent,
+        sync: summary.sync,
         ...(dependency ? { dependency } : {}),
         activitiesImported,
         healthDaysImported,
@@ -669,10 +776,10 @@ export function createGarminImports({
         detailCoverage: totals.detailCoverage,
         athleteBaseline,
         bodyMetrics,
-        history: state,
+        history: historical ? state : summary.history,
         ...(discovery ? { discovery } : {}),
         continuationAvailable: remaining,
-        detail: `${failure ?? "Bounded sync invocation settled."} ${remaining ? "Continue explicitly for older or unresolved history." : "Chosen exploration limit checked; this does not prove remote history exhaustion."} Remote earliest-health boundary is unknown. ${operations}/${operationLimits.operations} remote-operation attempts (not HTTP requests). Detail backlog is deferred to subsequent explicit sync or targeted maintenance.`,
+        detail: `${failure ?? (historical ? "Historical invocation settled." : "Latest refresh settled; saved history preserved.")} ${summary.sync.historical.reason} Remote earliest-health boundary is unknown. ${operations}/${operationLimits.operations} remote-operation attempts (not HTTP requests).`,
       };
       close();
       progress(outcome === "failed" ? "failed" : "completed", result.detail);
@@ -687,6 +794,7 @@ export function createGarminImports({
   }
   return {
     runGarminSync,
+    syncSummary,
     isSyncRunning: () => running,
     backfillActivityDetail: details.backfillActivityDetail,
     backfillActivityEffortFields: details.backfillActivityEffortFields,

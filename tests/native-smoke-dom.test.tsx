@@ -213,8 +213,15 @@ describe("native-installed rendered smoke boundary", () => {
                 setPaused(false);
               }}
             >
-              Sync now
+              Sync latest
             </button>
+            <button disabled={running} onClick={() => setRunning(true)}>
+              Continue historical import
+            </button>
+            <details>
+              <summary>Technical details</summary>
+              <pre>Private diagnostic canary</pre>
+            </details>
             {running && (
               <button
                 onClick={() => {
@@ -234,6 +241,14 @@ describe("native-installed rendered smoke boundary", () => {
       );
     }
     render(<Fixture />);
+    expect((await command({ type: "sync", action: "details" })).result.ok).toBe(
+      true,
+    );
+    expect(document.querySelector("details")?.open).toBe(true);
+    expect(
+      (await command({ type: "sync", action: "details", value: "private" }))
+        .result.ok,
+    ).toBe(false);
     expect((await command({ type: "sync", action: "start" })).result.ok).toBe(
       true,
     );
@@ -663,6 +678,53 @@ describe("native-installed rendered smoke boundary", () => {
       expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
     },
   );
+  it("reveals only closed static Sync action state, never cursor values or substituted diagnostics", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 850);
+    render(
+      <div className="sync-view-active">
+        <section className="sync-view-panel">
+          <div className="sync-view-header">
+            <h1>Sync</h1>
+          </div>
+          <div className="sync-view-content">
+            <section aria-labelledby="sync-action-heading">
+              <p>
+                <span className="sync-history-status">
+                  Older work is available within the selected exploration scope.
+                </span>
+                <span className="sync-next-target">Private cursor canary</span>
+              </p>
+              <details>
+                <summary>Technical details</summary>
+                <pre>Private log canary</pre>
+              </details>
+            </section>
+          </div>
+        </section>
+      </div>,
+    );
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(true);
+    const status = document.querySelector(".sync-history-status")!;
+    expect(getComputedStyle(status).visibility).toBe("visible");
+    expect(
+      getComputedStyle(screen.getByText("Private cursor canary")).visibility,
+    ).toBe("hidden");
+    expect(
+      getComputedStyle(screen.getByText("Private log canary")).visibility,
+    ).toBe("hidden");
+    smoke.__trainerSmokeRestore();
+    status.textContent = "Private substituted diagnostic";
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  });
   it("keeps Sync scroll containers visible without exposing private descendants or direct ancestor text", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     vi.stubGlobal("innerWidth", 1280);
