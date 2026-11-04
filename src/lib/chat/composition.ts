@@ -1,4 +1,6 @@
 import { weekly } from "../weekly/composition";
+import { notifySummaryActivity } from "../memory/summary-lifetime";
+import { noteSummaryActivity } from "../db/summary-storage";
 import { getOptionalEnv, withConfiguration, type AppEnv } from "../env";
 import type { PreparedChatTurn } from "./turn";
 import { fallbackLlmDebugTrace } from "@/lib/ai/debug-trace";
@@ -109,7 +111,16 @@ export const generateChatTurn: typeof turns.generateChatTurn = (...args) =>
   );
 export const completeChatTurn: typeof turns.completeChatTurn = (...args) =>
   withConfiguration(admitted.get(args[0].userRecord) ?? getOptionalEnv(), () =>
-    turns.completeChatTurn(...args),
+    turns.completeChatTurn(...args).then((result) => {
+      try {
+        noteSummaryActivity(Date.now());
+        notifySummaryActivity();
+      } catch {
+        // A summary notification cannot undo a committed answer. The existing
+        // native discovery tick recovers durable journal backlog without replay.
+      }
+      return result;
+    }),
   );
 export const completeConversationTitle: typeof turns.completeConversationTitle =
   (...args) =>

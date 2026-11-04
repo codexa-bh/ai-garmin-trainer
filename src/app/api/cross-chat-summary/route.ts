@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   applySummaryCommand,
+  prepareSummaryAdoption,
   nativeSummaryStatus,
   readCrossChatSummary,
   tickCrossChatSummary,
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
           { error: "Unsupported summary control." },
           { status: 400 },
         );
-      applySummaryCommand(command);
+      applySummaryCommand(await prepareSummaryAdoption(command));
     }
     return NextResponse.json(readCrossChatSummary());
   } catch (error) {

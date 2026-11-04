@@ -9,6 +9,9 @@ import {
   validSummaryValue,
   SUMMARY_POLICY,
   SUMMARY_PATCH_REJECTIONS,
+  SUMMARY_DEBOUNCE_MS,
+  SUMMARY_PRICE_BASIS,
+  summaryLimits,
   type SummaryBatch,
   type SummarySource,
   type SummaryStatus,
@@ -190,6 +193,32 @@ function spend(now: number) {
   };
 }
 
+function summaryCostObservations(day: string) {
+  // Aggregate in SQLite rather than materializing an ever-growing attempt log
+  // on every passive status read. Malformed/partial historical usage stays unknown.
+  return getDatabase()
+    .prepare(
+      `with counters as (
+    select reserved_usd,spend_day,price_basis,
+      case when json_valid(usage_json) then json_extract(usage_json,'$.input') end as input,
+      case when json_valid(usage_json) then json_extract(usage_json,'$.output') end as output,
+      case when json_valid(usage_json) then json_type(usage_json,'$.input') end as inputKind,
+      case when json_valid(usage_json) then json_type(usage_json,'$.output') end as outputKind
+    from summary_attempt where reserved=1
+  ), observations as (
+    select *,coalesce(inputKind='integer' and input between 0 and 9007199254740991
+      and outputKind='integer' and output between 0 and 9007199254740991,0) as known from counters
+  ) select
+    coalesce(sum(case when known and price_basis=? and spend_day=? then (input*0.1+output*0.5)/1000000 else 0 end),0) as estimatedUsdToday,
+    coalesce(sum(case when not known or price_basis is not ? then coalesce(reserved_usd,0.01) else 0 end),0) as unknownReservedUsd
+  from observations`,
+    )
+    .get(SUMMARY_PRICE_BASIS, day, SUMMARY_PRICE_BASIS) as {
+    estimatedUsdToday: number;
+    unknownReservedUsd: number;
+  };
+}
+
 function assertVersion(expected: SummaryVersion): void {
   if (JSON.stringify(expected) !== JSON.stringify(summaryStorage.version()))
     throw new Error("summary_stale_action");
@@ -266,6 +295,15 @@ function manualItems(): SummaryItem[] {
       .prepare("select payload from summary_manual order by item_id")
       .all() as { payload: string }[]
   ).map((row) => JSON.parse(row.payload) as SummaryItem);
+}
+
+// Completion notification only records pending age; no provider or timer in SQL.
+export function noteSummaryActivity(now: number): void {
+  getDatabase()
+    .prepare(
+      "update summary_control set pending_since=coalesce(pending_since,?) where id=1 and enabled=1",
+    )
+    .run(now);
 }
 
 export const summaryStorage: SummaryStorage = {
@@ -462,6 +500,8 @@ export const summaryStorage: SummaryStorage = {
       usedByChat: false,
       attemptsToday: budget.attempts,
       reservedUsdToday: budget.usd,
+      ...summaryCostObservations(budget.day),
+      priceBasis: SUMMARY_PRICE_BASIS,
     };
   },
   admit(now, jobId) {
@@ -510,15 +550,11 @@ export const summaryStorage: SummaryStorage = {
       db.prepare("update summary_control set pending_since=? where id=1").run(
         since,
       );
-      const scalars = batch.reduce(
-        (sum, source) => sum + (source.user ? characters(source.user) : 0),
-        0,
-      );
-      const eligible = batch.filter((source) => source.eligible).length;
+      // The native lifetime coalesces activity; storage independently bounds
+      // dispatch even for concurrent explicit catch-up callers or clock rollback.
       if (
-        now - c.last_started < 30000 ||
-        now - since < 10000 ||
-        (eligible > 0 && eligible < 4 && scalars < 2000 && now - since < 120000)
+        now - c.last_started < SUMMARY_DEBOUNCE_MS ||
+        now - since < SUMMARY_DEBOUNCE_MS
       )
         return null;
       db.prepare(
@@ -565,12 +601,19 @@ export const summaryStorage: SummaryStorage = {
         .get(batch.jobId) as { reserved: number };
       if (attempt.reserved) return false;
       const budget = spend(now);
-      if (budget.attempts >= 10 || budget.usd + 0.01 > 0.10000001) return false;
+      const allowance = summaryLimits(batch.cap);
+      // No hidden monetary/count gate. This conservative observation is not an
+      // invoice, and is never refunded on cancellation, missing usage or restart.
       db.prepare(
-        "insert into summary_spend(day,attempts,reserved_usd) values(?,1,0.01) on conflict(day) do update set attempts=attempts+1,reserved_usd=reserved_usd+0.01",
-      ).run(budget.day);
+        "insert into summary_spend(day,attempts,reserved_usd) values(?,1,?) on conflict(day) do update set attempts=attempts+1,reserved_usd=reserved_usd+excluded.reserved_usd",
+      ).run(budget.day, allowance.reservedUsd);
       db.prepare("update summary_control set day=? where id=1").run(budget.day);
-      db.prepare("update summary_attempt set reserved=1 where job_id=?").run(
+      db.prepare(
+        "update summary_attempt set reserved=1,reserved_usd=?,spend_day=?,price_basis=? where job_id=?",
+      ).run(
+        allowance.reservedUsd,
+        budget.day,
+        SUMMARY_PRICE_BASIS,
         batch.jobId,
       );
       return true;
@@ -665,8 +708,8 @@ export const summaryStorage: SummaryStorage = {
         batch.jobId,
       );
       db.prepare(
-        "update summary_control set job_id=null,lease_until=0,pending_since=null,retry_at=0,failures=0,reason=null,manual_revision=manual_revision+? where id=1",
-      ).run(Number(candidate.correction));
+        "update summary_control set job_id=null,lease_until=0,pending_since=case when exists(select 1 from conversation_completion where event_seq>?) then coalesce(pending_since,?) else null end,retry_at=0,failures=0,reason=null,manual_revision=manual_revision+? where id=1",
+      ).run(next.frontier, now, Number(candidate.correction));
       return true;
     })();
   },
@@ -682,7 +725,7 @@ export const summaryStorage: SummaryStorage = {
       throw new Error("summary_invalid_usage");
     getDatabase()
       .prepare(
-        "update summary_attempt set usage_json=? where job_id=? and outcome='admitted'",
+        "update summary_attempt set usage_json=? where job_id=? and outcome='admitted' and usage_json is null",
       )
       .run(
         JSON.stringify({ ...usage, ...(rejection ? { rejection } : {}) }),

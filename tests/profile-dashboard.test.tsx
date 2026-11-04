@@ -5054,6 +5054,9 @@ describe("TrainerDashboard memory and new chat", () => {
       usedByChat: false,
       attemptsToday: 0,
       reservedUsdToday: 0,
+      estimatedUsdToday: 0,
+      unknownReservedUsd: 0,
+      priceBasis: "synthetic-review-basis",
       expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
       stored: {
         version: 1,
@@ -5924,7 +5927,7 @@ describe("TrainerDashboard memory and new chat", () => {
     fireEvent.click(screen.getByText(/Current operation/));
     expect(
       await screen.findByText(
-        "New chat created. Active session context reset; prior transcripts stay in local SQLite. Semantic memory, Profile, and Garmin facts remain available when configured.",
+        "New chat created. Prior transcripts, Profile and Garmin data are preserved. Inspect Memory for the actual selected snapshot and pending updates; later work requires explicit Refresh.",
       ),
     ).toBeTruthy();
 

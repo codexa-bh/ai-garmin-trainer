@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { getDatabase } from "./connection";
 import { summaryStorage } from "./summary-storage";
-import { validSummaryValue } from "../memory/summary-policy";
+import {
+  validSummaryValue,
+  SUMMARY_MODEL_CONTEXT,
+} from "../memory/summary-policy";
 import type { SummaryPin } from "../chat/summary-pin";
 
 function seal(payload: string): string {
@@ -63,7 +66,7 @@ export function readSummaryPin(conversationId: string): SummaryPin | null {
       (pin.tokens !== null &&
         (!Number.isSafeInteger(pin.tokens) ||
           pin.tokens < 0 ||
-          pin.tokens > 2048))
+          pin.tokens > SUMMARY_MODEL_CONTEXT))
     )
       return null;
     if (!summaryStorage.isGenerationCurrent(pin.stamp)) {
@@ -121,7 +124,7 @@ export function publishSummaryProjection(
     projected.tokens === null ||
     !Number.isSafeInteger(projected.tokens) ||
     projected.tokens < 0 ||
-    projected.tokens > 2048 ||
+    projected.tokens > SUMMARY_MODEL_CONTEXT ||
     JSON.stringify(projected.stamp) !== JSON.stringify(before.stamp) ||
     !validSummaryValue(projected.value, 20000) ||
     projected.omitted !==

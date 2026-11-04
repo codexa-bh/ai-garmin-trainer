@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 20;
+export const LATEST_SCHEMA_VERSION = 21;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -326,6 +326,17 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
         update message set grounding_json=json_set(json_remove(grounding_json,'$.debugTrace','$.conversationContext.summaryRevision'),'$.conversationContext.summaryRevoked',json('true'))
           where case when json_valid(grounding_json) then json_type(grounding_json,'$.conversationContext.summaryRevision')='integer' else 0 end;
        end`,
+    ],
+  },
+  {
+    version: 21,
+    name: "size_aware_summary_accounting",
+    statements: [
+      `alter table summary_attempt add column reserved_usd real`,
+      `alter table summary_attempt add column spend_day text`,
+      `alter table summary_attempt add column price_basis text`,
+      // Preserve old liabilities exactly; no usage-derived refund or replay.
+      `update summary_attempt set reserved_usd=0.01,price_basis='legacy-flat-reservation' where reserved=1`,
     ],
   },
 ];

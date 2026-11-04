@@ -22,8 +22,9 @@ history; display paging and conversation selection remain separate.
 The [summary owner](cross-chat-summary.md) owns global generation/configuration and
 foreground scheduling. Conversation-owned schema20 freezes/seals latest summary or
 null at explicit creation and adopts only at Refresh/deliberate compaction. Exact
-whole-item projection is at most2048 tokens, without changing the stored global
-revision. Ordinary publication/restart preserves the pin. Legacy semantic retrieval
+accounting measures the entire newly adopted memory without the former independent
+2048-token projection ceiling, without changing the stored global revision. Existing
+sealed old projections remain unchanged until explicit Refresh/adoption. Ordinary publication/restart preserves the pin. Legacy semantic retrieval
 and awaited post-answer ingestion are removed; no embedding or summary-provider
 wait is part of answer completion. Optional unqualified routes retain bounded local
 context, not vector retrieval.
@@ -50,13 +51,18 @@ derivatives atomically; current correction completion alone gets its updated rec
 ## Accounting and limits
 
 The exact Luna profile is documented by [OpenAI's model page](https://developers.openai.com/api/docs/models/gpt-6-luna)
-and [pricing](https://developers.openai.com/api/docs/pricing), reviewed 2026-11-03:
+and [pricing](https://developers.openai.com/api/docs/pricing), rechecked 2026-11-04:
 1,050,000 context and 128,000 output tokens; standard USD0.10 input/USD0.50 output
 per million, with separately priced cache writes. These are published facts, not
 funding, latency or remote-availability evidence.
 
-The app ceiling is much smaller: 32768 total, 4096 output reserve, 1639 safety
-margin, **27033 input tokens**. Fresh user/grounding/current tool input is also
+The non-memory app allocation remains32768 total,4096 output reserve,1639 safety
+margin, **27033 input tokens**. The input allocation adds only the sealed pin's
+exact measured memory tokens, capped at the qualified model context minus the
+unchanged4096 output/1639 safety reserves. Memory does not consume H's existing
+history allocation or become new compaction source; no vendor-maximum history
+allocation is enabled. Exact total admission still includes policy/tool/schema and
+fresh-tail overhead and refuses genuinely impossible requests without silent clipping. Fresh user/grounding/current tool input is also
 bounded to 8192 tokens. Exact counts use the documented
 [Responses input-token endpoint](https://developers.openai.com/api/docs/guides/token-counting)
 on post-SDK model input, policy and tool definitions, with the same admitted
@@ -139,11 +145,11 @@ admission after owned failure/abort.
 
 ## Migration and evidence
 
-Desktop startup/Use existing remains non-migrating and now requires schema20.
-Explicitly rehearse new additive20 changes on an authored populated schema19 backup
+Desktop startup/Use existing remains non-migrating and now requires schema21.
+Explicitly rehearse additive20/21 changes on an authored populated schema19/20 backup
 first; historical18/19 migration bytes are unchanged. Originals,
 legacy vectors, Profile, plan/settings/key fields are not converted/backfilled.
-Older schema19 desktop admission refuses schema20; after new writes use a compatible
+Older schema19/20 desktop admission refuses schema21; after new writes use a compatible
 forward fix or separately reconciled restore, not an unsafe older writer or copy-back.
 Source delivery never authorizes primary migration, activation, restart or release.
 

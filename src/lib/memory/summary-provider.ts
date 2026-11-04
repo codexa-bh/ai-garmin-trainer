@@ -2,7 +2,8 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import { countResponseInput } from "../ai/conversation-transport";
-import { SUMMARY_INPUT_LIMIT, SUMMARY_OUTPUT_LIMIT } from "./summary-policy";
+import { summaryLimits } from "./summary-policy";
+import { ConversationCapacityError } from "../chat/conversation-replay";
 import type { SummaryGeneration } from "./summary-application";
 
 // Provider shape enforcement complements, never replaces, the domain validator's
@@ -51,9 +52,11 @@ export function createSummaryGeneration(
   transport: typeof fetch = fetch,
   current: () => boolean = () => true,
   purpose: "summary" | "title" = "summary",
+  cap = 6000,
 ): SummaryGeneration {
-  const outputLimit = purpose === "title" ? 120 : SUMMARY_OUTPUT_LIMIT;
-  const inputLimit = purpose === "title" ? 2048 : SUMMARY_INPUT_LIMIT;
+  const limits = summaryLimits(cap);
+  const outputLimit = purpose === "title" ? 120 : limits.output;
+  const inputLimit = purpose === "title" ? 2048 : limits.input;
   const guardedFetch: typeof fetch = async (url, init) => {
     if (!current() || init?.signal?.aborted)
       throw new Error("summary_configuration_changed");
@@ -79,7 +82,14 @@ export function createSummaryGeneration(
         .filter((key) => body[key] !== undefined)
         .map((key) => [key, body[key]]),
     );
-    const tokens = await countResponseInput(transport, init, payload);
+    let tokens: number;
+    try {
+      tokens = await countResponseInput(transport, init, payload);
+    } catch (error) {
+      if (error instanceof ConversationCapacityError)
+        throw new Error("summary_input_capacity");
+      throw error;
+    }
     if (!current()) throw new Error("summary_configuration_changed");
     init.signal?.throwIfAborted();
     if (tokens > inputLimit) throw new Error("summary_input_capacity");
@@ -130,7 +140,7 @@ export function createSummaryGeneration(
         output: counter(raw?.output_tokens),
         cached: counter(cached),
       };
-      if (result.text.length > 65536 || result.finishReason !== "stop")
+      if (result.text.length > 1024 * 1024 || result.finishReason !== "stop")
         return { patch: null, usage };
       try {
         return { patch: JSON.parse(result.text) as unknown, usage };

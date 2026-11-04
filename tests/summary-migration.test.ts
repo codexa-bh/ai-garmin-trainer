@@ -49,7 +49,7 @@ function preserved(db: Database.Database, before: ReturnType<typeof snapshot>) {
     expect(db.prepare(table.query).all(), table.name).toEqual(table.rows);
 }
 
-it("rehearses additive19→20 on a populated online copy and restores only a separate pre-write backup", async () => {
+it("rehearses additive19→21 on a populated online copy and restores only a separate pre-write backup", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "summary-transition-")));
   const source = new Database(join(root, "original.sqlite"));
   let copy: Database.Database | undefined;
@@ -68,7 +68,7 @@ it("rehearses additive19→20 on a populated online copy and restores only a sep
     copy = new Database(path);
     expect(currentSchemaVersion(copy)).toBe(19);
     migrateDatabase(copy);
-    expect(currentSchemaVersion(copy)).toBe(20);
+    expect(currentSchemaVersion(copy)).toBe(21);
     expect(copy.pragma("integrity_check", { simple: true })).toBe("ok");
     preserved(copy, before);
     expect(() => assertDesktopDatabase(path)).not.toThrow();
@@ -134,9 +134,9 @@ it("rolls back a failed additive transition instead of publishing a partial sche
         }[]
       ).some((column) => column.name === "import_id"),
     ).toBe(false);
-    db.exec("update app_metadata set value='21' where key='schema_version'");
+    db.exec("update app_metadata set value='22' where key='schema_version'");
     expect(() => migrateDatabase(db)).toThrow();
-    expect(currentSchemaVersion(db)).toBe(21);
+    expect(currentSchemaVersion(db)).toBe(22);
   } finally {
     db.close();
   }

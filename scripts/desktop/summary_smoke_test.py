@@ -59,7 +59,7 @@ class SummarySmokeTests(unittest.TestCase):
         client.close.assert_called_once()
 
     def test_versioned_mutation_reads_metadata_once_and_refuses_stale_without_retry(self):
-        value = {'version':1,'state':'fresh','reason':None,'revision':3,'frontier':4,'pending':0,'items':0,'characters':0,'enabled':True,'model':'gpt-6-luna','usedByChat':False,'attemptsToday':0,'reservedUsdToday':0,'cap':6000,'publishedAt':1,'expected':{'revision':3,'privacy':0,'control':1,'manual':0}}
+        value = {'version':1,'state':'fresh','reason':None,'revision':3,'frontier':4,'pending':0,'items':0,'characters':0,'enabled':True,'model':'gpt-6-luna','usedByChat':False,'attemptsToday':0,'reservedUsdToday':0,'estimatedUsdToday':0,'unknownReservedUsd':0,'priceBasis':smoke.PRICE_BASIS,'cap':6000,'publishedAt':1,'expected':{'revision':3,'privacy':0,'control':1,'manual':0}}
         run=SimpleNamespace(child=object(),origin='http://127.0.0.1:1')
         client=Mock();client.getresponse.side_effect=[SimpleNamespace(status=200,read=Mock(return_value=json.dumps(value).encode())),SimpleNamespace(status=409,read=Mock(return_value=b'{}'))]
         with patch.object(smoke.http.client,'HTTPConnection',return_value=client):
@@ -68,6 +68,17 @@ class SummarySmokeTests(unittest.TestCase):
         method,path,body,_headers=client.request.call_args.args
         self.assertEqual((method,path),('POST','/api/cross-chat-summary'))
         self.assertEqual(json.loads(body),{'version':1,'expected':value['expected'],'action':'clear'})
+
+    def test_cost_metadata_accepts_only_finite_nonnegative_values_and_the_reviewed_basis(self):
+        value = {'version':1,'state':'fresh','reason':None,'revision':3,'frontier':4,'pending':0,'items':0,'characters':0,'enabled':True,'model':'gpt-6-luna','usedByChat':False,'attemptsToday':12,'reservedUsdToday':0.03,'estimatedUsdToday':0.001,'unknownReservedUsd':0.02,'priceBasis':smoke.PRICE_BASIS,'cap':20000,'publishedAt':1,'expected':{'revision':3,'privacy':0,'control':1,'manual':0}}
+        run=SimpleNamespace(child=object(),origin='http://127.0.0.1:1')
+        for key,replacement in [(None,None),('estimatedUsdToday',-1),('unknownReservedUsd',float('nan')),('reservedUsdToday','private'),('priceBasis','unreviewed'),('privateText','forbidden')]:
+            candidate={**value, **({key:replacement} if key else {})}
+            client=Mock();client.getresponse.return_value=SimpleNamespace(status=200,read=Mock(return_value=json.dumps(candidate).encode()))
+            with patch.object(smoke.http.client,'HTTPConnection',return_value=client):
+                if key:
+                    with self.assertRaises(ValueError):smoke.status(run)
+                else:self.assertEqual(smoke.status(run),value)
 
     def test_memory_controls_are_one_finite_sequence_with_owned_restart_and_preservation(self):
         with tempfile.TemporaryDirectory() as folder:

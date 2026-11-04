@@ -56,6 +56,11 @@ real-provider quality, native Settings input or full global pin/UI integration**
 Ordinary PNGs prove adjacent masked geometry only; inspect each separately. Live
 summary evidence needs separately scoped native opaque credentials and a metered
 provider envelope; do not reuse T0269's task-specific provider presets/approvals.
+The closed keyless status reader now accepts the reviewed size-aware cost DTO:
+nonnegative finite reserved/observed-token-estimate/all-day-unknown USD values and
+one exact reviewed price basis, never arbitrary text/private fields. Existing
+paid T0272 boot reservations and authority do not transfer to the faster T0274
+scheduler/larger allowances; requalify exact cumulative worst-case costs before use.
 
 ### Integrated keyless Memory controls
 

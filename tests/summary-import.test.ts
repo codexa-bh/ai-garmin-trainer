@@ -91,8 +91,8 @@ describe("explicit bounded historical transition sharing S", () => {
     db.close();
     db = new Database(bytes);
     expect(readSummaryImportBatch()?.identity.position).toBe(20);
-    expect(storage.admit(now + 31000, "debounce")).toBeNull();
-    now += 152000;
+    expect(storage.admit(now + 1999, "debounce")).toBeNull();
+    now += 2000;
     const second = storage.admit(now, "second")!;
     expect(second.sources).toHaveLength(5);
     expect(storage.publish(second, candidate(second), now + 1)).toBe(true);

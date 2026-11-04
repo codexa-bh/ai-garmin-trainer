@@ -17,10 +17,18 @@ import {
 } from "../db/summary-storage";
 import { createSummaryEngine } from "./summary-application";
 import { createSummaryGeneration } from "./summary-provider";
-import { summaryCap, SUMMARY_DEADLINE_MS } from "./summary-policy";
-import { summaryLifetime } from "./summary-lifetime";
+import {
+  summaryCap,
+  SUMMARY_DEADLINE_MS,
+  SUMMARY_CATCHUP_MS,
+  SUMMARY_DEBOUNCE_MS,
+} from "./summary-policy";
+import { notifySummaryActivity, summaryLifetime } from "./summary-lifetime";
 import { conversationSummaryStatus } from "../db/conversation-summary-pin";
-import { refreshConversationSummary } from "../db/conversation-history";
+import {
+  assertSummaryRefreshIdle,
+  refreshConversationSummary,
+} from "../db/conversation-history";
 import { modelSettings } from "../model-settings/composition";
 import type { SummaryCommand } from "./summary-controls";
 
@@ -77,6 +85,86 @@ export function readCrossChatSummary(content = false, conversationId?: string) {
       }
     : { ...status, expected: summaryStorage.version() };
 }
+// An explicit adoption request may wait, passive GET and answer completion never do.
+export async function catchUpCrossChatSummary(): Promise<void> {
+  const lifetime = summaryLifetime();
+  const identity = liveConfigurationStatus().boot;
+  if (!identity || lifetime.stopping) return;
+  const end = performance.now() + SUMMARY_CATCHUP_MS;
+  const authority = summaryStorage.version();
+  for (let jobs = 0; jobs < 4 && performance.now() < end; jobs++) {
+    if (lifetime.stopping) return;
+    const status = summaryStorage.status(Date.now());
+    if (
+      !status.enabled ||
+      !status.pending ||
+      (status.reason &&
+        !["summary_correction_pending", "summary_invalidated"].includes(
+          status.reason,
+        ))
+    )
+      return;
+    const current = summaryStorage.version();
+    if (
+      current.privacy !== authority.privacy ||
+      current.control !== authority.control ||
+      current.manual !== authority.manual
+    )
+      return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const completed = await Promise.race([
+      (lifetime.inFlight ?? tickCrossChatSummary(identity)).then(
+        () => true,
+        () => false,
+      ),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(
+          () => resolve(false),
+          Math.max(0, end - performance.now()),
+        );
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!completed) return; // Late global work cannot replace an adopted chat pin.
+    const after = summaryStorage.status(Date.now());
+    if (
+      !after.enabled ||
+      (after.reason &&
+        !["summary_correction_pending", "summary_invalidated"].includes(
+          after.reason,
+        )) ||
+      !after.pending
+    )
+      return;
+    const remaining = end - performance.now();
+    if (remaining < SUMMARY_DEBOUNCE_MS) return;
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, SUMMARY_DEBOUNCE_MS),
+    );
+  }
+}
+
+export async function prepareSummaryAdoption(
+  command: SummaryCommand,
+): Promise<SummaryCommand> {
+  if (command.action !== "refresh") return command;
+  assertSummaryRefreshIdle(command.conversationId);
+  if (
+    JSON.stringify(summaryStorage.version()) !==
+    JSON.stringify(command.expected)
+  )
+    throw new Error("summary_stale_action");
+  await catchUpCrossChatSummary();
+  const expected = summaryStorage.version();
+  if (
+    expected.privacy !== command.expected.privacy ||
+    expected.control !== command.expected.control ||
+    expected.manual !== command.expected.manual
+  )
+    throw new Error("summary_stale_action");
+  return { ...command, expected };
+}
+
 export function applySummaryCommand(command: SummaryCommand) {
   // Synchronous compare and mutation; no await can admit a stale client action.
   if (
@@ -116,19 +204,29 @@ export function changeCrossChatSummary(
 ) {
   summaryLifetime().active?.abort();
   summaryStorage.control(action, Date.now());
+  if (action === "enable" || action === "retry") notifySummaryActivity();
   return readCrossChatSummary();
 }
 export async function tickCrossChatSummary(identity: string): Promise<void> {
   const live = liveConfigurationStatus();
   if (live.boot !== identity) throw new Error("summary_tick_denied");
   const lifetime = summaryLifetime();
-  if (lifetime.stopping || lifetime.running) return;
+  if (lifetime.stopping) return;
+  if (lifetime.running) return;
   const env = getOptionalEnv();
   summaryStorage.configure(
     env.SUMMARY_ENABLED === "true",
     env.SUMMARY_MODEL === "unselected" ? "" : env.SUMMARY_MODEL,
     summaryCap(Number(env.SUMMARY_CHAR_LIMIT)),
   );
+  const authority = summaryStorage.version();
+  const expires = summaryStorage
+    .inspect()
+    .items.flatMap((item) =>
+      item.expiresAt === null || item.expiresAt <= Date.now()
+        ? []
+        : [item.expiresAt],
+    );
   lifetime.running = true;
   const abort = new AbortController();
   lifetime.active = abort;
@@ -137,13 +235,31 @@ export async function tickCrossChatSummary(identity: string): Promise<void> {
     !lifetime.stopping &&
     !abort.signal.aborted &&
     liveConfigurationStatus().generation === live.generation;
+  const generationCurrent = () => {
+    if (!current() || expires.some((expiry) => expiry <= Date.now()))
+      return false;
+    const latest = summaryStorage.version();
+    return (
+      latest.privacy === authority.privacy &&
+      latest.control === authority.control &&
+      latest.manual === authority.manual
+    );
+  };
   const key = configuredSecret(env.OPENAI_API_KEY);
   const engine = createSummaryEngine({
     storage: summaryStorage,
-    generation: key ? createSummaryGeneration(key, fetch, current) : null,
+    generation: key
+      ? createSummaryGeneration(
+          key,
+          fetch,
+          generationCurrent,
+          "summary",
+          Number(env.SUMMARY_CHAR_LIMIT),
+        )
+      : null,
     identity: randomUUID,
     now: Date.now,
-    current,
+    current: generationCurrent,
     jitter: () => Math.floor(Math.random() * 15001),
     holdLease(job) {
       const heartbeat = setInterval(() => {
@@ -154,10 +270,12 @@ export async function tickCrossChatSummary(identity: string): Promise<void> {
     },
   });
   try {
-    await engine.tick(abort.signal);
+    lifetime.inFlight = engine.tick(abort.signal);
+    await lifetime.inFlight;
   } finally {
     clearTimeout(deadline);
     lifetime.active = undefined;
+    lifetime.inFlight = undefined;
     lifetime.running = false;
   }
 }

@@ -7,7 +7,7 @@ embedding daemon, vector service, model download or extractor fallback is requir
 Optional explicitly selected Ollama **chat** remains independently operator-managed.
 
 This describes source behavior, not an installed-app activation receipt. Existing
-schema19 installations require separately approved schema20 migration and a
+schema19/20 installations require separately approved schema21 migration and a
 compatible build. Source delivery never authorizes primary DB/settings changes,
 private historical export, installation or restart. See the [accepted contract](memory-redesign-contract.md)
 and [evidence obligations](memory-redesign-acceptance.md); tests, native observations
@@ -22,6 +22,11 @@ Native Settings → Memory exposes:
   OpenAI `gpt-6-luna` is supported; chat choice remains separate. No model/account
   fallback is substituted.
 - **Summary character limit**, default6000 Unicode scalars, integer1000–20000.
+
+Enabled summary processing has no daily attempt/spend ceiling. Larger memory can
+cost more. Memory separates observed-token estimates, conservative size-aware
+reservations and all-day unknown/legacy liabilities; these are not invoices. Disable
+stops new summary work. Independent title and local compaction limits are unchanged.
 
 Minimized eligible user context may leave the device through the existing native
 OpenAI private-slot owner. No renderer key readback or new secret file is added.
@@ -39,8 +44,15 @@ nor actual selected-chat consumption. Draft/saved/active state stays distinct.
 
 Trainer **Memory** distinguishes the latest stored summary from the selected chat's
 pin, revision, whole-item projection omissions, exact measured token count and
-qualified-route use. New chat freezes latest usable memory or null immediately;
-a later publication does not replace that pin, including before the first message.
+qualified-route use. New chat and Refresh give pending activity up to eight seconds
+to catch up, then freeze only the available revision or null. Single small completed
+turns wake native foreground processing after a two-second debounce; ordinary backlog
+automatically drains in finite serialized jobs. A later publication does not replace
+that pin, including before the first message. Full newly adopted memory is measured
+without the former2048-token projection ceiling; total serialized request admission
+adds measured memory to the existing non-memory allocation while reserving output,
+safety, tools and fresh input. Impossible requests report capacity rather than clip.
+Existing sealed projections/omissions remain unchanged until explicit adoption.
 Restart retains the exact pin. **Refresh selected chat memory** and deliberate local
 compaction are explicit adoption boundaries. Refresh refuses busy/stale actions.
 Unsupported chat routes keep ordinary local behavior without semantic retrieval.
@@ -83,8 +95,8 @@ Retained legacy maintenance APIs are not the ordinary chat path.
 **Explicit historical transition** offers only eligible source-backed completed Off
 turn versions after the authoritative cutoff. Selection is reviewed, capped at200
 turns/100000 source scalars, and sealed with privacy/control/manual/cutoff authority.
-It uses the existing summary writer and daily budget in batches of at most20/8000
-input tokens. Pause/cancel retain progress and unknown cost; changed authority
+It uses the existing summary writer in batches of at most20 with finite size-aware
+exact serialized input/output allowances, without a hidden daily summary budget. Pause/cancel retain progress and unknown cost; changed authority
 requires a new review, not stale resume. Routine frontier is separate. No startup
 backfill, inferred role pairs or migration timestamp grants export.
 
@@ -113,8 +125,8 @@ recorded once; unknown counters are not zero or billed savings.
 
 Use a WAL-consistent SQLite online backup for an active database, or an explicitly
 stopped/verified target; never copy an active main file alone. Preserve native
-settings and compatibility archives through their existing owner. Schema20 and
-`SUMMARY_CONTRACT_VERSION=2` fence older readers; startup/Use existing never migrate.
+settings and compatibility archives through their existing owner. Schema21 and
+`SUMMARY_CONTRACT_VERSION=2` fence incompatible older readers; startup/Use existing never migrate.
 After new writes/deletions, prefer a compatible forward fix. An older backup needs
 explicit offline reconciliation of subsequent data and tombstones, never blind
 copy-back or downgrade.

@@ -250,6 +250,7 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
                 [CONVERSATION_BUDGET_HEADER]: JSON.stringify({
                   kind: "history",
                   historyMessages: conversation.history.length,
+                  memoryTokens: conversation.memoryTokens ?? 0,
                   allowSoftLimit:
                     conversation.allowSoftLimit ||
                     Boolean(request.exchanges?.length),

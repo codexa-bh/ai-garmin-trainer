@@ -35,10 +35,21 @@ export function removeConversationHistoryFixtureSchema(
   })();
 }
 
+/** Remove only schema21 additions on an exclusive authored schema20 fixture. */
+export function removeSizeAwareSummaryFixtureSchema(
+  db: Database.Database,
+): void {
+  db.transaction(() => {
+    for (const column of ["reserved_usd", "spend_day", "price_basis"])
+      db.exec(`alter table summary_attempt drop column ${column}`);
+  })();
+}
+
 /** Reconstruct exactly schema19 on an exclusive synthetic fixture. */
 export function removeIntegratedSummaryFixtureSchema(
   db: Database.Database,
 ): void {
+  removeSizeAwareSummaryFixtureSchema(db);
   db.transaction(() => {
     for (const name of [
       "summary_import_invalidation",

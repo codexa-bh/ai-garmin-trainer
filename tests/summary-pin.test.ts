@@ -14,7 +14,7 @@ import {
 import { parseSummaryCommand } from "@/lib/memory/summary-controls";
 import { summaryStorage } from "@/lib/db/summary-storage";
 import { readSummaryPin } from "@/lib/db/conversation-summary-pin";
-import { projectSummaryPin } from "@/lib/chat/summary-pin";
+import { projectSummaryPin, summaryPinInput } from "@/lib/chat/summary-pin";
 import { replayMessages } from "@/lib/chat/conversation-replay";
 import { renderSummary, type SummaryItem } from "@/lib/memory/summary-policy";
 
@@ -153,16 +153,21 @@ it("serializes the SQLite pin in actual locked-SDK planner and synthesis request
       fetch: countedConversationFetch(transport),
     })("gpt-6-luna"),
   );
-  publish(1);
+  publish(
+    1,
+    "Short weekdays for time; long weekdays rejected. " +
+      "週末は長く 🥾 ".repeat(90),
+  );
   ensureConversation("sdk-chat");
   const admission = history.admit("sdk-chat", "Why that choice?").admission;
   let replay = history.read(admission);
   const pin = await projectSummaryPin(
     replay.segment.pinnedSummary!,
-    counter(),
+    { ...counter(), count: vi.fn(async () => 3000) },
     new AbortController().signal,
   );
   expect(history.projectSummary!(replay, pin)).toBe(true);
+  expect(readSummaryPin("sdk-chat")?.tokens).toBeGreaterThan(2048);
   async function serialize() {
     for (const purpose of ["planner", "final_synthesis"] as const)
       await generate({
@@ -175,6 +180,7 @@ it("serializes the SQLite pin in actual locked-SDK planner and synthesis request
         conversation: {
           history: replayMessages(history.read(admission)),
           allowSoftLimit: false,
+          memoryTokens: readSummaryPin("sdk-chat")?.tokens ?? 0,
         },
       });
   }
@@ -365,7 +371,7 @@ it("corrupt snapshot bytes are preserved, never injected or silently repaired", 
   ).toEqual({ payload: '{"unknown":"preserve"}' });
 });
 
-it("projection counts exact candidate strings and drops whole low-priority items without severing lineage", async () => {
+it("measures memory above the former ceiling without clipping whole meanings or lineage", async () => {
   publish(1);
   ensureConversation("A");
   const original = readSummaryPin("A")!;
@@ -389,13 +395,34 @@ it("projection counts exact candidate strings and drops whole low-priority items
     { count, generate: async () => "unused" },
     new AbortController().signal,
   );
-  expect(projected.tokens).toBeLessThanOrEqual(2048);
-  expect(projected.omitted).toBeGreaterThan(0);
+  expect(projected.tokens).toBeGreaterThan(2048);
+  expect(projected.tokens).toBe(
+    new TextEncoder().encode(summaryPinInput(pin)).length,
+  );
+  expect(projected.omitted).toBe(0);
+  expect(projected.value).toEqual(pin.value);
   expect(projected.value.items[0]!.id).toBe("item0");
   for (const item of projected.value.items) expect(items).toContainEqual(item);
   expect(projected.value.text).toBe(renderSummary(projected.value.items));
-  expect(count.mock.calls.length).toBeLessThanOrEqual(10);
+  expect(count).toHaveBeenCalledTimes(1);
   expect(pin.value.items).toHaveLength(64);
+});
+
+it("interrupts projection even if the accounting promise ignores cancellation", async () => {
+  publish(1);
+  ensureConversation("count-cancel");
+  const abort = new AbortController();
+  const pending = projectSummaryPin(
+    readSummaryPin("count-cancel")!,
+    { count: () => new Promise(() => {}), generate: async () => "unused" },
+    abort.signal,
+  );
+  await Promise.resolve();
+  abort.abort();
+  await expect(pending).rejects.toThrow(
+    "conversation_token_accounting_interrupted",
+  );
+  expect(readSummaryPin("count-cancel")?.tokens).toBeNull();
 });
 
 it("Refresh compares latest summary and segment revisions and refuses a busy chat", () => {

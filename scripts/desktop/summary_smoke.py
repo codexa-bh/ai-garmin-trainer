@@ -2,11 +2,15 @@
 import contextlib
 import http.client
 import json
+import math
 from pathlib import Path
 import subprocess
 import time
 import uuid
 from native_smoke import private_json, readonly
+
+
+PRICE_BASIS = 'luna-standard-2026-11-04/usd-per-million:0.10-input,0.50-output;reserve:0.25-input'
 
 
 def prepare_summary(run):
@@ -48,8 +52,10 @@ def status(run, action=None):
         if response.status != 200 or len(raw) > 4096:
             raise ValueError('Summary status/control refused or output exceeded bound')
         value = json.loads(raw)
-        if set(value) != {'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
+        if set(value) != {'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd', 'priceBasis', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
             raise ValueError('Unknown summary telemetry; no raw content accepted')
+        if value['priceBasis'] != PRICE_BASIS or any(type(value[key]) not in (int, float) or not math.isfinite(value[key]) or value[key] < 0 for key in ('reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd')):
+            raise ValueError('Unknown summary cost accounting; no invoice claim')
         if value['version'] != 1 or set(value['expected']) != {'revision', 'privacy', 'control', 'manual'} or any(type(n) is not int or n < 0 for n in value['expected'].values()):
             raise ValueError('Unknown summary authority; no mutation authorized')
         return value

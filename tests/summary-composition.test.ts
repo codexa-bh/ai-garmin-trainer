@@ -13,8 +13,18 @@ import {
   tickCrossChatSummary,
   readCrossChatSummary,
   changeCrossChatSummary,
+  catchUpCrossChatSummary,
+  prepareSummaryAdoption,
 } from "@/lib/memory/summary-composition";
-import { stopSummaryLifetime } from "@/lib/memory/summary-lifetime";
+import {
+  stopSummaryLifetime,
+  summaryLifetime,
+  installSummaryWake,
+  notifySummaryActivity,
+} from "@/lib/memory/summary-lifetime";
+import { ensureConversation } from "@/lib/db/conversation-repository";
+import { readSummaryPin } from "@/lib/db/conversation-summary-pin";
+import { SUMMARY_DEADLINE_MS } from "@/lib/memory/summary-policy";
 import { activationEnvironment } from "../scripts/desktop/settings";
 let db: Database.Database, boot: string;
 const f = vi.hoisted(() => ({ generate: vi.fn(), keys: [] as string[] }));
@@ -93,7 +103,62 @@ function valid(_system: string, prompt: string) {
   };
 }
 describe("actual production summary composition and foreground cancellation", () => {
-  it("passive status never generates; a never-settling provider is bounded at 15s, shutdown stops further work", async () => {
+  it("owns activity notification only in the native lifetime and stops it on shutdown", () => {
+    const wake = vi.fn();
+    notifySummaryActivity();
+    installSummaryWake(wake);
+    notifySummaryActivity();
+    expect(wake).toHaveBeenCalledTimes(1);
+    stopSummaryLifetime();
+    notifySummaryActivity();
+    expect(wake).toHaveBeenCalledTimes(1);
+  });
+  it("bounds explicit catch-up at 8 seconds and never adopts late work into a newly frozen null pin", async () => {
+    await tickCrossChatSummary(boot);
+    seed();
+    let release!: (value: ReturnType<typeof valid>) => void;
+    let prompt = "";
+    f.generate.mockImplementation((_system: string, p: string) => {
+      prompt = p;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+    const catchup = catchUpCrossChatSummary();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.generate).toHaveBeenCalledTimes(1);
+    const active = summaryLifetime().inFlight;
+    await vi.advanceTimersByTimeAsync(6000);
+    await catchup;
+    expect(readCrossChatSummary().pending).toBe(4);
+    ensureConversation("after-timeout");
+    expect(readSummaryPin("after-timeout")).toBeNull();
+    release(valid("", prompt));
+    await active;
+    expect(readCrossChatSummary().frontier).toBe(4);
+    expect(readSummaryPin("after-timeout")).toBeNull();
+  });
+  it("privacy/control changes during the explicit wait prevent stale Refresh adoption", async () => {
+    await tickCrossChatSummary(boot);
+    seed();
+    ensureConversation("refresh-target");
+    f.generate.mockImplementation(() => new Promise(() => {}));
+    const prepared = prepareSummaryAdoption({
+      version: 1,
+      action: "refresh",
+      expected: summaryStorage.version(),
+      conversationId: "refresh-target",
+      segmentRevision: 0,
+    });
+    const observed = expect(prepared).rejects.toThrow("summary_stale_action");
+    await vi.advanceTimersByTimeAsync(2000);
+    changeCrossChatSummary("disable");
+    await vi.advanceTimersByTimeAsync(1000);
+    await observed;
+    expect(readSummaryPin("refresh-target")).toBeNull();
+    expect(summaryStorage.status(Date.now()).frontier).toBe(0);
+  });
+  it("passive status never generates; a never-settling provider is bounded by the whole-operation deadline, shutdown stops further work", async () => {
     f.generate.mockImplementation(() => new Promise(() => {}));
     await due();
     expect(readCrossChatSummary()).toMatchObject({
@@ -106,7 +171,7 @@ describe("actual production summary composition and foreground cancellation", ()
     expect(f.generate).toHaveBeenCalledTimes(1);
     await tickCrossChatSummary(boot);
     expect(f.generate).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(SUMMARY_DEADLINE_MS);
     await running;
     expect(readCrossChatSummary()).toMatchObject({
       frontier: 0,
