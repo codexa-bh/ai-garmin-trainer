@@ -318,6 +318,75 @@ A settled owned restart must preserve the exact compacted segment, source hashes
 compaction accounting and sealed pin. This does not certify in-flight service
 interruption, old/new baseline comparison or primary activation.
 
+## Finite size-aware capacity and freshness proof
+
+Historical T0270/T0272 presets retain their closed capability contracts, not a
+valid spending envelope for changed summary allowances/cadence. They convey no
+T0274 authority. The task-specific current case is:
+
+```bash
+npm run smoke:memory:capacity -- --scratch <canonical-task-scratch> \
+  --bundle <same-source-ordinary-app> --approved-t0274-synthetic-luna-usd50
+```
+
+The flag records genuine prior operator consent; it never supplies consent.
+Native alone hands the existing normal OpenAI slot to the isolated backend
+through its private frame. No Python/renderer key readback, settings-key copy,
+private history, Garmin token, provider fallback or normal-app operation occurs.
+The new exact native preset accepts only keyless run settings On/Luna/20000,
+contract2, the fixed T0274 catalog and existing disabled-by-unavailability local
+embedding configuration. Historical presets, arbitrary fields, Off, copied keys,
+nonempty token directories and history-setup combinations refuse.
+
+The existing stopped-copy seed authors18 dense multilingual manual preferences
+(12000–20000 rendered scalars) and one linked fictional completion through current
+storage/history owners. Real inference must maintain that prior with observed
+input above8000, and both planner/final synthesis must consume an exact measured
+full pin above2048. This proves maintenance/consumption, not that the provider
+generated all seeded manual facts. One ordinary no-tool small turn chooses a new
+fictional label through the valid `direct_answer` path; New chat requests bounded catch-up. If it times out, retain its honest frozen
+pin, wait only by passive observation and allow one explicit Refresh. No late silent
+adoption or repeated Continue loop. Two old manual facts and that new label provide
+one representative answer observation, not every-fact recall. That question also
+requests exactly one existing local SQLite-only `getSyncStatus` read, without
+starting sync/contacting Garmin, to exercise distinct planner/final-synthesis calls.
+Require both consumed-pin call records and that successful read-only tool; do not
+mislabel a healthy no-tool direct answer as failed planner/synthesis. Publications and a
+second actual opaque-native boot must preserve both sealed snapshots; the restarted
+chat must actually consume its existing pin again.
+
+One120-second whole-boot alarm bounds startup, reads/slow trickles, SQLite and UI
+work; allow40seconds for owned shutdown/parent-loss settlement. At two-second
+native spacing plus at most four adoption commands/four opportunities each, at
+most97 summary attempts cost at mostUSD11.73312 under the qualified20000 policy
+(input258304/output112768, conservativeUSD0.25/0.50 per million). ReserveUSD12
+before each boot. New-chat pins are intentionally unmeasured until their first
+actual turn. ReserveUSD2 before each chat socket: three finite calls at the entire
+1050000 context ceiling, worst long-input cache-write/output rates and unchanged
+4096 output/H/title allowances cost at mostUSD1.595216. The real turn owner then
+counts/persists the whole pin; assert the measured above2048 consumption afterward,
+not a fake pre-count or a new independent memory cap. The seed exports actual
+policy values; any changed allowance/cadence/price basis refuses before paid use.
+
+Two planned boots and three chats reserveUSD30 under the separately approved
+USD50 **cumulative** ceiling. The fixed private ledger durably/exclusively records
+claims before effects, including failed/unknown outcomes; never refund/reset them
+or infer an invoice. `--continue-receipt <exact-settled-failure>` requires prior
+original-preservation/settlement and matching immutable claims; diagnose first,
+never replay a probabilistic semantic failure until green. Partial/unaccounted
+claims and successful-case replay refuse. Source/artifact bindings remain attached
+to every claim. No recurring CI/provider job is added; cheap seed/Python/native
+positive and negative contracts must pass before live use.
+
+Receipts retain current source/artifact/fixture/usage, estimates versus reservations,
+catch-up timings, actual selected-pin answer context and preserved originals/owned
+settlement. Wide/narrow ordinary Trainer captures remain hide-by-default and local;
+they do not expose/verify masked memory/cost/transcript text or certify trusted OS
+input. Keyless outage/privacy coverage remains separately attributed. This case
+establishes neither live service-outage behavior, cache savings, billing accuracy,
+private history nor installed activation. Primary backup/rehearsal/write/settings,
+bundle replacement and normal-app stop/restart still require separate exact approval.
+
 ## Keyless ordinary summary Settings round-trip
 
 `npm run smoke:summary:settings -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app>`
