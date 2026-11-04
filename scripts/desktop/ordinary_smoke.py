@@ -15,17 +15,11 @@ import stat
 import subprocess
 import time
 import uuid
-from native_smoke import Observer, Run, canonical, fingerprint, private_json, readonly, source_identity
+from native_smoke import REPO, Observer, Run, canonical, fingerprint, private_json, readonly, source_identity
+from ordinary_identity import (inventory_hash, ordinary_preparation, preparation_directory,
+                               source_snapshot, verify_ordinary)
+from smoke_build import digest_file, preparation_lock
 from release_smoke import audit
-
-
-def inventory_hash(inventory):
-    digest = hashlib.sha256()
-    for path, content in sorted(inventory.items()):
-        if any(char in path for char in '\x00\r\n'):
-            raise ValueError('Unrepresentable inventory path')
-        digest.update((path + '\x00' + content + '\n').encode())
-    return digest.hexdigest()
 
 
 def private_directory(path):
@@ -37,9 +31,23 @@ def private_directory(path):
 
 
 class OrdinaryRun(Run):
-    def __init__(self, scratch, database, source, bundle, inventory, *, history_setup=None):
+    def __init__(self, scratch, database, source, bundle, inventory, *, history_setup=None, verified=None):
         if history_setup not in (None, 'create-new', 'use-existing'):
             raise ValueError('Finite history setup scope required')
+        # The main runner retains the lock for the entire scenario. Direct callers
+        # keep their full-source admission and lock the verification/copy boundary.
+        with contextlib.nullcontext() if verified else preparation_lock(preparation_directory(REPO)):
+            verified = verified or verify_ordinary(REPO, bundle, source, inventory)
+            if verified['current']['source'] != source:
+                raise ValueError('Current driver binding mismatch')
+            self.prepare_ordinary(scratch, database, bundle, inventory, verified, history_setup)
+
+    def prepare_ordinary(self, scratch, database, bundle, inventory, verified, history_setup):
+        original = verified['provenance']
+        self.build_source = original['buildSourceFingerprint']
+        self.build_context = original['buildContext']
+        self.driver_source = verified['current']['source']
+        source = original['sourceFingerprint']
         super().__init__(scratch, database, source, ordinary=True)
         if history_setup:
             (self.root / 'config/settings-v2.json').rename(self.root / 'prepared-keyless-settings.json')
@@ -55,8 +63,9 @@ class OrdinaryRun(Run):
             raise ValueError('Ordinary bundle copy changed inventory')
         self.binary = self.bundle / 'Contents/MacOS/garmin-trainer-desktop'
         self.descriptor = {
-            'schemaVersion': 1, 'runId': self.id, 'root': str(self.root),
-            'sourceFingerprint': source, 'artifactInventoryHash': self.artifact,
+            'schemaVersion': 2, 'runId': self.id, 'root': str(self.root),
+            'sourceFingerprint': source, 'buildSourceFingerprint': self.build_source,
+            'buildContext': self.build_context, 'artifactInventoryHash': self.artifact,
             'controlPort': self.config['port'], 'capability': self.config['token'],
         }
         if history_setup:
@@ -69,6 +78,8 @@ class OrdinaryRun(Run):
         self.previous_token = None
         private_json(self.root / 'artifact.json', {'artifactKind': 'ordinary', 'sourceFingerprint': source,
                      'artifactInventoryHash': self.artifact, 'files': len(inventory),
+                     'buildSourceFingerprint': self.build_source, 'buildContext': self.build_context,
+                     'currentDriverSource': self.driver_source,
                      'bundleBytesRewritten': False, 'bundleIdentityRewritten': False})
 
     def prepare_composer(self, eligibility=None):
@@ -375,11 +386,14 @@ class OrdinaryRun(Run):
 
     def accept_identity(self, identity):
         boot = identity.get('boot')
-        valid = (identity.get('runId') == self.id and identity.get('source') == self.config['source']
+        valid = (type(identity.get('schemaVersion')) is int and identity['schemaVersion'] == 1
+                 and identity.get('runId') == self.id and identity.get('source') == self.config['source']
                  and identity.get('pid') == self.child.pid and identity.get('database') == str(self.database)
                  and identity.get('appIdentity') == 'com.codexa.garmin-trainer.ordinary.r' + self.id.replace('-', '')
                  and identity.get('artifactKind') == 'ordinary' and identity.get('buildMode') == 'release'
-                 and identity.get('launchMode') == 'isolated' and identity.get('controlContract') == 'trainer-ordinary-isolated/v1'
+                 and identity.get('launchMode') == 'isolated' and identity.get('controlContract') == 'trainer-ordinary-isolated/v2'
+                 and identity.get('buildSourceFingerprint') == self.build_source
+                 and identity.get('buildContext') == self.build_context
                  and identity.get('artifactInventoryHash') == self.artifact
                  and isinstance(boot, str) and str(uuid.UUID(boot)) == boot and boot != self.previous_boot)
         if valid:
@@ -550,13 +564,26 @@ def main():
     database = prepared.database
     bundle = canonical(args.bundle)
     source = source_identity()
-    inventory = audit(bundle)
-    provenance = json.loads((bundle / 'Contents/Resources/resources/provenance.json').read_text())
-    if provenance.get('sourceFingerprint') != source:
-        raise ValueError('Ordinary bundle/source mismatch; build current final inputs first')
+    with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
+        execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory)
+
+
+def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory):
+    database = prepared.database
+    def verify_current():
+        prepared.verify_current()
+        verify_ordinary(REPO, bundle, source, inventory)
     runs = []
     observer = None
-    receipt = {'source': source, 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
+    receipt = {'source': source, 'currentDriver': verified['current'],
+               'artifactOriginalSource': verified['provenance']['sourceFingerprint'],
+               'artifactBuildSource': verified['provenance']['buildSourceFingerprint'],
+               'buildContext': verified['context'], 'artifactReused': True,
+               'buildStageRequests': {'nextBuild': 0, 'resourceAssembly': 0, 'nativeBuild': 0},
+               'fixtureIdentity': {'databaseSha256': digest_file(database), 'logical': prepared.original,
+                                   'preparationSha256': digest_file(prepared.root / 'preparation.json'),
+                                   'selectionSha256': digest_file(prepared.root / 'selection.json')},
+               'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
                'scenarioPassed': False, 'summaryEngineKeylessRequested': args.summary_engine, 'conversationSelectionRequested': args.conversation_selection, 'composerFooterRequested': args.composer_footer, 'modelEligibilityRequested': args.model_eligibility, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
                'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
                'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
@@ -566,8 +593,9 @@ def main():
     try:
         for index in range(2):
             prepared.verify_current()
-            runs.append(OrdinaryRun(scratch, database, source, bundle, inventory))
-            runs[-1].before_start = prepared.verify_current
+            verify_current()
+            runs.append(OrdinaryRun(scratch, database, source, bundle, inventory, verified=verified))
+            runs[-1].before_start = verify_current
             if args.summary_engine:
                 from summary_smoke import prepare_summary
                 prepare_summary(runs[-1])
@@ -577,7 +605,7 @@ def main():
             resources.retain('prepare-only outputs promised for later use; zero launches')
             receipt['preparedOnly'] = True
             return
-        observer = Observer(scratch)
+        observer = Observer(scratch, preparation_locked=True)
         for run in runs:
             prepared.verify_current()
             run.observer = observer
@@ -613,7 +641,11 @@ def main():
             run.verify_parent_death(sentinel)
         if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
             raise ValueError('Source/artifact changed during execution')
+        verify_current()
         receipt['scenarioPassed'] = True
+    except BaseException as error:
+        receipt['scenarioFailure'] = type(error).__name__ + ': fresh scenario did not pass; inspect retained run evidence'
+        raise
     finally:
         with resources.preserve_failure():
             for run in runs:
@@ -627,11 +659,13 @@ def main():
                 except Exception as error:
                     errors.append(type(error).__name__ + ': observer failed')
             prepared.verify_current()
+            receipt['currentDriverUnchanged'] = source_snapshot(REPO) == verified['current']
+            receipt['fixtureBytesUnchanged'] = digest_file(database) == receipt['fixtureIdentity']['databaseSha256']
             with contextlib.closing(readonly(database)) as original:
                 receipt['inputUnchanged'] = all(fingerprint(original) == run.original for run in runs)
             receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors})
             private_json(scratch / ('ordinary-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
-            if errors or not receipt['inputUnchanged']:
+            if errors or not receipt['inputUnchanged'] or not receipt['currentDriverUnchanged'] or not receipt['fixtureBytesUnchanged']:
                 raise RuntimeError('Original preservation/owned shutdown gate failed; retained private evidence')
             if args.prepare_only:
                 print(json.dumps(receipt))

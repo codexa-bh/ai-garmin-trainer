@@ -35,7 +35,10 @@ class OrdinaryContracts(unittest.TestCase):
         self.temporary.cleanup()
 
     def run_fixture(self):
-        return OrdinaryRun(self.root, self.source, 'a' * 64, self.bundle, self.inventory)
+        # Identity admission has real filesystem/mutation contracts in ordinary_identity_test.
+        verified = {'provenance': {'sourceFingerprint': 'a' * 64, 'buildSourceFingerprint': 'd' * 64,
+                                  'buildContext': 'e' * 64}, 'current': {'source': 'a' * 64}}
+        return OrdinaryRun(self.root, self.source, 'a' * 64, self.bundle, self.inventory, verified=verified)
 
     def test_independent_private_preparation_and_unmodified_bundle_copy(self):
         first, second = self.run_fixture(), self.run_fixture()
@@ -51,7 +54,7 @@ class OrdinaryContracts(unittest.TestCase):
                 self.assertEqual((run.root / name).stat().st_mode & 0o777, 0o700)
             self.assertEqual((run.root / 'launch.json').stat().st_mode & 0o777, 0o600)
             descriptor = json.loads((run.root / 'launch.json').read_text())
-            self.assertEqual(set(descriptor), {'schemaVersion', 'runId', 'root', 'sourceFingerprint', 'artifactInventoryHash', 'controlPort', 'capability'})
+            self.assertEqual(set(descriptor), {'schemaVersion', 'runId', 'root', 'sourceFingerprint', 'buildSourceFingerprint', 'buildContext', 'artifactInventoryHash', 'controlPort', 'capability'})
             self.assertEqual(descriptor['artifactInventoryHash'], inventory_hash(self.inventory))
 
     def test_launch_keeps_home_and_excludes_capability_from_argv_env_logs(self):
@@ -127,18 +130,61 @@ class OrdinaryContracts(unittest.TestCase):
     def test_exact_identity_and_new_boot_required_and_request_bound(self):
         run = self.run_fixture()
         run.child = SimpleNamespace(pid=12345)
-        identity = {'runId': run.id, 'source': run.config['source'], 'pid': 12345, 'database': str(run.database),
+        identity = {'schemaVersion': 1, 'runId': run.id, 'source': run.config['source'], 'pid': 12345, 'database': str(run.database),
                     'appIdentity': 'com.codexa.garmin-trainer.ordinary.r' + run.id.replace('-', ''),
-                    'artifactKind': 'ordinary', 'buildMode': 'release', 'launchMode': 'isolated', 'controlContract': 'trainer-ordinary-isolated/v1',
+                    'artifactKind': 'ordinary', 'buildMode': 'release', 'launchMode': 'isolated', 'controlContract': 'trainer-ordinary-isolated/v2', 'buildSourceFingerprint': run.build_source, 'buildContext': run.build_context,
                     'artifactInventoryHash': run.artifact, 'boot': str(uuid.uuid4())}
-        for key, wrong in [('runId', str(uuid.uuid4())), ('source', 'b' * 64), ('pid', 1), ('database', '/normal/data.sqlite'),
-                           ('buildMode', 'debug'), ('artifactKind', 'probe'), ('controlContract', 'wrong-version'), ('artifactInventoryHash', 'b' * 64)]:
+        for key, wrong in [('schemaVersion', 2), ('schemaVersion', True), ('runId', str(uuid.uuid4())), ('source', 'b' * 64), ('pid', 1), ('database', '/normal/data.sqlite'),
+                           ('buildMode', 'debug'), ('artifactKind', 'probe'), ('controlContract', 'wrong-version'), ('artifactInventoryHash', 'b' * 64),
+                           ('buildSourceFingerprint', 'f' * 64), ('buildContext', 'f' * 64)]:
             self.assertFalse(run.accept_identity({**identity, key: wrong}))
         self.assertTrue(run.accept_identity(identity))
         self.assertEqual(run.request({'type': 'observe'}, 'unit')['expectedBoot'], identity['boot'])
         run.previous_boot = identity['boot']
         self.assertFalse(run.accept_identity(identity))
         run.child = None
+
+    def test_fresh_failed_scenario_on_hit_writes_its_own_false_receipt_without_build_requests(self):
+        from ordinary_smoke import execute_ordinary
+        from native_smoke import fingerprint, readonly
+        runs = [self.run_fixture(), self.run_fixture()]
+        for index, run in enumerate(runs):
+            def start(_binary, run=run, index=index):
+                run.origin, run.boot = 'http://127.0.0.1:' + str(10000 + index), str(uuid.uuid4())
+            run.start = start
+            run.stop = lambda: None
+            run.verify_admission_denials = lambda: None
+            def failed():
+                raise AssertionError('fresh scenario oracle failed')
+            run.scenario = failed
+        with contextlib.closing(readonly(self.source)) as database:
+            original = fingerprint(database)
+        private = self.root / 'preparation.json'
+        private.write_text('{}')
+        (self.root / 'selection.json').write_text('{}')
+        prepared = SimpleNamespace(database=self.source, original=original, root=self.root,
+                                   provenance={'route': 'unit-authored-synthetic'}, verify_current=lambda: None)
+        verified = {'current': {'source': 'a' * 64, 'driver': 'f' * 64},
+                    'provenance': {'sourceFingerprint': 'b' * 64, 'buildSourceFingerprint': 'd' * 64}, 'context': 'e' * 64}
+        args = SimpleNamespace(summary_engine=False, conversation_selection=False, composer_footer=False,
+                               model_eligibility=False, prepare_only=False)
+        observer = SimpleNamespace(stop=lambda pids: {'ownedNativeFrontmost': False})
+        with patch('ordinary_smoke.OrdinaryRun', side_effect=runs), patch('ordinary_smoke.Observer', return_value=observer), \
+             patch('ordinary_smoke.verify_ordinary', return_value=verified), patch('ordinary_smoke.source_snapshot', return_value=verified['current']), \
+             patch('ordinary_smoke.security'), patch('ordinary_identity.run_build') as build:
+            with self.assertRaisesRegex(AssertionError, 'fresh scenario oracle'):
+                execute_ordinary(args, self.root, prepared, self.bundle, 'a' * 64, verified, self.inventory)
+            build.assert_not_called()
+        receipt = json.loads(next(self.root.glob('ordinary-receipt-*.json')).read_text())
+        self.assertFalse(receipt['scenarioPassed'])
+        self.assertTrue(receipt['artifactReused'])
+        self.assertEqual(receipt['artifactOriginalSource'], 'b' * 64)
+        self.assertEqual(receipt['source'], 'a' * 64)
+        self.assertEqual(sum(receipt['buildStageRequests'].values()), 0)
+        self.assertTrue(receipt['currentDriverUnchanged'])
+        self.assertTrue(receipt['inputUnchanged'])
+        self.assertEqual(receipt['shutdownErrors'], [])
+        self.assertIn('AssertionError', receipt['scenarioFailure'])
 
     def test_capture_navigation_returns_to_visible_wide_controls_before_each_destination(self):
         run = self.run_fixture()

@@ -121,6 +121,12 @@ class PreparationTests(unittest.TestCase):
             self.assertEqual(initial, key())
             with patch.dict(os.environ, {'RUSTFLAGS': 'new config'}):
                 self.assertNotEqual(initial, key())
+            with patch.dict(os.environ, {'PATH': '/reviewed/bin:/system/bin'}):
+                ordered = key()
+                with patch.dict(os.environ, {'PATH': '/reviewed/bin:/reviewed/bin:/system/bin:/system/bin'}):
+                    self.assertEqual(ordered, key())  # Nested npm duplicates preserve resolution.
+                with patch.dict(os.environ, {'PATH': '/system/bin:/reviewed/bin'}):
+                    self.assertNotEqual(ordered, key())
             with patch.object(smoke_build.subprocess, 'check_output', return_value=b'tool v2'):
                 self.assertNotEqual(initial, key())
             alias = dependencies / 'foreign'
@@ -162,6 +168,8 @@ class PreparationTests(unittest.TestCase):
         with patch.object(smoke_build.subprocess, 'check_output', return_value=b'version1'), patch.object(smoke_build.subprocess, 'run', side_effect=compile):
             binary = smoke_build.observer_binary(self.repo)
             self.assertEqual(binary, smoke_build.observer_binary(self.repo))
+            with smoke_build.preparation_lock(self.repo / 'dist'):
+                self.assertEqual(binary, smoke_build.observer_binary(self.repo, preparation_locked=True))
             self.assertEqual(len(calls), 1)
             binary.write_bytes(b'corrupt')
             smoke_build.observer_binary(self.repo)

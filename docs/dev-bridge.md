@@ -4,7 +4,7 @@ Routine smoke uses the **real macOS ARM64 Tauri/WebView** through explicit nativ
 
 ## Ordinary-artifact isolated scenario
 
-Build once from final reviewed inputs with `npm run desktop:build`. Then:
+Build once from reviewed build-affecting inputs with `npm run desktop:build`. Then:
 
 ```bash
 npm run smoke:ordinary -- --scratch '/absolute/canonical/private-task-scratch' \
@@ -18,7 +18,7 @@ For Pivan/E0007, the selected workspace's `epics/E0007-ai-garmin-connect-trainer
 
 The runner online-backs up the selected input into two exclusive `ordinary-<UUID>` roots, copies the **unmodified ordinary bundle** outside checkout and verifies every inventory byte. No binary, Info.plist, bundle identity or packaged resource is replaced. It directly launches each owned child with `--isolated-smoke-run <root/launch.json>`; capability is private, not argv/env/URL/log output. `--prepare-only` records independent copies/provenance with zero launches, not smoke success.
 
-Native admits strict schema-v1 descriptor/source/resource/artifact identity before framework state, plugins or windows. It pins private root/subdirectory identities, holds an exclusive lifetime run-directory lock, normally requires existing compatible file-backed v2/v3 settings/run-local DB and keeps ordinary DB preflight/writer leases. Only the explicit history-setup scope below admits genuinely absent run settings and, for Create new, a genuinely absent DB with native-owned identity binding. The fixed run-config v3 file takes authority when present; invalid newest state refuses rather than falling back to v2/v1 or normal settings. Manual native Save retains current catalog/revision validators and run DB/token confinement; the baseline runner prepares compatible keyless v2, not automatic migration. Derived config, app-data, trainer/setup WebView storage and temp stay in the run; HOME is unchanged. Optional selected tokens must be a separately prepared run-local copy. It never imports saved provider keys or provisions login. Invalid intent fails nonzero without normal singleton/config fallback. Same-root live owners refuse; restart requires reaped ownership, settled endpoints/DB lease and a fresh native boot. Before every admitted boot the runner pins its original private root, acquires the namespace lease and atomically publishes a fresh capability over only its known private descriptor; replaced/aliased roots/descriptors refuse without adoption. Prior-boot bearer access and stale boot requests are rejected, including after abrupt parent death. Default launch still uses normal settings/singleton and installs **no** controller/bootstrap/result grant; second-instance arguments never retarget an existing process.
+Native admits strict schema-v2 descriptor/source/build-context/resource/artifact identity before framework state, plugins or windows. It pins private root/subdirectory identities, holds an exclusive lifetime run-directory lock, normally requires existing compatible file-backed v2/v3 settings/run-local DB and keeps ordinary DB preflight/writer leases. Only the explicit history-setup scope below admits genuinely absent run settings and, for Create new, a genuinely absent DB with native-owned identity binding. The fixed run-config v3 file takes authority when present; invalid newest state refuses rather than falling back to v2/v1 or normal settings. Manual native Save retains current catalog/revision validators and run DB/token confinement; the baseline runner prepares compatible keyless v2, not automatic migration. Derived config, app-data, trainer/setup WebView storage and temp stay in the run; HOME is unchanged. Optional selected tokens must be a separately prepared run-local copy. It never imports saved provider keys or provisions login. Invalid intent fails nonzero without normal singleton/config fallback. Same-root live owners refuse; restart requires reaped ownership, settled endpoints/DB lease and a fresh native boot. Before every admitted boot the runner pins its original private root, acquires the namespace lease and atomically publishes a fresh capability over only its known private descriptor; replaced/aliased roots/descriptors refuse without adoption. Prior-boot bearer access and stale boot requests are rejected, including after abrupt parent death. Default launch still uses normal settings/singleton and installs **no** controller/bootstrap/result grant; second-instance arguments never retarget an existing process.
 
 Two authenticated release-native/source/artifact/boot/selected-copy identities and actual hydrated renderer round trips precede navigation, synthetic Goals save and owned restart/persistence. Cross-run, browser, wrong boot, duplicate and private-control rejection are exercised. Capture covers fixed Trainer/Sync/Profile views at wide 1280×850 and narrow 420×850 logical viewports. Masks hide everything by default and reveal only reviewed static labels/controls and this run's saved synthetic Goals. Geometry is preserved: no Profile repositioning or resize/reflow is used. Restoration is unconditional with a bounded renderer expiry. PNGs are local-only, not uploaded; **read/inspect every required image** and record what it verifies. Blank masked areas conceal transcripts, copied facts, paths, diagnostics and private inputs. This is redacted layout evidence, not full unmodified-window or trusted OS-input certification.
 
@@ -807,6 +807,56 @@ npm run smoke:release -- --scratch "$scratch" --input-file '/canonical/smoke-inp
 This inventories every file in the **actual ordinary bundled `.app`**, requires supported isolated admission/control markers and rejects precise legacy debug admission/grant/probe markers. Shared controller/callback code is intentionally present, not proof it is enabled on default launches. The command then separately builds an explicit `release-probe` executable. The latter changes only run-local paths/app identity/incognito/nonactivation and fixed denial observation. It has no listener/control/capture implementation or result callback. In a copied `.app` with read-only resources it supplies enabling environment, observes no endpoint and a fixed internal WebView request being denied (`command-not-found` or earlier ACL refusal). It reports that reason truthfully, reaps only its live child and verifies the original production artifact inventory unchanged. The unbundled release executable may now be the instrumented variant; ordinary `desktop:build` never enables the feature and its bundled app remains unchanged.
 
 **Static audit plus launch-only-instrumented release denial is not ordinary-artifact launch.** Use `smoke:ordinary` for admitted unmodified outside-checkout ordinary-artifact evidence. Default no-argument app behavior still uses the focus-taking singleton and normal settings, and remains independent: never launch it against an operator singleton/config/primary data merely for certification. Native admission/default-routing regression tests do not claim a live ordinary-default UI certificate. Manual private settings/auth evidence still needs an explicitly arranged noninterfering operator window. Source delivery grants no signing/install/release/primary restart.
+
+## Ordinary build identity and current-driver reuse
+
+`desktop:build` still requests the full Next build, resource assembly and unsigned
+ARM64 native packaging every time. Its worktree preparation lock now also covers
+before/after source/context checks and an atomic ordinary-only v2 inventory stamp.
+Assembly-only, debug/probe stamps, legacy bundles and output existence cannot
+qualify an ordinary artifact. Unsupported provenance requires a full rebuild;
+never rewrite an old bundle, binary, Info.plist, provenance or old receipt.
+
+Provenance v2 preserves `sourceFingerprint` as the artifact's original whole-source
+snapshot plus original Git revision/dirty metadata. `buildSourceFingerprint` uses
+classifier v1: only tracked exact `scripts/desktop/ordinary_smoke.py`,
+`scripts/desktop/ordinary_smoke_test.py` and `docs/dev-bridge.md` are external-only.
+They are not packaged/compiled inputs. Every other tracked or nonignored untracked
+path, deletion, unknown/renamed path, packaged Python, bootstrap, fixture preparer,
+build helper and classifier implementation remains build-affecting. New untracked
+files are never exempt merely because they use an allowed spelling. No Python/docs
+glob exemption exists. Build hashing distinguishes a real file containing the
+literal deletion-marker bytes from an actual deletion, and binds file permission
+modes as well as bytes. Changing the classifier invalidates the build identity.
+
+`buildContext` binds the ordinary release mode, canonical worktree and preparation
+lock inodes, installed dependency bytes (not just a lock claim), locked source
+inputs, platform, tools/SDK and relevant build environment. Native v2 admission and
+`/identity` bind original full source, build source and context to resource
+provenance and compiled constants; complete resource/bundle inventories remain
+mandatory. The native `source` identity always means the original build snapshot,
+not a claim that an old artifact was built from corrected drivers.
+
+`smoke:ordinary` holds the existing worktree lock through verification, independent
+copying, current-input checks at each boot, fresh scenario execution and final
+preservation. An incompatible/missing/ambiguous stamp, changed context/inventory,
+corruption, alias or concurrent input change refuses without an automatic build.
+`ordinary-reuse-*.json` records hit/refused, a bounded reason and zero
+Next/resource/native build requests. A hit always executes the current scenario;
+a fresh oracle failure stays a failed result on a hit, never an old pass.
+`ordinary-receipt-*.json` separately binds current whole-source/external-driver
+hashes, scenario options, actual prepared fixture logical/database/selection/
+provenance hashes, artifact build identity and fresh outcome. Fixture authority
+and `PreparedInput.verify_current` still apply independently at each boot.
+
+Only this ordinary runner gains corrected-driver reuse. Direct scenario callers
+remain compatible with new exact-full-source artifacts; paid/retained-prefix
+callers keep their existing stricter full-source/envelope meanings and refuse a
+changed driver unless independently adapted/qualified. Debug/release-probe source
+verification, `--resources-ready` refusal, mode exclusions, immutable outside-
+checkout copies and private writable run state are unchanged. Reuse does not
+certify normal singleton/settings/auth, trusted input or real services. Measure
+actual full-build/reuse times; unit counters are not end-to-end savings.
 
 ## Preparation reuse and owned disposal
 

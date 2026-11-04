@@ -73,7 +73,22 @@ describe("Tauri-only product launch contract", () => {
     expect(scripts["desktop:dev"]).toBe(
       "npm run desktop:resources && tauri dev",
     );
-    expect(scripts["desktop:build"]).toContain("tauri build");
+    expect(scripts["desktop:build"]).toBe(
+      "python3 scripts/desktop/ordinary_identity.py",
+    );
+    const ordinaryBuild = readFileSync(
+      join(root, "scripts/desktop/ordinary_identity.py"),
+      "utf8",
+    );
+    // Full native build semantics are executed/asserted by ordinary_identity_test.py.
+    expect(ordinaryBuild).toContain(
+      "run_build(['npm', 'run', 'desktop:resources']",
+    );
+    expect(ordinaryBuild).toContain("'node_modules/.bin/tauri'");
+    expect(ordinaryBuild).toContain(
+      "'--bundles', 'app', '--no-sign', '--no-binary-patching', '--ci'",
+    );
+    expect(ordinaryBuild).not.toMatch(/next\s+(dev|start)\b/);
     for (const name of [
       "bootstrap-local.mjs",
       "restart-local.sh",
