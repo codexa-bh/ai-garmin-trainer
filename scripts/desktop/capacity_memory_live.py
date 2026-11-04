@@ -35,6 +35,8 @@ POLICY = {'input': 258304, 'output': 112768, 'reservedUsd': .12096, 'debounceMs'
           'priceBasis': 'luna-standard-2026-11-04/usd-per-million:0.10-input,0.50-output;reserve:0.25-input'}
 SMALL_TURN = ('In our fictional training discussion I choose cedar pause as my cool-down label. '
               'Give a one-sentence acknowledgement in English. No tools, saves, measurements or Garmin connection.')
+RESTART_ACK = ('In this fictional discussion, acknowledge that the next check-in can wait. '
+               'Reply in one short English sentence. No tools, saves, measurements or Garmin connection.')
 QUESTION = ('Use getSyncStatus once to read this fictional copy\'s local SQLite availability metadata; '
             'do not start sync or contact Garmin. Then, using only this chat\'s pinned fictional memory, '
             'name my reminder channel, weekly rest day, and newly chosen cool-down label. '
@@ -234,7 +236,7 @@ def api(run, method, path, body=None, envelope=None):
         raise ValueError('Only exact authored owned new chats allowed')
     if path == '/api/chat' and (method != 'POST' or envelope is None or not isinstance(body, dict)
             or set(body) != {'conversationId', 'message', 'stream'} or body['stream'] is not False
-            or body['conversationId'] not in run.capacity_conversations or body['message'] not in (SMALL_TURN, QUESTION)):
+            or body['conversationId'] not in run.capacity_conversations or body['message'] not in (SMALL_TURN, QUESTION, RESTART_ACK)):
         raise ValueError('Only reserved authored owned chat allowed')
     adoption = method == 'POST' and path in ('/api/conversations', '/api/cross-chat-summary')
     if path == '/api/cross-chat-summary' and method == 'POST' and (not isinstance(body, dict)
@@ -311,6 +313,12 @@ def large_pin(run, conversation):
     return projected
 
 
+def valid_capacity_tools(tools):
+    diagnostics = [tool for tool in tools if tool == {'tool': 'providerToolSelection', 'status': 'rejected', 'reason': 'tool_budget_exceeded'}]
+    effects = [tool for tool in tools if tool not in diagnostics]
+    return len(diagnostics) <= 1 and effects == [{'tool': 'getSyncStatus', 'status': 'succeeded'}]
+
+
 def answer(run, conversation, message, envelope, *, facts=False):
     adopted = pin(run, conversation)
     if adopted['revision'] is None or adopted['omitted'] != 0:
@@ -318,6 +326,10 @@ def answer(run, conversation, message, envelope, *, facts=False):
     started = time.monotonic()
     status, body = api(run, 'POST', '/api/chat', {'conversationId': conversation, 'message': message, 'stream': False}, envelope)
     observed = answer_observation(status, body, time.monotonic() - started)
+    trace = (body.get('assistant', {}).get('grounding') or {}).get('debugTrace') or {}
+    for index, step in enumerate(trace.get('toolSteps', [])):
+        if index < len(observed['tools']) and step.get('reason') == 'tool_budget_exceeded':
+            observed['tools'][index]['reason'] = 'tool_budget_exceeded'
     # The actual turn owner performs and persists exact SDK measurement once.
     try:
         projected = large_pin(run, conversation)
@@ -335,7 +347,7 @@ def answer(run, conversation, message, envelope, *, facts=False):
     consumed = {call.get('purpose') for call in calls if isinstance((call.get('tokenUsage') or {}).get('inputTokens'), int)
                 and call['tokenUsage']['inputTokens'] >= projected['tokens']}
     expected = {'planner', 'final_synthesis'} if facts else {'direct_answer'}
-    tools_match = observed['tools'] == [{'tool': 'getSyncStatus', 'status': 'succeeded'}] if facts else not observed['tools']
+    tools_match = valid_capacity_tools(observed['tools']) if facts else not observed['tools']
     return observed, expected.issubset(consumed) and tools_match
 
 

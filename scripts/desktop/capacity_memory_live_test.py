@@ -148,6 +148,21 @@ class CapacityLiveContracts(unittest.TestCase):
                 _, passed = live.answer(run, 'owned', live.QUESTION, Mock(), facts=True)
             self.assertEqual(passed, expected)
 
+    def test_only_closed_nonexecution_budget_diagnostic_is_allowed(self):
+        read = {'tool': 'getSyncStatus', 'status': 'succeeded'}
+        diagnostic = {'tool': 'providerToolSelection', 'status': 'rejected', 'reason': 'tool_budget_exceeded'}
+        self.assertTrue(live.valid_capacity_tools([read, diagnostic]))
+        self.assertTrue(live.valid_capacity_tools([read]))
+        for invalid in [
+            [read, {'tool': 'providerToolSelection', 'status': 'rejected'}],
+            [read, {**diagnostic, 'reason': 'unknown_tool'}],
+            [read, {**diagnostic, 'status': 'succeeded'}],
+            [read, diagnostic, diagnostic],
+            [read, {'tool': 'runGarminSync', 'status': 'rejected'}],
+            [{**read, 'status': 'failed'}, diagnostic],
+        ]:
+            self.assertFalse(live.valid_capacity_tools(invalid))
+
     def test_retained_source_refuses_foreign_or_unknown_case_before_database_selection(self):
         with tempfile.TemporaryDirectory() as root:
             evidence = Path(root).resolve()

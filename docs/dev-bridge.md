@@ -351,7 +351,13 @@ one representative answer observation, not every-fact recall. That question also
 requests exactly one existing local SQLite-only `getSyncStatus` read, without
 starting sync/contacting Garmin, to exercise distinct planner/final-synthesis calls.
 Require both consumed-pin call records and that successful read-only tool; do not
-mislabel a healthy no-tool direct answer as failed planner/synthesis. Publications and a
+mislabel a healthy no-tool direct answer as failed planner/synthesis. The finite
+three-execution envelope can emit exactly one rejected `providerToolSelection`
+diagnostic with reason `tool_budget_exceeded` before its reserved synthesis. This
+closed diagnostic explicitly is **not an execution**. Retain it separately while
+requiring exactly one successful `getSyncStatus` effect; every other rejection,
+unknown reason, duplicate diagnostic or extra tool still fails. Never re-ask an
+already-correct factual question just to remove an expected budget diagnostic. Publications and a
 second actual opaque-native boot must preserve both sealed snapshots; the restarted
 chat must actually consume its existing pin again.
 
