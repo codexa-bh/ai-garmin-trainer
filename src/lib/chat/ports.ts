@@ -3,7 +3,6 @@ import type { WeeklyTurn } from "../weekly/contracts";
 import type { LlmDebugTrace } from "@/lib/ai/debug-types";
 import type { TrainerToolStep } from "@/lib/ai/tool-types";
 import type { TrainerProgressCounters } from "@/lib/ai/trainer-progress";
-import type { CompletedTurn } from "@/lib/memory/types";
 import type {
   ConversationRequest,
   ConversationCompactionGeneration,
@@ -67,7 +66,6 @@ export type ChatTurnPorts = {
     history: StoredChatMessage[],
     conversationId: string,
   ): Promise<TrainerSystemPrompt>;
-  addCompletedTurn(input: CompletedTurn): Promise<void>;
   fallbackDebugTrace(input: {
     userRequest: string;
     finalAnswer: string;

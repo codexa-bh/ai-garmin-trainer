@@ -1,14 +1,15 @@
 # Conversation replay and bounded local compaction
 
 This describes the source implementation, not an installed-app upgrade or primary
-DB activation. The [full redesign contract](memory-redesign-contract.md) still
-contains unimplemented global-summary/UI/legacy-transition work.
+DB activation. The [accepted redesign contract](memory-redesign-contract.md) retains
+independent evidence/activation obligations; [integrated memory](memory.md) documents
+the current consumer, controls and explicit historical transition.
 
 ## Supported path and independent states
 
 New, durably linked conversations can use role-preserving replay when the explicit
 Trainer selection is **OpenAI `gpt-6-luna` on Responses**. This does not select a
-model, acquire credentials, change extraction/title settings or substitute an
+model, acquire credentials, change the shared summary/title selection or substitute an
 account. Other models retain the existing bounded legacy context; a requested new
 replay operation on an unqualified adapter refuses rather than flattening roles.
 JSON and stream completion include bounded `conversationContext` metadata naming
@@ -18,18 +19,21 @@ Previously unlinked messages remain browsable with legacy context. Migration doe
 not invent completed pairs or import old chats. A new chat establishes linked
 history; display paging and conversation selection remain separate.
 
-There is no global-summary producer/configuration/scheduler here. The immutable
-segment records an explicit null-summary seam. Legacy semantic retrieval remains
-fresh, separately labelled lower-authority grounding and may be Off/unavailable.
-Local replay/compaction never calls embeddings. Existing best-effort legacy
-post-answer ingestion remains unchanged; no global generation wait is added.
+The [summary owner](cross-chat-summary.md) owns global generation/configuration and
+foreground scheduling. Conversation-owned schema20 freezes/seals latest summary or
+null at explicit creation and adopts only at Refresh/deliberate compaction. Exact
+whole-item projection is at most2048 tokens, without changing the stored global
+revision. Ordinary publication/restart preserves the pin. Legacy semantic retrieval
+and awaited post-answer ingestion are removed; no embedding or summary-provider
+wait is part of answer completion. Optional unqualified routes retain bounded local
+context, not vector retrieval.
 
 ## Requests and authority
 
 Planner and final synthesis have separate stable policy/tool identities. Each
 request serializes stable server policy/tools, untrusted segment/local compact
 state and completed **user and assistant** messages in journal order. Fresh date,
-Profile, normalized data/retrieval and current user input follow that prefix.
+Profile, normalized data and current user input follow that prefix.
 Current-turn native calls/results retain actual call IDs, execution status and
 bounded server-owned evidence. Historical tool envelopes are not reconstructed
 from prose or grounding JSON, and actions are never replayed for pairing.
@@ -39,7 +43,9 @@ endorsement or save permission. Current corrections and fresh verified execution
 retain precedence. Existing complete-read, conflict, side-effect-attempt, terminal
 claim and final-answer-reserve guards still apply. Stable-prefix identity is
 proved separately for equivalent purposes/routes; it is not billed cache savings.
-Compaction, policy/model incompatibility and privacy/source changes are boundaries.
+Refresh, compaction, policy/model incompatibility, expiry and privacy/source/control
+changes are boundaries. Manual edits/Forget/Clear/Off invalidate pins and compact
+derivatives atomically; current correction completion alone gets its updated receipt.
 
 ## Accounting and limits
 
@@ -124,22 +130,26 @@ Timeout, unsafe/invalid output, unavailable accounting/provider, quota, conflict
 or oversize retains the last privacy-valid segment. Continue only if the complete
 request still fits; otherwise preserve transcript and return explicit bounded
 capacity/retry/New chat guidance. `conversationContext` carries only fixed
-publication/failure reason, segment boundary/revision/frontier, input ceiling and
-accounting basis—never source text, keys, paths or raw provider payloads. There is
+publication/failure reason, segment boundary/revision/frontier, consumed summary
+revision or revoked marker, input ceiling and accounting basis—never source text,
+keys, paths or raw provider payloads. New summary-dependent debug copies are removed
+on authority revocation; original answers/pre-existing grounding stay preserved. There is
 no hidden history eviction, provider fallback, unbounded retry or permanent busy
 admission after owned failure/abort.
 
 ## Migration and evidence
 
-Desktop startup/Use existing remains non-migrating and refuses schema17. Explicitly
-rehearse schema18 on an authored disposable populated backup first. Originals,
+Desktop startup/Use existing remains non-migrating and now requires schema20.
+Explicitly rehearse new additive20 changes on an authored populated schema19 backup
+first; historical18/19 migration bytes are unchanged. Originals,
 legacy vectors, Profile, plan/settings/key fields are not converted/backfilled.
-Older schema17 desktop admission refuses schema18; after new writes use a compatible
+Older schema19 desktop admission refuses schema20; after new writes use a compatible
 forward fix or separately reconciled restore, not an unsafe older writer or copy-back.
 Source delivery never authorizes primary migration, activation, restart or release.
 
 `conversation-replay.test.ts` captures actual locked SDK serialized requests with
-fake transport; `conversation-history.test.ts` exercises real SQLite order,
+fake transport; `summary-pin.test.ts` additionally combines SQLite pins, planner/
+synthesis serialization, publication/reopen stability and Refresh. `conversation-history.test.ts` exercises real SQLite order,
 rollback/CAS/reopen/privacy/spend and deterministic multi-round compaction. These
 prove structural/persistence/request contracts, not real Luna quality, billing or
 Garmin behavior. Native artifact/lifecycle evidence and separately authorized

@@ -170,11 +170,24 @@ pub fn execute(app: &tauri::AppHandle, action: Action) -> Result<Value, String> 
     {
         return Err("Wrong first-run selection scope".into());
     }
-    if matches!(action, Action::Capture | Action::CaptureSummaryWide | Action::CaptureSummaryNarrow) {
-        let previous = if matches!(action, Action::Capture) { None } else {
-            let previous = window.inner_size().map_err(|_| "Summary viewport unavailable")?;
-            let width = if matches!(action, Action::CaptureSummaryWide) { 1000.0 } else { 420.0 };
-            window.set_size(tauri::LogicalSize::new(width, 1000.0)).map_err(|_| "Summary viewport refused")?;
+    if matches!(
+        action,
+        Action::Capture | Action::CaptureSummaryWide | Action::CaptureSummaryNarrow
+    ) {
+        let previous = if matches!(action, Action::Capture) {
+            None
+        } else {
+            let previous = window
+                .inner_size()
+                .map_err(|_| "Summary viewport unavailable")?;
+            let width = if matches!(action, Action::CaptureSummaryWide) {
+                1000.0
+            } else {
+                420.0
+            };
+            window
+                .set_size(tauri::LogicalSize::new(width, 1000.0))
+                .map_err(|_| "Summary viewport refused")?;
             Some(previous)
         };
         let result = (|| {
@@ -193,8 +206,13 @@ pub fn execute(app: &tauri::AppHandle, action: Action) -> Result<Value, String> 
             )
         })();
         let _ = window.eval("window.__trainerHistoryRestore && window.__trainerHistoryRestore()");
-        let restored = previous.map(|size| window.set_size(size)).transpose().map_err(|_| "Summary viewport restoration refused");
-        if result.is_ok() { restored?; }
+        let restored = previous
+            .map(|size| window.set_size(size))
+            .transpose()
+            .map_err(|_| "Summary viewport restoration refused");
+        if result.is_ok() {
+            restored?;
+        }
         return result;
     }
     let mut value = serde_json::to_value(evaluate(&window, &action)?)
@@ -229,9 +247,17 @@ mod tests {
             assert!(serde_json::from_value::<Action>(json!(action)).is_err());
         }
         assert!(serde_json::from_value::<Action>(json!("dismissRestart")).is_ok());
-        for action in ["summaryOn", "summaryOff", "captureSummaryWide", "captureSummaryNarrow"] {
+        for action in [
+            "summaryOn",
+            "summaryOff",
+            "captureSummaryWide",
+            "captureSummaryNarrow",
+        ] {
             assert!(serde_json::from_value::<Action>(json!(action)).is_ok());
-            assert!(serde_json::from_value::<Action>(json!({"action":action,"value":"unapproved"})).is_err());
+            assert!(serde_json::from_value::<Action>(
+                json!({"action":action,"value":"unapproved"})
+            )
+            .is_err());
         }
         assert!(serde_json::from_value::<Action>(
             json!({"action":"dismissRestart","value":"private"})

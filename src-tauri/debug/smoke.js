@@ -246,17 +246,19 @@
         document
           .querySelector(".profile-settings-card .pill")
           ?.textContent.trim() === "Profile saved",
-      view: document.querySelector(".settings-sheet")
-        ? "Profile & data"
-        : document.querySelector(".activity-dashboard-active")
-          ? "Activities"
-          : document.querySelector(".health-dashboard-active")
-            ? "Health"
-            : document.querySelector(".training-plan-active")
-              ? "Training Plan"
-              : document.querySelector(".sync-view-active")
-                ? "Sync"
-                : "Trainer",
+      view: document.querySelector(".memory-sheet")
+        ? "Memory"
+        : document.querySelector(".settings-sheet")
+          ? "Profile & data"
+          : document.querySelector(".activity-dashboard-active")
+            ? "Activities"
+            : document.querySelector(".health-dashboard-active")
+              ? "Health"
+              : document.querySelector(".training-plan-active")
+                ? "Training Plan"
+                : document.querySelector(".sync-view-active")
+                  ? "Sync"
+                  : "Trainer",
       // No copied text, control values, transcripts or diagnostics leave the renderer.
     };
   }
@@ -264,6 +266,176 @@
     ["entry_footer_long", "ollama / T0246/Long-local-model-name:exact-tag"],
     ["entry_footer_other", "ollama / T0246/Alternate:Tag"],
   ];
+  // Fixed T0272 synthetic Memory controls; no caller text/ID/selector or export.
+  const memoryText = (updated = false) =>
+    `T0272-${globalThis.__trainerOrdinaryIsolated?.runId}: ${updated ? "Weekends remain optional; poles not chosen." : "Short weekdays chosen for time; long weekdays rejected."}`;
+  function memoryPanel() {
+    return document.querySelector(
+      '.memory-sheet[role="dialog"][aria-labelledby="memory-sheet-heading"] .memory-root-card',
+    );
+  }
+  function memoryObservation(action) {
+    const panel = memoryPanel();
+    const rows = [
+      ...(panel?.querySelectorAll(
+        '[aria-label="Saved summary items"] .memory-text',
+      ) ?? []),
+    ];
+    if (
+      rows.some(
+        (row) => ![memoryText(), memoryText(true)].includes(row.textContent),
+      )
+    )
+      throw Error("Noncanonical Memory source refused");
+    const buttons = [...(panel?.querySelectorAll("button") ?? [])];
+    return {
+      ok: true,
+      action,
+      trustedInput: false,
+      visible: !!panel && visible(panel),
+      loaded: buttons.some(
+        (button) =>
+          name(button) === "Add manual preference" && !button.disabled,
+      ),
+      hasManual: rows.length === 1,
+      updatedManual:
+        rows.length === 1 && rows[0].textContent === memoryText(true),
+      off: buttons.some((button) => name(button) === "Enable processing"),
+      editing: !!panel?.querySelector("textarea"),
+    };
+  }
+  function memoryAction(command) {
+    if (
+      !globalThis.__trainerOrdinaryIsolated ||
+      Object.keys(command).sort().join(",") !== "action,type" ||
+      ![
+        "observe",
+        "open",
+        "close",
+        "reload",
+        "add",
+        "edit",
+        "draft",
+        "draft-update",
+        "save",
+        "forget",
+        "clear",
+        "disable",
+        "enable",
+        "retry",
+        "refresh",
+      ].includes(command.action)
+    )
+      throw Error("Unsupported Memory action/fields");
+    const before = memoryObservation(command.action);
+    if (command.action === "observe") return before;
+    if (command.action === "open") {
+      if (before.visible) throw Error("Memory already open");
+      target("Memory").click();
+    } else {
+      const panel = memoryPanel();
+      if (!before.visible) throw Error("Memory not visible");
+      if (command.action === "close") target("Close memory").click();
+      else if (["draft", "draft-update"].includes(command.action)) {
+        const input = panel.querySelector("textarea");
+        if (
+          !input ||
+          !visible(input) ||
+          input.disabled ||
+          (input.value &&
+            ![memoryText(), memoryText(true)].includes(input.value))
+        )
+          throw Error("Noncanonical Memory draft refused");
+        Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value",
+        ).set.call(input, memoryText(command.action === "draft-update"));
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        if (!before.loaded) throw Error("Memory is busy or unavailable");
+        const labels = {
+          reload: "Reload memory",
+          add: "Add manual preference",
+          edit: "Edit",
+          save: "Save manual edit",
+          forget: "Forget item",
+          clear: "Clear summary",
+          disable: "Disable processing",
+          enable: "Enable processing",
+          retry: "Retry processing",
+          refresh: "Refresh selected chat memory",
+        };
+        const button = target(labels[command.action]);
+        if (!panel.contains(button))
+          throw Error("Memory-only control required");
+        const confirm = window.confirm;
+        try {
+          window.confirm = (message) => {
+            const exact =
+              command.action === "forget"
+                ? "Forget this item and suppress its exact source versions? Original transcripts and other stores remain."
+                : command.action === "clear"
+                  ? "Clear summary, manual items and chat pins? Transcripts, Profile, Garmin, plans and preserved legacy records remain. Future new turns may create memory; backups/provider logs are not erased."
+                  : null;
+            if (message !== exact)
+              throw Error("Unexpected Memory confirmation refused");
+            return true;
+          };
+          button.click();
+        } finally {
+          window.confirm = confirm;
+        }
+      }
+    }
+    return memoryObservation(command.action);
+  }
+  function revealMemory() {
+    const observation = memoryObservation("observe");
+    if (!observation.visible || !observation.loaded)
+      throw Error("Memory capture requires settled canonical state");
+    const panel = memoryPanel();
+    const labels = new Set([
+      "Cross-chat memory",
+      "Selected chat projection",
+      "Saved summary",
+      "Reload memory",
+      "Disable processing",
+      "Enable processing",
+      "Retry processing",
+      "Clear summary",
+      "Refresh selected chat memory",
+      "Add manual preference",
+      "Edit",
+      "Forget item",
+    ]);
+    for (const node of panel.querySelectorAll("h2,h3,button")) {
+      if (
+        node.childElementCount ||
+        !labels.has(node.textContent.trim()) ||
+        !visible(node)
+      )
+        continue;
+      node.setAttribute("data-smoke-reveal", "");
+      for (
+        let parent = node.parentElement;
+        parent && parent !== document.body;
+        parent = parent.parentElement
+      ) {
+        if (
+          [...parent.childNodes].some(
+            (child) =>
+              child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+          )
+        ) {
+          restore();
+          throw Error("Memory capture refuses direct ancestor text");
+        }
+        parent.setAttribute("data-smoke-reveal", "");
+      }
+    }
+  }
+
   let composerTextarea;
   let keysNoSend = false;
   const composerDraft = () =>
@@ -994,6 +1166,7 @@
       trainer: "Trainer",
       composer: "Trainer",
       conversation: "Trainer",
+      memory: "Memory",
       sync: "Sync",
       profile: "Profile & data",
     }[command.view];
@@ -1121,6 +1294,7 @@
       for (const container of containers)
         container.setAttribute("data-smoke-reveal", "");
     }
+    if (command.view === "memory") revealMemory();
     if (command.view === "composer") revealComposer();
     if (command.view === "conversation") revealConversations();
     if (command.view === "tables") revealTables();
@@ -1201,6 +1375,8 @@
         return composerAction(command);
       case "conversation":
         return conversationAction(command);
+      case "memory":
+        return memoryAction(command);
       case "tables":
         return tablesAction(command);
       case "click": {

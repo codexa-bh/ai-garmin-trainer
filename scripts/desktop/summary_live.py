@@ -130,6 +130,19 @@ def unendorsed_question(item):
             and re.search(r'\b(?:not chosen|not decided|undecided|unresolved|unsure|open question)\b', item['text'], re.I) is not None)
 
 
+def rejected_alternative(item):
+    text = item['text'].lower()
+    explicit = ('long' in text and 'week' in text and
+                (item['category'] == 'rejected' or any(word in text for word in ['reject', 'tried', 'stopped'])))
+    # The real imported summary groups choice/rejection/rationale in one goal
+    # item. Its explicit failed-fit clause preserves rejection without requiring
+    # a separate category or exact verb. Do not accept hypothetical fit questions.
+    failed_fit = (item['stance'] == 'user-stated' and item['category'] not in ('question', 'discussion')
+                  and not re.search(r'\b(?:if|whether|might)\b', text)
+                  and re.search(r"\blong(?:er)? weekday (?:sessions|plan|approach) (?:did not|didn't|could not|couldn't) fit\b", text) is not None)
+    return explicit or bool(failed_fit)
+
+
 def observe_summary(run):
     with contextlib.closing(readonly(run.database)) as db:
         state = db.execute('select revision,frontier,payload,checksum from summary_state where id=1').fetchone()
@@ -144,8 +157,7 @@ def observe_summary(run):
                 'retainsShortWeekdays': 'short' in text and 'week' in text,
                 'retainsTimeRationale': any(word in text for word in ['time', 'bicycle', '18:00', 'availab']),
                 'retainsHikingGoal': bool(re.search(r'(?:three|3)[ -]?(?:hours?|h\b)', text)) and 'hik' in text,
-                'retainsRejectedAlternative': any(('long' in item['text'].lower() and 'week' in item['text'].lower() and
-                    (item['category'] == 'rejected' or any(word in item['text'].lower() for word in ['reject', 'tried', 'stopped']))) for item in items),
+                'retainsRejectedAlternative': any(rejected_alternative(item) for item in items),
                 'retainsUnendorsedQuestion': any(unendorsed_question(item) for item in items),
                 'attempts': attempts, 'messages': db.execute('select count(*) from message').fetchone()[0]}
 

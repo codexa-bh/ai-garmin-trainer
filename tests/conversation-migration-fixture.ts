@@ -35,8 +35,33 @@ export function removeConversationHistoryFixtureSchema(
   })();
 }
 
+/** Reconstruct exactly schema19 on an exclusive synthetic fixture. */
+export function removeIntegratedSummaryFixtureSchema(
+  db: Database.Database,
+): void {
+  db.transaction(() => {
+    for (const name of [
+      "summary_import_invalidation",
+      "summary_manual_privacy",
+      "summary_pin_privacy",
+      "summary_pin_control",
+    ])
+      db.exec(`drop trigger ${name}`);
+    for (const name of [
+      "conversation_summary_pin",
+      "summary_manual",
+      "conversation_title_spend",
+      "summary_import",
+      "summary_import_disposition",
+    ])
+      db.exec(`drop table ${name}`);
+    db.exec("alter table summary_attempt drop column import_id");
+  })();
+}
+
 /** Reconstruct exactly the pre-S/schema18 shape on an exclusive synthetic fixture. */
 export function removeGlobalSummaryFixtureSchema(db: Database.Database): void {
+  removeIntegratedSummaryFixtureSchema(db);
   db.transaction(() => {
     for (const name of [
       "summary_completion",

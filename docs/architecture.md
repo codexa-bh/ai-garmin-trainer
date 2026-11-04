@@ -26,7 +26,7 @@ API routes → application orchestration → repositories → SQLite
                      ↓
              validated tool dispatch → SQL result handles → bounded pure math
 
-context ← Profile + normalized Garmin facts + current transcript + semantic memory
+context ← Profile + normalized Garmin facts + local replay + sealed summary pin
 ```
 
 Runtime client closures cannot reach database, connector or provider capabilities.
@@ -406,16 +406,17 @@ connector and AI tool suites retain compatibility coverage. `garmin-history.test
 
 ## Personalization application and adapters
 
-The [proposed memory-redesign contract](memory-redesign-contract.md) and linked
-[acceptance scenarios](memory-redesign-acceptance.md) describe future role-preserving
-history, local compaction and incremental global summaries. The full global/UI
-pin/UI/legacy redesign remains proposed; H and the independent default-Off
-[S producer](cross-chat-summary.md) are separate source slices. S publishes no chat
-pins and never calls embeddings. Summary policy/application owns minimized item patches;
-`db/summary-storage` owns schema19 eligibility/lease/CAS/coverage/spend, the provider
-adapter owns exact Luna transport and composition binds admitted native config.
-One launcher lifetime invokes its private tick route; passive reads create no work.
-Semantic-memory ownership/behavior remains unchanged.
+The [accepted memory contract](memory-redesign-contract.md) and [scenarios](memory-redesign-acceptance.md)
+separate source behavior from evidence/activation. [S](cross-chat-summary.md) owns
+minimized item patches and foreground incremental generation; `db/summary-storage`
+owns eligibility/lease/CAS/coverage/manual/spend and `db/summary-import` owns sealed
+reviewed source selections/dispositions through that same writer. The provider
+adapter owns exact Luna transport; composition binds admitted native config. One
+launcher lifetime invokes its private tick; passive reads create no provider work.
+`chat/summary-pin` is pure whole-item projection policy; conversation-owned
+`db/conversation-summary-pin` seals/adopts/validates snapshots transactionally.
+Schema20 adds those consumer/control/import/title-spend records without rewriting
+18/19. Ordinary chat retires semantic retrieval/ingestion; legacy stores remain.
 
 [Linked conversation replay/local compaction](conversation-history.md) is chat-owned,
 not a second global-memory producer. Pure replay/compaction consumes narrow history
@@ -432,13 +433,13 @@ snapshot. `retrieval-policy.ts` owns ranking, stable ties and render filtering;
 `extraction-policy.ts` owns prompts, parsing and source/privacy validation using
 plain generation results. No inner module imports SQL, environment, HTTP, SDKs
 or composition, including erased types. Existing `TrainerMemoryStore` shapes
-remain the consumer contract, including chat's existing application ports.
+remain compatibility contracts for retained legacy maintenance, not ordinary chat.
 
 `sqlite-storage.ts` retains SQL projections, serialized vectors/source IDs,
 upsert conflict behavior, expiry selection and the 200-row candidate cap.
 `embedding-adapter.ts` owns transport, timeout, normalization and unchanged SHA256
 identities/vectors; `extraction-adapter.ts` selects existing DeepSeek/OpenAI and
-disables tools. Composition preserves startup memory topology; current stores rotate only on shared-key changes, retaining old in-flight stores. Outer chat admission captures one configuration for context/retrieval, completion/ingestion and deferred titles using a prepared-turn WeakMap and AsyncLocalStorage. Native extraction/title provider topology is boot-selected; clearing that key never substitutes another cloud provider. Settings writes
+disables tools. Composition preserves startup memory topology; current stores rotate only on shared-key changes, retaining old in-flight stores. Outer chat admission captures configuration for chat and deferred titles using its prepared-turn WeakMap/AsyncLocalStorage; it no longer constructs a legacy memory store. Titles use the explicit summary model and captured OpenAI key, independently of summary On/Off, with their own durable spend adapter; clearing a key never substitutes another provider. Settings writes
 precede singleton reset and health/list reload. Health never migrates; lazy legacy
 migration still precedes ingestion/retrieval/enabled listing, records its marker
 only after all rows and retains earlier writes on failure. No new retry occurs.
@@ -503,16 +504,21 @@ is sufficient rollback. The legacy `stale`/`staleAfterDays` transport fields mea
 
 Chat follows `route → delivery → chat/composition → chat/turn`.
 `createChatTurns` and `createChatContext` consume feature-owned ports; outer
-composition binds existing storage, semantic memory and provider/orchestrator
+composition binds existing storage/history, summary projection and provider/orchestrator
 adapters. Selection returns a plain generation operation before context reads,
 not an SDK model. Factories bind functions without opening storage or selecting
 providers at import time. Application owners have no HTTP/stream, environment,
 SQLite, singleton memory or SDK dependency, including erased type dependencies. Preparation atomically admits the user/source identity; generation produces a typed
 answer and progress. Schema18 completion atomically links assistant and completion
-journal, then awaits existing best-effort legacy memory and reloads display history.
+journal, then reloads display history without awaiting legacy extraction/embedding or
+global summary work.
 Reviewed Luna uses role replay with exact preflight accounting and bounded local
 compaction; display paging/legacy mode remain independent. Per-use privacy checks
 stop stale work and final delivery; owned failure/abort releases its admission.
+Summary control/manual/expiry authority is checked too, even for null pins. The
+completing correction receives only its own updated receipt. New summary-dependent
+debug copies carry a metadata marker and are removed on revocation; the UI reloads
+committed history while preserving original visible answers and legacy grounding.
 [The current contract](conversation-history.md) records limits and evidence boundaries. JSON and NDJSON share those operations, while delivery owns DTOs,
 debug visibility and the existing stream abort-before-completion boundary.
 

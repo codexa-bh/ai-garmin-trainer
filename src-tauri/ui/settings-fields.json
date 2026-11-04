@@ -17,7 +17,7 @@
   },
   {
     "key": "AI_PROVIDER",
-    "label": "Preserved extraction/title policy (not chat)",
+    "label": "Preserved inactive extraction policy (not chat or titles)",
     "legacy": true,
     "options": ["auto", "openai", "deepseek", "ollama", "openrouter"]
   },
@@ -53,13 +53,19 @@
     "advanced": true
   },
   {
+    "key": "SUMMARY_CONTRACT_VERSION",
+    "label": "Integrated memory settings contract",
+    "default": "2",
+    "legacy": true
+  },
+  {
     "key": "SUMMARY_ENABLED",
-    "label": "Cross-chat summary processing — separate from legacy memory; not used by chat",
+    "label": "Cross-chat summary processing — stable pins in qualified chats",
     "options": ["false", "true"]
   },
   {
     "key": "SUMMARY_MODEL",
-    "label": "Independent summary model — sends minimized user context to selected cloud provider; no fallback",
+    "label": "Shared summary and title model — minimized cloud context; no fallback",
     "options": ["unselected", "gpt-6-luna"]
   },
   {
@@ -70,29 +76,34 @@
   },
   {
     "key": "MEMORY_ENABLED",
-    "label": "Remember useful details",
+    "legacy": true,
+    "label": "Preserved inactive semantic memory",
     "options": ["false", "true"],
     "advanced": true
   },
   {
     "key": "MEMORY_EMBEDDING_PROVIDER",
+    "legacy": true,
     "label": "Embedding provider",
     "options": ["openai", "deterministic", "ollama"],
     "advanced": true
   },
   {
     "key": "MEMORY_EMBEDDING_MODEL",
+    "legacy": true,
     "label": "Embedding model",
     "default": "text-embedding-3-small",
     "advanced": true
   },
   {
     "key": "MEMORY_EMBEDDING_BASE_URL",
+    "legacy": true,
     "label": "Embedding endpoint (optional; Ollama must be local)",
     "advanced": true
   },
   {
     "key": "MEMORY_EMBEDDING_DIMS",
+    "legacy": true,
     "label": "Embedding dimensions",
     "default": "1536",
     "type": "number",
@@ -100,6 +111,7 @@
   },
   {
     "key": "MEMORY_TIMEOUT_MS",
+    "legacy": true,
     "label": "Embedding timeout (milliseconds)",
     "default": "8000",
     "type": "number",
@@ -107,12 +119,14 @@
   },
   {
     "key": "MEMORY_EXTRACTION_MODE",
+    "legacy": true,
     "label": "Memory extraction",
     "options": ["llm", "deterministic", "off"],
     "advanced": true
   },
   {
     "key": "MEMORY_EXTRACTION_TIMEOUT_MS",
+    "legacy": true,
     "label": "Extraction timeout (milliseconds)",
     "default": "3000",
     "type": "number",

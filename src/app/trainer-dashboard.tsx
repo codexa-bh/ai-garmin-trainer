@@ -130,27 +130,12 @@ export function TrainerDashboard() {
     cancelTrainingPlanEdit,
   } = useTrainingPlanFeature({ setStatus });
   const weekly = useWeeklyFeature();
-  const {
-    loadMemories,
-    setEditingMemoryId,
-    setEditingMemoryText,
-    memoryHealth,
-    memoryItems,
-    filteredMemories,
-    memoryMessage,
-    setMemoryEnabled,
-    isMemoryLoading,
-    actOnMemory,
-    memorySearchQuery,
-    setMemorySearchQuery,
-    memoryKindFilter,
-    setMemoryKindFilter,
-    memorySort,
-    setMemorySort,
-    hasMemoryFilters,
-    editingMemoryId,
-    editingMemoryText,
-  } = useMemoryFeature({ setStatus });
+  const memoryFeature = useMemoryFeature({
+    setStatus,
+    onChangeCommitted: (id) =>
+      id ? loadChatHistory(false, id) : Promise.resolve(),
+  });
+  const { loadMemories } = memoryFeature;
   const {
     loadActivities,
     activitySearchQuery,
@@ -260,8 +245,9 @@ export function TrainerDashboard() {
     runInBackground(loadTrainingPlan("startup", false));
     runInBackground(loadImportSummary("startup", false));
   });
-  const loadConversationHistory = useEffectEvent((id: string) => {
-    runInBackground(loadChatHistory(false, id));
+  const loadConversationHistory = useEffectEvent((id: string | null) => {
+    if (id) runInBackground(loadChatHistory(false, id));
+    runInBackground(loadMemories(false, id));
   });
   const restoreSectionTranscript = useEffectEvent(() =>
     restoreTranscriptScrollSnapshot(),
@@ -287,7 +273,7 @@ export function TrainerDashboard() {
     return () => shell?.removeAttribute("data-renderer-ready");
   }, []);
   useEffect(() => {
-    if (conversationId) loadConversationHistory(conversationId);
+    loadConversationHistory(conversationId ?? null);
   }, [conversationId]);
   useLayoutEffect(() => {
     if (!forceNextScrollRef.current && !shouldAutoScrollRef.current) return;
@@ -685,8 +671,7 @@ export function TrainerDashboard() {
   function closeMemoryView() {
     memoryReturnFocusRef.current = true;
     setMemoryOpen(false);
-    setEditingMemoryId(null);
-    setEditingMemoryText("");
+    memoryFeature.cancelMemoryEdit();
   }
 
   function closeHealthDashboard() {
@@ -700,26 +685,12 @@ export function TrainerDashboard() {
 
   const memoryManagementContent = (
     <MemoryContent
-      memoryHealth={memoryHealth}
-      memoryItems={memoryItems}
-      filteredMemories={filteredMemories}
-      memoryMessage={memoryMessage}
+      {...memoryFeature}
       runInBackground={runInBackground}
-      setMemoryEnabled={setMemoryEnabled}
-      isMemoryLoading={isMemoryLoading}
-      loadMemories={loadMemories}
-      actOnMemory={actOnMemory}
-      memorySearchQuery={memorySearchQuery}
-      setMemorySearchQuery={setMemorySearchQuery}
-      memoryKindFilter={memoryKindFilter}
-      setMemoryKindFilter={setMemoryKindFilter}
-      memorySort={memorySort}
-      setMemorySort={setMemorySort}
-      hasMemoryFilters={hasMemoryFilters}
-      editingMemoryId={editingMemoryId}
-      editingMemoryText={editingMemoryText}
-      setEditingMemoryText={setEditingMemoryText}
-      setEditingMemoryId={setEditingMemoryId}
+      onOpenSource={(id) => {
+        closeMemoryView();
+        runInBackground(selectConversation(id));
+      }}
     />
   );
 

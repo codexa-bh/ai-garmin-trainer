@@ -136,6 +136,7 @@ it("preserves migration data, creates no history, is idempotent and detects week
     "17:conversation_title_attempt",
     "18:conversation_completion_and_segments",
     "19:incremental_global_summary",
+    "20:integrated_summary_pins",
   ]);
   expect(
     db.prepare("select count(*) as count from conversation_completion").get(),

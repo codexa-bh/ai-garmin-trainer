@@ -64,9 +64,6 @@ function turnFixture() {
       order.push("context");
       return "context";
     }),
-    addCompletedTurn: vi.fn(async () => {
-      order.push("memory");
-    }),
     fallbackDebugTrace: vi.fn<ChatTurnPorts["fallbackDebugTrace"]>(() => ({
       schemaVersion: 1,
       capturedAt: now.toISOString(),
@@ -80,7 +77,7 @@ function turnFixture() {
 }
 
 describe("chat turn factories with supplied ports, no infrastructure mocks", () => {
-  it("is lazy; preserves synchronous preparation and assistant save before awaiting memory", async () => {
+  it("is lazy; completion persists and returns with no extraction/vector dependency", async () => {
     const { ports, order, messages, app } = turnFixture();
     expect(order).toEqual([]);
     const turn = app.prepareChatTurn("c", "hello");
@@ -101,22 +98,9 @@ describe("chat turn factories with supplied ports, no infrastructure mocks", () 
       "context",
       "generate",
     ]);
-    const gate = deferred();
-    vi.mocked(ports.addCompletedTurn).mockImplementationOnce(
-      () => gate.promise,
-    );
     const completion = app.completeChatTurn(turn, answer);
     expect(messages).toHaveLength(2);
-    expect(order.at(-1)).toBe("save:assistant");
-    expect(ports.addCompletedTurn).toHaveBeenCalledWith({
-      conversationId: "c",
-      userMessageId: "0",
-      assistantMessageId: "1",
-      userText: "hello",
-      assistantText: "answer",
-      completedAt: now,
-    });
-    gate.resolve();
+    expect(order.slice(-2)).toEqual(["save:assistant", "history"]);
     expect((await completion).messages).toEqual(messages);
     expect(order.at(-1)).toBe("history");
   });
@@ -165,9 +149,6 @@ describe("chat turn factories with supplied ports, no infrastructure mocks", () 
         }),
       }),
     );
-    vi.mocked(ports.addCompletedTurn).mockRejectedValueOnce(
-      new Error("offline"),
-    );
     const result = await app.completeChatTurn(turn, answer, {
       failureDebugTraceEnabled: true,
     });
@@ -204,7 +185,6 @@ describe("chat turn factories with supplied ports, no infrastructure mocks", () 
         ).rejects.toThrow("failure");
       }
       expect(messages).toHaveLength(1);
-      expect(ports.addCompletedTurn).not.toHaveBeenCalled();
       if (stage === "select")
         expect(ports.buildSystemContext).not.toHaveBeenCalled();
     },

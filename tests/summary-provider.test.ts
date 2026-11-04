@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { createSummaryGeneration } from "@/lib/memory/summary-provider";
 
 function fixture(
-  options: { count?: number | null; usage?: boolean; status?: number } = {},
+  options: {
+    count?: number | null;
+    usage?: boolean;
+    status?: number;
+    patch?: Record<string, unknown>;
+  } = {},
 ) {
   const requests: { url: string; body: Record<string, unknown> }[] = [];
   const transport = vi.fn<typeof fetch>(async (url, init) => {
@@ -30,13 +35,15 @@ function fixture(
                   content: [
                     {
                       type: "output_text",
-                      text: JSON.stringify({
-                        version: 1,
-                        keep: [],
-                        upsert: [],
-                        remove: [],
-                        coverage: [],
-                      }),
+                      text: JSON.stringify(
+                        options.patch ?? {
+                          version: 1,
+                          keep: [],
+                          upsert: [],
+                          remove: [],
+                          coverage: [],
+                        },
+                      ),
                       annotations: [],
                     },
                   ],
@@ -96,6 +103,66 @@ describe("independent actual SDK Luna summary serialization", () => {
     ])
       expect(infer!.body).not.toHaveProperty(key);
   });
+  it.each(["summary", "title"] as const)(
+    "counts and sends the same strict closed %s output schema, including empty required arrays",
+    async (purpose) => {
+      const { transport, requests } = fixture(
+        purpose === "title" ? { patch: { title: "Authored title" } } : {},
+      );
+      const generation = createSummaryGeneration(
+        "synthetic-not-a-key",
+        transport,
+        () => true,
+        purpose,
+      );
+      await generation.generate(
+        "policy",
+        "authored source",
+        new AbortController().signal,
+      );
+      const text = requests[1]!.body.text as {
+        format: {
+          type: string;
+          strict: boolean;
+          name: string;
+          schema: Record<string, unknown>;
+        };
+      };
+      expect(requests[0]!.body.text).toEqual(text);
+      expect(text.format).toMatchObject({
+        type: "json_schema",
+        strict: true,
+        name: purpose === "title" ? "chat_title" : "summary_patch",
+        schema: { type: "object", additionalProperties: false },
+      });
+      expect(text.format.schema.required).toEqual(
+        purpose === "title"
+          ? ["title"]
+          : ["version", "keep", "upsert", "remove", "coverage"],
+      );
+      if (purpose === "summary") {
+        const properties = text.format.schema.properties as Record<
+          string,
+          { items: Record<string, unknown> }
+        >;
+        for (const key of ["upsert", "remove", "coverage"])
+          expect(properties[key]!.items.additionalProperties).toBe(false);
+        expect(properties.upsert!.items.required).toEqual([
+          "id",
+          "text",
+          "category",
+          "stance",
+          "sourceIds",
+          "priority",
+          "expiresAt",
+          "replaces",
+        ]);
+      }
+      expect(requests[1]!.body.max_output_tokens).toBe(
+        purpose === "title" ? 120 : 2048,
+      );
+    },
+  );
   it.each([8001, null])(
     "refuses oversized/unknown exact accounting %s before inference",
     async (count) => {

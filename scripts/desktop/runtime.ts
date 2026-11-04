@@ -119,7 +119,7 @@ async function main(): Promise<void> {
       }
       // Fixed metadata-only route in the same production composition. No caller
       // URL, private list, probe or generic native HTTP bridge.
-      fetch(`${origin}/api/memory?view=status`, {
+      fetch(`${origin}/api/cross-chat-summary?view=native`, {
         signal: AbortSignal.timeout(2000),
       })
         .then(async (result) => {

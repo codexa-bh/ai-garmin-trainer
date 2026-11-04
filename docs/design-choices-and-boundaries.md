@@ -113,14 +113,15 @@ Non-responsibilities:
 ### Chat application and HTTP delivery
 
 [Reviewed Luna conversation replay/local compaction](conversation-history.md) adds
-schema18 admission/completion, privacy and segment ownership through supplied ports,
-without a global producer. The bounded transcript details below describe the
+schema18 admission/completion, privacy and segment ownership through supplied ports;
+schema20 integrates sealed global-summary pins through the same owners. The bounded transcript details below describe the
 legacy/unqualified path; H instead sends ordered user/assistant messages, fresh
 turn grounding and actual paired current tool envelopes with exact accounting.
 
 `src/lib/chat/context.ts` receives `ChatContextPorts` through `createChatContext`
 and loads bounded local context (40-message history,
-6000-character transcript budget, eight semantic matches and 12 detail summaries)
+6000-character legacy transcript budget and12 detail summaries; ordinary semantic
+retrieval is bound to no results)
 and delegates prompt composition to `ai/context.ts`. It preserves request-time
 current-date grounding and preceding Training Plan proposal continuity.
 
@@ -129,15 +130,17 @@ preparation (user persistence), generation and completion as distinct operations
 progress callbacks; recorded previous failures and current date are typed model
 context, never keyword-triggered routing. It
 never persists an assistant. Completion synchronously persists the assistant,
-awaits best-effort memory ingestion and reloads history. Neither owner imports
+links the completion journal and reloads history without awaiting legacy ingestion
+or global-summary work. Neither owner imports
 HTTP responses, stream controllers, route modules, storage owners, environment,
 provider SDKs or memory singleton implementations, including type-only imports.
 
 `chat/composition.ts` binds the existing adapters lazily. Request-time generation
 selection runs before context reads and returns a plain generation function;
 SDK model objects stay outside policy. Counts and detail availability are read
-before awaited semantic search; activities, health, Profile, athlete/body facts,
-plan preview and clock are read after it. No retries or new async boundaries are
+alongside bounded activities, health, Profile, athlete/body facts, plan preview and
+clock. The retained context port receives an empty semantic result without opening
+the legacy store; qualified replay supplies a sealed lower-authority pin instead. No retries or new async boundaries are
 introduced around synchronous persistence. The pure AI context formatter consumes
 a narrow plan-preview contract rather than a repository-owned plan type.
 
@@ -454,19 +457,27 @@ Non-responsibilities:
 
 ### `src/lib/memory`
 
-Owns semantic retrieval, concise user-derived extraction and inspectable lifecycle
-policy, separately from SQLite, embedding transport and SDK adapters. Application
-factories receive feature-owned ports and plain values; composition alone binds
-storage/providers/configuration/time/identity and retains lazy singleton/reset
-behavior. Startup topology is retained across live key revisions. Current lazy stores rotate credentials without mutating old work; parent chat context, ingestion and deferred titles retain one admitted snapshot. Native extraction/title topology is fixed at boot; key clear never selects another cloud provider. Ranking/filter order, lazy migration partial writes/marker timing,
-null-only fallback and health probe ordering are compatibility contracts.
+Owns incremental text-only summary policy, bounded minimized generation, manual
+controls and reviewed import through feature-owned ports. SQLite adapters own
+seals, CAS, generations, source/disposition and purpose-specific spend; provider
+adapters own exact serialized accounting/transport. Conversation pin/compaction
+ownership remains in chat/DB conversation adapters, not a new global coordinator.
+Summary and future titles share an explicit restart-only model, independent of chat
+and summary On/Off; keys stay captured and never fall back to another provider.
+
+Legacy semantic retrieval/extraction/vector adapters and lazy-migration behavior
+remain compatibility maintenance code, not ordinary chat dependencies. Trainer's
+preserved-record review uses direct bounded read-only SQL, never that lazy path.
+Original facts/vectors/markers/configuration remain unchanged; no automatic
+re-embedding or historical export occurs. Optional Ollama chat remains independent.
 
 Profile normalization/read/save lives in `src/lib/profile`, independent of AI
 presentation; SQLite serialization remains in `db/profile-repository.ts`. Legacy
 memory lifecycle policy is in `memory/legacy-application.ts`, with the atomic
 supersede/confirm transaction retained in `db/legacy-memory-repository.ts`.
 Memory management and Profile HTTP routes translate transport only. Chat binds
-these applications through its existing ports, not through a new coordinator.
+Profile and history/summary contracts through existing ports, not a new coordinator
+or the inactive semantic store.
 
 Memory does not own current conversation continuity, Profile, Garmin measurements
 or provider chat selection. Current corrections and authoritative tool evidence

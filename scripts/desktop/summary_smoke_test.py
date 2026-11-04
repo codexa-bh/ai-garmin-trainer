@@ -26,6 +26,10 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertEqual(value['keys'], {})
             self.assertEqual(value['fields']['SUMMARY_MODEL'], 'gpt-6-luna')
             self.assertEqual(value['fields']['SUMMARY_ENABLED'], 'true')
+            self.assertEqual(value['fields']['SUMMARY_CONTRACT_VERSION'], '2')
+            self.assertEqual(value['fields']['MEMORY_ENABLED'], 'true')
+            self.assertEqual(value['fields']['MEMORY_EMBEDDING_PROVIDER'], 'ollama')
+            self.assertEqual(value['fields']['MEMORY_EMBEDDING_BASE_URL'], 'http://127.0.0.1:1')
             self.assertEqual(value['chatCatalog']['entries'], [])
             self.assertEqual(before, (root / 'config/settings-v2.json').read_bytes())
             self.assertEqual(invoke.call_args.kwargs['timeout'], 30)
@@ -54,14 +58,38 @@ class SummarySmokeTests(unittest.TestCase):
             with self.assertRaises(ValueError): smoke.status(run)
         client.close.assert_called_once()
 
+    def test_versioned_mutation_reads_metadata_once_and_refuses_stale_without_retry(self):
+        value = {'version':1,'state':'fresh','reason':None,'revision':3,'frontier':4,'pending':0,'items':0,'characters':0,'enabled':True,'model':'gpt-6-luna','usedByChat':False,'attemptsToday':0,'reservedUsdToday':0,'cap':6000,'publishedAt':1,'expected':{'revision':3,'privacy':0,'control':1,'manual':0}}
+        run=SimpleNamespace(child=object(),origin='http://127.0.0.1:1')
+        client=Mock();client.getresponse.side_effect=[SimpleNamespace(status=200,read=Mock(return_value=json.dumps(value).encode())),SimpleNamespace(status=409,read=Mock(return_value=b'{}'))]
+        with patch.object(smoke.http.client,'HTTPConnection',return_value=client):
+            with self.assertRaises(ValueError):smoke.status(run,'clear')
+        self.assertEqual(client.request.call_count,2)
+        method,path,body,_headers=client.request.call_args.args
+        self.assertEqual((method,path),('POST','/api/cross-chat-summary'))
+        self.assertEqual(json.loads(body),{'version':1,'expected':value['expected'],'action':'clear'})
+
+    def test_memory_controls_are_one_finite_sequence_with_owned_restart_and_preservation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},binary=Path('/unit-app'),command=Mock(return_value={'ok':True}),chat_hash=Mock(return_value='same'),stop=Mock(),start=Mock())
+            with patch.object(smoke,'memory_wait'), patch.object(smoke,'status',side_effect=[{'expected':{'revision':1}},{'expected':{'revision':2}}]):
+                smoke.memory_controls(run)
+            actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
+            self.assertEqual(actions,['open','add','draft','save','edit','draft-update','save','close','open','forget','disable','enable','clear','close'])
+            run.stop.assert_called_once();run.start.assert_called_once_with(run.binary)
+            receipt=json.loads((run.root/'integrated-memory-controls.json').read_text())
+            self.assertEqual(len(receipt['captures']),2)
+            self.assertIn('not trusted OS input',receipt['input'])
+
     def test_scenario_proves_restart_no_replay_clear_cutoff_and_preservation_without_generation_claim(self):
         with tempfile.TemporaryDirectory() as folder:
             run=SimpleNamespace(root=Path(folder), id='run', config={'source':'source'}, binary=Path('/synthetic-app'), database=Path('/unit-copy'), stop=Mock(), start=Mock())
             missing={'reason':'summary_missing_key','frontier':0,'pending':4,'model':'gpt-6-luna','attemptsToday':0}
             rows=iter([(1,), (20,), (1,), (5,), (20,)])
             db=Mock(); db.execute.return_value.fetchone.side_effect=lambda:next(rows)
-            with patch.object(smoke, 'status', side_effect=[missing,missing,{'items':0,'characters':0},{'enabled':False},{'state':'disabled','items':0},{'enabled':True},{'enabled':False}]), patch.object(smoke,'readonly',return_value=db):
+            with patch.object(smoke, 'status', side_effect=[missing,missing,{'items':0,'characters':0},{'enabled':False},{'state':'disabled','items':0},{'enabled':True},{'enabled':False}]), patch.object(smoke,'readonly',return_value=db), patch.object(smoke,'memory_controls') as controls:
                 smoke.scenario(run)
+            controls.assert_called_once_with(run)
             self.assertEqual(run.stop.call_count,2)
             self.assertEqual(run.start.call_count,2)
             receipt=json.loads(next(run.root.glob('summary-keyless-*.json')).read_text())

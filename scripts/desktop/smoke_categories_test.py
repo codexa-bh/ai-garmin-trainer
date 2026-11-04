@@ -31,6 +31,8 @@ class CategoryTests(unittest.TestCase):
 
     def cli(self, command, **kwargs):
         self.commands.append(command)
+        if command[2] != 'path':
+            return SimpleNamespace(returncode=2, stdout='', stderr='retired recovery-hold writer')
         path = self.scratch / command[command.index('--category') + 1]
         path.mkdir(mode=0o700, exist_ok=True)
         return SimpleNamespace(returncode=0, stdout=str(path) + '\n', stderr='')
@@ -82,7 +84,7 @@ class CategoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'owner-controlled'):
             self.invoke(lambda scratch: None)
 
-    def test_failed_or_prepare_only_allocations_hold_original_recovery_not_duplicate_bulk(self):
+    def test_failure_records_truth_without_retired_hold_writer_or_duplicate_bulk(self):
         state = {}
         def body(scratch):
             run = Run(scratch, self.original, 'a' * 64)
@@ -91,11 +93,16 @@ class CategoryTests(unittest.TestCase):
         with self.assertRaisesRegex(TimeoutError, 'original unknown effect'):
             self.invoke(body)
         self.assertTrue(state['run'].database.exists())
-        self.assertTrue(any(command[2] == 'preserve' for command in self.commands))
+        self.assertFalse(any(command[2] == 'preserve' for command in self.commands))
+        receipt = json.loads(next((self.scratch / 'evidence').glob('resource-disposition-*.json')).read_text())
+        self.assertTrue(receipt['invocationFailed'])
+        self.assertFalse(receipt['recoveryHold'])
+        self.assertEqual(receipt['disposableRetention'], 'unchanged; select necessary reproduction evidence before closure')
+        self.assertTrue(all(item['status'] == 'retained' for item in receipt['artifacts']))
         self.assertFalse(list((self.scratch / 'evidence').rglob('*.sqlite')))
         self.assertEqual(self.original.read_bytes(), self.original_bytes)
 
-    def test_evidence_alias_refuses_disposal_and_holds_category(self):
+    def test_evidence_alias_refuses_disposal_without_extending_category_retention(self):
         state = {}
         def body(scratch):
             run = Run(scratch, self.original, 'a' * 64)
@@ -104,7 +111,10 @@ class CategoryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'disposal deferred'):
             self.invoke(body)
         self.assertTrue(state['run'].database.exists())
-        self.assertTrue(any(command[2] == 'preserve' for command in self.commands))
+        self.assertFalse(any(command[2] == 'preserve' for command in self.commands))
+        receipt = json.loads(next((self.scratch / 'evidence').glob('resource-disposition-*.json')).read_text())
+        self.assertFalse(receipt['recoveryHold'])
+        self.assertTrue(receipt['retentionReason'])
 
     def test_standalone_scratch_and_wrong_resolver_or_old_tooling(self):
         with patch.dict(os.environ, PIVAN_TASK_PATH=str(self.task)):

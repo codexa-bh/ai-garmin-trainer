@@ -1,7 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getDatabase } from "./connection";
+import { readSummaryImportBatch, publishSummaryImport } from "./summary-import";
 import {
   characters,
+  scalarText,
   emptySummary,
   renderSummary,
   validSummaryValue,
@@ -12,6 +14,8 @@ import {
   type SummaryStatus,
   type SummaryStorage,
   type SummaryValue,
+  type SummaryItem,
+  type SummaryVersion,
 } from "../memory/summary-policy";
 
 type State = {
@@ -136,10 +140,17 @@ function pending(frontier: number): number {
   ).n;
 }
 function sameSources(batch: SummaryBatch): boolean {
-  return (
-    JSON.stringify(sources(batch.frontier, batch.upper)) ===
-    JSON.stringify(batch.sources)
-  );
+  try {
+    const current = batch.import
+      ? readSummaryImportBatch(batch.import)?.sources.slice(
+          0,
+          batch.sources.length,
+        )
+      : sources(batch.frontier, batch.upper);
+    return JSON.stringify(current) === JSON.stringify(batch.sources);
+  } catch {
+    return false;
+  }
 }
 function current(batch: SummaryBatch, now: number): boolean {
   const c = control(),
@@ -179,7 +190,166 @@ function spend(now: number) {
   };
 }
 
+function assertVersion(expected: SummaryVersion): void {
+  if (JSON.stringify(expected) !== JSON.stringify(summaryStorage.version()))
+    throw new Error("summary_stale_action");
+}
+function writeValue(value: SummaryValue, now: number): void {
+  const s = state();
+  const next = {
+    ...s,
+    revision: s.revision + 1,
+    payload: JSON.stringify(value),
+  };
+  getDatabase()
+    .prepare(
+      "update summary_state set revision=?,payload=?,checksum=?,published_at=? where id=1",
+    )
+    .run(next.revision, next.payload, hash(next), now);
+}
+function invalidateManualJobs(now: number): void {
+  getDatabase()
+    .prepare(
+      "update summary_control set manual_revision=manual_revision+1,job_id=null,lease_until=0,reason=null where id=1",
+    )
+    .run();
+  getDatabase()
+    .prepare(
+      "update summary_attempt set outcome='superseded',finished_at=? where outcome='admitted'",
+    )
+    .run(now);
+}
+export function summaryManualIds(): string[] {
+  return manualItems().map((item) => item.id);
+}
+export function summaryInspectionSources() {
+  const db = getDatabase();
+  const ids = currentValue(state(), control().cap).items.flatMap(
+    (item) => item.sourceIds,
+  );
+  return [...new Set(ids)].map((sourceId) => {
+    const row = db
+      .prepare(
+        "select conversation_id as conversationId,user_id as messageId from conversation_turn where turn_id||':'||source_version=? and status='completed'",
+      )
+      .get(sourceId) as
+      { conversationId: string; messageId: string } | undefined;
+    return {
+      sourceId,
+      conversationId: row?.conversationId ?? null,
+      messageId: row?.messageId ?? null,
+      manual: sourceId.startsWith("manual:"),
+    };
+  });
+}
+export function preservedLegacySummaryReview() {
+  // Inspection never calls the legacy application, which has lazy migration,
+  // expiry writes and embeddings. Original bytes and markers remain untouched.
+  const db = getDatabase();
+  return db
+    .prepare(
+      `select 'semantic:'||id as id,kind,text,status,source_conversation_id as conversationId,expires_at as expiresAt from semantic_memory
+    union all select 'legacy:'||id,category,value,status,null,expires_at from trainer_memory limit 200`,
+    )
+    .all() as {
+    id: string;
+    kind: string;
+    text: string;
+    status: string;
+    conversationId: string | null;
+    expiresAt: number | null;
+  }[];
+}
+function manualItems(): SummaryItem[] {
+  return (
+    getDatabase()
+      .prepare("select payload from summary_manual order by item_id")
+      .all() as { payload: string }[]
+  ).map((row) => JSON.parse(row.payload) as SummaryItem);
+}
+
 export const summaryStorage: SummaryStorage = {
+  inspect() {
+    return currentValue(state(), control().cap);
+  },
+  version() {
+    const s = state(),
+      c = control();
+    currentValue(s, c.cap);
+    return {
+      revision: s.revision,
+      privacy: s.privacy_generation,
+      control: c.generation,
+      manual: c.manual_revision,
+    };
+  },
+  edit(expected, id, text, now) {
+    getDatabase().transaction(() => {
+      assertVersion(expected);
+      const c = control();
+      text = scalarText(text).trim();
+      const value = currentValue(state(), c.cap);
+      const original =
+        id === null ? null : value.items.find((item) => item.id === id);
+      if (id !== null && !original) throw new Error("summary_item_unavailable");
+      const item: SummaryItem = original
+        ? { ...original, text, priority: 5, stance: "user-stated" }
+        : {
+            id: `manual_${randomUUID()}`,
+            text,
+            priority: 5,
+            stance: "user-stated",
+            category: "constraint",
+            sourceIds: [`manual:${randomUUID()}:1`],
+            expiresAt: null,
+            reviewAt: now + 180 * 86400000,
+          };
+      const items = [
+        ...value.items.filter((entry) => entry.id !== item.id),
+        item,
+      ];
+      const next: SummaryValue = {
+        version: 1,
+        items,
+        text: renderSummary(items),
+      };
+      if (!validSummaryValue(next, c.cap))
+        throw new Error("summary_invalid_manual_item");
+      getDatabase()
+        .prepare(
+          "insert into summary_manual(item_id,payload) values(?,?) on conflict(item_id) do update set payload=excluded.payload",
+        )
+        .run(item.id, JSON.stringify(item));
+      invalidateManualJobs(now);
+      writeValue(next, now);
+    })();
+  },
+  forget(expected, id, now) {
+    getDatabase().transaction(() => {
+      assertVersion(expected);
+      const value = currentValue(state(), control().cap);
+      const item = value.items.find((entry) => entry.id === id);
+      if (!item) throw new Error("summary_item_unavailable");
+      for (const source of item.sourceIds)
+        getDatabase()
+          .prepare(
+            "insert into summary_suppression(source_id) values(?) on conflict do nothing",
+          )
+          .run(source);
+      const items = value.items.filter(
+        (entry) =>
+          !entry.sourceIds.some((source) => item.sourceIds.includes(source)),
+      );
+      const retained = new Set(items.map((entry) => entry.id));
+      for (const manual of manualItems())
+        if (!retained.has(manual.id))
+          getDatabase()
+            .prepare("delete from summary_manual where item_id=?")
+            .run(manual.id);
+      invalidateManualJobs(now);
+      writeValue({ version: 1, items, text: renderSummary(items) }, now);
+    })();
+  },
   revision() {
     const c = control(),
       s = state();
@@ -285,6 +455,8 @@ export const summaryStorage: SummaryStorage = {
       pending: count,
       items: value.items.length,
       characters: characters(value.text),
+      cap: c.cap,
+      publishedAt: s.published_at,
       enabled: Boolean(c.enabled),
       model: c.model,
       usedByChat: false,
@@ -314,7 +486,19 @@ export const summaryStorage: SummaryStorage = {
         ).run(attempt?.reserved ? Number.MAX_SAFE_INTEGER : now + 300000);
         return null;
       }
-      const batch = sources(s.frontier);
+      let imported: ReturnType<typeof readSummaryImportBatch> = null;
+      try {
+        imported = readSummaryImportBatch();
+      } catch {
+        db.prepare(
+          "update summary_import set state='review-required' where state='active'",
+        ).run();
+        db.prepare(
+          "update summary_control set reason='summary_import_review_required' where id=1",
+        ).run();
+        return null;
+      }
+      const batch = imported?.sources ?? sources(s.frontier);
       if (
         !batch.length &&
         !previous.items.some(
@@ -352,8 +536,14 @@ export const summaryStorage: SummaryStorage = {
         s.privacy_generation,
         c.generation,
       );
+      if (imported)
+        db.prepare("update summary_attempt set import_id=? where job_id=?").run(
+          imported.identity.id,
+          jobId,
+        );
       return {
         jobId,
+        ...(imported ? { import: imported.identity } : {}),
         revision: s.revision,
         privacyGeneration: s.privacy_generation,
         controlGeneration: c.generation,
@@ -413,10 +603,41 @@ export const summaryStorage: SummaryStorage = {
         )
       )
         return false;
-      const payload = JSON.stringify(candidate.value);
+      // Manual overlays outrank future generated replacements of the same
+      // source lineage, not merely a writer that happened to race the edit.
+      const overlays = manualItems().filter(
+        (item) => item.expiresAt === null || item.expiresAt > now,
+      );
+      const suppressed = new Set(
+        (
+          db.prepare("select source_id from summary_suppression").all() as {
+            source_id: string;
+          }[]
+        ).map((row) => row.source_id),
+      );
+      const overlaySources = new Set(
+        overlays.flatMap((item) => item.sourceIds),
+      );
+      const items = [
+        ...candidate.value.items.filter(
+          (item) =>
+            !overlays.some((manual) => manual.id === item.id) &&
+            !item.sourceIds.some(
+              (source) => suppressed.has(source) || overlaySources.has(source),
+            ),
+        ),
+        ...overlays,
+      ];
+      const value: SummaryValue = {
+        version: 1,
+        items,
+        text: renderSummary(items),
+      };
+      if (!validSummaryValue(value, batch.cap)) return false;
+      const payload = JSON.stringify(value);
       const next = {
         revision: batch.revision + 1,
-        frontier: batch.upper,
+        frontier: batch.import ? batch.frontier : batch.upper,
         privacy_generation: batch.privacyGeneration,
         payload,
       };
@@ -424,10 +645,13 @@ export const summaryStorage: SummaryStorage = {
         db.prepare(
           "insert into summary_item_disposition(item_id,revision,reason) values(?,?,?)",
         ).run(item.itemId, next.revision, item.reason);
-      for (const item of candidate.dispositions)
-        db.prepare(
-          "insert into summary_disposition(event_seq,source_id,reason,revision) values(?,?,?,?)",
-        ).run(item.eventSeq, item.sourceId, item.reason, next.revision);
+      if (batch.import)
+        publishSummaryImport(batch.import, candidate.dispositions);
+      else
+        for (const item of candidate.dispositions)
+          db.prepare(
+            "insert into summary_disposition(event_seq,source_id,reason,revision) values(?,?,?,?)",
+          ).run(item.eventSeq, item.sourceId, item.reason, next.revision);
       db.prepare(
         "update summary_state set revision=?,frontier=?,payload=?,checksum=?,published_at=? where id=1",
       ).run(next.revision, next.frontier, payload, hash(next), now);
@@ -513,6 +737,7 @@ export const summaryStorage: SummaryStorage = {
           "update summary_state set payload=?,checksum='',revision=revision+1,published_at=null where id=1",
         ).run(EMPTY);
         db.prepare("delete from summary_suppression").run();
+        db.prepare("delete from summary_manual").run();
       }
       db.prepare(
         "update summary_attempt set outcome='interrupted',finished_at=? where outcome='admitted'",

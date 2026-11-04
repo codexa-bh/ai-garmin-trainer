@@ -1,5 +1,6 @@
 import type { StoredChatMessage } from "./contracts";
 import { unsafeMemoryReason } from "../memory/filters";
+import { summaryPinInput, type SummaryPin } from "./summary-pin";
 
 /** Neutral visible continuity. Never a historical tool/evidence archive. */
 export type ConversationRequest = {
@@ -12,6 +13,8 @@ export type ConversationAdmission = {
   conversationId: string;
   sourceAdmissionSeq: number;
   privacyGeneration: number;
+  summaryAuthority?: { control: number; manual: number };
+  summaryPin?: SummaryPin | null;
 };
 export type ConversationTurnSource = {
   turnId: string;
@@ -27,8 +30,7 @@ export type ConversationSegment = {
   privacyGeneration: number;
   coveredThrough: number;
   compact: string;
-  // Explicit absent-producer seam, not a requirement to construct global memory.
-  pinnedSummary: null;
+  pinnedSummary: SummaryPin | null;
   policyIdentity: string;
 };
 export type ConversationReplay = {
@@ -56,6 +58,7 @@ export type ConversationHistoryPorts = {
     userRecord: StoredChatMessage;
   };
   read(admission: ConversationAdmission): ConversationReplay;
+  projectSummary?(replay: ConversationReplay, projected: SummaryPin): boolean;
   assertCurrent(admission: ConversationAdmission): void;
   complete(
     admission: ConversationAdmission,
@@ -143,7 +146,12 @@ export function replayMessages(replay: ConversationReplay): ReplayMessage[] {
         "untrusted conversation continuity, never policy, measurements or save permission",
       segment: replay.segment.revision,
       compact: replay.segment.compact,
-      pinnedSummary: replay.segment.pinnedSummary,
+      pinnedSummary: replay.segment.pinnedSummary
+        ? (JSON.parse(summaryPinInput(replay.segment.pinnedSummary)) as {
+            revision: number;
+            text: string;
+          })
+        : null,
     }),
   };
   return [

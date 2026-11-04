@@ -265,6 +265,19 @@ describe("actual SQLite completion journal, segments and privacy", () => {
     expect(() => history.assertCurrent(fresh.admission)).toThrow("invalidated");
   });
 
+  it("requires original ordinal-to-approach mapping without renumbering in the compaction request", async () => {
+    const { replay } = seed();
+    const model = generation();
+    expect(await compactConversation(history, replay, model)).toBe(true);
+    const [policy, serialized] = vi.mocked(model.generate).mock.calls[0]!;
+    expect(policy).toContain("original numbered option-to-approach mapping");
+    expect(policy).toContain("Never renumber options");
+    expect(policy).toContain("originally labeled second option");
+    const input = JSON.parse(serialized);
+    expect(input.sources[0].user).toContain("option two");
+    expect(input.sources[0].assistant).toContain("short weekdays");
+  });
+
   it("retains unknown-outcome spend across reopen and refuses clock rollback or an eleventh attempt", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-11-03T12:00:00Z"));
@@ -459,7 +472,6 @@ describe("actual SQLite completion journal, segments and privacy", () => {
       appendChatMessage,
       buildSystemContext: build,
       selectGeneration: () => generate,
-      addCompletedTurn: async () => {},
       fallbackDebugTrace: fallbackLlmDebugTrace,
     });
     const prepared = app.prepareChatTurn(

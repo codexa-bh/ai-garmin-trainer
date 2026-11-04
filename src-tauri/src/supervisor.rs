@@ -316,7 +316,7 @@ mod tests {
             let request = std::str::from_utf8(&input).unwrap();
             assert!(request.starts_with("GET /__desktop/memory-status HTTP/1.1\r\n"));
             assert!(request.contains("x-trainer-identity: owned-test\r\n"));
-            let body = r#"{"configuredEnabled":false,"userDisabled":true,"effectiveEnabled":false,"embeddingProvider":"openai","extractionMode":"off","extractionProvider":"off","health":"disabled","ageMs":null}"#;
+            let body = r#"{"version":1,"configuredEnabled":false,"enabled":false,"model":"unselected","cap":6000,"state":"disabled","revision":0,"frontier":0,"pending":0}"#;
             write!(connection, "HTTP/1.1 200 OK\r\nx-trainer-identity: owned-test\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
         });
         let child = Command::new("/bin/sleep")

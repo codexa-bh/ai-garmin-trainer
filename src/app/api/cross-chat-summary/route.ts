@@ -1,15 +1,22 @@
 import { NextResponse } from "next/server";
 import {
-  changeCrossChatSummary,
+  applySummaryCommand,
+  nativeSummaryStatus,
   readCrossChatSummary,
   tickCrossChatSummary,
 } from "@/lib/memory/summary-composition";
+import { parseSummaryCommand } from "@/lib/memory/summary-controls";
 
 export async function GET(request: Request) {
   try {
+    if (new URL(request.url).searchParams.get("view") === "native")
+      return NextResponse.json(nativeSummaryStatus(), {
+        headers: { "cache-control": "no-store" },
+      });
     return NextResponse.json(
       readCrossChatSummary(
         new URL(request.url).searchParams.get("view") === "content",
+        new URL(request.url).searchParams.get("conversationId") ?? undefined,
       ),
     );
   } catch {
@@ -35,29 +42,29 @@ export async function POST(request: Request) {
         );
       await tickCrossChatSummary(identity);
     } else {
-      const body: unknown = await request.json();
-      if (
-        !body ||
-        typeof body !== "object" ||
-        Array.isArray(body) ||
-        Object.keys(body).join() !== "action" ||
-        !["clear", "disable", "enable", "retry"].includes(
-          String((body as { action?: unknown }).action),
-        )
-      )
+      const command = parseSummaryCommand(await request.json());
+      if (!command)
         return NextResponse.json(
           { error: "Unsupported summary control." },
           { status: 400 },
         );
-      changeCrossChatSummary(
-        (body as { action: "clear" | "disable" | "enable" | "retry" }).action,
-      );
+      applySummaryCommand(command);
     }
     return NextResponse.json(readCrossChatSummary());
-  } catch {
+  } catch (error) {
+    const stale =
+      error instanceof Error &&
+      [
+        "summary_stale_action",
+        "conversation_busy_retry_after_current_turn",
+      ].includes(error.message);
     return NextResponse.json(
-      { error: "Summary operation unavailable; no success claimed." },
-      { status: 503 },
+      {
+        error: stale
+          ? "Memory changed or this chat is busy. Reload and review before trying again."
+          : "Summary operation unavailable; no success claimed.",
+      },
+      { status: stale ? 409 : 503 },
     );
   }
 }

@@ -1,10 +1,12 @@
 # Memory redesign: authored acceptance and evidence contract
 
-**Proposed / not implemented.** These are synthetic scripts and measurable future
-oracles, not executed tests, private examples, fixtures committed to a new framework,
-or a claim of working memory/caching. The authoritative target decisions live in
-[the architecture contract](memory-redesign-contract.md). Current runtime behavior
-remains in [memory.md](memory.md). H/S/I are future slice labels, not task IDs or starts.
+**Accepted scenarios, not a blanket execution certificate.** These synthetic scripts
+and measurable oracles define the evidence obligation; implementation tests/native
+receipts must identify which surfaces they actually prove. They are not private
+examples, a new fixture framework or a cache-savings claim. The authoritative target
+and T0272 shared-summary/title amendment live in [the architecture contract](memory-redesign-contract.md).
+Current source behavior is in [memory.md](memory.md). Historical H/S/I labels are
+responsibility boundaries, not task IDs, launches or primary activation authority.
 
 ## 1. Common setup and oracle vocabulary
 

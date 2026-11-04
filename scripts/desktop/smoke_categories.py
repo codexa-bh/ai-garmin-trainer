@@ -41,10 +41,6 @@ class CategoryPaths:
             return self.disposable / Path(path).relative_to(self.evidence)
         return path
 
-    def preserve(self):
-        if self.task:
-            self.category('preserve', 'disposable')
-
     def archive(self, ledger):
         if not self.task:
             return
@@ -56,7 +52,7 @@ class CategoryPaths:
             os.mkdir(run.name, mode=0o700, dir_fd=ledger.roots[self.evidence][0])
             ledger.pin(destination)
             # Compact receipts/logs and native-confined PNGs, never successful
-            # app/binary/DB/WebView copies. Failure holds the original allocation.
+            # app/binary/DB/WebView copies. Failure never extends allocation retention.
             files = [path for path in run.iterdir() if path.suffix in ('.json', '.log')]
             screenshots = run / 'screenshots'
             if screenshots.exists():

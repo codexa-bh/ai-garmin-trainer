@@ -81,6 +81,10 @@ export function assertDesktopDatabase(path: string): void {
       ],
       ["conversation_compaction_spend", ["day", "attempts", "reserved_usd"]],
       [
+        "conversation_summary_pin",
+        ["conversation_id", "format_version", "payload", "seal", "reason"],
+      ],
+      [
         "summary_state",
         [
           "format_version",
@@ -115,6 +119,24 @@ export function assertDesktopDatabase(path: string): void {
       ],
       ["summary_spend", ["day", "attempts", "reserved_usd"]],
       ["summary_suppression", ["source_id"]],
+      [
+        "summary_import",
+        [
+          "id",
+          "format_version",
+          "selection_json",
+          "position",
+          "state",
+          "privacy_generation",
+          "control_generation",
+          "manual_revision",
+          "cutoff",
+        ],
+      ],
+      ["summary_import_disposition", ["source_id", "manifest_id", "reason"]],
+      ["summary_attempt", ["import_id"]],
+      ["summary_manual", ["item_id", "payload"]],
+      ["conversation_title_spend", ["id", "day", "reserved_usd", "usage_json"]],
     ] as const) {
       const actual = db.prepare(`pragma table_info(${table})`).all() as {
         name: string;

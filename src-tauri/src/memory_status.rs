@@ -2,46 +2,33 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum Embeddings {
-    Openai,
-    Ollama,
-    Deterministic,
-}
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum Mode {
-    Llm,
-    Deterministic,
-    Off,
-}
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum Extractor {
-    Openai,
-    Deepseek,
-    Deterministic,
-    Off,
+pub enum Model {
+    Unselected,
+    Luna,
+    Unsupported,
 }
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 #[serde(rename_all = "kebab-case")]
-pub enum Health {
+pub enum State {
     Disabled,
-    Attention,
-    NotChecked,
-    LocalObserved,
-    TestOnly,
+    Unselected,
+    Unavailable,
+    NeverProduced,
+    Fresh,
+    Stale,
 }
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Status {
+    version: u8,
     configured_enabled: bool,
-    user_disabled: bool,
-    effective_enabled: bool,
-    embedding_provider: Embeddings,
-    extraction_mode: Mode,
-    extraction_provider: Extractor,
-    health: Health,
-    age_ms: Option<u32>,
+    enabled: bool,
+    model: Model,
+    cap: u32,
+    state: State,
+    revision: u64,
+    frontier: u64,
+    pending: u64,
 }
 
 // Accept only the exact fixed, bounded identity-authenticated HTTP response.
@@ -77,17 +64,13 @@ pub fn decode(response: &[u8], nonce: &str) -> Result<Status, &'static str> {
         return Err(error);
     }
     let value: Status = serde_json::from_str(body).map_err(|_| error)?;
-    if value.effective_enabled != (value.configured_enabled && !value.user_disabled)
-        || value.age_ms.map(|age| age >= 60000).unwrap_or(false)
-        || (value.health == Health::LocalObserved
-            && (value.embedding_provider != Embeddings::Ollama || value.age_ms.is_none()))
-        || (value.health == Health::TestOnly
-            && (value.embedding_provider != Embeddings::Deterministic || value.age_ms.is_none()))
-        || (!value.effective_enabled && value.health != Health::Disabled)
-        || (value.extraction_mode == Mode::Off && value.extraction_provider != Extractor::Off)
-        || (value.extraction_mode == Mode::Deterministic
-            && value.extraction_provider != Extractor::Deterministic)
-        || (value.extraction_mode == Mode::Llm && value.extraction_provider == Extractor::Off)
+    if value.version != 1
+        || !(1000..=20000).contains(&value.cap)
+        || value.revision > 9_007_199_254_740_991
+        || value.frontier > 9_007_199_254_740_991
+        || value.pending > 9_007_199_254_740_991
+        || (!value.enabled && value.state != State::Disabled)
+        || (value.enabled && !value.configured_enabled)
     {
         return Err(error);
     }
@@ -104,20 +87,21 @@ mod tests {
         )
         .into_bytes()
     }
-    const BODY: &str = r#"{"configuredEnabled":true,"userDisabled":false,"effectiveEnabled":true,"embeddingProvider":"ollama","extractionMode":"llm","extractionProvider":"deepseek","health":"not-checked","ageMs":null}"#;
+    const BODY: &str = r#"{"version":1,"configuredEnabled":true,"enabled":true,"model":"luna","cap":6000,"state":"never-produced","revision":0,"frontier":0,"pending":4}"#;
     #[test]
     fn closed_metadata_and_exact_identity_only() {
         assert!(decode(&response(BODY, "owned"), "owned").is_ok());
         assert!(decode(&response(BODY, "foreign"), "owned").is_err());
         for body in [
-            BODY.replace("not-checked", "ready"),
-            BODY.replace("null", "60000"),
+            BODY.replace("never-produced", "ready"),
+            BODY.replace("6000", "20001"),
             BODY.replace(
-                "\"ageMs\":null",
-                "\"ageMs\":null,\"detail\":\"private-sentinel\"",
+                "\"pending\":4",
+                "\"pending\":4,\"detail\":\"private-sentinel\"",
             ),
-            BODY.replace("not-checked", "local-observed"),
-            BODY.replace("\"effectiveEnabled\":true", "\"effectiveEnabled\":false"),
+            BODY.replace("\"version\":1", "\"version\":2"),
+            BODY.replace("\"enabled\":true", "\"enabled\":false"),
+            BODY.replace("\"configuredEnabled\":true", "\"configuredEnabled\":false"),
         ] {
             assert!(decode(&response(&body, "owned"), "owned").is_err());
         }

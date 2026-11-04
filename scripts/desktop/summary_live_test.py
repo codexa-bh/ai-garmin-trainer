@@ -84,6 +84,20 @@ class SummaryLiveTests(unittest.TestCase):
                     {**actual,'text':'Some unspecified options remain undecided.'}]:
             self.assertFalse(live.unendorsed_question(bad))
 
+    def test_actual_imported_rejection_paraphrase_and_nearby_wrong_meanings(self):
+        actual = {'category': 'goal', 'stance': 'user-stated', 'text':
+                  'Prefers short weekday walks and a longer weekend hike (the second option), because long weekday sessions did not fit; '
+                  'collects their bicycle at 18:00. Wants to hike comfortably for three hours.'}
+        self.assertTrue(live.rejected_alternative(actual))
+        self.assertTrue(live.rejected_alternative({**actual, 'text': 'Long weekday sessions rejected for lack of time.'}))
+        for bad in [{**actual, 'text': 'Prefers long weekday sessions because they fit.'},
+                    {**actual, 'text': 'If long weekday sessions did not fit, short walks might help.'},
+                    {**actual, 'text': 'Long weekday sessions are planned; the bicycle did not fit.'},
+                    {**actual, 'category': 'question'}, {**actual, 'stance': 'assistant-proposed'},
+                    {**actual, 'text': 'Long weekend sessions did not fit.'}]:
+            with self.subTest(bad=bad):
+                self.assertFalse(live.rejected_alternative(bad))
+
     def test_meaning_oracles_require_goal_rationale_rejection_and_unendorsed_options(self):
         required=['retainsShortWeekdays','retainsTimeRationale','retainsHikingGoal','retainsRejectedAlternative','retainsUnendorsedQuestion']
         value={key:True for key in required};self.assertTrue(live.meaning_passed(value))
