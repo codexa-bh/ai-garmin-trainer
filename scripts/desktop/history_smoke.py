@@ -2,6 +2,7 @@
 """Finite ordinary-artifact no-date setup and explicitly copied-token Sync evidence."""
 import argparse
 import contextlib
+from datetime import datetime, timedelta, timezone
 import hashlib
 import http.client
 import json
@@ -17,6 +18,11 @@ import uuid
 from native_smoke import Observer, canonical, fingerprint, private_json, readonly, source_identity, listening
 from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
+
+
+def setup_modes(args):
+    # Sync changes need the populated existing path, not unrelated blank onboarding.
+    return ['use-existing'] if args.continuation_only or args.dependency_guidance or args.synthetic_sync else ['create-new', 'use-existing']
 
 
 def selected_tokens(selection, purpose='T0238 private copied-token smoke only'):
@@ -97,7 +103,8 @@ def prepare_synthetic_history(run):
             output.write(data)
     # Only an existing allowlisted executable field; reviewed package arguments
     # remain immutable. The authored executable validates that exact argv.
-    saved['fields'].update({'GARMIN_MCP_COMMAND': str(script), 'GARMIN_MCP_TOKEN_DIR': str(root / 'tokens')})
+    saved['fields'].update({'GARMIN_MCP_COMMAND': str(script), 'GARMIN_MCP_TOKEN_DIR': str(root / 'tokens'),
+                            'GARMIN_HISTORY_START_DATE': (datetime.now(timezone.utc).date() - timedelta(days=35)).isoformat()})
     staged = root / 'config/synthetic-history-settings.json'
     private_json(staged, saved)
     os.replace(staged, path)
@@ -267,7 +274,10 @@ class HistoryRun(OrdinaryRun):
                 'batches': operation.get('batches', 0), 'operationAttempts': operation.get('attempts', 0),
                 'healthChecks': health.get('checks'), 'healthChecksWithMetrics': health.get('checksWithMetrics'),
                 'nextHealthDate': health.get('nextDate'), 'remoteLowerBound': history.get('remoteLowerBound'),
-                'operations': history.get('operations'), 'failureClass': history.get('failureClass')}
+                'operations': history.get('operations'), 'failureClass': history.get('failureClass'),
+                'historicalState': ((value.get('sync') or {}).get('historical') or {}).get('state'),
+                'latestOutcome': ((value.get('sync') or {}).get('latest') or {}).get('outcome'),
+                'activities': value.get('activities'), 'healthDays': value.get('healthDays')}
 
     def wait_sync(self, predicate, seconds=195):
         deadline = time.monotonic() + seconds
@@ -288,26 +298,50 @@ class HistoryRun(OrdinaryRun):
             time.sleep(.25)
         raise TimeoutError('Owned Sync claim did not settle; no duplicate continuation')
 
-    def synthetic_sync(self):
-        """Two explicit operations, each cancelled after two durable batches.
+    def history_digest(self):
+        with contextlib.closing(readonly(self.database)) as db:
+            rows = db.execute("select key,value from sync_checkpoint where key in ('garmin_history_v1','garmin_discovery_v1') order by key").fetchall()
+        return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
 
-        No product budget override, time acceleration or fabricated UI response.
-        The actual app owns SQL/NDJSON/renderer/cancel; only stdio data is authored.
+    def latest_only(self):
+        before, digest = self.summary(), self.history_digest()
+        self.wait_sync(lambda value: value['startEnabled'], 10)
+        self.command({'type':'sync', 'action':'start'})
+        self.wait_sync(lambda value: value['running'] and value['cancelEnabled'], 15)
+        self.wait_sync(lambda value: value['completed'] and not value['running'], 90)
+        self.settle_claim()
+        after = self.summary()
+        if after['active'] or after['latestOutcome'] != 'settled' or self.history_digest() != digest or after['historicalState'] != before['historicalState']:
+            raise ValueError('Latest refresh changed saved history or failed settlement')
+        return {'before':before, 'after':after, 'historyBytesPreserved':True}
+
+    def synthetic_sync(self):
+        """Three latest refreshes and two explicit historical operations.
+
+        A fixed authored 35-day selected scope permits actual range completion;
+        no injected cursor, accelerated clock, UI reply or product-budget override.
         """
         images = self.sync_captures = []
         self.command({'type':'setViewport', 'preset':'wide'})
         self.command({'type':'click', 'target':'Sync'})
         self.wait(lambda value: value['view'] == 'Sync', 'synthetic Sync')
-        initial = self.summary()
-        if initial['active']:
+        if self.summary()['active']:
             raise ValueError('Passive navigation unexpectedly started sync')
+        latest = [self.latest_only()]
+        if latest[0]['after']['outcome'] is not None:
+            raise ValueError('Fresh latest created historical state')
         settled = []
         for index in range(2):
             before = self.summary()
+            for preset in ('wide', 'narrow'):
+                self.command({'type':'setViewport', 'preset':preset})
+                images.append({'scenario':f'historical-entry-{index}-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            self.command({'type':'setViewport', 'preset':'wide'})
+            if before['historicalState'] != 'available':
+                raise ValueError('Actionable history required before explicit continuation')
             self.wait_sync(lambda value: value['startEnabled'], 10)
-            self.command({'type':'sync', 'action':'start' if index == 0 else 'continue'})
+            self.command({'type':'sync', 'action':'continue'})
             self.wait_sync(lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'], 15)
-            # Hiding Sync must retain the exact operation rather than replay POST.
             self.command({'type':'click', 'target':'Back to chat'})
             if not self.summary()['active']:
                 raise ValueError('Navigation lost operation ownership')
@@ -318,31 +352,48 @@ class HistoryRun(OrdinaryRun):
                 current = self.summary()
                 if current['outcome'] == 'failed' or current['operationAttempts'] > 150:
                     raise ValueError('Synthetic operation failed/exceeded finite evidence envelope')
-                if current['batches'] >= 2:
+                if (index == 0 and current['batches'] >= 2) or (index == 1 and not current['active']):
                     break
                 time.sleep(.25)
             else:
-                raise TimeoutError('Two automatic batches not observed within finite envelope')
+                raise TimeoutError('Historical advancement/settlement not observed within finite envelope')
             for preset in ('wide', 'narrow'):
                 self.command({'type':'setViewport', 'preset':preset})
-                images.append({'scenario':f'synthetic-{index}-automatic-batches-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-            self.command({'type':'sync', 'action':'cancel'})
-            self.wait_sync(lambda value: not value['running'] and value['paused'], 40)
+                images.append({'scenario':f'synthetic-{index}-history-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            if index == 0:
+                self.command({'type':'sync', 'action':'cancel'})
+                self.wait_sync(lambda value: not value['running'] and value['paused'], 40)
+            else:
+                self.wait_sync(lambda value: not value['running'] and value['completed'], 20)
             self.settle_claim()
             after = self.summary()
-            if after['active'] or after['outcome'] != 'cancelled' or after['healthChecks'] <= (before['healthChecks'] or 0):
-                raise ValueError('Synthetic cancellation/progress was not durable')
-            images.append({'scenario':f'synthetic-{index}-cancelled', **self.command({'type':'captureView', 'view':'sync', 'preset':'narrow'})})
+            expected = 'cancelled' if index == 0 else 'settled'
+            if after['active'] or after['outcome'] != expected or after['healthChecks'] <= (before['healthChecks'] or 0):
+                raise ValueError('Synthetic historical progress/settlement was not durable')
+            if index == 1 and after['historicalState'] != 'complete':
+                raise ValueError('Selected scope did not complete')
             settled.append({'before':before, 'after':after})
             private_json(self.root / f'synthetic-sync-{index}.json', {'source':self.config['source'], 'boot':self.boot, 'captures':images, 'settled':settled})
             self.stop()
             self.start(self.binary)
+            self.command({'type':'setViewport', 'preset':'wide'})
             self.command({'type':'click', 'target':'Sync'})
-            self.wait(lambda value: value['view'] == 'Sync', 'restart explicit Resume')
+            self.wait(lambda value: value['view'] == 'Sync', 'restart explicit historical work')
             restored = self.summary()
-            if restored['active'] or restored['healthChecks'] != after['healthChecks']:
+            if restored['active'] or restored['healthChecks'] != after['healthChecks'] or restored['historicalState'] != after['historicalState']:
                 raise ValueError('Restart replayed or lost durable history')
-        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'maxInvocations':2, 'maxObservationSecondsPerOperation':150, 'realGarminCertified':False})
+        for _ in range(2):
+            latest.append(self.latest_only())
+        if latest[-1]['after']['activities'] != latest[-2]['after']['activities'] or latest[-1]['after']['healthDays'] != latest[-2]['after']['healthDays']:
+            raise ValueError('Identical latest refresh was not idempotent')
+        for preset in ('wide', 'narrow'):
+            self.command({'type':'setViewport', 'preset':preset})
+            images.append({'scenario':f'completed-range-latest-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+        self.command({'type':'sync', 'action':'details'})
+        for preset in ('wide', 'narrow'):
+            self.command({'type':'setViewport', 'preset':preset})
+            images.append({'scenario':f'technical-details-expanded-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'latest':latest, 'maxInvocations':5, 'maxObservationSecondsPerOperation':150, 'realGarminCertified':False})
 
     def dependency_guidance(self):
         images = self.sync_captures = []
@@ -491,7 +542,7 @@ def main():
                'captures': [], 'cleanup': 'private copy-only state/captures retained to task-scratch expiry; no copy-back'}
     try:
         observer = Observer(scratch)
-        for mode in (['use-existing'] if args.continuation_only or args.dependency_guidance else ['create-new', 'use-existing']):
+        for mode in setup_modes(args):
             run = HistoryRun(scratch, database, source, bundle, inventory, history_setup=mode)
             runs.append(run)
             run.observer = observer
@@ -509,7 +560,7 @@ def main():
             prepare_synthetic_history(run)
             run.start(run.binary)
             run.synthetic_sync()
-            receipt['syntheticHistory'] = 'two explicit operations with automatic batches, cancel, passive navigation, restart and explicit Resume; authored stdio only'
+            receipt['syntheticHistory'] = 'three explicit latest refreshes preserve history bytes; two historical operations cancel then complete the selected range across restart; authored stdio only'
             receipt['realGarmin'] = 'unavailable: no current private-input or finite live account authority'
         elif args.token_input:
             token_source, token_hashes = copy_tokens(args.token_input, run.root)

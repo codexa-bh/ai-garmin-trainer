@@ -24,6 +24,7 @@ const allowed = new Set([
   "import-policy.ts",
   "history-policy.ts",
   "discovery-policy.ts",
+  "sync-policy.ts",
   "types.ts",
   "detail-types.ts",
   "athlete-normalize.ts",

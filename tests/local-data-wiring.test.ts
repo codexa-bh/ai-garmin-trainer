@@ -232,6 +232,15 @@ it("wires list/dashboard/health/summary/reference/tool reads to the same populat
   const summary = await import("../src/app/api/summary/route");
   expect(await (await summary.GET()).json()).toEqual({
     ...storage.importSummary(),
+    sync: {
+      latest: null,
+      historical: expect.objectContaining({
+        state: "available",
+        action: "start",
+        next: { family: "repair", date: "2026-09-01" },
+        remoteLowerBound: null,
+      }),
+    },
     syncActive: false,
   });
   const app = await import("../src/lib/local-data/composition");

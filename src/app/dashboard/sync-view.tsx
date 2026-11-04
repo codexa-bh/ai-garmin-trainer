@@ -69,6 +69,9 @@ export function SyncView({
   syncPillLabel,
   runInBackground,
   syncNow,
+  summaryKnown,
+  technicalOpen,
+  setTechnicalOpen,
   cancelSync,
   isSyncing,
   syncRun,
@@ -87,7 +90,12 @@ export function SyncView({
   syncPillKind: "error" | "idle" | "ok" | "busy";
   syncPillLabel: string;
   runInBackground: (work: Promise<unknown>) => void;
-  syncNow: () => Promise<void>;
+  syncNow: (
+    intent?: import("@/lib/garmin/sync-policy").SyncIntent,
+  ) => Promise<void>;
+  summaryKnown?: boolean;
+  technicalOpen?: boolean;
+  setTechnicalOpen?: (open: boolean) => void;
   cancelSync?: () => void;
   isSyncing: boolean;
   syncRun: SyncRunState;
@@ -141,16 +149,26 @@ export function SyncView({
             <button
               type="button"
               className="primary-action"
-              onClick={() => runInBackground(syncNow())}
-              disabled={isSyncing || importSummary?.syncActive}
+              onClick={() => runInBackground(syncNow("latest"))}
+              disabled={
+                isSyncing || importSummary?.syncActive || summaryKnown === false
+              }
               aria-label="Sync now — import latest Garmin data"
             >
-              {isSyncing
-                ? "Sync already in progress"
-                : importSummary?.history
-                  ? "Resume history"
-                  : "Sync now"}
+              {isSyncing ? "Sync already in progress" : "Sync latest"}
             </button>
+            {summaryKnown !== false &&
+            importSummary?.sync?.historical.state === "available" ? (
+              <button
+                type="button"
+                disabled={isSyncing || importSummary.syncActive}
+                onClick={() => runInBackground(syncNow("history"))}
+              >
+                {importSummary.sync.historical.action === "start"
+                  ? "Import older data"
+                  : "Continue historical import"}
+              </button>
+            ) : null}
             {isSyncing && cancelSync ? (
               <button type="button" onClick={cancelSync}>
                 Cancel sync
@@ -158,59 +176,50 @@ export function SyncView({
             ) : null}
           </div>
           <p className="helper-text">
-            One explicit Sync automatically advances historical batches for up
-            to 30 minutes or 480 remote-operation attempts, paced sequentially.
-            Each internal batch stays within 96 attempts / 180 seconds; each
-            read within 30 seconds. These are not exact Garmin HTTP counts.
-            Recent data comes first. Cancel at any time; restart requires
-            explicit Resume. Opening this view never starts discovery. Total
-            history remains unknown.
+            Sync latest refreshes recent data without advancing saved history.
+            Older data is a separate explicit action; opening this view never
+            starts an import.
           </p>
-          {importSummary?.history ? (
-            <p className="helper-text" role="status">
-              Last operation:{" "}
-              {importSummary.history.outcome === "running" &&
-              !importSummary.syncActive
-                ? "interrupted"
-                : importSummary.history.outcome}
-              .{" "}
-              {importSummary.syncActive
-                ? "A sync is currently active."
-                : "No sync is active; continuation is explicit."}{" "}
-              Historical health dates checked:{" "}
-              {importSummary.history.health.checks}; dates with metrics:{" "}
-              {importSummary.history.health.checksWithMetrics}; oldest imported:{" "}
-              {importSummary.history.health.oldestImported ?? "unknown"};
-              unresolved dates: {importSummary.history.unresolvedHealth.length}.
-              Next older health date:{" "}
-              {importSummary.history.health.nextDate ??
-                "chosen exploration boundary reached"}
-              . Refresh summary after cancellation or a lost response before
-              continuing.
+          <p className="helper-text" role="status">
+            <span className="sync-history-status">
+              {isSyncing || importSummary?.syncActive
+                ? "A sync is active. Wait for settlement, then refresh summary."
+                : summaryKnown === false
+                  ? "Summary truth is not confirmed. Refresh import summary before starting or continuing."
+                  : (importSummary?.sync?.historical.reason ??
+                    "Historical eligibility is unknown. Refresh import summary.")}
+            </span>
+            {summaryKnown !== false && importSummary?.sync?.historical.next ? (
+              <span className="sync-next-target">
+                {" "}
+                Next: {importSummary.sync.historical.next.family} ·{" "}
+                {importSummary.sync.historical.next.date}
+                {importSummary.sync.historical.next.page !== undefined
+                  ? ` · page ${importSummary.sync.historical.next.page}`
+                  : ""}
+                .
+              </span>
+            ) : null}
+          </p>
+          {importSummary?.sync ? (
+            <p className="helper-text">
+              Exploration scope:{" "}
+              {importSummary.sync.historical.limit
+                ? `from ${importSummary.sync.historical.limit}`
+                : "automatic discovery; total history unknown"}
+              . Remote earliest history is unknown.
             </p>
           ) : null}
-          {importSummary?.discovery?.operation ? (
-            <p className="helper-text" role="status">
-              Phase:{" "}
-              {importSummary.syncActive
-                ? importSummary.discovery.operation.phase
-                : "settled"}
-              ; historical batches: {importSummary.discovery.operation.batches};
-              cumulative attempts: {importSummary.discovery.operation.attempts}.{" "}
-              {importSummary.history?.outcome === "running" &&
+          {syncRun.kind === "idle" && importSummary?.sync?.latest ? (
+            <p className="helper-text">
+              Last latest refresh:{" "}
+              {importSummary.sync.latest.outcome === "running" &&
               !importSummary.syncActive
-                ? "Previous operation interrupted; committed progress is retained. Resume explicitly."
-                : importSummary.discovery.operation.stopReason}
-              {importSummary.discovery.hint ? (
-                <>
-                  {" "}
-                  Steps-only hint: {importSummary.discovery.hint.startDate}–
-                  {importSummary.discovery.hint.endDate};{" "}
-                  {importSummary.discovery.hint.weeksWithData} positive weeks.
-                  This does not establish sleep, stress, body or
-                  earliest-history coverage.
-                </>
-              ) : null}
+                ? "interrupted"
+                : importSummary.sync.latest.outcome}
+              ; activity records processed:{" "}
+              {importSummary.sync.latest.activitiesProcessed}; health dates
+              refreshed: {importSummary.sync.latest.healthDaysRefreshed}.
             </p>
           ) : null}
           {isSyncing ? (
@@ -232,25 +241,52 @@ export function SyncView({
           {syncRun.recovery ? (
             <SyncLoginHelp recovery={syncRun.recovery} />
           ) : null}
-          <pre
-            ref={syncLogRef}
-            className="sync-log status"
-            aria-label="Current sync progress log"
-            aria-live="polite"
+          <details
+            open={technicalOpen ?? false}
+            onToggle={(event) => setTechnicalOpen?.(event.currentTarget.open)}
           >
-            {syncRun.lines.length
-              ? syncRun.lines.map((entry, index) => (
-                  <span
-                    key={index}
-                    className={`sync-log-entry ${entry.severity}`}
-                  >
-                    {entry.severity === "error" ? "ERROR: " : ""}
-                    {entry.text}
-                    {"\n"}
-                  </span>
-                ))
-              : "Current-run progress will appear here after Sync now starts."}
-          </pre>
+            <summary>Technical details</summary>
+            <p className="helper-text">
+              Historical operations: up to 30 minutes / 480 remote-operation
+              attempts; internal batches 96 attempts / 180 seconds; nested reads
+              30 seconds, serial pacing at least one second. Attempts are not
+              exact HTTP counts. Processed/refreshed records are not proven new
+              imports.
+            </p>
+            {importSummary?.history ? (
+              <p className="helper-text">
+                Health dates checked: {importSummary.history.health.checks};
+                with metrics: {importSummary.history.health.checksWithMetrics};
+                unresolved: {importSummary.history.unresolvedHealth.length};
+                next cursor: {importSummary.history.health.nextDate ?? "none"}.
+              </p>
+            ) : null}
+            {importSummary?.discovery?.operation ? (
+              <p className="helper-text">
+                Historical phase: {importSummary.discovery.operation.phase};
+                batches: {importSummary.discovery.operation.batches}; attempts:{" "}
+                {importSummary.discovery.operation.attempts}.
+              </p>
+            ) : null}
+            <pre
+              ref={syncLogRef}
+              className="sync-log status"
+              aria-label="Current sync progress log"
+            >
+              {syncRun.lines.length
+                ? syncRun.lines.map((entry, index) => (
+                    <span
+                      key={index}
+                      className={`sync-log-entry ${entry.severity}`}
+                    >
+                      {entry.severity === "error" ? "ERROR: " : ""}
+                      {entry.text}
+                      {"\n"}
+                    </span>
+                  ))
+                : "Current-run progress will appear here after an explicit Sync starts."}
+            </pre>
+          </details>
         </section>
 
         <section

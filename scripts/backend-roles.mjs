@@ -142,6 +142,7 @@ const groups = [
       "import-policy",
       "history-policy",
       "discovery-policy",
+      "sync-policy",
       "import-ports",
       "normalize",
       "sync",

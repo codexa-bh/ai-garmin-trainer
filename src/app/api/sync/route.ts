@@ -3,6 +3,7 @@ import {
   verifyGarminConnection as verifyConnectorToken,
   runGarminSync,
   isGarminSyncRunning,
+  syncSummary,
 } from "@/lib/garmin/composition";
 
 export async function GET() {
@@ -13,6 +14,32 @@ export async function GET() {
 }
 
 export async function POST(request?: Request) {
+  // Bodyless legacy callers keep their bounded interactive semantics. New UI
+  // callers always name one intent; reject unknown inputs before capabilities.
+  let intent: import("@/lib/garmin/sync-policy").SyncIntent | undefined;
+  const body = request ? await request.text() : "";
+  if (body) {
+    try {
+      if (body.length > 128) throw new Error("oversized");
+      const input = JSON.parse(body) as Record<string, unknown>;
+      if (
+        !input ||
+        Array.isArray(input) ||
+        Object.keys(input).length !== 1 ||
+        (input.intent !== "latest" && input.intent !== "history")
+      )
+        throw new Error("invalid intent");
+      intent = input.intent;
+    } catch {
+      return NextResponse.json(
+        {
+          status: "blocked",
+          detail: "Expected exactly one Sync intent: latest or history.",
+        },
+        { status: 400 },
+      );
+    }
+  }
   // The only alternate envelope strictly lowers admission for native/API smoke.
   // It grants no private-input/account authority and never changes normal UI Sync.
   const budget = request?.headers.get("x-trainer-sync-budget");
@@ -27,6 +54,18 @@ export async function POST(request?: Request) {
         status: "blocked",
         detail:
           "A Garmin sync is still running; refresh summary before retrying.",
+      },
+      { status: 409 },
+    );
+  if (
+    intent === "history" &&
+    syncSummary().sync.historical.state !== "available"
+  )
+    return NextResponse.json(
+      {
+        status: "blocked",
+        detail:
+          "Historical work is not actionable. Refresh summary; preserve saved checkpoints for recovery.",
       },
       { status: 409 },
     );
@@ -54,6 +93,7 @@ export async function POST(request?: Request) {
           (progress) => send({ type: "progress", ...progress }),
           {
             cancelled,
+            intent,
             interactive: true,
             finiteLiveSmoke: budget === "finite-live-smoke",
           },

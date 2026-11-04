@@ -228,6 +228,7 @@ export type DetailCoveragePayload = {
 };
 
 export type ImportSummaryPayload = {
+  sync?: import("@/lib/garmin/sync-policy").SyncState;
   discovery?:
     import("@/lib/garmin/discovery-policy").GarminDiscoveryState | null;
   syncActive?: boolean;
@@ -297,6 +298,9 @@ export type ProfileFetchState = "idle" | "loading" | "loaded" | "error";
 export type ProfileSaveState = "idle" | "saving" | "saved" | "error";
 
 export type SyncProgressEvent = {
+  intent?: import("@/lib/garmin/sync-policy").SyncIntent;
+  sync?: import("@/lib/garmin/sync-policy").SyncState;
+  date?: string;
   dependency?: "launcher-unavailable" | "startup-unknown";
   continuationAvailable?: boolean;
   type?: string;

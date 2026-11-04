@@ -95,31 +95,50 @@ class SyntheticHistoryContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             reply({'method':'tools/call', 'params':{'name':'get_stats', 'arguments':{}, 'extra':'private'}})
 
-    def test_two_explicit_operations_cancel_and_restart_without_passive_replay(self):
-        active, checks = False, 0
+    def test_separate_latest_cancel_continue_and_completed_range_without_passive_replay(self):
+        active, checks, history_runs, observations = False, 0, 0, 0
         commands = []
+        preset = 'wide'
         def command(value):
-            nonlocal active, checks
+            nonlocal active, checks, history_runs, observations, preset
             commands.append(value)
-            if value.get('action') in ('start', 'continue'):
+            if value.get('type') == 'setViewport':
+                preset = value['preset']
+            if value.get('type') == 'click' and value.get('target') == 'Sync':
+                self.assertEqual(preset, 'wide', 'Hidden mobile navigation must not be targeted')
+            if value.get('action') == 'continue':
                 self.assertFalse(active)
-                active = True
+                active, observations = True, 0
+                history_runs += 1
             elif value.get('action') == 'cancel':
                 active = False
                 checks += 12
             return {'ok':True, 'capture':'unit-only.png'}
         def summary():
-            return {'active':active, 'outcome':'running' if active else 'cancelled', 'healthChecks':checks, 'batches':2 if active else 0, 'operationAttempts':90}
+            nonlocal active, checks, observations
+            if active:
+                observations += 1
+                if history_runs == 2 and observations >= 2:
+                    active, checks = False, 24
+            return {'active':active, 'outcome':'running' if active else ('settled' if checks == 24 else 'cancelled' if checks else None),
+                    'historicalState':'active' if active else 'complete' if checks == 24 else 'available',
+                    'healthChecks':checks, 'batches':2 if active else 0, 'operationAttempts':90, 'activities':8, 'healthDays':20}
+        def latest_only():
+            self.assertFalse(active)
+            return {'before':summary(), 'after':summary(), 'historyBytesPreserved':True}
         run = SimpleNamespace(root=self.root, config={'source':'unit'}, boot='unit', binary=Path('/unit'), command=command,
-                              wait=Mock(), wait_sync=Mock(), summary=summary, settle_claim=Mock(), stop=Mock(), start=Mock())
+                              latest_only=Mock(side_effect=latest_only), wait=Mock(), wait_sync=Mock(), summary=summary,
+                              settle_claim=Mock(), stop=Mock(), start=Mock())
         HistoryRun.synthetic_sync(run)
-        self.assertEqual(sum(value.get('action') == 'start' for value in commands), 1)
-        self.assertEqual(sum(value.get('action') == 'continue' for value in commands), 1)
-        self.assertEqual(sum(value.get('action') == 'cancel' for value in commands), 2)
+        self.assertEqual(run.latest_only.call_count, 3)
+        self.assertEqual(sum(value.get('action') == 'continue' for value in commands), 2)
+        self.assertEqual(sum(value.get('action') == 'cancel' for value in commands), 1)
+        self.assertEqual(sum(value.get('action') == 'details' for value in commands), 1)
         self.assertEqual(run.stop.call_count, 2)
         evidence = json.loads((self.root / 'synthetic-sync.json').read_text())
         self.assertFalse(evidence['realGarminCertified'])
-        self.assertEqual(len(evidence['captures']), 6)
+        self.assertEqual(evidence['maxInvocations'], 5)
+        self.assertEqual(len(evidence['captures']), 12)
         self.assertEqual(evidence['settled'][-1]['after']['healthChecks'], 24)
 
 

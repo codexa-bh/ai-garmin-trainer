@@ -26,7 +26,9 @@ describe("independent dashboard feature ownership", () => {
       if (String(url) === "/api/sync")
         throw new TypeError("synthetic lost response");
       return response({
-        syncActive: true,
+        syncActive: fetch.mock.calls.some(
+          ([input]) => String(input) === "/api/sync",
+        ),
         activities: 0,
         healthDays: 0,
         detailedActivities: 0,
@@ -40,11 +42,13 @@ describe("independent dashboard feature ownership", () => {
         runAction: vi.fn(async () => {}),
       }),
     );
+    await act(() => result.current.loadImportSummary("startup", false));
     await act(() => result.current.syncNow());
     expect(result.current.importSummary?.syncActive).toBe(true);
     expect(result.current.syncRun.finalMessage).toContain("effect is unknown");
     await act(() => result.current.syncNow());
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "/api/summary",
       "/api/sync",
       "/api/summary",
     ]);
@@ -308,6 +312,9 @@ describe("independent dashboard feature ownership", () => {
       const fetch = vi
         .fn()
         .mockResolvedValueOnce(
+          response({ activities: 0, healthDays: 0, syncActive: false }),
+        )
+        .mockResolvedValueOnce(
           new Response(
             `${JSON.stringify({ type: "result", status: outcome, detail: "History remains unknown; continue explicitly." })}\n`,
           ),
@@ -324,6 +331,7 @@ describe("independent dashboard feature ownership", () => {
           runAction: vi.fn(),
         }),
       );
+      await act(() => result.current.loadImportSummary("startup", false));
       await act(() => result.current.syncNow());
       expect(result.current.syncRun.kind).toBe("paused");
       expect(result.current.syncRun.failureSummary).toBeNull();
@@ -333,7 +341,7 @@ describe("independent dashboard feature ownership", () => {
       expect(
         result.current.syncRun.lines.every((line) => line.severity === "info"),
       ).toBe(true);
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(3);
     },
   );
 
@@ -395,6 +403,9 @@ describe("independent dashboard feature ownership", () => {
         runAction: vi.fn(),
       }),
     );
+    await act(() => result.current.loadImportSummary("startup", false));
+    order.length = 0;
+    fetch.mockClear();
     let pending!: Promise<void>;
     act(() => {
       pending = result.current.syncNow();
@@ -541,6 +552,7 @@ describe("independent dashboard feature ownership", () => {
           runAction: vi.fn(),
         }),
       );
+      await act(() => result.current.loadImportSummary("startup", false));
       await act(() => result.current.syncNow());
       expect(result.current.syncRun.kind).toBe("failed");
       expect(
