@@ -7,7 +7,10 @@ import {
   TRAINER_SYSTEM_PROMPT,
 } from "../src/lib/ai/trainer-instructions";
 import { unsafeMemoryReason } from "../src/lib/memory/filters";
-import { trainerToolInputSchemas } from "../src/lib/ai/tool-contracts";
+import {
+  trainerToolInputSchemas,
+  trainerCompletionSchema,
+} from "../src/lib/ai/tool-contracts";
 
 it("keeps structured stable policy ahead of changing date, memory, budget, evidence and repair feedback", () => {
   const before = {
@@ -42,6 +45,42 @@ it("keeps structured stable policy ahead of changing date, memory, budget, evide
   expect(repair.context).toContain("invalid_tool_claim");
   expect(repair.context).toContain("Evidence gathering has stopped");
   expect(repair.policy).not.toContain("invalid_tool_claim");
+});
+
+it("routes null cells to missing evidence without discarding supported partial metrics", () => {
+  const completion = {
+    kind: "incomplete",
+    answer: "60 minutes; distance and streams unavailable.",
+    claims: [
+      {
+        kind: "metric",
+        stepIndex: 1,
+        resultName: "activitycheck",
+        rowIndex: 0,
+        column: "duration_minutes",
+        value: 60,
+      },
+    ],
+    missingEvidence: ["Distance and stream cells are unavailable."],
+  };
+  expect(trainerCompletionSchema.safeParse({ completion }).success).toBe(true);
+  expect(
+    trainerCompletionSchema.safeParse({
+      completion: {
+        ...completion,
+        claims: [{ ...completion.claims[0], value: null }],
+      },
+    }).success,
+  ).toBe(false);
+  for (const instructions of [
+    buildPlannerInstructions("base", "evidence"),
+    buildFinalSynthesisInstructions("base", "evidence", true),
+  ]) {
+    expect(instructions).toContain(
+      "Null or missing cells are not metric claims",
+    );
+    expect(instructions).toContain("put those gaps in missingEvidence");
+  }
 });
 
 describe("canonical trainer instruction package", () => {
