@@ -27,19 +27,24 @@ it.each([
   "controls",
   "correction",
   "compaction",
+  "capacity",
 ])(
   "finite %s producer seed uses current production completion/eligibility on only a stopped private run and refuses replay",
   (mode) => {
-    const task = [
-      "integrated",
-      "controls",
-      "correction",
-      "compaction",
-    ].includes(mode)
-      ? "T0272"
-      : "T0270";
+    const task =
+      mode === "capacity"
+        ? "T0274"
+        : ["integrated", "controls", "correction", "compaction"].includes(mode)
+          ? "T0272"
+          : "T0270";
     const completed =
-      mode === "integrated" ? 184 : mode === "compaction" ? 68 : 4;
+      mode === "capacity"
+        ? 1
+        : mode === "integrated"
+          ? 184
+          : mode === "compaction"
+            ? 68
+            : 4;
     const base = realpathSync(mkdtempSync(join(tmpdir(), "summary-seed-")));
     roots.push(base);
     const id = randomUUID(),
@@ -73,17 +78,19 @@ it.each([
       providerCalls: 0,
       schema: LATEST_SCHEMA_VERSION,
       variant:
-        mode === "compaction"
-          ? "integrated-compaction"
-          : mode === "correction"
-            ? "integrated-correction"
-            : mode === "controls"
-              ? "integrated-controls"
-              : mode === "integrated"
-                ? "integrated-summary"
-                : mode === "live"
-                  ? "live-summary"
-                  : "keyless",
+        mode === "capacity"
+          ? "memory-capacity"
+          : mode === "compaction"
+            ? "integrated-compaction"
+            : mode === "correction"
+              ? "integrated-correction"
+              : mode === "controls"
+                ? "integrated-controls"
+                : mode === "integrated"
+                  ? "integrated-summary"
+                  : mode === "live"
+                    ? "live-summary"
+                    : "keyless",
     });
     const seeded = new Database(path, { readonly: true });
     expect(
@@ -125,8 +132,25 @@ it.each([
             "select count(*) as n from conversation where id in (?,?) and manual_title=1",
           )
           .get(`${task}-${id}-A`, `${task}-${id}-B`),
-      ).toEqual({ n: 2 });
+      ).toEqual({ n: mode === "capacity" ? 1 : 2 });
       expect(result.conversationId).toBe(`${task}-${id}-A`);
+    }
+    if (mode === "capacity") {
+      expect(result).toMatchObject({
+        manualItems: 18,
+        configuredCharacters: 20000,
+      });
+      expect(result.renderedCharacters).toBeGreaterThan(12000);
+      expect(result.renderedCharacters).toBeLessThanOrEqual(20000);
+      expect(seeded.prepare("select cap from summary_control").get()).toEqual({
+        cap: 20000,
+      });
+      expect(
+        seeded.prepare("select count(*) as n from summary_manual").get(),
+      ).toEqual({ n: 18 });
+      expect(
+        seeded.prepare("select count(*) as n from summary_attempt").get(),
+      ).toEqual({ n: 0 });
     }
     if (mode === "compaction") {
       expect(

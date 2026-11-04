@@ -578,6 +578,7 @@ mod tests {
             crate::provider_smoke::Mode::OpenaiLuna100,
             crate::provider_smoke::Mode::SummaryLuna100,
             crate::provider_smoke::Mode::IntegratedMemoryLuna200,
+            crate::provider_smoke::Mode::CapacityLuna5000,
         ] {
             descriptor.history_setup = None;
             descriptor.provider_smoke = Some(mode);

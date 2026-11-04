@@ -5,6 +5,14 @@ import { conversationHistory } from "../../src/lib/db/conversation-history";
 import { summaryStorage } from "../../src/lib/db/summary-storage";
 import { getDatabase } from "../../src/lib/db/connection";
 import {
+  summaryLimits,
+  SUMMARY_DEBOUNCE_MS,
+  SUMMARY_CATCHUP_MS,
+  SUMMARY_DEADLINE_MS,
+  SUMMARY_MODEL_CONTEXT,
+  SUMMARY_PRICE_BASIS,
+} from "../../src/lib/memory/summary-policy";
+import {
   LATEST_SCHEMA_VERSION,
   currentSchemaVersion,
 } from "../../src/lib/db/migrations";
@@ -15,14 +23,19 @@ const integrated = process.argv[3] === "integrated";
 const controls = process.argv[3] === "controls";
 const correction = process.argv[3] === "correction";
 const compaction = process.argv[3] === "compaction";
+const capacity = process.argv[3] === "capacity";
 const live =
   process.argv[3] === "live" ||
   integrated ||
   controls ||
   correction ||
-  compaction;
-const task =
-  integrated || controls || correction || compaction ? "T0272" : "T0270";
+  compaction ||
+  capacity;
+const task = capacity
+  ? "T0274"
+  : integrated || controls || correction || compaction
+    ? "T0272"
+    : "T0270";
 if (
   (process.argv.length !== 3 && !(process.argv.length === 4 && live)) ||
   !root ||
@@ -56,7 +69,28 @@ try {
   probe.close();
 }
 process.env.DATABASE_PATH = path;
-summaryStorage.configure(true, "gpt-6-luna", 6000);
+summaryStorage.configure(true, "gpt-6-luna", capacity ? 20000 : 6000);
+if (capacity) {
+  // Deliberately dense authored multilingual prior, through the manual owner.
+  // Live inference must maintain it and consume its measured >2048-token pin;
+  // this is not a claim that the provider generated all of these manual facts.
+  const detail =
+    "架空の練習日誌では公園の平坦な周回路を静かに歩き、案内板の色で区間を区別する。持ち物は紙の地図と小さなノートに限り、終了後は短い見出しを付ける。雨の日の候補は屋内の廊下で、週ごとの記録には距離ではなく選んだ道の色を書く。";
+  for (let index = 0; index < 18; index++) {
+    const fact =
+      index === 0
+        ? "My fictional reminder channel is a paper postcard."
+        : index === 17
+          ? "My fictional weekly rest day is Thursday."
+          : `My fictional journal topic number ${index + 1} is the quiet park loop.`;
+    summaryStorage.edit(
+      summaryStorage.version(),
+      null,
+      `Authored fictional preference ${index + 1}. ${fact} ${detail.repeat(7)}`,
+      Date.now(),
+    );
+  }
+}
 if (controls) summaryStorage.control("disable", Date.now());
 const authored = [
   [
@@ -102,10 +136,17 @@ const correctionSources = [
     "This discussion grants no plan-save permission.",
   ],
 ];
-for (let index = 0; index < 4; index++) {
-  const [chat, user, assistant] = (correction ? correctionSources : authored)[
-    index
-  ]!;
+const capacitySources = [
+  [
+    "A",
+    "In this fictional test my session check-in label is meadow signal. This is an authored reminder, not a measurement or permission to save a plan.",
+    "Your fictional session check-in label is meadow signal; no measurement or plan-save permission is implied.",
+  ],
+];
+for (let index = 0; index < (capacity ? 1 : 4); index++) {
+  const [chat, user, assistant] = (
+    capacity ? capacitySources : correction ? correctionSources : authored
+  )[index]!;
   const conversationId = `${task}-${runId}-${live ? chat : index}`;
   const turn = conversationHistory.admit(
     conversationId,
@@ -177,19 +218,36 @@ console.log(
   JSON.stringify({
     task,
     runId,
-    completed: integrated ? 184 : compaction ? 68 : 4,
+    completed: capacity ? 1 : integrated ? 184 : compaction ? 68 : 4,
     incomplete: 1,
-    variant: compaction
-      ? "integrated-compaction"
-      : correction
-        ? "integrated-correction"
-        : controls
-          ? "integrated-controls"
-          : integrated
-            ? "integrated-summary"
-            : live
-              ? "live-summary"
-              : "keyless",
+    ...(capacity
+      ? {
+          manualItems: summaryStorage.inspect().items.length,
+          renderedCharacters: [...summaryStorage.inspect().text].length,
+          configuredCharacters: 20000,
+          budgetPolicy: {
+            ...summaryLimits(20000),
+            debounceMs: SUMMARY_DEBOUNCE_MS,
+            catchupMs: SUMMARY_CATCHUP_MS,
+            deadlineMs: SUMMARY_DEADLINE_MS,
+            modelContext: SUMMARY_MODEL_CONTEXT,
+            priceBasis: SUMMARY_PRICE_BASIS,
+          },
+        }
+      : {}),
+    variant: capacity
+      ? "memory-capacity"
+      : compaction
+        ? "integrated-compaction"
+        : correction
+          ? "integrated-correction"
+          : controls
+            ? "integrated-controls"
+            : integrated
+              ? "integrated-summary"
+              : live
+                ? "live-summary"
+                : "keyless",
     ...(live ? { conversationId: `${task}-${runId}-A` } : {}),
     providerCalls: 0,
     source: "authored synthetic preparation on stopped copy",

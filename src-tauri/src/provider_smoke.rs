@@ -15,6 +15,8 @@ pub enum Mode {
     SummaryLuna100,
     #[serde(rename = "t0272-integrated-memory-luna-200")]
     IntegratedMemoryLuna200,
+    #[serde(rename = "t0274-memory-capacity-luna-5000")]
+    CapacityLuna5000,
 }
 
 pub struct Capture {
@@ -44,9 +46,12 @@ pub fn activation(
     mode: Mode,
 ) -> Result<(Vec<u8>, Capture), &'static str> {
     let mut run = settings::load(run_path).map_err(|_| DENIED)?;
-    let integrated = matches!(mode, Mode::IntegratedMemoryLuna200);
+    let capacity = matches!(mode, Mode::CapacityLuna5000);
+    let integrated = capacity || matches!(mode, Mode::IntegratedMemoryLuna200);
     let summary = integrated || matches!(mode, Mode::SummaryLuna100);
-    let entry = if integrated {
+    let entry = if capacity {
+        "entry_t0274_chat_luna"
+    } else if integrated {
         "entry_t0272_chat_luna"
     } else if summary {
         "entry_t0270_chat_luna"
@@ -80,9 +85,11 @@ pub fn activation(
                 run.fields.get("SUMMARY_ENABLED").map(String::as_str),
                 Some("true")
             ) && !(integrated
+                && !capacity
                 && run.fields.get("SUMMARY_ENABLED").map(String::as_str) == Some("false")))
                 || run.fields.get("SUMMARY_MODEL").map(String::as_str) != Some("gpt-6-luna")
-                || run.fields.get("SUMMARY_CHAR_LIMIT").map(String::as_str) != Some("6000")))
+                || run.fields.get("SUMMARY_CHAR_LIMIT").map(String::as_str)
+                    != Some(if capacity { "20000" } else { "6000" })))
         || run.fields.get("AI_PROVIDER").map(String::as_str) != Some("openai")
         || run.fields.get("AI_MODEL").map(String::as_str) != Some("gpt-6-luna")
         || run.fields.get("MEMORY_ENABLED").map(String::as_str)
@@ -155,7 +162,15 @@ mod tests {
         path
     }
     #[test]
-    fn integrated_preset_is_separate_exact_and_preserves_inactive_legacy_settings() {
+    fn integrated_and_capacity_presets_are_separate_exact_and_preserve_originals() {
+        integrated_scope(
+            Mode::IntegratedMemoryLuna200,
+            "entry_t0272_chat_luna",
+            "6000",
+        );
+        integrated_scope(Mode::CapacityLuna5000, "entry_t0274_chat_luna", "20000");
+    }
+    fn integrated_scope(mode: Mode, entry: &str, cap: &str) {
         let production = directory();
         let run = directory();
         let config = run.join("config");
@@ -171,18 +186,21 @@ mod tests {
         let base = serde_json::json!({"version":3,"fields":{
             "DATABASE_PATH":run.join("trainer.sqlite"),"GARMIN_MCP_TOKEN_DIR":run.join("tokens"),
             "AI_PROVIDER":"openai","AI_MODEL":"gpt-6-luna","MEMORY_ENABLED":"true",
-            "SUMMARY_ENABLED":"true","SUMMARY_MODEL":"gpt-6-luna","SUMMARY_CHAR_LIMIT":"6000","SUMMARY_CONTRACT_VERSION":"2",
+            "SUMMARY_ENABLED":"true","SUMMARY_MODEL":"gpt-6-luna","SUMMARY_CHAR_LIMIT":cap,"SUMMARY_CONTRACT_VERSION":"2",
             "MEMORY_EMBEDDING_PROVIDER":"ollama","MEMORY_EMBEDDING_MODEL":"nomic-embed-text",
             "MEMORY_EMBEDDING_BASE_URL":"http://127.0.0.1:1","MEMORY_EMBEDDING_DIMS":"768"
-        },"keys":{},"chatCatalog":{"version":1,"entries":[{"id":"entry_t0272_chat_luna","provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null}});
+        },"keys":{},"chatCatalog":{"version":1,"entries":[{"id":entry,"provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null}});
         let path = publish(&config, "settings-v3.json", &base);
         let before = fs::read(&source).unwrap();
         for enabled in ["true", "false"] {
             let mut document = base.clone();
             document["fields"]["SUMMARY_ENABLED"] = serde_json::json!(enabled);
             fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
-            let (mut frame, capture) =
-                activation(&path, &production, Mode::IntegratedMemoryLuna200).unwrap();
+            if matches!(mode, Mode::CapacityLuna5000) && enabled == "false" {
+                assert!(activation(&path, &production, mode).is_err());
+                continue;
+            }
+            let (mut frame, capture) = activation(&path, &production, mode).unwrap();
             let parsed: serde_json::Value = serde_json::from_slice(&frame).unwrap();
             assert_eq!(
                 parsed["secrets"],
@@ -195,6 +213,12 @@ mod tests {
                 serde_json::to_vec(&document).unwrap()
             );
             frame.fill(0);
+            let other = if matches!(mode, Mode::CapacityLuna5000) {
+                Mode::IntegratedMemoryLuna200
+            } else {
+                Mode::CapacityLuna5000
+            };
+            assert!(activation(&path, &production, other).is_err());
             for historical in [
                 Mode::SummaryLuna100,
                 Mode::OpenaiLuna100,
@@ -207,10 +231,7 @@ mod tests {
             let mut invalid = base.clone();
             invalid["fields"][field] = serde_json::json!("unreviewed");
             fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
-            assert!(
-                activation(&path, &production, Mode::IntegratedMemoryLuna200).is_err(),
-                "{field}"
-            );
+            assert!(activation(&path, &production, mode).is_err(), "{field}");
         }
         for mutation in ["keys", "extra", "catalog", "compatibility"] {
             let mut invalid = base.clone();
@@ -229,15 +250,16 @@ mod tests {
                 }
             }
             fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
-            assert!(
-                activation(&path, &production, Mode::IntegratedMemoryLuna200).is_err(),
-                "{mutation}"
-            );
+            assert!(activation(&path, &production, mode).is_err(), "{mutation}");
         }
         fs::write(&path, serde_json::to_vec(&base).unwrap()).unwrap();
         fs::write(run.join("tokens/unexpected"), b"synthetic").unwrap();
-        assert!(activation(&path, &production, Mode::IntegratedMemoryLuna200).is_err());
+        assert!(activation(&path, &production, mode).is_err());
         assert_eq!(fs::read(&source).unwrap(), before);
+        assert!(serde_json::from_value::<Mode>(serde_json::json!(
+            "t0274-memory-capacity-luna-5000"
+        ))
+        .is_ok());
         assert!(serde_json::from_value::<Mode>(serde_json::json!(
             "t0272-integrated-memory-luna-200"
         ))

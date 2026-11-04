@@ -18,6 +18,7 @@
     "smoke:summary:seed": "tsx scripts/desktop/summary_seed.ts",
     "smoke:summary:live": "python3 scripts/desktop/summary_live.py",
     "smoke:memory:live": "python3 scripts/desktop/integrated_memory_live.py",
+    "smoke:memory:capacity": "python3 scripts/desktop/capacity_memory_live.py",
     "smoke:summary:settings": "python3 scripts/desktop/summary_settings.py",
     "smoke:tables": "python3 scripts/desktop/table_smoke.py",
     "smoke:test": "python3 -m unittest discover -s scripts/desktop -p '*_test.py' && python3 -m unittest discover -s scripts/ci -p '*_test.py'",
