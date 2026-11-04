@@ -163,6 +163,9 @@ export function TrainerDashboard() {
     syncPillKind,
     syncPillLabel,
     syncNow,
+    summaryKnown,
+    technicalOpen,
+    setTechnicalOpen,
     cancelSync,
     importSummary,
     refreshSummary,
@@ -871,6 +874,9 @@ export function TrainerDashboard() {
           syncPillLabel={syncPillLabel}
           runInBackground={runInBackground}
           syncNow={syncNow}
+          summaryKnown={summaryKnown}
+          technicalOpen={technicalOpen}
+          setTechnicalOpen={setTechnicalOpen}
           cancelSync={cancelSync}
           isSyncing={isSyncing}
           syncRun={syncRun}

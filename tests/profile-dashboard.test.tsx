@@ -4447,7 +4447,7 @@ describe("TrainerDashboard activity charts", () => {
 });
 
 describe("TrainerDashboard dedicated Sync view", () => {
-  it("shows persisted running without a live owner as interrupted and offers explicit Resume without passive POST", async () => {
+  it("offers verified interrupted historical work separately from latest without passive POST", async () => {
     const { historyState } = await import("../src/lib/garmin/history-policy");
     const saved = historyState(null, null, "2026-09-21");
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -4465,17 +4465,35 @@ describe("TrainerDashboard dedicated Sync view", () => {
           ...importSummary(),
           history: saved,
           syncActive: false,
+          sync: {
+            latest: null,
+            historical: {
+              state: "available",
+              action: "continue",
+              next: { family: "health", date: saved.health.nextDate },
+              limit: null,
+              remoteLowerBound: null,
+              interrupted: true,
+              reason:
+                "Previous historical import was interrupted; committed progress is retained.",
+            },
+          },
         });
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
     render(React.createElement(TrainerDashboard));
     fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
-    await screen.findByText(/Last operation: interrupted/);
+    await screen.findByText(/Previous historical import was interrupted/);
+    expect(
+      screen.getByRole("button", {
+        name: "Sync now — import latest Garmin data",
+      }).textContent,
+    ).toBe("Sync latest");
     const resume = screen.getByRole("button", {
-      name: "Sync now — import latest Garmin data",
+      name: "Continue historical import",
     });
-    expect(resume.textContent).toBe("Resume history");
+    expect(resume.textContent).toBe("Continue historical import");
     expect(resume.hasAttribute("disabled")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     fireEvent.click(screen.getByRole("button", { name: "Sync" }));

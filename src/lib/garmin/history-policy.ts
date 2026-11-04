@@ -31,6 +31,7 @@ export type GarminHistoryState = {
   repairAfter: string | null;
   outcome: "running" | "settled" | "budget-limited" | "cancelled" | "failed";
   operations: number;
+  recoveryReason?: "no-progress";
   failureClass?:
     "auth" | "rate-limit" | "network" | "timeout" | "protocol" | "connector";
   updatedAt: string;
@@ -142,7 +143,15 @@ export function historyState(
       saved.activities.page < 0 ||
       !Array.isArray(saved.unresolvedHealth) ||
       !saved.unresolvedHealth.every(validDate) ||
-      !nullableDate(saved.repairAfter)
+      !nullableDate(saved.repairAfter) ||
+      !["running", "settled", "budget-limited", "cancelled", "failed"].includes(
+        saved.outcome,
+      ) ||
+      !Number.isSafeInteger(saved.operations) ||
+      saved.operations < 0 ||
+      !Number.isFinite(Date.parse(saved.updatedAt)) ||
+      (saved.recoveryReason !== undefined &&
+        saved.recoveryReason !== "no-progress")
     )
       throw new Error(
         "Garmin history checkpoint is unsupported; preserve it for recovery.",

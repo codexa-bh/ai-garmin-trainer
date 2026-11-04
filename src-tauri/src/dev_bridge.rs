@@ -99,6 +99,7 @@ pub enum HealthAction {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SyncAction {
+    Details,
     Observe,
     Start,
     Cancel,

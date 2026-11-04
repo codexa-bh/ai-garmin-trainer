@@ -1197,6 +1197,10 @@
       "Sync now",
       "Sync / continue history",
       "Resume history",
+      "Sync latest",
+      "Import older data",
+      "Continue historical import",
+      "Technical details",
       "Sync already in progress",
       "Cancel sync",
       "Ready",
@@ -1211,7 +1215,7 @@
     // Hide by default; reveal only reviewed exact static text at its real geometry.
     // No top/left/width/position/display/reparenting overrides or copied facts.
     for (const el of document.querySelectorAll(
-      ".app-brand .app-title, .app-mobile-menu .app-menu-toggle, nav button, .sync-view-header h1, .sync-view-header button, .sync-view-panel h2, [aria-labelledby='sync-action-heading'] button, [aria-labelledby='sync-action-heading'] .pill, .sheet-header h2, .sheet-header button, .profile-settings-card .button-row button",
+      ".app-brand .app-title, .app-mobile-menu .app-menu-toggle, nav button, .sync-view-header h1, .sync-view-header button, .sync-view-panel h2, [aria-labelledby='sync-action-heading'] button, [aria-labelledby='sync-action-heading'] summary, [aria-labelledby='sync-action-heading'] .pill, .sheet-header h2, .sheet-header button, .profile-settings-card .button-row button",
     )) {
       if (visible(el) && labels.has(el.textContent.trim()))
         el.setAttribute("data-smoke-reveal", "");
@@ -1225,6 +1229,25 @@
         pill.setAttribute("data-smoke-reveal", "");
     }
     if (command.view === "sync") {
+      const status = document.querySelector(".sync-history-status");
+      const safeStates = new Set([
+        "A sync is active. Wait for settlement, then refresh summary.",
+        "Summary truth is not confirmed. Refresh import summary before starting or continuing.",
+        "Historical eligibility is unknown. Refresh import summary.",
+        "Older work is available within the selected exploration scope.",
+        "Previous historical import was interrupted; committed progress is retained.",
+        "Selected exploration range checked. Remote earliest history remains unknown.",
+        "Saved history or its selected limit needs recovery. Preserve checkpoints; do not reset or replay.",
+        "Historical import made no progress. Saved work is retained for recovery, not automatic retry.",
+        "Historical import stopped after a failure. Resolve the connection or storage failure before recovering saved work.",
+      ]);
+      if (status && visible(status)) {
+        if (status.childElementCount || !safeStates.has(status.textContent)) {
+          restore();
+          throw Error("Unrecognized Sync status");
+        }
+        status.setAttribute("data-smoke-reveal", "");
+      }
       const help = document.querySelector(
         '[aria-labelledby="sync-dependency-heading"]',
       );
@@ -1337,15 +1360,34 @@
         );
         if (
           !visible(panel) ||
-          !["observe", "start", "continue", "cancel", "refresh"].includes(
-            command.action,
-          )
+          ![
+            "observe",
+            "start",
+            "continue",
+            "cancel",
+            "refresh",
+            "details",
+          ].includes(command.action)
         )
           throw Error("Sync unavailable");
-        if (command.action !== "observe") {
+        if (command.action === "details") {
+          const summaries = [...panel.querySelectorAll("summary")].filter(
+            (el) => visible(el) && name(el) === "Technical details",
+          );
+          if (
+            summaries.length !== 1 ||
+            summaries[0].parentElement?.tagName !== "DETAILS"
+          )
+            throw Error("Technical disclosure unavailable");
+          summaries[0].click();
+        } else if (command.action !== "observe") {
           const labels = {
             start: "Sync now — import latest Garmin data",
-            continue: "Sync now — import latest Garmin data",
+            continue: [...panel.querySelectorAll("button")].some(
+              (el) => name(el) === "Continue historical import",
+            )
+              ? "Continue historical import"
+              : "Import older data",
             cancel: "Cancel sync",
             refresh: "Refresh import summary",
           };

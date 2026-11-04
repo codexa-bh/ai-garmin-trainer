@@ -56,18 +56,37 @@ export function useSyncFeature({
 
   const [detailGarminId, setDetailGarminId] = useState("");
 
+  const [summaryKnown, setSummaryKnown] = useState(false);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
+  const summaryKnownRef = useRef(false);
+  const summaryGeneration = useRef(0);
   const isSyncingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   function cancelSync() {
     abortRef.current?.abort();
   }
 
-  async function syncNow() {
-    if (isSyncingRef.current || importSummary?.syncActive) return;
+  async function syncNow(
+    intent: import("@/lib/garmin/sync-policy").SyncIntent = "latest",
+  ) {
+    if (
+      isSyncingRef.current ||
+      importSummary?.syncActive ||
+      !summaryKnownRef.current ||
+      (intent === "history" &&
+        importSummary?.sync?.historical.state !== "available")
+    )
+      return;
+    summaryGeneration.current += 1;
+    summaryKnownRef.current = false;
+    setSummaryKnown(false);
     isSyncingRef.current = true;
     setIsSyncing(true);
     let logLines: SyncRunState["lines"] = [
-      { text: "Sync now: starting…", severity: "info" },
+      {
+        text: `${intent === "latest" ? "Sync latest" : "Historical import"}: starting…`,
+        severity: "info",
+      },
     ];
     let recovery: SyncRunState["recovery"] = null;
     let failureSummary: string | null = null;
@@ -84,6 +103,8 @@ export function useSyncFeature({
       abortRef.current = abort;
       const response = await fetch("/api/sync", {
         method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ intent }),
         signal: abort.signal,
       });
       if (!response.ok || !response.body) {
@@ -103,6 +124,7 @@ export function useSyncFeature({
           recovery,
         });
         setStatus({ kind: "error", message });
+        await loadImportSummary("sync", false);
         return;
       }
 
@@ -177,6 +199,7 @@ export function useSyncFeature({
             appendLine(
               formatSyncProgressLine(event),
               failed ? "error" : "info",
+              `${intent === "latest" ? "Latest refresh" : "Historical import"}: ${event.stage ?? "working"}${event.date ? ` · ${event.date}` : ""}. Activity records processed: ${event.activitiesProcessed ?? event.activitiesImported ?? 0}; health dates refreshed: ${event.healthDaysRefreshed ?? event.healthDaysImported ?? 0}.`,
             );
           }
         }
@@ -235,6 +258,9 @@ export function useSyncFeature({
     trigger: "startup" | "manual" | "sync",
     showStatus = true,
   ) {
+    const generation = ++summaryGeneration.current;
+    summaryKnownRef.current = false;
+    setSummaryKnown(false);
     setAthleteBaselineMessage("Loading athlete baseline…");
     setBodyMetricsMessage("Loading body metrics…");
     if (showStatus)
@@ -243,6 +269,9 @@ export function useSyncFeature({
       const payload = await readJsonResponse<ImportSummaryPayload>(
         await fetch("/api/summary"),
       );
+      if (generation !== summaryGeneration.current) return;
+      summaryKnownRef.current = true;
+      setSummaryKnown(true);
       const nextBaseline = payload.athleteBaseline ?? emptyAthleteBaseline;
       const nextBodyMetrics = payload.bodyMetrics ?? emptyBodyMetrics;
       const nextSummary = {
@@ -265,6 +294,9 @@ export function useSyncFeature({
           message: `Import summary: ${payload.activities} stored activities, ${formatHealthCoverageSummary(payload.healthCoverage, payload.healthDays)}, detail coverage ${formatDetailCoverageSummary(payload.detailCoverage, payload.detailedActivities)}, athlete baseline ${nextBaseline.availability}, body metrics ${nextBodyMetrics.availability}.`,
         });
     } catch (error) {
+      if (generation !== summaryGeneration.current) return;
+      summaryKnownRef.current = false;
+      setSummaryKnown(false);
       const errorMessage =
         error instanceof Error ? error.message : "unknown error";
       setAthleteBaselineMessage(
@@ -331,6 +363,9 @@ export function useSyncFeature({
     syncPillKind,
     syncPillLabel,
     syncNow,
+    summaryKnown,
+    technicalOpen,
+    setTechnicalOpen,
     cancelSync,
     importSummary,
     refreshSummary,

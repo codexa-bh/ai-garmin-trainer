@@ -21,7 +21,9 @@ export type HealthCoverage = {
 
 export type GarminSyncResult = {
   status: "completed" | "failed" | "budget-limited" | "cancelled";
-  history: GarminHistoryState;
+  intent?: import("./sync-policy").SyncIntent;
+  sync: import("./sync-policy").SyncState;
+  history: GarminHistoryState | null;
   discovery?: import("./discovery-policy").GarminDiscoveryState;
   continuationAvailable: boolean;
   activitiesImported: number;

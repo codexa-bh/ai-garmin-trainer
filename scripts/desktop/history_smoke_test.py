@@ -47,6 +47,9 @@ class HistoryTokenContracts(unittest.TestCase):
         run = SimpleNamespace(root=self.destination, child=None, config={'port':12345})
         with patch('history_smoke.listening', return_value=False):
             prepare_synthetic_history(run)
+            from datetime import datetime, timedelta, timezone
+            prepared = json.loads((self.destination / 'config/settings-v3.json').read_text())
+            self.assertEqual(prepared['fields']['GARMIN_HISTORY_START_DATE'], (datetime.now(timezone.utc).date() - timedelta(days=35)).isoformat())
             for scenario in ('missing', 'unknown', 'healthy'):
                 prepare_dependency_scenario(run, scenario)
                 saved = json.loads((self.destination / 'config/settings-v3.json').read_text())
@@ -64,6 +67,28 @@ class HistoryTokenContracts(unittest.TestCase):
             (self.destination / 'config/settings-v3.json').write_text(json.dumps(saved))
             with self.assertRaisesRegex(ValueError, 'synthetic-only'):
                 prepare_dependency_scenario(run, 'healthy')
+
+    def test_sync_scope_uses_populated_existing_setup_without_changing_default_wizard_coverage(self):
+        from types import SimpleNamespace
+        from history_smoke import setup_modes
+        for flags, expected in [((False, False, False), ['create-new', 'use-existing']), ((True, False, False), ['use-existing']), ((False, True, False), ['use-existing']), ((False, False, True), ['use-existing'])]:
+            self.assertEqual(setup_modes(SimpleNamespace(continuation_only=flags[0], dependency_guidance=flags[1], synthetic_sync=flags[2])), expected)
+
+    def test_latest_only_checks_checkpoint_identity_and_never_retries_a_mutation(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        before = {'active':False, 'historicalState':'complete'}
+        after = {**before, 'latestOutcome':'settled'}
+        for digest, success in [('same', True), ('changed', False)]:
+            run = SimpleNamespace(summary=Mock(side_effect=[before, after]), history_digest=Mock(side_effect=['same', digest]),
+                                  command=Mock(), wait_sync=Mock(), settle_claim=Mock())
+            if success:
+                self.assertTrue(HistoryRun.latest_only(run)['historyBytesPreserved'])
+            else:
+                with self.assertRaisesRegex(ValueError, 'changed saved history'):
+                    HistoryRun.latest_only(run)
+            self.assertEqual(run.command.call_args_list[0].args[0], {'type':'sync','action':'start'})
+            self.assertEqual(run.command.call_count, 1)
 
     def test_data_capture_follows_the_actual_existing_selection(self):
         from types import SimpleNamespace

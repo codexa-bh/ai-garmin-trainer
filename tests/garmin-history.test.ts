@@ -557,6 +557,148 @@ describe("interactive operation through actual HTTP/NDJSON/SQLite", () => {
   });
 });
 
+describe("explicit Sync intents and durable eligibility", () => {
+  async function explicit(intent: string) {
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST(
+      new Request("http://localhost/api/sync", {
+        method: "POST",
+        body: JSON.stringify({ intent }),
+      }),
+    );
+    const stream = response.text();
+    await vi.advanceTimersByTimeAsync(600_000);
+    return {
+      status: response.status,
+      events: (await stream)
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    };
+  }
+  it("keeps latest separate, preserves completed scope byte-for-byte and agrees after reload/repeat", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-07");
+    const repo = await import("../src/lib/db/repository");
+    const route = await import("../src/app/api/summary/route");
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const db = getDatabase();
+    db.prepare(
+      "insert into daily_health(date,availability,steps) values ('2000-01-01','partial',1234)",
+    ).run();
+    db.prepare(
+      "insert into garmin_body_weight_history(date,weight_kg,source,fetched_at) values ('2000-01-01',72,'authored-transition',1)",
+    ).run();
+    const originals = () => [
+      db
+        .prepare(
+          "select date,availability,steps from daily_health where date='2000-01-01'",
+        )
+        .get(),
+      db
+        .prepare(
+          "select * from garmin_body_weight_history where date='2000-01-01'",
+        )
+        .get(),
+    ];
+    const preserved = originals();
+    const initial = await (await route.GET()).json();
+    expect(initial.sync.historical).toMatchObject({
+      state: "available",
+      action: "start",
+    });
+    expect(remote.calls).toEqual([]);
+    const history = await explicit("history");
+    const result = history.events.at(-1);
+    expect(result.status).toBe("completed");
+    expect(result.sync.historical.state).toBe("complete");
+    const bytes = [
+      repo.getCheckpoint(HISTORY_CHECKPOINT),
+      repo.getCheckpoint(DISCOVERY_CHECKPOINT),
+    ];
+    for (let index = 0; index < 2; index += 1) {
+      remote.calls = [];
+      const latest = (await explicit("latest")).events.at(-1);
+      expect(latest.intent).toBe("latest");
+      expect(latest.sync.historical.state).toBe("complete");
+      expect(latest.detail).not.toContain("Detail backlog");
+      expect(healthDates().every((date) => date >= "2026-09-08")).toBe(true);
+      expect(
+        remote.calls.some((call) => call.name === "get_weekly_steps"),
+      ).toBe(false);
+      expect([
+        repo.getCheckpoint(HISTORY_CHECKPOINT),
+        repo.getCheckpoint(DISCOVERY_CHECKPOINT),
+      ]).toEqual(bytes);
+      const reload = await (await route.GET()).json();
+      expect(reload.sync).toEqual(latest.sync);
+      expect(originals()).toEqual(preserved);
+      expect(db.pragma("integrity_check", { simple: true })).toBe("ok");
+      expect(db.pragma("foreign_key_check")).toEqual([]);
+    }
+    remote.calls = [];
+    expect((await explicit("history")).status).toBe(409);
+    expect(remote.calls).toEqual([]);
+  });
+  it("latest on a fresh database never creates history and retains the meaningful older-data entry", async () => {
+    vi.useFakeTimers();
+    const latest = (await explicit("latest")).events.at(-1);
+    const repo = await import("../src/lib/db/repository");
+    expect(repo.getCheckpoint(HISTORY_CHECKPOINT)).toBeNull();
+    expect(repo.getCheckpoint(DISCOVERY_CHECKPOINT)).toBeNull();
+    expect(latest.sync.historical).toMatchObject({
+      state: "available",
+      action: "start",
+    });
+    expect(remote.calls.some((call) => call.name === "get_weekly_steps")).toBe(
+      false,
+    );
+  });
+  it("retains corrupt checkpoints, permits latest only, and rejects unknown or extra action input", async () => {
+    vi.useFakeTimers();
+    const repo = await import("../src/lib/db/repository");
+    repo.saveCheckpoint(HISTORY_CHECKPOINT, "{broken");
+    const route = await import("../src/app/api/summary/route");
+    expect((await (await route.GET()).json()).sync.historical.state).toBe(
+      "blocked",
+    );
+    expect((await explicit("history")).status).toBe(409);
+    expect((await explicit("unknown")).status).toBe(400);
+    expect(remote.calls).toEqual([]);
+    const syncRoute = await import("../src/app/api/sync/route");
+    expect(
+      (
+        await syncRoute.POST(
+          new Request("http://localhost/api/sync", {
+            method: "POST",
+            body: '{"intent":"latest","reset":true}',
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    expect((await explicit("latest")).events.at(-1).status).toBe("completed");
+    expect(repo.getCheckpoint(HISTORY_CHECKPOINT)).toBe("{broken");
+  });
+  it("preserves actionable backlog during latest and advances it only on explicit history", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-06");
+    const repo = await import("../src/lib/db/repository");
+    const saved = historyState(null, "2026-09-06", "2026-09-21");
+    saved.outcome = "cancelled";
+    repo.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(saved));
+    const bytes = repo.getCheckpoint(HISTORY_CHECKPOINT);
+    const latest = (await explicit("latest")).events.at(-1);
+    expect(latest.sync.historical).toMatchObject({
+      state: "available",
+      action: "continue",
+    });
+    expect(repo.getCheckpoint(HISTORY_CHECKPOINT)).toBe(bytes);
+    const next = (await explicit("history")).events.at(-1);
+    expect(next.history.health.nextDate).toBe("2026-09-05");
+    expect(next.sync.historical.state).toBe("complete");
+  });
+});
+
 describe("nested reader admission and in-flight termination", () => {
   it("admits every nested FIT supplement, not only the application operation", async () => {
     let attempts = 0;

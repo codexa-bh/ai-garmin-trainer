@@ -395,6 +395,40 @@ describe("interactive ownership, safety and comparative request cost", () => {
     );
     expect(result.history.unresolvedHealth).toEqual(["2027-01-01"]);
   });
+  it("does not mistake repair rotation for useful progress and persists recovery-only eligibility", async () => {
+    const f = fixture();
+    f.ports.historyStartDate = () => "2026-07-01";
+    f.ports.wait = async () => {};
+    const saved = historyState(null, "2026-07-01", "2026-09-21");
+    saved.health.nextDate =
+      saved.body.nextDate =
+      saved.activities.nextDate =
+        null;
+    saved.outcome = "cancelled";
+    f.checkpoints.set(HISTORY_CHECKPOINT, JSON.stringify(saved));
+    vi.mocked(f.store.listDailyHealthRepairCandidateDates).mockReturnValue([
+      "2026-07-02",
+      "2026-07-03",
+    ]);
+    const app = createGarminImports(f.ports);
+    const result = await app.runGarminSync(undefined, {
+      interactive: true,
+      intent: "history",
+    });
+    expect(result.status).toBe("failed");
+    expect(result.history?.recoveryReason).toBe("no-progress");
+    expect(result.discovery?.operation?.batches).toBe(1);
+    expect(result.sync.historical).toMatchObject({
+      state: "blocked",
+      action: null,
+    });
+    expect(app.syncSummary().sync).toEqual(result.sync);
+    const create = vi.mocked(f.ports.createReader).mock.calls.length;
+    await expect(
+      app.runGarminSync(undefined, { interactive: true, intent: "history" }),
+    ).rejects.toThrow("not actionable");
+    expect(vi.mocked(f.ports.createReader).mock.calls).toHaveLength(create);
+  });
   it("refuses unsupported additive state without changing original bytes or constructing a reader", async () => {
     const f = operationFixture();
     const bytes = '{"version":99}';
