@@ -15,6 +15,11 @@ import { randomUUID } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { afterEach, expect, it } from "vitest";
 import { populate, verify } from "../scripts/desktop/smoke_recipe";
+// Two real tsx processes plus SQLite setup/readback are an integration check,
+// not a 5s unit operation (the hosted integrated case completed in 6.15s).
+// Bound each child independently and leave 5s for fixture/assertion overhead.
+const childTimeoutMs = 10000;
+const scenarioTimeoutMs = childTimeoutMs * 2 + 5000;
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0))
@@ -68,7 +73,10 @@ it.each([
       ...(mode === "keyless" ? [] : [mode]),
     ];
     const result = JSON.parse(
-      execFileSync(process.execPath, command, { encoding: "utf8" }),
+      execFileSync(process.execPath, command, {
+        encoding: "utf8",
+        timeout: childTimeoutMs,
+      }),
     );
     expect(result).toMatchObject({
       task,
@@ -186,10 +194,16 @@ it.each([
     }
     seeded.close();
     const before = readFileSync(path);
-    const replay = spawnSync(process.execPath, command, { encoding: "utf8" });
-    expect(replay.status).not.toBe(0);
+    const replay = spawnSync(process.execPath, command, {
+      encoding: "utf8",
+      timeout: childTimeoutMs,
+    });
+    expect(replay.error).toBeUndefined();
+    expect(replay.signal).toBeNull();
+    expect(replay.status).toBe(1);
     expect(readFileSync(path)).toEqual(before);
   },
+  scenarioTimeoutMs,
 );
 it("finite recipe refuses nonempty/enabled global memory instead of treating it as an authorized input", () => {
   const db = new Database(":memory:");
