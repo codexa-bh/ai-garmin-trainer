@@ -106,6 +106,16 @@ export function useMemoryFeature({
         !Array.isArray(result.stored.items) ||
         !Array.isArray(result.sources) ||
         !Array.isArray(result.manualIds) ||
+        ![
+          result.reservedUsdToday,
+          result.estimatedUsdToday,
+          result.unknownReservedUsd,
+        ].every(
+          (value) =>
+            typeof value === "number" && Number.isFinite(value) && value >= 0,
+        ) ||
+        typeof result.priceBasis !== "string" ||
+        !result.priceBasis ||
         !Array.isArray(result.legacy) ||
         !Array.isArray(result.historical?.candidates) ||
         !Array.isArray(result.historical?.manifests)
@@ -150,7 +160,7 @@ export function useMemoryFeature({
       (action.action === "import-create" ||
         action.action === "import-resume") &&
       !window.confirm(
-        "Process only the explicitly reviewed historical selection with the configured cloud summary model? Minimized text may leave this device and incur cost. No original is deleted; uncertain previous billing remains reserved. Existing per-day/foreground caps apply; no embeddings or transcript-wide sweep.",
+        "Process only the explicitly reviewed historical selection with the configured cloud summary model? Minimized text may leave this device and incur cost. No original is deleted; uncertain previous billing remains reserved. Finite foreground jobs apply, but there is no daily summary spend/count ceiling; no embeddings or transcript-wide sweep.",
       )
     )
       return;
@@ -181,7 +191,7 @@ export function useMemoryFeature({
       changing.current = false;
       await loadMemories(false);
       setMemoryMessage(
-        "Memory change committed. Refresh adopts the latest usable summary; pending native settings still require an explicit restart.",
+        "Memory change committed. Refresh gives pending work up to 8 seconds, then freezes only the available snapshot (or none). Inspect pending/as-of and selected-chat use; late work requires another explicit Refresh. Native settings still require an explicit restart.",
       );
     } catch {
       if (selected.current !== selectedAtStart) return;

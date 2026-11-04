@@ -168,6 +168,20 @@ export function invalidateConversationHistory(): void {
     .run();
 }
 
+export function assertSummaryRefreshIdle(conversationId: string): void {
+  const db = getDatabase();
+  if (!db.prepare("select 1 from conversation where id=?").get(conversationId))
+    throw new Error("conversation_unavailable");
+  if (
+    db
+      .prepare(
+        "select 1 from conversation_turn where conversation_id=? and status='admitted'",
+      )
+      .get(conversationId)
+  )
+    throw new Error("conversation_busy_retry_after_current_turn");
+}
+
 export function refreshConversationSummary(
   conversationId: string,
   expected: SummaryVersion,
@@ -177,18 +191,7 @@ export function refreshConversationSummary(
   db.transaction(() => {
     if (JSON.stringify(summaryStorage.version()) !== JSON.stringify(expected))
       throw new Error("summary_stale_action");
-    if (
-      !db.prepare("select 1 from conversation where id=?").get(conversationId)
-    )
-      throw new Error("conversation_unavailable");
-    if (
-      db
-        .prepare(
-          "select 1 from conversation_turn where conversation_id=? and status='admitted'",
-        )
-        .get(conversationId)
-    )
-      throw new Error("conversation_busy_retry_after_current_turn");
+    assertSummaryRefreshIdle(conversationId);
     const row = db
       .prepare(
         "select format_version as version,revision,privacy_generation as privacyGeneration,covered_through as coveredThrough,compact,compact_sha256 as compactHash,compact_characters as compactCharacters,policy_identity as policyIdentity from conversation_segment where conversation_id=?",

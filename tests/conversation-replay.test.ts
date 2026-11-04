@@ -96,6 +96,48 @@ const request = {
 };
 
 describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
+  it.each(["planner", "final_synthesis"] as const)(
+    "allocates measured larger memory in the actual %s request without changing fresh-tail/output guards",
+    async (purpose) => {
+      const { generate, requests } = fixture((body) =>
+        JSON.stringify(body.input).includes("MEMORY_MARKER") ? 31000 : 100,
+      );
+      await generate({
+        ...request,
+        purpose,
+        conversation: {
+          history: [
+            {
+              role: "user",
+              content:
+                "MEMORY_MARKER " +
+                "週末は長く 🥾; weekdays stay short. ".repeat(200),
+            },
+          ],
+          allowSoftLimit: false,
+          memoryTokens: 10000,
+        },
+      });
+      const sent = requests.filter((entry) => entry.url.endsWith("/responses"));
+      expect(sent).toHaveLength(1);
+      expect(JSON.stringify(sent[0]!.body.input)).toContain("MEMORY_MARKER");
+      expect(sent[0]!.body.max_output_tokens).toBe(4096);
+      expect(sent[0]!.headers.has("x-pivan-conversation-budget")).toBe(false);
+      await expect(
+        generate({
+          ...request,
+          purpose,
+          conversation: {
+            history: [{ role: "user", content: "MEMORY_MARKER" }],
+            allowSoftLimit: true,
+          },
+        }),
+      ).rejects.toBeInstanceOf(ConversationCapacityError);
+      expect(
+        requests.filter((entry) => entry.url.endsWith("/responses")),
+      ).toHaveLength(1);
+    },
+  );
   it("counts the exact serialized input/tools before inference; preserves roles and ordinary append prefix", async () => {
     const { requests, generate } = fixture();
     const result = await generate(request);

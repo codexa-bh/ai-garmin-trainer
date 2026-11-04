@@ -1,6 +1,6 @@
 import {
   ConversationCapacityError,
-  CONVERSATION_INPUT_LIMIT,
+  conversationInputLimit,
   COMPACTION_INPUT_LIMIT,
   type ReplayMessage,
 } from "../chat/conversation-replay";
@@ -129,11 +129,12 @@ export function countedConversationFetch(
       kind: "history" | "compaction";
       historyMessages?: number;
       allowSoftLimit?: boolean;
+      memoryTokens?: number;
     };
     const limit =
       declaration.kind === "compaction"
         ? COMPACTION_INPUT_LIMIT
-        : CONVERSATION_INPUT_LIMIT;
+        : conversationInputLimit(declaration.memoryTokens);
     if (tokens > limit) throw new ConversationCapacityError();
     if (declaration.kind === "history" && declaration.historyMessages) {
       if (!Array.isArray(payload.input))
@@ -167,8 +168,11 @@ export function countedConversationFetch(
         ],
       });
       assertCurrent?.();
-      const history = Math.max(0, tokens - base);
-      if (history >= 0.8 * Math.max(0, limit - base))
+      // Memory is immutable continuity, never a same-conversation compaction
+      // source. Its measured allowance must not manufacture repeated H compaction.
+      const memory = declaration.memoryTokens ?? 0;
+      const history = Math.max(0, tokens - base - memory);
+      if (history >= 0.8 * Math.max(0, limit - base - memory))
         throw new ConversationCapacityError();
     }
     init?.signal?.throwIfAborted();

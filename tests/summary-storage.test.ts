@@ -13,6 +13,7 @@ import {
 } from "@/lib/memory/summary-application";
 import {
   minimizeSummarySource,
+  summaryLimits,
   validateSummaryPatch,
   type SummaryBatch,
 } from "@/lib/memory/summary-policy";
@@ -243,7 +244,9 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
     expect(storage.admit(now + 1000000, "blind-replay")).toBeNull();
     storage.control("retry", now + 1000000);
     expect(storage.admit(now + 1000001, "explicit")).not.toBeNull();
-    expect(storage.status(now).reservedUsdToday).toBeCloseTo(0.01);
+    expect(storage.status(now).reservedUsdToday).toBeCloseTo(
+      summaryLimits(6000).reservedUsd,
+    );
   });
   it.each(["delete", "edit", "clear", "disable", "config", "manual"])(
     "rejects late publication after %s and does not resurrect text",
@@ -411,7 +414,7 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
       payload: "preserve original bytes",
     });
   });
-  it("charges ten attempts/day without model/restart/clock rollback resets or automatic deterministic retries", () => {
+  it("allows more than ten attempts, retaining unknown liabilities across restart/clock rollback without blind retries", () => {
     complete();
     for (let i = 0; i < 10; i++) {
       storage.control("retry", now);
@@ -428,10 +431,22 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
     }
     storage.control("retry", now);
     const last = storage.admit(now, "eleventh")!;
-    expect(storage.reserve(last, now)).toBe(false);
-    expect(storage.status(now)).toMatchObject({ attemptsToday: 10 });
-    expect(storage.status(now - 86400000).attemptsToday).toBe(10);
+    expect(storage.reserve(last, now)).toBe(true);
+    expect(storage.reserve(last, now)).toBe(false); // duplicate reservation, not a count cap
+    const status = storage.status(now);
+    expect(status).toMatchObject({ attemptsToday: 11 });
+    expect(status.reservedUsdToday).toBeCloseTo(
+      11 * summaryLimits(6000).reservedUsd,
+    );
+    expect(status.unknownReservedUsd).toBeCloseTo(status.reservedUsdToday);
+    const bytes = db.serialize();
+    db.close();
+    db = new Database(bytes);
+    expect(storage.status(now - 86400000).attemptsToday).toBe(11);
     expect(storage.status(now + 86400000).attemptsToday).toBe(0);
+    expect(storage.status(now + 86400000).unknownReservedUsd).toBeCloseTo(
+      status.unknownReservedUsd,
+    );
   });
   it("preserves actual production-adapter serialized active input/tools on ordinary S publication", async () => {
     complete();
@@ -583,23 +598,27 @@ describe("supplied generation with real SQLite application", () => {
     await running;
     expect(storage.status(now).frontier).toBe(1);
     expect(storage.status(now).pending).toBe(1);
+    now += 2000;
+    await app.tick(new AbortController().signal);
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(storage.status(now)).toMatchObject({ frontier: 2, pending: 0 });
   });
   it("processes repeated new-only batches with retained early rationale and one disposition per event", async () => {
     const generation = fakeGeneration(),
       app = engine(generation);
-    for (let round = 0; round < 10; round++) {
+    for (let round = 0; round < 12; round++) {
       complete(`chat${round}`);
       await app.tick(new AbortController().signal);
-      now += 120001;
+      now += 2000;
       await app.tick(new AbortController().signal);
-      now += 30001;
+      now += 2000;
     }
-    expect(generation.generate).toHaveBeenCalledTimes(10);
+    expect(generation.generate).toHaveBeenCalledTimes(12);
     expect(storage.read().text).toContain("for time");
     expect(storage.read().text).toContain("rejected");
     expect(
       db.prepare("select count(*) as n from summary_disposition").get(),
-    ).toEqual({ n: 10 });
+    ).toEqual({ n: 12 });
     const calls = vi.mocked(generation.generate).mock.calls;
     for (const call of calls)
       expect(JSON.parse(call[1]).newSources).toHaveLength(1);
@@ -633,6 +652,8 @@ describe("supplied generation with real SQLite application", () => {
     now += 120001;
     await app.tick(abort.signal);
     expect(storage.status(now).frontier).toBe(0);
-    expect(storage.status(now).reservedUsdToday).toBeCloseTo(0.01);
+    expect(storage.status(now).reservedUsdToday).toBeCloseTo(
+      summaryLimits(6000).reservedUsd,
+    );
   });
 });

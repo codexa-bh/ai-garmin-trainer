@@ -95,9 +95,19 @@ export function MemoryContent({
             .
           </p>
           <p>
-            Summary spend reserved today: ${memory.reservedUsdToday.toFixed(3)}{" "}
-            / 0.10 · attempts {memory.attemptsToday} / 10. Unknown billing
-            remains reserved; no cache saving is assumed.
+            Summary attempts today: {memory.attemptsToday}; no daily count or
+            spend ceiling. Conservative reservations today: $
+            {memory.reservedUsdToday.toFixed(4)}. Observed-token estimate today:
+            ${memory.estimatedUsdToday.toFixed(4)}. Outstanding unknown/legacy
+            reservations (all days): ${memory.unknownReservedUsd.toFixed(4)}.
+            These are not invoices or cache-savings claims. Disable processing
+            to stop new summary work; title limits remain separate.
+          </p>
+          <p>
+            Price basis: {memory.priceBasis}. Exact total chat request admission
+            includes policy/tools, fresh context and output/safety reserves; N
+            is a character bound, not a token guarantee. If the whole request
+            cannot fit, the app reports capacity rather than clipping memory.
           </p>
           <section aria-label="Selected chat memory">
             <h3>Selected chat projection</h3>
@@ -105,7 +115,7 @@ export function MemoryContent({
               {!memory.selectedChat
                 ? "No chat selected."
                 : pin
-                  ? `Pinned revision ${pin.stamp.revision}; ${memory.usedByChat ? "used on the selected qualified route" : pin.tokens === null ? "awaiting exact token projection before use" : "not used by the current chat route"}. ${pin.omitted} whole items omitted; ${pin.tokens ?? "unmeasured"} tokens / 2048.`
+                  ? `Pinned revision ${pin.stamp.revision}; ${memory.usedByChat ? "used on the selected qualified route" : pin.tokens === null ? "awaiting exact token projection before use" : "not used by the current chat route"}. ${pin.omitted} whole items omitted; ${pin.tokens ?? "unmeasured"} measured memory tokens; total-request capacity is checked before each inference.`
                   : `No active cross-chat pin${memory.selectedChat.reason ? `: ${memory.selectedChat.reason}` : ""}. Local chat remains available.`}
             </p>
             {pin && <p className="memory-text">{pin.value.text}</p>}

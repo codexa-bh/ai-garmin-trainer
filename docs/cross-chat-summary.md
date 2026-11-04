@@ -50,9 +50,11 @@ Aborted/incomplete turns are never promoted. A necessary preceding option refere
 is separately bounded1200 scalars and screened; the newly generated answer and
 unrestricted assistant/tool/compaction/summary text are not new global sources.
 
-One native-app lifetime polls a fixed identity-bound route at startup/every30 seconds.
-It coalesces due work: four new eligible turns,2000 scalars, or two active minutes
-of backlog; ten-second debounce and minimum30 seconds between jobs. Each job reads
+The existing native-app lifetime coalesces completion notifications at a short
+two-second debounce; one small eligible turn is sufficient. A fixed identity-bound
+startup/30-second recovery tick discovers retained backlog and expiry. There is
+at most one running job and at least two seconds between dispatches. Arrivals during
+a job remain pending and drain on the next finite job without another discovery cycle. Each job reads
 at most20 new events plus the prior bounded ledger, not covered old transcripts.
 Exact serialized token admission can shorten only an unconsumed suffix. A single
 oversized event stops the frontier for explicit minimized review, never silent loss.
@@ -72,7 +74,7 @@ corrections and temporary context. Structural validity is not semantic truth pro
 The direct Luna adapter counts the actual SDK-serialized Responses payload with
 `/responses/input_tokens`, never characters/4 or an unreviewed tokenizer. It pins
 `store:false`, no thread/previous response, explicit no reasoning/tools/fallback,
-8000 input/2048 output tokens, zero SDK retries and15-second whole-operation deadline.
+size-aware finite input/output envelopes, zero SDK retries and a60-second whole-operation deadline covering all counting and dispatch. For N1000/6000/20000, output allowances are36768/56768/112768 and input106304/146304/258304 tokens. These are conservative serialized text/metadata envelopes, not predicted usage or character/token ratios; exact counting still refuses oversized prior lineage/schema/source payloads before inference. The reviewed Luna context/output ceilings are1,050,000/128,000.
 Summary patches and titles request separate strict closed JSON output schemas through
 the locked SDK. Exact preflight includes the serialized schema; empty keep/upsert/remove/
 coverage arrays remain required. Domain validation still independently checks source
@@ -81,9 +83,16 @@ semantic approval, and unsupported structured output has no text/model fallback.
 Cancellation bounds even a provider promise that ignores its signal. Provider logs,
 provider-side retention and billing after cancellation are not controlled locally.
 
-Reserve USD0.01 before any provider/preflight attempt, at most10 attempts/USD0.10
-per local civil day with persisted day high-water accounting. Model changes/restart/
-clock rollback do not replenish spend. Confirmed5xx permits a later60–75-second
+There is no daily summary attempt or spend ceiling. Before provider/preflight,
+persist a conservative reservation from the finite input/output allowances at the
+reviewed2026-11-04 standard Luna price basis: USD0.25 input (conservative12-hour
+cache-write rate) and0.50 output per million. Report observed-token estimates at
+standard undiscounted0.10 input/0.50 output separately from gross reservations and
+outstanding unknown/legacy liabilities across all days. None is an invoice or a
+cache-saving claim. Missing/partial usage and legacy flat reservations remain
+unknown; historical attempts/spend are preserved. Day high-water, restart, model
+changes and clock rollback never erase liabilities. Disable stops new summary work;
+independent title and local compaction limits remain unchanged. Confirmed5xx permits a later60–75-second
 attempt; repeated failures back off five minutes under the same caps. Invalid/auth/
 unknown/cancelled outcomes need explicit recovery, not an automatic replay. Expired
 reserved leases remain conservatively charged and require explicit Retry. Actual
@@ -98,9 +107,16 @@ Restart retains backlog/checkpoint/attempt/cost facts and refuses blind uncertai
 
 Schema20 freezes a sealed summary/null snapshot transactionally at explicit New
 chat; existing conversations acquire a compatible boundary at first admission.
-Before qualified inference, exact token accounting narrows the frozen snapshot
-once to whole priority-ranked items under2048 tokens. That measured projection is
-sealed and survives ordinary publication and restart; it never rewrites latest S.
+Before qualified inference, exact token accounting measures the entire frozen
+snapshot once, without an independent memory clipping ceiling. The whole request
+adds that measured memory to its existing non-memory allocation and retains model,
+output/safety and fresh-tail bounds. Genuine whole-request overflow reports capacity
+rather than silently dropping meanings. The measured pin is sealed and survives
+ordinary publication and restart; old already-measured projections (including their
+old omissions) remain byte-stable until explicit adoption; neither rewrites latest S.
+New chat and Refresh give pending activity at most eight seconds to catch up before
+freezing only the available revision/null. A late publication never silently replaces
+that pin; inspect pending/as-of/selected use and explicitly Refresh later if needed.
 Explicit Refresh compares summary authority and segment revision and refuses a
 busy chat; deliberate local compaction adopts latest S inside its existing CAS.
 Both planner and synthesis replay the pin as untrusted user data, not policy.
@@ -162,8 +178,8 @@ M09 denial is minimized to “not for medical reasons,” not a positive diagnos
 
 Reviewed selection freezes at most200 exact completed Off-turn versions /100000
 source scalars after the current cutoff in a format1 sealed manifest. The same
-foreground S writer, lease, exact8000-token admission,20-source batch and daily
-budget process it. Separate import dispositions preserve routine incremental
+foreground S writer, lease, size-aware exact token admission and20-source finite
+batch process it, without a separate hidden daily summary budget. Separate import dispositions preserve routine incremental
 frontier and exactly-once local publication. Pause/cancel preserve positions and
 unknown billing; resume verifies the seal, disposition count, source versions,
 privacy/control/manual generations, cutoff and suppression. Authority changes
@@ -178,11 +194,14 @@ actual legacy deletion remain separately approved operations.
 
 ## Compatibility and validation
 
-Rehearse additive19→20 migration on an authored populated stopped online backup;
+Rehearse additive19→21 migration on an authored populated stopped online backup;
 preserve transcript, Profile, normalized/legacy memory/settings and completion IDs.
 No historical completion/summary backfill occurs. Journal/settings/summary/privacy/
 checkpoint/spend behavior and reopen/integrity require explicit evidence. Ordinary
-startup/Use existing is still non-migrating. Schema19 native admission refuses20;
+startup/Use existing is still non-migrating. Schema21 adds per-attempt reservation/basis/day columns without rewriting existing
+pin payloads, historical usage or gross spend. Legacy reserved attempts gain exactly
+their old USD0.01 liability with unknown original price/day basis; no refund/backfill.
+Existing schema20 desktop admission refuses21;
 after new writes use a compatible forward fix or an explicitly reconciled backup,
 never a downgrade/reset/copy-back or unsafe older writer. Source delivery grants no
 primary DB/settings access, migration, restart, install, release or activation.

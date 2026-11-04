@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSummaryGeneration } from "@/lib/memory/summary-provider";
+import { summaryLimits } from "@/lib/memory/summary-policy";
 
 function fixture(
   options: {
@@ -90,7 +91,7 @@ describe("independent actual SDK Luna summary serialization", () => {
     expect(infer!.body).toMatchObject({
       model: "gpt-6-luna",
       store: false,
-      max_output_tokens: 2048,
+      max_output_tokens: summaryLimits(6000).output,
     });
     for (const key of ["input", "model", "text", "reasoning"])
       expect(count!.body[key]).toEqual(infer!.body[key]);
@@ -159,11 +160,11 @@ describe("independent actual SDK Luna summary serialization", () => {
         ]);
       }
       expect(requests[1]!.body.max_output_tokens).toBe(
-        purpose === "title" ? 120 : 2048,
+        purpose === "title" ? 120 : summaryLimits(6000).output,
       );
     },
   );
-  it.each([8001, null])(
+  it.each([summaryLimits(6000).input + 1, null])(
     "refuses oversized/unknown exact accounting %s before inference",
     async (count) => {
       const { generation, requests } = fixture({ count });
@@ -173,6 +174,30 @@ describe("independent actual SDK Luna summary serialization", () => {
       expect(requests).toHaveLength(1);
     },
   );
+  it("refuses dispatch when authority is revoked during exact count", async () => {
+    const { transport, requests } = fixture();
+    let current = true;
+    const controlled: typeof fetch = async (url, init) => {
+      const response = await transport(url, init);
+      if (String(url).endsWith("/input_tokens")) current = false;
+      return response;
+    };
+    const generation = createSummaryGeneration(
+      "synthetic-not-a-key",
+      controlled,
+      () => current,
+      "summary",
+      20000,
+    );
+    await expect(
+      generation.generate(
+        "policy",
+        "authored source",
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("summary_configuration_changed");
+    expect(requests).toHaveLength(1);
+  });
   it("keeps missing usage unknown rather than SDK-default zero", async () => {
     const { generation } = fixture({ usage: false });
     expect(

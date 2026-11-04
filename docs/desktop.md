@@ -73,6 +73,14 @@ secret file or live protocol field is added. Explicit Save includes hidden
 SUMMARY_CONTRACT_VERSION=2 so old field parsers refuse changed semantics; schema19
 admission refuses20. Preserve originals and use a compatible build/forward fix.
 Rehearse authored copy migration first; no primary upgrade/restart is implied.
+Schema21 prospectively adds size-aware summary reservation/basis/day accounting;
+old pin payloads, gross spend, usage and unknown effects are preserved. Explicit
+migration must be rehearsed on an authored populated online copy first; schema20
+builds refuse21. Startup/Use existing never migrate. No primary migration, installation
+or restart authority is implied. Summary has no hidden daily spend/count ceiling;
+Settings discloses the cost implication and Disable stops new summary work. Title
+limits are unchanged. Two-second native activity wakeups/serialized backlog drain
+and bounded eight-second explicit adoption replace delayed small-turn polling.
 Trainer Memory distinguishes latest versus selected-chat pin/use; native fixed
 status observes configuration/producer metadata, not actual selected-chat use.
 

@@ -1,9 +1,28 @@
 import { unsafeMemoryReason } from "./filters";
 
 export const SUMMARY_POLICY = "global-summary-v1/openai.responses/gpt-6-luna";
-export const SUMMARY_INPUT_LIMIT = 8000;
-export const SUMMARY_OUTPUT_LIMIT = 2048;
-export const SUMMARY_DEADLINE_MS = 15000;
+// Reviewed direct Luna standard profile, 2026-11-04. These are app allocations,
+// not a token estimate: exact SDK serialization must still pass preflight.
+export const SUMMARY_MODEL_CONTEXT = 1_050_000;
+export const SUMMARY_MODEL_OUTPUT = 128_000;
+export const SUMMARY_PRICE_BASIS =
+  "luna-standard-2026-11-04/usd-per-million:0.10-input,0.50-output;reserve:0.25-input";
+export const SUMMARY_DEADLINE_MS = 60_000;
+export const SUMMARY_DEBOUNCE_MS = 2000;
+export const SUMMARY_CATCHUP_MS = 8000;
+export function summaryLimits(cap: number) {
+  // Four bytes per Unicode scalar is a conservative text envelope, not a
+  // characters/token ratio. Extra space covers patch/lineage/schema/framing.
+  const output = 4 * summaryCap(cap) + 32768;
+  const input = 2 * output + 32768;
+  if (output > SUMMARY_MODEL_OUTPUT || input + output > SUMMARY_MODEL_CONTEXT)
+    throw new Error("summary_impossible_capacity");
+  return {
+    input,
+    output,
+    reservedUsd: (input * 0.25 + output * 0.5) / 1_000_000,
+  };
+}
 export type SummarySource = {
   eventSeq: number;
   sourceId: string;
@@ -96,6 +115,9 @@ export type SummaryStatus = {
   usedByChat: false;
   attemptsToday: number;
   reservedUsdToday: number;
+  estimatedUsdToday: number;
+  unknownReservedUsd: number;
+  priceBasis: string;
 };
 export type SummaryGenerationStamp = {
   version: 1;

@@ -588,7 +588,7 @@ export function useChatFeature({
     let revision = ++selectionRevisionRef.current;
     setStatus({
       kind: "busy",
-      message: "New chat: creating local conversation…",
+      message: "New chat: giving pending memory up to 8 seconds to catch up…",
     });
     try {
       await queueSelection(async () => {
@@ -608,8 +608,7 @@ export function useChatFeature({
         await writeSelection(payload.conversation.id);
         setStatus({
           kind: "ok",
-          message:
-            "New chat created. Active session context reset; prior transcripts stay in local SQLite. Semantic memory, Profile, and Garmin facts remain available when configured.",
+          message: `New chat created. Prior transcripts, Profile and Garmin data are preserved. ${payload.memoryNotice ?? "Inspect Memory for the actual selected snapshot and pending updates; later work requires explicit Refresh."}`,
         });
       });
       await loadConversations(false);

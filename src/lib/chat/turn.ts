@@ -11,7 +11,7 @@ import {
   ConversationCapacityError,
   conversationInterruption,
   CONTEXT_CAPACITY_MESSAGE,
-  CONVERSATION_INPUT_LIMIT,
+  conversationInputLimit,
   replayMessages,
   type ConversationAdmission,
   type ConversationReplay,
@@ -184,7 +184,13 @@ export function createChatTurns(ports: ChatTurnPorts) {
     const request = (allowSoftLimit: boolean) => ({
       ...(input.executionLimit ? { executionLimit: input.executionLimit } : {}),
       ...(replay
-        ? { conversation: { history: replayMessages(replay), allowSoftLimit } }
+        ? {
+            conversation: {
+              history: replayMessages(replay),
+              allowSoftLimit,
+              memoryTokens: replay.segment.pinnedSummary?.tokens ?? 0,
+            },
+          }
         : {}),
       ...(input.assertCurrent ? { assertCurrent: input.assertCurrent } : {}),
       system: weeklyContext
@@ -273,7 +279,9 @@ export function createChatTurns(ports: ChatTurnPorts) {
                       }
                     : {}),
                   coveredThrough: replay.segment.coveredThrough,
-                  inputBudget: CONVERSATION_INPUT_LIMIT,
+                  inputBudget: conversationInputLimit(
+                    replay.segment.pinnedSummary?.tokens ?? 0,
+                  ),
                   segmentBoundary:
                     replay.segment.coveredThrough > 0
                       ? "compaction"

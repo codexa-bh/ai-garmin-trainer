@@ -86,7 +86,10 @@ export type ConversationSummary = {
 
 export type ConversationListPayload = { conversations: ConversationSummary[] };
 
-export type ConversationCreatePayload = { conversation: ConversationSummary };
+export type ConversationCreatePayload = {
+  conversation: ConversationSummary;
+  memoryNotice?: string;
+};
 
 export type ConversationDeletePayload = {
   deleted: boolean;

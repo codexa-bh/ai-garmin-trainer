@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { conversations } from "@/lib/chat/conversation-composition";
 import type { StoredConversation } from "@/lib/chat/contracts";
+import { catchUpCrossChatSummary } from "@/lib/memory/summary-composition";
 
 function conversationSummary(item: StoredConversation) {
   return {
@@ -40,9 +41,14 @@ export async function POST(request: Request) {
       id?: string;
       title?: string;
     };
+    // Memory failure must not prevent a local conversation. Pin adoption records
+    // unavailable/null honestly; late global work never replaces it.
+    await catchUpCrossChatSummary().catch(() => undefined);
     const conversation = conversations.createConversation(body);
     return NextResponse.json({
       conversation: conversationSummary(conversation),
+      memoryNotice:
+        "Memory catch-up was bounded to 8 seconds. This chat keeps only its available snapshot (or none); inspect Memory for pending/as-of/use and explicitly Refresh to adopt later work.",
     });
   } catch (error) {
     return NextResponse.json(

@@ -1,11 +1,13 @@
 import type { StoredChatMessage } from "./contracts";
 import { unsafeMemoryReason } from "../memory/filters";
 import { summaryPinInput, type SummaryPin } from "./summary-pin";
+import { SUMMARY_MODEL_CONTEXT } from "../memory/summary-policy";
 
 /** Neutral visible continuity. Never a historical tool/evidence archive. */
 export type ConversationRequest = {
   history: ReplayMessage[];
   allowSoftLimit: boolean;
+  memoryTokens?: number;
 };
 export type ReplayMessage = { role: "user" | "assistant"; content: string };
 export type ConversationAdmission = {
@@ -120,6 +122,21 @@ export const CONVERSATION_POLICY_ID =
   "conversation-v1/openai.responses/gpt-6-luna";
 export const CONVERSATION_INPUT_LIMIT = 27033;
 export const CONVERSATION_OUTPUT_LIMIT = 4096;
+/** Preserve the existing non-memory allocation. Add only the exact measured pin,
+ * capped by the qualified context after unchanged output and safety reserves.
+ */
+export function conversationInputLimit(memoryTokens = 0): number {
+  if (
+    !Number.isSafeInteger(memoryTokens) ||
+    memoryTokens < 0 ||
+    memoryTokens > SUMMARY_MODEL_CONTEXT
+  )
+    throw new Error("conversation_token_accounting_invalid");
+  return Math.min(
+    CONVERSATION_INPUT_LIMIT + memoryTokens,
+    SUMMARY_MODEL_CONTEXT - CONVERSATION_OUTPUT_LIMIT - 1639,
+  );
+}
 export const COMPACTION_INPUT_LIMIT = 8192;
 export const COMPACTION_OUTPUT_LIMIT = 2048;
 // T0269 operator-approved whole-operation ceiling after measured 5s live timeouts.
