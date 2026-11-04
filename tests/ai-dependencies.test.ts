@@ -49,6 +49,9 @@ const allowed = new Set([
   "chat/contracts.ts",
   // Neutral H continuity and capacity error, no storage/model dependency.
   "chat/conversation-replay.ts",
+  // Neutral sealed-pin shape/projection and pure S policy; no SQL/SDK edges.
+  "chat/summary-pin.ts",
+  "memory/summary-policy.ts",
   "memory/filters.ts",
   "memory/types.ts",
   "garmin/detail-types.ts",

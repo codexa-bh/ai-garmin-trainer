@@ -586,7 +586,7 @@ describe("trusted local desktop settings UI", () => {
     expect(input("AI_MODEL").closest("label")?.hidden).toBe(true);
     expect(
       document.getElementById("extraction-compatibility")?.textContent,
-    ).toContain("independent legacy policy openai");
+    ).toContain("Inactive extraction compatibility retains openai");
     fireEvent.input(screen.getByLabelText("Model ID — OpenAI model 1"), {
       target: { value: "Vendor/Edited:Tag" },
     });
@@ -1658,12 +1658,19 @@ describe("trusted local desktop settings UI", () => {
       false,
     );
   });
-  it("groups normal Memory separately from collapsed maintenance controls with human options", () => {
-    expect(input("MEMORY_ENABLED").closest("#memory-control")).not.toBeNull();
+  it("shows shared summary/title controls and preserves inactive legacy controls without using them", () => {
+    expect(input("SUMMARY_ENABLED").closest("#memory-control")).not.toBeNull();
+    expect(input("SUMMARY_MODEL").closest("label")?.hidden).toBe(false);
+    expect(input("SUMMARY_MODEL").textContent).toContain("summary and titles");
+    expect(input("SUMMARY_CONTRACT_VERSION").value).toBe("2");
+    for (const field of fields.filter((field) =>
+      field.key.startsWith("MEMORY_"),
+    ))
+      expect(input(field.key).closest("label")?.hidden).toBe(true);
     expect(
-      input("MEMORY_ENABLED").querySelector('option[value="true"]')
+      input("SUMMARY_ENABLED").querySelector('option[value="true"]')
         ?.textContent,
-    ).toBe("On");
+    ).toBe("On — after explicit quit/reopen");
     expect(
       input("MEMORY_EMBEDDING_PROVIDER").closest("#memory-configuration"),
     ).not.toBeNull();
@@ -1803,26 +1810,27 @@ describe("trusted local desktop settings UI", () => {
     invoke.mockImplementation(async (command, args) =>
       command === "read_memory_status"
         ? {
+            version: 1,
             configuredEnabled: true,
-            userDisabled: true,
-            effectiveEnabled: false,
-            embeddingProvider: "ollama",
-            extractionMode: "llm",
-            extractionProvider: "deepseek",
-            health: "disabled",
-            ageMs: null,
+            enabled: false,
+            model: "luna",
+            cap: 6000,
+            state: "disabled",
+            revision: 2,
+            frontier: 4,
+            pending: 0,
           }
         : original(command, args),
     );
     fireEvent.click(document.getElementById("memory-check")!);
     await waitFor(() =>
       expect(document.getElementById("memory-active")?.textContent).toContain(
-        "Disabled by the separate Memory panel",
+        "immediate processing: Off",
       ),
     );
     expect(input("MEMORY_ENABLED").value).toBe("false");
     expect(document.getElementById("memory-active")?.textContent).toContain(
-      "DeepSeek cloud",
+      "Shared summary/title model: OpenAI · gpt-6-luna",
     );
     expect(document.getElementById("memory-draft")?.textContent).toContain(
       "Draft: Off",
@@ -1853,14 +1861,15 @@ describe("trusted local desktop settings UI", () => {
     invoke.mockImplementation(async (command, args) =>
       command === "read_memory_status"
         ? {
+            version: 1,
             configuredEnabled: true,
-            userDisabled: false,
-            effectiveEnabled: true,
-            embeddingProvider: "ollama",
-            extractionMode: "off",
-            extractionProvider: "off",
-            health: "local-observed",
-            ageMs: 59999,
+            enabled: true,
+            model: "luna",
+            cap: 6000,
+            state: "fresh",
+            revision: 2,
+            frontier: 4,
+            pending: 0,
           }
         : original(command, args),
     );
@@ -1868,9 +1877,9 @@ describe("trusted local desktop settings UI", () => {
     fireEvent.click(document.getElementById("memory-check")!);
     await vi.advanceTimersByTimeAsync(0);
     expect(document.getElementById("memory-active")?.textContent).toContain(
-      "observed recently",
+      "Summary fresh, revision 2",
     );
-    await vi.advanceTimersByTimeAsync(2);
+    await vi.advanceTimersByTimeAsync(60001);
     expect(document.getElementById("memory-active")?.textContent).toContain(
       "unknown",
     );

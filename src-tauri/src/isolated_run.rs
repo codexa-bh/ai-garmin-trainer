@@ -254,7 +254,9 @@ impl Admission {
             return Err(DENIED);
         }
         let admission = Self::admit(path, verify_artifact)?;
-        if admission.descriptor.history_setup.is_some() || admission.descriptor.provider_smoke.is_some() {
+        if admission.descriptor.history_setup.is_some()
+            || admission.descriptor.provider_smoke.is_some()
+        {
             // History/provider automation must retain a real ownership pipe, not a terminal,
             // file, environment marker or stored parent PID.
             let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
@@ -385,13 +387,25 @@ impl Admission {
         )) else {
             return false;
         };
-        let summary_preset = matches!(self.descriptor.history_setup, Some(HistorySetup::UseExisting))
-            && saved.version == 3
-            && matches!(input.fields.get("SUMMARY_ENABLED").map(String::as_str), Some("true" | "false"))
+        let summary_preset = matches!(
+            self.descriptor.history_setup,
+            Some(HistorySetup::UseExisting)
+        ) && saved.version == 3
+            && matches!(
+                input.fields.get("SUMMARY_ENABLED").map(String::as_str),
+                Some("true" | "false")
+            )
             && input.fields.get("SUMMARY_MODEL").map(String::as_str) == Some("gpt-6-luna")
             && input.fields.get("SUMMARY_CHAR_LIMIT").map(String::as_str) == Some("6000");
         input.fields.iter().all(|(key, value)| {
-            if summary_preset && matches!(key.as_str(), "SUMMARY_ENABLED" | "SUMMARY_MODEL" | "SUMMARY_CHAR_LIMIT") { return true; }
+            if summary_preset
+                && matches!(
+                    key.as_str(),
+                    "SUMMARY_ENABLED" | "SUMMARY_MODEL" | "SUMMARY_CHAR_LIMIT"
+                )
+            {
+                return true;
+            }
             if key == "DATABASE_PATH" {
                 return PathBuf::from(value) == self.descriptor.root.join("trainer.sqlite");
             }
@@ -519,12 +533,20 @@ impl Admission {
         let Some(mode) = self.descriptor.provider_smoke else {
             return settings::activation(path);
         };
-        let (frame, capture) = crate::provider_smoke::activation(path, &crate::provider_smoke::production_directory()?, mode)?;
+        let (frame, capture) = crate::provider_smoke::activation(
+            path,
+            &crate::provider_smoke::production_directory()?,
+            mode,
+        )?;
         *self.provider_source.lock().map_err(|_| DENIED)? = Some(capture);
         Ok(frame)
     }
     pub fn provider_source_unchanged(&self) -> bool {
-        self.provider_source.lock().ok().and_then(|source| source.as_ref().map(|source| source.unchanged())).unwrap_or(false)
+        self.provider_source
+            .lock()
+            .ok()
+            .and_then(|source| source.as_ref().map(|source| source.unchanged()))
+            .unwrap_or(false)
     }
     pub fn verify_settings(&self) -> Result<(), &'static str> {
         self.verify()?;
@@ -551,7 +573,12 @@ mod tests {
     fn finite_provider_scope_never_combines_with_history_setup() {
         let (_root, path) = fixture();
         let mut descriptor: Descriptor = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        for mode in [crate::provider_smoke::Mode::OpenaiLuna025, crate::provider_smoke::Mode::OpenaiLuna100, crate::provider_smoke::Mode::SummaryLuna100] {
+        for mode in [
+            crate::provider_smoke::Mode::OpenaiLuna025,
+            crate::provider_smoke::Mode::OpenaiLuna100,
+            crate::provider_smoke::Mode::SummaryLuna100,
+            crate::provider_smoke::Mode::IntegratedMemoryLuna200,
+        ] {
             descriptor.history_setup = None;
             descriptor.provider_smoke = Some(mode);
             assert!(descriptor.validate(&path).is_ok());
@@ -657,27 +684,61 @@ mod tests {
     #[test]
     fn summary_save_accepts_only_two_keyless_existing_presets_without_other_mutations() {
         let (root, path) = fixture();
-        let mut descriptor: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let mut descriptor: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         descriptor["historySetup"] = serde_json::json!("use-existing");
         fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
-        let fields = BTreeMap::from([("DATABASE_PATH".into(), root.join("trainer.sqlite").to_string_lossy().into_owned()), ("MEMORY_ENABLED".into(), "false".into()), ("SUMMARY_ENABLED".into(), "false".into()), ("SUMMARY_MODEL".into(), "unselected".into()), ("SUMMARY_CHAR_LIMIT".into(), "6000".into())]);
+        let fields = BTreeMap::from([
+            (
+                "DATABASE_PATH".into(),
+                root.join("trainer.sqlite").to_string_lossy().into_owned(),
+            ),
+            ("MEMORY_ENABLED".into(), "false".into()),
+            ("SUMMARY_ENABLED".into(), "false".into()),
+            ("SUMMARY_MODEL".into(), "unselected".into()),
+            ("SUMMARY_CHAR_LIMIT".into(), "6000".into()),
+        ]);
         let saved = serde_json::json!({"version":3,"fields":fields,"keys":{},"chatCatalog":crate::chat_catalog::Catalog::default()});
         let v3 = root.join("config/settings-v3.json");
         fs::write(&v3, serde_json::to_vec(&saved).unwrap()).unwrap();
         fs::set_permissions(&v3, fs::Permissions::from_mode(0o600)).unwrap();
         let admission = Admission::admit(&path, |_| Ok(())).unwrap();
-        let mut input = settings::SaveInput { fields, keys:Default::default(), chat_catalog:Default::default(), expected_revision:"synthetic".into() };
-        input.fields.insert("SUMMARY_MODEL".into(), "gpt-6-luna".into());
+        let mut input = settings::SaveInput {
+            fields,
+            keys: Default::default(),
+            chat_catalog: Default::default(),
+            expected_revision: "synthetic".into(),
+        };
+        input
+            .fields
+            .insert("SUMMARY_MODEL".into(), "gpt-6-luna".into());
         for enabled in ["true", "false"] {
-            input.fields.insert("SUMMARY_ENABLED".into(), enabled.into());
+            input
+                .fields
+                .insert("SUMMARY_ENABLED".into(), enabled.into());
             assert!(admission.accepts_history_settings(&input));
         }
-        for (key, value) in [("SUMMARY_MODEL","other-model"), ("SUMMARY_CHAR_LIMIT","1000"), ("SUMMARY_ENABLED","unexpected"), ("MEMORY_ENABLED","true"), ("AI_MODEL","other-model")] {
+        for (key, value) in [
+            ("SUMMARY_MODEL", "other-model"),
+            ("SUMMARY_CHAR_LIMIT", "1000"),
+            ("SUMMARY_ENABLED", "unexpected"),
+            ("MEMORY_ENABLED", "true"),
+            ("AI_MODEL", "other-model"),
+        ] {
             let previous = input.fields.insert(key.into(), value.into());
             assert!(!admission.accepts_history_settings(&input), "{key}");
-            match previous { Some(value) => {input.fields.insert(key.into(), value);}, None => {input.fields.remove(key);} }
+            match previous {
+                Some(value) => {
+                    input.fields.insert(key.into(), value);
+                }
+                None => {
+                    input.fields.remove(key);
+                }
+            }
         }
-        input.keys.insert("OPENAI_API_KEY".into(), settings::KeyUpdate::Clear);
+        input
+            .keys
+            .insert("OPENAI_API_KEY".into(), settings::KeyUpdate::Clear);
         assert!(!admission.accepts_history_settings(&input));
         assert_eq!(fs::read(&v3).unwrap(), serde_json::to_vec(&saved).unwrap());
     }

@@ -1,7 +1,8 @@
 """Prospective invocation-owned disposables, not scratch/worktree retention or historical cleanup.
 
 Only explicit allocations are enrolled. Run roots, dynamic WebView state, diagnostics and
-screenshots are never recursively removed. Failures/unknown effects retain everything.
+screenshots are never recursively removed. Failures/unknown effects prevent immediate
+runner disposal, but never extend managed disposable retention.
 """
 import contextlib
 import contextvars
@@ -222,7 +223,7 @@ class Disposables:
     def finish(self, failed):
         if self.scratch is None:
             return
-        reason = 'failed/interrupted/unknown invocation; preserve diagnostic state' if failed else self.retention
+        reason = 'failed/interrupted/unknown invocation; no immediate disposal' if failed else self.retention
         if not reason:
             try:
                 for guard in self.guards:
@@ -236,8 +237,6 @@ class Disposables:
                 self.categories.archive(self)  # Evidence before owned bulk disposal.
         except Exception as error:
             reason = type(error).__name__ + ': ' + str(error)
-        if reason and self.categories:
-            self.categories.preserve()  # No data deletion or closure-clock renewal.
         for entry in self.items:
             if not entry['tree']:
                 if entry['fd'] is not None:
@@ -255,7 +254,8 @@ class Disposables:
                     'allocationRoots': [str(root) for root in self.roots],
                     'evidenceRoot': str(self.categories.evidence) if self.categories else None,
                     'disposableRoot': str(self.categories.disposable) if self.categories else None,
-                    'recoveryHold': bool(reason and self.categories and self.categories.task),
+                    'recoveryHold': False,
+                    'disposableRetention': 'unchanged; select necessary reproduction evidence before closure',
                     'preserved': 'Run roots, compact evidence/PNG/logs, dynamic WebView/home state and unknown sidecars; never historical, borrowed or worktree cleanup.',
                     'artifacts': [{key: str(value) if isinstance(value, Path) else value for key, value in entry.items() if key in ('path', 'status', 'bytes', 'quarantine')} for entry in self.items]}
         # Evidence must be writable before deletion; exclusive manifest survives partial disposal.
@@ -274,8 +274,6 @@ class Disposables:
                     cleanup_error = error
                     reason = type(error).__name__ + ': ' + str(error)
                     break
-        if cleanup_error and self.categories:
-            self.categories.preserve()
         temporary = receipt.with_suffix('.partial')
         self.check_root(receipt.parent)
         with os.fdopen(os.open(temporary.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent), 'w') as output:
@@ -329,15 +327,10 @@ def invocation(main):
             try:
                 ledger.finish(failed)
             except BaseException:
-                if ledger.categories:
-                    try:
-                        ledger.categories.preserve()
-                    except Exception:
-                        print('Recovery hold unavailable; keep task open and reconcile exact allocation before closure.', file=sys.stderr)
                 if not failed:
                     raise
                 # Never replace an original scenario/cancellation/preservation/receipt failure.
-                print('Resource-disposition write/verification failed; all unremoved allocations retained.', file=sys.stderr)
+                print('Resource-disposition write/verification failed; unremoved allocations remain subject to unchanged retention. Select necessary reproduction evidence before closure.', file=sys.stderr)
             finally:
                 ledger.close()
                 _CURRENT.reset(token)

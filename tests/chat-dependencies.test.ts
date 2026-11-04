@@ -67,6 +67,9 @@ const allowed = new Set([
   "chat/conversation-policy.ts",
   // H-owned pure replay contracts and supplied-port compaction; no adapter/SDK.
   "chat/conversation-replay.ts",
+  // Neutral sealed-pin shape/projection and pure S policy; no SQL/SDK edges.
+  "chat/summary-pin.ts",
+  "memory/summary-policy.ts",
   "chat/conversation-compaction.ts",
   "ai/context.ts",
   "ai/debug-types.ts",

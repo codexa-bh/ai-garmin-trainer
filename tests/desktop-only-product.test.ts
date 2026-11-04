@@ -168,13 +168,13 @@ describe("explicit non-serving source setup", () => {
     removeGlobalSummaryFixtureSchema(db);
     db.prepare(
       "update app_metadata set value=? where key='schema_version'",
-    ).run(String(LATEST_SCHEMA_VERSION - 1));
+    ).run("18"); // Fixture helper reconstructs the exact pre-S schema18.
     db.close();
     const before = hash(target);
     const output = command("scripts/migrate.ts", cwd, target);
     expect(output).toMatchObject({
       ok: true,
-      schemaVersionBefore: LATEST_SCHEMA_VERSION - 1,
+      schemaVersionBefore: 18,
       schemaVersionAfter: LATEST_SCHEMA_VERSION,
       integrity: "ok",
     });

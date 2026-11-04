@@ -438,28 +438,12 @@ describe("chat delivery compatibility (real route/application wiring)", () => {
     expect(f.afterCallbacks).toHaveLength(0);
   });
 
-  it("defers context reads until semantic retrieval settles", async () => {
-    const gate = deferred();
-    const started = deferred();
-    f.search.mockImplementationOnce(async () => {
-      f.order.push("search");
-      started.resolve();
-      await gate.promise;
-      return [];
-    });
-    const response = post({ message: "hello" });
-    await started.promise;
-    expect(f.order).toEqual([
-      "ensure",
-      "history:40",
-      "save:user",
-      "select",
-      "counts",
-      "search",
-    ]);
-    gate.resolve();
-    expect((await response).status).toBe(200);
-    expect(f.order.slice(6, 12)).toEqual([
+  it("reads fresh context without invoking a never-settling semantic retriever", async () => {
+    f.search.mockImplementationOnce(() => new Promise<never>(() => {}));
+    const response = await post({ message: "hello" });
+    expect(response.status).toBe(200);
+    expect(f.search).not.toHaveBeenCalled();
+    expect(f.order.slice(5, 11)).toEqual([
       "activities",
       "health",
       "profile",
@@ -473,11 +457,7 @@ describe("chat delivery compatibility (real route/application wiring)", () => {
     async (stream) => {
       const response = await post({ message: "hello", stream });
       expect(response.status).toBe(200);
-      expect(f.search).toHaveBeenCalledWith(
-        "hello",
-        { userId: "local-default", conversationId: "default" },
-        8,
-      );
+      expect(f.search).not.toHaveBeenCalled();
       expect(f.details).toHaveBeenCalledWith(12);
       const payload = stream ? await events(response) : await response.json();
       expect(f.order).toEqual([
@@ -486,7 +466,6 @@ describe("chat delivery compatibility (real route/application wiring)", () => {
         "save:user",
         "select",
         "counts",
-        "search",
         "activities",
         "health",
         "profile",
@@ -496,11 +475,10 @@ describe("chat delivery compatibility (real route/application wiring)", () => {
         "context",
         "generate",
         "save:assistant",
-        "memory",
         "history:40",
       ]);
       expect(f.messages).toHaveLength(2);
-      expect(f.memory).toHaveBeenCalledOnce();
+      expect(f.memory).not.toHaveBeenCalled();
       if (stream) {
         expect(response.headers.get("content-type")).toBe(
           "application/x-ndjson; charset=utf-8",
@@ -559,13 +537,13 @@ describe("chat delivery compatibility (real route/application wiring)", () => {
       const response = await post({ message: "why?", stream });
       const payload = stream ? await events(response) : await response.json();
       expect(f.selected).toHaveBeenCalledOnce();
-      expect(f.search).toHaveBeenCalledOnce();
+      expect(f.search).not.toHaveBeenCalled();
       expect(f.orchestrate).toHaveBeenCalledOnce();
       expect(
         f.orchestrate.mock.calls[0][0].turnContext?.previousFailures?.[0],
       ).toMatchObject({ reason: "multiple_tool_calls" });
       expect(f.messages.at(-1)?.content).toBe(result().text);
-      expect(f.memory).toHaveBeenCalledOnce();
+      expect(f.memory).not.toHaveBeenCalled();
       if (stream) {
         expect((payload as Event[]).some((e) => e.type === "metadata")).toBe(
           true,
@@ -777,24 +755,17 @@ describe("chat delivery compatibility (real route/application wiring)", () => {
     expect(f.orchestrate).toHaveBeenCalledOnce();
   });
 
-  it("awaits memory after saving, with no new abort check after persistence", async () => {
-    const gate = deferred();
-    const started = deferred();
-    const abort = new AbortController();
-    f.memory.mockImplementationOnce(async () => {
-      started.resolve();
-      await gate.promise;
-    });
-    const response = await post(
-      { message: "hello", stream: true },
-      abort.signal,
-    );
-    await started.promise;
-    expect(f.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
-    expect(f.order.at(-1)).toBe("save:assistant");
-    abort.abort();
-    gate.resolve();
-    expect((await events(response)).at(-1)?.type).toBe("done");
-    expect(f.order.at(-1)).toBe("history:40");
-  });
+  it.each([false, true])(
+    "delivers without invoking never-settling legacy ingestion: stream=%s",
+    async (stream) => {
+      f.memory.mockImplementationOnce(() => new Promise<never>(() => {}));
+      const response = await post({ message: "hello", stream });
+      if (stream) expect((await events(response)).at(-1)?.type).toBe("done");
+      else expect(await response.json()).toHaveProperty("assistant");
+      expect(f.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+      expect(f.memory).not.toHaveBeenCalled();
+      expect(f.search).not.toHaveBeenCalled();
+      expect(f.order.at(-1)).toBe("history:40");
+    },
+  );
 });

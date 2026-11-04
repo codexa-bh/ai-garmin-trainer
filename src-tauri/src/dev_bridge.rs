@@ -57,6 +57,7 @@ impl Config {
             | Command::CaptureView { .. }
             | Command::Composer { .. }
             | Command::Conversation { .. }
+            | Command::Memory { .. }
             | Command::Tables { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
                 if self.ordinary.is_some() =>
@@ -139,6 +140,9 @@ pub enum Command {
     Conversation {
         action: String,
     },
+    Memory {
+        action: String,
+    },
     Tables {
         surface: String,
         edge: String,
@@ -209,6 +213,7 @@ impl Command {
                     "profile",
                     "composer",
                     "conversation",
+                    "memory",
                     "tables",
                 ]
                 .contains(&view.as_str())
@@ -234,6 +239,24 @@ impl Command {
                 "choose-second",
                 "delete-first",
                 "delete-second",
+            ]
+            .contains(&action.as_str()),
+            Self::Memory { action } => [
+                "observe",
+                "open",
+                "close",
+                "reload",
+                "add",
+                "edit",
+                "draft",
+                "draft-update",
+                "save",
+                "forget",
+                "clear",
+                "disable",
+                "enable",
+                "retry",
+                "refresh",
             ]
             .contains(&action.as_str()),
             Self::Tables { surface, edge } => {
@@ -702,6 +725,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                     .map(|v| {
                         [
                             "Trainer",
+                            "Memory",
                             "Activities",
                             "Health",
                             "Training Plan",
@@ -813,6 +837,23 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                         .map(|n| (-4096.0..=4096.0).contains(&n))
                         .unwrap_or(false)
                 })
+        }
+        Command::Memory { action } => {
+            let booleans = [
+                "visible",
+                "loaded",
+                "hasManual",
+                "updatedManual",
+                "off",
+                "editing",
+            ];
+            let mut keys = vec!["ok", "action", "trustedInput"];
+            keys.extend(booleans);
+            ordinary
+                && exact_keys(value, &keys)
+                && value["action"].as_str() == Some(action)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
         }
         Command::Tables { surface, edge } => {
             let booleans = [
@@ -1362,6 +1403,63 @@ mod tests {
         .valid());
         assert!(!Command::SetViewport {
             preset: "arbitrary".into()
+        }
+        .valid());
+    }
+    #[test]
+    fn memory_controls_are_finite_ordinary_only_and_never_accept_or_return_content() {
+        for action in [
+            "observe",
+            "open",
+            "close",
+            "reload",
+            "add",
+            "edit",
+            "draft",
+            "draft-update",
+            "save",
+            "forget",
+            "clear",
+            "disable",
+            "enable",
+            "retry",
+            "refresh",
+        ] {
+            let command = Command::Memory {
+                action: action.into(),
+            };
+            assert!(command.valid());
+            assert!(!config().permits(&command));
+            let value = json!({"ok":true,"action":action,"trustedInput":false,"visible":true,"loaded":true,"hasManual":false,"updatedManual":false,"off":false,"editing":false});
+            assert!(super::safe_result(&command, &value, true));
+            assert!(!safe_result(&command, &value));
+            for (key, changed) in [
+                ("text", json!("private")),
+                ("hasManual", json!("private")),
+                ("action", json!("import")),
+                ("trustedInput", json!(true)),
+            ] {
+                let mut invalid = value.clone();
+                invalid[key] = changed;
+                assert!(!super::safe_result(&command, &invalid, true));
+            }
+        }
+        for action in ["export", "import", "select", "eval", "login"] {
+            assert!(!Command::Memory {
+                action: action.into()
+            }
+            .valid());
+        }
+        for value in [
+            json!({"type":"memory","action":"draft","text":"private"}),
+            json!({"type":"memory","action":"forget","id":"private"}),
+            json!({"type":"memory","action":"observe","selector":"body"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
+        }
+        assert!(Command::CaptureView {
+            view: "memory".into(),
+            preset: "narrow".into()
         }
         .valid());
     }

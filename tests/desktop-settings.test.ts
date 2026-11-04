@@ -167,7 +167,7 @@ describe("desktop editable settings", () => {
       }),
     ).toThrow();
   });
-  it("validates private activation v2 without inventing a default or requiring a chat key; keeps enabled embedding admission", () => {
+  it("validates private activation v2 without inventing a default or requiring a chat key; preserves inactive legacy embedding fields without requiring their key", () => {
     const base = baseline();
     const frame = {
       version: 2,
@@ -195,6 +195,16 @@ describe("desktop editable settings", () => {
     expect(
       JSON.parse(activationEnvironment(configured).CHAT_MODEL_CATALOG),
     ).toEqual(configured.chatCatalog);
+    expect(
+      activationEnvironment({
+        ...frame,
+        fields: {
+          ...base.fields,
+          MEMORY_ENABLED: "true",
+          MEMORY_EMBEDDING_PROVIDER: "openai",
+        },
+      }).MEMORY_ENABLED,
+    ).toBe("true");
     for (const bad of [
       { ...frame, version: 3 },
       { ...frame, chatCatalog: undefined },
@@ -202,14 +212,6 @@ describe("desktop editable settings", () => {
       {
         ...frame,
         chatCatalog: { ...frame.chatCatalog, defaultEntryId: "entry_missing" },
-      },
-      {
-        ...frame,
-        fields: {
-          ...base.fields,
-          MEMORY_ENABLED: "true",
-          MEMORY_EMBEDDING_PROVIDER: "openai",
-        },
       },
       { ...frame, secrets: { OPENAI_API_KEY: "placeholder-key" } },
     ])

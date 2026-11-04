@@ -1,15 +1,59 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText } from "ai";
+import { generateText, Output } from "ai";
+import { z } from "zod";
 import { countResponseInput } from "../ai/conversation-transport";
 import { SUMMARY_INPUT_LIMIT, SUMMARY_OUTPUT_LIMIT } from "./summary-policy";
 import type { SummaryGeneration } from "./summary-application";
+
+// Provider shape enforcement complements, never replaces, the domain validator's
+// source lineage, coverage, authority, expiry and character-budget checks.
+const summaryPatchSchema = z.strictObject({
+  version: z.literal(1),
+  keep: z.array(z.string()),
+  upsert: z.array(
+    z.strictObject({
+      id: z.string(),
+      text: z.string(),
+      category: z.enum([
+        "decision",
+        "constraint",
+        "goal",
+        "rejected",
+        "question",
+        "temporary",
+        "discussion",
+      ]),
+      stance: z.enum(["user-stated", "endorsed", "discussed-not-endorsed"]),
+      sourceIds: z.array(z.string()),
+      priority: z.number().int(),
+      expiresAt: z.number().int().nullable(),
+      replaces: z.array(z.string()),
+    }),
+  ),
+  remove: z.array(
+    z.strictObject({
+      id: z.string(),
+      reason: z.enum(["expired", "superseded", "duplicate", "low-value"]),
+    }),
+  ),
+  coverage: z.array(
+    z.strictObject({
+      sourceId: z.string(),
+      reason: z.enum(["represented", "duplicate", "low-value"]),
+    }),
+  ),
+});
+const titleSchema = z.strictObject({ title: z.string() });
 
 /** Exact independent route; no chat/extraction/title selector or embedding import. */
 export function createSummaryGeneration(
   apiKey: string,
   transport: typeof fetch = fetch,
   current: () => boolean = () => true,
+  purpose: "summary" | "title" = "summary",
 ): SummaryGeneration {
+  const outputLimit = purpose === "title" ? 120 : SUMMARY_OUTPUT_LIMIT;
+  const inputLimit = purpose === "title" ? 2048 : SUMMARY_INPUT_LIMIT;
   const guardedFetch: typeof fetch = async (url, init) => {
     if (!current() || init?.signal?.aborted)
       throw new Error("summary_configuration_changed");
@@ -27,7 +71,7 @@ export function createSummaryGeneration(
       body.background ||
       body.tools ||
       body.service_tier ||
-      body.max_output_tokens !== SUMMARY_OUTPUT_LIMIT
+      body.max_output_tokens !== outputLimit
     )
       throw new Error("summary_transport_unsupported");
     const payload = Object.fromEntries(
@@ -38,7 +82,7 @@ export function createSummaryGeneration(
     const tokens = await countResponseInput(transport, init, payload);
     if (!current()) throw new Error("summary_configuration_changed");
     init.signal?.throwIfAborted();
-    if (tokens > SUMMARY_INPUT_LIMIT) throw new Error("summary_input_capacity");
+    if (tokens > inputLimit) throw new Error("summary_input_capacity");
     return transport(url, init);
   };
   const model = createOpenAI({ apiKey, fetch: guardedFetch })("gpt-6-luna");
@@ -48,7 +92,14 @@ export function createSummaryGeneration(
         model,
         system,
         prompt,
-        maxOutputTokens: SUMMARY_OUTPUT_LIMIT,
+        output:
+          purpose === "title"
+            ? Output.object({ schema: titleSchema, name: "chat_title" })
+            : Output.object({
+                schema: summaryPatchSchema,
+                name: "summary_patch",
+              }),
+        maxOutputTokens: outputLimit,
         maxRetries: 0,
         abortSignal: signal,
         providerOptions: {

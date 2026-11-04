@@ -23,9 +23,7 @@ import {
   listRecentDailyHealth,
 } from "@/lib/local-data/composition";
 import { trainingPlanStatus } from "@/lib/training-plan/composition";
-import { trainerMemoryStore } from "@/lib/memory/composition";
 import { trainerProfile } from "@/lib/profile/composition";
-import { LOCAL_MEMORY_USER_ID } from "@/lib/memory/types";
 import { createChatContext } from "./context";
 import { createChatTurns } from "./turn";
 import { generateConversationTitle } from "./title-adapter";
@@ -42,12 +40,8 @@ const buildSystemContext = createChatContext({
   listRecentDailyHealth,
   trainingPlanStatus,
   now: () => new Date(),
-  searchMemories: (query, conversationId, limit) =>
-    trainerMemoryStore().search(
-      query,
-      { userId: LOCAL_MEMORY_USER_ID, conversationId },
-      limit,
-    ),
+  // Preserved legacy vectors are inspection-only, never a second active source.
+  searchMemories: async () => [],
 });
 
 const turns = createChatTurns({
@@ -62,7 +56,6 @@ const turns = createChatTurns({
   listRecentChatMessages,
   buildSystemContext,
   fallbackDebugTrace: fallbackLlmDebugTrace,
-  addCompletedTurn: (input) => trainerMemoryStore().addCompletedTurn(input),
   selectGeneration: (assertCurrent) => {
     const { model, provider, modelName, conversationCount } =
       selectedTrainerModel(assertCurrent);

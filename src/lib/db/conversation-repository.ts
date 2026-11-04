@@ -29,6 +29,7 @@ export {
   initialConversationTitle,
 } from "@/lib/chat/conversation-policy";
 import { getDatabase } from "./connection";
+import { adoptSummaryPin } from "./conversation-summary-pin";
 
 let lastChatMessageTimestamp = 0;
 
@@ -208,14 +209,17 @@ export function ensureConversation(
 ): StoredConversation {
   const conversationId = safeConversationId(id);
   const now = Date.now();
-  getDatabase()
-    .prepare(
-      `insert into conversation (id, title, manual_title, created_at, updated_at)
-       values (?, ?, 0, ?, ?)
-       on conflict(id) do nothing`,
-    )
-    .run(conversationId, initialConversationTitle(title), now, now);
-  return getConversation(conversationId)!;
+  return getDatabase().transaction(() => {
+    const inserted = getDatabase()
+      .prepare(
+        `insert into conversation (id, title, manual_title, created_at, updated_at)
+         values (?, ?, 0, ?, ?)
+         on conflict(id) do nothing`,
+      )
+      .run(conversationId, initialConversationTitle(title), now, now);
+    if (inserted.changes) adoptSummaryPin(conversationId);
+    return getConversation(conversationId)!;
+  })();
 }
 
 export function createConversation(input?: {

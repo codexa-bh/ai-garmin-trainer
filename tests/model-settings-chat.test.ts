@@ -146,7 +146,7 @@ it("initializes a late-read explicit choice only from frozen startup compatibili
   (await import("@/lib/db/connection")).getDatabase().close();
 });
 
-it("retains the admitted live revision for production turn retrieval, post-answer ingestion and delayed titles", async () => {
+it("retains the admitted live revision for generation and delayed titles without constructing legacy memory", async () => {
   vi.stubEnv(
     "DATABASE_PATH",
     join(mkdtempSync(join(tmpdir(), "live-parent-")), "trainer.sqlite"),
@@ -223,7 +223,7 @@ it("retains the admitted live revision for production turn retrieval, post-answe
   await chat.completeChatTurn(prepared, answer);
   await chat.completeConversationTitle(prepared);
   expect(generate).toHaveBeenCalledOnce();
-  expect(captured).toEqual(["synthetic-parent-old-key"]);
+  expect(captured).toEqual([]);
   expect(title.generateConversationTitle).toHaveBeenCalledOnce();
   expect(env.getOptionalEnv().OPENAI_API_KEY).toBe("synthetic-parent-new-key");
   (await import("@/lib/db/connection")).getDatabase().close();

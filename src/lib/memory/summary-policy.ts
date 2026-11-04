@@ -52,6 +52,7 @@ type SummaryDisposition = {
 };
 export type SummaryBatch = {
   jobId: string;
+  import?: { id: string; position: number };
   revision: number;
   privacyGeneration: number;
   controlGeneration: number;
@@ -88,13 +89,15 @@ export type SummaryStatus = {
   pending: number;
   items: number;
   characters: number;
+  cap: number;
+  publishedAt: number | null;
   enabled: boolean;
   model: string;
   usedByChat: false;
   attemptsToday: number;
   reservedUsdToday: number;
 };
-type SummaryGenerationStamp = {
+export type SummaryGenerationStamp = {
   version: 1;
   revision: number;
   privacyGeneration: number;
@@ -102,7 +105,22 @@ type SummaryGenerationStamp = {
   manualRevision: number;
   validUntil: number | null;
 };
+export type SummaryVersion = {
+  revision: number;
+  privacy: number;
+  control: number;
+  manual: number;
+};
 export type SummaryStorage = {
+  version(): SummaryVersion;
+  inspect(): SummaryValue;
+  edit(
+    expected: SummaryVersion,
+    id: string | null,
+    text: string,
+    now: number,
+  ): void;
+  forget(expected: SummaryVersion, id: string, now: number): void;
   revision(): { value: SummaryValue; stamp: SummaryGenerationStamp } | null;
   isGenerationCurrent(stamp: SummaryGenerationStamp): boolean;
   configure(enabled: boolean, model: string, cap: number): void;

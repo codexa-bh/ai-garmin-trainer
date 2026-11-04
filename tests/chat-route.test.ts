@@ -1384,7 +1384,7 @@ describe("chat route LLM tool orchestration", () => {
     expect(payload.historyLimit).toBe(40);
   });
 
-  it("keeps manual new-chat transcript separate while allowing bounded semantic retrieval", async () => {
+  it("keeps new-chat transcripts separate and never injects inactive semantic records", async () => {
     await postChat("Old transcript phrase should stay in default only");
     retrievedMemories = [
       {
@@ -1400,7 +1400,7 @@ describe("chat route LLM tool orchestration", () => {
 
     const firstCall = generateText.mock.calls[0][0] as { system: string };
     expect(firstCall.system).not.toContain("Old transcript phrase");
-    expect(firstCall.system).toContain("Prefers morning hikes");
+    expect(firstCall.system).not.toContain("Prefers morning hikes");
   });
 
   it("answers what-went-wrong from previous failed grounding without new tools", async () => {

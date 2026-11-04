@@ -146,6 +146,19 @@ it("wires real chat completion, Profile routes, singleton reset and memory-only 
     "user",
     "assistant",
   ]);
+  // Ordinary completion no longer ingests vector facts. Explicit legacy adapter
+  // invocation below only preserves its independent maintenance contract.
+  expect(db.prepare("select count(*) as n from semantic_memory").get()).toEqual(
+    { n: 0 },
+  );
+  await first.addCompletedTurn({
+    conversationId: "t0195-wiring",
+    userMessageId: prepared.userRecord.id,
+    assistantMessageId: completed.assistantRecord.id,
+    userText: "I prefer morning hikes",
+    assistantText: "Noted.",
+    completedAt: completed.assistantRecord.createdAt,
+  });
   const page = await first.list(40);
   expect(page.memories).toHaveLength(1);
   expect(page.memories[0]).toMatchObject({

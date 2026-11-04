@@ -4990,7 +4990,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
 });
 
 describe("TrainerDashboard memory and new chat", () => {
-  it("renders compact searchable semantic memory browsing and preserves edit/delete controls", async () => {
+  it("renders integrated summary and preserved legacy review with versioned edit/forget controls and focus return", async () => {
     let patchedBody: unknown;
     const memories = [
       {
@@ -5021,18 +5021,55 @@ describe("TrainerDashboard memory and new chat", () => {
       },
     ];
     const memoryPayload = {
-      health: {
-        enabled: true,
-        ready: true,
-        status: "ready",
-        detail: "Embedded SQLite semantic memory is configured.",
-        provider: "app-sqlite-vector",
-        vectorProvider: "sqlite",
-        userDisabled: false,
-      },
+      version: 1,
+      state: "fresh",
+      reason: null,
+      revision: 3,
+      frontier: 4,
+      pending: 0,
+      items: 4,
+      characters: 200,
+      cap: 6000,
+      publishedAt: 1,
       enabled: true,
-      ready: true,
-      memories,
+      model: "gpt-6-luna",
+      usedByChat: false,
+      attemptsToday: 0,
+      reservedUsdToday: 0,
+      expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
+      stored: {
+        version: 1,
+        text: "Synthetic summary",
+        items: memories.map((item) => ({
+          id: item.id,
+          text: item.text,
+          category: "decision",
+          stance: "user-stated",
+          sourceIds: ["turn:1"],
+          priority: 4,
+          expiresAt: null,
+          reviewAt: 1,
+        })),
+      },
+      manualIds: [],
+      sources: [],
+      legacy: [
+        {
+          id: "legacy-only",
+          kind: "preference",
+          text: "Preserved inactive record",
+          status: "active",
+          conversationId: null,
+          expiresAt: null,
+        },
+      ],
+      historical: {
+        candidates: [],
+        manifests: [],
+        exclusions: "Unproven sources excluded.",
+      },
+      selectedChat: null,
+      authority: "Untrusted user-derived continuity.",
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -5044,11 +5081,12 @@ describe("TrainerDashboard memory and new chat", () => {
       )
         return jsonResponse(emptyChat);
       if (url === "/api/profile") return jsonResponse(profile([]));
-      if (url === "/api/memory" && init?.method === "PATCH") {
+      if (url === "/api/cross-chat-summary" && init?.method === "POST") {
         patchedBody = JSON.parse(String(init.body));
-        return jsonResponse(memoryPayload);
+        return jsonResponse({ ok: true });
       }
-      if (url === "/api/memory") return jsonResponse(memoryPayload);
+      if (url.startsWith("/api/cross-chat-summary"))
+        return jsonResponse(memoryPayload);
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -5059,7 +5097,9 @@ describe("TrainerDashboard memory and new chat", () => {
 
     const memoryDialog = await screen.findByRole("dialog", { name: "Memory" });
     expect(memoryDialog).toBeTruthy();
-    expect(await screen.findByText("Learned memory")).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Cross-chat memory" }),
+    ).toBeTruthy();
     expect(container.querySelector(".memory-view-panel")).toBeNull();
     expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
     expect(screen.getByRole("log", { name: "Chat transcript" })).toBeTruthy();
@@ -5068,48 +5108,33 @@ describe("TrainerDashboard memory and new chat", () => {
     });
     await waitFor(() => expect(document.activeElement).toBe(closeButton));
     expect(screen.queryByRole("dialog", { name: "Profile & data" })).toBeNull();
-    expect(screen.getAllByText("4 of 4 shown").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Latest revision 3/)).toBeTruthy();
+    expect(screen.getByText("Preserved inactive record")).toBeTruthy();
     expect(screen.getByText("Prefers morning hikes")).toBeTruthy();
     expect(screen.getByText("Temporary plan for taper week")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(4);
-    expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(4);
-
-    fireEvent.change(screen.getByLabelText("Search memory text"), {
-      target: { value: "snowboard" },
-    });
-    expect(screen.getAllByText("1 of 4 shown").length).toBeGreaterThan(0);
-    expect(screen.getByText(/winter snowboard trips/)).toBeTruthy();
-    expect(screen.queryByText("Prefers morning hikes")).toBeNull();
-
-    fireEvent.change(screen.getByLabelText("Search memory text"), {
-      target: { value: "no match" },
-    });
-    expect(screen.getByText(/No memories match/)).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-    fireEvent.change(screen.getByLabelText("Kind"), {
-      target: { value: "correction" },
-    });
-    expect(screen.getByText("Corrected threshold pace estimate")).toBeTruthy();
-    expect(screen.queryByText("Temporary plan for taper week")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-    fireEvent.change(screen.getByLabelText("Sort"), {
-      target: { value: "oldest" },
-    });
-    const sortedTexts = [...container.querySelectorAll(".memory-text")].map(
-      (item) => item.textContent,
+    expect(screen.getAllByRole("button", { name: "Forget item" })).toHaveLength(
+      4,
     );
-    expect(sortedTexts[0]).toContain("winter snowboard trips");
+    expect(screen.queryByLabelText("Search memory text")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Refresh selected chat memory" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
-    const editBox = screen.getByLabelText("Edit memory") as HTMLTextAreaElement;
+    const editBox = screen.getByLabelText(
+      "Manual memory text",
+    ) as HTMLTextAreaElement;
     fireEvent.change(editBox, { target: { value: "Prefers sunrise hikes" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save manual edit" }));
     await waitFor(() =>
       expect(patchedBody).toMatchObject({
+        version: 1,
+        expected: memoryPayload.expected,
         id: "memory-old",
-        action: "update",
+        action: "edit",
         text: "Prefers sunrise hikes",
       }),
     );

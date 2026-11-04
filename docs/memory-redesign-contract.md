@@ -1,10 +1,23 @@
-# Memory redesign: proposed architecture and compatibility contract
+# Memory redesign: accepted architecture and compatibility contract
 
-**Status: proposed / not implemented.** T0268 is documentation only. This document
-specifies a target, not the behavior of any installed app, a migration approval,
-a provider recommendation, or evidence that the redesign works. The shipped
-[semantic-memory guide](memory.md) remains the runtime reference. All examples in
+**Accepted target, not an installed-activation or evidence certificate.** T0268 was
+documentation only; H/S were delivered separately and T0272 integrates consumer,
+controls, historical transition and legacy-runtime retirement. Current source
+behavior and qualified-route limits are documented in [memory](memory.md) and
+[cross-chat summary](cross-chat-summary.md). Baseline observations and historical
+slice records below remain attributed to their original source. Required native,
+semantic/provider and primary-activation evidence must be recorded independently;
+this document does not declare every scenario passed. All examples in
 [the acceptance contract](memory-redesign-acceptance.md) are authored synthetic data.
+
+**T0272 operator amendment — shared summary/title model:** future automatic titles
+use the explicit summary selection, not the extraction/chat selector or a second
+title selector. Summary Off does not disable title processing. Original extraction/
+title compatibility fields remain preserved. Titles retain first-prompt/lifetime/
+manual-title/deletion safeguards,3000ms/120-output limits and no retry/fallback;
+the separate purpose reserves USD0.001 per attempt,100 attempts/USD0.10 per local day.
+Unselected/unsupported/missing-key routes retain excerpts. This amendment supersedes
+only the earlier title-selector clauses; it grants no provider/private/primary effect.
 
 ## 1. Baseline, authority and decisions
 
@@ -306,7 +319,8 @@ After answer delivery, the existing outer response/lifecycle adapter may request
 admission. It does not await generation or perform paid preflight. A provider
 promise that never settles cannot hold NDJSON done/JSON completion. Admission
 failure leaves backlog and an honest stale/unavailable status. Title `after()`
-work stays independent; title/extractor settings are not redirected.
+work stays independent; under the T0272 amendment titles share the explicit summary
+model while extraction settings remain preserved/inactive for ordinary chat.
 
 Proposed foreground policy: one coalesced pending wake-up and one running job per
 DB, no unbounded timer/work queue. Admit after four new completed turns or 2000
@@ -319,7 +333,7 @@ stops work; no login item, daemon, remote service or claim of closed-app freshne
 Each foreground admission processes one bounded batch; additional backlog gets a
 later wake-up, respecting spend/lifetime caps, never an infinite drain loop.
 
-Summary model selection is a new **independent explicit text-generation selection**,
+Summary model selection is an **explicit text-generation selection independent of chat/extraction** (shared with future titles under the T0272 amendment),
 default unselected/Off on migration. Offer configured provider identities through
 the established private-key owner, with no new credential store. Operator chooses
 an inexpensive exact model with approved capability/price profile; do not assume

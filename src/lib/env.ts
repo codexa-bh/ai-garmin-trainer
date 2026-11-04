@@ -44,6 +44,7 @@ const optionalEnvSchema = z.object({
     .default("nvidia/nemotron-3.5-lightning:free"),
   OLLAMA_MODEL: z.string().default("qwen3.5:4b"),
   OLLAMA_BASE_URL: z.string().url().default("http://127.0.0.1:11434/v1"),
+  SUMMARY_CONTRACT_VERSION: z.literal("2").default("2"),
   SUMMARY_ENABLED: z.enum(["false", "true"]).default("false"),
   SUMMARY_MODEL: z.enum(["unselected", "gpt-6-luna"]).default("unselected"),
   SUMMARY_CHAR_LIMIT: z

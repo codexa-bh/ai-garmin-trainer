@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 19;
+export const LATEST_SCHEMA_VERSION = 20;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -304,6 +304,30 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
        end`,
     ],
   },
+  {
+    version: 20,
+    name: "integrated_summary_pins",
+    statements: [
+      `create table conversation_summary_pin(conversation_id text primary key references conversation(id) on delete cascade,format_version integer not null default 1,payload text not null,seal text not null,reason text)`,
+      `create table summary_manual(item_id text primary key,payload text not null)`,
+      `create table conversation_title_spend(id text primary key,day text not null,reserved_usd real not null,usage_json text)`,
+      `create index conversation_title_spend_day on conversation_title_spend(day)`,
+      `alter table summary_attempt add column import_id text`,
+      `create table summary_import(id text primary key,format_version integer not null default 1,selection_json text not null,checksum text not null default '',position integer not null default 0,state text not null,privacy_generation integer not null,control_generation integer not null,manual_revision integer not null,cutoff integer not null)`,
+      `create table summary_import_disposition(source_id text primary key,manifest_id text not null,reason text not null)`,
+      `create trigger summary_import_invalidation after update of generation,manual_revision on summary_control when old.generation<>new.generation or old.manual_revision<>new.manual_revision begin update summary_import set state='review-required' where state in ('active','paused'); end`,
+      `create trigger summary_manual_privacy after update of privacy_generation on conversation_history_control begin delete from summary_manual; end`,
+      `create trigger summary_pin_privacy after update of privacy_generation on conversation_history_control begin
+        update conversation_summary_pin set payload='null',seal='',reason='invalidated';
+       end`,
+      `create trigger summary_pin_control after update of generation,manual_revision on summary_control when old.generation<>new.generation or old.manual_revision<>new.manual_revision begin
+        update conversation_summary_pin set payload='null',seal='',reason='invalidated';
+        update conversation_segment set compact='',compact_sha256='',compact_characters=0,covered_through=0,revision=revision+1;
+        update message set grounding_json=json_set(json_remove(grounding_json,'$.debugTrace','$.conversationContext.summaryRevision'),'$.conversationContext.summaryRevoked',json('true'))
+          where case when json_valid(grounding_json) then json_type(grounding_json,'$.conversationContext.summaryRevision')='integer' else 0 end;
+       end`,
+    ],
+  },
 ];
 
 function hasTable(db: Database.Database, table: string): boolean {
@@ -340,6 +364,11 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "summary_disposition",
     "summary_attempt",
     "summary_spend",
+    "summary_manual",
+    "conversation_summary_pin",
+    "conversation_title_spend",
+    "summary_import",
+    "summary_import_disposition",
   ];
   return tables.some((table) => {
     if (!hasTable(db, table)) return false;

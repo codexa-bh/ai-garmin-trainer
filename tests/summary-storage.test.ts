@@ -271,17 +271,29 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
   it("clear includes incomplete pre-clear admission; Off completion is never reimported on re-enable", () => {
     const pending = history.admit("A", "Pre-clear late source");
     storage.control("clear", now);
-    history.complete(pending.admission, {
-      content: "Late answer.",
-      grounding: null,
+    expect(() =>
+      history.complete(pending.admission, {
+        content: "Late answer.",
+        grounding: null,
+      }),
+    ).toThrow("conversation_context_invalidated");
+    expect(db.prepare("select cutoff from summary_control").get()).toEqual({
+      cutoff: pending.admission.sourceAdmissionSeq,
     });
+    expect(
+      db.prepare("select count(*) as n from conversation_completion").get(),
+    ).toEqual({ n: 0 });
+    expect(
+      db
+        .prepare("select count(*) as n from message where role='assistant'")
+        .get(),
+    ).toEqual({ n: 0 });
     storage.configure(false, "gpt-6-luna", 6000);
     complete("B", "While Off");
     storage.configure(true, "gpt-6-luna", 6000);
     complete("C", "New eligible source");
     const batch = ready();
     expect(batch.sources.map((source) => source.eligible)).toEqual([
-      false,
       false,
       true,
     ]);

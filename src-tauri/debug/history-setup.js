@@ -123,7 +123,7 @@
     const specs = [
       [
         "SUMMARY_ENABLED",
-        "Cross-chat summary processing — separate from legacy memory; not used by chat",
+        "Cross-chat summary processing — stable pins in qualified chats",
         [
           ["false", "Off (preserves stored summary)"],
           ["true", "On — after explicit quit/reopen"],
@@ -131,10 +131,10 @@
       ],
       [
         "SUMMARY_MODEL",
-        "Independent summary model — sends minimized user context to selected cloud provider; no fallback",
+        "Shared summary and title model — minimized cloud context; no fallback",
         [
-          ["unselected", "Unselected — no summary calls"],
-          ["gpt-6-luna", "OpenAI · gpt-6-luna (independent)"],
+          ["unselected", "Unselected — no summary/title calls"],
+          ["gpt-6-luna", "OpenAI · gpt-6-luna (summary and titles)"],
         ],
       ],
       [
@@ -270,14 +270,35 @@
           labels[0].scrollIntoView({ block: "start" });
           for (const el of document.body.querySelectorAll("*"))
             if (el instanceof HTMLElement) style(el, "visibility", "hidden");
-          for (const label of labels)
+          // WebKit can omit visible descendants of a hidden scrolling ancestor.
+          // Reveal containers only after excluding all direct text; siblings stay masked.
+          const containers = new Set();
+          for (const label of labels) {
+            for (
+              let parent = label.parentElement;
+              parent && parent !== document.body;
+              parent = parent.parentElement
+            ) {
+              if (
+                [...parent.childNodes].some(
+                  (node) =>
+                    node.nodeType === Node.TEXT_NODE && node.textContent.trim(),
+                )
+              )
+                throw Error("Summary capture refuses direct ancestor text");
+              containers.add(parent);
+            }
             for (const el of [label, ...label.querySelectorAll("*")])
               style(el, "visibility", "visible");
+          }
+          for (const container of containers)
+            style(container, "visibility", "visible");
           if (
             [...document.body.querySelectorAll("*")].some(
               (el) =>
                 el instanceof HTMLElement &&
                 visible(el) &&
+                !containers.has(el) &&
                 !labels.some((label) => el === label || label.contains(el)),
             )
           )

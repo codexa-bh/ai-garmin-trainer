@@ -56,7 +56,6 @@ it.each(["JSON", "NDJSON"])(
     const background = engine.tick(abort.signal);
     await Promise.resolve();
     expect(summaryGenerate).toHaveBeenCalledOnce();
-    const legacy = vi.fn(async () => {});
     app = createChatTurns({
       history,
       ensureConversation,
@@ -76,7 +75,6 @@ it.each(["JSON", "NDJSON"])(
           toolsUnsuccessful: 0,
         },
       }),
-      addCompletedTurn: legacy,
       fallbackDebugTrace: fallbackLlmDebugTrace,
     });
     const turn = app.prepareChatTurn(
@@ -94,7 +92,6 @@ it.each(["JSON", "NDJSON"])(
           });
     const body = await response.text();
     expect(body).toContain(mode === "JSON" ? '"assistant"' : '"type":"done"');
-    expect(legacy).toHaveBeenCalledOnce();
     expect(summaryStorage.status(now).frontier).toBe(0);
     expect(
       db.prepare("select count(*) as n from conversation_completion").get(),

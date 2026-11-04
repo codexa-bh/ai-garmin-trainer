@@ -231,27 +231,31 @@
         <fieldset id="memory-section" aria-describedby="memory-help">
           <legend>Memory</legend>
           <p id="memory-help">
-            Remember useful preferences, corrections and temporary plans in
-            local SQLite, not an unrestricted transcript or Garmin archive. Off
-            stops memory use after activation; it does not delete or reset
-            remembered details, Profile, chats, training plans or Garmin data.
-            Chat and automatic chat titles may still use cloud AI independently.
+            Stable cross-chat summaries preserve useful user decisions,
+            rationale and constraints without embeddings or an Ollama
+            dependency. Summary and future automatic chat titles share the
+            explicit model below; chat selection stays independent. Off stops
+            summary use/processing, not title processing or deletion of original
+            data.
           </p>
           <div id="memory-control"></div>
           <p id="memory-draft" role="status"></p>
           <p>
-            The Memory panel in Trainer has a separate immediate enable/disable
-            preference and inspect, edit, delete and clear controls. Saving On
-            here does not clear that preference.
+            Trainer Memory inspects latest versus selected-chat pins and
+            provides Refresh, manual edits, Forget, Clear and immediate
+            Disable/Enable. Unchanged saved On does not override an immediate
+            Disable. Changing model or character limit requires explicit
+            quit/reopen.
           </p>
           <p id="memory-processing" role="status"></p>
           <details id="memory-configuration">
-            <summary>Memory configuration</summary>
+            <summary>Preserved legacy configuration — inactive</summary>
             <p>
-              Finding related details (embeddings) and selecting useful facts
-              (extraction) are separate steps. Changing providers does not
-              convert existing vectors. Keep compatible model/dimensions; no
-              re-embedding or reset is performed.
+              Original extraction and embedding fields, facts, vectors and
+              migration markers are preserved for compatibility. They are not
+              used by ordinary chat or titles, and require no service/key/probe.
+              No re-embedding, historical import, conversion or deletion happens
+              on Save.
             </p>
             <div id="memory-fields"></div>
           </details>
@@ -263,21 +267,21 @@
             Read active memory status
           </button>
           <p class="helper">
-            Reads local configuration and a recent existing embedding/storage
-            observation only. No provider request, paid extraction check or
-            memory-content read. Remote availability is not certified.
+            Reads fixed active summary metadata only, never content, embeddings
+            or a model request. Saved/draft state is separate. Remote
+            availability and actual selected-chat consumption are not certified
+            by this status.
           </p>
         </fieldset>
         <details id="advanced-settings">
           <summary>Troubleshooting / technical controls</summary>
           <p>
-            Normally leave these unchanged. Dimensions must match stored
-            vectors; timeouts and executable paths retain their validators.
-            External tools remain operator-managed; nothing is installed or
-            started here.
+            Normally leave these unchanged. Preserved inactive legacy fields and
+            executable paths retain their validators. External tools remain
+            operator-managed; nothing is installed or started here.
           </p>
           <fieldset id="memory-technical">
-            <legend>Memory dimensions and timeouts</legend>
+            <legend>Preserved inactive memory compatibility fields</legend>
           </fieldset>
           <fieldset id="external-tools">
             <legend>External tool executables</legend>

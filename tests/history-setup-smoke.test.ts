@@ -151,6 +151,22 @@ it("changes only the three summary scalars through real form Save and masks ever
     ),
   ).toBe(false);
 });
+it("summary capture reveals text-free containers only and restores after direct-text refusal", async () => {
+  await setup(false);
+  window.__trainerHistorySetup("summaryOn");
+  const model = document.getElementById("SUMMARY_MODEL")!;
+  const container = model.parentElement!.parentElement!;
+  expect(window.__trainerHistorySetup("captureSummaryWide").ok).toBe(true);
+  expect(getComputedStyle(container).visibility).toBe("visible");
+  expect(
+    getComputedStyle(document.getElementById("DATABASE_PATH")!).visibility,
+  ).toBe("hidden");
+  window.__trainerHistoryRestore();
+  container.append(document.createTextNode("private-direct-text-sentinel"));
+  expect(window.__trainerHistorySetup("captureSummaryWide").ok).toBe(false);
+  expect(container.style.visibility).toBe("");
+  expect(model.style.visibility).toBe("");
+});
 it("summary capture refuses unknown copy/options/nesting and noncanonical cap without private readback", async () => {
   await setup(false);
   window.__trainerHistorySetup("summaryOn");
@@ -277,7 +293,7 @@ it("an active limit cannot be blank and is never silently switched to automatic"
 it("automatic mode preserves unrelated active-field constraint validation", async () => {
   const invoke = await setup(false, "2024-01-01");
   window.__trainerHistorySetup("automatic");
-  (document.getElementById("MEMORY_EMBEDDING_DIMS") as HTMLInputElement).value =
+  (document.getElementById("SUMMARY_CHAR_LIMIT") as HTMLInputElement).value =
     "0";
   expect(window.__trainerHistorySetup("observe").formValid).toBe(false);
   window.__trainerHistorySetup("save");

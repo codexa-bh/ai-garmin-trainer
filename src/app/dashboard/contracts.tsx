@@ -115,62 +115,6 @@ export type ChatStreamEvent =
     }
   | { type: "error"; code: string; message: string; retryable: boolean };
 
-export type MemoryItem = {
-  id: string;
-  text: string;
-  kind: "conversation" | "saved_preference" | "correction" | "temporary";
-  score?: number;
-  conversationId?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  expiresAt?: string;
-};
-
-export type MemoryHealth = {
-  enabled: boolean;
-  ready: boolean;
-  status: "disabled" | "ready" | "degraded" | "misconfigured";
-  detail: string;
-  provider: "app-sqlite-vector";
-  vectorProvider: "sqlite";
-  userDisabled: boolean;
-  embeddingProvider?: "openai" | "deterministic" | "ollama";
-  embeddingModel?: string;
-};
-
-export type MemoryPayload = {
-  memories: MemoryItem[];
-  health: MemoryHealth;
-  enabled: boolean;
-  ready: boolean;
-};
-
-export type MemoryKindFilter = "all" | MemoryItem["kind"];
-
-export type MemorySort = "newest" | "oldest" | "kind" | "text";
-
-export const memoryKindOptions: { value: MemoryKindFilter; label: string }[] = [
-  { value: "all", label: "All kinds" },
-  { value: "conversation", label: "Conversation" },
-  { value: "saved_preference", label: "Saved preference" },
-  { value: "correction", label: "Correction" },
-  { value: "temporary", label: "Temporary" },
-];
-
-export const memorySortOptions: { value: MemorySort; label: string }[] = [
-  { value: "newest", label: "Newest updated" },
-  { value: "oldest", label: "Oldest updated" },
-  { value: "kind", label: "Kind" },
-  { value: "text", label: "Text" },
-];
-
-export const memoryKindLabels: Record<MemoryItem["kind"], string> = {
-  conversation: "Conversation",
-  saved_preference: "Saved preference",
-  correction: "Correction",
-  temporary: "Temporary",
-};
-
 export type TrainerProfilePayload = {
   goals: string[];
   sports: string[];

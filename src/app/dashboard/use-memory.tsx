@@ -1,225 +1,214 @@
 import type { Dispatch, SetStateAction } from "react";
-import { useMemo, useState } from "react";
-import {
-  memoryKindLabels,
-  type MemoryHealth,
-  type MemoryItem,
-  type MemoryKindFilter,
-  type MemoryPayload,
-  type MemorySort,
-  type Status,
-} from "./contracts";
-import { compareMemoryText, memoryTimestamp } from "./memory-presentation";
+import { useEffect, useRef, useState } from "react";
+import type { Status } from "./contracts";
+import type {
+  SummaryStatus,
+  SummaryValue,
+  SummaryVersion,
+} from "@/lib/memory/summary-policy";
+import type { SummaryCommand } from "@/lib/memory/summary-controls";
+import type { SummaryPin } from "@/lib/chat/summary-pin";
 import { readJsonResponse } from "./transport";
+
+export type SummaryInspection = Omit<SummaryStatus, "usedByChat"> & {
+  usedByChat: boolean;
+  expected: SummaryVersion;
+  stored: SummaryValue;
+  manualIds: string[];
+  sources: {
+    sourceId: string;
+    conversationId: string | null;
+    messageId: string | null;
+    manual: boolean;
+  }[];
+  legacy: {
+    id: string;
+    kind: string;
+    text: string;
+    status: string;
+    conversationId: string | null;
+    expiresAt: number | null;
+  }[];
+  historical: {
+    candidates: {
+      id: string;
+      conversationId: string;
+      text: string;
+      referent: string | null;
+    }[];
+    manifests: { id: string; state: string; position: number; total: number }[];
+    exclusions: string;
+  };
+  selectedChat: {
+    conversationId: string;
+    segmentRevision: number;
+    pin: SummaryPin | null;
+    reason: string | null;
+  } | null;
+  authority: string;
+};
+type Action = SummaryCommand extends infer C
+  ? C extends SummaryCommand
+    ? Omit<C, "version" | "expected">
+    : never
+  : never;
 
 export function useMemoryFeature({
   setStatus,
+  onChangeCommitted,
 }: {
   setStatus: Dispatch<SetStateAction<Status>>;
+  onChangeCommitted?: (conversationId: string | null) => Promise<void>;
 }) {
-  const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
-
-  const [memoryHealth, setMemoryHealth] = useState<MemoryHealth | null>(null);
-
-  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
-
-  const [editingMemoryText, setEditingMemoryText] = useState("");
-
+  const [memory, setMemory] = useState<SummaryInspection | null>(null);
   const [memoryMessage, setMemoryMessage] = useState(
-    "Semantic memory readiness will load from local settings.",
+    "Memory has not been inspected.",
+  );
+  const [isMemoryLoading, setIsMemoryLoading] = useState(false);
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
+  const [editingMemoryText, setEditingMemoryText] = useState("");
+  const selected = useRef<string | null>(null);
+  const sequence = useRef(0);
+  const changing = useRef(false);
+  useEffect(
+    () => () => {
+      sequence.current++;
+    },
+    [],
   );
 
-  const [isMemoryLoading, setIsMemoryLoading] = useState(false);
-
-  const [memorySearchQuery, setMemorySearchQuery] = useState("");
-
-  const [memoryKindFilter, setMemoryKindFilter] =
-    useState<MemoryKindFilter>("all");
-
-  const [memorySort, setMemorySort] = useState<MemorySort>("newest");
-
-  const filteredMemories = useMemo(() => {
-    const query = memorySearchQuery.trim().toLocaleLowerCase();
-    return [...memoryItems]
-      .filter((item) => {
-        if (memoryKindFilter !== "all" && item.kind !== memoryKindFilter)
-          return false;
-        if (!query) return true;
-        const searchable = [
-          item.text,
-          memoryKindLabels[item.kind],
-          item.kind,
-          item.conversationId ?? "cross-conversation",
-          item.updatedAt ?? "",
-          item.createdAt ?? "",
-        ]
-          .join(" ")
-          .toLocaleLowerCase();
-        return searchable.includes(query);
-      })
-      .sort((first, second) => {
-        if (memorySort === "newest") {
-          return (
-            memoryTimestamp(second) - memoryTimestamp(first) ||
-            compareMemoryText(first, second) ||
-            first.id.localeCompare(second.id)
-          );
-        }
-        if (memorySort === "oldest") {
-          return (
-            memoryTimestamp(first) - memoryTimestamp(second) ||
-            compareMemoryText(first, second) ||
-            first.id.localeCompare(second.id)
-          );
-        }
-        if (memorySort === "kind") {
-          return (
-            memoryKindLabels[first.kind].localeCompare(
-              memoryKindLabels[second.kind],
-            ) ||
-            compareMemoryText(first, second) ||
-            first.id.localeCompare(second.id)
-          );
-        }
-        return (
-          compareMemoryText(first, second) || first.id.localeCompare(second.id)
-        );
-      });
-  }, [memoryItems, memoryKindFilter, memorySearchQuery, memorySort]);
-
-  const hasMemoryFilters =
-    memorySearchQuery.trim().length > 0 || memoryKindFilter !== "all";
-
-  async function loadMemories(showStatus = true) {
-    if (showStatus)
-      setStatus({
-        kind: "busy",
-        message: "Memory: loading local learned memories…",
-      });
+  async function loadMemories(
+    showStatus = true,
+    conversationId?: string | null,
+  ) {
+    if (conversationId !== undefined && selected.current !== conversationId) {
+      selected.current = conversationId;
+      setMemory(null);
+      setEditingMemoryId(null);
+      setEditingMemoryText("");
+    }
+    // Global memory changes revoke every selected-chat projection. A read made
+    // before commit must not repopulate the hidden snapshot, even after failure.
+    if (changing.current) return;
+    const request = ++sequence.current;
     setIsMemoryLoading(true);
     try {
-      const payload = await readJsonResponse<MemoryPayload>(
-        await fetch("/api/memory", { method: "GET" }),
+      const query = new URLSearchParams({ view: "content" });
+      if (selected.current) query.set("conversationId", selected.current);
+      const result = await readJsonResponse<SummaryInspection>(
+        await fetch(`/api/cross-chat-summary?${query}`, { cache: "no-store" }),
       );
-      const memories = payload.memories ?? [];
-      setMemoryItems(memories);
-      setMemoryHealth(payload.health);
-      const providerDetail = payload.health.embeddingProvider
-        ? ` Provider: ${payload.health.embeddingProvider}${payload.health.embeddingModel ? `/${payload.health.embeddingModel}` : ""}.`
-        : "";
+      if (
+        result.version !== 1 ||
+        !result.expected ||
+        !result.stored ||
+        result.stored.version !== 1 ||
+        !Array.isArray(result.stored.items) ||
+        !Array.isArray(result.sources) ||
+        !Array.isArray(result.manualIds) ||
+        !Array.isArray(result.legacy) ||
+        !Array.isArray(result.historical?.candidates) ||
+        !Array.isArray(result.historical?.manifests)
+      )
+        throw new Error("Unsupported memory inspection");
+      if (request !== sequence.current) return;
+      setMemory(result);
       setMemoryMessage(
-        `Memory: ${payload.health.status}; ${memories.length} inspectable semantic memories. ${payload.health.detail}${providerDetail}`,
+        `Summary ${result.state}${result.reason ? `: ${result.reason}` : ""}. Reads do not call a model or embeddings.`,
       );
       if (showStatus)
-        setStatus({
-          kind:
-            payload.health.ready || !payload.health.enabled ? "ok" : "error",
-          message:
-            "Memory: loaded semantic memory readiness and local memory list.",
-        });
-    } catch (error) {
-      const message = `Memory load failed: ${error instanceof Error ? error.message : "unknown error"}`;
-      setMemoryMessage(message);
-      if (showStatus) setStatus({ kind: "error", message });
-    } finally {
-      setIsMemoryLoading(false);
-    }
-  }
-
-  async function setMemoryEnabled(enabled: boolean) {
-    setIsMemoryLoading(true);
-    setStatus({
-      kind: "busy",
-      message: `Memory: ${enabled ? "enabling" : "disabling"}…`,
-    });
-    try {
-      const payload = await readJsonResponse<MemoryPayload>(
-        await fetch("/api/memory", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "set-enabled", enabled }),
-        }),
-      );
-      setMemoryItems(payload.memories ?? []);
-      setMemoryHealth(payload.health);
+        setStatus({ kind: "ok", message: "Memory inspected locally." });
+    } catch {
+      if (request !== sequence.current) return;
+      setMemory(null);
       setMemoryMessage(
-        `Memory: ${payload.health.status}. ${payload.health.detail}`,
+        "Memory inspection unavailable. Preserve data and use a compatible build; no reset or success claimed.",
       );
-      setStatus({
-        kind: "ok",
-        message: `Memory: ${enabled ? "enabled" : "disabled"}.`,
-      });
-    } catch (error) {
-      const message = `Memory toggle failed: ${error instanceof Error ? error.message : "unknown error"}`;
-      setMemoryMessage(message);
-      setStatus({ kind: "error", message });
+      if (showStatus)
+        setStatus({ kind: "error", message: "Memory inspection unavailable." });
     } finally {
-      setIsMemoryLoading(false);
+      if (request === sequence.current) setIsMemoryLoading(changing.current);
     }
   }
-
-  async function actOnMemory(
-    action: "update" | "delete" | "clear",
-    id?: string,
-    text?: string,
-  ) {
+  async function changeMemory(action: Action) {
+    if (!memory || changing.current) return;
     if (
-      action === "delete" &&
-      !window.confirm("Delete this memory before the next answer?")
-    )
-      return;
-    if (
-      action === "clear" &&
+      action.action === "clear" &&
       !window.confirm(
-        "Clear all semantic memories? Profile, chat, and Garmin data are preserved.",
+        "Clear summary, manual items and chat pins? Transcripts, Profile, Garmin, plans and preserved legacy records remain. Future new turns may create memory; backups/provider logs are not erased.",
       )
     )
       return;
+    if (
+      action.action === "forget" &&
+      !window.confirm(
+        "Forget this item and suppress its exact source versions? Original transcripts and other stores remain.",
+      )
+    )
+      return;
+    if (
+      (action.action === "import-create" ||
+        action.action === "import-resume") &&
+      !window.confirm(
+        "Process only the explicitly reviewed historical selection with the configured cloud summary model? Minimized text may leave this device and incur cost. No original is deleted; uncertain previous billing remains reserved. Existing per-day/foreground caps apply; no embeddings or transcript-wide sweep.",
+      )
+    )
+      return;
+    const selectedAtStart = selected.current;
+    sequence.current++;
+    changing.current = true;
+    setMemory(null);
+    setMemoryMessage(
+      "Applying memory change; prior projection hidden until reinspection.",
+    );
     setIsMemoryLoading(true);
-    setStatus({ kind: "busy", message: `Memory: ${action}…` });
     try {
-      const payload = await readJsonResponse<MemoryPayload>(
-        await fetch("/api/memory", {
-          method: "PATCH",
+      await readJsonResponse(
+        await fetch("/api/cross-chat-summary", {
+          method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id, action, text }),
+          body: JSON.stringify({
+            version: 1,
+            expected: memory.expected,
+            ...action,
+          }),
         }),
       );
-      setMemoryItems(payload.memories ?? []);
-      setMemoryHealth(payload.health);
       setEditingMemoryId(null);
       setEditingMemoryText("");
+      // Clear/Forget also affect a chat selected while this mutation was pending.
+      await onChangeCommitted?.(selected.current);
+      changing.current = false;
+      await loadMemories(false);
       setMemoryMessage(
-        `Memory: ${action} complete. Changes affect the next answer.`,
+        "Memory change committed. Refresh adopts the latest usable summary; pending native settings still require an explicit restart.",
       );
-      setStatus({ kind: "ok", message: `Memory: ${action} complete.` });
-    } catch (error) {
-      const message = `Memory ${action} failed: ${error instanceof Error ? error.message : "unknown error"}`;
-      setMemoryMessage(message);
-      setStatus({ kind: "error", message });
+    } catch {
+      if (selected.current !== selectedAtStart) return;
+      setMemoryMessage(
+        "Memory change failed or outcome unknown. Reload and review before another action; nothing was automatically retried.",
+      );
+      // Do not permit another mutation against an uncertain saved snapshot.
+      setMemory(null);
     } finally {
+      changing.current = false;
       setIsMemoryLoading(false);
     }
   }
+  function cancelMemoryEdit() {
+    setEditingMemoryId(null);
+    setEditingMemoryText("");
+  }
   return {
-    loadMemories,
-    setEditingMemoryId,
-    setEditingMemoryText,
-    memoryHealth,
-    memoryItems,
-    filteredMemories,
+    memory,
     memoryMessage,
-    setMemoryEnabled,
     isMemoryLoading,
-    actOnMemory,
-    memorySearchQuery,
-    setMemorySearchQuery,
-    memoryKindFilter,
-    setMemoryKindFilter,
-    memorySort,
-    setMemorySort,
-    hasMemoryFilters,
+    loadMemories,
+    changeMemory,
     editingMemoryId,
     editingMemoryText,
+    setEditingMemoryId,
+    setEditingMemoryText,
+    cancelMemoryEdit,
   };
 }

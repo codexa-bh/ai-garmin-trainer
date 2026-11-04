@@ -284,33 +284,16 @@ function renderHistory() {
   date.required = choice.checked;
 }
 function renderMemory() {
-  const on = byId("MEMORY_ENABLED").value === "true";
+  const on = byId("SUMMARY_ENABLED").value === "true";
   byId("memory-draft").textContent =
     `Draft: ${on ? "On" : "Off"}. Saved startup setting: ${savedMemoryEnabled === "true" ? "On" : "Off"}. ` +
     (firstRun
       ? "Finish applies the committed startup configuration."
       : "Memory topology changes need explicit quit/reopen. Shared provider-key changes can apply now; status is not a readiness check.");
-  const provider = byId("MEMORY_EMBEDDING_PROVIDER").value;
-  const embedding =
-    {
-      ollama:
-        "Embedding step: local Ollama daemon/model; availability not checked.",
-      openai:
-        "Embedding step: OpenAI-compatible processing using the OpenAI key, potentially external and paid. A custom endpoint changes who receives data; its address is not included in status.",
-      deterministic:
-        "Embedding step: deterministic local test vectors, not semantic-provider embeddings.",
-    }[provider] ||
-    "Embedding step: unsupported configuration; choose a supported provider.";
-  const mode = byId("MEMORY_EXTRACTION_MODE").value;
-  const extraction =
-    {
-      off: "Extraction: Off — no new candidate ingestion; existing retrieval/list/delete behavior remains.",
-      deterministic:
-        "Extraction: local rule-based candidate selection; no extraction LLM call.",
-      llm: "Fact selection: configured DeepSeek/OpenAI cloud AI, otherwise local rules; timeout/invalid output also falls back. Local embeddings do not make extraction local. Trainer model preference is independent. Availability is not checked.",
-    }[mode] ||
-    "Extraction: unsupported configuration; choose a supported mode.";
-  byId("memory-processing").textContent = `${embedding} ${extraction}`;
+  const model = byId("SUMMARY_MODEL").value;
+  byId("memory-processing").textContent =
+    `${model === "gpt-6-luna" ? "Shared summary/title model: OpenAI · gpt-6-luna." : "Shared summary/title model: Unselected; no calls, title excerpt retained."} ` +
+    "Minimized eligible context may leave the device. No embedding, extractor/chat fallback, daemon start or historical processing. Summary Off does not disable future title attempts; separate title caps apply. Missing keys/capability retain no-memory/excerpt, not another model.";
 }
 async function readMemoryStatus() {
   const generation = ++memoryRead;
@@ -320,44 +303,24 @@ async function readMemoryStatus() {
   try {
     const value = await invoke("read_memory_status");
     if (generation !== memoryRead) return;
-    const embeddings = {
-      ollama: "local Ollama",
-      openai: "OpenAI-compatible (may be external/paid)",
-      deterministic: "local test vectors (not semantic)",
-    };
-    const extractors = {
-      deepseek: "DeepSeek cloud (not remotely checked)",
-      openai: "OpenAI cloud (not remotely checked)",
-      deterministic: "local rule-based selection",
-      off: "Off — no new ingestion",
-    };
-    const health = {
-      "not-checked":
-        "Embedding/storage readiness unknown or stale; open Memory in Trainer for an existing health check.",
-      attention:
-        "Embedding/storage needs attention. Check configuration, key, daemon/model and compatible dimensions in Memory; no reset is performed.",
-      "local-observed":
-        "Local Ollama embedding/storage check observed recently; this does not certify extraction.",
-      "test-only":
-        "Local deterministic storage check observed; not semantic-provider readiness.",
-      disabled:
-        "Embedding/storage check not applicable while memory is disabled.",
-    };
     if (
-      !embeddings[value.embeddingProvider] ||
-      !extractors[value.extractionProvider] ||
-      !health[value.health]
+      value.version !== 1 ||
+      !["unselected", "luna", "unsupported"].includes(value.model) ||
+      ![
+        "disabled",
+        "unselected",
+        "unavailable",
+        "never-produced",
+        "fresh",
+        "stale",
+      ].includes(value.state)
     )
       throw new Error("Invalid status");
     byId("memory-active").textContent =
-      `Active runtime configuration: ${value.configuredEnabled ? "On" : "Off"}. ` +
-      (value.userDisabled
-        ? "Disabled by the separate Memory panel preference; enable there deliberately. "
-        : "No separate runtime disable preference. ") +
-      `Memory use: ${value.effectiveEnabled ? "On" : "Off"}. Embeddings: ${embeddings[value.embeddingProvider]}. Extraction: ${extractors[value.extractionProvider]}. ${health[value.health]} ` +
-      "This is an observation of the active backend, not this draft or a saved next-launch setting.";
-    const remaining = Math.max(1, 60000 - (value.ageMs ?? 0));
-    memoryExpiry = setTimeout(invalidateMemoryStatus, remaining);
+      `Active startup configuration: ${value.configuredEnabled ? "On" : "Off"}; immediate processing: ${value.enabled ? "On" : "Off"}. ` +
+      `Shared summary/title model: ${value.model === "luna" ? "OpenAI · gpt-6-luna" : value.model}; N=${value.cap}. Summary ${value.state}, revision ${value.revision}, frontier ${value.frontier}, pending ${value.pending}. ` +
+      "This is active metadata, not saved/draft settings, remote readiness or proof of selected-chat use. Inspect Trainer Memory for the actual pin.";
+    memoryExpiry = setTimeout(invalidateMemoryStatus, 60000);
   } catch {
     if (generation === memoryRead)
       byId("memory-active").textContent =
@@ -618,7 +581,7 @@ async function refresh() {
       saved.fields.GARMIN_HISTORY_START_DATE,
     );
     renderHistory();
-    savedMemoryEnabled = byId("MEMORY_ENABLED").value;
+    savedMemoryEnabled = byId("SUMMARY_ENABLED").value;
     resetKeys(saved.keys);
     if (firstRun && !saved.saved) {
       byId("DATABASE_PATH").value = onboarding.database;
@@ -628,7 +591,7 @@ async function refresh() {
       "legacy-required",
     ].includes(saved.storage);
     byId("extraction-compatibility").textContent =
-      `Extraction and automatic titles retain the independent legacy policy ${byId("AI_PROVIDER").value}; OpenAI ${byId("AI_MODEL").value}, DeepSeek ${byId("DEEPSEEK_MODEL").value}. Catalog edits do not change these inputs or embeddings.`;
+      `Inactive extraction compatibility retains ${byId("AI_PROVIDER").value}; OpenAI ${byId("AI_MODEL").value}, DeepSeek ${byId("DEEPSEEK_MODEL").value}. Future titles use the explicit summary model instead. Catalog edits do not rewrite these preserved inputs.`;
     renderStep();
     renderConnection();
     status.textContent = firstRun
@@ -664,8 +627,8 @@ function createField(field) {
             false: "Off (preserves stored summary)",
           },
           SUMMARY_MODEL: {
-            unselected: "Unselected — no summary calls",
-            "gpt-6-luna": "OpenAI · gpt-6-luna (independent)",
+            unselected: "Unselected — no summary/title calls",
+            "gpt-6-luna": "OpenAI · gpt-6-luna (summary and titles)",
           },
           MEMORY_EMBEDDING_PROVIDER: {
             openai: "OpenAI-compatible",
@@ -711,7 +674,7 @@ function createField(field) {
     label.hidden = true;
   }
   label.append(input);
-  if (field.key.startsWith("MEMORY_"))
+  if (field.key.startsWith("SUMMARY_"))
     input.addEventListener("change", renderMemory);
   const memoryGroup = field.key.startsWith("SUMMARY_")
     ? "memory-control"

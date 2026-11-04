@@ -15,7 +15,9 @@ def prepare_summary(run):
     base = json.loads((run.root / 'config/settings-v2.json').read_text())
     if base['keys'] or base['fields']['DATABASE_PATH'] != str(run.database):
         raise ValueError('Exact keyless run configuration required')
-    fields = {**base['fields'], 'SUMMARY_ENABLED': 'true', 'SUMMARY_MODEL': 'gpt-6-luna', 'SUMMARY_CHAR_LIMIT': '6000'}
+    fields = {**base['fields'], 'SUMMARY_ENABLED': 'true', 'SUMMARY_MODEL': 'gpt-6-luna', 'SUMMARY_CHAR_LIMIT': '6000',
+              'SUMMARY_CONTRACT_VERSION': '2', 'MEMORY_ENABLED': 'true', 'MEMORY_EMBEDDING_PROVIDER': 'ollama',
+              'MEMORY_EMBEDDING_MODEL': 'nomic-embed-text', 'MEMORY_EMBEDDING_BASE_URL': 'http://127.0.0.1:1', 'MEMORY_EMBEDDING_DIMS': '768'}
     private_json(run.root / 'config/settings-v3.json', {
         'version': 3, 'fields': fields, 'keys': {},
         'chatCatalog': {'version': 1, 'entries': [], 'defaultEntryId': None},
@@ -34,20 +36,88 @@ def prepare_summary(run):
 def status(run, action=None):
     if run.child is None or not run.origin:
         raise ValueError('Verified live owned backend required')
+    if action is not None and action not in ('clear', 'disable', 'enable', 'retry'):
+        raise ValueError('Unknown summary control')
+    expected = status(run)['expected'] if action is not None else None
     client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
     try:
         client.request('GET' if action is None else 'POST', '/api/cross-chat-summary',
-                       None if action is None else json.dumps({'action': action}), {'Content-Type': 'application/json'})
+                       None if action is None else json.dumps({'version': 1, 'expected': expected, 'action': action}), {'Content-Type': 'application/json'})
         response = client.getresponse()
         raw = response.read(4097)
         if response.status != 200 or len(raw) > 4096:
             raise ValueError('Summary status/control refused or output exceeded bound')
         value = json.loads(raw)
-        if set(value) != {'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday'} or value['usedByChat'] is not False:
+        if set(value) != {'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
             raise ValueError('Unknown summary telemetry; no raw content accepted')
+        if value['version'] != 1 or set(value['expected']) != {'revision', 'privacy', 'control', 'manual'} or any(type(n) is not int or n < 0 for n in value['expected'].values()):
+            raise ValueError('Unknown summary authority; no mutation authorized')
         return value
     finally:
         client.close()
+
+
+def memory_wait(run, predicate, label):
+    deadline = time.monotonic() + 8
+    observed = None
+    while time.monotonic() < deadline:
+        observed = run.command({'type': 'memory', 'action': 'observe'})
+        if predicate(observed):
+            return observed
+        time.sleep(.1)  # Bounded observation only, never repeat a mutation.
+    private_json(run.root / ('memory-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': observed})
+    raise TimeoutError('Memory assertion deadline: ' + label)
+
+
+def memory_controls(run):
+    before = run.chat_hash()
+    action = lambda name: run.command({'type': 'memory', 'action': name})
+    action('open')
+    memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'empty canonical summary')
+    action('add')
+    memory_wait(run, lambda value: value['editing'], 'manual editor')
+    action('draft')
+    action('save')
+    memory_wait(run, lambda value: value['loaded'] and value['hasManual'] and not value['editing'], 'manual saved')
+    images = []
+    for preset in ['wide', 'narrow']:
+        run.command({'type': 'setViewport', 'preset': preset})
+        image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
+        images.append({'state': 'manual-saved', 'preset': preset, **image})
+        private_json(run.root / ('memory-capture-' + preset + '.json'), images[-1])
+    action('edit')
+    memory_wait(run, lambda value: value['editing'], 'manual edit')
+    action('draft-update')
+    action('save')
+    memory_wait(run, lambda value: value['loaded'] and value['updatedManual'] and not value['editing'], 'manual correction saved')
+    action('close')
+    run.stop()
+    run.start(run.binary)
+    action('open')
+    memory_wait(run, lambda value: value['loaded'] and value['updatedManual'], 'manual survives owned restart')
+    action('forget')
+    memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'forget committed')
+    action('disable')
+    memory_wait(run, lambda value: value['loaded'] and value['off'], 'Off committed')
+    action('enable')
+    memory_wait(run, lambda value: value['loaded'] and not value['off'], 'explicit Enable')
+    before_clear = status(run)['expected']
+    action('clear')
+    deadline = time.monotonic() + 8
+    while status(run)['expected'] == before_clear:
+        if time.monotonic() >= deadline:
+            raise TimeoutError('Clear authority did not commit; no retry')
+        time.sleep(.1)
+    memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'Clear committed')
+    action('close')
+    if run.chat_hash() != before:
+        raise ValueError('Memory controls changed original conversation/message bytes')
+    private_json(run.root / 'integrated-memory-controls.json', {
+        'task': 'T0272', 'runId': run.id, 'source': run.config['source'],
+        'manualEditForgetClearOffEnableRestart': True, 'originalChatsPreserved': True,
+        'providerCalls': 0, 'captures': images, 'input': 'finite synthetic DOM; not trusted OS input',
+        'limitations': 'Static controls only revealed; no hidden-content, semantic-provider, qualified pin projection or primary activation certification',
+    })
 
 
 def scenario(run):
@@ -69,6 +139,7 @@ def scenario(run):
             raise ValueError('Restart silently replayed deterministic failure')
     if recovered['reason'] != 'summary_missing_key' or recovered['pending'] != 4:
         raise ValueError('Durable summary backlog/failure lost across native restart')
+    memory_controls(run)
     cleared = status(run, 'clear')
     disabled = status(run, 'disable')
     if cleared['items'] != 0 or cleared['characters'] != 0 or disabled['enabled']:
@@ -85,8 +156,9 @@ def scenario(run):
     if status(run, 'enable')['enabled'] is not True or status(run, 'disable')['enabled'] is not False:
         raise ValueError('Explicit configured Enable/Disable recovery failed')
     private_json(run.root / ('summary-keyless-' + str(uuid.uuid4()) + '.json'), {
-        'task': 'T0270', 'runId': run.id, 'source': run.config['source'],
-        'independentSelection': True, 'scheduledMissingKeyObserved': True,
+        'task': 'T0272', 'runId': run.id, 'source': run.config['source'],
+        'sharedSummaryTitleSelection': True, 'scheduledMissingKeyObserved': True,
+        'inactiveLegacyEnabledWithoutEmbeddingKeyOrDaemonControl': True,
         'backlogAndFailureSurviveRestart': True, 'noBlindReplay': True,
         'clearIncludesIncompleteSource': True, 'offSurvivesRestart': True, 'explicitEnableRecovery': True,
         'originalMessagesPreserved': True, 'providerCalls': 0,

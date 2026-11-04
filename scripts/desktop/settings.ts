@@ -184,16 +184,13 @@ export function activationEnvironment(
   const env = getOptionalEnv(result);
   const selected = env.AI_PROVIDER;
   if (
-    (frame.version === 1 &&
-      ((selected === "openai" && !result.OPENAI_API_KEY) ||
-        (selected === "deepseek" && !result.DEEPSEEK_API_KEY) ||
-        (selected === "openrouter" && !result.OPENROUTER_API_KEY) ||
-        (selected === "auto" &&
-          !result.OPENAI_API_KEY &&
-          !result.DEEPSEEK_API_KEY))) ||
-    (env.MEMORY_ENABLED === "true" &&
-      env.MEMORY_EMBEDDING_PROVIDER === "openai" &&
-      !result.OPENAI_API_KEY)
+    frame.version === 1 &&
+    ((selected === "openai" && !result.OPENAI_API_KEY) ||
+      (selected === "deepseek" && !result.DEEPSEEK_API_KEY) ||
+      (selected === "openrouter" && !result.OPENROUTER_API_KEY) ||
+      (selected === "auto" &&
+        !result.OPENAI_API_KEY &&
+        !result.DEEPSEEK_API_KEY))
   )
     throw new Error(
       "Required provider key unavailable. Update private settings; no provider fallback.",

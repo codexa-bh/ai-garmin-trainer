@@ -29,10 +29,13 @@ The baseline is keyless. No real provider/Garmin success is implied; separately 
 `npm run smoke:ordinary -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app> --summary-engine`
 adds one finite keyless S scenario, incompatible with composer/conversation presets.
 Before launch it preserves each run's original keyless v2 configuration, exclusively
-publishes run-local v3 with independent Luna summary On/6000 and empty chat catalog,
+publishes run-local v3 with shared summary/title Luna, summary On/6000 and empty chat catalog,
 and seeds exactly four authored completed source turns plus one incomplete turn through
 production journal ports on only the stopped private current-schema run DB. Existing
-synthetic transcripts/Profile/normalized data remain intact; no old-history linkage,
+synthetic transcripts/Profile/normalized data remain intact. The copy deliberately retains
+inactive legacy memory enabled with Ollama embedding configuration at fixed loopback
+port1 and no key; no operator daemon is inspected/stopped or service started. This
+checks startup/control independence, not a native network trace. No old-history linkage,
 provider credential lookup, clock override, fake inference or product bundle rewrite.
 The recipe verifier accepts only exact empty/Off/unselected summary singleton metadata
 on source inputs and refuses populated/enabled/corrupt summary data. `summary_seed.ts`
@@ -53,6 +56,32 @@ real-provider quality, native Settings input or full global pin/UI integration**
 Ordinary PNGs prove adjacent masked geometry only; inspect each separately. Live
 summary evidence needs separately scoped native opaque credentials and a metered
 provider envelope; do not reuse T0269's task-specific provider presets/approvals.
+
+### Integrated keyless Memory controls
+
+The `--summary-engine` scenario also exercises the actual Trainer Memory sheet
+through an ordinary-only finite `memory` command. Actions are exactly `observe`,
+`open`, `close`, `reload`, `add`, `edit`, `draft`, `draft-update`, `save`, `forget`,
+`clear`, `disable`, `enable`, `retry`, and `refresh`. No caller text, source ID,
+selector, script, import selection or private readback is accepted. Drafts are
+fixed run-attributed T0272 synthetic preferences; existing noncanonical saved/draft
+content refuses. Destructive confirmation supplies synthetic yes only to the exact
+Clear/Forget product confirmation, restoring the original function synchronously.
+Results contain only action/visibility/loaded/manual-state/Off/editor booleans.
+Native ordinary/run/boot/origin/request/deadline and unknown-effect guards remain.
+
+The keyless runner saves and edits one manual preference, observes owned-restart
+persistence, Forgets it, disables/enables and Clears derivatives while verifying
+original conversation/message hashes. Bounded reads observe settlement; mutations
+are never repeated to obtain green. `captureView:memory` at existing wide/narrow
+sizes reveals only verified static headings/buttons at their actual geometry.
+Summary/pin/source/legacy text, input values and status remain hidden; direct text
+in revealed ancestors refuses and masks restore/expire. Inspect every PNG. This is
+actual ordinary isolated synthetic-DOM control/layout evidence, not trusted input,
+real summary/title generation, qualified token projection, primary activation or
+historical private export. Versioned API controls read fixed expected authority
+metadata before CAS; unknown/extra/changed authority refuses, never bypasses.
+Validate native/DOM/Python contracts and the exact-source artifact before use.
 
 ## Authorized finite Luna-summary integration
 
@@ -96,12 +125,193 @@ and exact retained payload/frontier/usage must be verified before Clear/Disable.
 Those lifecycle controls remove derived content only on the clone, preserve original
 messages/pre-clear cutoff and leave the stopped provider copy unchanged. No replica-wide
 erasure or second private-key lookup is claimed.
-No current summary is injected into chat. Captures retain ordinary hide-by-default masks;
+This historical producer-oriented runner does not assert current integrated pin consumption
+and grants no T0272 provider authority. Captures retain ordinary hide-by-default masks;
 they cannot prove hidden semantics. Real S quality/usage, actual native/API state,
 synthetic transport and inspected geometry remain separate evidence classes. Validate
 handoff/admission/envelope/seed/projection/denial contracts plus current aggregate,
 ARM64 artifact and native tests before use. Owned shutdown, unchanged inputs/credential
 source, bounded telemetry and evidence-first disposition remain mandatory.
+
+## Authorized integrated-memory lineage proof
+
+`npm run smoke:memory:live -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app> --approved-integrated-memory-tests-usd200`
+requires the separate T0272 operator approval for synthetic-only opaque native OpenAI
+use and USD2 cumulative spend. Neither this flag nor historical T0269/T0270 grants
+is authority. The distinct closed `t0272-integrated-memory-luna-200` preset admits
+only exact keyless v3 settings, one fixed Luna catalog, the shared contract marker,
+On/Off/6000, run-owned DB/empty token directory, and preserved inactive legacy
+Ollama embedding settings pointing to unavailable loopback port1. It cannot combine
+with history/setup controls. No key readback/export, provider fallback, private
+history, original settings mutation or normal-app control is added.
+
+The source/artifact-bound exclusive ledger uses integer milli-USD and fsyncs each
+claim before effects. Maximum four boots at200 each and12 chats at80 plus one
+possible title at1 each reserve1772 of2000 milli-USD. Unknown/failed effects never
+refund. Changed, missing, extra, partial, aliased or competing claims refuse. A
+pre-existing envelope refuses automatic reopening. After diagnosed bounded repair,
+`--continue-receipt <exact-settled-failure>` verifies every contiguous immutable claim,
+unchanged approval and source/artifact binding, original preservation and owned
+settlement. It records the old receipt hash and reviewed current artifact binding
+without rewriting the approval or earlier claims. Stale/understated/unsettled receipts
+refuse. This is explicit reconciliation, never an automatic retry or fresh budget. At current
+reviewed standard Luna prices, even treating every input token as a12-hour cache
+write fits each reservation; prices must be reconfirmed before use.
+
+The revised finite scenario uses at most four publications per boot: three boots
+for a fresh ten-round case, or two for the exact retained four-round continuation.
+Each retains300-second activity and at most100-second admitted-request/source-check/
+shutdown tail. Publication clears pending age; the next native tick discovers backlog
+and a following tick satisfies debounce, so five rounds per boot is not assumed. A wall-clock alarm additionally bounds
+an entire chat response to60 seconds rather than relying on socket idle timeouts.
+Existing native30-second S ticks, debounce, ten-attempt daily limits and stateless
+exact token accounting are unchanged. Four meaning-bearing and180 neutral authored
+linked completions seed only a stopped new copy. Ten real S batches exercise repeated
+lineage; actual new-chat answers at rounds1/5/10 require meaning/stance/rationale
+oracles and consumed revision/token metadata. This uses three paid chat reservations,
+not ten paid calls merely to manufacture neutral batches. Intermediate publications
+may advance during an answer; recorded observed-round numbers do not fabricate
+inspection of missed snapshots. The three required oracle rounds must be exact.
+Ordinary publication must preserve earlier sealed pins; owned restart preserves
+those pins; explicit Refresh adopts the latest. Bounded screened answer excerpts,
+usage, timing and exact source coverage are retained. No new visual surface is
+introduced by this API-level scenario; earlier separately inspected native captures
+remain their own evidence, not hidden-content proof.
+
+This scenario alone does **not** prove M28's old-implementation comparison, live
+correction/outage/import, shared titles while Off, primary migration or installed
+activation. Those obligations remain distinct. Before use, validate positive and
+negative native admission, ledger/API/deadline/meaning contracts, actual seed ports,
+affected aggregate checks and the current ordinary artifact. Original input and
+opaque source-revision checks plus owned settlement and evidence-first disposition
+remain mandatory. Failures retain their reservations, diagnostics and recovery state.
+
+An explicitly approved additive reallocation uses
+`--approved-reallocation-usd500 --continue-receipt <exact-settled-failure>`.
+It chains the unchanged original approval, prefix claim hashes and retained receipt
+in an exclusively published amendment. Cumulative caps become seven boots and seven
+chat/title attempts, including every old reservation: at most USD1.967. The approved
+contingency ceiling is USD5 **total**, not additional; it does not automatically
+increase those count caps. Missing/changed/duplicate/extra/stale/unsettled evidence
+refuses. A dedicated64KiB cumulative-receipt reader does not widen the8KiB settings
+or grant reader. Original approval/claims are never rewritten.
+
+For the exact settled four-round authored source, additionally pass
+`--resume-lineage-disposition <retained-resource-disposition>`. The closed recovery
+reader checks the task/run namespace, private unaliased files, retained metadata
+copies, shutdown/writer exclusion, frontier80/four committed batches, summary hash
+and consumed pin. The ordinary owner then makes a fresh SQLite online copy and
+verifies the complete logical fingerprint. No seed, original write, old-process
+control or credential copy occurs. Earlier oracle evidence remains attributed to
+its original receipt; rounds5–10 continue the actual persisted lineage. The borrowed
+recovery original stays outside disposable enrollment and is checked again at
+launch and final settlement. Any other partial frontier requires separately reviewed
+bounded continuation, not implicit adoption or replay.
+
+### Current cumulative-dollar-only authority
+
+The latest T0272 operator approval raises the cumulative Luna budget to **USD100**.
+Use `--approved-budget-usd100` with the latest settled receipt; it includes the
+historical dollar-only flags and adds immutable `amendment-v3-usd100.json` bound
+to version2 and the retained receipt. No count caps. Existing claims remain intact;
+reservations are conservative admission accounting, **not actual billed spend**.
+Report actual available usage separately and keep unknown billing explicit. The
+historical preset/ledger names are compatibility names, not the current ceiling.
+This grants no private-history or primary-app effects.
+
+Previously, the operator removed cumulative boot/chat count limits: “only limit
+you have is not spend over $5.” Use `--approved-budget-only-usd500` with the exact
+latest settled receipt. This supersedes seven/seven and the proposed12/28 allocation;
+those are history, not new approval gates. The flag still requires genuine task
+authority; it does not itself grant spending permission.
+
+The existing ledger adds an immutable version2 authority record bound to the first
+amendment, receipt and prior claim hashes. Every old failed/unknown reservation
+remains consumed. Capacity now depends only on the **USD5 cumulative total**, using
+USD0.20 per bounded boot and USD0.081 per chat/possible title. Select the remaining
+finite scenarios within that balance without another count-approval stop. A scenario
+whose worst-case reserve exceeds the remaining balance refuses before effects.
+Existing technical deadlines retain those per-effect cost bounds; original-state,
+secret, provider, private-input, native ownership and primary-activation safeguards
+are unchanged. Missing/stale/modified/concurrent authority/claims still refuse.
+
+### Finite Off-title and selected-import case
+
+The same runner accepts `--case controls` for three boots and two chat/title claims,
+not another lineage replay. Following a successful settled lineage receipt, add
+`--continue-settled-success --approved-reallocation-usd500 --continue-receipt <receipt>`.
+This explicit ledger-only reconciliation verifies the unchanged approval/amendment,
+all contiguous claims and original/source/settlement facts; stale receipts refuse.
+It neither refunds spend nor admits successful receipts to the failed-lineage
+recovery reader. No recovery DB is copied/reconstructed for this separate case.
+
+The existing stopped-copy seed authors four linked Off completions, preserving the
+native shared Luna configuration. An actual ordinary chat while effectively Off
+must use no pin or tools; its independent title must settle with one reservation,
+actual positive input/output counters and a non-excerpt title. Unknown/failed title
+outcomes stop without retry. After Enable, routine processing must disposition Off
+sources without summarizing them. The runner selects only the four authored IDs,
+creates/pauses/resumes their sealed import through versioned application controls,
+and requires one real committed S batch with correct meaning, exact dispositions,
+selected-only provenance, unchanged routine frontier and original message hashes.
+A second real chat must then consume the imported sealed pin and retain all required
+choice/rationale/rejection/goal/unchosen-equipment meaning, not just inspect S storage.
+Owned restart before Resume must preserve the exact paused manifest; a further
+restart must preserve the completed manifest/dispositions and consumed pin exactly.
+Each boot is reserved before activation, with settled prior ownership.
+If pause raced an admitted provider request it stops rather than automatically
+resuming an unknown effect. All observation polling stays within300 seconds; the
+existing100-second tail and60-second admitted-response limit remain unchanged.
+
+Before use, validate seed eligibility/replay refusal, successful-receipt opt-in,
+stale/unknown-ledger denial, title/import oracles and finite route/mutation-once
+contracts, then build the exact ordinary artifact. This API/SQLite observation
+adds no visual certification. It does not prove real correction/outage/in-flight
+interruption, native compaction, M28's actual old/new implementation comparison or
+primary activation. Those remain separate evidence obligations, not count gates.
+
+### Finite correction and explicit Profile precedence
+
+`--case correction` uses one bounded boot and four chat/title reservations under
+the current dollar-only authority. Four stopped-copy authored completions include
+an evening preference. The actual S publication and A answer must consume that
+pin; B's explicit morning correction must complete successfully and immediately
+revoke A's old pin. Without accelerating ticks/debounce, a new C answer must consume
+the corrected morning publication. An explicit copied Profile constraint then sets
+weekday lunchtime and revokes C's pin; A's next answer must use that current Profile
+without a revoked summary. Original seed messages and other Profile constraints
+remain unchanged. Answers retain bounded synthetic excerpts and actual available
+usage, with no tools. The correcting answer may deliberately lose its usage-bearing
+debug trace under privacy revocation: only that step accepts missing usage when the
+actual response has `summaryRevoked: true` and old pins are durably invalidated.
+Report its usage unavailable and keep the full reservation; never weaken revocation
+or invent counters to satisfy smoke. Inspect meaning individually, not just keywords.
+
+Positive/negative timing, revocation, finite four-call orchestration, Profile-only
+routes and seed/replay contracts precede native use. A failure stops without replay
+and retains reservations/recovery. This case does not establish in-flight service
+interruption, old/new comparison, native compaction or private target activation.
+
+### Finite native local compaction and summary adoption
+
+`--case compaction` uses two boots/one chat reservation (including its bounded H
+compaction). The stopped-copy recipe authors the same four global sources and a
+separate64-pair long H conversation explicitly completed while S is Off. Only the
+four global sources are eligible for routine S; there is no historical export or
+fabricated completion provenance. The long conversation starts with a null pin.
+An ordinary real S publication must leave it null; the subsequent actual long-chat
+request must compact through the existing H owner and adopt a valid current S pin.
+Require increased covered frontier/revision, bounded sealed compact text, exactly
+one compaction reservation, actual consumed-pin answer/usage/meaning, the correct
+early option2→short-weekday/weekend mapping, and unchanged128 original H message
+bytes plus original global-source hashes. Retain screened bounded synthetic compact
+and global-summary text for diagnosing a wrong referent; broad choice/rationale
+keywords alone cannot establish ordinal fidelity. Human inspection may reject a
+runner-green answer and must retain that distinction. No accelerated
+scheduler, fake provider, larger deadline or new application endpoint is introduced.
+A settled owned restart must preserve the exact compacted segment, source hashes,
+compaction accounting and sealed pin. This does not certify in-flight service
+interruption, old/new baseline comparison or primary activation.
 
 ## Keyless ordinary summary Settings round-trip
 
@@ -109,7 +319,7 @@ source, bounded telemetry and evidence-first disposition remain mandatory.
 uses existing explicit ordinary keyless local Settings/history admission on a fresh
 built-in synthetic online copy. No provider descriptor, private-slot lookup, keys,
 connector or paid call is admitted. The existing native-local controller adds only
-`summaryOn` / `summaryOff` (fixed independent Luna/6000, enabled true/false) and
+`summaryOn` / `summaryOff` (fixed shared summary/title Luna/6000, enabled true/false) and
 `captureSummaryWide` / `captureSummaryNarrow` (fixed1000x1000/420x1000). No caller
 value/selector/path/eval/invoke is accepted; original document/run/boot/request,
 visibility, keyless-save, bounds/deadline/unknown-effect guards remain. Observations
@@ -120,8 +330,10 @@ Synthetic form events exercise the real existing Save owner, pending restart not
 and reload. On and Off remain unapplied until owned restart; chat catalog/eligibility
 stays unchanged, zero source backlog/attempts forbids inference, and saved fields/empty
 keys/original data remain verified. Captures reveal only verified static three-scalar
-labels and exact On/Off/Luna/6000 controls, preserving their geometry; all private
-paths, credentials/status/other form data stay hidden. Unknown copy/nesting/options,
+shared-summary/title labels and exact On/Off/Luna/6000 controls, preserving their geometry; all private
+paths, credentials/status/other form data stay hidden. Text-free ancestor containers
+are revealed only after direct-text checks so WebKit can paint the masked scrolling
+subtree; every unrelated descendant remains individually hidden. Unknown copy/nesting/options,
 noncanonical values or ineffective masks refuse; native finally and renderer expiry
 restore viewport/styles. Inspect both widths/states. This is actual unmodified ordinary
 artifact/keyless Settings behavior with synthetic DOM input, not trusted input,
@@ -540,10 +752,14 @@ success alone does not certify successful disposal. Required PNGs, logs, compact
 provenance/identity/diagnostics and run roots survive. Dynamic WebView/home state
 and unregistered sidecars are not adopted for recursive deletion. Failed,
 interrupted, timed-out/unknown, partially constructed or preservation/shutdown/
-receipt-failed invocations retain allocations for diagnosis and preserve the
+receipt-failed invocations skip immediate runner disposal and preserve the
 original exception; cleanup failure stays nonzero with its own retained receipt.
-`--prepare-only`, standalone `smoke:prepare` and borrowed selections retain their
-promised consumable outputs. Consuming a borrowed preparation never grants its
+Managed disposable retention is unchanged (six hours after canonical task closure),
+including failed/unknown and prepare-only runs. No recovery-hold writer is invoked;
+historical hold markers are not retention authority. Before closure, deliberately
+select necessary non-reconstructable reproduction evidence into evidence storage,
+not whole app/cache/runtime trees. `--prepare-only`, standalone `smoke:prepare` and
+borrowed selections are not immediately deleted by the consuming runner. Consuming a borrowed preparation never grants its
 deletion. There is no historical sweep, timestamp policy, private-original,
 worktree/alias or accepted-output cleanup authority.
 

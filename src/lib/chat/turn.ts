@@ -6,6 +6,7 @@ import type {
   ConversationContextObservation,
 } from "./contracts";
 import { compactConversation } from "./conversation-compaction";
+import { projectSummaryPin } from "./summary-pin";
 import {
   ConversationCapacityError,
   conversationInterruption,
@@ -141,6 +142,27 @@ export function createChatTurns(ports: ChatTurnPorts) {
         );
       }
     }
+    const preparePin = async () => {
+      const pin = replay?.segment.pinnedSummary;
+      if (
+        !pin ||
+        pin.tokens !== null ||
+        !generate.compaction ||
+        !ports.history?.projectSummary ||
+        !replay
+      )
+        return;
+      const projected = await projectSummaryPin(
+        pin,
+        generate.compaction,
+        AbortSignal.timeout(15000),
+      );
+      input.assertCurrent?.();
+      if (!ports.history.projectSummary(replay, projected))
+        throw new Error("conversation_context_invalidated");
+      replay = ports.history.read(replay.admission);
+    };
+    if (replay?.segment.pinnedSummary?.tokens === null) await preparePin();
     const system = await buildSystemContext(
       input.latestMessage,
       replay ? [] : [...input.previousMessages, input.userRecord],
@@ -203,6 +225,7 @@ export function createChatTurns(ports: ChatTurnPorts) {
       );
       publication = published ? "published" : "retained";
       replay = ports.history.read(replay.admission);
+      await preparePin();
       try {
         if (replay.overflow) throw new ConversationCapacityError();
         result = await generate(request(true));
@@ -243,6 +266,12 @@ export function createChatTurns(ports: ChatTurnPorts) {
             ...(replay
               ? {
                   revision: replay.segment.revision,
+                  ...(replay.segment.pinnedSummary
+                    ? {
+                        summaryRevision:
+                          replay.segment.pinnedSummary.stamp.revision,
+                      }
+                    : {}),
                   coveredThrough: replay.segment.coveredThrough,
                   inputBudget: CONVERSATION_INPUT_LIMIT,
                   segmentBoundary:
@@ -313,12 +342,11 @@ export function createChatTurns(ports: ChatTurnPorts) {
             content: answer.text,
             grounding,
           });
-    await recordCompletedTurn(ports, { ...input, assistantRecord });
     const messages = listRecentChatMessages(
       input.conversationId,
       CHAT_HISTORY_LIMIT,
     );
-    return { assistantRecord, messages };
+    return Promise.resolve({ assistantRecord, messages });
   }
 
   // Delivery schedules this separately; it is never awaited by answer completion.
@@ -352,29 +380,6 @@ function latestFailedAssistantMessage(
     (step) => step.status === "failed" || step.status === "rejected",
   );
   return failedStep ? last : null;
-}
-
-async function recordCompletedTurn(
-  ports: ChatTurnPorts,
-  input: {
-    conversationId: string;
-    userRecord: StoredChatMessage;
-    assistantRecord: StoredChatMessage;
-    latestMessage: string;
-  },
-): Promise<void> {
-  try {
-    await ports.addCompletedTurn({
-      conversationId: input.conversationId,
-      userMessageId: input.userRecord.id,
-      assistantMessageId: input.assistantRecord.id,
-      userText: input.latestMessage,
-      assistantText: input.assistantRecord.content,
-      completedAt: input.assistantRecord.createdAt,
-    });
-  } catch {
-    // Chat remains available when memory extraction/vector dependencies fail.
-  }
 }
 
 function withDebugTrace(

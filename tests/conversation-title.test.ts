@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const f = vi.hoisted(() => ({ generate: vi.fn(), select: vi.fn() }));
-vi.mock("ai", () => ({ generateText: f.generate }));
+vi.mock("ai", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("ai")>()),
+  generateText: f.generate,
+}));
 vi.mock("@/lib/ai/providers", () => ({
   selectedMemoryExtractionModel: f.select,
 }));
@@ -16,13 +19,22 @@ beforeEach(() => {
     mkdtempSync(join(tmpdir(), "trainer-title-")),
     "test.sqlite",
   );
-  f.select.mockReturnValue({ model: "memory-model" });
-  f.generate.mockResolvedValue({ text: '{"title":"  Načrt   teka  "}' });
+  vi.stubEnv("SUMMARY_MODEL", "gpt-6-luna");
+  vi.stubEnv("SUMMARY_ENABLED", "false");
+  vi.stubEnv("OPENAI_API_KEY", "synthetic-title-test-key");
+  f.generate.mockResolvedValue({
+    text: '{"title":"  Načrt   teka  "}',
+    finishReason: "stop",
+    steps: [{ usage: { raw: { input_tokens: 100, output_tokens: 10 } } }],
+  });
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
 describe("first title provider adapter", () => {
-  it("uses only the extraction selector and bounded untrusted first prompt, independently of memory flags", async () => {
+  it("uses shared explicit summary selection and bounded first prompt even with summary Off", async () => {
     vi.stubEnv("MEMORY_ENABLED", "false");
     vi.stubEnv("MEMORY_EXTRACTION_MODE", "off");
     const { generateConversationTitle } =
@@ -30,11 +42,18 @@ describe("first title provider adapter", () => {
     expect(await generateConversationTitle("x".repeat(3000))).toBe(
       "Načrt teka",
     );
-    expect(f.select).toHaveBeenCalledTimes(1);
+    expect(f.select).not.toHaveBeenCalled();
     const options = f.generate.mock.calls[0][0];
     expect(options).toMatchObject({
-      model: "memory-model",
-      toolChoice: "none",
+      model: expect.objectContaining({ modelId: "gpt-6-luna" }),
+      providerOptions: {
+        openai: {
+          store: false,
+          forceReasoning: true,
+          reasoningEffort: "none",
+          systemMessageMode: "system",
+        },
+      },
       maxRetries: 0,
       maxOutputTokens: 120,
     });
@@ -44,7 +63,7 @@ describe("first title provider adapter", () => {
     });
     expect(options.system).toContain("same language");
     expect(options.system).toContain("untrusted data");
-    expect(options.abortSignal.aborted).toBe(false);
+    expect(options.abortSignal.aborted).toBe(true);
     vi.unstubAllEnvs();
   });
 
@@ -59,7 +78,11 @@ describe("first title provider adapter", () => {
     "[]",
     "null",
   ])("rejects wrong shape %j", async (text) => {
-    f.generate.mockResolvedValue({ text });
+    f.generate.mockResolvedValue({
+      text,
+      finishReason: "stop",
+      steps: [{ usage: { raw: {} } }],
+    });
     const { generateConversationTitle } =
       await import("@/lib/chat/title-adapter");
     expect(await generateConversationTitle("request")).toBeNull();
@@ -69,6 +92,8 @@ describe("first title provider adapter", () => {
   it("normalizes and bounds accepted titles", async () => {
     f.generate.mockResolvedValue({
       text: JSON.stringify({ title: "A".repeat(90) }),
+      finishReason: "stop",
+      steps: [{ usage: { raw: {} } }],
     });
     const { generateConversationTitle } =
       await import("@/lib/chat/title-adapter");
@@ -81,10 +106,10 @@ describe("first title provider adapter", () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => {});
     const { generateConversationTitle } =
       await import("@/lib/chat/title-adapter");
-    f.select.mockReturnValue(null);
+    vi.stubEnv("SUMMARY_MODEL", "unselected");
     expect(await generateConversationTitle("request")).toBeNull();
     expect(f.generate).not.toHaveBeenCalled();
-    f.select.mockReturnValue({ model: "memory-model" });
+    vi.stubEnv("SUMMARY_MODEL", "gpt-6-luna");
     f.generate.mockRejectedValue(new Error("private-upstream-body"));
     expect(await generateConversationTitle("private-prompt")).toBeNull();
     expect(log.mock.calls.flat().join(" ")).not.toMatch(/private-/);

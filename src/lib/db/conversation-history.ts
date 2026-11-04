@@ -2,6 +2,14 @@ import { randomUUID, createHash } from "node:crypto";
 import { getDatabase } from "./connection";
 import { appendChatMessage } from "./conversation-repository";
 import { safeConversationId } from "../chat/conversation-policy";
+import { summaryStorage } from "./summary-storage";
+import type { SummaryVersion } from "../memory/summary-policy";
+import {
+  adoptSummaryPin,
+  readSummaryPin,
+  publishSummaryProjection,
+  summaryAuthority,
+} from "./conversation-summary-pin";
 import {
   assertVisibleText,
   CONVERSATION_POLICY_ID,
@@ -61,7 +69,16 @@ function assertCurrent(admission: ConversationAdmission): void {
       admission.sourceAdmissionSeq,
       admission.privacyGeneration,
     );
-  if (!row || generation() !== admission.privacyGeneration)
+  if (
+    !row ||
+    generation() !== admission.privacyGeneration ||
+    (admission.summaryAuthority &&
+      JSON.stringify(summaryAuthority()) !==
+        JSON.stringify(admission.summaryAuthority)) ||
+    (admission.summaryPin &&
+      JSON.stringify(readSummaryPin(admission.conversationId)) !==
+        JSON.stringify(admission.summaryPin))
+  )
     throw new Error("conversation_context_invalidated");
 }
 function read(admission: ConversationAdmission): ConversationReplay {
@@ -134,7 +151,7 @@ function read(admission: ConversationAdmission): ConversationReplay {
         coveredThrough: row.coveredThrough,
         compact: row.compact,
         policyIdentity: row.policyIdentity,
-        pinnedSummary: null,
+        pinnedSummary: readSummaryPin(admission.conversationId),
       },
       turns,
       overflow,
@@ -149,6 +166,67 @@ export function invalidateConversationHistory(): void {
       "update conversation_history_control set privacy_generation=privacy_generation+1 where id=1",
     )
     .run();
+}
+
+export function refreshConversationSummary(
+  conversationId: string,
+  expected: SummaryVersion,
+  segmentRevision: number,
+): void {
+  const db = getDatabase();
+  db.transaction(() => {
+    if (JSON.stringify(summaryStorage.version()) !== JSON.stringify(expected))
+      throw new Error("summary_stale_action");
+    if (
+      !db.prepare("select 1 from conversation where id=?").get(conversationId)
+    )
+      throw new Error("conversation_unavailable");
+    if (
+      db
+        .prepare(
+          "select 1 from conversation_turn where conversation_id=? and status='admitted'",
+        )
+        .get(conversationId)
+    )
+      throw new Error("conversation_busy_retry_after_current_turn");
+    const row = db
+      .prepare(
+        "select format_version as version,revision,privacy_generation as privacyGeneration,covered_through as coveredThrough,compact,compact_sha256 as compactHash,compact_characters as compactCharacters,policy_identity as policyIdentity from conversation_segment where conversation_id=?",
+      )
+      .get(conversationId) as
+      | (Omit<ConversationSegment, "pinnedSummary"> & {
+          compactHash: string;
+          compactCharacters: number;
+        })
+      | undefined;
+    if (
+      row &&
+      (row.policyIdentity !== CONVERSATION_POLICY_ID ||
+        row.privacyGeneration !== generation() ||
+        row.compactCharacters !== row.compact.length ||
+        row.compact.length > 6000 ||
+        (row.coveredThrough
+          ? publicationHash(row) !== row.compactHash
+          : row.compact !== "" || row.compactHash !== ""))
+    )
+      throw new Error("conversation_segment_unavailable");
+    if ((row?.revision ?? 0) !== segmentRevision || (row && row.version !== 1))
+      throw new Error("summary_stale_action");
+    if (!row)
+      db.prepare(
+        "insert into conversation_segment(conversation_id,privacy_generation,policy_identity,revision) values(?,?,?,1)",
+      ).run(conversationId, generation(), CONVERSATION_POLICY_ID);
+    else
+      db.prepare(
+        "update conversation_segment set revision=revision+1,compact_sha256=? where conversation_id=?",
+      ).run(
+        row.coveredThrough
+          ? publicationHash({ ...row, revision: row.revision + 1 })
+          : "",
+        conversationId,
+      );
+    adoptSummaryPin(conversationId, true);
+  })();
 }
 
 /** Synchronous storage owner. Generation never holds this transaction. */
@@ -177,6 +255,10 @@ export const conversationHistory: ConversationHistoryPorts = {
         role: "user",
         content: userText,
       });
+      // Preexisting conversations get a compatible initial boundary; an existing
+      // creation-time null is never replaced merely because S has since published.
+      adoptSummaryPin(userRecord.conversationId);
+      const pin = readSummaryPin(userRecord.conversationId);
       const privacyGeneration = generation();
       const turnId = randomUUID();
       const inserted = db
@@ -204,12 +286,30 @@ export const conversationHistory: ConversationHistoryPorts = {
           conversationId: userRecord.conversationId,
           sourceAdmissionSeq: Number(inserted.lastInsertRowid),
           privacyGeneration,
+          summaryAuthority: summaryAuthority(),
+          summaryPin: pin,
         },
       };
     })();
   },
   read,
   assertCurrent,
+  projectSummary(replay, projected) {
+    return getDatabase().transaction(() => {
+      assertCurrent(replay.admission);
+      if (
+        !replay.segment.pinnedSummary ||
+        !publishSummaryProjection(
+          replay.admission.conversationId,
+          replay.segment.pinnedSummary,
+          projected,
+        )
+      )
+        return false;
+      replay.admission.summaryPin = projected;
+      return true;
+    })();
+  },
   complete(admission, answer) {
     assertVisibleText(answer.content);
     const db = getDatabase();
@@ -253,7 +353,22 @@ export const conversationHistory: ConversationHistoryPorts = {
       db.prepare("insert into conversation_completion(turn_id) values(?)").run(
         admission.turnId,
       );
-      return assistant;
+      // The synchronous correction trigger revokes every other admitted turn.
+      // Only this already-committed correction receives the new delivery receipt;
+      // no await or unrelated mutation can interleave with this transaction.
+      admission.summaryAuthority = summaryAuthority();
+      admission.summaryPin = readSummaryPin(admission.conversationId);
+      // Correction may revoke summary-derived debug content in this transaction.
+      // Deliver the actual committed grounding, not its pre-trigger copy.
+      const persisted = db
+        .prepare("select grounding_json from message where id=?")
+        .get(assistant.id) as { grounding_json: string | null };
+      return {
+        ...assistant,
+        grounding: persisted.grounding_json
+          ? (JSON.parse(persisted.grounding_json) as typeof answer.grounding)
+          : null,
+      };
     })();
   },
   abandon(admission) {
@@ -308,7 +423,7 @@ export const conversationHistory: ConversationHistoryPorts = {
         )
       )
         return false;
-      return (
+      const published =
         db
           .prepare(
             `update conversation_segment set revision=revision+1,covered_through=?,compact=?,compact_sha256=?,compact_characters=? where conversation_id=? and revision=? and privacy_generation=?`,
@@ -326,8 +441,15 @@ export const conversationHistory: ConversationHistoryPorts = {
             replay.admission.conversationId,
             replay.segment.revision,
             replay.admission.privacyGeneration,
-          ).changes === 1
-      );
+          ).changes === 1;
+      if (published) {
+        adoptSummaryPin(replay.admission.conversationId, true);
+        replay.admission.summaryPin = readSummaryPin(
+          replay.admission.conversationId,
+        );
+        replay.admission.summaryAuthority = summaryAuthority();
+      }
+      return published;
     })();
   },
 };

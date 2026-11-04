@@ -31,6 +31,8 @@ export type ConversationContextObservation = {
     | "output-accounting"
     | "publication";
   revision?: number;
+  summaryRevision?: number;
+  summaryRevoked?: boolean;
   coveredThrough?: number;
   inputBudget?: number;
   tokenAccounting: "Responses/input_tokens" | "legacy";

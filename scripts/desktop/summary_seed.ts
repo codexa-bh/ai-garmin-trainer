@@ -11,7 +11,18 @@ import {
 
 // One finite authored preparation, exclusively on an existing stopped run copy.
 const root = process.argv[2];
-const live = process.argv[3] === "live";
+const integrated = process.argv[3] === "integrated";
+const controls = process.argv[3] === "controls";
+const correction = process.argv[3] === "correction";
+const compaction = process.argv[3] === "compaction";
+const live =
+  process.argv[3] === "live" ||
+  integrated ||
+  controls ||
+  correction ||
+  compaction;
+const task =
+  integrated || controls || correction || compaction ? "T0272" : "T0270";
 if (
   (process.argv.length !== 3 && !(process.argv.length === 4 && live)) ||
   !root ||
@@ -46,6 +57,7 @@ try {
 }
 process.env.DATABASE_PATH = path;
 summaryStorage.configure(true, "gpt-6-luna", 6000);
+if (controls) summaryStorage.control("disable", Date.now());
 const authored = [
   [
     "A",
@@ -68,9 +80,33 @@ const authored = [
     "Those alternatives remain undecided, not a purchase preference.",
   ],
 ];
+const correctionSources = [
+  [
+    "A",
+    "Remember: evening sessions suit me.",
+    "You said evening sessions suit you; no measurement is implied.",
+  ],
+  [
+    "A",
+    "Keep walks short on weekdays.",
+    "Short weekday walks are your stated preference.",
+  ],
+  [
+    "B",
+    "My goal is to hike comfortably for three hours.",
+    "That is a goal, not verified current fitness.",
+  ],
+  [
+    "B",
+    "Do not save any training plan from this discussion.",
+    "This discussion grants no plan-save permission.",
+  ],
+];
 for (let index = 0; index < 4; index++) {
-  const [chat, user, assistant] = authored[index]!;
-  const conversationId = `T0270-${runId}-${live ? chat : index}`;
+  const [chat, user, assistant] = (correction ? correctionSources : authored)[
+    index
+  ]!;
+  const conversationId = `${task}-${runId}-${live ? chat : index}`;
   const turn = conversationHistory.admit(
     conversationId,
     live
@@ -88,19 +124,73 @@ for (let index = 0; index < 4; index++) {
       .prepare("update conversation set manual_title=1 where id=?")
       .run(conversationId);
 }
+if (compaction) {
+  // Real H history, explicitly completed while S is Off. Only the four sources
+  // above may enter routine S; no historical export or inferred role pairs.
+  summaryStorage.control("disable", Date.now());
+  const conversationId = `${task}-${runId}-long`;
+  for (let index = 0; index < 64; index++) {
+    const turn = conversationHistory.admit(
+      conversationId,
+      index === 0
+        ? "I choose short weekday walks plus longer weekend hiking because time is limited. Long weekday sessions were tried and rejected. Keep that rationale, not a fitness measurement."
+        : `Authored pacing example ${index}; do not change our chosen approach. ${"walking ".repeat(140)}`,
+    );
+    conversationHistory.complete(turn.admission, {
+      content:
+        index === 0
+          ? "Option one: long weekday sessions, rejected for time. Option two: short weekday walks and weekend hiking, chosen for available time."
+          : `Authored neutral pacing acknowledgement ${index}, not a new choice or measurement. ${"rest ".repeat(120)}`,
+      grounding: null,
+    });
+  }
+  getDatabase()
+    .prepare("update conversation set manual_title=1 where id=?")
+    .run(conversationId);
+  summaryStorage.control("enable", Date.now());
+}
+if (integrated) {
+  // Ten real S batches, without spending a paid chat to manufacture each batch.
+  // These are explicit authored linked completions on the stopped new copy,
+  // not inferred historical role pairs or writes into a running native DB.
+  for (let index = 0; index < 180; index++) {
+    const conversationId = `${task}-${runId}-neutral-${index}`;
+    const turn = conversationHistory.admit(
+      conversationId,
+      "Authored neutral training discussion; no new preference, decision, equipment choice or measurement.",
+    );
+    conversationHistory.complete(turn.admission, {
+      content: "Authored neutral acknowledgement, not new personal evidence.",
+      grounding: null,
+    });
+    getDatabase()
+      .prepare("update conversation set manual_title=1 where id=?")
+      .run(conversationId);
+  }
+}
 conversationHistory.admit(
-  `T0270-${runId}-incomplete`,
+  `${task}-${runId}-incomplete`,
   "Pre-clear incomplete source must not be promoted or resurrected.",
 );
 summaryStorage.admit(Date.now(), `prepare-${runId}`); // Only records actual backlog discovery; no clock override/provider.
 console.log(
   JSON.stringify({
-    task: "T0270",
+    task,
     runId,
-    completed: 4,
+    completed: integrated ? 184 : compaction ? 68 : 4,
     incomplete: 1,
-    variant: live ? "live-summary" : "keyless",
-    ...(live ? { conversationId: `T0270-${runId}-A` } : {}),
+    variant: compaction
+      ? "integrated-compaction"
+      : correction
+        ? "integrated-correction"
+        : controls
+          ? "integrated-controls"
+          : integrated
+            ? "integrated-summary"
+            : live
+              ? "live-summary"
+              : "keyless",
+    ...(live ? { conversationId: `${task}-${runId}-A` } : {}),
     providerCalls: 0,
     source: "authored synthetic preparation on stopped copy",
     schema: LATEST_SCHEMA_VERSION,

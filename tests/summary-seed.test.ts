@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { LATEST_SCHEMA_VERSION } from "@/lib/db/migrations";
 import {
   chmodSync,
   mkdtempSync,
@@ -19,9 +20,26 @@ afterEach(() => {
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true });
 });
-it.each(["keyless", "live"])(
+it.each([
+  "keyless",
+  "live",
+  "integrated",
+  "controls",
+  "correction",
+  "compaction",
+])(
   "finite %s producer seed uses current production completion/eligibility on only a stopped private run and refuses replay",
   (mode) => {
+    const task = [
+      "integrated",
+      "controls",
+      "correction",
+      "compaction",
+    ].includes(mode)
+      ? "T0272"
+      : "T0270";
+    const completed =
+      mode === "integrated" ? 184 : mode === "compaction" ? 68 : 4;
     const base = realpathSync(mkdtempSync(join(tmpdir(), "summary-seed-")));
     roots.push(base);
     const id = randomUUID(),
@@ -42,19 +60,30 @@ it.each(["keyless", "live"])(
       "tsx",
       "scripts/desktop/summary_seed.ts",
       root,
-      ...(mode === "live" ? ["live"] : []),
+      ...(mode === "keyless" ? [] : [mode]),
     ];
     const result = JSON.parse(
       execFileSync(process.execPath, command, { encoding: "utf8" }),
     );
     expect(result).toMatchObject({
-      task: "T0270",
+      task,
       runId: id,
-      completed: 4,
+      completed,
       incomplete: 1,
       providerCalls: 0,
-      schema: 19,
-      variant: mode === "live" ? "live-summary" : "keyless",
+      schema: LATEST_SCHEMA_VERSION,
+      variant:
+        mode === "compaction"
+          ? "integrated-compaction"
+          : mode === "correction"
+            ? "integrated-correction"
+            : mode === "controls"
+              ? "integrated-controls"
+              : mode === "integrated"
+                ? "integrated-summary"
+                : mode === "live"
+                  ? "live-summary"
+                  : "keyless",
     });
     const seeded = new Database(path, { readonly: true });
     expect(
@@ -63,22 +92,73 @@ it.each(["keyless", "live"])(
           "select count(*) as n from conversation_turn where summary_eligible=1",
         )
         .get(),
-    ).toEqual({ n: 4 });
+    ).toEqual({
+      n: mode === "controls" ? 0 : mode === "compaction" ? 4 : completed,
+    });
+    if (mode === "controls") {
+      expect(
+        seeded
+          .prepare("select enabled,configured_enabled from summary_control")
+          .get(),
+      ).toEqual({ enabled: 0, configured_enabled: 1 });
+      expect(
+        seeded
+          .prepare(
+            "select count(*) as n from conversation_turn where status='completed' and summary_eligible=0",
+          )
+          .get(),
+      ).toEqual({ n: 4 });
+      expect(
+        seeded.prepare("select count(*) as n from summary_attempt").get(),
+      ).toEqual({ n: 0 });
+    }
     expect(
       seeded.prepare("select count(*) as n from conversation_completion").get(),
-    ).toEqual({ n: 4 });
+    ).toEqual({ n: completed });
     expect(seeded.prepare("select count(*) as n from message").get()).toEqual({
-      n: originalMessages + 9,
+      n: originalMessages + completed * 2 + 1,
     });
-    if (mode === "live") {
+    if (mode !== "keyless") {
       expect(
         seeded
           .prepare(
             "select count(*) as n from conversation where id in (?,?) and manual_title=1",
           )
-          .get(`T0270-${id}-A`, `T0270-${id}-B`),
+          .get(`${task}-${id}-A`, `${task}-${id}-B`),
       ).toEqual({ n: 2 });
-      expect(result.conversationId).toBe(`T0270-${id}-A`);
+      expect(result.conversationId).toBe(`${task}-${id}-A`);
+    }
+    if (mode === "compaction") {
+      expect(
+        seeded
+          .prepare(
+            "select count(*) as n from conversation_turn where conversation_id=? and status='completed' and summary_eligible=0",
+          )
+          .get(`${task}-${id}-long`),
+      ).toEqual({ n: 64 });
+      expect(
+        seeded
+          .prepare(
+            "select payload from conversation_summary_pin where conversation_id=?",
+          )
+          .get(`${task}-${id}-long`),
+      ).toEqual({ payload: "null" });
+      expect(
+        seeded
+          .prepare(
+            "select covered_through from conversation_segment where conversation_id=?",
+          )
+          .get(`${task}-${id}-long`),
+      ).toEqual({ covered_through: 0 });
+    }
+    if (mode === "correction") {
+      expect(
+        seeded
+          .prepare(
+            "select content from message where role='user' and conversation_id=? order by created_at,rowid limit 1",
+          )
+          .get(`${task}-${id}-A`),
+      ).toEqual({ content: "Remember: evening sessions suit me." });
     }
     seeded.close();
     const before = readFileSync(path);

@@ -63,11 +63,11 @@ def main():
     bundle=canonical(args.bundle);source=source_identity();inventory=audit(bundle)
     if json.loads((bundle/'Contents/Resources/resources/provenance.json').read_text())['sourceFingerprint'] != source:
         raise ValueError('Current exact-source ordinary artifact required')
-    prepared=prepare(evidence,argparse.Namespace(task_id='T0270',input_file=None,grant_file=None,provenance_file=None,anchor=None),'ordinary')
+    prepared=prepare(evidence,argparse.Namespace(task_id='T0272',input_file=None,grant_file=None,provenance_file=None,anchor=None),'ordinary')
     run=HistoryRun(evidence,prepared.database,source,bundle,inventory,history_setup='use-existing')
     run.before_start=prepared.verify_current
     observer=Observer(evidence);run.observer=observer
-    receipt={'purpose':'T0270 keyless native summary Settings only','source':source,'syntheticOnly':True,
+    receipt={'purpose':'T0272 keyless native shared summary/title Settings only','source':source,'syntheticOnly':True,
              'providerDescriptor':False,'privateSlotLookup':False,'providerCalls':0,'scenarioPassed':False,'captures':[]}
     try:
         prepare_settings(run);run.start(run.binary)

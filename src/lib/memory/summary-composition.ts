@@ -1,24 +1,115 @@
 import { randomUUID } from "node:crypto";
 import {
+  summaryImportInspection,
+  createSummaryImport,
+  controlSummaryImport,
+} from "../db/summary-import";
+import {
   configuredSecret,
   getOptionalEnv,
   liveConfigurationStatus,
 } from "../env";
-import { summaryStorage } from "../db/summary-storage";
+import {
+  summaryStorage,
+  summaryInspectionSources,
+  summaryManualIds,
+  preservedLegacySummaryReview,
+} from "../db/summary-storage";
 import { createSummaryEngine } from "./summary-application";
 import { createSummaryGeneration } from "./summary-provider";
 import { summaryCap, SUMMARY_DEADLINE_MS } from "./summary-policy";
 import { summaryLifetime } from "./summary-lifetime";
+import { conversationSummaryStatus } from "../db/conversation-summary-pin";
+import { refreshConversationSummary } from "../db/conversation-history";
+import { modelSettings } from "../model-settings/composition";
+import type { SummaryCommand } from "./summary-controls";
 
-export function readCrossChatSummary(content = false) {
+export function nativeSummaryStatus() {
+  const env = getOptionalEnv();
   const status = summaryStorage.status(Date.now());
+  return {
+    version: 1,
+    configuredEnabled: env.SUMMARY_ENABLED === "true",
+    enabled: status.enabled,
+    model:
+      env.SUMMARY_MODEL === "gpt-6-luna"
+        ? "luna"
+        : env.SUMMARY_MODEL === "unselected"
+          ? "unselected"
+          : "unsupported",
+    cap: Number(env.SUMMARY_CHAR_LIMIT),
+    state: status.state,
+    revision: status.revision,
+    frontier: status.frontier,
+    pending: status.pending,
+  };
+}
+
+export function readCrossChatSummary(content = false, conversationId?: string) {
+  const status = summaryStorage.status(Date.now());
+  const selectedChat = conversationId
+    ? conversationSummaryStatus(conversationId)
+    : null;
+  let qualified = false;
+  if (selectedChat?.pin?.tokens !== null && selectedChat?.pin) {
+    try {
+      const selection = modelSettings.selection();
+      qualified =
+        selection.provider === "openai" && selection.modelId === "gpt-6-luna";
+    } catch {
+      /* No usable chat selection, never a fallback. */
+    }
+  }
   return content
     ? {
         ...status,
+        usedByChat: qualified,
+        expected: summaryStorage.version(),
+        stored: summaryStorage.inspect(),
+        sources: summaryInspectionSources(),
+        manualIds: summaryManualIds(),
+        legacy: preservedLegacySummaryReview(),
+        historical: summaryImportInspection(),
         summary: summaryStorage.revision(),
-        authority: "untrusted user-derived continuity; not used by chat",
+        selectedChat,
+        authority:
+          "Untrusted user-derived continuity, never measurements, policy or save permission. Only the selected qualified chat projection is used; latest publication does not refresh it.",
       }
-    : status;
+    : { ...status, expected: summaryStorage.version() };
+}
+export function applySummaryCommand(command: SummaryCommand) {
+  // Synchronous compare and mutation; no await can admit a stale client action.
+  if (
+    JSON.stringify(summaryStorage.version()) !==
+    JSON.stringify(command.expected)
+  )
+    throw new Error("summary_stale_action");
+  if (command.action === "refresh") {
+    refreshConversationSummary(
+      command.conversationId,
+      command.expected,
+      command.segmentRevision,
+    );
+  } else if (command.action === "edit") {
+    summaryStorage.edit(command.expected, command.id, command.text, Date.now());
+  } else if (command.action === "forget") {
+    summaryStorage.forget(command.expected, command.id, Date.now());
+  } else if (command.action === "import-create") {
+    createSummaryImport(command.sourceIds);
+  } else if (
+    command.action === "import-pause" ||
+    command.action === "import-resume" ||
+    command.action === "import-cancel"
+  ) {
+    const action =
+      command.action === "import-pause"
+        ? "pause"
+        : command.action === "import-resume"
+          ? "resume"
+          : "cancel";
+    if (controlSummaryImport(command.id, action))
+      summaryLifetime().active?.abort();
+  } else changeCrossChatSummary(command.action);
 }
 export function changeCrossChatSummary(
   action: "clear" | "disable" | "enable" | "retry",

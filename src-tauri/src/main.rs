@@ -6,12 +6,12 @@ mod dev_bridge;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
 mod history_setup;
 mod isolated_run;
-mod provider_smoke;
 mod keychain;
 mod live_settings;
 mod memory_status;
 mod onboarding;
 mod private_store;
+mod provider_smoke;
 mod runtime_dependency;
 mod settings;
 #[cfg(debug_assertions)]
@@ -145,7 +145,8 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     }
     let path = settings_path(app)?;
     let startup_revision = settings::revision(&path)?;
-    let mut snapshot = if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
+    let mut snapshot = if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>()
+    {
         run.provider_activation(&path)?
     } else {
         settings::activation(&path)?
