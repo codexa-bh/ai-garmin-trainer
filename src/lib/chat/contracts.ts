@@ -6,6 +6,7 @@ export type ConversationContextObservation = {
   mode: "active" | "legacy" | "limited";
   reason:
     | "reviewed-luna"
+    | "configured-memory"
     | "legacy-unlinked"
     | "unqualified-route"
     | "context-capacity";
@@ -35,7 +36,7 @@ export type ConversationContextObservation = {
   summaryRevoked?: boolean;
   coveredThrough?: number;
   inputBudget?: number;
-  tokenAccounting: "Responses/input_tokens" | "legacy";
+  tokenAccounting: "Responses/input_tokens" | "legacy" | "provider-managed";
 };
 
 export type ChatGrounding = {

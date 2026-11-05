@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum Model {
     Unselected,
     Luna,
+    Catalog,
     Unsupported,
 }
 #[derive(Serialize, Deserialize, PartialEq, Debug)]

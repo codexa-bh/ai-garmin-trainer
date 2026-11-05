@@ -52,8 +52,10 @@ def status(run, action=None):
         if response.status != 200 or len(raw) > 4096:
             raise ValueError('Summary status/control refused or output exceeded bound')
         value = json.loads(raw)
-        if set(value) != {'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd', 'priceBasis', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
+        if set(value) != {'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd', 'unpricedAttempts', 'priceBasis', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
             raise ValueError('Unknown summary telemetry; no raw content accepted')
+        if type(value['unpricedAttempts']) is not int or value['unpricedAttempts'] < 0:
+            raise ValueError('Invalid unpriced attempt count')
         if value['priceBasis'] != PRICE_BASIS or any(type(value[key]) not in (int, float) or not math.isfinite(value[key]) or value[key] < 0 for key in ('reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd')):
             raise ValueError('Unknown summary cost accounting; no invoice claim')
         if value['version'] != 1 or set(value['expected']) != {'revision', 'privacy', 'control', 'manual'} or any(type(n) is not int or n < 0 for n in value['expected'].values()):

@@ -197,7 +197,10 @@ describe("explicit bounded historical transition sharing S", () => {
     expect(storage.reserve(job, now + 1)).toBe(true);
     expect(controlSummaryImport(manifest, "pause")).toBe(true);
     expect(storage.publish(job, candidate(job), now + 2)).toBe(false);
-    expect(storage.status(now).reservedUsdToday).toBeGreaterThan(0);
+    expect(storage.status(now)).toMatchObject({
+      reservedUsdToday: 0,
+      unpricedAttempts: 1,
+    });
     expect(readSummaryImportBatch()).toBeNull();
     controlSummaryImport(manifest, "resume");
     expect(readSummaryImportBatch()?.identity.id).toBe(manifest);

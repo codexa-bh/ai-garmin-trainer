@@ -53,6 +53,16 @@ derivatives atomically; current correction completion alone gets its updated rec
 
 ## Accounting and limits
 
+**Current operator-directed policy (T0280):** no application-imposed spending/attempt
+caps, output-token caps or tokenizer/model-capacity qualification. Full frozen memory
+is supplied to all configured chat routes; non-Luna routes retain their prior local
+history rather than gaining general replay. Provider capacity errors remain explicit,
+never silent clipping or fallback. Old measured token counts and monetary reservations
+are historical metadata, not admission gates. Compaction still processes one bounded
+source batch and preserves source validation/CAS/cancellation/timeouts/local storage
+bounds; counting is not a prerequisite. The earlier numeric profiles below document
+historical compatibility arithmetic only and are no longer enforced for new calls.
+
 The exact Luna profile is documented by [OpenAI's model page](https://developers.openai.com/api/docs/models/gpt-6-luna)
 and [pricing](https://developers.openai.com/api/docs/pricing), rechecked 2026-11-04:
 1,050,000 context and 128,000 output tokens; standard USD0.10 input/USD0.50 output
@@ -91,9 +101,9 @@ that generic negative is exempted during source screening (M09). Other sensitive
 clauses still refuse, and compact output has no medical-screening exemption.
 No new global assistant/tool archive or sensitive retention is authorized.
 
-Reserve USD0.01 before each attempted compaction, at most USD0.10 and ten attempts
-per local day. Unknown outcomes remain charged against that reservation; restart,
-model changes and clock rollback do not replenish it. No discounted/cache-hit
+New compaction attempts retain durable attempt history without a monetary reservation
+or daily attempt/spending gate. Old reservations and unknown liabilities are preserved;
+restart, model changes and clock rollback do not erase them. No discounted/cache-hit
 assumption is needed. Compaction does not request explicit cache writes, but no
 claim that provider caching/retention is disabled is made. Responses uses
 `store:false`, no server conversation/previous-response identity and explicit

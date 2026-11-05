@@ -132,8 +132,30 @@ export function conversationSummaryStatus(conversationId: string) {
     .get(conversationId) as
     | { reason: string | null; format_version: number; payload: string }
     | undefined;
+  const last = db
+    .prepare(
+      "select grounding_json from message where conversation_id=? and role='assistant' order by created_at desc,rowid desc limit 1",
+    )
+    .get(conversationId) as { grounding_json: string | null } | undefined;
+  let usedByChat = false;
+  try {
+    const grounding = JSON.parse(last?.grounding_json ?? "null") as {
+      conversationContext?: {
+        summaryRevision?: number;
+        summaryRevoked?: boolean;
+      };
+    } | null;
+    usedByChat = Boolean(
+      pin &&
+      grounding?.conversationContext?.summaryRevision === pin.stamp.revision &&
+      !grounding.conversationContext.summaryRevoked,
+    );
+  } catch {
+    /* Unreadable old observation is not evidence of use. */
+  }
   return {
     conversationId,
+    usedByChat,
     segmentRevision: segment?.revision ?? 0,
     pin,
     reason:

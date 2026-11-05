@@ -8,6 +8,8 @@ export type ConversationRequest = {
   history: ReplayMessage[];
   allowSoftLimit: boolean;
   memoryTokens?: number;
+  /** Only the sealed global pin; retain this route's existing local context. */
+  memoryOnly?: boolean;
 };
 export type ReplayMessage = { role: "user" | "assistant"; content: string };
 export type ConversationAdmission = {
@@ -138,7 +140,6 @@ export function conversationInputLimit(memoryTokens = 0): number {
   );
 }
 export const COMPACTION_INPUT_LIMIT = 8192;
-export const COMPACTION_OUTPUT_LIMIT = 2048;
 // T0269 operator-approved whole-operation ceiling after measured 5s live timeouts.
 export const COMPACTION_TIMEOUT_MS = 30_000;
 export const CONTEXT_CAPACITY_MESSAGE =

@@ -165,7 +165,8 @@ export function HistoryReview({
           <p>
             Selected usable text goes to the configured provider and may incur
             cost.{" "}
-            {r.estimatedUsd.conservativeMaximum > 0 ? (
+            {r.estimatedUsd.conservativeMaximum !== null &&
+            r.estimatedUsd.conservativeMaximum > 0 ? (
               <>
                 Conservative upper estimate: $
                 {r.estimatedUsd.conservativeMaximum.toFixed(4)} — not predicted

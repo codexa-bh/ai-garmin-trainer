@@ -282,9 +282,7 @@ describe("full-pool original admission and local preflight", () => {
       excludedMessages: 3,
     });
     expect(inspected.reasons).toEqual({ "unsafe-or-unresolved-context": 2 });
-    expect(
-      inspected.preflight.estimatedUsd.conservativeMaximum,
-    ).toBeGreaterThan(0);
+    expect(inspected.preflight.estimatedUsd.conservativeMaximum).toBeNull();
     expect(inspected.preflight.ready).toBe(true);
     begin();
     const first = readSummaryRebuildBatch()!;
@@ -805,7 +803,8 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
         )
       )
         expect(storage.inspect()).toEqual(before);
-      expect(storage.status(now).reservedUsdToday).toBeGreaterThan(0);
+      expect(storage.status(now).unpricedAttempts).toBeGreaterThan(0);
+      expect(storage.status(now).reservedUsdToday).toBe(0);
       expect(db.prepare("select count(*) as n from message").get()).toEqual({
         n: action === "new-source" ? 4 : 3,
       });
@@ -858,7 +857,8 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     ).toBe("user");
     expect(storage.inspect()).toEqual(before);
     expect(status()?.state).toBe("interrupted");
-    expect(storage.status(now).unknownReservedUsd).toBeGreaterThan(0);
+    expect(storage.status(now).unpricedAttempts).toBeGreaterThan(0);
+    expect(storage.status(now).unknownReservedUsd).toBe(0);
     await engine.tick(new AbortController().signal);
     expect(generate).toHaveBeenCalledTimes(1);
   });

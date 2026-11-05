@@ -16,7 +16,7 @@ class SummarySettingsTests(unittest.TestCase):
             settings.prepare_settings(run)
             value=json.loads((root/'config/settings-v3.json').read_text())
             self.assertEqual(value['keys'],{})
-            self.assertEqual(value['chatCatalog']['entries'],[])
+            self.assertEqual(value['chatCatalog'],settings.SUMMARY_CATALOG)
             self.assertEqual(value['fields']['SUMMARY_ENABLED'],'false')
             self.assertEqual(value['fields']['SUMMARY_MODEL'],'unselected')
             self.assertTrue(run.keyless_lifecycle)
@@ -30,7 +30,7 @@ class SummarySettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder).resolve();(root/'config').mkdir(mode=0o700)
             run=SimpleNamespace(root=root,binary=root/'owned-test-binary')
-            fields={**settings.preserved_fields(run),'SUMMARY_ENABLED':'true','SUMMARY_MODEL':'gpt-6-luna','SUMMARY_CHAR_LIMIT':'6000','GARMIN_HISTORY_START_DATE':'2024-01-01'}
+            fields={**settings.preserved_fields(run),'SUMMARY_ENABLED':'true','SUMMARY_MODEL':settings.SUMMARY_CHOICE,'SUMMARY_CHAR_LIMIT':'6000','GARMIN_HISTORY_START_DATE':'2024-01-01'}
             value={'keys':{},'fields':fields}
             path=root/'config/settings-v3.json'
             settings.private_json(path,value)

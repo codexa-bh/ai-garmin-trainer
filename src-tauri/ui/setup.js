@@ -122,6 +122,7 @@ function editKey(slot) {
       ? "clear"
       : "unchanged";
   renderKey(slot);
+  renderSummaryModels();
 }
 function deleteKeyPresence(slot, event) {
   const state = keyStates.get(slot);
@@ -135,6 +136,7 @@ function deleteKeyPresence(slot, event) {
   event.preventDefault();
   state.intent = "clear";
   renderKey(slot);
+  renderSummaryModels();
 }
 
 const providers = {
@@ -170,6 +172,60 @@ function updateCatalogControls() {
     add.disabled = catalogLocked() || catalog.entries.length >= 32;
   byId("catalog-limit").textContent =
     `${catalog.entries.length}/32 models${catalog.entries.length >= 32 ? " — remove a model before adding another." : ""}`;
+}
+function renderSummaryModels(
+  value = byId("SUMMARY_MODEL")?.value || "unselected",
+) {
+  const input = byId("SUMMARY_MODEL");
+  if (!input) return;
+  const choices = [{ value: "unselected", label: "Unselected" }];
+  for (const entry of catalog.entries) {
+    if (!entry.modelId.trim()) continue;
+    const state = keyStates.get(`${entry.provider.toUpperCase()}_API_KEY`);
+    const available =
+      entry.provider === "ollama" ||
+      (state?.available &&
+        (state.intent === "replace" ||
+          (state.present && state.intent !== "clear" && !state.legacy)));
+    choices.push({
+      value: JSON.stringify({
+        version: 1,
+        entryId: entry.id,
+        provider: entry.provider,
+        modelId: entry.modelId,
+      }),
+      label: `${providers[entry.provider]} / ${entry.modelId}${available ? "" : " — key unavailable"}`,
+    });
+  }
+  if (!choices.some((choice) => choice.value === value)) {
+    let label = "Unavailable saved choice — reselect explicitly";
+    if (value === "gpt-6-luna")
+      label = "OpenAI / gpt-6-luna (preserved legacy choice)";
+    else {
+      try {
+        const saved = JSON.parse(value);
+        if (
+          saved.version === 1 &&
+          providers[saved.provider] &&
+          typeof saved.modelId === "string" &&
+          saved.modelId.length <= 256
+        )
+          label = `${providers[saved.provider]} / ${saved.modelId} — unavailable; reselect explicitly`;
+      } catch {
+        /* Unsupported records stay explicit, never a default. */
+      }
+    }
+    choices.push({ value, label });
+  }
+  input.replaceChildren(
+    ...choices.map((choice) => {
+      const option = document.createElement("option");
+      option.value = choice.value;
+      option.textContent = choice.label;
+      return option;
+    }),
+  );
+  input.value = value;
 }
 function renderCatalog() {
   // Shared controls stay mounted: row operations never clear secret drafts.
@@ -210,6 +266,7 @@ function renderCatalog() {
             // Legacy names remain inert, untouched compatibility metadata.
             draft.modelId = input.value;
             updateCatalogControls();
+            renderSummaryModels();
           };
           input.addEventListener("input", edit);
           input.addEventListener("change", edit);
@@ -250,6 +307,7 @@ function renderCatalog() {
       });
   }
   updateCatalogControls();
+  renderSummaryModels();
 }
 for (const provider of Object.keys(providers)) {
   byId(`catalog-${provider}-add`).addEventListener("click", () => {
@@ -313,6 +371,7 @@ function fieldValues() {
 }
 function retainDraft(values) {
   tokenSelection = values.GARMIN_MCP_TOKEN_DIR ?? "";
+  renderSummaryModels(values.SUMMARY_MODEL);
   for (const field of fields)
     if (field.key !== "GARMIN_MCP_TOKEN_DIR")
       byId(field.key).value = values[field.key];
@@ -528,7 +587,12 @@ async function refresh() {
       const input = byId(field.key);
       const value =
         saved.fields[field.key] ?? field.default ?? field.options?.[0] ?? "";
-      if (field.options && !field.options.includes(value)) {
+      if (field.key === "SUMMARY_MODEL") renderSummaryModels(value);
+      if (
+        field.key !== "SUMMARY_MODEL" &&
+        field.options &&
+        !field.options.includes(value)
+      ) {
         const option = document.createElement("option");
         option.value = value;
         option.textContent = "Unsupported saved value — change explicitly";
@@ -548,6 +612,7 @@ async function refresh() {
       ]),
     );
     resetKeys(saved.keys);
+    renderSummaryModels();
     if (firstRun && !saved.saved) {
       byId("DATABASE_PATH").value = onboarding.database;
     }

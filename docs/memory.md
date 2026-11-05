@@ -1,7 +1,9 @@
 # Trainer memory without embeddings
 
-Ordinary Trainer chat uses [conversation history](conversation-history.md) and, on
-the qualified OpenAI `gpt-6-luna` Responses route, a stable cross-chat summary pin.
+Ordinary Trainer chat uses [conversation history](conversation-history.md) and a
+stable cross-chat memory pin on every configured OpenAI, DeepSeek, OpenRouter or
+loopback Ollama chat route. Non-Luna routes retain their existing local-history
+behavior; including memory does not enable general replay/compaction support.
 It no longer retrieves or ingests semantic/vector facts. No embedding key, Ollama
 embedding daemon, vector service, model download or extractor fallback is required.
 Optional explicitly selected Ollama **chat** remains independently operator-managed.
@@ -19,18 +21,22 @@ Native Settings → Memory exposes:
 
 - **Remember across chats**, default Off; stops summary use/new processing without
   deleting stored data or disabling automatic titles.
-- **Memory and automatic chat-title model**, default Unselected. Only reviewed direct
-  OpenAI `gpt-6-luna` is supported; chat choice remains separate. No model/account
-  fallback is substituted.
+- **Memory and automatic chat-title model**, default Unselected, lists the configured
+  catalog with provider/exact-model labels. It is independent of Trainer selection.
+  A smaller, cheaper model is usually sufficient. Missing keys or an edited/removed
+  selected entry stay unavailable until explicitly corrected; no fallback. Local
+  configuration does not certify provider/model support.
 - **Memory size (characters)**, default6000 Unicode scalars, integer1000–20000.
 
-Enabled summary processing has no daily attempt/spend ceiling. Larger memory can
-cost more. Memory separates observed-token estimates, conservative size-aware
-reservations and all-day unknown/legacy liabilities; these are not invoices. Disable
-stops new summary work. Independent title and local compaction limits are unchanged.
+Summary, title and local compaction work have no application-imposed spending or
+attempt caps, model-capacity/tokenizer prerequisites or token-count preflight.
+The operator chooses the exact model; provider capacity/capability errors surface
+without switching models or clipping memory. Larger memory can cost more. Known
+usage estimates, historical USD reservations and unpriced attempts are distinct;
+unknown cost is not zero or an invoice. Disable stops new summary work.
 
-Minimized eligible user context may leave the device through the existing native
-OpenAI private-slot owner. No renderer key readback or new secret file is added.
+Minimized eligible user context may leave the device through the selected cloud
+provider's existing native private-slot owner; Ollama remains loopback-only. No renderer key readback or new secret file is added.
 Save preserves native revisions/archives and original compatibility fields. Model,
 N and processing topology stay pending until explicit quit/reopen. Live shared-key
 updates retain their existing acknowledgment/captured-work rules. Unchanged saved
@@ -42,7 +48,7 @@ are absent; complete saved compatibility/override fields still round-trip throug
 native validation, including failure/reload/adoption. The retained setup-only native
 `read_memory_status` command remains fixed summary metadata, not memory content,
 provider probing or proof of selected-chat consumption. No automatic UI read replaces
-its removed button. Trainer → Memory retains the actual pin and immediate controls.
+its removed button. Trainer → Memory retains saved content and immediate controls.
 
 ## Stable memory and visible controls
 
@@ -67,6 +73,13 @@ ordinary backlog drains in finite serialized jobs. Full memory is used or admiss
 refuses; no silent clipping or new route capability. Changing prefixes between
 turns can affect caching; no billed-cache saving is guaranteed. Internal consumption
 metadata and the compatibility Refresh API remain diagnostic, not routine UI.
+Memory is included on each configured chat route without tokenizer qualification
+or a second projection ceiling. The provider receives policy, tools, fresh input
+and full sealed memory and may refuse capacity; the app does not guess a vendor
+limit or silently drop memory. Non-Luna routes keep ordinary local-history behavior
+and receive the pin in a separately framed lower-authority user-data message,
+including after tool exchanges. Internal completed-answer use observations require
+a matching revision; holding a pin alone is not proof of consumption.
 
 Pins are untrusted user-derived continuity, not policy, current measurements or
 permission to save a plan. Current corrections/Profile and fresh tool evidence
@@ -110,8 +123,8 @@ Retained legacy maintenance APIs are not the ordinary chat path.
 Manage memory → **Review earlier sources** offers only eligible source-backed completed Off
 turn versions after the authoritative cutoff. Selection is reviewed, capped at200
 turns/100000 source scalars, and sealed with privacy/control/manual/cutoff authority.
-It uses the existing summary writer in batches of at most20 with finite size-aware
-exact serialized input/output allowances, without a hidden daily summary budget. Pause/cancel retain progress and unknown cost; changed authority
+It uses the existing summary writer in finite batches of at most20, without a
+tokenizer/capacity prerequisite or hidden daily summary budget. Pause/cancel retain progress and unknown cost; changed authority
 requires a new review, not stale resume. Routine frontier is separate. No startup
 backfill, inferred role pairs or migration timestamp grants export.
 
@@ -124,8 +137,8 @@ requires independently approved scope.
 ### Rebuild from chat history
 
 **Update from chat history** opens a separate local review with included and excluded
-user-message counts, human explanations, configured provider/model, a labeled
-conservative cost range and preservation/replacement effects. **Review and update**
+user-message counts, human explanations, configured provider/model, explicitly
+unknown pre-generation cost and preservation/replacement effects. **Review and update**
 opens the final **Start update** confirmation bound to that exact inspection; changed
 history or selection requires a new review. Opening/back/cancel never starts work.
 Running, cancellation, complete, interrupted/invalidated and unknown-effect states
@@ -162,12 +175,13 @@ unsupported, missing-key or exhausted capability retains the prompt excerpt.
 The existing first-message/manual-title/clear/delete tombstones and Next `after()`
 lifetime remain. No historical retitling or retry queue is added.
 
-Title-only input is safety-filtered, at most2000 characters and2048 measured tokens;
-output at most120 tokens,3000ms deadline, no tools/retries/provider persistence.
-Captured keys/configuration survive awaits. A separate durable reservation admits
-at most USD0.001 per attempt,100 attempts/USD0.10 per local day; backward clocks,
-restart/model changes and unknown outcomes do not replenish it. Actual usage is
-recorded once; unknown counters are not zero or billed savings.
+Title-only source input remains safety-filtered and bounded to2000 characters;
+the3000ms deadline, no tools/retries and supported stateless controls remain.
+There is no token-count/output-cap, pricing prerequisite, daily count or monetary
+admission cap. Captured keys/configuration survive awaits; manual titles and
+first-message/deletion tombstones remain authoritative. Durable attempt receipts
+and usage are recorded once; old reservations remain intact. Missing counters or
+prices are unknown, never zero cost or billed savings.
 
 ## Backup, restore, and reset
 

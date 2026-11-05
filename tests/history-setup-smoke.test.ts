@@ -3,6 +3,33 @@ import { readFileSync } from "node:fs";
 import { afterEach, expect, it, vi } from "vitest";
 import { waitFor } from "@testing-library/dom";
 import fields from "../src-tauri/ui/settings-fields.json";
+const summaryChoice = JSON.stringify({
+  version: 1,
+  entryId: "entry_summary_local",
+  provider: "ollama",
+  modelId: "synthetic-memory:small",
+});
+const summaryCatalog = {
+  version: 1,
+  entries: [
+    {
+      id: "entry_summary_local",
+      provider: "ollama",
+      modelId: "synthetic-memory:small",
+    },
+    {
+      id: "entry_summary_cloud",
+      provider: "openai",
+      modelId: "synthetic-title:small",
+    },
+    {
+      id: "entry_summary_other",
+      provider: "ollama",
+      modelId: "synthetic-chat:large",
+    },
+  ],
+  defaultEntryId: null,
+};
 
 declare global {
   interface Window {
@@ -63,7 +90,7 @@ async function setup(firstRun: boolean, historyLimit = "") {
             DEEPSEEK_API_KEY: "not configured",
             OPENROUTER_API_KEY: "not configured",
           },
-          chatCatalog: { version: 1, entries: [], defaultEntryId: null },
+          chatCatalog: summaryCatalog,
           saved,
           running: saved,
         };
@@ -138,7 +165,7 @@ it("changes only the three summary scalars through real form Save and masks ever
   )![1]!.input!.fields!;
   expect(sent).toMatchObject({
     SUMMARY_ENABLED: "true",
-    SUMMARY_MODEL: "gpt-6-luna",
+    SUMMARY_MODEL: summaryChoice,
     SUMMARY_CHAR_LIMIT: "6000",
   });
   for (const [key, value] of Object.entries(before))
@@ -151,6 +178,22 @@ it("changes only the three summary scalars through real form Save and masks ever
     ),
   ).toBe(false);
 });
+it("keeps exact shared identity unavailable after a catalog edit, without selecting the new model", async () => {
+  await setup(false);
+  window.__trainerHistorySetup("summaryOn");
+  const input = document.getElementById(
+    "entry_summary_local-modelId",
+  ) as HTMLInputElement;
+  input.value = "A-Different:Exact";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  const choice = document.getElementById("SUMMARY_MODEL") as HTMLSelectElement;
+  expect(choice.value).toBe(summaryChoice);
+  expect(choice.selectedOptions[0].textContent).toBe(
+    "Ollama / synthetic-memory:small — unavailable; reselect explicitly",
+  );
+  expect(window.__trainerHistorySetup("captureSummaryWide").ok).toBe(false);
+});
+
 it("summary capture reveals text-free containers only and restores after direct-text refusal", async () => {
   await setup(false);
   window.__trainerHistorySetup("summaryOn");

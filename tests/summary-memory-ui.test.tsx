@@ -78,7 +78,7 @@ function snapshot(conversationId = "A"): SummaryInspection {
       reasons: { suppressed: 2 },
       estimatedUsd: {
         low: 0,
-        conservativeMaximum: 0.4,
+        conservativeMaximum: null,
         priceBasis: "authored-basis",
         uncertainty: "Not an invoice.",
       },
@@ -743,9 +743,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       screen.queryByText(/unproven-legacy-or-cleared-original/),
     ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Review and update" }));
-    expect(
-      screen.getByText(/not predicted billing or a spending cap/),
-    ).toBeTruthy();
+    expect(screen.getByText(/Cost is not known in advance/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
       fetcher.mock.calls.filter((c) => c[1]?.method === "POST"),
@@ -806,7 +804,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       ).toBeTruthy();
     expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(true);
   });
-  it.each(["unmeasured", "older", "unsupported"])(
+  it.each(["unmeasured", "older", "unused"])(
     "keeps %s internal chat snapshots out of routine Memory without read-time adoption",
     async (state) => {
       const value = populated();

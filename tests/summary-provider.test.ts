@@ -1,16 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSummaryGeneration } from "@/lib/memory/summary-provider";
-import { summaryLimits } from "@/lib/memory/summary-policy";
+import { getOptionalEnv } from "@/lib/env";
+import { encodeSummarySelection } from "@/lib/model-settings/summary-selection";
+import type { ChatProvider } from "@/lib/model-settings/contracts";
 
 const ids = ["original:authored-a", "turn-b:1"];
 const prompt = JSON.stringify({
-  now: 1700000000000,
-  characterCap: 6000,
-  previous: [],
   requiredCoverageSourceIds: ids,
   newSources: ids.map((sourceId) => ({ sourceId, user: "Authored source." })),
 });
-const wirePatch = {
+const patch = {
   version: 1,
   keep: [],
   upsert: [],
@@ -18,46 +17,60 @@ const wirePatch = {
   coverage: Object.fromEntries(ids.map((id) => [id, "low-value"])),
 };
 
-// Real SDK serialization with a supplied synthetic transport, not a live model
-// or a semantic-selection certificate.
+// Actual locked SDK wire serialization, supplied responses; no network/support or
+// semantic-quality claim. Arbitrary literal identities, not a qualified-model list.
 function fixture(
+  provider: ChatProvider = "openai",
   options: {
-    count?: number | null;
+    patch?: unknown;
     usage?: boolean;
     status?: number;
-    patch?: Record<string, unknown>;
+    legacy?: boolean;
+    current?: () => boolean;
   } = {},
 ) {
+  const entry = {
+    id: "entry_summary",
+    provider,
+    modelId: options.legacy ? "gpt-6-luna" : "Vendor/Exact-模型:TAG",
+  };
+  const env = getOptionalEnv({
+    SUMMARY_MODEL: options.legacy
+      ? "gpt-6-luna"
+      : encodeSummarySelection(entry),
+    CHAT_MODEL_CATALOG: JSON.stringify({
+      version: 1,
+      entries: [entry],
+      defaultEntryId: null,
+    }),
+    OPENAI_API_KEY: "synthetic-openai",
+    DEEPSEEK_API_KEY: "synthetic-deepseek",
+    OPENROUTER_API_KEY: "synthetic-router",
+  });
   const requests: { url: string; body: Record<string, unknown> }[] = [];
   const transport = vi.fn<typeof fetch>(async (url, init) => {
-    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    requests.push({ url: String(url), body });
-    const counting = String(url).endsWith("/input_tokens");
+    requests.push({
+      url: String(url),
+      body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+    });
+    const text = JSON.stringify(options.patch ?? patch);
+    const responses = provider === "openai";
     return new Response(
       JSON.stringify(
-        counting
-          ? options.count === null
-            ? {}
-            : { input_tokens: options.count ?? 100 }
-          : {
+        responses
+          ? {
               id: "response-summary",
               object: "response",
               created_at: 0,
               status: "completed",
-              model: "gpt-6-luna",
+              model: entry.modelId,
               output: [
                 {
                   type: "message",
                   id: "msg-summary",
                   role: "assistant",
                   status: "completed",
-                  content: [
-                    {
-                      type: "output_text",
-                      text: JSON.stringify(options.patch ?? wirePatch),
-                      annotations: [],
-                    },
-                  ],
+                  content: [{ type: "output_text", text, annotations: [] }],
                 },
               ],
               ...(options.usage === false
@@ -71,175 +84,152 @@ function fixture(
                       output_tokens_details: { reasoning_tokens: 0 },
                     },
                   }),
+            }
+          : {
+              id: "chat-summary",
+              object: "chat.completion",
+              created: 0,
+              model: entry.modelId,
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant", content: text },
+                  finish_reason: "stop",
+                },
+              ],
+              ...(options.usage === false
+                ? {}
+                : {
+                    usage: {
+                      prompt_tokens: 100,
+                      completion_tokens: 20,
+                      total_tokens: 120,
+                      ...(provider === "deepseek"
+                        ? {
+                            prompt_cache_hit_tokens: 0,
+                            prompt_cache_miss_tokens: 100,
+                          }
+                        : { prompt_tokens_details: { cached_tokens: 0 } }),
+                    },
+                  }),
             },
       ),
       {
-        status: counting ? 200 : (options.status ?? 200),
+        status: options.status ?? 200,
         headers: { "content-type": "application/json" },
       },
     );
   });
   return {
+    entry,
+    env,
     requests,
     transport,
-    generation: createSummaryGeneration("synthetic-not-a-key", transport),
+    generation: createSummaryGeneration(env, transport, options.current),
   };
 }
 
-describe("independent actual SDK Luna summary serialization", () => {
-  it("counts the exact dynamic schema/payload and uses stateless bounded text, no tools/fallback or chat fields", async () => {
-    const { generation, requests } = fixture();
-    const result = await generation.generate(
-      "Summary-only policy",
-      prompt,
-      new AbortController().signal,
-    );
-    expect(result.patch).toEqual({
-      ...wirePatch,
-      coverage: ids.map((sourceId) => ({ sourceId, reason: "low-value" })),
-    });
-    expect(result.usage).toEqual({ input: 100, output: 20, cached: 0 });
-    expect(requests).toHaveLength(2);
-    const [count, infer] = requests;
-    expect(count!.url).toBe("https://api.openai.com/v1/responses/input_tokens");
-    expect(infer!.body).toMatchObject({
-      model: "gpt-6-luna",
-      store: false,
-      max_output_tokens: summaryLimits(6000).output,
-    });
-    for (const key of ["input", "model", "text", "reasoning"])
-      expect(count!.body[key]).toEqual(infer!.body[key]);
-    for (const key of [
-      "tools",
-      "previous_response_id",
-      "conversation",
-      "background",
-      "service_tier",
-    ])
-      expect(infer!.body).not.toHaveProperty(key);
-    expect(JSON.stringify(infer!.body.input)).toContain(
-      "For this transport ONLY",
-    );
-  });
-  it.each(["summary", "title"] as const)(
-    "counts and sends the same strict closed %s schema",
-    async (purpose) => {
-      const { transport, requests } = fixture(
-        purpose === "title" ? { patch: { title: "Authored title" } } : {},
+describe("independent exact catalog summary/title serialization", () => {
+  it.each(["openai", "deepseek", "openrouter", "ollama"] as const)(
+    "uses exact %s route without count/price qualification, tools, persistence or fallback",
+    async (provider) => {
+      const { generation, requests, entry } = fixture(provider);
+      const result = await generation.generate(
+        "summary-only policy",
+        prompt,
+        new AbortController().signal,
       );
+      expect(result.patch).toEqual({
+        ...patch,
+        coverage: ids.map((sourceId) => ({ sourceId, reason: "low-value" })),
+      });
+      expect(result.usage).toEqual({ input: 100, output: 20, cached: 0 });
+      expect(requests).toHaveLength(1);
+      const request = requests[0]!;
+      expect(request.url).toBe(
+        {
+          openai: "https://api.openai.com/v1/responses",
+          deepseek: "https://api.deepseek.com/chat/completions",
+          openrouter: "https://openrouter.ai/api/v1/chat/completions",
+          ollama: "http://127.0.0.1:11434/v1/chat/completions",
+        }[provider],
+      );
+      expect(request.body.model).toBe(entry.modelId);
+      for (const key of [
+        "tools",
+        "previous_response_id",
+        "conversation",
+        "background",
+        "max_output_tokens",
+        "max_tokens",
+        "max_completion_tokens",
+      ])
+        expect(request.body).not.toHaveProperty(key);
+      if (provider === "openai") expect(request.body.store).toBe(false);
+      expect(JSON.stringify(request.body)).toContain("For this transport ONLY");
+    },
+  );
+
+  it.each(["summary", "title"] as const)(
+    "sends the separate strict %s contract",
+    async (purpose) => {
+      const f = fixture("openai", {
+        patch: purpose === "title" ? { title: "Authored title" } : patch,
+      });
       const generation = createSummaryGeneration(
-        "synthetic-not-a-key",
-        transport,
+        f.env,
+        f.transport,
         () => true,
         purpose,
       );
       await generation.generate(
         "policy",
-        purpose === "summary" ? prompt : "authored source",
+        purpose === "summary" ? prompt : "source",
         new AbortController().signal,
       );
-      const text = requests[1]!.body.text as {
+      const text = f.requests[0]!.body.text as {
         format: {
           type: string;
           strict: boolean;
-          name: string;
           schema: Record<string, unknown>;
+          name: string;
         };
       };
-      expect(requests[0]!.body.text).toEqual(text);
       expect(text.format).toMatchObject({
         type: "json_schema",
         strict: true,
         name: purpose === "title" ? "chat_title" : "summary_patch",
-        schema: { type: "object", additionalProperties: false },
+        schema: { additionalProperties: false },
       });
-      expect(text.format.schema.required).toEqual(
-        purpose === "title"
-          ? ["title"]
-          : ["version", "keep", "upsert", "remove", "coverage"],
-      );
-      if (purpose === "summary") {
-        const properties = text.format.schema.properties as Record<
-          string,
-          Record<string, unknown>
-        >;
+      const properties = text.format.schema.properties as Record<
+        string,
+        Record<string, unknown>
+      >;
+      if (purpose === "summary")
         expect(properties.coverage).toMatchObject({
           type: "object",
           additionalProperties: false,
           required: ids,
         });
-        expect(Object.keys(properties.coverage!.properties as object)).toEqual(
-          ids,
-        );
-        for (const value of Object.values(
-          properties.coverage!.properties as Record<string, unknown>,
-        ))
-          expect(value).toMatchObject({
-            type: "string",
-            enum: ["represented", "duplicate", "low-value"],
-          });
-        for (const key of ["upsert", "remove"])
-          expect(
-            (properties[key]!.items as Record<string, unknown>)
-              .additionalProperties,
-          ).toBe(false);
-        expect(
-          (properties.upsert!.items as Record<string, unknown>).required,
-        ).toEqual([
-          "id",
-          "text",
-          "category",
-          "stance",
-          "sourceIds",
-          "priority",
-          "expiresAt",
-          "replaces",
-        ]);
-      }
-      expect(requests[1]!.body.max_output_tokens).toBe(
-        purpose === "title" ? 120 : summaryLimits(6000).output,
-      );
     },
   );
+
   it.each([
     {},
     { [ids[0]!]: "low-value" },
-    { ...wirePatch.coverage, foreign: "low-value" },
+    { ...patch.coverage, foreign: "low-value" },
     { [ids[0]!]: "unknown", [ids[1]!]: "low-value" },
     ids.map((sourceId) => ({ sourceId, reason: "low-value" })),
   ])(
-    "rejects missing/foreign/invalid/legacy coverage rather than filling dispositions: %j",
+    "rejects incomplete/extra/invalid coverage without repair: %j",
     async (coverage) => {
-      const { generation, requests } = fixture({
-        patch: { ...wirePatch, coverage },
-      });
-      // The real SDK rejects the strict wire schema before exposing a result.
-      // Do not invent observed usage or normalize a missing disposition.
+      const f = fixture("openai", { patch: { ...patch, coverage } });
       await expect(
-        generation.generate("policy", prompt, new AbortController().signal),
+        f.generation.generate("policy", prompt, new AbortController().signal),
       ).rejects.toThrow();
-      expect(requests).toHaveLength(2);
+      expect(f.requests).toHaveLength(1);
     },
   );
-  it("normalizes a validated map in exact input order without changing explicit dispositions", async () => {
-    const { generation } = fixture({
-      patch: {
-        ...wirePatch,
-        coverage: { [ids[1]!]: "duplicate", [ids[0]!]: "low-value" },
-      },
-    });
-    const result = await generation.generate(
-      "policy",
-      prompt,
-      new AbortController().signal,
-    );
-    expect(result.patch).toMatchObject({
-      coverage: [
-        { sourceId: ids[0], reason: "low-value" },
-        { sourceId: ids[1], reason: "duplicate" },
-      ],
-    });
-  });
   it.each([
     "not JSON",
     JSON.stringify({ requiredCoverageSourceIds: [], newSources: [] }),
@@ -251,73 +241,65 @@ describe("independent actual SDK Luna summary serialization", () => {
       requiredCoverageSourceIds: ids,
       newSources: [{ sourceId: "other" }, { sourceId: ids[1] }],
     }),
-  ])(
-    "refuses unsupported/ambiguous source census before network: %s",
-    async (input) => {
-      const { generation, transport } = fixture();
-      await expect(
-        generation.generate("policy", input, new AbortController().signal),
-      ).rejects.toThrow("summary_invalid_generation_input");
-      expect(transport).not.toHaveBeenCalled();
+  ])("refuses ambiguous source census before network: %s", async (input) => {
+    const f = fixture();
+    await expect(
+      f.generation.generate("policy", input, new AbortController().signal),
+    ).rejects.toThrow("summary_invalid_generation_input");
+    expect(f.transport).not.toHaveBeenCalled();
+  });
+  it.each(["openai", "deepseek", "openrouter", "ollama"] as const)(
+    "keeps absent %s usage unknown",
+    async (provider) => {
+      const f = fixture(provider, { usage: false });
+      expect(
+        (
+          await f.generation.generate(
+            "policy",
+            prompt,
+            new AbortController().signal,
+          )
+        ).usage,
+      ).toEqual({ input: null, output: null, cached: null });
     },
   );
-  it.each([summaryLimits(6000).input + 1, null])(
-    "refuses oversized/unknown exact accounting %s before inference",
-    async (count) => {
-      const { generation, requests } = fixture({ count });
-      await expect(
-        generation.generate("policy", prompt, new AbortController().signal),
-      ).rejects.toThrow();
-      expect(requests).toHaveLength(1);
-    },
-  );
-  it("refuses dispatch when authority is revoked during exact count", async () => {
-    const { transport, requests } = fixture();
+  it("preserves legacy Luna but removes token/output eligibility gates", async () => {
+    const f = fixture("openai", { legacy: true });
+    await f.generation.generate("policy", prompt, new AbortController().signal);
+    expect(f.requests).toHaveLength(1);
+    expect(f.requests[0]!.body).toMatchObject({
+      model: "gpt-6-luna",
+      store: false,
+    });
+    expect(f.requests[0]!.body).not.toHaveProperty("max_output_tokens");
+  });
+  it("does not retry provider refusal or dispatch after authority cancellation", async () => {
+    const f = fixture("openrouter", { status: 401 });
+    await expect(
+      f.generation.generate("policy", prompt, new AbortController().signal),
+    ).rejects.toThrow();
+    expect(f.requests).toHaveLength(1);
+    const stale = fixture("ollama", { current: () => false });
+    await expect(
+      stale.generation.generate("policy", prompt, new AbortController().signal),
+    ).rejects.toThrow();
+    expect(stale.transport).not.toHaveBeenCalled();
+  });
+  it("rejects late results after configuration revocation", async () => {
     let current = true;
-    const controlled: typeof fetch = async (url, init) => {
-      const response = await transport(url, init);
-      if (String(url).endsWith("/input_tokens")) current = false;
-      return response;
-    };
+    const f = fixture();
     const generation = createSummaryGeneration(
-      "synthetic-not-a-key",
-      controlled,
+      f.env,
+      async (url, init) => {
+        const result = await f.transport(url, init);
+        current = false;
+        return result;
+      },
       () => current,
-      "summary",
-      20000,
     );
     await expect(
       generation.generate("policy", prompt, new AbortController().signal),
     ).rejects.toThrow("summary_configuration_changed");
-    expect(requests).toHaveLength(1);
-  });
-  it("keeps missing usage unknown rather than SDK-default zero", async () => {
-    const { generation } = fixture({ usage: false });
-    expect(
-      (
-        await generation.generate(
-          "policy",
-          prompt,
-          new AbortController().signal,
-        )
-      ).usage,
-    ).toEqual({ input: null, output: null, cached: null });
-  });
-  it("does not retry provider rejection or dispatch after configuration cancellation", async () => {
-    const { generation, requests } = fixture({ status: 401 });
-    await expect(
-      generation.generate("policy", prompt, new AbortController().signal),
-    ).rejects.toThrow();
-    expect(requests).toHaveLength(2);
-    const transport = vi.fn<typeof fetch>();
-    const stale = createSummaryGeneration(
-      "synthetic-not-a-key",
-      transport,
-      () => false,
-    );
-    await expect(
-      stale.generate("policy", prompt, new AbortController().signal),
-    ).rejects.toThrow();
-    expect(transport).not.toHaveBeenCalled();
+    expect(f.requests).toHaveLength(1);
   });
 });

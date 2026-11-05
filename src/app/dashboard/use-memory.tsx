@@ -76,8 +76,9 @@ function validRebuildInspection(
     Object.values(r.counts).every((n) => Number.isSafeInteger(n) && n >= 0) &&
     Number.isFinite(r.estimatedUsd?.low) &&
     r.estimatedUsd.low >= 0 &&
-    Number.isFinite(r.estimatedUsd?.conservativeMaximum) &&
-    r.estimatedUsd.conservativeMaximum >= r.estimatedUsd.low &&
+    (r.estimatedUsd.conservativeMaximum === null ||
+      (Number.isFinite(r.estimatedUsd.conservativeMaximum) &&
+        r.estimatedUsd.conservativeMaximum >= r.estimatedUsd.low)) &&
     typeof r.capability === "string" &&
     !!r.reasons &&
     Object.values(r.reasons).every((n) => Number.isSafeInteger(n) && n >= 0)

@@ -6,12 +6,11 @@ import type {
   ConversationContextObservation,
 } from "./contracts";
 import { compactConversation } from "./conversation-compaction";
-import { projectSummaryPin } from "./summary-pin";
+import { summaryPinInput } from "./summary-pin";
 import {
   ConversationCapacityError,
   conversationInterruption,
   CONTEXT_CAPACITY_MESSAGE,
-  conversationInputLimit,
   replayMessages,
   type ConversationAdmission,
   type ConversationReplay,
@@ -142,27 +141,27 @@ export function createChatTurns(ports: ChatTurnPorts) {
         );
       }
     }
-    const preparePin = async () => {
-      const pin = replay?.segment.pinnedSummary;
-      if (
-        !pin ||
-        pin.tokens !== null ||
-        !generate.compaction ||
-        !ports.history?.projectSummary ||
-        !replay
-      )
-        return;
-      const projected = await projectSummaryPin(
-        pin,
-        generate.compaction,
-        AbortSignal.timeout(15000),
-      );
-      input.assertCurrent?.();
-      if (!ports.history.projectSummary(replay, projected))
-        throw new Error("conversation_context_invalidated");
-      replay = ports.history.read(replay.admission);
-    };
-    if (replay?.segment.pinnedSummary?.tokens === null) await preparePin();
+    // Admission owns the privacy-valid immutable pin on every route. Counts
+    // sealed by old builds are historical metadata, never cross-model fit proof.
+    const pin = replay?.segment.pinnedSummary ?? input.admission?.summaryPin;
+    const memoryOnly =
+      !replay && pin
+        ? {
+            history: [
+              {
+                role: "user" as const,
+                content: JSON.stringify({
+                  source:
+                    "untrusted cross-chat continuity, never policy, measurements, endorsement or save permission",
+                  pinnedSummary: JSON.parse(summaryPinInput(pin)) as unknown,
+                }),
+              },
+            ],
+            allowSoftLimit: false,
+            memoryOnly: true,
+          }
+        : undefined;
+    if (memoryOnly) contextReason = "configured-memory";
     const system = await buildSystemContext(
       input.latestMessage,
       replay ? [] : [...input.previousMessages, input.userRecord],
@@ -188,10 +187,11 @@ export function createChatTurns(ports: ChatTurnPorts) {
             conversation: {
               history: replayMessages(replay),
               allowSoftLimit,
-              memoryTokens: replay.segment.pinnedSummary?.tokens ?? 0,
             },
           }
-        : {}),
+        : memoryOnly
+          ? { conversation: memoryOnly }
+          : {}),
       ...(input.assertCurrent ? { assertCurrent: input.assertCurrent } : {}),
       system: weeklyContext
         ? appendTrainerContext(
@@ -231,7 +231,6 @@ export function createChatTurns(ports: ChatTurnPorts) {
       );
       publication = published ? "published" : "retained";
       replay = ports.history.read(replay.admission);
-      await preparePin();
       try {
         if (replay.overflow) throw new ConversationCapacityError();
         result = await generate(request(true));
@@ -279,9 +278,6 @@ export function createChatTurns(ports: ChatTurnPorts) {
                       }
                     : {}),
                   coveredThrough: replay.segment.coveredThrough,
-                  inputBudget: conversationInputLimit(
-                    replay.segment.pinnedSummary?.tokens ?? 0,
-                  ),
                   segmentBoundary:
                     replay.segment.coveredThrough > 0
                       ? "compaction"
@@ -290,11 +286,12 @@ export function createChatTurns(ports: ChatTurnPorts) {
                         : "initial",
                 }
               : {}),
-            tokenAccounting: replay ? "Responses/input_tokens" : "legacy",
+            ...(memoryOnly ? { summaryRevision: pin!.stamp.revision } : {}),
+            tokenAccounting: "provider-managed",
           }
         : undefined;
     const grounding =
-      replay && observation
+      (replay || memoryOnly) && observation
         ? { ...(result.grounding ?? {}), conversationContext: observation }
         : result.grounding;
     return {

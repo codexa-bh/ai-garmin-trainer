@@ -390,16 +390,17 @@ export const conversationHistory: ConversationHistoryPorts = {
         .prepare("select max(day) as day from conversation_compaction_spend")
         .get() as { day: string | null };
       const now = new Date();
-      const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      if (latest.day && day < latest.day) return false;
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const day = latest.day && today < latest.day ? latest.day : today;
       db.prepare(
         "insert into conversation_compaction_spend(day,attempts,reserved_usd) values(?,0,0) on conflict(day) do nothing",
       ).run(day);
-      // Keep the whole worst-case reservation, including abort/unknown billing.
+      // Preserve historical reservations; new attempts have no monetary cap or
+      // invented worst-case price. This receipt is not an invoice.
       return (
         db
           .prepare(
-            "update conversation_compaction_spend set attempts=attempts+1,reserved_usd=reserved_usd+0.01 where day=? and attempts<10 and reserved_usd<0.099999",
+            "update conversation_compaction_spend set attempts=attempts+1 where day=?",
           )
           .run(day).changes === 1
       );
