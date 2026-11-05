@@ -6,14 +6,23 @@ import { countedConversationFetch } from "@/lib/ai/conversation-transport";
 import { createHash } from "node:crypto";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { migrateDatabase } from "@/lib/db/migrations";
-import { ensureConversation } from "@/lib/db/conversation-repository";
+import {
+  ensureConversation,
+  appendChatMessage,
+  listRecentChatMessages,
+} from "@/lib/db/conversation-repository";
+import { createChatTurns } from "@/lib/chat/turn";
+import type { ChatGenerator } from "@/lib/chat/ports";
 import {
   conversationHistory as history,
   refreshConversationSummary,
 } from "@/lib/db/conversation-history";
 import { parseSummaryCommand } from "@/lib/memory/summary-controls";
 import { summaryStorage } from "@/lib/db/summary-storage";
-import { readSummaryPin } from "@/lib/db/conversation-summary-pin";
+import {
+  readSummaryPin,
+  conversationSummaryStatus,
+} from "@/lib/db/conversation-summary-pin";
 import { projectSummaryPin, summaryPinInput } from "@/lib/chat/summary-pin";
 import { replayMessages } from "@/lib/chat/conversation-replay";
 import { renderSummary, type SummaryItem } from "@/lib/memory/summary-policy";
@@ -66,6 +75,49 @@ function publish(
 const counter = () => ({
   count: vi.fn(async () => 100),
   generate: vi.fn(async () => "unused"),
+});
+
+it("production turn includes the real unmeasured SQLite pin without compaction and reports use only after completion", async () => {
+  publish(1);
+  const observed: Parameters<ChatGenerator>[0][] = [];
+  const generate: ChatGenerator = async (request) => {
+    observed.push(request);
+    return {
+      text: "Authored answer",
+      grounding: null,
+      toolSteps: [],
+      progressCounters: {
+        modelCalls: 1,
+        toolsSucceeded: 0,
+        toolsUnsuccessful: 0,
+      },
+    };
+  };
+  const turns = createChatTurns({
+    history,
+    ensureConversation,
+    appendChatMessage,
+    listRecentChatMessages,
+    buildSystemContext: async () => "Existing local-history context",
+    selectGeneration: () => generate,
+    fallbackDebugTrace: fallbackLlmDebugTrace,
+  });
+  const turn = turns.prepareChatTurn("non-luna", "Why?");
+  expect(readSummaryPin("non-luna")?.tokens).toBeNull();
+  expect(conversationSummaryStatus("non-luna")?.usedByChat).toBe(false);
+  publish(2, "A newer memory that must not replace this pin.");
+  const result = await turns.generateChatTurn(turn, {
+    debugTraceEnabled: false,
+  });
+  expect(observed[0].conversation).toMatchObject({ memoryOnly: true });
+  const content = observed[0].conversation!.history[0].content;
+  expect(content).toContain("long weekdays rejected");
+  expect(content).not.toContain("newer memory");
+  expect(observed[0].system).toBe("Existing local-history context");
+  expect(conversationSummaryStatus("non-luna")?.usedByChat).toBe(false);
+  await turns.completeChatTurn(turn, result);
+  expect(conversationSummaryStatus("non-luna")?.usedByChat).toBe(true);
+  expect(readSummaryPin("non-luna")?.tokens).toBeNull();
 });
 
 it("freezes null at explicit creation even when S publishes before first message", () => {

@@ -88,9 +88,7 @@ export function historyBlockers(memory: SummaryInspection) {
     );
   if (!r.enabled) reasons.push("Memory is Off.");
   if (!r.model || r.model === "unselected")
-    reasons.push("Select a supported memory model in native Settings.");
-  else if (r.model !== "gpt-6-luna")
-    reasons.push("The configured memory model is unsupported.");
+    reasons.push("Select a memory model in native Settings.");
   if (r.capability !== "configured-not-probed")
     reasons.push(
       "Native provider key or app lifetime is unavailable. Check native Settings; this is not a provider probe.",
@@ -176,12 +174,18 @@ export function HistoryReview({ memory }: { memory: SummaryInspection }) {
       </p>
       <h4>Cost & privacy</h4>
       <p>
-        Estimated range:{" "}
-        <strong>
-          ${r.estimatedUsd.low.toFixed(4)}–$
-          {r.estimatedUsd.conservativeMaximum.toFixed(4)}
-        </strong>{" "}
-        (conservative maximum, not an invoice or spending cap).
+        {r.estimatedUsd.conservativeMaximum === null ? (
+          "Cost is unknown before generation; no app-imposed spending cap."
+        ) : (
+          <>
+            Estimated range:{" "}
+            <strong>
+              ${r.estimatedUsd.low.toFixed(4)}–$
+              {r.estimatedUsd.conservativeMaximum.toFixed(4)}
+            </strong>{" "}
+            (historical conservative estimate, not an invoice).
+          </>
+        )}
       </p>
       <p>
         Eligible minimized originals and screened assistant context will be sent
@@ -282,19 +286,23 @@ export function MemoryUsage({
       <p>
         <strong>Automatic summary costs have no daily cap.</strong> Turn memory
         Off to stop summary use and new processing. Saved items stay; automatic
-        titles use the shared model but have separate limits.
+        titles use the shared model independently. Neither has an app-imposed
+        spending or attempt cap.
       </p>
       <dl className="memory-facts">
         <dt>Observed-token estimate today</dt>
         <dd>${memory.estimatedUsdToday.toFixed(4)}</dd>
-        <dt>Conservative reservations today</dt>
+        <dt>Historical reservations today</dt>
         <dd>${memory.reservedUsdToday.toFixed(4)}</dd>
         <dt>Outstanding unknown / legacy reservations, all days</dt>
         <dd>${memory.unknownReservedUsd.toFixed(4)}</dd>
+        <dt>Attempts with unknown cost, all days</dt>
+        <dd>{memory.unpricedAttempts ?? 0}</dd>
       </dl>
       <p>
         These are distinct estimates and reservations, not amounts to add into a
-        billed total, invoices or cache savings. Unknown costs stay reserved.
+        billed total, invoices or cache savings. Unpriced attempts are not zero
+        cost; prior reservations remain recorded.
       </p>
       <p>
         Forget and Clear affect memory derivatives, not original transcripts,

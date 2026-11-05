@@ -1,6 +1,12 @@
 // Installed only in an explicitly admitted history-setup local native document.
 // Finite synthetic semantic actions; no caller input, paths, secrets or IPC grant.
 (() => {
+  const summaryChoice = JSON.stringify({
+    version: 1,
+    entryId: "entry_summary_local",
+    provider: "ollama",
+    modelId: "synthetic-memory:small",
+  });
   const byId = (id) => document.getElementById(id);
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -57,11 +63,11 @@
         date?.value === "2024-01-01",
       summaryOn:
         byId("SUMMARY_ENABLED")?.value === "true" &&
-        byId("SUMMARY_MODEL")?.value === "gpt-6-luna" &&
+        byId("SUMMARY_MODEL")?.value === summaryChoice &&
         byId("SUMMARY_CHAR_LIMIT")?.value === "6000",
       summaryOff:
         byId("SUMMARY_ENABLED")?.value === "false" &&
-        ["unselected", "gpt-6-luna"].includes(byId("SUMMARY_MODEL")?.value) &&
+        ["unselected", summaryChoice].includes(byId("SUMMARY_MODEL")?.value) &&
         byId("SUMMARY_CHAR_LIMIT")?.value === "6000",
       saveSubmitted,
       saveRequested,
@@ -162,7 +168,25 @@
         "Memory and automatic chat-title model",
         [
           ["unselected", "Unselected"],
-          ["gpt-6-luna", "OpenAI · gpt-6-luna"],
+          [summaryChoice, "Ollama / synthetic-memory:small"],
+          [
+            JSON.stringify({
+              version: 1,
+              entryId: "entry_summary_cloud",
+              provider: "openai",
+              modelId: "synthetic-title:small",
+            }),
+            "OpenAI / synthetic-title:small — key unavailable",
+          ],
+          [
+            JSON.stringify({
+              version: 1,
+              entryId: "entry_summary_other",
+              provider: "ollama",
+              modelId: "synthetic-chat:large",
+            }),
+            "Ollama / synthetic-chat:large",
+          ],
         ],
       ],
       ["SUMMARY_CHAR_LIMIT", "Memory size (characters)", null],
@@ -267,7 +291,13 @@
             byId("SUMMARY_ENABLED"),
             action === "summaryOn" ? "true" : "false",
           );
-          set(byId("SUMMARY_MODEL"), "gpt-6-luna");
+          if (
+            ![...byId("SUMMARY_MODEL").options].some(
+              (option) => option.value === summaryChoice,
+            )
+          )
+            throw Error("Missing authored catalog choice");
+          set(byId("SUMMARY_MODEL"), summaryChoice);
           set(byId("SUMMARY_CHAR_LIMIT"), "6000");
           break;
         case "automatic":
@@ -351,7 +381,7 @@
               ),
               staticCopy(
                 "memory-model-help",
-                "Shared by memory summaries and automatic chat titles, separate from Trainer’s chat model. Memory is used in supported OpenAI gpt-6-luna chats.",
+                "Shared by memory summaries and automatic chat titles, separate from Trainer’s chat model. A smaller, cheaper model is usually sufficient for memory summaries and chat titles. Saved memory can be used with any configured chat model; provider support is not guaranteed.",
               ),
               staticCopy(
                 "memory-size-help",

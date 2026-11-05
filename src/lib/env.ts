@@ -4,6 +4,7 @@ import {
   containsControlCharacters,
   validateChatCatalog,
 } from "./model-settings/catalog";
+import { summarySelection } from "./model-settings/summary-selection";
 import { GARMIN_MCP_DEFAULT_ARGS_STRING } from "./garmin/mcp-config";
 
 const PLACEHOLDER_SECRET_PATTERNS = [
@@ -46,7 +47,19 @@ const optionalEnvSchema = z.object({
   OLLAMA_BASE_URL: z.string().url().default("http://127.0.0.1:11434/v1"),
   SUMMARY_CONTRACT_VERSION: z.literal("2").default("2"),
   SUMMARY_ENABLED: z.enum(["false", "true"]).default("false"),
-  SUMMARY_MODEL: z.enum(["unselected", "gpt-6-luna"]).default("unselected"),
+  SUMMARY_MODEL: z
+    .string()
+    .min(1)
+    .max(2048)
+    .refine((raw) => {
+      try {
+        summarySelection(raw);
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Unsupported summary selection; preserve settings and use a compatible build.")
+    .default("unselected"),
   SUMMARY_CHAR_LIMIT: z
     .string()
     .regex(/^[0-9]+$/)

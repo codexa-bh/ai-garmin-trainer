@@ -30,8 +30,8 @@ let db: Database.Database, boot: string;
 const f = vi.hoisted(() => ({ generate: vi.fn(), keys: [] as string[] }));
 vi.mock("@/lib/db/connection", () => ({ getDatabase: () => db }));
 vi.mock("@/lib/memory/summary-provider", () => ({
-  createSummaryGeneration: (key: string) => {
-    f.keys.push(key);
+  createSummaryGeneration: (env: { OPENAI_API_KEY?: string }) => {
+    f.keys.push(env.OPENAI_API_KEY ?? "");
     return { generate: f.generate };
   },
 }));

@@ -1,12 +1,35 @@
+import { summarySelection } from "../model-settings/summary-selection";
 import { unsafeMemoryReason } from "./filters";
 
-export const SUMMARY_POLICY = "global-summary-v2/openai.responses/gpt-6-luna";
 // Reviewed direct Luna standard profile, 2026-11-04. These are app allocations,
 // not a token estimate: exact SDK serialization must still pass preflight.
 export const SUMMARY_MODEL_CONTEXT = 1_050_000;
 export const SUMMARY_MODEL_OUTPUT = 128_000;
 export const SUMMARY_PRICE_BASIS =
   "luna-standard-2026-11-04/usd-per-million:0.10-input,0.50-output;reserve:0.25-input";
+export function summaryModelAvailable(raw: string): boolean {
+  try {
+    return Boolean(summarySelection(raw));
+  } catch {
+    return false;
+  }
+}
+export function summaryPriceBasis(raw: string): string {
+  try {
+    const entry = summarySelection(raw);
+    return entry?.provider === "openai" && entry.modelId === "gpt-6-luna"
+      ? SUMMARY_PRICE_BASIS
+      : "unknown-price/no-reservation";
+  } catch {
+    return "unknown-price/no-reservation";
+  }
+}
+export function summaryPolicyIdentity(raw: string): string {
+  const entry = summarySelection(raw);
+  return entry
+    ? `global-summary-v3/${JSON.stringify([entry.provider, entry.modelId])}`
+    : "global-summary-v3/unselected";
+}
 export const SUMMARY_DEADLINE_MS = 60_000;
 export const SUMMARY_DEBOUNCE_MS = 2000;
 export const SUMMARY_CATCHUP_MS = 8000;
@@ -134,6 +157,7 @@ export type SummaryStatus = {
   reservedUsdToday: number;
   estimatedUsdToday: number;
   unknownReservedUsd: number;
+  unpricedAttempts?: number;
   priceBasis: string;
 };
 export type SummaryGenerationStamp = {

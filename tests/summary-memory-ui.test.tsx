@@ -70,7 +70,7 @@ function snapshot(conversationId = "A"): SummaryInspection {
       reasons: { suppressed: 2 },
       estimatedUsd: {
         low: 0,
-        conservativeMaximum: 0.4,
+        conservativeMaximum: null,
         priceBasis: "authored-basis",
         uncertainty: "Not an invoice.",
       },
@@ -635,9 +635,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect(
       screen.getByText(/Some messages cannot be included by this version/),
     ).toBeTruthy();
-    expect(
-      screen.getByText(/conservative maximum, not an invoice or spending cap/),
-    ).toBeTruthy();
+    expect(screen.getByText(/Cost is unknown before generation/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Review and update" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
@@ -699,7 +697,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       ).toBeTruthy();
     expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(true);
   });
-  it.each(["unmeasured", "older", "unsupported"])(
+  it.each(["unmeasured", "older", "unused"])(
     "keeps %s chat text distinct and never silently adopts latest",
     async (state) => {
       const value = populated();
@@ -728,17 +726,19 @@ describe("integrated Memory visible controls and stale-response safety", () => {
         screen.getByText("Only earlier chat memory, not latest saved content."),
       ).toBeTruthy();
       expect(screen.queryByText(value.stored.items[0].text)).toBeNull();
-      if (state === "unsupported")
+      if (state === "unused")
         expect(
           (
             screen.getByRole("button", {
               name: "Update this chat",
             }) as HTMLButtonElement
           ).disabled,
-        ).toBe(true);
+        ).toBe(false);
       if (state === "unmeasured")
         expect(
-          screen.getByText("Saved for this chat; use not yet verified"),
+          screen.getByText(
+            /Saved for this chat; not yet used in a completed answer\. The full snapshot/,
+          ),
         ).toBeTruthy();
       expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(
         true,

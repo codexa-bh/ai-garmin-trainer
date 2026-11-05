@@ -8,7 +8,8 @@ vi.mock("ai", async (importOriginal) => ({
   ...(await importOriginal<typeof import("ai")>()),
   generateText: f.generate,
 }));
-vi.mock("@/lib/ai/providers", () => ({
+vi.mock("@/lib/ai/providers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/ai/providers")>()),
   selectedMemoryExtractionModel: f.select,
 }));
 
@@ -55,9 +56,9 @@ describe("first title provider adapter", () => {
         },
       },
       maxRetries: 0,
-      maxOutputTokens: 120,
     });
     expect(options).not.toHaveProperty("tools");
+    expect(options).not.toHaveProperty("maxOutputTokens");
     expect(JSON.parse(options.prompt)).toEqual({
       firstPrompt: "x".repeat(2000),
     });

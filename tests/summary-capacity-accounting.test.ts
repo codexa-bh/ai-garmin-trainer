@@ -64,12 +64,16 @@ it("admits one small completed activity after two seconds and separates observed
   const batch = storage.admit(now + 2000, "due")!;
   expect(batch.sources).toHaveLength(1);
   expect(storage.reserve(batch, now + 2000)).toBe(true);
-  const reserved = summaryLimits(20000).reservedUsd;
-  expect(storage.status(now).unknownReservedUsd).toBeCloseTo(reserved);
+  expect(storage.status(now)).toMatchObject({
+    unknownReservedUsd: 0,
+    reservedUsdToday: 0,
+    unpricedAttempts: 1,
+  });
   storage.usage(batch, { input: 1000, output: 2000, cached: null });
   storage.fail(batch, "summary_invalid_output", now + 2001);
   const status = storage.status(now);
-  expect(status.reservedUsdToday).toBeCloseTo(reserved); // no refund
+  expect(status.reservedUsdToday).toBe(0); // no fabricated reservation
+  expect(status.unpricedAttempts).toBe(0); // known Luna usage has a published estimate
   expect(status.estimatedUsdToday).toBeCloseTo(0.0011); // standard undiscounted estimate, not invoice
   expect(status.unknownReservedUsd).toBe(0);
   expect(storage.admit(now + 100000, "no-blind-retry")).toBeNull();

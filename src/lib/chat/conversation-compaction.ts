@@ -1,6 +1,5 @@
 import {
   COMPACTION_TIMEOUT_MS,
-  COMPACTION_OUTPUT_LIMIT,
   ConversationCapacityError,
   validateCompaction,
   unsafeCompactionSource,
@@ -67,34 +66,17 @@ export async function compactConversation(
     }, COMPACTION_TIMEOUT_MS);
   });
   const work = async (): Promise<boolean> => {
-    let size = eligible.length;
-    let prompt = "";
-    while (size > 0) {
-      if (expired()) return fail("timeout");
-      const sources = eligible.slice(0, size);
-      prompt = JSON.stringify({
-        previous: replay.segment.compact
-          ? { turnId: "previous-compaction", text: replay.segment.compact }
-          : null,
-        sources: sources.map(({ turnId, user, assistant }) => ({
-          turnId,
-          user,
-          assistant,
-        })),
-      });
-      stage = "candidate-accounting";
-      const input = await generation.count(
-        [{ role: "user", content: POLICY + "\n" + prompt }],
-        controller.signal,
-      );
-      if (expired()) return fail("timeout");
-      // Candidate selection only. The actual serialized generation is separately
-      // counted against 8192 including its exact policy/role framing.
-      if (input <= 7168) break;
-      size = Math.floor(size / 2);
-    }
-    if (!size) return fail("input-oversize");
-    const sources = eligible.slice(0, size);
+    const sources = eligible;
+    const prompt = JSON.stringify({
+      previous: replay.segment.compact
+        ? { turnId: "previous-compaction", text: replay.segment.compact }
+        : null,
+      sources: sources.map(({ turnId, user, assistant }) => ({
+        turnId,
+        user,
+        assistant,
+      })),
+    });
     history.assertCurrent(replay.admission);
     stage = "counted-generation";
     const result = await generation.generate(POLICY, prompt, controller.signal);
@@ -106,14 +88,6 @@ export async function compactConversation(
       replay.segment.compact,
     );
     if (!compact) return fail("invalid-output");
-    stage = "output-accounting";
-    if (
-      (await generation.count(
-        [{ role: "user", content: compact }],
-        controller.signal,
-      )) > COMPACTION_OUTPUT_LIMIT
-    )
-      return fail("output-oversize");
     if (expired()) return fail("timeout");
     history.assertCurrent(replay.admission);
     stage = "publication";

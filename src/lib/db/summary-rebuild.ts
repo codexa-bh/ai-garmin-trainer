@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
+import { summarySelection } from "../model-settings/summary-selection";
 import { getDatabase } from "./connection";
 import {
   emptySummary,
   minimizeSummarySource,
   validSummaryValue,
-  summaryLimits,
-  SUMMARY_PRICE_BASIS,
+  summaryModelAvailable,
+  summaryPriceBasis,
   type SummaryBatch,
   type SummaryCandidate,
   type SummarySource,
@@ -341,8 +342,9 @@ export function summaryRebuildInventory(configuration = "") {
     counts.messages - counts.includedUserMessages - counts.assistantContext;
   const limitExceeded =
     counts.includedUserMessages > MAX_SOURCES || scalars > MAX_SCALARS;
-  const maxBatches = counts.includedUserMessages; // Exact token admission can reduce a batch to one.
-  const allowance = summaryLimits(a.cap);
+  const selectedModel = summaryModelAvailable(a.model)
+    ? summarySelection(a.model)
+    : null;
   return {
     snapshot: hash.digest("hex"),
     authority: a,
@@ -357,20 +359,20 @@ export function summaryRebuildInventory(configuration = "") {
       reasons,
       complete: true,
       limitExceeded,
-      configuredProvider: "openai",
-      model: a.model || "unselected",
+      configuredProvider: selectedModel?.provider ?? "unselected",
+      model: selectedModel?.modelId ?? "unselected",
       enabled: a.enabled === 1,
       ready:
         a.enabled === 1 &&
-        a.model === "gpt-6-luna" &&
+        summaryModelAvailable(a.model) &&
         !limitExceeded &&
         selected.length > 0,
       estimatedUsd: {
         low: 0,
-        conservativeMaximum: maxBatches * allowance.reservedUsd,
-        priceBasis: SUMMARY_PRICE_BASIS,
+        conservativeMaximum: null as number | null,
+        priceBasis: summaryPriceBasis(a.model),
         uncertainty:
-          "Local non-generating range, not a token count or invoice. Exact serialized preflight may shrink internal batches; reservations and unknown effects are retained.",
+          "Cost is unknown before generation; no application spending cap or price qualification. Historical reservations, usage and unknown effects are retained.",
       },
       semantics:
         "Complete generated-memory replacement only after validation; manual overlays and originals remain. Existing chat pins do not refresh. Exclusion reasons are exclusive user-message categories; assistant context is counted separately and may overlap passages. Unused/duplicate/low-value dispositions are reported after processing, not as admission exclusions.",

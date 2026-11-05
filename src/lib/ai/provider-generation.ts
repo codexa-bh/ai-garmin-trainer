@@ -1,11 +1,6 @@
 import { generateText, tool, type LanguageModelUsage } from "ai";
+import { ConversationCapacityError } from "../chat/conversation-replay";
 import { trainerCompletionSchema } from "./tool-contracts";
-import { CONVERSATION_BUDGET_HEADER } from "./conversation-transport";
-import {
-  CONVERSATION_OUTPUT_LIMIT,
-  COMPACTION_OUTPUT_LIMIT,
-  ConversationCapacityError,
-} from "../chat/conversation-replay";
 import type { ConversationCompactionGeneration } from "../chat/conversation-replay";
 import { COMPLETION_TOOL } from "./turn-completion";
 
@@ -138,11 +133,7 @@ export function createConversationCompactionGeneration(
         system,
         prompt,
         maxRetries: 0,
-        maxOutputTokens: COMPACTION_OUTPUT_LIMIT,
         abortSignal: signal,
-        headers: {
-          [CONVERSATION_BUDGET_HEADER]: JSON.stringify({ kind: "compaction" }),
-        },
         providerOptions: {
           openai: {
             store: false,
@@ -160,7 +151,11 @@ export function createConversationCompactionGeneration(
 /** Bind the already-selected model; no selection, retries or disconnect signal. */
 export function createTrainerGeneration(model: unknown): TrainerGeneration {
   return async (request) => {
-    if (request.conversation && !reviewedConversationModel(model))
+    if (
+      request.conversation &&
+      !request.conversation.memoryOnly &&
+      !reviewedConversationModel(model)
+    )
       throw new Error("conversation_model_capability_unavailable");
     const controller = new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -244,18 +239,7 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
                   },
                 ]),
               ],
-              maxOutputTokens: CONVERSATION_OUTPUT_LIMIT,
               maxRetries: 0,
-              headers: {
-                [CONVERSATION_BUDGET_HEADER]: JSON.stringify({
-                  kind: "history",
-                  historyMessages: conversation.history.length,
-                  memoryTokens: conversation.memoryTokens ?? 0,
-                  allowSoftLimit:
-                    conversation.allowSoftLimit ||
-                    Boolean(request.exchanges?.length),
-                }),
-              },
             }
           : { prompt: request.prompt }),
         ...(request.purpose === "planner"
@@ -296,9 +280,13 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
               providerOptions: {
                 openai: {
                   store: false,
-                  forceReasoning: true,
-                  reasoningEffort: "none",
-                  systemMessageMode: "developer",
+                  ...(!conversation.memoryOnly
+                    ? {
+                        forceReasoning: true,
+                        reasoningEffort: "none",
+                        systemMessageMode: "developer",
+                      }
+                    : {}),
                   parallelToolCalls: false,
                   ...(cachePolicy
                     ? { promptCacheOptions: { mode: "explicit", ttl: "30m" } }

@@ -149,11 +149,12 @@ export function useMemoryFeature({
               ) ||
               !Number.isFinite(result.rebuild.estimatedUsd?.low) ||
               result.rebuild.estimatedUsd.low < 0 ||
-              !Number.isFinite(
-                result.rebuild.estimatedUsd?.conservativeMaximum,
-              ) ||
-              result.rebuild.estimatedUsd.conservativeMaximum <
-                result.rebuild.estimatedUsd.low ||
+              (result.rebuild.estimatedUsd.conservativeMaximum !== null &&
+                (!Number.isFinite(
+                  result.rebuild.estimatedUsd.conservativeMaximum,
+                ) ||
+                  result.rebuild.estimatedUsd.conservativeMaximum <
+                    result.rebuild.estimatedUsd.low)) ||
               typeof result.rebuild.capability !== "string" ||
               !result.rebuild.reasons ||
               !Object.values(result.rebuild.reasons).every(

@@ -1,4 +1,5 @@
-import { configuredSecret, getOptionalEnv } from "../env";
+import { getOptionalEnv } from "../env";
+import { summaryConfiguration } from "../memory/summary-configuration";
 import { createSummaryGeneration } from "../memory/summary-provider";
 import { minimizeSummarySource } from "../memory/summary-policy";
 import {
@@ -15,8 +16,7 @@ export async function generateConversationTitle(
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const env = getOptionalEnv();
-    const key = configuredSecret(env.OPENAI_API_KEY);
-    if (env.SUMMARY_MODEL !== "gpt-6-luna" || !key) return null;
+    if (!summaryConfiguration(env)) return null;
     const prompt = firstPrompt.slice(0, 2000);
     const safe = minimizeSummarySource({
       eventSeq: 0,
@@ -38,7 +38,7 @@ export async function generateConversationTitle(
     });
     const result = await Promise.race([
       createSummaryGeneration(
-        key,
+        env,
         fetch,
         () => !controller.signal.aborted,
         "title",

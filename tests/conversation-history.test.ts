@@ -278,25 +278,25 @@ describe("actual SQLite completion journal, segments and privacy", () => {
     expect(input.sources[0].assistant).toContain("short weekdays");
   });
 
-  it("retains unknown-outcome spend across reopen and refuses clock rollback or an eleventh attempt", () => {
+  it("retains attempt history across reopen/clock rollback without an eleventh-attempt gate", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-11-03T12:00:00Z"));
     const current = history.admit("A", "Budget");
     for (let index = 0; index < 10; index++)
       expect(history.reserveCompaction(current.admission)).toBe(true);
-    expect(history.reserveCompaction(current.admission)).toBe(false);
+    expect(history.reserveCompaction(current.admission)).toBe(true);
     const reopened = new Database(db.serialize());
     db.close();
     db = reopened;
     vi.setSystemTime(new Date("2026-11-02T12:00:00Z"));
-    expect(history.reserveCompaction(current.admission)).toBe(false);
+    expect(history.reserveCompaction(current.admission)).toBe(true);
     expect(
       db
         .prepare(
           "select sum(attempts) as attempts from conversation_compaction_spend",
         )
         .get(),
-    ).toEqual({ attempts: 10 });
+    ).toEqual({ attempts: 12 });
   });
 
   it("does not run a model for unsafe sources, invalid output, timeout or stale publication", async () => {
@@ -415,27 +415,18 @@ describe("actual SQLite completion journal, segments and privacy", () => {
     ).toEqual({ n: 0 });
   });
 
-  it("never starts generation after an ignored token-count abort expires", async () => {
+  it("does not require a tokenizer/count service for bounded source compaction", async () => {
     const { replay } = seed();
-    vi.useFakeTimers();
-    let release!: (tokens: number) => void;
-    const late = generation();
-    late.count = vi.fn(
-      () =>
-        new Promise<number>((resolve) => {
-          release = resolve;
-        }),
-    );
+    const model = generation();
+    model.count = vi.fn(() => new Promise<number>(() => {}));
     const observe = vi.fn();
-    const work = compactConversation(history, replay, late, observe);
-    await vi.advanceTimersByTimeAsync(COMPACTION_TIMEOUT_MS + 1);
-    expect(await work).toBe(false);
-    expect(observe).toHaveBeenCalledTimes(1);
-    expect(observe).toHaveBeenCalledWith("timeout", "candidate-accounting");
-    release(100);
-    await vi.runAllTimersAsync();
-    expect(late.generate).not.toHaveBeenCalled();
-    expect(history.read(replay.admission).segment.revision).toBe(0);
+    expect(await compactConversation(history, replay, model, observe)).toBe(
+      true,
+    );
+    expect(model.count).not.toHaveBeenCalled();
+    expect(model.generate).toHaveBeenCalledOnce();
+    expect(observe).toHaveBeenCalledWith("published", "publication");
+    expect(history.read(replay.admission).segment.revision).toBe(1);
   });
 
   it("wires complete ordered replay beyond forty displayed messages through one bounded compaction without duplicating the current user", async () => {

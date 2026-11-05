@@ -39,7 +39,7 @@ export type SummaryRebuildInspection = {
   reasons: Record<string, number>;
   estimatedUsd: {
     low: number;
-    conservativeMaximum: number;
+    conservativeMaximum: number | null;
     priceBasis: string;
     uncertainty: string;
   };
