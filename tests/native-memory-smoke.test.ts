@@ -37,7 +37,7 @@ beforeEach(() => {
   );
   vi.stubGlobal("innerWidth", 1280);
   vi.stubGlobal("innerHeight", 850);
-  document.body.innerHTML = `<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="settings-sheet memory-sheet" role="dialog" aria-labelledby="memory-sheet-heading"><h2 id="memory-sheet-heading">Memory</h2><div class="memory-root-card" data-memory-ready="true" data-memory-view="manage"><h3>What your trainer remembers</h3><p>private copied sentinel</p><button>Add memory</button><button>Refresh</button><button>Clear saved memory</button><section aria-label="Saved summary items"><h4>Saved memories</h4></section><section aria-label="Rebuild from chat history"><h3>Update memory from chat history</h3><p>private counts and cost</p><button disabled>Review and update</button></section><label>Memory<textarea></textarea></label><button>Save memory</button></div></aside>`;
+  document.body.innerHTML = `<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="settings-sheet memory-sheet" role="dialog" aria-labelledby="memory-sheet-heading"><h2 id="memory-sheet-heading">Memory</h2><div class="memory-root-card" data-memory-ready="true" data-memory-chat-ready="true" data-memory-view="manage"><h3>What your trainer remembers</h3><p>private copied sentinel</p><button>Add memory</button><button>Refresh</button><button>Clear saved memory</button><section aria-label="Saved summary items"><h4>Saved memories</h4></section><section aria-label="Rebuild from chat history"><h3>Update memory from chat history</h3><p>private counts and cost</p><button disabled>Review and update</button></section><label>Memory<textarea></textarea></label><button>Save memory</button></div></aside>`;
   window.eval(source);
 });
 afterEach(async () => {
@@ -82,6 +82,19 @@ it("returns closed booleans, uses only fixed run draft and preserves exact confi
   expect((await command({ type: "memory", action: "clear" })).ok).toBe(true);
   expect(clicked).toHaveBeenCalledOnce();
   expect(window.confirm).toBe(confirm);
+});
+it("waits for retained-chat startup inspection before fixed native mutations, without hiding global content", async () => {
+  const panel = document.querySelector<HTMLElement>(".memory-root-card")!;
+  panel.dataset.memoryChatReady = "false";
+  expect((await command({ type: "memory", action: "observe" })).loaded).toBe(
+    false,
+  );
+  expect(panel.dataset.memoryReady).toBe("true");
+  expect((await command({ type: "memory", action: "forget" })).ok).toBe(false);
+  panel.dataset.memoryChatReady = "true";
+  expect((await command({ type: "memory", action: "observe" })).loaded).toBe(
+    true,
+  );
 });
 it("refuses unknown/extra/private selectors, noncanonical content and debug mode without edits", async () => {
   const input = document.querySelector("textarea")!;
@@ -287,6 +300,12 @@ it("binds the finite progressive response sequence to actual production hook obs
         estimatedUsdToday: 0,
         unknownReservedUsd: 0,
         priceBasis: "authored",
+        selectedChat: {
+          conversationId: "A",
+          segmentRevision: 0,
+          pin: null,
+          reason: null,
+        },
       }),
     ),
   );

@@ -648,7 +648,12 @@
       visible: !!panel && visible(panel),
       loaded:
         panel?.getAttribute("data-memory-ready") === "true" &&
-        !memoryFixtureRestoring,
+        !memoryFixtureRestoring &&
+        // This finite native recipe has retained chats. Wait for their startup
+        // selection inspection before opening a snapshot-bound confirmation.
+        // Global content itself remains usable while that passive read settles.
+        (memoryFixture !== null ||
+          panel?.getAttribute("data-memory-chat-ready") === "true"),
       presentationFixture: memoryFixture !== null || memoryFixtureRestoring,
       progressiveComplete:
         memoryFixture === "fixture-progressive" &&

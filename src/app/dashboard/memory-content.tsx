@@ -159,6 +159,7 @@ export function MemoryContent({
       className="memory-root-card"
       aria-label="Cross-chat memory"
       data-memory-ready={!!memory && !isMemoryLoading}
+      data-memory-chat-ready={!!memory?.selectedChat}
       data-memory-view={view}
       ref={root}
       onKeyDown={(event) => {
