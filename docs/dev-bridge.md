@@ -495,23 +495,38 @@ bundle replacement and normal-app stop/restart still require separate exact appr
 uses existing explicit ordinary keyless local Settings/history admission on a fresh
 built-in synthetic online copy. No provider descriptor, private-slot lookup, keys,
 connector or paid call is admitted. The existing native-local controller adds only
-`summaryOn` / `summaryOff` (fixed shared summary/title Luna/6000, enabled true/false) and
-`captureSummaryWide` / `captureSummaryNarrow` (fixed1000x1000/420x1000). No caller
+`summaryOn` / `summaryOff` (fixed shared summary/title Luna/6000, enabled true/false),
+`historyRequired` (enabled with an explicitly empty required date), and
+`captureSummaryWide` / `captureSummaryNarrow` plus `captureHistoryWide` /
+`captureHistoryNarrow` (fixed1000x1000/420x1000). Existing `legacyLimit` selects only
+2024-01-01; `automatic` disables the limit without clearing the unsaved draft. No caller
 value/selector/path/eval/invoke is accepted; original document/run/boot/request,
 visibility, keyless-save, bounds/deadline/unknown-effect guards remain. Observations
-add only fixed `summaryOn` / `summaryOff` booleans. Normal/default/provider modes
+add only fixed `summaryOn` / `summaryOff`, `historyDateVisible`, `historyDateRequired`
+and structural `technicalControlsAbsent` booleans. The latter requires removed
+section/status IDs to be absent and the complete19-field preserved inventory hidden/inert;
+privacy masks alone never prove removal. Normal/default/provider modes
 still deny these Settings actions; T0270's paid preset cannot combine with this scope.
 
 Synthetic form events exercise the real existing Save owner, pending restart notice
 and reload. On and Off remain unapplied until owned restart; chat catalog/eligibility
 stays unchanged, zero source backlog/attempts forbids inference, and saved fields/empty
-keys/original data remain verified. Captures reveal only verified static three-scalar
-shared-summary/title labels and exact On/Off/Luna/6000 controls, preserving their geometry; all private
-paths, credentials/status/other form data stay hidden. Text-free ancestor containers
+keys/original data remain verified. The scenario preserves exact custom legacy values
+and all five executable overrides across Save/reload/owned restart. It proves enabled
+empty-date Save is blocked without a write, saved valid history survives restart, and
+explicit Off-and-Save clears only the limit. Captures reveal strictly verified static
+concise Memory privacy/cost/Off/shared-title guidance, three labels and exact
+On/Off/Luna/6000 controls, a finite draft/saved/restart line, and separate history
+Off/empty-required/fixed-date states at both widths. Geometry is preserved; all private
+paths, keys, unrelated status and other form data stay hidden. Text-free ancestor containers
 are revealed only after direct-text checks so WebKit can paint the masked scrolling
 subtree; every unrelated descendant remains individually hidden. Unknown copy/nesting/options,
 noncanonical values or ineffective masks refuse; native finally and renderer expiry
-restore viewport/styles. Inspect both widths/states. This is actual unmodified ordinary
+restore viewport/styles. Inspect all relied-on widths/states, including native empty-date presentation;
+no date default is manufactured. The literal YYYY-MM-DD editor avoids WebKit's
+empty native date affordance painting today even while valueMissing is true.
+Synthetic observation establishes this possible display mechanism, not the
+provenance of an operator's previously displayed date. This is actual unmodified ordinary
 artifact/keyless Settings behavior with synthetic DOM input, not trusted input,
 primary settings, live keys or normal-singleton activation. Validate native/DOM/runner
 contracts, affected aggregate/current artifact before use; retain originals and settle

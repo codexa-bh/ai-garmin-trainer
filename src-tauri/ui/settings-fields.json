@@ -11,7 +11,7 @@
   },
   {
     "key": "GARMIN_HISTORY_START_DATE",
-    "label": "Optional exploration limit date — required only when enabled (not remote coverage)",
+    "label": "Import from",
     "type": "date",
     "advanced": true
   },
@@ -60,17 +60,17 @@
   },
   {
     "key": "SUMMARY_ENABLED",
-    "label": "Cross-chat summary processing — stable pins in qualified chats",
+    "label": "Remember across chats",
     "options": ["false", "true"]
   },
   {
     "key": "SUMMARY_MODEL",
-    "label": "Shared summary and title model — minimized cloud context; no fallback",
+    "label": "Memory and automatic chat-title model",
     "options": ["unselected", "gpt-6-luna"]
   },
   {
     "key": "SUMMARY_CHAR_LIMIT",
-    "label": "Summary character limit (Unicode scalars, 1000–20000)",
+    "label": "Memory size (characters)",
     "type": "number",
     "default": "6000"
   },

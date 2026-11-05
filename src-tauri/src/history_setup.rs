@@ -18,11 +18,14 @@ pub enum Action {
     DismissRestart,
     Automatic,
     LegacyLimit,
+    HistoryRequired,
     Capture,
     SummaryOn,
     SummaryOff,
     CaptureSummaryWide,
     CaptureSummaryNarrow,
+    CaptureHistoryWide,
+    CaptureHistoryNarrow,
     Close,
 }
 #[derive(Default, Deserialize, Serialize)]
@@ -52,6 +55,9 @@ struct Observation {
     private_controls_absent: bool,
     summary_on: bool,
     summary_off: bool,
+    history_date_visible: bool,
+    history_date_required: bool,
+    technical_controls_absent: bool,
 }
 pub fn document(url: &tauri::Url) -> bool {
     url.scheme() == "tauri"
@@ -64,7 +70,7 @@ pub fn document(url: &tauri::Url) -> bool {
 fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, String> {
     use objc2::{class, msg_send, runtime::AnyObject};
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerHistorySetup ? window.__trainerHistorySetup({}) : {{ok:true,ready:false,formValid:false,firstRun:false,dataStep:false,reviewStep:false,automaticHistory:false,legacyLimit:false,savedForNextLaunch:false,saveSubmitted:false,saveRequested:false,historyValidationBlocked:false,historyBadInput:false,historyValueMissing:false,otherValidationBlocked:false,documentVisible:false,formConnected:false,saveRejected:false,settingsUnavailable:false,commandPermissionDenied:false,commandArgumentsInvalid:false,privateControlsAbsent:false,summaryOn:false,summaryOff:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerHistorySetup ? window.__trainerHistorySetup({}) : {{ok:true,ready:false,formValid:false,firstRun:false,dataStep:false,reviewStep:false,automaticHistory:false,legacyLimit:false,savedForNextLaunch:false,saveSubmitted:false,saveRequested:false,historyValidationBlocked:false,historyBadInput:false,historyValueMissing:false,otherValidationBlocked:false,documentVisible:false,formConnected:false,saveRejected:false,settingsUnavailable:false,commandPermissionDenied:false,commandArgumentsInvalid:false,privateControlsAbsent:false,summaryOn:false,summaryOff:false,historyDateVisible:false,historyDateRequired:false,technicalControlsAbsent:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -172,7 +178,11 @@ pub fn execute(app: &tauri::AppHandle, action: Action) -> Result<Value, String> 
     }
     if matches!(
         action,
-        Action::Capture | Action::CaptureSummaryWide | Action::CaptureSummaryNarrow
+        Action::Capture
+            | Action::CaptureSummaryWide
+            | Action::CaptureSummaryNarrow
+            | Action::CaptureHistoryWide
+            | Action::CaptureHistoryNarrow
     ) {
         let previous = if matches!(action, Action::Capture) {
             None
@@ -180,7 +190,10 @@ pub fn execute(app: &tauri::AppHandle, action: Action) -> Result<Value, String> 
             let previous = window
                 .inner_size()
                 .map_err(|_| "Summary viewport unavailable")?;
-            let width = if matches!(action, Action::CaptureSummaryWide) {
+            let width = if matches!(
+                action,
+                Action::CaptureSummaryWide | Action::CaptureHistoryWide
+            ) {
                 1000.0
             } else {
                 420.0
@@ -190,6 +203,11 @@ pub fn execute(app: &tauri::AppHandle, action: Action) -> Result<Value, String> 
                 .map_err(|_| "Summary viewport refused")?;
             Some(previous)
         };
+        // Window resize and WebKit layout are asynchronous. Settle the fixed
+        // viewport before evaluating its scroll/mask, not only before PNG capture.
+        if previous.is_some() {
+            std::thread::sleep(Duration::from_millis(150));
+        }
         let result = (|| {
             if !evaluate(&window, &action)?.ok {
                 return Err("History setup sanitizer refused".into());
@@ -242,6 +260,24 @@ mod tests {
         assert!(!document(&"about:blank".parse().unwrap()));
     }
     #[test]
+    fn presentation_observations_remain_boolean_only_and_bounded() {
+        let value = serde_json::to_value(Observation::default()).unwrap();
+        assert!(serde_json::from_value::<Observation>(value.clone()).is_ok());
+        assert!(serde_json::to_vec(&value).unwrap().len() < 1024);
+        for key in [
+            "historyDateVisible",
+            "historyDateRequired",
+            "technicalControlsAbsent",
+        ] {
+            let mut invalid = value.clone();
+            invalid[key] = json!("private text");
+            assert!(serde_json::from_value::<Observation>(invalid).is_err());
+        }
+        let mut extra = value;
+        extra["private"] = json!(true);
+        assert!(serde_json::from_value::<Observation>(extra).is_err());
+    }
+    #[test]
     fn actions_results_and_local_document_are_closed() {
         for action in ["input", "auth", "mfa", "adopt", "picker", "eval"] {
             assert!(serde_json::from_value::<Action>(json!(action)).is_err());
@@ -252,6 +288,9 @@ mod tests {
             "summaryOff",
             "captureSummaryWide",
             "captureSummaryNarrow",
+            "historyRequired",
+            "captureHistoryWide",
+            "captureHistoryNarrow",
         ] {
             assert!(serde_json::from_value::<Action>(json!(action)).is_ok());
             assert!(serde_json::from_value::<Action>(

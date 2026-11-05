@@ -17,11 +17,12 @@ and real-provider semantic quality are distinct evidence.
 
 Native Settings → Memory exposes:
 
-- **Cross-chat summary processing**, default Off.
-- **Shared summary and title model**, default Unselected. Only reviewed direct
+- **Remember across chats**, default Off; stops summary use/new processing without
+  deleting stored data or disabling automatic titles.
+- **Memory and automatic chat-title model**, default Unselected. Only reviewed direct
   OpenAI `gpt-6-luna` is supported; chat choice remains separate. No model/account
   fallback is substituted.
-- **Summary character limit**, default6000 Unicode scalars, integer1000–20000.
+- **Memory size (characters)**, default6000 Unicode scalars, integer1000–20000.
 
 Enabled summary processing has no daily attempt/spend ceiling. Larger memory can
 cost more. Memory separates observed-token estimates, conservative size-aware
@@ -35,10 +36,13 @@ N and processing topology stay pending until explicit quit/reopen. Live shared-k
 updates retain their existing acknowledgment/captured-work rules. Unchanged saved
 On does not override an immediate Trainer Disable.
 
-Native **Read active memory status** is fixed metadata only: configured versus
-immediate processing state, shared model enum, N, revision/frontier/pending. It
-makes no provider request or legacy migration and certifies neither remote readiness
-nor actual selected-chat consumption. Draft/saved/active state stays distinct.
+Settings shows draft versus saved startup configuration, not running readiness.
+Technical/legacy disclosures, executable-path editors and the memory-status button
+are absent; complete saved compatibility/override fields still round-trip through
+native validation, including failure/reload/adoption. The retained setup-only native
+`read_memory_status` command remains fixed summary metadata, not memory content,
+provider probing or proof of selected-chat consumption. No automatic UI read replaces
+its removed button. Trainer → Memory retains the actual pin and immediate controls.
 
 ## Stable memory and visible controls
 

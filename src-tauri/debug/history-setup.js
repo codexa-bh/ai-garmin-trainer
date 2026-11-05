@@ -45,7 +45,13 @@
       firstRun: visible(byId("wizard")),
       dataStep: visible(byId("database-choice")) && visible(byId("data-step")),
       reviewStep: visible(byId("review")),
-      automaticHistory: !byId("history-limited")?.checked && date?.value === "",
+      automaticHistory:
+        !byId("history-limited")?.checked &&
+        date?.disabled === true &&
+        date?.closest("label")?.hidden === true,
+      historyDateVisible: visible(date),
+      historyDateRequired: date?.required === true,
+      technicalControlsAbsent: technicalControlsAbsent(),
       legacyLimit:
         byId("history-limited")?.checked === true &&
         date?.value === "2024-01-01",
@@ -111,37 +117,55 @@
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   };
-  const technical = () => {
-    const details = byId("advanced-settings");
-    if (!details.open) details.querySelector(":scope > summary").click();
-  };
+  const technicalControlsAbsent = () =>
+    [
+      "advanced-settings",
+      "memory-configuration",
+      "memory-technical",
+      "external-tools",
+      "advanced",
+      "extraction-compatibility",
+      "memory-active",
+      "memory-check",
+    ].every((id) => !byId(id)) &&
+    [
+      ...document.querySelectorAll(
+        "#preserved-fields input, #preserved-fields select",
+      ),
+    ].length === 19 &&
+    byId("preserved-fields")?.matches("[hidden][inert]") === true;
   const summarySection = () => {
-    const section = byId("memory-configuration");
-    if (!section.open) section.querySelector(":scope > summary").click();
+    if (!visible(byId("memory-section"))) throw Error("Unavailable Memory");
+  };
+  const staticCopy = (id, text) => {
+    const el = byId(id);
+    if (
+      !el ||
+      el.childElementCount ||
+      el.textContent.replace(/\s+/g, " ").trim() !== text
+    )
+      throw Error("Unknown static copy");
+    return el;
   };
   function summaryLabels() {
     const specs = [
       [
         "SUMMARY_ENABLED",
-        "Cross-chat summary processing — stable pins in qualified chats",
+        "Remember across chats",
         [
-          ["false", "Off (preserves stored summary)"],
-          ["true", "On — after explicit quit/reopen"],
+          ["false", "Off"],
+          ["true", "On"],
         ],
       ],
       [
         "SUMMARY_MODEL",
-        "Shared summary and title model — minimized cloud context; no fallback",
+        "Memory and automatic chat-title model",
         [
-          ["unselected", "Unselected — no summary/title calls"],
-          ["gpt-6-luna", "OpenAI · gpt-6-luna (summary and titles)"],
+          ["unselected", "Unselected"],
+          ["gpt-6-luna", "OpenAI · gpt-6-luna"],
         ],
       ],
-      [
-        "SUMMARY_CHAR_LIMIT",
-        "Summary character limit (Unicode scalars, 1000–20000)",
-        null,
-      ],
+      ["SUMMARY_CHAR_LIMIT", "Memory size (characters)", null],
     ];
     return specs.map(([id, text, options]) => {
       const control = byId(id),
@@ -248,17 +272,23 @@
           break;
         case "automatic":
         case "legacyLimit":
-          technical();
-          if (byId("history-limited").checked !== (action === "legacyLimit"))
+        case "historyRequired":
+          if (byId("history-limited").checked !== (action !== "automatic"))
             click("history-limited");
-          if (action === "legacyLimit")
-            set(byId("GARMIN_HISTORY_START_DATE"), "2024-01-01");
+          if (action !== "automatic")
+            set(
+              byId("GARMIN_HISTORY_START_DATE"),
+              action === "legacyLimit" ? "2024-01-01" : "",
+            );
           break;
         case "captureSummaryWide":
-        case "captureSummaryNarrow": {
+        case "captureSummaryNarrow":
+        case "captureHistoryWide":
+        case "captureHistoryNarrow": {
           const state = observe();
           if (
             !state.privateControlsAbsent ||
+            !state.technicalControlsAbsent ||
             state.firstRun ||
             (!state.summaryOn && !state.summaryOff)
           )
@@ -266,8 +296,90 @@
           restore();
           scroll = window.scrollY;
           summarySection();
-          const labels = summaryLabels();
-          labels[0].scrollIntoView({ block: "start" });
+          const history = action.startsWith("captureHistory");
+          let labels;
+          if (history) {
+            const choice = byId("history-limited"),
+              date = byId("GARMIN_HISTORY_START_DATE");
+            const label = choice?.parentElement;
+            if (
+              !label ||
+              label.tagName !== "LABEL" ||
+              label.childNodes.length !== 2 ||
+              label.firstElementChild !== choice ||
+              label.childElementCount !== 1 ||
+              label.lastChild.textContent.replace(/\s+/g, " ").trim() !==
+                "Limit how far back to import" ||
+              choice.type !== "checkbox" ||
+              date.type !== "text" ||
+              date.placeholder !== "YYYY-MM-DD" ||
+              date.pattern !== "[0-9]{4}-[0-9]{2}-[0-9]{2}" ||
+              date.closest("label").firstChild.textContent !== "Import from" ||
+              date.closest("label").childNodes.length !== 2 ||
+              (!state.automaticHistory &&
+                !state.legacyLimit &&
+                !(
+                  state.historyDateVisible &&
+                  state.historyDateRequired &&
+                  date.value === ""
+                ))
+            )
+              throw Error("Noncanonical history copy/state");
+            labels = [
+              byId("history-options").querySelector("legend"),
+              label,
+              staticCopy(
+                "history-help",
+                "Limits older exploration, not latest sync. Off allows automatic discovery; a limit does not prove remote coverage. Save, then quit and reopen to apply.",
+              ),
+            ];
+            if (
+              labels[0].childElementCount ||
+              labels[0].textContent !== "Garmin history"
+            )
+              throw Error("Unknown history heading");
+            if (choice.checked) labels.push(date.closest("label"));
+            // History is at the end of Settings; after a resize, stale scroll
+            // geometry can leave it below the viewport. Native settles resize
+            // before this fixed scroll, without changing page layout.
+          } else {
+            labels = [
+              ...summaryLabels(),
+              staticCopy(
+                "memory-help",
+                "Keep useful decisions, preferences and constraints between chats. Eligible conversation context may be sent to the selected provider. Larger memory can cost more; automatic summaries have no daily spending cap.",
+              ),
+              staticCopy(
+                "memory-model-help",
+                "Shared by memory summaries and automatic chat titles, separate from Trainer’s chat model. Memory is used in supported OpenAI gpt-6-luna chats.",
+              ),
+              staticCopy(
+                "memory-size-help",
+                "1,000–20,000 Unicode characters.",
+              ),
+              staticCopy(
+                "memory-off-help",
+                "Off stops summary use and new processing. Stored data stays; automatic titles continue. Trainer → Memory disables memory immediately; saving On does not undo it.",
+              ),
+            ];
+            const legend = byId("memory-section").querySelector("legend");
+            if (legend.childElementCount || legend.textContent !== "Memory")
+              throw Error("Unknown Memory heading");
+            labels.push(legend);
+            const draft = byId("memory-draft");
+            if (
+              !draft ||
+              draft.childElementCount ||
+              !/^Draft: (On|Off)\. Saved startup setting: (On|Off)\. (Unsaved changes\. )?Save, then quit and reopen to apply memory changes\.$/.test(
+                draft.textContent,
+              )
+            )
+              throw Error("Unknown draft copy");
+            labels.push(draft);
+          }
+          byId(history ? "history-options" : "memory-section").scrollIntoView({
+            block: "start",
+          });
           for (const el of document.body.querySelectorAll("*"))
             if (el instanceof HTMLElement) style(el, "visibility", "hidden");
           // WebKit can omit visible descendants of a hidden scrolling ancestor.
@@ -315,7 +427,6 @@
             throw Error("Unsafe capture");
           restore();
           scroll = window.scrollY;
-          if (!state.firstRun) technical();
           (state.dataStep
             ? byId("data-step")
             : state.firstRun
@@ -327,7 +438,7 @@
           // The closed database-operation labels are public too. Hiding option
           // children can make WebKit snapshots paint a stale first-option label.
           for (const el of document.querySelectorAll(
-            "h1, #wizard, #wizard p, #data-step legend, #data-step label, #database-selection, #database-selection option, #advanced-settings > summary, #history-options, #history-options *, #review h2, #save, #back, #next, #cancel",
+            "h1, #wizard, #wizard p, #data-step legend, #data-step label, #database-selection, #database-selection option, #history-options, #history-options *, #review h2, #save, #back, #next, #cancel",
           )) {
             if (el instanceof HTMLElement) style(el, "visibility", "visible");
           }
@@ -347,9 +458,13 @@
       return observe();
     } catch {
       if (
-        ["capture", "captureSummaryWide", "captureSummaryNarrow"].includes(
-          action,
-        )
+        [
+          "capture",
+          "captureSummaryWide",
+          "captureSummaryNarrow",
+          "captureHistoryWide",
+          "captureHistoryNarrow",
+        ].includes(action)
       )
         restore();
       return { ...observe(), ok: false };
