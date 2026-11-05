@@ -872,6 +872,7 @@
       "Nothing saved here yet. Add something you want your trainer to remember, or update from past conversations below.",
       "On · Add the provider key in Settings to process memory.",
       "Off · Saved items retained",
+      "On · No saved memories",
       "Includes your own saved text.",
       "Manually saved",
       "Saved from conversations",

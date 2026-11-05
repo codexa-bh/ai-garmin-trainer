@@ -49,7 +49,9 @@ export function memoryStatus(memory: SummaryInspection) {
   return memory.state === "never-produced"
     ? "No automatic memory saved yet"
     : memory.state === "fresh"
-      ? "Saved memory available"
+      ? memory.stored.items.length
+        ? "Saved memory available"
+        : "No saved memories"
       : "Saved memory unavailable · check again";
 }
 

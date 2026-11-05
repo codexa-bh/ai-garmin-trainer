@@ -649,6 +649,12 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect(document.querySelector(".memory-facts,table,dl")).toBeNull();
     expect(screen.queryByText("synthetic-review-basis")).toBeNull();
   });
+  it("does not claim saved memory is available for a valid empty published revision", async () => {
+    await mountMemory(snapshot());
+    expect(screen.getByText(/No saved memories/)).toBeTruthy();
+    expect(screen.queryByText(/Saved memory available|up to date/)).toBeNull();
+    expect(screen.getByText(/Nothing saved here yet/)).toBeTruthy();
+  });
   it("guards dirty cancel, adds with exact authority, and gives action-specific feedback", async () => {
     const value = snapshot();
     const fetcher = await mountMemory(value);
