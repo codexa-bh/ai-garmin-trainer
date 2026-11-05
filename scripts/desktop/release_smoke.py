@@ -23,7 +23,7 @@ MARKERS = [b'Smoke must use its exact private config/HOME/temp', b'com.codexa.ga
            b'Local key deadline: effect unknown', b'Disclosure focus refused; no key dispatched']
 # Optimizers may encode CLI comparisons as instructions rather than contiguous strings.
 # Require the versioned identity contract actually serialized by the live endpoint instead.
-REQUIRED = [b'trainer-ordinary-isolated/v1', b'allow-isolated-result', b'__trainerOrdinaryIsolated',
+REQUIRED = [b'trainer-ordinary-isolated/v2', b'allow-isolated-result', b'__trainerOrdinaryIsolated',
             b'Isolated ordinary-run admission refused']
 APP = REPO / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
 
@@ -35,7 +35,11 @@ def audit(app):
         if file.is_symlink():
             raise ValueError('Unexpected alias in production artifact')
         if not file.is_file():
+            if not file.is_dir():
+                raise ValueError('Unexpected production artifact object')
             continue
+        if file.stat().st_nlink != 1:
+            raise ValueError('Hardlinked production artifact refused')
         data = file.read_bytes()
         if any(marker in data for marker in MARKERS):
             raise ValueError('Debug/probe surface marker in ordinary production artifact: ' + str(file.relative_to(app)))

@@ -11,6 +11,16 @@ const inputs = JSON.parse(
 );
 if (process.platform !== "darwin" || process.arch !== "arm64")
   throw new Error("Desktop assembly requires macOS ARM64.");
+const identity = JSON.parse(
+  execFileSync(
+    "python3",
+    [
+      "-c",
+      "import json; from pathlib import Path; import sys; sys.path.insert(0, 'scripts/desktop'); from ordinary_identity import source_snapshot, context_identity; r=Path.cwd(); s=source_snapshot(r); c=context_identity(r,s); print(json.dumps({**s, 'context':c['key'], 'components':c['components']}))",
+    ],
+    { cwd: root, encoding: "utf8" },
+  ),
+);
 const resources = join(root, "src-tauri/resources");
 const target = join(resources, "runtime");
 const cache = join(root, "dist/desktop-inputs");
@@ -164,15 +174,11 @@ await writeFile(
   join(resources, "provenance.json"),
   JSON.stringify(
     {
-      version: 1,
-      sourceFingerprint: execFileSync(
-        "python3",
-        [
-          "-c",
-          "import sys; sys.path.insert(0, 'scripts/desktop'); from native_smoke import source_identity; print(source_identity())",
-        ],
-        { cwd: root, encoding: "utf8" },
-      ).trim(),
+      version: 2,
+      sourceFingerprint: identity.source,
+      buildSourceFingerprint: identity.buildSource,
+      buildContext: identity.context,
+      buildContextComponents: identity.components,
       inputs,
       source: execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: root,

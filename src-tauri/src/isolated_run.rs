@@ -10,7 +10,7 @@ use std::{
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
-pub const CONTRACT: &str = "trainer-ordinary-isolated/v1";
+pub const CONTRACT: &str = "trainer-ordinary-isolated/v2";
 const DENIED: &str = "Isolated ordinary-run admission refused; no normal-state fallback.";
 const DIRECTORIES: [&str; 7] = [
     "config",
@@ -36,6 +36,8 @@ pub struct Descriptor {
     pub run_id: String,
     pub root: PathBuf,
     pub source_fingerprint: String,
+    pub build_source_fingerprint: String,
+    pub build_context: String,
     pub artifact_inventory_hash: String,
     pub control_port: u16,
     pub capability: String,
@@ -83,7 +85,7 @@ pub fn intent(args: &[std::ffi::OsString]) -> Result<Option<PathBuf>, &'static s
 impl Descriptor {
     fn validate(&self, path: &Path) -> Result<(), &'static str> {
         if (self.provider_smoke.is_some() && self.history_setup.is_some())
-            || self.schema_version != 1
+            || self.schema_version != 2
             || uuid::Uuid::parse_str(&self.run_id)
                 .map(|id| id.to_string())
                 .ok()
@@ -91,6 +93,8 @@ impl Descriptor {
                 != Some(self.run_id.as_str())
             || !hex(&self.capability)
             || !hex(&self.source_fingerprint)
+            || !hex(&self.build_source_fingerprint)
+            || !hex(&self.build_context)
             || !hex(&self.artifact_inventory_hash)
             || self.control_port < 1024
             || self.root.file_name().and_then(|p| p.to_str())
@@ -180,6 +184,32 @@ fn inventory(
     Ok(())
 }
 
+fn verify_build_identity(
+    provenance: &serde_json::Value,
+    descriptor: &Descriptor,
+    compiled: [Option<&str>; 3],
+) -> Result<(), &'static str> {
+    if provenance["version"].as_u64() != Some(2) {
+        return Err(DENIED);
+    }
+    for ((field, expected), compiled) in [
+        ("sourceFingerprint", descriptor.source_fingerprint.as_str()),
+        (
+            "buildSourceFingerprint",
+            descriptor.build_source_fingerprint.as_str(),
+        ),
+        ("buildContext", descriptor.build_context.as_str()),
+    ]
+    .into_iter()
+    .zip(compiled)
+    {
+        if provenance[field].as_str() != Some(expected) || compiled != Some(expected) {
+            return Err(DENIED);
+        }
+    }
+    Ok(())
+}
+
 fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
     let executable = std::env::current_exe().map_err(|_| DENIED)?;
     if executable.file_name().and_then(|p| p.to_str()) != Some("garmin-trainer-desktop") {
@@ -216,11 +246,15 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
     }
     let provenance: serde_json::Value =
         serde_json::from_slice(&fs::read(path).map_err(|_| DENIED)?).map_err(|_| DENIED)?;
-    if provenance["sourceFingerprint"].as_str() != Some(descriptor.source_fingerprint.as_str())
-        || option_env!("TRAINER_ORDINARY_SOURCE") != Some(descriptor.source_fingerprint.as_str())
-    {
-        return Err(DENIED);
-    }
+    verify_build_identity(
+        &provenance,
+        descriptor,
+        [
+            option_env!("TRAINER_ORDINARY_SOURCE"),
+            option_env!("TRAINER_ORDINARY_BUILD_SOURCE"),
+            option_env!("TRAINER_ORDINARY_BUILD_CONTEXT"),
+        ],
+    )?;
     for entry in provenance["files"]
         .as_array()
         .filter(|a| !a.is_empty() && a.len() <= 50_000)
@@ -610,9 +644,47 @@ mod tests {
         );
         write(root.join("config/settings-v2.json"), serde_json::to_vec(&serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")}})).unwrap());
         let path = root.join("launch.json");
-        write(path.clone(), serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"runId":id,"root":root,"sourceFingerprint":"a".repeat(64),"artifactInventoryHash":"b".repeat(64),"controlPort":23567,"capability":"c".repeat(64)})).unwrap());
+        write(path.clone(), serde_json::to_vec(&serde_json::json!({"schemaVersion":2,"runId":id,"root":root,"sourceFingerprint":"a".repeat(64),"buildSourceFingerprint":"d".repeat(64),"buildContext":"e".repeat(64),"artifactInventoryHash":"b".repeat(64),"controlPort":23567,"capability":"c".repeat(64)})).unwrap());
         (root, path)
     }
+    #[test]
+    fn separated_build_identity_requires_exact_versioned_compiled_resource_descriptor_agreement() {
+        let (root, path) = fixture();
+        let bytes = fs::read(&path).unwrap();
+        let descriptor: Descriptor = serde_json::from_slice(&bytes).unwrap();
+        let good = serde_json::json!({"version":2,"sourceFingerprint":"a".repeat(64),"buildSourceFingerprint":"d".repeat(64),"buildContext":"e".repeat(64)});
+        let compiled = [
+            Some(descriptor.source_fingerprint.as_str()),
+            Some(descriptor.build_source_fingerprint.as_str()),
+            Some(descriptor.build_context.as_str()),
+        ];
+        assert!(verify_build_identity(&good, &descriptor, compiled).is_ok());
+        for field in [
+            "version",
+            "sourceFingerprint",
+            "buildSourceFingerprint",
+            "buildContext",
+        ] {
+            let mut bad = good.clone();
+            bad[field] = serde_json::json!("unsupported-or-mismatch");
+            assert!(verify_build_identity(&bad, &descriptor, compiled).is_err());
+            bad.as_object_mut().unwrap().remove(field);
+            assert!(verify_build_identity(&bad, &descriptor, compiled).is_err());
+        }
+        for index in 0..3 {
+            let mut bad = compiled;
+            bad[index] = None;
+            assert!(verify_build_identity(&good, &descriptor, bad).is_err());
+            bad[index] = Some("wrong compiled identity");
+            assert!(verify_build_identity(&good, &descriptor, bad).is_err());
+        }
+        let mut legacy: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        legacy["schemaVersion"] = serde_json::json!(1);
+        fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert!(Admission::admit(&path, |_| Ok(())).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn owner_loss_is_bounded_and_does_not_need_a_saved_pid() {
         use std::os::unix::net::UnixStream;

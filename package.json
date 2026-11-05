@@ -4,7 +4,7 @@
     "desktop:resources": "npm run build && npm run desktop:assemble",
     "desktop:assemble": "node scripts/desktop/assemble.mjs",
     "smoke:quick": "python3 scripts/desktop/quick_smoke.py",
-    "desktop:build": "npm run desktop:resources && tauri build --target aarch64-apple-darwin --bundles app --no-sign --no-binary-patching --ci",
+    "desktop:build": "python3 scripts/desktop/ordinary_identity.py",
     "desktop:dev": "npm run desktop:resources && tauri dev",
     "smoke:native": "python3 scripts/desktop/native_smoke.py",
     "smoke:prepare": "python3 scripts/desktop/smoke_input.py",

@@ -51,20 +51,30 @@ def tree_digest(root, *, dependencies=False):
     return digest.hexdigest()
 
 
-def build_key(repo, source, mode):
+def build_inputs(repo, source, mode):
     tools = [['node', '--version'], ['npm', '--version'], ['rustc', '-vV'], ['cargo', '--version'],
              ['xcrun', '--show-sdk-version']]
+    if mode == 'ordinary-release/v2':
+        tools += [['python3', '--version'], ['xcrun', '--show-sdk-path'], ['xcrun', 'clang', '--version']]
     versions = [subprocess.check_output(command, cwd=repo, timeout=20, stderr=subprocess.STDOUT).decode().strip() for command in tools]
     # Include installed bytes, not only lockfile/HEAD or npm's installed-lock claim.
     dependencies = repo / 'node_modules'
     if not (dependencies / '.package-lock.json').is_file():
         raise ValueError('Locked local npm installation required')
     environment = {key: value for key, value in os.environ.items() if re.match(
-        r'^(PATH$|SDKROOT$|DEVELOPER_DIR$|TOOLCHAINS$|MACOSX_DEPLOYMENT_TARGET$|SOURCE_DATE_EPOCH$|ARCHFLAGS$|CC$|CXX$|CFLAGS$|CXXFLAGS$|CPPFLAGS$|LDFLAGS$|CCACHE|CMAKE|PKG_CONFIG|RUST|CARGO|NODE_|NEXT_|TAURI_|TRAINER_|npm_config_)', key)}
+        r'^(PATH$|SDKROOT$|DEVELOPER_DIR$|TOOLCHAINS$|MACOSX_DEPLOYMENT_TARGET$|SOURCE_DATE_EPOCH$|ARCHFLAGS$|CC$|CXX$|CFLAGS$|CXXFLAGS$|CPPFLAGS$|LDFLAGS$|CCACHE|CMAKE|PKG_CONFIG|RUST|CARGO|NODE_|NEXT_|TAURI_|TRAINER_|npm_config_|CI$|PYTHON|UV_|BABEL_ENV$|BROWSERSLIST|LANG$|LC_|TZ$|TMPDIR$)', key)}
+    if 'PATH' in environment:
+        # Nested npm run prepends the same search directories repeatedly. Removing
+        # later exact duplicates preserves resolution/order, unlike dropping PATH.
+        environment['PATH'] = os.pathsep.join(dict.fromkeys(environment['PATH'].split(os.pathsep)))
     identity = repo.stat()
-    return hashlib.sha256(json.dumps({'version': 1, 'worktree': [str(repo), identity.st_dev, identity.st_ino],
-        'source': source, 'mode': mode, 'platform': [platform.system(), platform.machine()],
-        'tools': versions, 'environment': environment, 'dependencies': tree_digest(dependencies, dependencies=True)}, sort_keys=True).encode()).hexdigest()
+    return {'version': 1, 'worktree': [str(repo), identity.st_dev, identity.st_ino],
+            'source': source, 'mode': mode, 'platform': [platform.system(), platform.machine()],
+            'tools': versions, 'environment': environment, 'dependencies': tree_digest(dependencies, dependencies=True)}
+
+
+def build_key(repo, source, mode):
+    return hashlib.sha256(json.dumps(build_inputs(repo, source, mode), sort_keys=True).encode()).hexdigest()
 
 
 def prepare(repo, scratch, source, source_identity, verify_resources, *, resources_ready=False, mode='debug'):
@@ -133,13 +143,15 @@ def prepare(repo, scratch, source, source_identity, verify_resources, *, resourc
         return destination
 
 
-def observer_binary(repo):
+def observer_binary(repo, *, preparation_locked=False):
     """Compile Swift once per verified compiler/source; execution still has its own child/log."""
     dist = repo / 'dist'
     dist.mkdir(exist_ok=True)
     if dist.is_symlink() or dist.resolve(strict=True) != dist:
         raise ValueError('Canonical observer preparation directory required')
-    with preparation_lock(dist):
+    # Ordinary execution already holds this exact lock through the whole run.
+    # Reopening/flocking another fd would deadlock rather than add protection.
+    with contextlib.nullcontext() if preparation_locked else preparation_lock(dist):
         source = repo / 'scripts/desktop/native_observer.swift'
         compiler = subprocess.check_output(['xcrun', 'swiftc', '--version'], timeout=20)
         sdk = subprocess.check_output(['xcrun', '--show-sdk-version'], timeout=20)

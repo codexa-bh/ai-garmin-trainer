@@ -33,15 +33,8 @@ def canonical(path):
 
 
 def source_identity():
-    names = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=REPO).split(b'\0')
-    digest = hashlib.sha256()
-    for name in sorted(set(names) - {b''}):
-        path = REPO / os.fsdecode(name)
-        digest.update(name + b'\0')
-        if path.is_symlink():
-            raise ValueError('Source aliases not supported')
-        digest.update(path.read_bytes() if path.is_file() else b'<deleted>')
-    return digest.hexdigest()
+    from ordinary_identity import source_snapshot
+    return source_snapshot(REPO)['source']
 
 
 def fingerprint(database):
@@ -80,11 +73,11 @@ def listening(number):
 
 
 class Observer:
-    def __init__(self, scratch):
+    def __init__(self, scratch, *, preparation_locked=False):
         self.log = scratch / ('focus-' + str(uuid.uuid4()) + '.log')
         binary = resources.runtime_path(scratch / ('observer-' + str(uuid.uuid4())))
         from smoke_build import observer_binary
-        resources.copy_file(observer_binary(REPO), binary)
+        resources.copy_file(observer_binary(REPO, preparation_locked=preparation_locked), binary)
         with self.log.open('xb') as output:
             self.child = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=output, stderr=subprocess.DEVNULL, start_new_session=True)
         resources.guard(self.verify_settled)
