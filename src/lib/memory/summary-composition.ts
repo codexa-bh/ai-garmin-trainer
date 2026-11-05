@@ -11,11 +11,7 @@ import {
   createSummaryImport,
   controlSummaryImport,
 } from "../db/summary-import";
-import {
-  configuredSecret,
-  getOptionalEnv,
-  liveConfigurationStatus,
-} from "../env";
+import { getOptionalEnv, liveConfigurationStatus } from "../env";
 import {
   summaryStorage,
   summaryInspectionSources,
@@ -36,7 +32,7 @@ import {
   assertSummaryRefreshIdle,
   refreshConversationSummary,
 } from "../db/conversation-history";
-import { modelSettings } from "../model-settings/composition";
+import { summaryConfiguration } from "./summary-configuration";
 import type { SummaryCommand } from "./summary-controls";
 
 export function nativeSummaryStatus() {
@@ -51,7 +47,7 @@ export function nativeSummaryStatus() {
         ? "luna"
         : env.SUMMARY_MODEL === "unselected"
           ? "unselected"
-          : "unsupported",
+          : "catalog",
     cap: Number(env.SUMMARY_CHAR_LIMIT),
     state: status.state,
     revision: status.revision,
@@ -65,20 +61,11 @@ export function readCrossChatSummary(content = false, conversationId?: string) {
   const selectedChat = conversationId
     ? conversationSummaryStatus(conversationId)
     : null;
-  let qualified = false;
-  if (selectedChat?.pin?.tokens !== null && selectedChat?.pin) {
-    try {
-      const selection = modelSettings.selection();
-      qualified =
-        selection.provider === "openai" && selection.modelId === "gpt-6-luna";
-    } catch {
-      /* No usable chat selection, never a fallback. */
-    }
-  }
+  const usedByChat = selectedChat?.usedByChat ?? false;
   return content
     ? {
         ...status,
-        usedByChat: qualified,
+        usedByChat,
         expected: summaryStorage.version(),
         stored: summaryStorage.inspect(),
         sources: summaryInspectionSources(),
@@ -89,7 +76,7 @@ export function readCrossChatSummary(content = false, conversationId?: string) {
         summary: summaryStorage.revision(),
         selectedChat,
         authority:
-          "Untrusted user-derived continuity, never measurements, policy or save permission. Only the selected qualified chat projection is used; latest publication does not refresh it.",
+          "Untrusted user-derived continuity, never measurements, policy or save permission. Only the selected chat's privacy-valid frozen memory is included; use is reported from its latest completed answer, not a provider allowlist. Latest publication does not refresh the pin.",
       }
     : {
         ...status,
@@ -110,8 +97,13 @@ function readRebuildInspection() {
     `${live.boot ?? ""}:${live.generation}`,
   );
   const boot = live.boot;
-  const capability =
-    Boolean(configuredSecret(env.OPENAI_API_KEY)) && Boolean(boot);
+  let configured = false;
+  try {
+    configured = Boolean(summaryConfiguration(env));
+  } catch {
+    /* Exact saved selection stays unavailable. */
+  }
+  const capability = configured && Boolean(boot);
   return {
     ...inventory.preflight,
     snapshot: inventory.snapshot,
@@ -295,18 +287,22 @@ export async function tickCrossChatSummary(identity: string): Promise<void> {
       latest.manual === authority.manual
     );
   };
-  const key = configuredSecret(env.OPENAI_API_KEY);
+  let generation = null;
+  try {
+    if (summaryConfiguration(env))
+      generation = createSummaryGeneration(
+        env,
+        fetch,
+        generationCurrent,
+        "summary",
+        Number(env.SUMMARY_CHAR_LIMIT),
+      );
+  } catch {
+    /* The engine records unavailable configuration, never fallback. */
+  }
   const engine = createSummaryEngine({
     storage: summaryStorage,
-    generation: key
-      ? createSummaryGeneration(
-          key,
-          fetch,
-          generationCurrent,
-          "summary",
-          Number(env.SUMMARY_CHAR_LIMIT),
-        )
-      : null,
+    generation,
     identity: randomUUID,
     now: Date.now,
     current: generationCurrent,

@@ -220,6 +220,7 @@ function selectedCloudModel(
   env: AppEnv,
   status: Pick<AiProviderStatus, "selected" | "selectionMode" | "remediation">,
   assertCurrent?: () => void,
+  transport?: typeof fetch,
 ): SelectedAiModel {
   if (!status.selected)
     throw new Error(status.remediation ?? "No configured AI provider key.");
@@ -227,7 +228,10 @@ function selectedCloudModel(
   if (status.selected === "deepseek") {
     const apiKey = configuredSecret(env.DEEPSEEK_API_KEY);
     if (!apiKey) throw new Error("DeepSeek provider key is missing.");
-    const deepseek = createDeepSeek({ apiKey });
+    const deepseek = createDeepSeek({
+      apiKey,
+      ...(transport ? { fetch: transport } : {}),
+    });
     return {
       provider: "deepseek",
       selectionMode: status.selectionMode,
@@ -242,9 +246,11 @@ function selectedCloudModel(
     const conversation = env.AI_MODEL === "gpt-6-luna";
     const openai = createOpenAI({
       apiKey,
-      ...(conversation
-        ? { fetch: countedConversationFetch(undefined, assertCurrent) }
-        : {}),
+      ...(transport
+        ? { fetch: transport }
+        : conversation
+          ? { fetch: countedConversationFetch(undefined, assertCurrent) }
+          : {}),
     });
     return {
       provider: "openai",
@@ -269,16 +275,27 @@ function selectedCloudModel(
 export function selectedModel(
   env: AppEnv = getOptionalEnv(),
   assertCurrent?: () => void,
+  transport?: typeof fetch,
 ): SelectedAiModel {
   const status = aiProviderStatus(env);
   if (!status.selected)
     throw new Error(status.remediation ?? "No configured AI provider key.");
+  if (assertCurrent) {
+    const source = transport ?? fetch;
+    transport = async (url, init) => {
+      assertCurrent();
+      const response = await source(url, init);
+      assertCurrent();
+      return response;
+    };
+  }
 
   if (status.selected === "openrouter") {
     const openrouter = createOpenAI({
       apiKey: configuredSecret(env.OPENROUTER_API_KEY),
       baseURL: "https://openrouter.ai/api/v1",
       name: "openrouter",
+      ...(transport ? { fetch: transport } : {}),
     });
     return {
       provider: "openrouter",
@@ -293,6 +310,7 @@ export function selectedModel(
       apiKey: "ollama",
       baseURL: env.OLLAMA_BASE_URL,
       name: "ollama",
+      ...(transport ? { fetch: transport } : {}),
     });
     return {
       provider: "ollama",
@@ -302,7 +320,7 @@ export function selectedModel(
     };
   }
 
-  return selectedCloudModel(env, status, assertCurrent);
+  return selectedCloudModel(env, status, assertCurrent, transport);
 }
 
 export function memoryExtractionSelection(env: AppEnv = getOptionalEnv()) {

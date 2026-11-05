@@ -4,7 +4,6 @@ import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createTrainerGeneration } from "@/lib/ai/provider-generation";
 import { countedConversationFetch } from "@/lib/ai/conversation-transport";
 import {
-  ConversationCapacityError,
   assertVisibleText,
   validateCompaction,
   type ConversationTurnSource,
@@ -97,7 +96,7 @@ const request = {
 
 describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
   it.each(["planner", "final_synthesis"] as const)(
-    "allocates measured larger memory in the actual %s request without changing fresh-tail/output guards",
+    "includes larger memory in the actual %s request without token-count/output qualification",
     async (purpose) => {
       const { generate, requests } = fixture((body) =>
         JSON.stringify(body.input).includes("MEMORY_MARKER") ? 31000 : 100,
@@ -121,24 +120,25 @@ describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
       const sent = requests.filter((entry) => entry.url.endsWith("/responses"));
       expect(sent).toHaveLength(1);
       expect(JSON.stringify(sent[0]!.body.input)).toContain("MEMORY_MARKER");
-      expect(sent[0]!.body.max_output_tokens).toBe(4096);
+      expect(sent[0]!.body).not.toHaveProperty("max_output_tokens");
       expect(sent[0]!.headers.has("x-pivan-conversation-budget")).toBe(false);
-      await expect(
-        generate({
-          ...request,
-          purpose,
-          conversation: {
-            history: [{ role: "user", content: "MEMORY_MARKER" }],
-            allowSoftLimit: true,
-          },
-        }),
-      ).rejects.toBeInstanceOf(ConversationCapacityError);
+      await generate({
+        ...request,
+        purpose,
+        conversation: {
+          history: [{ role: "user", content: "MEMORY_MARKER" }],
+          allowSoftLimit: true,
+        },
+      });
       expect(
         requests.filter((entry) => entry.url.endsWith("/responses")),
-      ).toHaveLength(1);
+      ).toHaveLength(2);
+      expect(
+        requests.some((entry) => entry.url.endsWith("/input_tokens")),
+      ).toBe(false);
     },
   );
-  it("counts the exact serialized input/tools before inference; preserves roles and ordinary append prefix", async () => {
+  it("preserves actual serialized input/tools, roles and ordinary append prefix without a count prerequisite", async () => {
     const { requests, generate } = fixture();
     const result = await generate(request);
     expect(result.toolCalls).toEqual([
@@ -160,7 +160,6 @@ describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
       expect(firstCount.body[key]).toEqual(first.body[key]);
     expect(first.body).toMatchObject({
       store: false,
-      max_output_tokens: 4096,
       reasoning: { effort: "none" },
     });
     expect(first.body).not.toHaveProperty("previous_response_id");
@@ -332,47 +331,29 @@ describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
       expect(body).not.toHaveProperty("previous_response_id");
   });
 
-  it("refuses an over-budget exact count before inference, with no SDK retries", async () => {
-    const { requests, generate } = fixture(() => 27034);
-    await expect(generate(request)).rejects.toThrow(ConversationCapacityError);
-    expect(requests).toHaveLength(1);
-    expect(requests[0]!.url).toMatch(/\/input_tokens$/);
-  });
+  it.each([27034, 99999999, -1])(
+    "does not qualify requests through an imposed token counter (%s)",
+    async (tokens) => {
+      const count = vi.fn(() => tokens);
+      const { requests, generate } = fixture(count);
+      await generate(request);
+      expect(count).not.toHaveBeenCalled();
+      expect(requests).toHaveLength(1);
+      expect(requests[0]!.url).toMatch(/\/responses$/);
+    },
+  );
 
-  it("triggers at 80 percent allocation without sending the answer request", async () => {
-    let count = 0;
-    const { requests, generate } = fixture(() =>
-      ++count === 1 ? 26000 : count === 2 ? 8000 : 10000,
-    );
-    await expect(generate(request)).rejects.toThrow(ConversationCapacityError);
-    expect(requests.every((r) => r.url.endsWith("/input_tokens"))).toBe(true);
-    expect(requests).toHaveLength(3);
-  });
-
-  it("rechecks privacy after a count response before dispatching inference", async () => {
-    let valid = true;
+  it("still refuses revoked privacy authority before dispatch", async () => {
     const { requests, generate } = fixture(
+      () => 100,
       () => {
-        valid = false;
-        return 100;
-      },
-      () => {
-        if (!valid) throw new Error("conversation_context_invalidated");
+        throw new Error("conversation_context_invalidated");
       },
     );
     await expect(generate(request)).rejects.toThrow(
       "conversation_context_invalidated",
     );
-    expect(requests).toHaveLength(1);
-    expect(requests[0]!.url).toMatch(/\/input_tokens$/);
-  });
-
-  it("refuses unavailable/invalid accounting rather than sending unbounded input", async () => {
-    const { requests, generate } = fixture(() => -1);
-    await expect(generate(request)).rejects.toThrow(
-      "conversation_token_accounting_invalid",
-    );
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(0);
   });
 
   it.each([

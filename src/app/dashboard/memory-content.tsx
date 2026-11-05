@@ -425,11 +425,9 @@ export function MemoryContent({
                       ? "This chat has no usable saved memory"
                       : memory.revision > pin.stamp.revision
                         ? "This chat has earlier memory"
-                        : pin.tokens === null
-                          ? "Saved for this chat; use not yet verified"
-                          : memory.usedByChat
-                            ? "This chat has a measured saved snapshot"
-                            : "This chat/model does not use cross-chat memory"}
+                        : memory.usedByChat
+                          ? "Used in this chat’s latest completed answer"
+                          : "Saved for this chat; not yet used in a completed answer"}
                   </p>
                   <div className="button-row">
                     {(!pin || memory.revision > pin.stamp.revision) && (
@@ -549,11 +547,9 @@ export function MemoryContent({
                   <p>
                     {!pin
                       ? "This chat has no usable saved memory. It may have been cleared or invalidated; local chat remains available."
-                      : pin.tokens === null
-                        ? "Saved for this chat; use not yet verified"
-                        : memory.usedByChat
-                          ? "This measured snapshot is eligible on the selected chat route, not proof of a completed answer using it."
-                          : "This chat/model does not use cross-chat memory. Updating memory does not change the selected model."}
+                      : memory.usedByChat
+                        ? "This saved snapshot was included in this chat’s latest completed answer."
+                        : "Saved for this chat; not yet used in a completed answer. The full snapshot is included on the configured chat route."}
                   </p>
                   {pin && (
                     <>
@@ -563,10 +559,8 @@ export function MemoryContent({
                       <p>
                         Saved revision {pin.stamp.revision}; latest saved
                         revision {memory.revision}. {pin.omitted} whole items
-                        omitted.{" "}
-                        {pin.tokens === null
-                          ? "Not measured yet."
-                          : `${pin.tokens} measured memory tokens.`}
+                        omitted. Provider manages context capacity; saved token
+                        counts from older builds are not model-fit guarantees.
                       </p>
                     </>
                   )}
@@ -577,11 +571,7 @@ export function MemoryContent({
                   </p>
                   <button
                     type="button"
-                    disabled={
-                      isMemoryLoading ||
-                      !memory.enabled ||
-                      (!!pin && pin.tokens !== null && !memory.usedByChat)
-                    }
+                    disabled={isMemoryLoading || !memory.enabled}
                     onClick={updateChat}
                   >
                     Update this chat
@@ -693,9 +683,10 @@ export function MemoryContent({
                 <dd>{memory.priceBasis}</dd>
               </dl>
               <p>
-                Exact total request admission includes tools, policy, fresh
-                context and output/safety reserves. Character limit is not a
-                token guarantee. Capacity failures do not silently clip memory.
+                The configured provider receives the full saved memory with
+                policy, tools and fresh context. No capacity/tokenizer metadata
+                is required. Provider capacity errors do not silently clip
+                memory or switch models.
               </p>
               <p>{memory.authority}</p>
               <p>

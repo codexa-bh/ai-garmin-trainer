@@ -65,10 +65,14 @@ Use SQLite online backup for active-WAL copies, verify integrity and retain pre-
 Schema19 added the incremental producer; additive schema20 integrates sealed chat
 pins, manual/import state and independent title spend. Migrations18/19 are unchanged.
 Native Memory fields SUMMARY_ENABLED, SUMMARY_MODEL and SUMMARY_CHAR_LIMIT remain
-restart-only, default Off/unselected/6000. SUMMARY_MODEL also selects future titles;
-summary Off does not disable titles. Only direct OpenAI gpt-6-luna is qualified;
-missing capability/key stays unavailable or title excerpt, never chat/extractor
-fallback. Existing private OpenAI ownership/live-key snapshots are reused; no new
+restart-only, default Off/unselected/6000. SUMMARY_MODEL selects future titles and
+summaries independently of Trainer chat. Its dropdown derives from the configured
+catalog, labels provider/exact ID and preserves unavailable choices without substitution.
+The existing scalar stores legacy unselected/Luna or version1 JSON with entryId,
+provider and modelId. Catalog edits/removal never retarget that exact choice; reselect
+explicitly. Old enums refuse new JSON values, not downgrade. Summary Off does not
+disable titles. Missing configuration/provider capability retains an explicit
+unavailable result or title excerpt, never chat/extractor fallback. Existing private OpenAI ownership/live-key snapshots are reused; no new
 secret file or live protocol field is added. Explicit Save includes hidden
 SUMMARY_CONTRACT_VERSION=2 so old field parsers refuse changed semantics; schema19
 admission refuses20. Preserve originals and use a compatible build/forward fix.
@@ -77,9 +81,11 @@ Schema21 prospectively adds size-aware summary reservation/basis/day accounting;
 old pin payloads, gross spend, usage and unknown effects are preserved. Explicit
 migration must be rehearsed on an authored populated online copy first; schema20
 builds refuse21. Startup/Use existing never migrate. No primary migration, installation
-or restart authority is implied. Summary has no hidden daily spend/count ceiling;
-Settings discloses the cost implication and Disable stops new summary work. Title
-limits are unchanged. Two-second native activity wakeups/serialized backlog drain
+or restart authority is implied. Summary, titles and local compaction have no app-imposed spending/attempt caps or
+capacity/tokenizer/pricing qualification. The chosen provider may refuse a request;
+full memory is never silently clipped or sent to a fallback. Historical reservations
+and unknown costs remain distinct and retained. Settings discloses cost implications;
+Disable stops new summary work. Two-second native activity wakeups/serialized backlog drain
 and bounded eight-second explicit adoption replace delayed small-turn polling.
 Trainer Memory distinguishes latest versus selected-chat pin/use; native fixed
 status observes configuration/producer metadata, not actual selected-chat use.

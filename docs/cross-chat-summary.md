@@ -13,26 +13,32 @@ and [scenario obligations](memory-redesign-acceptance.md) retain their evidence 
 Native Settings → Memory has three separate startup fields:
 
 - Cross-chat summary processing: Off by default; independent title processing remains.
-- Shared summary/title model: Unselected by default; currently only **OpenAI ·
-  gpt-6-luna**, direct Responses, is qualified. No chat/extraction selector,
-  embedding service, alternate provider or account is substituted. Titles have
-  separate120-output/3000ms/USD0.001-per-attempt limits; see [memory](memory.md#first-prompt-chat-titles).
+- Shared summary/title model: Unselected by default; choose a provider/exact-model
+  entry from the existing catalog independently of Trainer chat. The selected
+  OpenAI/DeepSeek/OpenRouter/loopback Ollama adapter is used without substitution.
+  A smaller, cheaper model is usually sufficient. Titles retain a3000ms technical
+  deadline, not an app-imposed token, attempt or monetary cap.
 - Character limit: integer1000–20000, default6000 Unicode scalar values after
   CRLF→LF. Invalid surrogates/fractions/ranges refuse, without language normalization.
 
 Explicitly review cloud export before enabling: minimized eligible user-derived
 context and only necessary safe preceding assistant referents leave the app.
-Native's existing private OpenAI slot supplies immutable admitted credentials;
+Native's existing selected-provider private slot supplies immutable admitted credentials;
 keys never enter jobs/SQLite/status/renderer readback/new secret files. Settings
 Save uses existing private revision/commit/archive safeguards. These fields are
 **restart-only**: Save does not start processing or change an already running
 engine. Catalog/shared-key live Save retains its existing narrower protocol;
-key/catalog generation changes reject old summary publication. Missing keys,
-funding, network, selection or reviewed capabilities are unavailable, not fallback.
-DeepSeek/OpenRouter/Ollama construction alone does not qualify summary token,
-price, output/stateless behavior; those summary routes currently remain unsupported.
+key/catalog generation changes reject old summary publication. Missing keys, funding, network, selection or provider capability failures remain
+explicit, never fallback. No tokenizer/capacity/pricing qualification is required.
+Direct OpenAI uses store:false; other transports use their existing stateless
+request construction without claiming OpenAI-specific retention controls.
 
-Native v3 stores allowlisted scalars and hidden `SUMMARY_CONTRACT_VERSION=2`
+Native v3 reuses allowlisted SUMMARY_MODEL: legacy `unselected`/`gpt-6-luna`, or
+`{"version":1,"entryId":"entry_example","provider":"ollama","modelId":"Exact:tag"}`.
+The exact saved entry/provider/model must still match the current catalog; an edit
+or removal refuses until explicitly reselected. Legacy Luna intent survives even
+when absent from a new catalog. Passive reads never rewrite intent. Older scalar
+enums refuse JSON choices rather than downgrade. Native v3 preserves hidden `SUMMARY_CONTRACT_VERSION=2`
 through the existing owner on explicit Save. Older parsers reject the unknown
 contract field instead of ignoring changed shared-title/privacy semantics;
 original v1/v2 and original-v3 archive preservation remains unchanged. Existing
@@ -56,8 +62,9 @@ startup/30-second recovery tick discovers retained backlog and expiry. There is
 at most one running job and at least two seconds between dispatches. Arrivals during
 a job remain pending and drain on the next finite job without another discovery cycle. Each job reads
 at most20 new events plus the prior bounded ledger, not covered old transcripts.
-Exact serialized token admission can shorten only an unconsumed suffix. A single
-oversized event stops the frontier for explicit minimized review, never silent loss.
+Source/resource admission never silently loses an event. Provider capacity failure
+retains the frontier and requires ordinary explicit recovery; no guessed-token
+batch clipping or model substitution is performed.
 Passive list/status reads start no timers, providers, embeddings or legacy migration.
 The chat completion path adds only synchronous local eligibility metadata; neither
 JSON nor NDJSON awaits this engine or its provider/counting request.
@@ -71,33 +78,33 @@ At most256 active items/32 flattened source references per item are allowed. Ren
 text distinguishes user-stated/endorsed/unendorsed material, rationale, alternatives,
 corrections and temporary context. Structural validity is not semantic truth proof.
 
-The direct Luna adapter counts the actual SDK-serialized Responses payload with
-`/responses/input_tokens`, never characters/4 or an unreviewed tokenizer. It pins
-`store:false`, no thread/previous response, explicit no reasoning/tools/fallback,
-size-aware finite input/output envelopes, zero SDK retries and a60-second whole-operation deadline covering all counting and dispatch. For N1000/6000/20000, output allowances are36768/56768/112768 and input106304/146304/258304 tokens. These are conservative serialized text/metadata envelopes, not predicted usage or character/token ratios; exact counting still refuses oversized prior lineage/schema/source payloads before inference. The reviewed Luna context/output ceilings are1,050,000/128,000.
+The provider adapter reuses exact existing model routes without token-count or
+price/capacity qualification, output-token caps or model/account fallback. Direct
+OpenAI pins store:false/no thread; tools and SDK retries are off for every purpose.
+A60-second whole-operation deadline, bounded source batches and local result-size
+validation remain. Provider context/capability failures are not repaired by clipping
+sources or changing models. No tokenizer/vendor capacity is guessed.
 Summary patches and titles request separate strict closed JSON output schemas through
-the locked SDK. Exact preflight includes the serialized schema. Domain patches
+the locked SDK. The actual request includes the serialized schema. Domain patches
 still require keep/upsert/remove/coverage arrays. Summary transport now uses a
 per-batch closed coverage object with one required reason for every exact admitted
 source ID; no missing/foreign logical key or duplicate list entry is representable.
 The adapter validates the entire object, then restores the unchanged domain array
-in source order without inventing/filling dispositions. Unsupported/invalid wire
-output refuses with no fallback; domain coverage/lineage checks still apply. Domain validation still independently checks source
+in source order without inventing/filling dispositions. DeepSeek's locked SDK injects schema guidance in JSON compatibility mode; strict
+local complete-result validation still applies. Unsupported/invalid output refuses
+with no repair or fallback; domain coverage/lineage checks still apply. Domain validation still independently checks source
 lineage, coverage, authority, expiry and character bounds; schema conformance is not
 semantic approval, and unsupported structured output has no text/model fallback.
 Cancellation bounds even a provider promise that ignores its signal. Provider logs,
 provider-side retention and billing after cancellation are not controlled locally.
 
-There is no daily summary attempt or spend ceiling. Before provider/preflight,
-persist a conservative reservation from the finite input/output allowances at the
-reviewed2026-11-04 standard Luna price basis: USD0.25 input (conservative12-hour
-cache-write rate) and0.50 output per million. Report observed-token estimates at
-standard undiscounted0.10 input/0.50 output separately from gross reservations and
-outstanding unknown/legacy liabilities across all days. None is an invoice or a
-cache-saving claim. Missing/partial usage and legacy flat reservations remain
-unknown; historical attempts/spend are preserved. Day high-water, restart, model
-changes and clock rollback never erase liabilities. Disable stops new summary work;
-independent title and local compaction limits remain unchanged. Confirmed5xx permits a later60–75-second
+There are no application spending/attempt caps for summaries, titles or local
+compaction. New attempts record no invented monetary reservation. Historical priced
+reservations/unknown liabilities stay intact. For exact direct Luna only, complete
+observed usage retains the published0.10-input/0.50-output-per-million estimate;
+other prices remain unknown. Unpriced/missing-usage attempts are counted separately
+from known USD reservations, never displayed as free or refunded. Estimates are not
+invoices/cache savings. Restart, model changes and clock rollback erase no history. Confirmed5xx permits a later60–75-second
 attempt; repeated failures back off five minutes under the same caps. Invalid/auth/
 unknown/cancelled outcomes need explicit recovery, not an automatic replay. Expired
 reserved leases remain conservatively charged and require explicit Retry. Actual
@@ -212,11 +219,9 @@ Preflight paginates the full original conversation/message pool in250-row pages,
 not the sidebar or200-row import window. It reports total/included/excluded chats,
 user messages and separate unique assistant-context counts. User exclusion reasons
 are exclusive; other message roles are not user sources. Local inspection neither
-exports nor calls a provider. The displayed USD range is zero through a finite
-conservative worst-case reservation (at most one request per included source), not
-an exact token estimate/invoice. Exact SDK serialized admission still precedes each
-request. The reviewed price basis, uncertainty, gross/observed/unknown accounting,
-manual preservation and replacement semantics remain visible. Off, unselected,
+exports nor calls a provider. Pre-generation cost is explicitly unknown, not a finite worst-case quote or invoice.
+There is no tokenizer/price prerequisite or app spending cap. Historical reservations,
+observed usage, unpriced attempts, manual preservation and replacement semantics remain visible. Off, unselected,
 missing native key/lifetime, empty selections and operation limits refuse Start;
 no model/key/topology is enabled or substituted.
 
@@ -238,7 +243,7 @@ Strict version1 commands add `rebuild-start` (`id`, reviewed `snapshot`) and
 CAS. The operation binds source inventory/content, authority and native boot/live
 configuration generation. Same-ID reconciliation never starts another operation;
 concurrent rebuild/import/writer starts refuse. Internal jobs reuse S's20-source
-size-aware provider/lease/reservation seams, but start from an empty generated
+provider/lease/attempt-accounting seams, but start from an empty generated
 candidate, not old generated memory. Maximum10000 admitted user sources/2000000
 source-and-context scalars and a two-hour operation deadline are explicit refusal
 bounds, not silent inventory truncation. Oversized single messages are disclosed

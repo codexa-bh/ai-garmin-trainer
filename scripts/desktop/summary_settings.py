@@ -15,6 +15,13 @@ from smoke_input import prepare, json_document
 from summary_live import api
 
 
+SUMMARY_ENTRY = {'id':'entry_summary_local','provider':'ollama','modelId':'synthetic-memory:small'}
+SUMMARY_CATALOG = {'version':1,'entries':[SUMMARY_ENTRY,
+    {'id':'entry_summary_cloud','provider':'openai','modelId':'synthetic-title:small'},
+    {'id':'entry_summary_other','provider':'ollama','modelId':'synthetic-chat:large'}], 'defaultEntryId':None}
+SUMMARY_CHOICE = json.dumps({'version':1,'entryId':SUMMARY_ENTRY['id'],'provider':SUMMARY_ENTRY['provider'],'modelId':SUMMARY_ENTRY['modelId']}, separators=(',',':'))
+
+
 def preserved_fields(run):
     inventory=json.loads((Path(__file__).resolve().parents[2]/'src-tauri/ui/settings-fields.json').read_text())
     values={field['key']:field.get('default',field.get('options',[''])[0]) for field in inventory
@@ -33,7 +40,7 @@ def prepare_settings(run):
     private_json(run.root / 'config/settings-v3.json', {'version':3,'keys':{},'fields':{
         **preserved_fields(run),'DATABASE_PATH':str(run.database),'MEMORY_ENABLED':'false',
         'SUMMARY_ENABLED':'false','SUMMARY_MODEL':'unselected','SUMMARY_CHAR_LIMIT':'6000'},
-        'chatCatalog':{'version':1,'entries':[],'defaultEntryId':None}})
+        'chatCatalog':SUMMARY_CATALOG})
     run.keyless_lifecycle=True  # Read-only API guard forbids provider descriptor/paid chat.
 
 
@@ -60,7 +67,7 @@ def captures(run, state, history=False):
 def verify_saved(run, enabled):
     value=json_document(run.root / 'config/settings-v3.json')[1]
     fields=value['fields']
-    if value['keys'] or fields['SUMMARY_ENABLED'] != str(enabled).lower() or fields['SUMMARY_MODEL'] != 'gpt-6-luna' or fields['SUMMARY_CHAR_LIMIT'] != '6000':
+    if value['keys'] or fields['SUMMARY_ENABLED'] != str(enabled).lower() or fields['SUMMARY_MODEL'] != SUMMARY_CHOICE or fields['SUMMARY_CHAR_LIMIT'] != '6000':
         raise ValueError('Native Save did not persist exact keyless independent fields')
     if any(fields.get(key) != expected for key,expected in preserved_fields(run).items()):
         raise ValueError('Hidden compatibility/executable values changed')
@@ -124,13 +131,13 @@ def main():
         if run.http('/identity')['origin'] != original_origin: raise ValueError('Native Save restarted backend')
         run.stop();run.start(run.binary)
         active=metadata(run)
-        if not active['enabled'] or active['model'] != 'gpt-6-luna' or api(run,'GET','/api/model-settings') != models: raise ValueError('Owned restart failed independent On without chat retarget')
-        run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOn'] and value['legacyLimit'] and value['technicalControlsAbsent'],'reloaded native On/Luna/6000/history')
+        if not active['enabled'] or active['model'] != SUMMARY_CHOICE or api(run,'GET','/api/model-settings') != models: raise ValueError('Owned restart failed independent On without chat retarget')
+        run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOn'] and value['legacyLimit'] and value['technicalControlsAbsent'],'reloaded native On/catalog/6000/history')
         verify_saved(run,True)
         receipt['captures']+=save(run,False,True,models)
         run.stop();run.start(run.binary)
         if metadata(run)['enabled'] or api(run,'GET','/api/model-settings') != models: raise ValueError('Owned restart failed Off or changed chat')
-        run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOff'] and value['automaticHistory'] and not value['historyDateVisible'] and value['technicalControlsAbsent'],'reloaded native Off/Luna/6000/automatic')
+        run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOff'] and value['automaticHistory'] and not value['historyDateVisible'] and value['technicalControlsAbsent'],'reloaded native Off/catalog/6000/automatic')
         verify_saved(run,False)
         run.settings_action('close')
         if source_identity()!=source or audit(bundle)!=inventory: raise ValueError('Source/artifact changed')

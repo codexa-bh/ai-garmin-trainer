@@ -13,11 +13,12 @@ import {
   emptySummary,
   renderSummary,
   validSummaryValue,
-  SUMMARY_POLICY,
+  summaryPolicyIdentity,
+  summaryModelAvailable,
+  summaryPriceBasis,
   SUMMARY_PATCH_REJECTIONS,
   SUMMARY_DEBOUNCE_MS,
   SUMMARY_PRICE_BASIS,
-  summaryLimits,
   type SummaryBatch,
   type SummarySource,
   type SummaryStatus,
@@ -221,12 +222,19 @@ function summaryCostObservations(day: string) {
       and outputKind='integer' and output between 0 and 9007199254740991,0) as known from counters
   ) select
     coalesce(sum(case when known and price_basis=? and spend_day=? then (input*0.1+output*0.5)/1000000 else 0 end),0) as estimatedUsdToday,
-    coalesce(sum(case when not known or price_basis is not ? then coalesce(reserved_usd,0.01) else 0 end),0) as unknownReservedUsd
+    coalesce(sum(case when not known or price_basis is not ? then coalesce(reserved_usd,0) else 0 end),0) as unknownReservedUsd,
+    coalesce(sum(case when not known or price_basis is not ? then 1 else 0 end),0) as unpricedAttempts
   from observations`,
     )
-    .get(SUMMARY_PRICE_BASIS, day, SUMMARY_PRICE_BASIS) as {
+    .get(
+      SUMMARY_PRICE_BASIS,
+      day,
+      SUMMARY_PRICE_BASIS,
+      SUMMARY_PRICE_BASIS,
+    ) as {
     estimatedUsdToday: number;
     unknownReservedUsd: number;
+    unpricedAttempts: number;
   };
 }
 
@@ -403,7 +411,11 @@ export const summaryStorage: SummaryStorage = {
   revision() {
     const c = control(),
       s = state();
-    if (!c.enabled || c.model !== "gpt-6-luna" || s.published_at === null)
+    if (
+      !c.enabled ||
+      !summaryModelAvailable(c.model) ||
+      s.published_at === null
+    )
       return null;
     const value = summaryStorage.read();
     const expiries = value.items.flatMap((item) =>
@@ -434,7 +446,7 @@ export const summaryStorage: SummaryStorage = {
     return (
       stamp.version === 1 &&
       c.enabled === 1 &&
-      c.model === "gpt-6-luna" &&
+      summaryModelAvailable(c.model) &&
       (stamp.validUntil === null || stamp.validUntil > Date.now()) &&
       s.privacy_generation === stamp.privacyGeneration &&
       c.generation === stamp.controlGeneration &&
@@ -467,7 +479,7 @@ export const summaryStorage: SummaryStorage = {
   },
   read() {
     const c = control();
-    if (!c.enabled || c.model !== "gpt-6-luna") return emptySummary();
+    if (!c.enabled || !summaryModelAvailable(c.model)) return emptySummary();
     const value = currentValue(state(), c.cap);
     const items = value.items.filter(
       (item) => item.expiresAt === null || item.expiresAt > Date.now(),
@@ -492,7 +504,7 @@ export const summaryStorage: SummaryStorage = {
     }
     if (!c.enabled) result = "disabled";
     else if (!c.model) result = "unselected";
-    else if (c.model !== "gpt-6-luna") {
+    else if (!summaryModelAvailable(c.model)) {
       result = "unavailable";
       reason = "summary_unsupported_model";
     } else if (reason) result = value.items.length ? "stale" : "unavailable";
@@ -513,7 +525,7 @@ export const summaryStorage: SummaryStorage = {
       attemptsToday: budget.attempts,
       reservedUsdToday: budget.usd,
       ...summaryCostObservations(budget.day),
-      priceBasis: SUMMARY_PRICE_BASIS,
+      priceBasis: summaryPriceBasis(c.model),
     };
   },
   admit(now, jobId) {
@@ -521,7 +533,7 @@ export const summaryStorage: SummaryStorage = {
     return db.transaction(() => {
       const c = control(),
         s = state();
-      if (!c.enabled || c.model !== "gpt-6-luna" || c.retry_at > now)
+      if (!c.enabled || !summaryModelAvailable(c.model) || c.retry_at > now)
         return null;
       const previous = currentValue(s, c.cap);
       if (c.job_id) {
@@ -594,7 +606,7 @@ export const summaryStorage: SummaryStorage = {
       ).run(
         jobId,
         now,
-        SUMMARY_POLICY,
+        summaryPolicyIdentity(c.model),
         JSON.stringify(batch.map((source) => source.sourceId)),
         batch.at(-1)?.eventSeq ?? s.frontier,
         s.revision,
@@ -631,21 +643,15 @@ export const summaryStorage: SummaryStorage = {
         .get(batch.jobId) as { reserved: number };
       if (attempt.reserved) return false;
       const budget = spend(now);
-      const allowance = summaryLimits(batch.cap);
-      // No hidden monetary/count gate. This conservative observation is not an
-      // invoice, and is never refunded on cancellation, missing usage or restart.
+      // Admission history remains durable, but no app-imposed spending or
+      // attempt cap/reservation. Historical monetary liabilities stay intact.
       db.prepare(
         "insert into summary_spend(day,attempts,reserved_usd) values(?,1,?) on conflict(day) do update set attempts=attempts+1,reserved_usd=reserved_usd+excluded.reserved_usd",
-      ).run(budget.day, allowance.reservedUsd);
+      ).run(budget.day, 0);
       db.prepare("update summary_control set day=? where id=1").run(budget.day);
       db.prepare(
         "update summary_attempt set reserved=1,reserved_usd=?,spend_day=?,price_basis=? where job_id=?",
-      ).run(
-        allowance.reservedUsd,
-        budget.day,
-        SUMMARY_PRICE_BASIS,
-        batch.jobId,
-      );
+      ).run(null, budget.day, summaryPriceBasis(control().model), batch.jobId);
       return true;
     })();
   },
@@ -777,7 +783,7 @@ export const summaryStorage: SummaryStorage = {
         "update summary_attempt set outcome='committed',finished_at=?,policy_identity=?,upper_event=?,source_ids_json=? where job_id=?",
       ).run(
         now,
-        SUMMARY_POLICY,
+        summaryPolicyIdentity(control().model),
         batch.upper,
         JSON.stringify(batch.sources.map((source) => source.sourceId)),
         batch.jobId,
@@ -832,7 +838,7 @@ export const summaryStorage: SummaryStorage = {
       currentValue(state(), c.cap);
       if (
         action === "enable" &&
-        (!c.configured_enabled || c.model !== "gpt-6-luna")
+        (!c.configured_enabled || !summaryModelAvailable(c.model))
       )
         throw new Error("summary_not_configured");
       if (action === "retry") {

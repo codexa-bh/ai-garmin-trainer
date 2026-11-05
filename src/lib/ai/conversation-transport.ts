@@ -6,9 +6,9 @@ import {
 } from "../chat/conversation-replay";
 
 /** Internal per-request declaration; removed before either provider call. */
-export const CONVERSATION_BUDGET_HEADER = "x-pivan-conversation-budget";
+const CONVERSATION_BUDGET_HEADER = "x-pivan-conversation-budget";
 
-export async function countResponseInput(
+async function countResponseInput(
   transport: typeof fetch,
   init: RequestInit,
   payload: Record<string, unknown>,
@@ -90,7 +90,12 @@ export function countedConversationFetch(
   return async (url, init) => {
     const headers = new Headers(init?.headers);
     const budget = headers.get(CONVERSATION_BUDGET_HEADER);
-    if (!budget) return transport(url, init);
+    if (!budget) {
+      assertCurrent?.();
+      const response = await transport(url, init);
+      assertCurrent?.();
+      return response;
+    }
     headers.delete(CONVERSATION_BUDGET_HEADER);
     if (
       String(url) !== "https://api.openai.com/v1/responses" ||

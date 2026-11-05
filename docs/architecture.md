@@ -420,9 +420,16 @@ foreground continuation; the ordinary lifetime alone schedules internal jobs.
 Only complete validated replacement publishes, preserving manual/suppression and
 stable-pin semantics. Original-message authority is conservatively fenced where
 prior Clear eligibility cannot be proved. The provider
-adapter owns exact Luna transport; composition binds admitted native config. One
+adapter reuses the existing exact provider routes for the independent shared
+catalog choice; composition binds admitted native config. Selection decoding is
+pure `model-settings/summary-selection`; `memory/summary-configuration` captures
+identity/catalog/connection/keys without Trainer preference resolution. No
+capacity/tokenizer/pricing qualification registry or application monetary/attempt
+cap is required; provider refusals do not trigger fallback. One
 launcher lifetime invokes its private tick; passive reads create no provider work.
-`chat/summary-pin` is pure whole-item projection policy; conversation-owned
+`chat/summary-pin` retains frozen memory serialization and old projection compatibility;
+new requests include full privacy-valid pins without token-count admission.
+Conversation-owned
 `db/conversation-summary-pin` seals/adopts/validates snapshots transactionally.
 Schema20 adds those consumer/control/import/title-spend records without rewriting
 18/19. Ordinary chat retires semantic retrieval/ingestion; legacy stores remain.
@@ -448,7 +455,9 @@ remain compatibility contracts for retained legacy maintenance, not ordinary cha
 upsert conflict behavior, expiry selection and the 200-row candidate cap.
 `embedding-adapter.ts` owns transport, timeout, normalization and unchanged SHA256
 identities/vectors; `extraction-adapter.ts` selects existing DeepSeek/OpenAI and
-disables tools. Composition preserves startup memory topology; current stores rotate only on shared-key changes, retaining old in-flight stores. Outer chat admission captures configuration for chat and deferred titles using its prepared-turn WeakMap/AsyncLocalStorage; it no longer constructs a legacy memory store. Titles use the explicit summary model and captured OpenAI key, independently of summary On/Off, with their own durable spend adapter; clearing a key never substitutes another provider. Settings writes
+disables tools. Composition preserves startup memory topology; current stores rotate only on shared-key changes, retaining old in-flight stores. Outer chat admission captures configuration for chat and deferred titles using its prepared-turn WeakMap/AsyncLocalStorage; it no longer constructs a legacy memory store. Titles use the explicit shared summary model and its captured provider configuration,
+independently of summary On/Off, with durable attempt/usage receipts but no application
+spending/count cap; clearing a key never substitutes another provider. Settings writes
 precede singleton reset and health/list reload. Health never migrates; lazy legacy
 migration still precedes ingestion/retrieval/enabled listing, records its marker
 only after all rows and retains earlier writes on failure. No new retry occurs.

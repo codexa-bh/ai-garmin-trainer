@@ -13,7 +13,6 @@ import {
 } from "@/lib/memory/summary-application";
 import {
   minimizeSummarySource,
-  summaryLimits,
   validateSummaryPatch,
   type SummaryBatch,
 } from "@/lib/memory/summary-policy";
@@ -244,9 +243,10 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
     expect(storage.admit(now + 1000000, "blind-replay")).toBeNull();
     storage.control("retry", now + 1000000);
     expect(storage.admit(now + 1000001, "explicit")).not.toBeNull();
-    expect(storage.status(now).reservedUsdToday).toBeCloseTo(
-      summaryLimits(6000).reservedUsd,
-    );
+    expect(storage.status(now)).toMatchObject({
+      reservedUsdToday: 0,
+      unpricedAttempts: 1,
+    });
   });
   it.each(["delete", "edit", "clear", "disable", "config", "manual"])(
     "rejects late publication after %s and does not resurrect text",
@@ -435,10 +435,9 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
     expect(storage.reserve(last, now)).toBe(false); // duplicate reservation, not a count cap
     const status = storage.status(now);
     expect(status).toMatchObject({ attemptsToday: 11 });
-    expect(status.reservedUsdToday).toBeCloseTo(
-      11 * summaryLimits(6000).reservedUsd,
-    );
-    expect(status.unknownReservedUsd).toBeCloseTo(status.reservedUsdToday);
+    expect(status.reservedUsdToday).toBe(0);
+    expect(status.unknownReservedUsd).toBe(0);
+    expect(status.unpricedAttempts).toBe(11);
     const bytes = db.serialize();
     db.close();
     db = new Database(bytes);
@@ -652,8 +651,9 @@ describe("supplied generation with real SQLite application", () => {
     now += 120001;
     await app.tick(abort.signal);
     expect(storage.status(now).frontier).toBe(0);
-    expect(storage.status(now).reservedUsdToday).toBeCloseTo(
-      summaryLimits(6000).reservedUsd,
-    );
+    expect(storage.status(now)).toMatchObject({
+      reservedUsdToday: 0,
+      unpricedAttempts: 1,
+    });
   });
 });
