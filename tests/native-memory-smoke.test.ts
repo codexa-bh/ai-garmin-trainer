@@ -215,51 +215,57 @@ it("permits only closed non-generating fixed history reviews, never caller input
   for (const action of ["usage", "chat-details", "refresh"])
     expect((await command({ type: "memory", action })).ok).toBe(false);
 });
-it("captures actual production Memory components with fixed authored content across secondary views", async () => {
-  document.querySelector("textarea")!.remove();
-  document.querySelector('[aria-label="Rebuild from chat history"]')!.remove();
-  await command({ type: "memory", action: "fixture-populated" });
-  const dto = (await (
-    await fetch("/api/cross-chat-summary?view=content")
-  ).json()) as SummaryInspection;
-  const aside = document.querySelector("aside")!;
-  aside.querySelector(".memory-root-card")!.remove();
-  render(
-    React.createElement(MemoryContent, {
-      memory: dto,
-      memoryMessage: "",
-      isMemoryLoading: false,
-      pendingMemoryAction: null,
-      loadMemories: vi.fn(),
-      reviewHistory: vi.fn(),
-      changeMemory: vi.fn(),
-      editingMemoryId: null,
-      editingMemoryText: "",
-      setEditingMemoryId: vi.fn(),
-      setEditingMemoryText: vi.fn(),
-      cancelMemoryEdit: vi.fn(),
-      beginMemoryEdit: vi.fn(),
-      canDiscardMemoryEdit: () => true,
-      onOpenSource: vi.fn(),
-      runInBackground: vi.fn(),
-    }),
-    { container: aside.appendChild(document.createElement("div")) },
-  );
-  for (const action of [
-    null,
-    "rebuild-preflight",
-    "history-effects",
-    "cancel-confirm",
-    "back",
-    "manage",
-    "earlier-sources",
-    "back",
-    "manage",
-    "older-records",
-    "back",
-    "forget",
-  ]) {
-    if (action)
+it.each([
+  { name: "overview", actions: [] },
+  { name: "history review", actions: ["rebuild-preflight"] },
+  {
+    name: "history confirmation",
+    actions: ["rebuild-preflight", "history-effects"],
+  },
+  {
+    name: "cancelled confirmation",
+    actions: ["rebuild-preflight", "history-effects", "cancel-confirm"],
+  },
+  { name: "management", actions: ["manage"] },
+  { name: "earlier sources", actions: ["manage", "earlier-sources"] },
+  { name: "older records", actions: ["manage", "older-records"] },
+  { name: "back navigation", actions: ["manage", "back"] },
+  { name: "Forget confirmation", actions: ["forget"] },
+])(
+  "captures and restores actual production Memory $name with fixed authored content",
+  async ({ actions }) => {
+    document.querySelector("textarea")!.remove();
+    document
+      .querySelector('[aria-label="Rebuild from chat history"]')!
+      .remove();
+    await command({ type: "memory", action: "fixture-populated" });
+    const dto = (await (
+      await fetch("/api/cross-chat-summary?view=content")
+    ).json()) as SummaryInspection;
+    const aside = document.querySelector("aside")!;
+    aside.querySelector(".memory-root-card")!.remove();
+    render(
+      React.createElement(MemoryContent, {
+        memory: dto,
+        memoryMessage: "",
+        isMemoryLoading: false,
+        pendingMemoryAction: null,
+        loadMemories: vi.fn(),
+        reviewHistory: vi.fn(),
+        changeMemory: vi.fn(),
+        editingMemoryId: null,
+        editingMemoryText: "",
+        setEditingMemoryId: vi.fn(),
+        setEditingMemoryText: vi.fn(),
+        cancelMemoryEdit: vi.fn(),
+        beginMemoryEdit: vi.fn(),
+        canDiscardMemoryEdit: () => true,
+        onOpenSource: vi.fn(),
+        runInBackground: vi.fn(),
+      }),
+      { container: aside.appendChild(document.createElement("div")) },
+    );
+    for (const action of actions)
       expect((await command({ type: "memory", action })).ok).toBe(true);
     const result = await command({
       type: "captureView",
@@ -272,8 +278,8 @@ it("captures actual production Memory components with fixed authored content acr
       (await command({ type: "memory", action: "observe" }))
         .presentationFixture,
     ).toBe(true);
-  }
-});
+  },
+);
 it("restores the fixed presentation adapter on expiry and refuses caller fixture fields", async () => {
   vi.useFakeTimers();
   document.querySelector("textarea")!.remove();
