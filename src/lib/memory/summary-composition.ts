@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
+  summaryRebuildInventory,
+  summaryRebuildStatus,
+  startSummaryRebuild,
+  cancelSummaryRebuild,
+  reconcileSummaryRebuild,
+} from "../db/summary-rebuild";
+import {
   summaryImportInspection,
   createSummaryImport,
   controlSummaryImport,
@@ -78,12 +85,42 @@ export function readCrossChatSummary(content = false, conversationId?: string) {
         manualIds: summaryManualIds(),
         legacy: preservedLegacySummaryReview(),
         historical: summaryImportInspection(),
+        rebuild: readRebuildInspection(),
         summary: summaryStorage.revision(),
         selectedChat,
         authority:
           "Untrusted user-derived continuity, never measurements, policy or save permission. Only the selected qualified chat projection is used; latest publication does not refresh it.",
       }
-    : { ...status, expected: summaryStorage.version() };
+    : {
+        ...status,
+        expected: summaryStorage.version(),
+      };
+}
+export function summaryRebuildPending(): boolean {
+  const live = liveConfigurationStatus();
+  return (
+    summaryRebuildStatus(`${live.boot ?? ""}:${live.generation}`)?.state ===
+    "active"
+  );
+}
+function readRebuildInspection() {
+  const env = getOptionalEnv();
+  const live = liveConfigurationStatus();
+  const inventory = summaryRebuildInventory(
+    `${live.boot ?? ""}:${live.generation}`,
+  );
+  const boot = live.boot;
+  const capability =
+    Boolean(configuredSecret(env.OPENAI_API_KEY)) && Boolean(boot);
+  return {
+    ...inventory.preflight,
+    snapshot: inventory.snapshot,
+    ready: inventory.preflight.ready && capability,
+    capability: capability
+      ? "configured-not-probed"
+      : "native-key-or-lifetime-unavailable",
+    operation: summaryRebuildStatus(`${boot ?? ""}:${live.generation}`),
+  };
 }
 // An explicit adoption request may wait, passive GET and answer completion never do.
 export async function catchUpCrossChatSummary(): Promise<void> {
@@ -182,6 +219,18 @@ export function applySummaryCommand(command: SummaryCommand) {
     summaryStorage.edit(command.expected, command.id, command.text, Date.now());
   } else if (command.action === "forget") {
     summaryStorage.forget(command.expected, command.id, Date.now());
+  } else if (command.action === "rebuild-start") {
+    const inspection = readRebuildInspection();
+    if (!inspection.ready) throw new Error("summary_rebuild_not_ready");
+    startSummaryRebuild(
+      command.id,
+      command.snapshot,
+      `${liveConfigurationStatus().boot!}:${liveConfigurationStatus().generation}`,
+      Date.now(),
+    );
+    notifySummaryActivity();
+  } else if (command.action === "rebuild-cancel") {
+    if (cancelSummaryRebuild(command.id)) summaryLifetime().active?.abort();
   } else if (command.action === "import-create") {
     createSummaryImport(command.sourceIds);
   } else if (
@@ -219,6 +268,7 @@ export async function tickCrossChatSummary(identity: string): Promise<void> {
     env.SUMMARY_MODEL === "unselected" ? "" : env.SUMMARY_MODEL,
     summaryCap(Number(env.SUMMARY_CHAR_LIMIT)),
   );
+  reconcileSummaryRebuild(`${identity}:${live.generation}`, Date.now());
   const authority = summaryStorage.version();
   const expires = summaryStorage
     .inspect()

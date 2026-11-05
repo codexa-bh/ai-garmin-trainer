@@ -24,7 +24,7 @@ beforeEach(() => {
   );
   vi.stubGlobal("innerWidth", 1280);
   vi.stubGlobal("innerHeight", 850);
-  document.body.innerHTML = `<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="settings-sheet memory-sheet" role="dialog" aria-labelledby="memory-sheet-heading"><h2 id="memory-sheet-heading">Memory</h2><div class="memory-root-card"><h2>Cross-chat memory</h2><p>private copied sentinel</p><button>Add manual preference</button><button>Reload memory</button><button>Clear summary</button><section aria-label="Saved summary items"><h3>Saved summary</h3></section><label>Manual memory text<textarea></textarea></label><button>Save manual edit</button></div></aside>`;
+  document.body.innerHTML = `<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="settings-sheet memory-sheet" role="dialog" aria-labelledby="memory-sheet-heading"><h2 id="memory-sheet-heading">Memory</h2><div class="memory-root-card"><h2>Cross-chat memory</h2><p>private copied sentinel</p><button>Add manual preference</button><button>Reload memory</button><button>Clear summary</button><section aria-label="Saved summary items"><h3>Saved summary</h3></section><section aria-label="Rebuild from chat history"><h3>Rebuild from chat history</h3><p>private counts and cost</p><button disabled>Start rebuild</button><button disabled>Cancel rebuild</button></section><label>Manual memory text<textarea></textarea></label><button>Save manual edit</button></div></aside>`;
   window.eval(source);
 });
 afterEach(() => {
@@ -45,6 +45,9 @@ it("returns closed booleans, uses only fixed run draft and preserves exact confi
     updatedManual: false,
     off: false,
     editing: true,
+    rebuildVisible: true,
+    rebuildStartDisabled: true,
+    rebuildCancelDisabled: true,
   });
   const input = document.querySelector("textarea")!;
   const inputEvent = vi.fn();
@@ -69,6 +72,8 @@ it("refuses unknown/extra/private selectors, noncanonical content and debug mode
   const input = document.querySelector("textarea")!;
   for (const value of [
     { type: "memory", action: "export" },
+    { type: "memory", action: "rebuild-start" },
+    { type: "memory", action: "rebuild-cancel" },
     { type: "memory", action: "draft", text: "private" },
     { type: "memory", action: "observe", selector: "body" },
   ])
@@ -86,6 +91,19 @@ it("refuses unknown/extra/private selectors, noncanonical content and debug mode
   paragraph.remove();
   delete window.__trainerOrdinaryIsolated;
   expect((await command({ type: "memory", action: "draft" })).ok).toBe(false);
+});
+it("only scrolls the fixed preflight; it cannot start/cancel paid work or return source/count/cost text", async () => {
+  const section = document.querySelector(
+    '[aria-label="Rebuild from chat history"]',
+  ) as HTMLElement;
+  section.scrollIntoView = vi.fn();
+  const clicked = vi.fn();
+  section.addEventListener("click", clicked);
+  const result = await command({ type: "memory", action: "rebuild-preflight" });
+  expect(result.ok).toBe(true);
+  expect(section.scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+  expect(clicked).not.toHaveBeenCalled();
+  expect(JSON.stringify(result)).not.toContain("private");
 });
 it("masks content and preserves geometry for only verified static controls; restores masks and refuses direct ancestor text", async () => {
   expect(

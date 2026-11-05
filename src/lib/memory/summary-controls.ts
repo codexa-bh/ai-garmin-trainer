@@ -9,8 +9,52 @@ export type SummaryCommand = {
   | { action: "forget"; id: string }
   | { action: "refresh"; conversationId: string; segmentRevision: number }
   | { action: "import-create"; sourceIds: string[] }
+  | { action: "rebuild-start"; id: string; snapshot: string }
+  | { action: "rebuild-cancel"; id: string }
   | { action: "import-pause" | "import-resume" | "import-cancel"; id: string }
 );
+
+export type SummaryRebuildInspection = {
+  version: 1;
+  snapshot: string;
+  ready: boolean;
+  complete: boolean;
+  limitExceeded: boolean;
+  configuredProvider: string;
+  model: string;
+  enabled: boolean;
+  capability: string;
+  counts: {
+    chats: number;
+    messages: number;
+    userMessages: number;
+    assistantMessages: number;
+    includedChats: number;
+    excludedChats: number;
+    excludedMessages: number;
+    includedUserMessages: number;
+    assistantContext: number;
+    excludedUserMessages: number;
+  };
+  reasons: Record<string, number>;
+  estimatedUsd: {
+    low: number;
+    conservativeMaximum: number;
+    priceBasis: string;
+    uncertainty: string;
+  };
+  semantics: string;
+  operation: {
+    id: string;
+    state: string;
+    reason: string | null;
+    processed: number;
+    total: number;
+    dispositions: Record<string, number>;
+    createdAt: number;
+    deadline: number;
+  } | null;
+};
 
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -41,6 +85,16 @@ export function parseSummaryCommand(value: unknown): SummaryCommand | null {
     )
       return null;
   } else if (value.action === "forget") {
+    if (fields !== "action,expected,id,version" || !id(value.id)) return null;
+  } else if (value.action === "rebuild-start") {
+    if (
+      fields !== "action,expected,id,snapshot,version" ||
+      !id(value.id) ||
+      typeof value.snapshot !== "string" ||
+      !/^[a-f0-9]{64}$/.test(value.snapshot)
+    )
+      return null;
+  } else if (value.action === "rebuild-cancel") {
     if (fields !== "action,expected,id,version" || !id(value.id)) return null;
   } else if (value.action === "import-create") {
     if (

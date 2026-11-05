@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { assertDesktopDatabase } from "@/lib/db/desktop-preflight";
-import { currentSchemaVersion, migrateDatabase } from "@/lib/db/migrations";
+import {
+  currentSchemaVersion,
+  migrateDatabase,
+  LATEST_SCHEMA_VERSION,
+} from "@/lib/db/migrations";
 import { removeIntegratedSummaryFixtureSchema } from "./conversation-migration-fixture";
 
 function baseline(db: Database.Database) {
@@ -49,7 +53,7 @@ function preserved(db: Database.Database, before: ReturnType<typeof snapshot>) {
     expect(db.prepare(table.query).all(), table.name).toEqual(table.rows);
 }
 
-it("rehearses additive19→21 on a populated online copy and restores only a separate pre-write backup", async () => {
+it("rehearses additive19→22 on a populated online copy and restores only a separate pre-write backup", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "summary-transition-")));
   const source = new Database(join(root, "original.sqlite"));
   let copy: Database.Database | undefined;
@@ -68,7 +72,10 @@ it("rehearses additive19→21 on a populated online copy and restores only a sep
     copy = new Database(path);
     expect(currentSchemaVersion(copy)).toBe(19);
     migrateDatabase(copy);
-    expect(currentSchemaVersion(copy)).toBe(21);
+    expect(currentSchemaVersion(copy)).toBe(LATEST_SCHEMA_VERSION);
+    expect(
+      copy.prepare("select * from summary_original_boundary").get(),
+    ).toEqual({ id: 1, floor: 2 });
     expect(copy.pragma("integrity_check", { simple: true })).toBe("ok");
     preserved(copy, before);
     expect(() => assertDesktopDatabase(path)).not.toThrow();
@@ -78,6 +85,7 @@ it("rehearses additive19→21 on a populated online copy and restores only a sep
       "summary_import",
       "summary_import_disposition",
       "conversation_title_spend",
+      "summary_rebuild",
     ])
       expect(
         copy.prepare(`select count(*) as count from ${table}`).get(),
@@ -134,9 +142,11 @@ it("rolls back a failed additive transition instead of publishing a partial sche
         }[]
       ).some((column) => column.name === "import_id"),
     ).toBe(false);
-    db.exec("update app_metadata set value='22' where key='schema_version'");
+    db.prepare(
+      "update app_metadata set value=? where key='schema_version'",
+    ).run(String(LATEST_SCHEMA_VERSION + 1));
     expect(() => migrateDatabase(db)).toThrow();
-    expect(currentSchemaVersion(db)).toBe(22);
+    expect(currentSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION + 1);
   } finally {
     db.close();
   }

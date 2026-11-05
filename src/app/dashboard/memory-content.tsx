@@ -109,6 +109,123 @@ export function MemoryContent({
             is a character bound, not a token guarantee. If the whole request
             cannot fit, the app reports capacity rather than clipping memory.
           </p>
+          <section aria-label="Rebuild from chat history">
+            <h3>Rebuild from chat history</h3>
+            {memory.rebuild ? (
+              <>
+                <p>
+                  Local preflight only; no model request.{" "}
+                  {memory.rebuild.counts.chats} chats /{" "}
+                  {memory.rebuild.counts.messages} messages inventoried.
+                  Included: {memory.rebuild.counts.includedChats} chats,{" "}
+                  {memory.rebuild.counts.includedUserMessages} user messages and{" "}
+                  {memory.rebuild.counts.assistantContext} distinct assistant
+                  context passages. Excluded:{" "}
+                  {memory.rebuild.counts.excludedChats} chats,{" "}
+                  {memory.rebuild.counts.excludedMessages} messages (
+                  {memory.rebuild.counts.excludedUserMessages} user messages).
+                  Other messages are not user sources.
+                </p>
+                <ul>
+                  {Object.entries(memory.rebuild.reasons).map(
+                    ([reason, count]) => (
+                      <li key={reason}>
+                        {reason}: {count}
+                      </li>
+                    ),
+                  )}
+                </ul>
+                <p>
+                  {memory.rebuild.configuredProvider} / {memory.rebuild.model} ·{" "}
+                  {memory.rebuild.capability} ·{" "}
+                  {memory.rebuild.enabled ? "On" : "Off"}. Local processing-cost
+                  range: ${memory.rebuild.estimatedUsd.low.toFixed(4)}–$
+                  {memory.rebuild.estimatedUsd.conservativeMaximum.toFixed(
+                    4,
+                  )}{" "}
+                  conservative maximum, not an invoice. Exact token admission
+                  precedes requests.
+                </p>
+                <p>
+                  Old generated memory stays until complete replacement. Manual
+                  edits and originals remain; chat pins refresh only explicitly.
+                </p>
+                <details>
+                  <summary>Processing details and price basis</summary>
+                  <p>
+                    {memory.rebuild.estimatedUsd.uncertainty} Price basis:{" "}
+                    {memory.rebuild.estimatedUsd.priceBasis}.
+                  </p>
+                  <p>{memory.rebuild.semantics}</p>
+                </details>
+                {!memory.rebuild.ready && (
+                  <p>
+                    Start unavailable: check native configuration, eligible
+                    sources and operation limits. Nothing is silently enabled.
+                  </p>
+                )}
+                {memory.rebuild.operation && (
+                  <p role="status">
+                    Rebuild {memory.rebuild.operation.state}:{" "}
+                    {memory.rebuild.operation.processed}/
+                    {memory.rebuild.operation.total} user sources processed.
+                    {memory.rebuild.operation.reason
+                      ? ` ${memory.rebuild.operation.reason}.`
+                      : ""}
+                    {Object.entries(memory.rebuild.operation.dispositions)
+                      .map(([reason, count]) => ` ${reason}: ${count}.`)
+                      .join("")}
+                    Processing counts are not semantic-quality proof. Reload
+                    reconciles status; Start is never automatically retried.
+                  </p>
+                )}
+                <div className="button-row">
+                  <button
+                    type="button"
+                    disabled={
+                      isMemoryLoading ||
+                      !memory.rebuild.ready ||
+                      memory.rebuild.operation?.state === "active"
+                    }
+                    onClick={() =>
+                      runInBackground(
+                        changeMemory({
+                          action: "rebuild-start",
+                          id: crypto.randomUUID(),
+                          snapshot: memory.rebuild!.snapshot,
+                        }),
+                      )
+                    }
+                  >
+                    Start rebuild
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      isMemoryLoading ||
+                      memory.rebuild.operation?.state !== "active"
+                    }
+                    onClick={() =>
+                      memory.rebuild?.operation &&
+                      runInBackground(
+                        changeMemory({
+                          action: "rebuild-cancel",
+                          id: memory.rebuild.operation.id,
+                        }),
+                      )
+                    }
+                  >
+                    Cancel rebuild
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p>
+                Rebuild preflight unavailable. Reload with a compatible build;
+                no Start is offered.
+              </p>
+            )}
+          </section>
           <section aria-label="Selected chat memory">
             <h3>Selected chat projection</h3>
             <p>

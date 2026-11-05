@@ -5,6 +5,7 @@ import {
   nativeSummaryStatus,
   readCrossChatSummary,
   tickCrossChatSummary,
+  summaryRebuildPending,
 } from "@/lib/memory/summary-composition";
 import { parseSummaryCommand } from "@/lib/memory/summary-controls";
 
@@ -51,12 +52,19 @@ export async function POST(request: Request) {
         );
       applySummaryCommand(await prepareSummaryAdoption(command));
     }
-    return NextResponse.json(readCrossChatSummary());
+    return NextResponse.json(readCrossChatSummary(), {
+      headers: identity
+        ? { "x-trainer-rebuild-pending": String(summaryRebuildPending()) }
+        : undefined,
+    });
   } catch (error) {
     const stale =
       error instanceof Error &&
       [
         "summary_stale_action",
+        "summary_rebuild_stale_preflight",
+        "summary_rebuild_busy",
+        "summary_rebuild_identity_conflict",
         "conversation_busy_retry_after_current_turn",
       ].includes(error.message);
     return NextResponse.json(

@@ -302,6 +302,15 @@
         rows.length === 1 && rows[0].textContent === memoryText(true),
       off: buttons.some((button) => name(button) === "Enable processing"),
       editing: !!panel?.querySelector("textarea"),
+      rebuildVisible: visible(
+        panel?.querySelector('[aria-label="Rebuild from chat history"]'),
+      ),
+      rebuildStartDisabled: buttons.some(
+        (button) => name(button) === "Start rebuild" && button.disabled,
+      ),
+      rebuildCancelDisabled: buttons.some(
+        (button) => name(button) === "Cancel rebuild" && button.disabled,
+      ),
     };
   }
   function memoryAction(command) {
@@ -324,6 +333,7 @@
         "enable",
         "retry",
         "refresh",
+        "rebuild-preflight",
       ].includes(command.action)
     )
       throw Error("Unsupported Memory action/fields");
@@ -336,7 +346,14 @@
       const panel = memoryPanel();
       if (!before.visible) throw Error("Memory not visible");
       if (command.action === "close") target("Close memory").click();
-      else if (["draft", "draft-update"].includes(command.action)) {
+      else if (command.action === "rebuild-preflight") {
+        const section = panel.querySelector(
+          '[aria-label="Rebuild from chat history"]',
+        );
+        if (!before.loaded || !before.rebuildVisible || !section)
+          throw Error("Rebuild preflight unavailable");
+        section.scrollIntoView({ block: "start" });
+      } else if (["draft", "draft-update"].includes(command.action)) {
         const input = panel.querySelector("textarea");
         if (
           !input ||
@@ -397,6 +414,9 @@
     const panel = memoryPanel();
     const labels = new Set([
       "Cross-chat memory",
+      "Rebuild from chat history",
+      "Start rebuild",
+      "Cancel rebuild",
       "Selected chat projection",
       "Saved summary",
       "Reload memory",

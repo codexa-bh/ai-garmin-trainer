@@ -76,8 +76,13 @@ The direct Luna adapter counts the actual SDK-serialized Responses payload with
 `store:false`, no thread/previous response, explicit no reasoning/tools/fallback,
 size-aware finite input/output envelopes, zero SDK retries and a60-second whole-operation deadline covering all counting and dispatch. For N1000/6000/20000, output allowances are36768/56768/112768 and input106304/146304/258304 tokens. These are conservative serialized text/metadata envelopes, not predicted usage or character/token ratios; exact counting still refuses oversized prior lineage/schema/source payloads before inference. The reviewed Luna context/output ceilings are1,050,000/128,000.
 Summary patches and titles request separate strict closed JSON output schemas through
-the locked SDK. Exact preflight includes the serialized schema; empty keep/upsert/remove/
-coverage arrays remain required. Domain validation still independently checks source
+the locked SDK. Exact preflight includes the serialized schema. Domain patches
+still require keep/upsert/remove/coverage arrays. Summary transport now uses a
+per-batch closed coverage object with one required reason for every exact admitted
+source ID; no missing/foreign logical key or duplicate list entry is representable.
+The adapter validates the entire object, then restores the unchanged domain array
+in source order without inventing/filling dispositions. Unsupported/invalid wire
+output refuses with no fallback; domain coverage/lineage checks still apply. Domain validation still independently checks source
 lineage, coverage, authority, expiry and character bounds; schema conformance is not
 semantic approval, and unsupported structured output has no text/model fallback.
 Cancellation bounds even a provider promise that ignores its signal. Provider logs,
@@ -191,6 +196,84 @@ excluded from automatic processing; manual review remains available. Historical
 expiry prose is not rebased to today. Imports retain original transcripts/facts/
 vectors/markers and never activate automatically at startup. Private export and
 actual legacy deletion remain separately approved operations.
+
+## Explicit Rebuild from chat history
+
+Memory now offers one compact local preflight and explicit **Start rebuild**.
+Ordinary updates and rebuild share the actual future-coaching usefulness policy:
+retain important context/reasons, scoped failed-approach lessons, significant
+unresolved choices and explicit corrections; distinguish historical/current facts,
+questions/commitments and assistant proposals/user endorsement. Useful meaning may
+survive harmless noise. Incidental routes/weather, isolated measurements, one-off
+requests and obsolete targets are not filler; empty/underfull memory is valid.
+Instruction/schema/wiring tests are not proof of actual model selection quality.
+
+Preflight paginates the full original conversation/message pool in250-row pages,
+not the sidebar or200-row import window. It reports total/included/excluded chats,
+user messages and separate unique assistant-context counts. User exclusion reasons
+are exclusive; other message roles are not user sources. Local inspection neither
+exports nor calls a provider. The displayed USD range is zero through a finite
+conservative worst-case reservation (at most one request per included source), not
+an exact token estimate/invoice. Exact SDK serialized admission still precedes each
+request. The reviewed price basis, uncertainty, gross/observed/unknown accounting,
+manual preservation and replacement semantics remain visible. Off, unselected,
+missing native key/lifetime, empty selections and operation limits refuse Start;
+no model/key/topology is enabled or substituted.
+
+Schema22 adds only an original-message authority watermark and staged-operation
+records. Old Clear cutoffs covered linked admissions, not unlinked originals.
+Migration therefore fences all then-existing **unlinked** rows as unproven, rather
+than treating button consent/timestamps as resurrection permission. Completed linked
+sources still obey actual version/cutoff/suppression authority. Genuinely post-fence
+unlinked originals can be admitted with their real IDs, speaker, stored millisecond
+time, full content hash and screened chronological context. Equal-time/unsafe/
+suppressed/unproven option referents fail closed. No completion events or historical
+tool executions are fabricated. Assistant context is lower-authority, never user
+endorsement; its original and originating-user ancestry follows derived items so
+Forget/manual precedence cannot disappear. A forgotten unlinked original remains
+suppressed across edits; a genuinely new message has a different identity.
+
+Strict version1 commands add `rebuild-start` (`id`, reviewed `snapshot`) and
+`rebuild-cancel` (`id`) under the existing expected revision/privacy/control/manual
+CAS. The operation binds source inventory/content, authority and native boot/live
+configuration generation. Same-ID reconciliation never starts another operation;
+concurrent rebuild/import/writer starts refuse. Internal jobs reuse S's20-source
+size-aware provider/lease/reservation seams, but start from an empty generated
+candidate, not old generated memory. Maximum10000 admitted user sources/2000000
+source-and-context scalars and a two-hour operation deadline are explicit refusal
+bounds, not silent inventory truncation. Oversized single messages are disclosed
+and excluded whole at16000 scalars. Cancellation/reopening/deadline/unknown effect
+never automatically replays Start; a new explicit operation preserves prior costs.
+
+Batches stage validated candidates and source dispositions without changing active
+memory or pins. Only the complete candidate plus manual overlays, unchanged source/
+control/config authority and valid capacity commits one replacement through the
+existing writer transaction. The final transaction accounts for inventoried routine
+completion coverage; it never labels excluded sources represented. Failures leave
+old memory intact, except independent immediate Clear/Off/privacy revocation still
+wins. Manual and privacy authority changes invalidate staging; candidate text is
+scrubbed while bounded progress/provenance/accounting receipts remain. Completed
+operations retain no duplicate generated-text history. Original messages, Profile,
+Garmin, plans, legacy stores and gross/unknown liabilities are not rewritten.
+Existing chat pins do not adopt ordinary rebuild publication automatically.
+
+Authored semantic rubric (separate real-provider approval/evidence required):
+
+| Authored case                                                            | Expected meaning / forbidden inference                                            |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Noisy route talk plus repeated long-weekday failure caused by caregiving | Short-weekday constraint, why and scoped lesson; not weather/distance chatter     |
+| Cycling versus hiking preparation correction                             | Preserve the explained distinction, not “never cycle”                             |
+| Earlier evenings explicitly corrected to mornings                        | Current mornings; evenings historical, not simultaneous current preferences       |
+| Assistant poles/bag offer, unresolved question, later bag rejection      | No endorsement until actual choice; retain rejection reason, not an invented goal |
+| Isolated measurement/rewrite/obsolete monthly target                     | Exclude unless needed for a durable conclusion; unused capacity is preferable     |
+| No-save, unsafe, suppressed or cleared history                           | No export/resurrection or plan-save permission                                    |
+
+Current keyless ordinary smoke proves rendered preflight and missing-capability
+Start refusal, not successful generation/progress/cancel or semantic quality.
+Real-SQLite supplied-generation tests prove staging/races/mechanics. Exact separately
+approved native provider/model/export/cumulative-spend evidence is required before
+claiming actual relevance selection or live consumption. Source delivery does not
+install/activate the feature or migrate primary data.
 
 ## Compatibility and validation
 

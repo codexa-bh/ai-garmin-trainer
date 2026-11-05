@@ -136,6 +136,27 @@ export function assertDesktopDatabase(path: string): void {
       ["summary_import_disposition", ["source_id", "manifest_id", "reason"]],
       ["summary_attempt", ["import_id"]],
       ["summary_manual", ["item_id", "payload"]],
+      ["summary_original_boundary", ["id", "floor"]],
+      [
+        "summary_rebuild",
+        [
+          "id",
+          "format_version",
+          "boot",
+          "snapshot",
+          "selection_json",
+          "authority_json",
+          "candidate_json",
+          "candidate_checksum",
+          "dispositions_json",
+          "position",
+          "state",
+          "reason",
+          "created_at",
+          "deadline",
+          "checksum",
+        ],
+      ],
       ["conversation_title_spend", ["id", "day", "reserved_usd", "usage_json"]],
     ] as const) {
       const actual = db.prepare(`pragma table_info(${table})`).all() as {

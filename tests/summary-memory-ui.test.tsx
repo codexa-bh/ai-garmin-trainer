@@ -44,6 +44,38 @@ function snapshot(conversationId = "A"): SummaryInspection {
       manifests: [],
       exclusions: "Unlinked sources are excluded.",
     },
+    rebuild: {
+      version: 1,
+      snapshot: "a".repeat(64),
+      ready: true,
+      complete: true,
+      limitExceeded: false,
+      configuredProvider: "openai",
+      model: "gpt-6-luna",
+      enabled: true,
+      capability: "configured-not-probed",
+      counts: {
+        chats: 3,
+        messages: 12,
+        userMessages: 6,
+        assistantMessages: 6,
+        includedChats: 2,
+        excludedChats: 1,
+        includedUserMessages: 4,
+        assistantContext: 1,
+        excludedUserMessages: 2,
+        excludedMessages: 7,
+      },
+      reasons: { suppressed: 2 },
+      estimatedUsd: {
+        low: 0,
+        conservativeMaximum: 0.4,
+        priceBasis: "authored-basis",
+        uncertainty: "Not an invoice.",
+      },
+      semantics: "Manual overlays and originals remain.",
+      operation: null,
+    },
     selectedChat: {
       conversationId,
       segmentRevision: 0,
@@ -60,6 +92,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 describe("integrated Memory visible controls and stale-response safety", () => {
   it("never lets an old selected-chat response replace the current projection", async () => {
@@ -248,6 +281,16 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       />,
     );
     expect(screen.getByText(/Latest revision 3/)).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Rebuild from chat history" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start rebuild" }));
+    expect(change).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "rebuild-start",
+        snapshot: "a".repeat(64),
+      }),
+    );
     expect(screen.getByText(/No active cross-chat pin/)).toBeTruthy();
     expect(screen.getByText(/Preserved legacy preference/)).toBeTruthy();
     expect(screen.queryByPlaceholderText(/Search memory/)).toBeNull();
@@ -268,6 +311,84 @@ describe("integrated Memory visible controls and stale-response safety", () => {
         .getByRole("button", { name: "Process reviewed selection (0)" })
         .hasAttribute("disabled"),
     ).toBe(true);
+  });
+  it("confirms one identity-bound rebuild Start and refuses double-click/unknown-effect replay", async () => {
+    let finish!: (value: Response) => void;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(snapshot()))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { result } = renderHook(() =>
+      useMemoryFeature({ setStatus: vi.fn() }),
+    );
+    await act(() => result.current.loadMemories(false));
+    const action = {
+      action: "rebuild-start" as const,
+      id: "one-request",
+      snapshot: "a".repeat(64),
+    };
+    let first!: Promise<void>;
+    act(() => {
+      first = result.current.changeMemory(action);
+    });
+    await act(() => result.current.changeMemory(action));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
+      version: 1,
+      expected: snapshot().expected,
+      ...action,
+    });
+    await act(async () => {
+      finish(response({ error: "unknown" }, 503));
+      await first;
+    });
+    expect(result.current.memory).toBeNull();
+    await act(() => result.current.changeMemory(action));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("polls only local operation status while active and stops at interruption without replaying Start", async () => {
+    vi.useFakeTimers();
+    const active = snapshot();
+    active.rebuild!.operation = {
+      id: "one",
+      state: "active",
+      reason: null,
+      processed: 20,
+      total: 41,
+      dispositions: { "low-value": 20 },
+      createdAt: 1,
+      deadline: 10000,
+    };
+    const interrupted = snapshot();
+    interrupted.rebuild!.operation = {
+      ...active.rebuild!.operation,
+      state: "interrupted",
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(active))
+      .mockResolvedValueOnce(response(interrupted));
+    vi.stubGlobal("fetch", fetcher);
+    const setStatus = vi.fn();
+    const { result } = renderHook(() => useMemoryFeature({ setStatus }));
+    await act(() => result.current.loadMemories(false));
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(result.current.memory?.rebuild?.operation?.state).toBe(
+      "interrupted",
+    );
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.every((call) => call[1]?.method !== "POST")).toBe(
+      true,
+    );
   });
   it("refuses old/unsupported inspection instead of displaying invented readiness", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ ok: true })));

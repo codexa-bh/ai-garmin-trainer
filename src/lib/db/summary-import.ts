@@ -157,6 +157,8 @@ export function createSummaryImport(ids: string[]): string {
       new Set(ids).size !== ids.length
     )
       throw new Error("summary_import_selection_invalid");
+    if (db.prepare("select 1 from summary_rebuild where state='active'").get())
+      throw new Error("summary_import_busy");
     if (
       db
         .prepare(

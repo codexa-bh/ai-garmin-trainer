@@ -80,6 +80,15 @@ def memory_controls(run):
     action = lambda name: run.command({'type': 'memory', 'action': name})
     action('open')
     memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'empty canonical summary')
+    action('rebuild-preflight')
+    memory_wait(run, lambda value: value['rebuildVisible'] and value['rebuildStartDisabled'] and value['rebuildCancelDisabled'], 'keyless rebuild is visible and refuses generation')
+    rebuild_images = []
+    for preset in ['wide', 'narrow']:
+        run.command({'type': 'setViewport', 'preset': preset})
+        action('rebuild-preflight')
+        image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
+        rebuild_images.append({'state': 'rebuild-keyless-preflight', 'preset': preset, **image})
+        private_json(run.root / ('rebuild-capture-' + preset + '.json'), rebuild_images[-1])
     action('add')
     memory_wait(run, lambda value: value['editing'], 'manual editor')
     action('draft')
@@ -121,7 +130,10 @@ def memory_controls(run):
     private_json(run.root / 'integrated-memory-controls.json', {
         'task': 'T0272', 'runId': run.id, 'source': run.config['source'],
         'manualEditForgetClearOffEnableRestart': True, 'originalChatsPreserved': True,
-        'providerCalls': 0, 'captures': images, 'input': 'finite synthetic DOM; not trusted OS input',
+        'providerCalls': 0, 'captures': images, 'rebuildCaptures': rebuild_images,
+        'rebuildPreflightKeylessRefusal': True,
+        'rebuildSuccess': 'unavailable without separate native provider/model/export/cumulative-cost approval',
+        'input': 'finite synthetic DOM; not trusted OS input',
         'limitations': 'Static controls only revealed; no hidden-content, semantic-provider, qualified pin projection or primary activation certification',
     })
 

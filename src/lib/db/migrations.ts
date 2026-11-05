@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const LATEST_SCHEMA_VERSION = 21;
+export const LATEST_SCHEMA_VERSION = 22;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -339,6 +339,19 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       `update summary_attempt set reserved_usd=0.01,price_basis='legacy-flat-reservation' where reserved=1`,
     ],
   },
+  {
+    version: 22,
+    name: "staged_history_rebuild",
+    statements: [
+      // Prior Clear operations did not record original-message authority. Do not
+      // retrospectively grant export to unlinked originals by timestamp.
+      `create table summary_original_boundary(id integer primary key check(id=1),floor integer not null)`,
+      `insert into summary_original_boundary select 1,coalesce(max(rowid),0) from message`,
+      `create table summary_rebuild(id text primary key,format_version integer not null default 1,boot text not null,snapshot text not null,selection_json text not null,authority_json text not null,candidate_json text not null,candidate_checksum text not null,dispositions_json text not null default '[]',position integer not null default 0,state text not null,reason text,created_at integer not null,deadline integer not null,checksum text not null)`,
+      `create unique index summary_rebuild_live on summary_rebuild(state) where state='active'`,
+      `create trigger summary_rebuild_invalidation after update of generation,manual_revision on summary_control when old.generation<>new.generation or old.manual_revision<>new.manual_revision begin update summary_rebuild set state=case when state='active' then 'invalidated' else state end,reason=case when state='active' then 'summary_authority_changed' else reason end,candidate_json='{"version":1,"items":[],"text":""}',candidate_checksum=''; end`,
+    ],
+  },
 ];
 
 function hasTable(db: Database.Database, table: string): boolean {
@@ -380,6 +393,7 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "conversation_title_spend",
     "summary_import",
     "summary_import_disposition",
+    "summary_rebuild",
   ];
   return tables.some((table) => {
     if (!hasTable(db, table)) return false;
