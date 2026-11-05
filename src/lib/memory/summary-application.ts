@@ -7,6 +7,8 @@ import {
   type SummaryCandidate,
   type MinimizedSource,
   type SummaryPatchRejection,
+  type SummaryValueDiagnostic,
+  characters,
 } from "./summary-policy";
 
 export type SummaryGeneration = {
@@ -114,6 +116,20 @@ export function createSummaryEngine(ports: {
               const prompt = JSON.stringify({
                 now: ports.now(),
                 characterCap: job.cap,
+                constraints: {
+                  renderedCharacters: characters(job.previous.text),
+                  renderFormat:
+                    "[stance; category] text, joined with one newline between items",
+                  renderedCharacterCap: job.cap,
+                  maxItems: 256,
+                  maxItemTextScalars: 1200,
+                  maxTransitiveSourcesPerItem: 32,
+                  idPattern: "^[a-zA-Z0-9_-]{1,80}$",
+                  priorityMin: 0,
+                  priorityMax: 5,
+                  budgetRule:
+                    "The cap includes ALL kept and upserted items plus stance/category framing and newlines. Repack related previous items using NEW ids and replaces, or explicitly remove lower-value items before adding. Never merge more than32 inherited/new/context sources into one item; split instead. Do not simply append until full, pad, truncate or discard important rationale. No retry is promised.",
+                },
                 previous: job.previous.items,
                 requiredCoverageSourceIds: admitted.map(
                   (source) => source.sourceId,
@@ -125,18 +141,20 @@ export function createSummaryEngine(ports: {
                 signal,
               );
               let rejection: SummaryPatchRejection | undefined;
+              let diagnostic: SummaryValueDiagnostic | undefined;
               candidate = validateSummaryPatch(
                 output.patch,
                 job,
                 admitted,
                 ports.now(),
-                (code) => {
+                (code, detail) => {
                   rejection = code;
+                  diagnostic = detail;
                 },
               );
               // Record actual counters once and only a closed rejection category;
               // never retain the provider patch, source text or arbitrary errors.
-              storage.usage(job, output.usage, rejection);
+              storage.usage(job, output.usage, rejection, diagnostic);
               break;
             } catch (error) {
               if (

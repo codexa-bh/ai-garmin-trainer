@@ -95,9 +95,26 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertIn('unavailable',receipt['rebuildSuccess'])
             self.assertIn('not trusted OS input',receipt['input'])
 
+    def test_failed_control_preserves_closed_observation_and_capture_without_replay(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def command(value):
+                if value.get('action') == 'forget':
+                    raise RuntimeError('closed failure')
+                return {'ok': True}
+            run=SimpleNamespace(root=Path(folder), id='unit', config={'source':'source'}, binary=Path('/unit-app'), command=Mock(side_effect=command), chat_hash=Mock(return_value='same'), stop=Mock(), start=Mock())
+            with patch.object(smoke,'memory_wait'):
+                with self.assertRaisesRegex(RuntimeError, 'closed failure'):
+                    smoke.memory_controls(run)
+            actions=[call.args[0].get('action') for call in run.command.call_args_list]
+            self.assertEqual(actions.count('forget'),1)
+            receipt=json.loads((run.root/'memory-action-failure.json').read_text())
+            self.assertFalse(receipt['mutationReplayed'])
+            self.assertEqual(receipt['observation'],{'ok':True})
+            self.assertEqual(receipt['capture'],{'ok':True})
+
     def test_fixed_presentation_sequence_never_dispatches_a_mutation_or_confirms_one(self):
         with tempfile.TemporaryDirectory() as folder:
-            run=SimpleNamespace(root=Path(folder), command=Mock(return_value={'ok':True}))
+            run=SimpleNamespace(root=Path(folder), id='unit', config={'source':'source'}, command=Mock(return_value={'ok':True}))
             with patch.object(smoke, 'memory_wait'):
                 images=smoke.memory_presentations(run)
             actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
@@ -105,9 +122,14 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertNotIn('save', actions)
             self.assertNotIn('rebuild-start', actions)
             self.assertEqual(actions[-1], 'fixture-reset')
-            self.assertEqual(len(images), 23)
-            self.assertIn('earlier-sources', actions)
-            self.assertIn('older-records', actions)
+            self.assertEqual(len(images), 29)
+            self.assertNotIn('earlier-sources', actions)
+            self.assertNotIn('older-records', actions)
+            self.assertIn('fixture-progressive', actions)
+            receipt=json.loads((run.root/'memory-progressive.json').read_text())
+            self.assertTrue(receipt['stableDOMFocusScroll'])
+            self.assertEqual(receipt['providerCalls'],0)
+            self.assertIn('not engine/provider or compositor-frame proof',receipt['evidenceClass'])
             self.assertNotIn('chat-details', actions)
             self.assertIn('history-select', actions)
             self.assertIn('history-legacy', actions)

@@ -17,8 +17,9 @@ from summary_live import api
 
 SUMMARY_ENTRY = {'id':'entry_summary_local','provider':'ollama','modelId':'synthetic-memory:small'}
 SUMMARY_CATALOG = {'version':1,'entries':[SUMMARY_ENTRY,
-    {'id':'entry_summary_cloud','provider':'openai','modelId':'synthetic-title:small'},
+    {'id':'entry_summary_cloud','provider':'openai','modelId':'gpt-6-luna'},
     {'id':'entry_summary_other','provider':'ollama','modelId':'synthetic-chat:large'}], 'defaultEntryId':None}
+CLOUD_CHOICE = json.dumps({'version':1,'entryId':'entry_summary_cloud','provider':'openai','modelId':'gpt-6-luna'}, separators=(',',':'))
 SUMMARY_CHOICE = json.dumps({'version':1,'entryId':SUMMARY_ENTRY['id'],'provider':SUMMARY_ENTRY['provider'],'modelId':SUMMARY_ENTRY['modelId']}, separators=(',',':'))
 
 
@@ -39,7 +40,7 @@ def prepare_settings(run):
         raise ValueError('Stopped keyless existing-installation scope required')
     private_json(run.root / 'config/settings-v3.json', {'version':3,'keys':{},'fields':{
         **preserved_fields(run),'DATABASE_PATH':str(run.database),'MEMORY_ENABLED':'false',
-        'SUMMARY_ENABLED':'false','SUMMARY_MODEL':'unselected','SUMMARY_CHAR_LIMIT':'6000'},
+        'SUMMARY_ENABLED':'false','SUMMARY_MODEL':'gpt-6-luna','SUMMARY_CHAR_LIMIT':'6000'},
         'chatCatalog':SUMMARY_CATALOG})
     run.keyless_lifecycle=True  # Read-only API guard forbids provider descriptor/paid chat.
 
@@ -54,8 +55,8 @@ def metadata(run):
 
 
 def default_summary(value):
-    # Native's literal unselected setting projects to the storage/API empty model ID.
-    return not value['enabled'] and value['model'] == '' and value['state'] == 'disabled' and value['pending'] == 0 and value['items'] == 0
+    # Fixed legacy scalar is disabled and keyless: no inference or private slot.
+    return not value['enabled'] and value['model'] == 'gpt-6-luna' and value['state'] == 'disabled' and value['pending'] == 0 and value['items'] == 0
 
 
 def captures(run, state, history=False):
@@ -111,12 +112,36 @@ def main():
         receipt['initialSummary']=initial
         receipt['initialChat']={'httpStatus':models[0],'available':models[1].get('available'),'options':len(models[1].get('options',[]))}
         if not default_summary(initial) or models[0] != 200 or models[1]['available']:
-            raise ValueError('Default Off/unselected/no eligible model required')
+            raise ValueError('Fixed Off/scalar/no eligible chat choice required')
         original_origin=run.origin
         run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOff'] and not value['firstRun'],'initial native summary fields')
         initial_observation=run.settings_action('observe')
         if not initial_observation['technicalControlsAbsent'] or not initial_observation['automaticHistory'] or initial_observation['historyDateVisible']:
             raise ValueError('Technical UI present or Off date not hidden')
+        run.wait_settings(lambda value:value['summaryScalar'],'one exact scalar/catalog option with explicit Save binding')
+        scalar_before=json_document(run.root/'config/settings-v3.json')[1]
+        receipt['captures']+=captures(run,'scalar-exact-match')
+        run.settings_action('bindSummary')
+        run.wait_settings(lambda value:value['summaryBound'],'explicit draft-only catalog binding')
+        if json_document(run.root/'config/settings-v3.json')[1] != scalar_before:
+            raise ValueError('Render/draft binding wrote settings')
+        receipt['captures']+=captures(run,'catalog-binding-draft')
+        run.settings_action('cancelDraft')
+        run.wait_settings(lambda value:value['ready'] and value['summaryScalar'],'cancel restores scalar without write')
+        if json_document(run.root/'config/settings-v3.json')[1] != scalar_before:
+            raise ValueError('Cancel changed saved scalar')
+        run.settings_action('bindSummary');run.settings_action('save')
+        run.wait_settings(lambda value:value['savedForNextLaunch'] and value['summaryBound'],'explicit catalog identity Save')
+        run.settings_action('dismissRestart')
+        bound=json_document(run.root/'config/settings-v3.json')[1]
+        if bound['fields']['SUMMARY_MODEL'] != CLOUD_CHOICE or bound['keys'] or metadata(run)['model'] != 'gpt-6-luna':
+            raise ValueError('Binding failed identity/keyless/restart-only preservation')
+        run.stop();run.start(run.binary)
+        if metadata(run)['model'] != CLOUD_CHOICE or metadata(run)['enabled']:
+            raise ValueError('Explicit binding did not persist across owned restart')
+        run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryBound'],'bound catalog reload after restart')
+        receipt['scalarBindingSaveCancelRestart']=True
+        original_origin=run.origin
         run.settings_action('historyRequired')
         before_required=json_document(run.root/'config/settings-v3.json')[1]
         run.settings_action('save')

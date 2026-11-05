@@ -364,7 +364,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(window.confirm).toHaveBeenCalledOnce();
   });
-  it("renders current/pinned distinction, no-service legacy review and explicit controls without old semantic search", () => {
+  it("retains source/history controls without exposing preserved archive or obsolete import routes", () => {
     const value = snapshot();
     value.legacy = [
       {
@@ -383,6 +383,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
         memory={value}
         memoryMessage="Summary fresh"
         isMemoryLoading={false}
+        isMemoryReadUnavailable={false}
         pendingMemoryAction={null}
         beginMemoryEdit={vi.fn()}
         canDiscardMemoryEdit={() => true}
@@ -430,25 +431,18 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       screen.queryByRole("button", { name: "Update this chat" }),
     ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Manage memory" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Older saved records" }),
-    );
-    expect(screen.getByText(/Preserved legacy preference/)).toBeTruthy();
+    for (const name of [
+      "Older saved records",
+      "Open legacy source conversation",
+      "Review earlier sources",
+      "Process reviewed selection (0)",
+    ])
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    expect(screen.queryByText(/Preserved legacy preference/)).toBeNull();
     expect(screen.queryByPlaceholderText(/Search memory/)).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Open legacy source conversation" }),
-    );
-    expect(open).toHaveBeenCalledWith("A");
-    fireEvent.click(screen.getByRole("button", { name: "Back to memory" }));
-    fireEvent.click(screen.getByRole("button", { name: "Manage memory" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Review earlier sources" }),
-    );
     expect(
-      screen
-        .getByRole("button", { name: "Process reviewed selection (0)" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+      screen.getByRole("button", { name: "Clear saved memory" }),
+    ).toBeTruthy();
   });
   it("reviews selected conversations locally and requires separate explicit legacy confirmation before Start", async () => {
     const value = snapshot();
@@ -493,7 +487,9 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
     ).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Review and update" }));
-    expect(screen.getByText(/things once cleared from memory/)).toBeTruthy();
+    expect(
+      screen.getByText(/Older conversations may include things once cleared/),
+    ).toBeTruthy();
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Cancel" }),
     );
@@ -788,19 +784,17 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       screen.getByRole("button", { name: /Update from chat history/ }),
     );
     expect(
-      screen.getByText(/Processed 20 of 41 included messages/),
+      screen.getByText(/20 of 41 included messages processed/),
     ).toBeTruthy();
     if (state === "active")
-      expect(
-        screen.getByRole("button", { name: "Cancel history update" }),
-      ).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
     else if (state === "complete")
       expect(
-        screen.getByText(/New chat turns use available valid memory/),
+        screen.getByText(/new chat turns use available valid memory/),
       ).toBeTruthy();
     else
       expect(
-        screen.getByText(/No completed replacement is reported/),
+        screen.getByText(/No completed replacement was saved/),
       ).toBeTruthy();
     expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(true);
   });
@@ -845,57 +839,49 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       );
     },
   );
-  it("keeps retained import a deliberate reviewed selection and exposes actual pause/resume/review controls", async () => {
-    const value = snapshot();
-    value.historical.candidates = [
-      {
-        id: "turn:1",
-        conversationId: "A",
-        text: "Short weekdays preferred.",
-        referent: null,
-      },
-    ];
-    value.historical.manifests = [
-      { id: "old", state: "review-required", position: 2, total: 3 },
-    ];
-    const fetcher = await mountMemory(value);
-    fireEvent.click(screen.getByRole("button", { name: "Manage memory" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Review earlier sources" }),
-    );
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(
-      false,
-    );
-    expect(
-      screen.getByText(/Cancel this import and review a new selection/),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Cancel import" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Process reviewed selection (1)" }),
-    );
-    expect(
-      screen.getByText(/1 selected messages go to the configured provider/),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(true);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Process reviewed selection (1)" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Process selection" }));
-    await screen.findByText("Reviewed source import created.");
-    expect(
-      JSON.parse(
-        String(
-          fetcher.mock.calls.find((c) => c[1]?.method === "POST")?.[1]?.body,
-        ),
-      ),
-    ).toMatchObject({
-      action: "import-create",
-      sourceIds: ["turn:1"],
-      expected: value.expected,
-    });
-  });
+  it.each(["active", "paused", "review-required"])(
+    "retains contextual explicit cancellation for a %s compatibility import, without a dead-end import screen",
+    async (state) => {
+      const value = snapshot();
+      value.historical.manifests = [
+        { id: "old", state, position: 2, total: 3 },
+      ];
+      const fetcher = await mountMemory(value, () => {
+        value.historical.manifests[0].state = "cancelled";
+        return response({ ok: true });
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Update from chat history" }),
+      );
+      expect(screen.getByText(/2 of 3 messages processed/)).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: /Process reviewed selection/ }),
+      ).toBeNull();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Cancel earlier update" }),
+      );
+      expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(
+        true,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Cancel earlier update" }),
+      );
+      fireEvent.click(
+        screen
+          .getAllByRole("button", { name: "Cancel earlier update" })
+          .at(-1)!,
+      );
+      await screen.findByText(/Import cancellation checked/);
+      const posts = fetcher.mock.calls.filter((c) => c[1]?.method === "POST");
+      expect(posts).toHaveLength(1);
+      expect(JSON.parse(String(posts[0][1]?.body))).toMatchObject({
+        action: "import-cancel",
+        id: "old",
+        expected: value.expected,
+      });
+    },
+  );
   it("reconciles cancel versus completion without replaying or falsely claiming rollback", async () => {
     const value = snapshot();
     value.rebuild!.operation = {
@@ -915,9 +901,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Update from chat history/ }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Cancel history update" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await screen.findByText("Saved memory updated");
     expect(screen.getByText(/Cancellation checked/)).toBeTruthy();
     expect(
@@ -932,7 +916,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     await screen.findByText(/outcome unknown/);
     expect(screen.queryByText(/private vendor text/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Turn On" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Check saved memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading" }));
     await screen.findByRole("button", { name: "Add memory" });
     expect(
       fetcher.mock.calls.filter((c) => c[1]?.method === "POST"),
@@ -955,6 +939,218 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       "Review the current information",
     );
   });
+  it("keeps mounted DOM, focus and scroll across delayed/unchanged/progress/lost-connection observations and retains the terminal result", async () => {
+    vi.useFakeTimers();
+    const value = populated();
+    value.rebuild!.operation = {
+      id: "progressive",
+      state: "active",
+      reason: null,
+      processed: 20,
+      total: 184,
+      dispositions: {},
+      createdAt: 1,
+      deadline: 10000,
+    };
+    let finish: ((r: Response) => void) | undefined;
+    let initial = true;
+    const fetcher = vi.fn((_url: string, _init?: RequestInit) => {
+      if (initial) {
+        initial = false;
+        return Promise.resolve(response(value));
+      }
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    await act(async () => {
+      render(<MemoryHarness />);
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Update from chat history/ }),
+    );
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const progress = screen.getByRole("progressbar");
+    const root = document.querySelector<HTMLElement>(".memory-root-card")!;
+    cancel.focus();
+    root.scrollTop = 73;
+    for (const count of [20, 40, 60]) {
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(screen.queryByText("Checking saved memory…")).toBeNull();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBe(cancel);
+      expect(cancel.hasAttribute("disabled")).toBe(false);
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      // No overlapping reads while a slow observation is outstanding.
+      const reads = fetcher.mock.calls.length;
+      await act(async () => {
+        finish!(
+          response({
+            ...value,
+            rebuild: {
+              ...value.rebuild,
+              operation: { ...value.rebuild!.operation, processed: count },
+            },
+          }),
+        );
+      });
+      expect(fetcher.mock.calls.length).toBe(reads);
+      expect(screen.getByRole("progressbar")).toBe(progress);
+      expect(progress.getAttribute("value")).toBe(String(count));
+      expect(document.activeElement).toBe(cancel);
+      expect(root.scrollTop).toBe(73);
+      expect(
+        screen.queryByRole("button", { name: "Check update status" }),
+      ).toBeNull();
+    }
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    await act(async () => {
+      finish!(response({ error: "private vendor message" }, 503));
+    });
+    expect(screen.getByText("Update status unavailable")).toBeTruthy();
+    expect(screen.getByText(/Last known: 60 of 184/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Retry connection" }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/private vendor/)).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    await act(async () => {
+      finish!(
+        response({
+          ...value,
+          rebuild: {
+            ...value.rebuild,
+            operation: {
+              ...value.rebuild!.operation,
+              processed: 184,
+              state: "complete",
+            },
+          },
+        }),
+      );
+    });
+    expect(screen.getByText("Saved memory updated")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Review and update" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Review a new update" }),
+    ).toBeTruthy();
+    const reads = fetcher.mock.calls.length;
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+    });
+    expect(fetcher).toHaveBeenCalledTimes(reads);
+    expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(true);
+  });
+  it("preserves global content and an unsaved manual draft while a newly resolved chat is passively inspected, revoking only old chat metadata", async () => {
+    let finish!: (r: Response) => void;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(populated()))
+      .mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    const { result } = renderHook(() =>
+      useMemoryFeature({ setStatus: vi.fn() }),
+    );
+    await act(() => result.current.loadMemories(false, "A"));
+    act(() => {
+      result.current.beginMemoryEdit("new", "Unsaved global manual note");
+    });
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.loadMemories(false, "B");
+    });
+    expect(result.current.memory?.stored.items[0].id).toBe("one");
+    expect(result.current.memory?.selectedChat).toBeNull();
+    expect(result.current.editingMemoryText).toBe("Unsaved global manual note");
+    expect(result.current.isMemoryLoading).toBe(false);
+    await act(async () => {
+      finish(
+        response({
+          ...populated(),
+          selectedChat: { ...snapshot("B").selectedChat },
+        }),
+      );
+      await pending;
+    });
+    expect(result.current.editingMemoryText).toBe("Unsaved global manual note");
+  });
+  it.each([false, true])(
+    "settles a superseded local review without a stuck busy state or post-unmount reads (unmount=%s)",
+    async (unmount) => {
+      let finish!: (r: Response) => void;
+      let reads = 0;
+      const fetcher = vi.fn((_url: string, init?: RequestInit) =>
+        init?.method === "POST"
+          ? new Promise<Response>((resolve) => {
+              finish = resolve;
+            })
+          : Promise.resolve(response(snapshot(reads++ ? "B" : "A"))),
+      );
+      vi.stubGlobal("fetch", fetcher);
+      const { result, unmount: remove } = renderHook(() =>
+        useMemoryFeature({ setStatus: vi.fn() }),
+      );
+      await act(() => result.current.loadMemories(false, "A"));
+      let review!: Promise<void>;
+      act(() => {
+        review = result.current.reviewHistory({
+          version: 1,
+          conversationIds: null,
+          includeLegacy: true,
+        });
+      });
+      await act(() => result.current.loadMemories(false, "B"));
+      if (unmount) remove();
+      await act(async () => {
+        finish(response({ rebuild: snapshot().rebuild }));
+        await review;
+      });
+      expect(
+        fetcher.mock.calls.filter((c) => c[1]?.method === "POST"),
+      ).toHaveLength(1);
+      if (unmount) expect(reads).toBe(1);
+      else {
+        expect(result.current.isMemoryLoading).toBe(false);
+        expect(result.current.memory?.selectedChat?.conversationId).toBe("B");
+        expect(reads).toBe(2);
+      }
+    },
+  );
+  it("does not announce completion or render a full determinate bar before commit", async () => {
+    const value = snapshot();
+    value.rebuild!.operation = {
+      id: "finishing",
+      state: "active",
+      reason: null,
+      processed: 184,
+      total: 184,
+      dispositions: {},
+      createdAt: 1,
+      deadline: 10000,
+    };
+    await mountMemory(value);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Update from chat history/ }),
+    );
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.getByText(/finishing — not yet saved/)).toBeTruthy();
+    expect(screen.queryByText("Saved memory updated")).toBeNull();
+  });
   it("refuses old/unsupported inspection instead of displaying invented readiness", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ ok: true })));
     const { result } = renderHook(() =>
@@ -962,6 +1158,6 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     );
     await act(() => result.current.loadMemories(false));
     expect(result.current.memory).toBeNull();
-    expect(result.current.memoryMessage).toContain("unavailable");
+    expect(result.current.memoryMessage).toContain("Connection lost");
   });
 });

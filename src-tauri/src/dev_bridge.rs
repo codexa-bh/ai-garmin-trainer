@@ -258,7 +258,7 @@ impl Command {
                 "enable",
                 "retry",
                 "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
-                "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-complete", "fixture-interrupted", "fixture-unknown", "fixture-reset",
+                "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-progressive", "fixture-complete", "fixture-interrupted", "fixture-failed", "fixture-cancelled", "fixture-unknown", "fixture-reset",
             ]
             .contains(&action.as_str()),
             Self::Tables { surface, edge } => {
@@ -616,7 +616,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
         return (exact_keys(value, &["ok", "error"])
             && (value["error"] == "Rendered command refused or failed"
                 || (matches!(command, Command::Memory { .. } | Command::CaptureView { .. })
-                    && ["idle", "action", "history-navigation", "inspection", "anchor", "canonical-copy", "private-ancestor"]
+                    && ["idle", "action", "history-navigation", "inspection", "anchor", "canonical-copy", "private-ancestor", "ready-before-control", "canonical-control-lookup", "canonical-control-target", "canonical-control-click", "post-action-observation"]
                         .iter().any(|stage| value["error"] == format!("Memory action failed at {stage}")))
                 || (matches!(command, Command::Conversation { .. })
                     && [
@@ -855,6 +855,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 "rebuildStartDisabled",
                 "rebuildCancelDisabled",
                 "presentationFixture",
+                "progressiveComplete",
                 "confirmationVisible",
             ];
             let mut keys = vec!["ok", "action", "trustedInput"];
@@ -1434,14 +1435,14 @@ mod tests {
             "enable",
             "retry",
             "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
-            "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-complete", "fixture-interrupted", "fixture-unknown", "fixture-reset",
+            "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-progressive", "fixture-complete", "fixture-interrupted", "fixture-failed", "fixture-cancelled", "fixture-unknown", "fixture-reset",
         ] {
             let command = Command::Memory {
                 action: action.into(),
             };
             assert!(command.valid());
             assert!(!config().permits(&command));
-            let value = json!({"ok":true,"action":action,"trustedInput":false,"visible":true,"loaded":true,"hasManual":false,"updatedManual":false,"off":false,"editing":false,"rebuildVisible":true,"rebuildStartDisabled":true,"rebuildCancelDisabled":true,"presentationFixture":false,"confirmationVisible":false});
+            let value = json!({"ok":true,"action":action,"trustedInput":false,"visible":true,"loaded":true,"hasManual":false,"updatedManual":false,"off":false,"editing":false,"rebuildVisible":true,"rebuildStartDisabled":true,"rebuildCancelDisabled":true,"presentationFixture":false,"progressiveComplete":false,"confirmationVisible":false});
             assert!(super::safe_result(&command, &value, true));
             assert!(!safe_result(&command, &value));
             for (key, changed) in [
@@ -1457,6 +1458,9 @@ mod tests {
         }
         let diagnostic = Command::Memory { action: "observe".into() };
         assert!(super::safe_result(&diagnostic, &json!({"ok":false,"error":"Memory action failed at history-navigation"}), true));
+        for stage in ["ready-before-control", "canonical-control-lookup", "canonical-control-target", "canonical-control-click", "post-action-observation"] {
+            assert!(super::safe_result(&diagnostic, &json!({"ok":false,"error":format!("Memory action failed at {stage}")}), true));
+        }
         assert!(!super::safe_result(&diagnostic, &json!({"ok":false,"error":"Memory action failed at private-content"}), true));
         for action in ["export", "import", "select", "eval", "login", "rebuild-start", "rebuild-cancel"] {
             assert!(!Command::Memory {

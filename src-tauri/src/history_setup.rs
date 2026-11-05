@@ -22,6 +22,8 @@ pub enum Action {
     Capture,
     SummaryOn,
     SummaryOff,
+    BindSummary,
+    CancelDraft,
     CaptureSummaryWide,
     CaptureSummaryNarrow,
     CaptureHistoryWide,
@@ -55,6 +57,8 @@ struct Observation {
     private_controls_absent: bool,
     summary_on: bool,
     summary_off: bool,
+    summary_scalar: bool,
+    summary_bound: bool,
     history_date_visible: bool,
     history_date_required: bool,
     technical_controls_absent: bool,
@@ -70,7 +74,7 @@ pub fn document(url: &tauri::Url) -> bool {
 fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, String> {
     use objc2::{class, msg_send, runtime::AnyObject};
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerHistorySetup ? window.__trainerHistorySetup({}) : {{ok:true,ready:false,formValid:false,firstRun:false,dataStep:false,reviewStep:false,automaticHistory:false,legacyLimit:false,savedForNextLaunch:false,saveSubmitted:false,saveRequested:false,historyValidationBlocked:false,historyBadInput:false,historyValueMissing:false,otherValidationBlocked:false,documentVisible:false,formConnected:false,saveRejected:false,settingsUnavailable:false,commandPermissionDenied:false,commandArgumentsInvalid:false,privateControlsAbsent:false,summaryOn:false,summaryOff:false,historyDateVisible:false,historyDateRequired:false,technicalControlsAbsent:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerHistorySetup ? window.__trainerHistorySetup({}) : {{ok:true,ready:false,formValid:false,firstRun:false,dataStep:false,reviewStep:false,automaticHistory:false,legacyLimit:false,savedForNextLaunch:false,saveSubmitted:false,saveRequested:false,historyValidationBlocked:false,historyBadInput:false,historyValueMissing:false,otherValidationBlocked:false,documentVisible:false,formConnected:false,saveRejected:false,settingsUnavailable:false,commandPermissionDenied:false,commandArgumentsInvalid:false,privateControlsAbsent:false,summaryOn:false,summaryOff:false,summaryScalar:false,summaryBound:false,historyDateVisible:false,historyDateRequired:false,technicalControlsAbsent:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -286,6 +290,8 @@ mod tests {
         for action in [
             "summaryOn",
             "summaryOff",
+            "bindSummary",
+            "cancelDraft",
             "captureSummaryWide",
             "captureSummaryNarrow",
             "historyRequired",

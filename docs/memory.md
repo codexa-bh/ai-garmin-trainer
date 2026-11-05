@@ -54,8 +54,10 @@ its removed button. Trainer → Memory retains saved content and immediate contr
 
 Trainer **Memory** opens with **What your trainer remembers**: complete saved item
 text, meaningful stance/temporal qualification and **Add memory**, with Edit, Forget
-and Source & details on each item. Off retains saved content. Manage memory holds
-Clear, Review earlier sources and read-only Older saved records. Technical/cost
+and Source & details on each item. Off retains saved content. Manage memory holds Clear. One Update from chat history
+journey owns all/selected-conversation review; obsolete archive and selective-import
+screens are absent. Existing interrupted imports offer contextual explicit cancellation
+there, never automatic reset or replay. Technical/cost
 dashboards and per-chat snapshot maintenance are removed. Settings owns model/size;
 privacy, uncertain cost and replacement consequences appear at paid-action confirmation.
 “Saved memory available” describes stored content, not complete history coverage or
@@ -116,12 +118,14 @@ or exported content cannot be recalled.
 Legacy semantic facts/vectors, trainer-memory records and migration markers remain
 in SQLite. Their native configuration fields remain preserved but inactive/hidden;
 ordinary chat/title/status reads neither invoke that adapter nor lazily migrate it.
-Manage memory → **Older saved records** is read-only local review,
-not active memory. No automatic deletion, vector conversion or re-embedding occurs.
-Retained legacy maintenance APIs are not the ordinary chat path.
+These records are not active memory and have no ordinary archive view. Content
+inspection no longer queries or transports their excerpts. No automatic deletion,
+vector conversion or re-embedding occurs; retained maintenance APIs are not the
+ordinary chat path.
 
-Manage memory → **Review earlier sources** offers only eligible source-backed completed Off
-turn versions after the authoritative cutoff. Selection is reviewed, capped at200
+The retained compatibility import API admits only eligible source-backed completed Off
+turn versions after the authoritative cutoff; its obsolete ordinary selection screen
+is removed in favor of Update from chat history. Selection is reviewed, capped at200
 turns/100000 source scalars, and sealed with privacy/control/manual/cutoff authority.
 It uses the existing summary writer in finite batches of at most20, without a
 tokenizer/capacity prerequisite or hidden daily summary budget. Pause/cancel retain progress and unknown cost; changed authority
@@ -130,7 +134,7 @@ backfill, inferred role pairs or migration timestamp grants export.
 
 Unproven/unlinked legacy entries, unsafe or expired/relative-time historical claims,
 suppressed and already-imported source versions are excluded from automatic import.
-They remain visible for explicit manual review; old temporary prose is not rebased
+They remain preserved for separately authorized maintenance; old temporary prose is not rebased
 to today. Original records are preserved. Actual private selection/export/retirement
 requires independently approved scope.
 
@@ -142,13 +146,20 @@ unknown pre-generation cost and preservation/replacement effects. **Review and u
 opens the final **Start update** confirmation bound to that exact inspection; changed
 history or selection requires a new review. Opening/back/cancel never starts work.
 Running, cancellation, complete, interrupted/invalidated and unknown-effect states
-remain distinct. **Check update status** only reads; it never replays Start. It regenerates
+remain distinct. Active progress is observed automatically without loading/layout churn,
+broad disabling, generation or mutation. Connection failure keeps clearly marked
+last-known state and reconnects to the same operation; **Retry connection** only reads.
+Terminal success, failed validation/provider, interruption, cancellation and changed
+review remain visible until an explicit new review, never a disguised automatic retry. It regenerates
 useful durable coaching context from admitted originals through the existing
 summary engine, not old generated noise. Finite internal batches stage privately;
 only a complete validated result replaces generated memory. Manual overlays and
 originals remain; next admitted turns automatically adopt available valid memory.
 Cancel, interruption, invalid output, stale authority or capacity refusal cannot
-partially publish. Status reload reconciles the same operation without replaying
+partially publish. Candidate generation receives exact rendered-budget and field
+constraints, including stance/category framing and newlines across kept/new items.
+Closed bounded invariant diagnostics supplement historical coarse rejection records;
+no raw rejected output, source text or arbitrary vendor error is stored. Status reload reconciles the same operation without replaying
 Start or unknown costs. Keep the app open; no background full rebuild is promised.
 
 Schema22 conservatively fenced pre-existing unlinked originals whose relationship

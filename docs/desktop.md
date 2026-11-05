@@ -70,7 +70,13 @@ summaries independently of Trainer chat. Its dropdown derives from the configure
 catalog, labels provider/exact ID and preserves unavailable choices without substitution.
 The existing scalar stores legacy unselected/Luna or version1 JSON with entryId,
 provider and modelId. Catalog edits/removal never retarget that exact choice; reselect
-explicitly. Old enums refuse new JSON values, not downgrade. Summary Off does not
+explicitly. A legacy scalar with one exact OpenAI/gpt-6-luna catalog match has one
+ordinary option. Rendering and untouched Save preserve the scalar; **Use this catalog
+entry on Save** changes only the draft, and explicit Save adopts that exact entry
+identity. Cancel/reload never adopts it. Ambiguous/missing/different-case matches do
+not select an arbitrary catalog row; edited/removed saved JSON stays unavailable.
+The uncapped automatic-processing warning is beside Remember across chats.
+Old enums refuse new JSON values, not downgrade. Summary Off does not
 disable titles. Missing configuration/provider capability retains an explicit
 unavailable result or title excerpt, never chat/extractor fallback. Existing private OpenAI ownership/live-key snapshots are reused; no new
 secret file or live protocol field is added. Explicit Save includes hidden

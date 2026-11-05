@@ -201,6 +201,7 @@ export type SummaryStorage = {
       cached: number | null;
     },
     rejection?: SummaryPatchRejection,
+    diagnostic?: SummaryValueDiagnostic,
   ): void;
   fail(
     job: SummaryBatch,
@@ -309,54 +310,147 @@ function keys(value: Record<string, unknown>, expected: string): boolean {
     Object.keys(value).sort().join(",") === expected.split(",").sort().join(",")
   );
 }
-export function validSummaryValue(
+const VALUE_INVARIANTS = [
+  "shape",
+  "item-count",
+  "item-shape",
+  "item-id",
+  "item-text",
+  "unicode",
+  "unsafe-text",
+  "category",
+  "stance",
+  "priority",
+  "date",
+  "source-count",
+  "source-id",
+  "rendered-text",
+  "character-cap",
+] as const;
+export type SummaryValueDiagnostic = {
+  invariant: (typeof VALUE_INVARIANTS)[number];
+  itemIndex?: number;
+  actual?: number;
+  limit?: number;
+};
+export function validSummaryDiagnostic(
+  value: unknown,
+): value is SummaryValueDiagnostic {
+  return (
+    object(value) &&
+    Object.hasOwn(value, "invariant") &&
+    VALUE_INVARIANTS.includes(
+      value.invariant as SummaryValueDiagnostic["invariant"],
+    ) &&
+    Object.entries(value).every(
+      ([key, n]) =>
+        key === "invariant" ||
+        (["itemIndex", "actual", "limit"].includes(key) &&
+          Number.isSafeInteger(n) &&
+          Number(n) >= 0 &&
+          Number(n) <= (key === "itemIndex" ? 255 : 2_000_000)),
+    )
+  );
+}
+function summaryValueDiagnostic(
   value: unknown,
   cap: number,
-): value is SummaryValue {
+): SummaryValueDiagnostic | null {
   if (
     !object(value) ||
     !keys(value, "version,items,text") ||
     value.version !== 1 ||
     !Array.isArray(value.items) ||
-    value.items.length > 256 ||
     typeof value.text !== "string"
   )
-    return false;
+    return { invariant: "shape" };
+  if (value.items.length > 256)
+    return {
+      invariant: "item-count",
+      actual: Math.min(value.items.length, 2_000_000),
+      limit: 256,
+    };
   const ids = new Set<string>();
-  for (const raw of value.items) {
+  for (const [itemIndex, raw] of value.items.entries()) {
+    const issue = (
+      invariant: SummaryValueDiagnostic["invariant"],
+      actual?: number,
+      limit?: number,
+    ): SummaryValueDiagnostic => ({
+      invariant,
+      itemIndex,
+      ...(actual === undefined
+        ? {}
+        : { actual: Math.min(actual, 2_000_000), limit }),
+    });
     if (
       !object(raw) ||
       !keys(
         raw,
         "id,text,category,stance,sourceIds,priority,expiresAt,reviewAt",
-      ) ||
+      )
+    )
+      return issue("item-shape");
+    if (
       typeof raw.id !== "string" ||
       !/^[a-zA-Z0-9_-]{1,80}$/.test(raw.id) ||
-      ids.has(raw.id) ||
-      typeof raw.text !== "string" ||
-      !raw.text.trim() ||
-      characters(raw.text) > 1200 ||
-      unsafeSummaryText(raw.text) ||
-      !categories.includes(String(raw.category)) ||
-      !stances.includes(String(raw.stance)) ||
+      ids.has(raw.id)
+    )
+      return issue("item-id");
+    if (typeof raw.text !== "string" || !raw.text.trim())
+      return issue("item-text");
+    let length: number;
+    try {
+      length = characters(raw.text);
+    } catch {
+      return issue("unicode");
+    }
+    if (length > 1200) return issue("item-text", length, 1200);
+    if (unsafeSummaryText(raw.text)) return issue("unsafe-text");
+    if (!categories.includes(String(raw.category))) return issue("category");
+    if (!stances.includes(String(raw.stance))) return issue("stance");
+    if (
       !Number.isInteger(raw.priority) ||
       Number(raw.priority) < 0 ||
-      Number(raw.priority) > 5 ||
+      Number(raw.priority) > 5
+    )
+      return issue("priority");
+    if (
       !Number.isSafeInteger(raw.reviewAt) ||
-      (raw.expiresAt !== null && !Number.isSafeInteger(raw.expiresAt)) ||
-      !Array.isArray(raw.sourceIds) ||
-      !raw.sourceIds.length ||
-      raw.sourceIds.length > 32 ||
+      (raw.expiresAt !== null && !Number.isSafeInteger(raw.expiresAt))
+    )
+      return issue("date");
+    if (!Array.isArray(raw.sourceIds)) return issue("source-count");
+    if (!raw.sourceIds.length || raw.sourceIds.length > 32)
+      return issue("source-count", raw.sourceIds.length, 32);
+    if (
       raw.sourceIds.some((id) => typeof id !== "string" || id.length > 160) ||
       new Set(raw.sourceIds).size !== raw.sourceIds.length
     )
-      return false;
+      return issue("source-id");
     ids.add(raw.id);
   }
-  return (
-    renderSummary(value.items as SummaryItem[]) === value.text &&
-    characters(value.text) <= summaryCap(cap)
-  );
+  if (renderSummary(value.items as SummaryItem[]) !== value.text)
+    return { invariant: "rendered-text" };
+  try {
+    const actual = characters(value.text),
+      limit = summaryCap(cap);
+    return actual > limit
+      ? {
+          invariant: "character-cap",
+          actual: Math.min(actual, 2_000_000),
+          limit,
+        }
+      : null;
+  } catch {
+    return { invariant: "unicode" };
+  }
+}
+export function validSummaryValue(
+  value: unknown,
+  cap: number,
+): value is SummaryValue {
+  return summaryValueDiagnostic(value, cap) === null;
 }
 
 /** Closed item patch. Every old item and admitted event has an explicit fate. */
@@ -365,10 +459,16 @@ export function validateSummaryPatch(
   batch: SummaryBatch,
   inputs: MinimizedSource[],
   now: number,
-  onRejection?: (code: SummaryPatchRejection) => void,
+  onRejection?: (
+    code: SummaryPatchRejection,
+    diagnostic?: SummaryValueDiagnostic,
+  ) => void,
 ): SummaryCandidate | null {
-  const reject = (code: SummaryPatchRejection): null => {
-    onRejection?.(code);
+  const reject = (
+    code: SummaryPatchRejection,
+    diagnostic?: SummaryValueDiagnostic,
+  ): null => {
+    onRejection?.(code, diagnostic);
     return null;
   };
   try {
@@ -491,6 +591,16 @@ export function validateSummaryPatch(
           Number(expiry) > now + 366 * 86400000)
       )
         return reject("expiry");
+      if (typeof update.text === "string") {
+        try {
+          scalarText(update.text);
+        } catch {
+          return reject("value", {
+            invariant: "unicode",
+            itemIndex: items.length,
+          });
+        }
+      }
       const item = {
         id: update.id,
         text:
@@ -511,7 +621,8 @@ export function validateSummaryPatch(
       items,
       text: renderSummary(items),
     };
-    if (!validSummaryValue(value, batch.cap)) return reject("value");
+    const diagnostic = summaryValueDiagnostic(value, batch.cap);
+    if (diagnostic) return reject("value", diagnostic);
     const coverage = new Map<string, string>();
     for (const entry of raw.coverage) {
       if (

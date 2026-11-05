@@ -13,7 +13,7 @@ import {
   memoryStatus,
 } from "./memory-presentation";
 
-type View = "overview" | "item" | "history" | "manage" | "import" | "legacy";
+type View = "overview" | "item" | "history" | "manage";
 type Confirmation = {
   action: MemoryAction;
   inspection: SummaryInspection;
@@ -26,7 +26,8 @@ type Confirmation = {
 export function MemoryContent({
   memory,
   memoryMessage,
-  isMemoryLoading,
+  isMemoryLoading: isBusy,
+  isMemoryReadUnavailable = false,
   pendingMemoryAction,
   loadMemories,
   reviewHistory,
@@ -43,9 +44,12 @@ export function MemoryContent({
   onOpenSource: (conversationId: string) => void;
   runInBackground: (work: Promise<unknown>) => void;
 }) {
+  const isMemoryLoading = isBusy || isMemoryReadUnavailable;
   const [view, setView] = useState<View>("overview");
   const [itemId, setItemId] = useState<string | null>(null);
-  const [reviewed, setReviewed] = useState<string[]>([]);
+  const [reviewedOperationId, setReviewedOperationId] = useState<string | null>(
+    null,
+  );
   const [chatIds, setChatIds] = useState<string[] | null>(null);
   const [includeLegacy, setIncludeLegacy] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
@@ -56,9 +60,11 @@ export function MemoryContent({
   const beforeAdd = useRef<string[] | null>(null);
   const previousEditing = useRef(editingMemoryId);
   const item = memory?.stored.items.find((i) => i.id === itemId);
-  const selectedSources = reviewed.filter((id) =>
-    memory?.historical.candidates.some((s) => s.id === id),
-  );
+  const operation = memory?.rebuild?.operation;
+  const retainedResult =
+    !!operation &&
+    operation.state !== "active" &&
+    reviewedOperationId !== operation.id;
   const selection = {
     version: 1 as const,
     conversationIds: chatIds === null ? null : [...chatIds].sort(),
@@ -71,8 +77,6 @@ export function MemoryContent({
     item: "Memory details",
     history: "Update memory from chat history",
     manage: "Manage memory",
-    import: "Review earlier sources",
-    legacy: "Older saved records",
   };
   const confirmationCurrent =
     !!confirmation && confirmation.inspection === memory;
@@ -187,7 +191,7 @@ export function MemoryContent({
           {memoryMessage}
         </p>
       )}
-      {isMemoryLoading && (
+      {isBusy && (
         <p role="status">
           {pendingMemoryAction === "rebuild-start"
             ? "Starting history update…"
@@ -198,9 +202,9 @@ export function MemoryContent({
                 : "Checking saved memory…"}
         </p>
       )}
-      {!memory && !isMemoryLoading && (
+      {!memory && !isBusy && (
         <button type="button" onClick={() => runInBackground(loadMemories())}>
-          Check saved memory
+          Retry loading
         </button>
       )}
       {confirmation && (
@@ -422,10 +426,10 @@ export function MemoryContent({
                 <button
                   type="button"
                   className="secondary-button"
-                  disabled={isMemoryLoading || !!editingMemoryId}
+                  disabled={isBusy || !!editingMemoryId}
                   onClick={() => runInBackground(loadMemories())}
                 >
-                  Check saved memory
+                  {isMemoryReadUnavailable ? "Retry connection" : "Refresh"}
                 </button>
               </nav>
               {canRetrySummary(memory) && (
@@ -497,117 +501,179 @@ export function MemoryContent({
             ))}
           {view === "history" && (
             <section aria-label="Rebuild from chat history">
-              <HistoryProgress memory={memory} />
+              <HistoryProgress
+                memory={memory}
+                unavailable={isMemoryReadUnavailable}
+              />
+              {retainedResult &&
+                [
+                  "complete",
+                  "cancelled",
+                  "interrupted",
+                  "invalidated",
+                ].includes(operation.state) && (
+                  <button
+                    type="button"
+                    disabled={isMemoryLoading || isMemoryReadUnavailable}
+                    onClick={() => setReviewedOperationId(operation.id)}
+                  >
+                    Review a new update
+                  </button>
+                )}
+              {memory.historical.manifests
+                .filter((m) =>
+                  ["active", "paused", "review-required"].includes(m.state),
+                )
+                .map((m) => (
+                  <section
+                    className="memory-notice"
+                    key={m.id}
+                    aria-label="Earlier update recovery"
+                  >
+                    <p>
+                      An earlier source update is{" "}
+                      {m.state === "active"
+                        ? "running"
+                        : "paused or needs review"}
+                      : {m.position} of {m.total} messages processed. Cancel it
+                      before reviewing a new history update; previous costs
+                      remain.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={isMemoryLoading || isMemoryReadUnavailable}
+                      onClick={() =>
+                        confirm(
+                          { action: "import-cancel", id: m.id },
+                          "Cancel earlier update?",
+                          "Cancel earlier update",
+                          "Stop further processing of this older selection. Saved progress and previous costs remain; no new update starts automatically.",
+                        )
+                      }
+                    >
+                      Cancel earlier update
+                    </button>
+                  </section>
+                ))}
               {memory.rebuild?.operation?.state === "complete" && (
                 <button type="button" onClick={back}>
                   View saved memory
                 </button>
               )}
-              {memory.rebuild?.operation?.state !== "active" && (
-                <>
-                  <fieldset disabled={isMemoryLoading}>
-                    <legend>Conversations to review</legend>
-                    <label className="memory-source-choice">
-                      <input
-                        type="radio"
-                        name="memory-scope"
-                        checked={chatIds === null}
-                        onChange={() => setChatIds(null)}
-                      />
-                      All retained conversations
-                    </label>
-                    <label className="memory-source-choice">
-                      <input
-                        type="radio"
-                        name="memory-scope"
-                        checked={chatIds !== null}
-                        onChange={() => setChatIds([])}
-                      />
-                      Choose conversations
-                    </label>
-                    {chatIds !== null && (
-                      <div className="memory-chat-choices">
-                        {memory.rebuild?.conversations?.map((chat) => (
-                          <label className="memory-source-choice" key={chat.id}>
-                            <input
-                              type="checkbox"
-                              checked={chatIds.includes(chat.id)}
-                              onChange={(event) =>
-                                setChatIds((ids) =>
-                                  event.target.checked
-                                    ? [...(ids ?? []), chat.id]
-                                    : (ids ?? []).filter(
-                                        (id) => id !== chat.id,
-                                      ),
-                                )
-                              }
-                            />
-                            <span>{chat.title || "Untitled conversation"}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                    <label className="memory-source-choice">
-                      <input
-                        type="checkbox"
-                        checked={includeLegacy}
-                        onChange={(event) =>
-                          setIncludeLegacy(event.target.checked)
-                        }
-                      />
-                      <span>
-                        Include older conversations that need permission to
-                        reuse
-                      </span>
-                    </label>
-                  </fieldset>
-                  {!selectionReviewed ? (
-                    <button
-                      type="button"
-                      disabled={isMemoryLoading}
-                      onClick={() => runInBackground(reviewHistory(selection))}
-                    >
-                      Review selected history
-                    </button>
-                  ) : (
-                    <>
-                      <HistoryReview memory={memory} />
-                      <ul>
-                        {historyBlockers(memory).map((reason) => (
-                          <li key={reason}>{reason}</li>
-                        ))}
-                      </ul>
+              {memory.rebuild?.operation?.state !== "active" &&
+                !retainedResult && (
+                  <>
+                    <fieldset disabled={isMemoryLoading}>
+                      <legend>Conversations to review</legend>
+                      <label className="memory-source-choice">
+                        <input
+                          type="radio"
+                          name="memory-scope"
+                          checked={chatIds === null}
+                          onChange={() => setChatIds(null)}
+                        />
+                        All retained conversations
+                      </label>
+                      <label className="memory-source-choice">
+                        <input
+                          type="radio"
+                          name="memory-scope"
+                          checked={chatIds !== null}
+                          onChange={() => setChatIds([])}
+                        />
+                        Choose conversations
+                      </label>
+                      {chatIds !== null && (
+                        <div className="memory-chat-choices">
+                          {memory.rebuild?.conversations?.map((chat) => (
+                            <label
+                              className="memory-source-choice"
+                              key={chat.id}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={chatIds.includes(chat.id)}
+                                onChange={(event) =>
+                                  setChatIds((ids) =>
+                                    event.target.checked
+                                      ? [...(ids ?? []), chat.id]
+                                      : (ids ?? []).filter(
+                                          (id) => id !== chat.id,
+                                        ),
+                                  )
+                                }
+                              />
+                              <span>
+                                {chat.title || "Untitled conversation"}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <label className="memory-source-choice">
+                        <input
+                          type="checkbox"
+                          checked={includeLegacy}
+                          onChange={(event) =>
+                            setIncludeLegacy(event.target.checked)
+                          }
+                        />
+                        <span>
+                          Include older conversations that need permission to
+                          reuse
+                        </span>
+                      </label>
+                    </fieldset>
+                    {!selectionReviewed ? (
                       <button
                         type="button"
-                        disabled={
-                          isMemoryLoading ||
-                          !memory.rebuild?.ready ||
-                          !!historyBlockers(memory).length
-                        }
+                        disabled={isMemoryLoading}
                         onClick={() =>
-                          confirm(
-                            {
-                              action: "rebuild-start",
-                              id: crypto.randomUUID(),
-                              snapshot: memory.rebuild!.snapshot,
-                              selection: memory.rebuild!.selection,
-                            },
-                            "Start reviewed history update?",
-                            "Start update",
-                            "",
-                          )
+                          runInBackground(reviewHistory(selection))
                         }
                       >
-                        Review and update
+                        Review selected history
                       </button>
-                    </>
-                  )}
-                </>
-              )}
+                    ) : (
+                      <>
+                        <HistoryReview memory={memory} />
+                        <ul>
+                          {historyBlockers(memory).map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                        <button
+                          type="button"
+                          disabled={
+                            isMemoryLoading ||
+                            !memory.rebuild?.ready ||
+                            !!historyBlockers(memory).length
+                          }
+                          onClick={() =>
+                            confirm(
+                              {
+                                action: "rebuild-start",
+                                id: crypto.randomUUID(),
+                                snapshot: memory.rebuild!.snapshot,
+                                selection: memory.rebuild!.selection,
+                              },
+                              "Start reviewed history update?",
+                              "Start update",
+                              "",
+                            )
+                          }
+                        >
+                          Review and update
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
               {memory.rebuild?.operation?.state === "active" && (
                 <button
                   type="button"
-                  disabled={isMemoryLoading}
+                  disabled={isBusy}
+                  aria-disabled={isMemoryReadUnavailable}
                   onClick={() =>
                     runInBackground(
                       changeMemory({
@@ -617,27 +683,22 @@ export function MemoryContent({
                     )
                   }
                 >
-                  Cancel history update
+                  Cancel
                 </button>
               )}
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={isMemoryLoading}
-                onClick={() => runInBackground(loadMemories())}
-              >
-                Check update status
-              </button>
+              {isMemoryReadUnavailable && (
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => runInBackground(loadMemories())}
+                >
+                  Retry connection
+                </button>
+              )}
             </section>
           )}
           {view === "manage" && (
             <div className="memory-routes">
-              <button type="button" onClick={() => go("import")}>
-                Review earlier sources
-              </button>
-              <button type="button" onClick={() => go("legacy")}>
-                Older saved records
-              </button>
               <button
                 type="button"
                 className="danger-button"
@@ -655,165 +716,6 @@ export function MemoryContent({
                 Clear saved memory
               </button>
             </div>
-          )}
-          {view === "import" && (
-            <>
-              <p>
-                Choose earlier messages to add to memory. Only usable completed
-                sources are offered; originals remain.
-              </p>
-              {memory.historical.candidates.map((source) => (
-                <label className="memory-source-choice" key={source.id}>
-                  <input
-                    type="checkbox"
-                    checked={selectedSources.includes(source.id)}
-                    disabled={isMemoryLoading}
-                    onChange={(event) =>
-                      setReviewed((ids) =>
-                        event.target.checked
-                          ? [...ids, source.id]
-                          : ids.filter((id) => id !== source.id),
-                      )
-                    }
-                  />
-                  <span>
-                    {source.text}
-                    {source.referent && (
-                      <span className="memory-source-context">
-                        Context: {source.referent}
-                      </span>
-                    )}
-                  </span>
-                </label>
-              ))}
-              {!memory.historical.candidates.length && (
-                <p>
-                  No usable earlier messages available. To recover older
-                  conversations, use Update from chat history.
-                </p>
-              )}
-              <button
-                type="button"
-                disabled={
-                  !memory.enabled ||
-                  isMemoryLoading ||
-                  !selectedSources.length ||
-                  memory.historical.manifests.some((m) =>
-                    ["active", "paused"].includes(m.state),
-                  )
-                }
-                onClick={() =>
-                  confirm(
-                    { action: "import-create", sourceIds: selectedSources },
-                    "Process reviewed sources?",
-                    "Process selection",
-                    `${selectedSources.length} selected messages go to the configured provider and may incur cost, with no daily processing cap. Original conversations remain. Cancel cannot recall sent text or charges.`,
-                  )
-                }
-              >
-                Process reviewed selection ({selectedSources.length})
-              </button>
-              {memory.historical.manifests.map((manifest) => (
-                <section className="memory-notice" key={manifest.id}>
-                  <p>
-                    {manifest.state === "active"
-                      ? "Import running"
-                      : manifest.state === "paused"
-                        ? "Import paused"
-                        : manifest.state === "complete"
-                          ? "Import finished"
-                          : "Import needs review"}
-                    : {manifest.position} of {manifest.total} messages
-                    processed.
-                  </p>
-                  {manifest.state === "active" && (
-                    <button
-                      type="button"
-                      disabled={isMemoryLoading}
-                      onClick={() =>
-                        runInBackground(
-                          changeMemory({
-                            action: "import-pause",
-                            id: manifest.id,
-                          }),
-                        )
-                      }
-                    >
-                      Pause import
-                    </button>
-                  )}
-                  {manifest.state === "paused" && (
-                    <button
-                      type="button"
-                      disabled={isMemoryLoading || !memory.enabled}
-                      onClick={() =>
-                        confirm(
-                          { action: "import-resume", id: manifest.id },
-                          "Resume reviewed import?",
-                          "Resume import",
-                          "Send the remaining reviewed messages to the configured provider. Costs have no daily cap; earlier uncertain requests are not repeated. Changed sources require a new review.",
-                        )
-                      }
-                    >
-                      Resume reviewed import
-                    </button>
-                  )}
-                  {["active", "paused", "review-required"].includes(
-                    manifest.state,
-                  ) && (
-                    <button
-                      type="button"
-                      disabled={isMemoryLoading}
-                      onClick={() =>
-                        runInBackground(
-                          changeMemory({
-                            action: "import-cancel",
-                            id: manifest.id,
-                          }),
-                        )
-                      }
-                    >
-                      Cancel import
-                    </button>
-                  )}
-                  {manifest.state === "review-required" && (
-                    <p>
-                      Sources changed. Cancel this import and review a new
-                      selection.
-                    </p>
-                  )}
-                </section>
-              ))}
-            </>
-          )}
-          {view === "legacy" && (
-            <>
-              <p>
-                Older records are read-only and not used by chat. Up to 200 are
-                shown; nothing is automatically imported.
-              </p>
-              {!memory.legacy.length && <p>No older records loaded.</p>}
-              {memory.legacy.map((old) => (
-                <article className="memory-row" key={old.id}>
-                  <div>
-                    <p className="memory-text">{old.text}</p>
-                    {old.expiresAt !== null && (
-                      <p>
-                        Expires {new Date(old.expiresAt).toLocaleDateString()}
-                      </p>
-                    )}
-                    {old.conversationId && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenSource(old.conversationId!)}
-                      >
-                        Open legacy source conversation
-                      </button>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </>
           )}
         </>
       )}

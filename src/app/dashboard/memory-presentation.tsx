@@ -36,7 +36,7 @@ export function memoryStatus(memory: SummaryInspection) {
     summary_configuration_changed:
       "Settings changed during an update. Review again.",
     summary_import_review_required:
-      "An earlier-source import needs a new review in Manage memory.",
+      "An earlier update needs attention in Update from chat history.",
     summary_rebuild_review_required: "The history update needs a new review.",
     summary_rebuild_unavailable: "History update status needs checking.",
   };
@@ -98,11 +98,11 @@ export function historyBlockers(memory: SummaryInspection) {
     reasons.push("No usable messages in this selection.");
   if (
     memory.historical.manifests.some((m) =>
-      ["active", "paused"].includes(m.state),
+      ["active", "paused", "review-required"].includes(m.state),
     )
   )
     reasons.push(
-      "Finish or cancel the earlier-source import in Manage memory first.",
+      "Cancel the earlier update below before reviewing a new history update.",
     );
   if (!r.ready && !reasons.length && r.operation?.state !== "active")
     reasons.push("History is not ready. Check update status and review again.");
@@ -156,15 +156,16 @@ export function HistoryReview({
         <>
           {r.selection?.includeLegacy && (
             <p className="memory-notice">
-              <strong>Allow older conversations to be remembered again.</strong>{" "}
-              Earlier clearing cannot always be identified. This selection may
-              include things once cleared from memory. Known forgotten sources
-              and recorded clears still stay excluded.
+              <strong>
+                Older conversations may include things once cleared.
+              </strong>{" "}
+              You allowed their reuse. Known forgotten sources and recorded
+              clears stay excluded.
             </p>
           )}
           <p>
-            Selected usable text goes to the configured provider and may incur
-            cost.{" "}
+            Updates send selected usable text to your selected AI provider (
+            {r.configuredProvider}) and may incur charges.{" "}
             {r.estimatedUsd.conservativeMaximum !== null &&
             r.estimatedUsd.conservativeMaximum > 0 ? (
               <>
@@ -175,16 +176,13 @@ export function HistoryReview({
             ) : (
               "Cost is not known in advance. "
             )}
-            Automatic processing has no daily cost cap.
+            Existing memory stays until the update succeeds; manual edits and
+            conversations are preserved.
           </p>
           <p>
-            Old generated memory stays until the complete update succeeds.
-            Manual edits and original conversations remain. New chat turns then
-            use available valid memory.
-          </p>
-          <p>
-            Keep the app open. Cancel stops further work, but cannot recall sent
-            text or charges. Uncertain requests are not automatically repeated.
+            Keep the app open. Cancelling stops further work, not text already
+            sent or charges incurred. Uncertain requests are not automatically
+            repeated.
           </p>
         </>
       ) : (
@@ -197,39 +195,109 @@ export function HistoryReview({
   );
 }
 
-export function HistoryProgress({ memory }: { memory: SummaryInspection }) {
+export function HistoryProgress({
+  memory,
+  unavailable = false,
+}: {
+  memory: SummaryInspection;
+  unavailable?: boolean;
+}) {
   const op = memory.rebuild?.operation;
   if (!op) return null;
+  const failure =
+    op.state === "interrupted" &&
+    [
+      "summary_invalid_output",
+      "summary_provider_failure",
+      "summary_missing_key",
+      "summary_input_capacity",
+      "summary_budget_unavailable",
+    ].includes(op.reason ?? "");
   const states: Record<string, string> = {
     active: "Updating from history",
     complete: "Saved memory updated",
     cancelled: "History update cancelled",
-    interrupted: "History update interrupted",
+    interrupted: failure
+      ? "History update failed"
+      : "History update interrupted",
     invalidated: "History review changed",
   };
+  const reasons: Record<string, string> = {
+    summary_invalid_output:
+      "The AI response did not meet memory's safety or format rules. It was not saved.",
+    summary_provider_failure: "The AI provider could not finish the request.",
+    summary_missing_key:
+      "The selected provider is unavailable. Check its key and model in Settings.",
+    summary_input_capacity:
+      "The selected provider could not accept this request. Review a smaller selection or the model in Settings.",
+    summary_budget_unavailable:
+      "The request could not be admitted. Review Settings before a new update.",
+    summary_interrupted:
+      "The app or request stopped before the update finished.",
+    summary_configuration_changed:
+      "Settings changed during the update. Review the current configuration.",
+  };
+  const known = Object.hasOwn(states, op.state);
   return (
-    <div className="memory-notice" role="status">
-      <h4>{states[op.state] ?? "History update status unavailable"}</h4>
-      <p>
-        Processed {op.processed} of {op.total} included messages. Not every
-        message needs a saved memory.
+    <div
+      className="memory-notice"
+      data-history-state={
+        unavailable ? "unreadable" : failure ? "failed" : op.state
+      }
+    >
+      <h4>
+        {unavailable
+          ? "Update status unavailable"
+          : (states[op.state] ?? "History update status unknown")}
+      </h4>
+      <p role="status" aria-live="polite" aria-atomic="true">
+        {unavailable ? "Last known: " : ""}
+        {op.processed} of {op.total} included messages processed
+        {op.state === "active" && op.processed === op.total
+          ? "; finishing — not yet saved"
+          : "."}
       </p>
-      {op.state === "active" ? (
+      {op.state === "active" && op.processed < op.total && (
+        <progress
+          aria-label="Included messages processed"
+          value={op.processed}
+          max={op.total || 1}
+        />
+      )}
+      {unavailable ? (
         <p>
-          Previous memory stays available while this update runs. Keep the app
-          open.
+          Connection lost. Reconnecting automatically to the same operation; no
+          work is repeated. Its current outcome is unknown.
+        </p>
+      ) : op.state === "active" ? (
+        <p>
+          Previous memory stays available. Keep the app open; progress updates
+          automatically.
         </p>
       ) : op.state === "complete" ? (
         <p>
-          Review the saved content. Manual edits and originals remain; excluded
-          history was not recovered. New chat turns use available valid memory.
+          The complete replacement was saved. Manual edits and conversations
+          remain; new chat turns use available valid memory.
         </p>
       ) : (
-        <p>
-          No completed replacement is reported. Check status before reviewing a
-          new update; earlier costs may be unknown. Nothing is repeated
-          automatically.
-        </p>
+        <>
+          <p>
+            {op.state === "cancelled"
+              ? "Further work was stopped. Text already sent and charges cannot be recalled."
+              : op.state === "invalidated"
+                ? "History, memory or permissions changed. Review the current selection before starting again."
+                : (reasons[op.reason ?? ""] ??
+                  (known
+                    ? "The update stopped before a complete result could be saved."
+                    : "A compatible build must reconcile this operation before any new update."))}
+          </p>
+          <p>
+            No completed replacement was saved by this update. Previous memory
+            was not replaced; independent Clear, Forget or Off changes still
+            apply. Earlier request costs may be unknown. Nothing is repeated
+            automatically.
+          </p>
+        </>
       )}
     </div>
   );

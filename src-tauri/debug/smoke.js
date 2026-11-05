@@ -278,6 +278,12 @@
   let memoryStage = "idle";
   let memoryFixtureExpiry;
   let originalMemoryFetch;
+  let memoryFixtureRestoring = false;
+  let progressiveRead = 0;
+  let progressiveSample = null;
+  let progressiveAdvanced = false;
+  let progressiveConnection = false;
+  let progressiveStable = true;
   const presentationText = [
     "Short weekday sessions work because time is limited; long weekdays did not work. Weekends remain optional, not mandatory.",
     "Could poles help? We discussed them, but I have not decided to use them. This is an open question, not a preference or commitment.",
@@ -294,14 +300,19 @@
       expiresAt: null,
       reviewAt: 0,
     }));
-    const running = memoryFixture === "fixture-running";
+    const progressive = memoryFixture === "fixture-progressive";
+    const running =
+      memoryFixture === "fixture-running" ||
+      (progressive && progressiveRead < 7);
     const operationState = running
       ? "active"
-      : memoryFixture === "fixture-complete"
+      : memoryFixture === "fixture-complete" || progressive
         ? "complete"
-        : memoryFixture === "fixture-interrupted"
+        : ["fixture-interrupted", "fixture-failed"].includes(memoryFixture)
           ? "interrupted"
-          : null;
+          : memoryFixture === "fixture-cancelled"
+            ? "cancelled"
+            : null;
     const off = memoryFixture === "fixture-off";
     const empty = memoryFixture === "fixture-empty";
     const selectedChat = memoryReviewSelection.conversationIds !== null;
@@ -431,9 +442,19 @@
               id: "fixture_operation",
               state: operationState,
               reason:
-                operationState === "interrupted" ? "summary_interrupted" : null,
-              processed: operationState === "complete" ? 16 : 8,
-              total: 16,
+                memoryFixture === "fixture-failed"
+                  ? "summary_invalid_output"
+                  : operationState === "interrupted"
+                    ? "summary_interrupted"
+                    : null,
+              processed: progressive
+                ? [20, 20, 40, 60, 60, 80, 184][
+                    Math.min(6, Math.max(0, progressiveRead - 1))
+                  ]
+                : operationState === "complete"
+                  ? 16
+                  : 8,
+              total: progressive ? 184 : 16,
               dispositions: {},
               createdAt: 0,
               deadline: 9999999999999,
@@ -446,7 +467,12 @@
     clearTimeout(memoryFixtureExpiry);
     if (originalMemoryFetch) globalThis.fetch = originalMemoryFetch;
     originalMemoryFetch = undefined;
+    memoryFixtureRestoring = memoryFixture !== null;
     memoryFixture = null;
+    progressiveSample = null;
+    progressiveRead = 0;
+    progressiveAdvanced = progressiveConnection = false;
+    progressiveStable = true;
   }
   function selectMemoryFixture(action) {
     if (!originalMemoryFetch) {
@@ -463,7 +489,9 @@
               const s = command.selection;
               if (
                 init?.method !== "POST" ||
-                memoryFixture === "fixture-unknown" ||
+                ["fixture-unknown", "fixture-progressive"].includes(
+                  memoryFixture,
+                ) ||
                 Object.keys(command).sort().join() !==
                   "action,expected,selection,version" ||
                 command.action !== "rebuild-review" ||
@@ -500,15 +528,19 @@
               );
             }
           }
+          if (memoryFixture === "fixture-progressive") progressiveRead++;
+          const unavailable =
+            memoryFixture === "fixture-unknown" ||
+            (memoryFixture === "fixture-progressive" && progressiveRead === 5);
           return Promise.resolve(
             new Response(
               JSON.stringify(
-                memoryFixture === "fixture-unknown"
+                unavailable
                   ? { error: "Authored unavailable inspection" }
                   : memoryFixtureValue(),
               ),
               {
-                status: memoryFixture === "fixture-unknown" ? 503 : 200,
+                status: unavailable ? 503 : 200,
                 headers: { "content-type": "application/json" },
               },
             ),
@@ -518,6 +550,11 @@
       };
     }
     memoryFixture = action;
+    memoryFixtureRestoring = false;
+    progressiveRead = 0;
+    progressiveSample = null;
+    progressiveAdvanced = progressiveConnection = false;
+    progressiveStable = true;
     memoryReviewSelection = {
       version: 1,
       conversationIds: null,
@@ -551,24 +588,74 @@
       ) ?? []),
     ];
     if (
+      memoryFixtureRestoring &&
+      !rows.some((row) => presentationText.includes(row.textContent))
+    )
+      memoryFixtureRestoring = false;
+    if (
       rows.some(
         (row) =>
           ![
             memoryText(),
             memoryText(true),
-            ...(memoryFixture ? presentationText : []),
+            ...(memoryFixture || memoryFixtureRestoring
+              ? presentationText
+              : []),
           ].includes(row.textContent),
       )
     )
       throw Error("Noncanonical Memory source refused");
     const buttons = [...(panel?.querySelectorAll("button") ?? [])];
+    const state = panel
+      ?.querySelector("[data-history-state]")
+      ?.getAttribute("data-history-state");
+    if (
+      memoryFixture === "fixture-progressive" &&
+      ["active", "unreadable"].includes(state)
+    ) {
+      const cancel = buttons.find((b) => name(b) === "Cancel");
+      const progress = panel.querySelector("progress");
+      const scroller =
+        panel.closest(".memory-sheet-groups") ||
+        panel.closest(".settings-sheet");
+      if (!progressiveSample && cancel && progress) {
+        cancel.focus({ preventScroll: true });
+        progressiveSample = {
+          panel,
+          cancel,
+          progress,
+          scroller,
+          scroll: scroller.scrollTop,
+        };
+      }
+      if (progressiveSample) {
+        const s = progressiveSample;
+        progressiveStable &&=
+          s.panel === panel &&
+          s.cancel === cancel &&
+          s.progress === progress &&
+          s.scroller.scrollTop === s.scroll &&
+          document.activeElement === cancel &&
+          !panel.textContent.includes("Checking saved memory…");
+        progressiveAdvanced ||= Number(progress?.value) >= 40;
+        progressiveConnection ||= state === "unreadable";
+      }
+    }
     return {
       ok: true,
       action,
       trustedInput: false,
       visible: !!panel && visible(panel),
-      loaded: panel?.getAttribute("data-memory-ready") === "true",
-      presentationFixture: memoryFixture !== null,
+      loaded:
+        panel?.getAttribute("data-memory-ready") === "true" &&
+        !memoryFixtureRestoring,
+      presentationFixture: memoryFixture !== null || memoryFixtureRestoring,
+      progressiveComplete:
+        memoryFixture === "fixture-progressive" &&
+        state === "complete" &&
+        progressiveAdvanced &&
+        progressiveConnection &&
+        progressiveStable,
       confirmationVisible: !!panel?.querySelector(".memory-confirm"),
       hasManual: rows.some((row) =>
         [memoryText(), memoryText(true)].includes(row.textContent),
@@ -585,10 +672,8 @@
       ),
       rebuildCancelDisabled:
         buttons.some(
-          (button) =>
-            name(button) === "Cancel history update" && button.disabled,
-        ) ||
-        !buttons.some((button) => name(button) === "Cancel history update"),
+          (button) => name(button) === "Cancel" && button.disabled,
+        ) || !buttons.some((button) => name(button) === "Cancel"),
     };
   }
   function memoryAction(command) {
@@ -629,8 +714,11 @@
         "fixture-off",
         "fixture-history",
         "fixture-running",
+        "fixture-progressive",
         "fixture-complete",
         "fixture-interrupted",
+        "fixture-failed",
+        "fixture-cancelled",
         "fixture-unknown",
         "fixture-reset",
       ].includes(command.action)
@@ -649,12 +737,14 @@
           throw Error("Settle editor/confirmation before fixture selection");
         if (command.action === "fixture-reset") resetMemoryFixture();
         else selectMemoryFixture(command.action);
-        const refresh = panel.querySelector(
-          '[aria-label="Rebuild from chat history"]',
-        )
-          ? "Check update status"
-          : "Check saved memory";
-        target(refresh).click();
+        const refresh = [...panel.querySelectorAll("button")].find((button) =>
+          ["Refresh", "Retry loading", "Retry connection"].includes(
+            name(button),
+          ),
+        );
+        if (!refresh || refresh.disabled)
+          throw Error("Passive refresh unavailable; return to memory first");
+        refresh.click();
       } else if (
         memoryFixture &&
         ![
@@ -760,9 +850,10 @@
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
       } else {
+        memoryStage = "ready-before-control";
         if (!before.loaded) throw Error("Memory is busy or unavailable");
         const labels = {
-          reload: "Check saved memory",
+          reload: "Refresh",
           back: "Back to memory",
           manage: "Manage memory",
           "earlier-sources": "Review earlier sources",
@@ -779,10 +870,12 @@
           retry: "Retry summary processing",
         };
         const label = labels[command.action];
+        memoryStage = "canonical-control-lookup";
         const matches = [...panel.querySelectorAll("button")].filter(
           (button) =>
             name(button) === label && visible(button) && !button.disabled,
         );
+        memoryStage = "canonical-control-target";
         const button = ["edit", "forget", "item-details"].includes(
           command.action,
         )
@@ -806,12 +899,14 @@
               throw Error("Unexpected Memory confirmation refused");
             return true;
           };
+          memoryStage = "canonical-control-click";
           button.click();
         } finally {
           window.confirm = confirm;
         }
       }
     }
+    memoryStage = "post-action-observation";
     return memoryObservation(command.action);
   }
   function revealMemory() {
@@ -838,7 +933,9 @@
       "Edit",
       "Forget",
       "Source & details",
-      "Check saved memory",
+      "Refresh",
+      "Retry loading",
+      "Retry connection",
       "Turn Off",
       "Turn On",
       "Update from chat history",
@@ -853,8 +950,9 @@
       "Start reviewed history update?",
       "Start update",
       "Review and update",
-      "Cancel history update",
-      "Check update status",
+      "Review a new update",
+      "History update failed",
+      "Update status unavailable",
       "Cancel edit",
       "Save memory",
       "Forget this memory?",
@@ -865,6 +963,9 @@
       "Updating from history",
       "Saved memory updated",
       "History update interrupted",
+      "History update cancelled",
+      "The AI response did not meet memory's safety or format rules. It was not saved.",
+      "Further work was stopped. Text already sent and charges cannot be recalled.",
       "View saved memory",
       "Constraint · User-stated",
       "Open question · Discussed · not decided",
@@ -884,8 +985,7 @@
       "Memory is Off. Saved items stay; automatic titles are separate.",
       "Memory is On. Earlier Off history was not automatically imported.",
       "Review is local; nothing is sent until you confirm. Only useful, safe context can be remembered, not every detail.",
-      "Old generated memory stays until the complete update succeeds. Manual edits and original conversations remain. New chat turns then use available valid memory.",
-      "Keep the app open. Cancel stops further work, but cannot recall sent text or charges. Uncertain requests are not automatically repeated.",
+      "Keep the app open. Cancelling stops further work, not text already sent or charges incurred. Uncertain requests are not automatically repeated.",
       "Saved as your own memory. Keep it concise; sensitive details cannot be saved.",
       "Keeps its existing sources and expiry. Keep it concise; sensitive details cannot be saved.",
       "Memory",
@@ -920,15 +1020,21 @@
             "180 — Outside your selected conversations",
             "4 — Sources you asked memory to forget",
             "1 — Sources you asked memory to forget",
-            "Allow older conversations to be remembered again. Earlier clearing cannot always be identified. This selection may include things once cleared from memory. Known forgotten sources and recorded clears still stay excluded.",
-            "Selected usable text goes to the configured provider and may incur cost. Cost is not known in advance. Automatic processing has no daily cost cap.",
-            "Processed 8 of 16 included messages. Not every message needs a saved memory.",
-            "Processed 16 of 16 included messages. Not every message needs a saved memory.",
-            "Previous memory stays available while this update runs. Keep the app open.",
-            "Review the saved content. Manual edits and originals remain; excluded history was not recovered. New chat turns use available valid memory.",
-            "No completed replacement is reported. Check status before reviewing a new update; earlier costs may be unknown. Nothing is repeated automatically.",
+            "Older conversations may include things once cleared. You allowed their reuse. Known forgotten sources and recorded clears stay excluded.",
+            "Updates send selected usable text to your selected AI provider (openai) and may incur charges. Cost is not known in advance. Existing memory stays until the update succeeds; manual edits and conversations are preserved.",
+            "8 of 16 included messages processed.",
+            "16 of 16 included messages processed.",
+            ...[20, 40, 60, 80, 184].map(
+              (n) => `${n} of 184 included messages processed.`,
+            ),
+            "Last known: 60 of 184 included messages processed.",
+            "Previous memory stays available. Keep the app open; progress updates automatically.",
+            "The complete replacement was saved. Manual edits and conversations remain; new chat turns use available valid memory.",
+            "The app or request stopped before the update finished.",
+            "No completed replacement was saved by this update. Previous memory was not replaced; independent Clear, Forget or Off changes still apply. Earlier request costs may be unknown. Nothing is repeated automatically.",
             "Off · Saved items retained",
-            "Memory inspection unavailable. Check again to reconcile saved state; your data has not been reset.",
+            "Connection lost. Shown memory and progress are last known, not current. Reconnecting automatically; no update is repeated.",
+            "Connection lost. Reconnecting automatically to the same operation; no work is repeated. Its current outcome is unknown.",
             `“${presentationText[0]}”\n\nRemove this memory and keep its sources from recreating it. The original conversation remains. New statements can still become new memories.`,
           ]
         : []),
@@ -948,6 +1054,16 @@
         node.setAttribute("data-smoke-reveal", "");
     }
     memoryStage = "canonical-copy";
+    for (const progress of panel.querySelectorAll("progress")) {
+      if (
+        !memoryFixture ||
+        ![16, 184].includes(progress.max) ||
+        ![8, 20, 40, 60, 80].includes(progress.value) ||
+        progress.getAttribute("aria-label") !== "Included messages processed"
+      )
+        throw Error("Noncanonical progress capture refused");
+      progress.setAttribute("data-smoke-reveal", "");
+    }
     for (const node of panel.querySelectorAll(
       "h2,h3,h4,p,li,button,label,legend",
     )) {

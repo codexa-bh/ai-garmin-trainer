@@ -13,6 +13,7 @@ import {
   emptySummary,
   renderSummary,
   validSummaryValue,
+  validSummaryDiagnostic,
   summaryPolicyIdentity,
   summaryModelAvailable,
   summaryPriceBasis,
@@ -290,24 +291,6 @@ export function summaryInspectionSources() {
       manual: sourceId.startsWith("manual:"),
     };
   });
-}
-export function preservedLegacySummaryReview() {
-  // Inspection never calls the legacy application, which has lazy migration,
-  // expiry writes and embeddings. Original bytes and markers remain untouched.
-  const db = getDatabase();
-  return db
-    .prepare(
-      `select 'semantic:'||id as id,kind,text,status,source_conversation_id as conversationId,expires_at as expiresAt from semantic_memory
-    union all select 'legacy:'||id,category,value,status,null,expires_at from trainer_memory limit 200`,
-    )
-    .all() as {
-    id: string;
-    kind: string;
-    text: string;
-    status: string;
-    conversationId: string | null;
-    expiresAt: number | null;
-  }[];
 }
 function manualItems(): SummaryItem[] {
   return (
@@ -794,8 +777,10 @@ export const summaryStorage: SummaryStorage = {
       return true;
     })();
   },
-  usage(batch, usage, rejection) {
+  usage(batch, usage, rejection, diagnostic) {
     if (
+      (diagnostic !== undefined &&
+        (rejection !== "value" || !validSummaryDiagnostic(diagnostic))) ||
       (rejection !== undefined &&
         !SUMMARY_PATCH_REJECTIONS.includes(rejection)) ||
       Object.values(usage).some(
@@ -809,7 +794,11 @@ export const summaryStorage: SummaryStorage = {
         "update summary_attempt set usage_json=? where job_id=? and outcome='admitted' and usage_json is null",
       )
       .run(
-        JSON.stringify({ ...usage, ...(rejection ? { rejection } : {}) }),
+        JSON.stringify({
+          ...usage,
+          ...(rejection ? { rejection } : {}),
+          ...(diagnostic ? { diagnostic } : {}),
+        }),
         batch.jobId,
       );
   },
