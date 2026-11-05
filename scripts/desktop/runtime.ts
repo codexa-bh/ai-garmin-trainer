@@ -169,7 +169,8 @@ async function main(): Promise<void> {
         result.ok &&
         status.enabled === true &&
         status.model === "gpt-6-luna" &&
-        Number(status.pending) > 0 &&
+        (Number(status.pending) > 0 ||
+          result.headers.get("x-trainer-rebuild-pending") === "true") &&
         !status.reason
       );
     } catch {

@@ -83,6 +83,14 @@ limits are unchanged. Two-second native activity wakeups/serialized backlog drai
 and bounded eight-second explicit adoption replace delayed small-turn polling.
 Trainer Memory distinguishes latest versus selected-chat pin/use; native fixed
 status observes configuration/producer metadata, not actual selected-chat use.
+Schema22 adds staged explicit-history rebuild and an original-message authority
+watermark. It changes neither native settings/key protocol nor active summary/pin
+formats. Rehearse migration on an authored populated copy; schema21 builds refuse22.
+Startup/Use existing remain non-migrating. Pre-existing unlinked originals are
+conservatively fenced because earlier Clear operations recorded no such authority.
+No automatic backfill/regeneration, primary migration, restart or installation is
+authorized by source delivery; preserve compatible backups and use a forward fix,
+not an older writer/downgrade or blind copy-back.
 
 ## Integrations and GUI execution
 

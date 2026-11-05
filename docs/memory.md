@@ -106,6 +106,27 @@ They remain visible for explicit manual review; old temporary prose is not rebas
 to today. Original records are preserved. Actual private selection/export/retirement
 requires independently approved scope.
 
+### Rebuild from chat history
+
+**Start rebuild** follows one local full-pool preflight with counts, exclusions,
+configured provider/model and a labeled conservative cost range. It regenerates
+useful durable coaching context from admitted originals through the existing
+summary engine, not old generated noise. Finite internal batches stage privately;
+only a complete validated result replaces generated memory. Manual overlays and
+originals remain, and existing chat pins still require explicit Refresh/adoption.
+Cancel, interruption, invalid output, stale authority or capacity refusal cannot
+partially publish. Status reload reconciles the same operation without replaying
+Start or unknown costs. Keep the app open; no background full rebuild is promised.
+
+Schema22 conservatively excludes pre-existing unlinked originals whose relationship
+to earlier Clear operations cannot be proved. Post-fence unlinked originals retain
+honest message/time/hash provenance, not fabricated completed turns. Suppressed,
+unsafe, oversized and unsupported sources are disclosed. No-save requests and
+assistant context cannot grant endorsement or plan-save permission. Off/unselected/
+missing capability/empty/over-limit preflight refuses rather than enabling or
+substituting a model. See [exact bounds, authority and semantic evidence limits](cross-chat-summary.md#explicit-rebuild-from-chat-history).
+Source delivery grants no primary migration, private export, paid test or installation.
+
 ## First-prompt chat titles
 
 Future automatic titles use the **same explicitly selected summary model**, not

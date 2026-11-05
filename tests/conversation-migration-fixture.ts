@@ -35,10 +35,20 @@ export function removeConversationHistoryFixtureSchema(
   })();
 }
 
-/** Remove only schema21 additions on an exclusive authored schema20 fixture. */
+/** Reconstruct schema21 on an exclusively owned authored fixture. */
+export function removeRebuildFixtureSchema(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec("drop trigger summary_rebuild_invalidation");
+    db.exec("drop table summary_rebuild");
+    db.exec("drop table summary_original_boundary");
+  })();
+}
+
+/** Remove schema21+ additions on an exclusive authored schema20 fixture. */
 export function removeSizeAwareSummaryFixtureSchema(
   db: Database.Database,
 ): void {
+  removeRebuildFixtureSchema(db);
   db.transaction(() => {
     for (const column of ["reserved_usd", "spend_day", "price_basis"])
       db.exec(`alter table summary_attempt drop column ${column}`);

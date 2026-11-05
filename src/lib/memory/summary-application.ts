@@ -115,6 +115,9 @@ export function createSummaryEngine(ports: {
                 now: ports.now(),
                 characterCap: job.cap,
                 previous: job.previous.items,
+                requiredCoverageSourceIds: admitted.map(
+                  (source) => source.sourceId,
+                ),
                 newSources: admitted,
               });
               const output = await boundedGeneration(

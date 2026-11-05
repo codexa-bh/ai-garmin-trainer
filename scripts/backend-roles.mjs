@@ -115,6 +115,7 @@ const groups = [
       "conversation-history",
       "summary-storage",
       "summary-import",
+      "summary-rebuild",
       "legacy-memory-repository",
       "local-data-lifecycle",
       "migrations",

@@ -180,6 +180,7 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
     "conversation_history_control",
     "summary_control",
     "summary_state",
+    "summary_original_boundary",
     ...(route === "synthetic" ? ["conversation", "message"] : []),
   ]);
   const tables = db
@@ -236,6 +237,12 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
     controls[0]!.generation < 0
   )
     throw new Error("Smoke conversation control refused.");
+  if (
+    JSON.stringify(
+      db.prepare("select * from summary_original_boundary").all(),
+    ) !== JSON.stringify([{ id: 1, floor: 0 }])
+  )
+    throw new Error("Smoke original-message authority must be pristine.");
   const summary = db.prepare("select * from summary_state").all() as {
     id: number;
     format_version: number;

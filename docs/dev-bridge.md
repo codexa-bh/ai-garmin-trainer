@@ -88,6 +88,83 @@ historical private export. Versioned API controls read fixed expected authority
 metadata before CAS; unknown/extra/changed authority refuses, never bypasses.
 Validate native/DOM/Python contracts and the exact-source artifact before use.
 
+T0276 adds only `memory/rebuild-preflight`: scroll the fixed rendered Rebuild
+section, with closed `rebuildVisible`, `rebuildStartDisabled` and
+`rebuildCancelDisabled` booleans on Memory results. No source IDs, counts, cost,
+text, selectors or caller script are returned. `rebuild-start` and
+`rebuild-cancel` remain denied by this keyless bridge. The existing
+`--summary-engine` runner asserts actual native preflight and missing-capability
+Start refusal, then captures wide/narrow static Rebuild heading/buttons under the
+same geometry-preserving masks. Counts/cost/summary text remain hidden. This is
+not successful multi-batch synthesis, progress/cancellation or semantic-quality
+proof: those mechanics have real-SQLite supplied-generation tests; actual provider
+claims still need separately approved exact native route/model/export/cumulative
+cost. No fake provider, inherited paid preset or normal-app key lookup is added.
+Validate native/DOM/Python positive/negative contracts before artifact use.
+
+## Finite authored rebuild integration
+
+`npm run smoke:rebuild:live -- --scratch <canonical-task-scratch> --bundle
+<current-ordinary-app> --approved-rebuild-tests-usd2000` requires genuine separate
+T0276 approval for opaque native OpenAI/gpt-6-luna use, fixed authored source export
+and USD20 cumulative spend. The flag and existing native preset compatibility name
+`t0272-integrated-memory-luna-200` are not historical budget/access authority.
+No private history, credential readback/copy, primary write, installation or normal
+singleton control is granted. Native admission/source-preservation remains binding.
+Use the normal npm entry after a current full ordinary build so PATH/dependency
+context matches; never rewrite a stamp or relax an artifact refusal.
+
+The single-run helper uses existing preparation, unmodified outside-checkout copies,
+native opaque slot, summary control API and owned settlement/resource owners. It
+adds fixed post-fence unlinked authored noisy caregiving/failed-weekday lessons,
+cycling/hiking correction, earlier evenings/current mornings, unendorsed options/
+bag rejection, and one-off/obsolete/no-save/unsafe negatives without inventing
+completion rows. The reused controls fixture deliberately starts Off: the scenario
+must explicitly invoke existing configured Enable once and confirm its commit;
+it never silently changes native configuration or bypasses immediate Off.
+Expected/forbidden meanings are fixed before inference. It checks
+same-ID reconciliation, distinct concurrent Start refusal, cancellation preserving
+old memory, finite multi-batch progress, unchanged active memory until one final
+revision, manual overlay and original-byte preservation. Bounded validated authored
+output is retained for separate human/agent semantic inspection; counters and
+schema/citations are not that assessment. No chat/title API requests or consumption
+claim is made. Existing separately inspected keyless Memory images remain their
+own geometry/input-fidelity evidence, not a paid semantic screenshot.
+
+Before native activation, an exclusive durable fresh envelope claims USD9 of the
+USD20 cumulative authority. Current6000-character S allowances are146304 input and
+56768 output tokens, USD0.06496 conservative reserve per attempt at the reviewed
+2026-11-04 basis. A240-second whole-boot alarm plus20-second owned stop and existing
+2-second serialized dispatch, with startup/in-flight margin, bounds133 attempts /
+USD8.63968 below that reservation. The helper requalifies current limits, zero SDK
+retries and dispatch before use, binds source/artifact/scenario/input hashes and
+refuses existing/unknown envelopes; no automatic retry, reopen, reset or refund.
+For a diagnosed changed-content repair only, `--continue-receipt <exact-settled-failure>`
+validates the unchanged original approval, complete contiguous claim inventory,
+prior receipt/hash, original input preservation and owned settlement, then records
+an immutable reconciliation and a new USD9 claim bound to the reviewed current
+source/artifact/scenario. Earlier authority/claims and failures are never rewritten;
+USD18 fits the original USD20, while another USD9 would refuse. This is not a
+same-content timeout retry, automatic continuation or renewed allowance. Each
+invocation still has exactly one paid boot and its own whole-boot deadline.
+For the diagnosed incomplete-coverage prompt repair only, `--focused-repair-probe`
+with the exact USD18 failed prefix may claim the remaining USD2. It uses a fixed
+narrower subset of the same approved matrix and proves **before boot** at most30
+original user rows, zero routine-eligible completions, no attempts/imports/rebuilds,
+and the known Off/current6000 configuration. It performs only one Start, never
+cancel/restart/chat/title/Retry. Every successful internal batch consumes at least
+one source; failure interrupts without replay, so at most30 generation calls at
+USD0.06496 = USD1.9488 fit USD2 independently of timing. The same whole-boot alarm
+still binds. Current census/coverage/lineage/capacity validation is not weakened;
+this is a changed-content narrower probe, not a rerun-until-green allowance. Its
+actual subset hash and new effect binding are retained without changing the
+original approval/input/claim receipts; cumulative claims then equal USD20.
+Unknown effects retain every full claim, while observed usage remains a separate
+estimate, never an invoice. A changed budget/route/cost profile needs fresh review,
+not the old preset's obsolete USD0.20 boot assumption. Validate its cheap positive/
+negative contracts and current artifact before use; failed/unknown runs retain
+recovery/evidence and do not become success or cleanup authority.
+
 ## Authorized finite Luna-summary integration
 
 `npm run smoke:summary:live -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app> --approved-summary-tests-usd100`

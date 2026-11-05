@@ -412,7 +412,14 @@ The [accepted memory contract](memory-redesign-contract.md) and [scenarios](memo
 separate source behavior from evidence/activation. [S](cross-chat-summary.md) owns
 minimized item patches and foreground incremental generation; `db/summary-storage`
 owns eligibility/lease/CAS/coverage/manual/spend and `db/summary-import` owns sealed
-reviewed source selections/dispositions through that same writer. The provider
+reviewed source selections/dispositions through that same writer.
+`db/summary-rebuild` adds bounded original inventory/provenance and operation staging
+under schema22; it supplies candidates to that writer, not a second generation
+engine. Composition binds native boot/live configuration to reviewed Start and
+foreground continuation; the ordinary lifetime alone schedules internal jobs.
+Only complete validated replacement publishes, preserving manual/suppression and
+stable-pin semantics. Original-message authority is conservatively fenced where
+prior Clear eligibility cannot be proved. The provider
 adapter owns exact Luna transport; composition binds admitted native config. One
 launcher lifetime invokes its private tick; passive reads create no provider work.
 `chat/summary-pin` is pure whole-item projection policy; conversation-owned

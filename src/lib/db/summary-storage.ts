@@ -2,6 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { getDatabase } from "./connection";
 import { readSummaryImportBatch, publishSummaryImport } from "./summary-import";
 import {
+  readSummaryRebuildBatch,
+  stageSummaryRebuild,
+  interruptSummaryRebuild,
+  rebuildSourceLink,
+} from "./summary-rebuild";
+import {
   characters,
   scalarText,
   emptySummary,
@@ -144,12 +150,17 @@ function pending(frontier: number): number {
 }
 function sameSources(batch: SummaryBatch): boolean {
   try {
-    const current = batch.import
-      ? readSummaryImportBatch(batch.import)?.sources.slice(
+    const current = batch.rebuild
+      ? readSummaryRebuildBatch(batch.rebuild)?.sources.slice(
           0,
           batch.sources.length,
         )
-      : sources(batch.frontier, batch.upper);
+      : batch.import
+        ? readSummaryImportBatch(batch.import)?.sources.slice(
+            0,
+            batch.sources.length,
+          )
+        : sources(batch.frontier, batch.upper);
     return JSON.stringify(current) === JSON.stringify(batch.sources);
   } catch {
     return false;
@@ -263,10 +274,11 @@ export function summaryInspectionSources() {
       )
       .get(sourceId) as
       { conversationId: string; messageId: string } | undefined;
+    const original = row ?? rebuildSourceLink(sourceId);
     return {
       sourceId,
-      conversationId: row?.conversationId ?? null,
-      messageId: row?.messageId ?? null,
+      conversationId: original?.conversationId ?? null,
+      messageId: original?.messageId ?? null,
       manual: sourceId.startsWith("manual:"),
     };
   });
@@ -521,14 +533,30 @@ export const summaryStorage: SummaryStorage = {
         db.prepare(
           "update summary_attempt set outcome='interrupted' where job_id=? and outcome='admitted'",
         ).run(c.job_id);
+        interruptSummaryRebuild("summary_interrupted");
         db.prepare(
           "update summary_control set job_id=null,lease_until=0,reason='summary_interrupted',retry_at=? where id=1",
         ).run(attempt?.reserved ? Number.MAX_SAFE_INTEGER : now + 300000);
         return null;
       }
+      let rebuilt: ReturnType<typeof readSummaryRebuildBatch> = null;
+      try {
+        rebuilt = readSummaryRebuildBatch();
+      } catch (error) {
+        const changed =
+          error instanceof Error &&
+          error.message === "summary_rebuild_source_changed";
+        if (changed) interruptSummaryRebuild("summary_rebuild_source_changed");
+        db.prepare("update summary_control set reason=? where id=1").run(
+          changed
+            ? "summary_rebuild_review_required"
+            : "summary_rebuild_unavailable",
+        );
+        return null;
+      }
       let imported: ReturnType<typeof readSummaryImportBatch> = null;
       try {
-        imported = readSummaryImportBatch();
+        imported = rebuilt ? null : readSummaryImportBatch();
       } catch {
         db.prepare(
           "update summary_import set state='review-required' where state='active'",
@@ -538,7 +566,8 @@ export const summaryStorage: SummaryStorage = {
         ).run();
         return null;
       }
-      const batch = imported?.sources ?? sources(s.frontier);
+      const batch =
+        rebuilt?.sources ?? imported?.sources ?? sources(s.frontier);
       if (
         !batch.length &&
         !previous.items.some(
@@ -580,6 +609,7 @@ export const summaryStorage: SummaryStorage = {
       return {
         jobId,
         ...(imported ? { import: imported.identity } : {}),
+        ...(rebuilt ? { rebuild: rebuilt.identity } : {}),
         revision: s.revision,
         privacyGeneration: s.privacy_generation,
         controlGeneration: c.generation,
@@ -587,7 +617,7 @@ export const summaryStorage: SummaryStorage = {
         frontier: s.frontier,
         upper: batch.at(-1)?.eventSeq ?? s.frontier,
         cap: c.cap,
-        previous,
+        previous: rebuilt?.previous ?? previous,
         sources: batch,
       };
     })();
@@ -634,7 +664,8 @@ export const summaryStorage: SummaryStorage = {
       const attempt = db
         .prepare("select outcome from summary_attempt where job_id=?")
         .get(batch.jobId) as { outcome: string } | undefined;
-      if (attempt?.outcome === "committed") return true;
+      if (attempt?.outcome === "committed" || attempt?.outcome === "staged")
+        return true;
       if (
         !current(batch, now) ||
         !validSummaryValue(candidate.value, batch.cap) ||
@@ -677,18 +708,62 @@ export const summaryStorage: SummaryStorage = {
         text: renderSummary(items),
       };
       if (!validSummaryValue(value, batch.cap)) return false;
+      if (batch.rebuild && !stageSummaryRebuild(batch, candidate, now)) {
+        db.prepare(
+          "update summary_attempt set outcome='staged',finished_at=?,source_ids_json=? where job_id=?",
+        ).run(
+          now,
+          JSON.stringify(batch.sources.map((source) => source.sourceId)),
+          batch.jobId,
+        );
+        db.prepare(
+          "update summary_control set job_id=null,lease_until=0,retry_at=0,failures=0,reason=null where id=1",
+        ).run();
+        return true;
+      }
       const payload = JSON.stringify(value);
       const next = {
         revision: batch.revision + 1,
-        frontier: batch.import ? batch.frontier : batch.upper,
+        frontier: batch.rebuild
+          ? (
+              db
+                .prepare(
+                  "select coalesce(max(event_seq),0) as n from conversation_completion",
+                )
+                .get() as { n: number }
+            ).n
+          : batch.import
+            ? batch.frontier
+            : batch.upper,
         privacy_generation: batch.privacyGeneration,
         payload,
       };
-      for (const item of candidate.itemDispositions)
+      for (const item of batch.rebuild ? [] : candidate.itemDispositions)
         db.prepare(
           "insert into summary_item_disposition(item_id,revision,reason) values(?,?,?)",
         ).run(item.itemId, next.revision, item.reason);
-      if (batch.import)
+      if (batch.rebuild) {
+        // The sealed full-pool inventory also accounted for excluded completions.
+        // Advance routine coverage only in the final replacement transaction,
+        // never by pretending an excluded event was exported or represented.
+        const rows = db
+          .prepare(
+            "select e.event_seq,t.turn_id||':'||t.source_version as source_id from conversation_completion e join conversation_turn t on t.turn_id=e.turn_id where e.event_seq>? and e.event_seq<=? order by e.event_seq",
+          )
+          .all(batch.frontier, next.frontier) as {
+          event_seq: number;
+          source_id: string;
+        }[];
+        for (const row of rows)
+          db.prepare(
+            "insert into summary_disposition(event_seq,source_id,reason,revision) values(?,?,?,?)",
+          ).run(
+            row.event_seq,
+            row.source_id,
+            "reviewed-by-rebuild",
+            next.revision,
+          );
+      } else if (batch.import)
         publishSummaryImport(batch.import, candidate.dispositions);
       else
         for (const item of candidate.dispositions)
@@ -709,7 +784,7 @@ export const summaryStorage: SummaryStorage = {
       );
       db.prepare(
         "update summary_control set job_id=null,lease_until=0,pending_since=case when exists(select 1 from conversation_completion where event_seq>?) then coalesce(pending_since,?) else null end,retry_at=0,failures=0,reason=null,manual_revision=manual_revision+? where id=1",
-      ).run(next.frontier, now, Number(candidate.correction));
+      ).run(next.frontier, now, Number(candidate.correction && !batch.rebuild));
       return true;
     })();
   },
@@ -735,6 +810,7 @@ export const summaryStorage: SummaryStorage = {
   fail(batch, reason, now, retryDelay) {
     const db = getDatabase();
     db.transaction(() => {
+      if (batch.rebuild) interruptSummaryRebuild(reason, batch.rebuild.id);
       db.prepare(
         "update summary_attempt set outcome=?,finished_at=? where job_id=? and outcome='admitted'",
       ).run(reason, now, batch.jobId);
@@ -773,6 +849,9 @@ export const summaryStorage: SummaryStorage = {
           Number(action === "enable"),
         );
       if (action === "clear") {
+        db.prepare(
+          "update summary_original_boundary set floor=max(floor,(select coalesce(max(rowid),0) from message)) where id=1",
+        ).run();
         db.prepare(
           "update summary_control set cutoff=(select coalesce(max(admission_seq),0) from conversation_turn),manual_revision=manual_revision+1,reason=null,retry_at=0 where id=1",
         ).run();

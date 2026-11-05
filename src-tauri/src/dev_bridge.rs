@@ -258,6 +258,7 @@ impl Command {
                 "enable",
                 "retry",
                 "refresh",
+                "rebuild-preflight",
             ]
             .contains(&action.as_str()),
             Self::Tables { surface, edge } => {
@@ -847,6 +848,9 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 "updatedManual",
                 "off",
                 "editing",
+                "rebuildVisible",
+                "rebuildStartDisabled",
+                "rebuildCancelDisabled",
             ];
             let mut keys = vec!["ok", "action", "trustedInput"];
             keys.extend(booleans);
@@ -1425,13 +1429,14 @@ mod tests {
             "enable",
             "retry",
             "refresh",
+            "rebuild-preflight",
         ] {
             let command = Command::Memory {
                 action: action.into(),
             };
             assert!(command.valid());
             assert!(!config().permits(&command));
-            let value = json!({"ok":true,"action":action,"trustedInput":false,"visible":true,"loaded":true,"hasManual":false,"updatedManual":false,"off":false,"editing":false});
+            let value = json!({"ok":true,"action":action,"trustedInput":false,"visible":true,"loaded":true,"hasManual":false,"updatedManual":false,"off":false,"editing":false,"rebuildVisible":true,"rebuildStartDisabled":true,"rebuildCancelDisabled":true});
             assert!(super::safe_result(&command, &value, true));
             assert!(!safe_result(&command, &value));
             for (key, changed) in [
@@ -1445,7 +1450,7 @@ mod tests {
                 assert!(!super::safe_result(&command, &invalid, true));
             }
         }
-        for action in ["export", "import", "select", "eval", "login"] {
+        for action in ["export", "import", "select", "eval", "login", "rebuild-start", "rebuild-cancel"] {
             assert!(!Command::Memory {
                 action: action.into()
             }
