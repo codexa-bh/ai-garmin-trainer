@@ -181,6 +181,83 @@ it("summary capture refuses unknown copy/options/nesting and noncanonical cap wi
   expect(window.__trainerHistorySetup("summary:any").ok).toBe(false);
   expect(window.__trainerHistorySetup("summaryOff").summaryOff).toBe(true);
 });
+it("proves history off/on/required visibility and rejects empty-date Save without native mutation", async () => {
+  const invoke = await setup(false);
+  expect(window.__trainerHistorySetup("observe")).toMatchObject({
+    automaticHistory: true,
+    historyDateVisible: false,
+    historyDateRequired: false,
+    technicalControlsAbsent: true,
+  });
+  expect(window.__trainerHistorySetup("historyRequired")).toMatchObject({
+    ok: true,
+    automaticHistory: false,
+    historyDateVisible: true,
+    historyDateRequired: true,
+    formValid: false,
+  });
+  expect(window.__trainerHistorySetup("captureHistoryWide").ok).toBe(true);
+  expect(
+    getComputedStyle(document.getElementById("history-help")!).visibility,
+  ).toBe("visible");
+  expect(
+    getComputedStyle(document.getElementById("OPENAI_API_KEY")!).visibility,
+  ).toBe("hidden");
+  window.__trainerHistoryRestore();
+  window.__trainerHistorySetup("save");
+  expect(window.__trainerHistorySetup("observe")).toMatchObject({
+    saveSubmitted: false,
+    historyValidationBlocked: true,
+    historyValueMissing: true,
+  });
+  expect(
+    invoke.mock.calls.some(([command]) => command === "save_settings"),
+  ).toBe(false);
+  window.__trainerHistorySetup("legacyLimit");
+  expect(window.__trainerHistorySetup("captureHistoryNarrow").ok).toBe(true);
+  window.__trainerHistoryRestore();
+  window.__trainerHistorySetup("automatic");
+  expect(window.__trainerHistorySetup("captureHistoryNarrow").ok).toBe(true);
+  expect(
+    document.getElementById("GARMIN_HISTORY_START_DATE")!.closest("label")
+      ?.hidden,
+  ).toBe(true);
+});
+it.each([
+  "memory-help",
+  "memory-model-help",
+  "memory-size-help",
+  "memory-off-help",
+  "memory-draft",
+  "history-help",
+])("refuses unverified %s copy and restores all styles", async (id) => {
+  await setup(false);
+  document.getElementById(id)!.append(document.createElement("span"));
+  const action =
+    id === "history-help" ? "captureHistoryWide" : "captureSummaryWide";
+  expect(window.__trainerHistorySetup(action).ok).toBe(false);
+  expect(document.getElementById("DATABASE_PATH")!.style.visibility).toBe("");
+  expect(document.getElementById(id)!.style.visibility).toBe("");
+});
+it("refuses technical UI regressions rather than masking them as proof of removal; expires capture masks", async () => {
+  await setup(false);
+  const injected = document.createElement("button");
+  injected.id = "memory-check";
+  document.body.append(injected);
+  expect(window.__trainerHistorySetup("observe").technicalControlsAbsent).toBe(
+    false,
+  );
+  expect(window.__trainerHistorySetup("captureSummaryWide").ok).toBe(false);
+  injected.remove();
+  vi.useFakeTimers();
+  expect(window.__trainerHistorySetup("captureSummaryWide").ok).toBe(true);
+  expect(
+    getComputedStyle(document.getElementById("memory-help")!).visibility,
+  ).toBe("visible");
+  await vi.advanceTimersByTimeAsync(10001);
+  expect(document.getElementById("DATABASE_PATH")!.style.visibility).toBe("");
+  vi.useRealTimers();
+});
 it("reports pending readiness without authorizing a premature mutation", () => {
   document.documentElement.innerHTML = readFileSync(
     "src-tauri/ui/index.html",

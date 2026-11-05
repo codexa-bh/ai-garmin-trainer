@@ -261,18 +261,7 @@ for (const provider of Object.keys(providers)) {
   });
 }
 
-let savedMemoryEnabled = "false";
-let memoryRead = 0;
-let memoryExpiry = null;
-
-function invalidateMemoryStatus() {
-  memoryRead++;
-  clearTimeout(memoryExpiry);
-  byId("memory-check").disabled =
-    busy || Boolean(firstRun && onboarding?.settingsCommitted);
-  byId("memory-active").textContent =
-    "Active memory: unknown — read status again. Saved/draft settings do not prove runtime readiness.";
-}
+let savedMemory = {};
 function renderHistory() {
   const choice = byId("history-limited");
   const date = byId("GARMIN_HISTORY_START_DATE");
@@ -280,56 +269,30 @@ function renderHistory() {
   const unavailable =
     busy || Boolean(firstRun && onboarding?.settingsCommitted);
   choice.disabled = unavailable;
+  date.closest("label").hidden = !choice.checked;
   date.disabled = unavailable || !choice.checked;
   date.required = choice.checked;
+  const value = date.value;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  const valid =
+    !value ||
+    (Number.isFinite(parsed.getTime()) &&
+      parsed.toISOString().slice(0, 10) === value &&
+      parsed <= new Date());
+  date.setCustomValidity(
+    choice.checked && !valid
+      ? "Enter a calendar date no later than today (YYYY-MM-DD)."
+      : "",
+  );
 }
 function renderMemory() {
   const on = byId("SUMMARY_ENABLED").value === "true";
-  byId("memory-draft").textContent =
-    `Draft: ${on ? "On" : "Off"}. Saved startup setting: ${savedMemoryEnabled === "true" ? "On" : "Off"}. ` +
-    (firstRun
-      ? "Finish applies the committed startup configuration."
-      : "Memory topology changes need explicit quit/reopen. Shared provider-key changes can apply now; status is not a readiness check.");
-  const model = byId("SUMMARY_MODEL").value;
-  byId("memory-processing").textContent =
-    `${model === "gpt-6-luna" ? "Shared summary/title model: OpenAI · gpt-6-luna." : "Shared summary/title model: Unselected; no calls, title excerpt retained."} ` +
-    "Minimized eligible context may leave the device. No embedding, extractor/chat fallback, daemon start or historical processing. Summary Off does not disable future title attempts; separate title caps apply. Missing keys/capability retain no-memory/excerpt, not another model.";
-}
-async function readMemoryStatus() {
-  const generation = ++memoryRead;
-  clearTimeout(memoryExpiry);
-  byId("memory-check").disabled = true;
-  byId("memory-active").textContent = "Reading active local memory status…";
-  try {
-    const value = await invoke("read_memory_status");
-    if (generation !== memoryRead) return;
-    if (
-      value.version !== 1 ||
-      !["unselected", "luna", "unsupported"].includes(value.model) ||
-      ![
-        "disabled",
-        "unselected",
-        "unavailable",
-        "never-produced",
-        "fresh",
-        "stale",
-      ].includes(value.state)
-    )
-      throw new Error("Invalid status");
-    byId("memory-active").textContent =
-      `Active startup configuration: ${value.configuredEnabled ? "On" : "Off"}; immediate processing: ${value.enabled ? "On" : "Off"}. ` +
-      `Shared summary/title model: ${value.model === "luna" ? "OpenAI · gpt-6-luna" : value.model}; N=${value.cap}. Summary ${value.state}, revision ${value.revision}, frontier ${value.frontier}, pending ${value.pending}. ` +
-      "This is active metadata, not saved/draft settings, remote readiness or proof of selected-chat use. Inspect Trainer Memory for the actual pin.";
-    memoryExpiry = setTimeout(invalidateMemoryStatus, 60000);
-  } catch {
-    if (generation === memoryRead)
-      byId("memory-active").textContent =
-        "Active memory: unavailable or not running; readiness and runtime preference are unknown. Open Trainer's Memory panel after explicit launch/restart. No provider or content check was made.";
-  } finally {
-    if (generation === memoryRead)
-      byId("memory-check").disabled =
-        busy || Boolean(firstRun && onboarding?.settingsCommitted);
-  }
+  const changed = Object.entries(savedMemory).some(
+    ([key, value]) => byId(key).value !== value,
+  );
+  byId("memory-draft").textContent = firstRun
+    ? `Draft: ${on ? "On" : "Off"}. Finish applies these settings.`
+    : `Draft: ${on ? "On" : "Off"}. Saved startup setting: ${savedMemory.SUMMARY_ENABLED === "true" ? "On" : "Off"}. ${changed ? "Unsaved changes. " : ""}Save, then quit and reopen to apply memory changes.`;
 }
 
 function fieldValues() {
@@ -356,8 +319,6 @@ function retainDraft(values) {
   byId("history-limited").checked = Boolean(values.GARMIN_HISTORY_START_DATE);
   renderHistory();
   renderConnection();
-  byId("memory-configuration").open = true;
-  byId("advanced-settings").open = true;
   renderMemory();
 }
 function revealInvalid(event) {
@@ -395,11 +356,11 @@ function renderStep() {
       : "Finish and open Trainer"
     : "Save settings";
   byId("memory-section").hidden = wizard && step !== 3;
-  byId("advanced-settings").hidden = wizard && step !== 3;
+  byId("history-options").hidden = wizard && step !== 3;
   renderMemory();
   renderHistory();
   byId("review-summary").textContent =
-    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Chat catalog: ${catalog.entries.length} entries (choose a model explicitly in Trainer). Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("MEMORY_ENABLED")?.value || "false"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
+    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Chat catalog: ${catalog.entries.length} entries (choose a model explicitly in Trainer). Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("SUMMARY_ENABLED").value === "true" ? "On" : "Off"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
 }
 function renderConnection() {
   const verified = tokenSelection && tokenSelection === successfulDestination;
@@ -547,7 +508,6 @@ function showAuth(value) {
 async function refresh() {
   closeRestart();
   clearSecrets();
-  invalidateMemoryStatus();
   try {
     const saved = await invoke("read_settings");
     if (!saved.chatCatalog || typeof saved.revision !== "string")
@@ -581,7 +541,12 @@ async function refresh() {
       saved.fields.GARMIN_HISTORY_START_DATE,
     );
     renderHistory();
-    savedMemoryEnabled = byId("SUMMARY_ENABLED").value;
+    savedMemory = Object.fromEntries(
+      ["SUMMARY_ENABLED", "SUMMARY_MODEL", "SUMMARY_CHAR_LIMIT"].map((key) => [
+        key,
+        byId(key).value,
+      ]),
+    );
     resetKeys(saved.keys);
     if (firstRun && !saved.saved) {
       byId("DATABASE_PATH").value = onboarding.database;
@@ -590,8 +555,6 @@ async function refresh() {
       "catalog-migration-required",
       "legacy-required",
     ].includes(saved.storage);
-    byId("extraction-compatibility").textContent =
-      `Inactive extraction compatibility retains ${byId("AI_PROVIDER").value}; OpenAI ${byId("AI_MODEL").value}, DeepSeek ${byId("DEEPSEEK_MODEL").value}. Future titles use the explicit summary model instead. Catalog edits do not rewrite these preserved inputs.`;
     renderStep();
     renderConnection();
     status.textContent = firstRun
@@ -622,13 +585,10 @@ function createField(field) {
       option.textContent =
         {
           MEMORY_ENABLED: { true: "On", false: "Off" },
-          SUMMARY_ENABLED: {
-            true: "On — after explicit quit/reopen",
-            false: "Off (preserves stored summary)",
-          },
+          SUMMARY_ENABLED: { true: "On", false: "Off" },
           SUMMARY_MODEL: {
-            unselected: "Unselected — no summary/title calls",
-            "gpt-6-luna": "OpenAI · gpt-6-luna (summary and titles)",
+            unselected: "Unselected",
+            "gpt-6-luna": "OpenAI · gpt-6-luna",
           },
           MEMORY_EMBEDDING_PROVIDER: {
             openai: "OpenAI-compatible",
@@ -644,7 +604,17 @@ function createField(field) {
       input.append(option);
     }
   } else {
-    input.type = ["date", "number"].includes(field.type) ? field.type : "text";
+    input.type = field.type === "number" ? "number" : "text";
+    if (field.type === "date") {
+      // WebKit can paint today's date in an empty native date editor even while
+      // valueMissing is true. Literal ISO text keeps the empty state unambiguous
+      // and preserves invalid saved text for correction, never a manufactured date.
+      input.placeholder = "YYYY-MM-DD";
+      input.pattern = "[0-9]{4}-[0-9]{2}-[0-9]{2}";
+      input.maxLength = 10;
+      input.addEventListener("input", renderHistory);
+      input.addEventListener("change", renderHistory);
+    }
     if (field.type === "number") {
       input.required = true;
       input.min =
@@ -669,39 +639,38 @@ function createField(field) {
     input.setAttribute("autocorrect", "off");
     input.spellcheck = false;
   }
-  if (field.legacy) {
+  const preserved = field.legacy || field.key.endsWith("_COMMAND");
+  if (preserved) {
     if (!field.options) input.type = "hidden";
     label.hidden = true;
   }
   label.append(input);
-  if (field.key.startsWith("SUMMARY_"))
+  if (field.key.startsWith("SUMMARY_")) {
+    input.addEventListener("input", renderMemory);
     input.addEventListener("change", renderMemory);
-  const memoryGroup = field.key.startsWith("SUMMARY_")
-    ? "memory-control"
-    : field.key === "MEMORY_ENABLED"
-      ? "memory-control"
-      : [
-            "MEMORY_EMBEDDING_DIMS",
-            "MEMORY_TIMEOUT_MS",
-            "MEMORY_EXTRACTION_TIMEOUT_MS",
-          ].includes(field.key)
-        ? "memory-technical"
-        : field.key.startsWith("MEMORY_")
-          ? "memory-fields"
-          : null;
+  }
+  const help = {
+    SUMMARY_ENABLED: "memory-off-help",
+    SUMMARY_MODEL: "memory-model-help",
+    SUMMARY_CHAR_LIMIT: "memory-size-help",
+    GARMIN_HISTORY_START_DATE: "history-help",
+  }[field.key];
+  if (help) input.setAttribute("aria-describedby", help);
   const parent = byId(
-    (field.key === "OLLAMA_BASE_URL" ? "catalog-ollama-config" : memoryGroup) ||
-      (field.key === "GARMIN_HISTORY_START_DATE"
-        ? "history-options"
-        : field.key.endsWith("_COMMAND")
-          ? "external-tools"
-          : field.advanced
-            ? "advanced"
+    preserved
+      ? "preserved-fields"
+      : field.key.startsWith("SUMMARY_")
+        ? "memory-control"
+        : field.key === "OLLAMA_BASE_URL"
+          ? "catalog-ollama-config"
+          : field.key === "GARMIN_HISTORY_START_DATE"
+            ? "history-options"
             : field.key === "DATABASE_PATH"
               ? "data-fields"
-              : "normal"),
+              : "normal",
   );
   parent.append(label);
+  if (help && field.key.startsWith("SUMMARY_")) parent.append(byId(help));
   if (["path", "directory"].includes(field.type)) {
     const button = document.createElement("button");
     button.type = "button";
@@ -765,7 +734,6 @@ async function initialize() {
     successfulDestination = "";
     clearSecrets();
     authOpen = false;
-    invalidateMemoryStatus();
     showAuth(null);
   });
   const message = await invoke("setup_status");
@@ -780,7 +748,6 @@ async function adoptProviders(readLegacy) {
     authActive()
   )
     return;
-  invalidateMemoryStatus();
   setBusy(true);
   const values = fieldValues();
   const catalogDraft = structuredClone(catalog);
@@ -810,7 +777,7 @@ async function adoptProviders(readLegacy) {
       (typeof error === "string"
         ? error
         : "Adoption outcome unknown; originals retained.") +
-      " Non-secret draft retained; check expanded controls. Keys were cleared from the form. " +
+      " Non-secret draft retained; review the reported configuration error. Keys were cleared from the form. " +
       (unknownOutcome
         ? "Reload failed: quit/reopen to reconcile before another write."
         : "Saved metadata reloaded; no automatic retry.");
@@ -820,12 +787,7 @@ async function adoptProviders(readLegacy) {
     setBusy(unknownOutcome);
   }
 }
-byId("history-limited").addEventListener("change", () => {
-  if (!byId("history-limited").checked)
-    byId("GARMIN_HISTORY_START_DATE").value = "";
-  renderHistory();
-});
-byId("memory-check").addEventListener("click", readMemoryStatus);
+byId("history-limited").addEventListener("change", renderHistory);
 byId("settings").addEventListener("invalid", revealInvalid, true);
 byId("adopt-provider").addEventListener("click", () => adoptProviders(true));
 byId("reenter-provider").addEventListener("click", () => adoptProviders(false));
@@ -845,7 +807,6 @@ byId("settings").addEventListener("submit", async (event) => {
   const ordinarySave = !firstRun;
   const priorFocus = document.activeElement;
   let showRestart = false;
-  invalidateMemoryStatus();
   setBusy(true);
   status.textContent = firstRun
     ? "Preparing setup and checking local configuration… Cancel retains already committed outputs."
@@ -909,7 +870,7 @@ byId("settings").addEventListener("submit", async (event) => {
         (typeof error === "string"
           ? error
           : "Save outcome unknown; saved and live state must be reconciled before another action.") +
-        " Non-secret draft retained; check expanded controls. Keys were cleared from the form. " +
+        " Non-secret draft retained; review the reported configuration error. Keys were cleared from the form. " +
         (unknownOutcome
           ? "Reload failed: quit/reopen to reconcile before another write."
           : "Saved metadata reloaded; no automatic retry.");
@@ -1055,7 +1016,7 @@ byId("garmin-auth").addEventListener("submit", async (event) => {
     const dependency = new Map([
       [
         "dependency-uv-unavailable",
-        "Sign-in cannot execute uv or its configured override. Check native Settings technical tool paths and README Installation, then explicitly retry. Saved connections and offline data remain available.",
+        "Sign-in cannot execute uv or its configured override. See README Installation to manage external tools, then explicitly retry. Saved connections and offline data remain available.",
       ],
       [
         "dependency-python-unavailable",

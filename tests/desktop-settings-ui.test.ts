@@ -584,9 +584,7 @@ describe("trusted local desktop settings UI", () => {
     const screen = within(document.body);
     expect(input("AI_PROVIDER").closest("label")?.hidden).toBe(true);
     expect(input("AI_MODEL").closest("label")?.hidden).toBe(true);
-    expect(
-      document.getElementById("extraction-compatibility")?.textContent,
-    ).toContain("Inactive extraction compatibility retains openai");
+    expect(document.getElementById("extraction-compatibility")).toBeNull();
     fireEvent.input(screen.getByLabelText("Model ID — OpenAI model 1"), {
       target: { value: "Vendor/Edited:Tag" },
     });
@@ -1661,7 +1659,9 @@ describe("trusted local desktop settings UI", () => {
   it("shows shared summary/title controls and preserves inactive legacy controls without using them", () => {
     expect(input("SUMMARY_ENABLED").closest("#memory-control")).not.toBeNull();
     expect(input("SUMMARY_MODEL").closest("label")?.hidden).toBe(false);
-    expect(input("SUMMARY_MODEL").textContent).toContain("summary and titles");
+    expect(input("SUMMARY_MODEL").closest("label")?.textContent).toContain(
+      "Memory and automatic chat-title model",
+    );
     expect(input("SUMMARY_CONTRACT_VERSION").value).toBe("2");
     for (const field of fields.filter((field) =>
       field.key.startsWith("MEMORY_"),
@@ -1670,9 +1670,9 @@ describe("trusted local desktop settings UI", () => {
     expect(
       input("SUMMARY_ENABLED").querySelector('option[value="true"]')
         ?.textContent,
-    ).toBe("On — after explicit quit/reopen");
+    ).toBe("On");
     expect(
-      input("MEMORY_EMBEDDING_PROVIDER").closest("#memory-configuration"),
+      input("MEMORY_EMBEDDING_PROVIDER").closest("#preserved-fields[hidden]"),
     ).not.toBeNull();
     for (const key of [
       "MEMORY_EMBEDDING_DIMS",
@@ -1680,13 +1680,33 @@ describe("trusted local desktop settings UI", () => {
       "MEMORY_EXTRACTION_TIMEOUT_MS",
       ...fields.filter((f) => f.key.endsWith("_COMMAND")).map((f) => f.key),
     ])
-      expect(input(key).closest("#advanced-settings")).not.toBeNull();
+      expect(
+        input(key).closest("#preserved-fields[hidden][inert]"),
+      ).not.toBeNull();
+    for (const id of [
+      "advanced-settings",
+      "memory-configuration",
+      "memory-technical",
+      "external-tools",
+      "advanced",
+      "memory-processing",
+      "memory-check",
+      "memory-active",
+    ])
+      expect(document.getElementById(id)).toBeNull();
+    const screen = within(document.body);
+    expect(screen.getByLabelText("Remember across chats")).toBe(
+      input("SUMMARY_ENABLED"),
+    );
+    expect(screen.getByLabelText("Memory size (characters)")).toBe(
+      input("SUMMARY_CHAR_LIMIT"),
+    );
+    expect(input("SUMMARY_MODEL").getAttribute("aria-describedby")).toBe(
+      "memory-model-help",
+    );
     expect(
-      (document.getElementById("advanced-settings") as HTMLDetailsElement).open,
-    ).toBe(false);
-    expect(
-      document.getElementById("memory-processing")?.closest("details"),
-    ).toBeNull();
+      document.getElementById("memory-help")?.textContent?.replace(/\s+/g, " "),
+    ).toContain("no daily spending cap");
     expect(
       invoke.mock.calls.some(([command]) => command === "read_memory_status"),
     ).toBe(false);
@@ -1743,7 +1763,7 @@ describe("trusted local desktop settings UI", () => {
       );
     },
   );
-  it("preserves an explicit blank model for validation and reveals invalid collapsed controls", async () => {
+  it("preserves explicit invalid hidden values for native validation without exposing technical editors", async () => {
     input("MEMORY_EMBEDDING_MODEL").value = "";
     let captured: unknown;
     const original = invoke.getMockImplementation()!;
@@ -1758,11 +1778,11 @@ describe("trusted local desktop settings UI", () => {
         input: { fields: { MEMORY_EMBEDDING_MODEL: "" } },
       }),
     );
-    const disclosure = document.getElementById(
-      "advanced-settings",
-    ) as HTMLDetailsElement;
     fireEvent.invalid(input("MEMORY_TIMEOUT_MS"));
-    expect(disclosure.open).toBe(true);
+    expect(
+      input("MEMORY_TIMEOUT_MS").closest("[hidden][inert]"),
+    ).not.toBeNull();
+    expect(document.getElementById("advanced-settings")).toBeNull();
   });
   it("retains non-secret failed-write drafts but cancel restores persisted custom values without another write", async () => {
     const original = invoke.getMockImplementation()!;
@@ -1795,9 +1815,9 @@ describe("trusted local desktop settings UI", () => {
     expect(input("MEMORY_EMBEDDING_MODEL").value).toBe("draft-custom");
     expect(input("MEMORY_TIMEOUT_MS").value).toBe("23456");
     expect(
-      (document.getElementById("memory-configuration") as HTMLDetailsElement)
-        .open,
-    ).toBe(true);
+      input("MEMORY_EMBEDDING_MODEL").closest("[hidden][inert]"),
+    ).not.toBeNull();
+    expect(document.getElementById("memory-configuration")).toBeNull();
     fireEvent.click(document.getElementById("cancel")!);
     await waitFor(() =>
       expect(input("MEMORY_EMBEDDING_MODEL").value).toBe("persisted-custom"),
@@ -1805,105 +1825,140 @@ describe("trusted local desktop settings UI", () => {
     expect(input("MEMORY_TIMEOUT_MS").value).toBe("15432");
     expect(writes).toBe(1);
   });
-  it("distinguishes draft/next-launch from active user-disabled state and never echoes private errors", async () => {
-    const original = invoke.getMockImplementation()!;
-    invoke.mockImplementation(async (command, args) =>
-      command === "read_memory_status"
-        ? {
-            version: 1,
-            configuredEnabled: true,
-            enabled: false,
-            model: "luna",
-            cap: 6000,
-            state: "disabled",
-            revision: 2,
-            frontier: 4,
-            pending: 0,
-          }
-        : original(command, args),
+  it("distinguishes unsaved memory drafts from saved startup settings without claiming running enablement", async () => {
+    const draft = document.getElementById("memory-draft")!;
+    fireEvent.change(input("SUMMARY_ENABLED"), { target: { value: "true" } });
+    expect(draft.textContent).toContain(
+      "Draft: On. Saved startup setting: Off. Unsaved changes.",
     );
-    fireEvent.click(document.getElementById("memory-check")!);
-    await waitFor(() =>
-      expect(document.getElementById("memory-active")?.textContent).toContain(
-        "immediate processing: Off",
-      ),
-    );
-    expect(input("MEMORY_ENABLED").value).toBe("false");
-    expect(document.getElementById("memory-active")?.textContent).toContain(
-      "Shared summary/title model: OpenAI · gpt-6-luna",
-    );
-    expect(document.getElementById("memory-draft")?.textContent).toContain(
-      "Draft: Off",
-    );
+    expect(draft.textContent).toContain("Save, then quit and reopen");
+    expect(
+      document
+        .getElementById("memory-off-help")
+        ?.textContent?.replace(/\s+/g, " "),
+    ).toContain("saving On does not undo it");
     fireEvent.click(document.getElementById("cancel")!);
     await waitFor(() =>
-      expect(document.getElementById("memory-active")?.textContent).toContain(
-        "unknown",
-      ),
+      expect(draft.textContent).not.toContain("Unsaved changes"),
     );
-    invoke.mockImplementation(async (command, args) => {
-      if (command === "read_memory_status")
-        throw "private-path-key-error-sentinel";
-      return original(command, args);
+    fireEvent.input(input("SUMMARY_CHAR_LIMIT"), { target: { value: "7000" } });
+    expect(draft.textContent).toContain("Unsaved changes");
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() => expect(input("SUMMARY_CHAR_LIMIT").value).toBe("6000"));
+    fireEvent.change(input("SUMMARY_MODEL"), {
+      target: { value: "gpt-6-luna" },
     });
-    fireEvent.click(document.getElementById("memory-check")!);
+    expect(draft.textContent).toContain("Unsaved changes");
+  });
+  it("never requests memory diagnostics on open, navigation, Save, cancel or close", async () => {
+    fireEvent.submit(document.getElementById("settings")!);
+    await waitFor(() => expect(input("save").disabled).toBe(false));
+    fireEvent.click(document.getElementById("cancel")!);
     await waitFor(() =>
-      expect(document.getElementById("memory-active")?.textContent).toContain(
-        "unavailable or not running",
+      expect(document.getElementById("status")?.textContent).toContain(
+        "Edits cancelled",
       ),
     );
-    expect(document.body.textContent).not.toContain(
-      "private-path-key-error-sentinel",
-    );
-  });
-  it("expires observations and ignores a delayed status after reload/close", async () => {
-    const original = invoke.getMockImplementation()!;
-    invoke.mockImplementation(async (command, args) =>
-      command === "read_memory_status"
-        ? {
-            version: 1,
-            configuredEnabled: true,
-            enabled: true,
-            model: "luna",
-            cap: 6000,
-            state: "fresh",
-            revision: 2,
-            frontier: 4,
-            pending: 0,
-          }
-        : original(command, args),
-    );
-    vi.useFakeTimers();
-    fireEvent.click(document.getElementById("memory-check")!);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(document.getElementById("memory-active")?.textContent).toContain(
-      "Summary fresh, revision 2",
-    );
-    await vi.advanceTimersByTimeAsync(60001);
-    expect(document.getElementById("memory-active")?.textContent).toContain(
-      "unknown",
-    );
-    vi.useRealTimers();
-    let resolve: (value: unknown) => void = () => {};
-    invoke.mockImplementation(async (command, args) =>
-      command === "read_memory_status"
-        ? new Promise((done) => {
-            resolve = done;
-          })
-        : original(command, args),
-    );
-    fireEvent.click(document.getElementById("memory-check")!);
+    await firstRun();
+    review();
+    fireEvent.click(document.getElementById("back")!);
+    fireEvent.click(document.getElementById("next")!);
     listeners["desktop-settings-closed"]({ payload: "" });
-    resolve({
-      embeddingProvider: "ollama",
-      extractionProvider: "deepseek",
-      health: "local-observed",
-    });
-    await Promise.resolve();
-    expect(document.getElementById("memory-active")?.textContent).toContain(
-      "unknown",
-    );
+    expect(
+      invoke.mock.calls.some(([name]) => name === "read_memory_status"),
+    ).toBe(false);
+    for (const id of [
+      "memory-active",
+      "memory-check",
+      "memory-configuration",
+      "advanced-settings",
+      "external-tools",
+    ])
+      expect(document.getElementById(id)).toBeNull();
+    for (const field of fields.filter(
+      (f) => f.legacy || f.key.endsWith("_COMMAND"),
+    ))
+      expect(input(field.key).closest("[hidden][inert]")).not.toBeNull();
   });
+  it("hides the whole history date while off, requires an explicit date on, and preserves unsaved off/on drafts", async () => {
+    const date = input("GARMIN_HISTORY_START_DATE");
+    expect(date.value).toBe("");
+    expect(date.defaultValue).toBe("");
+    expect(date.type).toBe("text");
+    expect(date.placeholder).toBe("YYYY-MM-DD");
+    expect(date.closest("label")?.hidden).toBe(true);
+    expect(date.disabled).toBe(true);
+    expect(date.required).toBe(false);
+    fireEvent.click(input("history-limited"));
+    expect(date.closest("label")?.hidden).toBe(false);
+    expect(date.disabled).toBe(false);
+    expect(date.required).toBe(true);
+    expect(date.validity.valueMissing).toBe(true);
+    const savesBefore = invoke.mock.calls.filter(
+      ([name]) => name === "save_settings",
+    ).length;
+    (document.getElementById("settings") as HTMLFormElement).requestSubmit();
+    expect(
+      invoke.mock.calls.filter(([name]) => name === "save_settings"),
+    ).toHaveLength(savesBefore);
+    for (const value of ["2025-02-30", "9999-01-01", "not-a-date"]) {
+      fireEvent.input(date, { target: { value } });
+      expect(date.validity.valid).toBe(false);
+      expect(date.value).toBe(value);
+    }
+    fireEvent.input(date, { target: { value: "2024-01-01" } });
+    expect(date.validity.valid).toBe(true);
+    fireEvent.click(input("history-limited"));
+    expect(date.closest("label")?.hidden).toBe(true);
+    expect(date.value).toBe("2024-01-01");
+    fireEvent.click(input("history-limited"));
+    expect(date.value).toBe("2024-01-01");
+    expect(within(document.body).getByLabelText("Import from")).toBe(date);
+  });
+  it.each(["2024-01-01", "not-a-date", "2025-02-30"])(
+    "preserves saved limit %s on unrelated Save/failure/cancel; only explicit Off-and-Save clears it",
+    async (savedDate) => {
+      const original = invoke.getMockImplementation()!;
+      const captured: Record<string, string>[] = [];
+      invoke.mockImplementation(async (command, args) => {
+        if (command === "save_settings") {
+          captured.push(structuredClone(args.input.fields));
+          throw "Invalid configuration; precommit unchanged.";
+        }
+        const result = await original(command, args);
+        return command === "read_settings"
+          ? {
+              ...result,
+              fields: {
+                ...result.fields,
+                GARMIN_HISTORY_START_DATE: savedDate,
+              },
+            }
+          : result;
+      });
+      fireEvent.click(input("cancel"));
+      await waitFor(() => expect(input("history-limited").checked).toBe(true));
+      expect(input("GARMIN_HISTORY_START_DATE").closest("label")?.hidden).toBe(
+        false,
+      );
+      // Direct handler dispatch proves full serializer/native refusal retains
+      // invalid saved text too. Normal requestSubmit is blocked as required.
+      fireEvent.submit(document.getElementById("settings")!);
+      await waitFor(() => expect(captured).toHaveLength(1));
+      await waitFor(() => expect(input("save").disabled).toBe(false));
+      expect(captured[0].GARMIN_HISTORY_START_DATE).toBe(savedDate);
+      fireEvent.click(input("history-limited"));
+      fireEvent.submit(document.getElementById("settings")!);
+      await waitFor(() => expect(captured).toHaveLength(2));
+      await waitFor(() => expect(input("save").disabled).toBe(false));
+      expect(captured[1].GARMIN_HISTORY_START_DATE).toBe("");
+      fireEvent.click(input("cancel"));
+      await waitFor(() => expect(input("history-limited").checked).toBe(true));
+      expect(input("GARMIN_HISTORY_START_DATE").closest("label")?.hidden).toBe(
+        false,
+      );
+    },
+  );
   it("keeps Memory/custom maintenance draft through first-run navigation and Finish", async () => {
     await firstRun();
     review();

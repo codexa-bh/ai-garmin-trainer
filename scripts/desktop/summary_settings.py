@@ -15,11 +15,23 @@ from smoke_input import prepare, json_document
 from summary_live import api
 
 
+def preserved_fields(run):
+    inventory=json.loads((Path(__file__).resolve().parents[2]/'src-tauri/ui/settings-fields.json').read_text())
+    values={field['key']:field.get('default',field.get('options',[''])[0]) for field in inventory
+            if field.get('legacy') or field['key'].endswith('_COMMAND')}
+    # A real canonical existing run-owned file exercises exact custom path round
+    # trips; this keyless scenario never invokes connector/FIT tools.
+    values.update({field['key']:str(run.binary.resolve()) for field in inventory if field['key'].endswith('_COMMAND')})
+    values.update({'AI_PROVIDER':'ollama','AI_MODEL':'synthetic-preserved-openai','DEEPSEEK_MODEL':'synthetic-preserved-deepseek',
+                   'MEMORY_EMBEDDING_DIMS':'768','MEMORY_TIMEOUT_MS':'15432','MEMORY_EXTRACTION_TIMEOUT_MS':'5432'})
+    return values
+
+
 def prepare_settings(run):
     if run.child is not None or run.descriptor.get('providerSmoke') is not None or run.descriptor.get('historySetup') != 'use-existing':
         raise ValueError('Stopped keyless existing-installation scope required')
     private_json(run.root / 'config/settings-v3.json', {'version':3,'keys':{},'fields':{
-        'DATABASE_PATH':str(run.database),'AI_PROVIDER':'ollama','MEMORY_ENABLED':'false',
+        **preserved_fields(run),'DATABASE_PATH':str(run.database),'MEMORY_ENABLED':'false',
         'SUMMARY_ENABLED':'false','SUMMARY_MODEL':'unselected','SUMMARY_CHAR_LIMIT':'6000'},
         'chatCatalog':{'version':1,'entries':[],'defaultEntryId':None}})
     run.keyless_lifecycle=True  # Read-only API guard forbids provider descriptor/paid chat.
@@ -39,19 +51,35 @@ def default_summary(value):
     return not value['enabled'] and value['model'] == '' and value['state'] == 'disabled' and value['pending'] == 0 and value['items'] == 0
 
 
+def captures(run, state, history=False):
+    return [{'state':state,'surface':'history' if history else 'memory','preset':preset,
+             **run.settings_action(('captureHistory' if history else 'captureSummary')+preset.title())}
+            for preset in ['wide','narrow']]
+
+
+def verify_saved(run, enabled):
+    value=json_document(run.root / 'config/settings-v3.json')[1]
+    fields=value['fields']
+    if value['keys'] or fields['SUMMARY_ENABLED'] != str(enabled).lower() or fields['SUMMARY_MODEL'] != 'gpt-6-luna' or fields['SUMMARY_CHAR_LIMIT'] != '6000':
+        raise ValueError('Native Save did not persist exact keyless independent fields')
+    if any(fields.get(key) != expected for key,expected in preserved_fields(run).items()):
+        raise ValueError('Hidden compatibility/executable values changed')
+    if fields.get('GARMIN_HISTORY_START_DATE','') != ('2024-01-01' if enabled else ''):
+        raise ValueError('Explicit history-limit Save did not preserve scope')
+
+
 def save(run, enabled, active, models):
     run.settings_action('summaryOn' if enabled else 'summaryOff')
+    run.settings_action('legacyLimit' if enabled else 'automatic')
     run.settings_action('save')  # Exactly once; unknown Save is never replayed.
     run.wait_settings(lambda value:value['savedForNextLaunch'] and value['summaryOn' if enabled else 'summaryOff'], 'summary-only pending restart')
     run.settings_action('dismissRestart')
-    value=json_document(run.root / 'config/settings-v3.json')[1]
-    if value['keys'] or value['fields']['SUMMARY_ENABLED'] != str(enabled).lower() or value['fields']['SUMMARY_MODEL'] != 'gpt-6-luna' or value['fields']['SUMMARY_CHAR_LIMIT'] != '6000':
-        raise ValueError('Native Save did not persist exact keyless independent fields')
+    verify_saved(run,enabled)
     current=metadata(run)
     if current['enabled'] != active or api(run,'GET','/api/model-settings') != models:
         raise ValueError('Save applied restart-only fields or retargeted chat')
-    return [{'state':'On-pending' if enabled else 'Off-pending','preset':preset,
-             **run.settings_action('captureSummaryWide' if preset == 'wide' else 'captureSummaryNarrow')} for preset in ['wide','narrow']]
+    state='On-pending' if enabled else 'Off-pending'
+    return captures(run,state)+captures(run,state,history=True)
 
 
 @resources.invocation
@@ -63,11 +91,11 @@ def main():
     bundle=canonical(args.bundle);source=source_identity();inventory=audit(bundle)
     if json.loads((bundle/'Contents/Resources/resources/provenance.json').read_text())['sourceFingerprint'] != source:
         raise ValueError('Current exact-source ordinary artifact required')
-    prepared=prepare(evidence,argparse.Namespace(task_id='T0272',input_file=None,grant_file=None,provenance_file=None,anchor=None),'ordinary')
+    prepared=prepare(evidence,argparse.Namespace(task_id=os.environ.get('PIVAN_TASK_ID','T0278'),input_file=None,grant_file=None,provenance_file=None,anchor=None),'ordinary')
     run=HistoryRun(evidence,prepared.database,source,bundle,inventory,history_setup='use-existing')
     run.before_start=prepared.verify_current
     observer=Observer(evidence);run.observer=observer
-    receipt={'purpose':'T0272 keyless native shared summary/title Settings only','source':source,'syntheticOnly':True,
+    receipt={'purpose':'Keyless native concise Memory/history Settings and hidden-value preservation','source':source,'syntheticOnly':True,
              'providerDescriptor':False,'privateSlotLookup':False,'providerCalls':0,'scenarioPassed':False,'captures':[]}
     try:
         prepare_settings(run);run.start(run.binary)
@@ -79,19 +107,34 @@ def main():
             raise ValueError('Default Off/unselected/no eligible model required')
         original_origin=run.origin
         run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOff'] and not value['firstRun'],'initial native summary fields')
+        initial_observation=run.settings_action('observe')
+        if not initial_observation['technicalControlsAbsent'] or not initial_observation['automaticHistory'] or initial_observation['historyDateVisible']:
+            raise ValueError('Technical UI present or Off date not hidden')
+        run.settings_action('historyRequired')
+        before_required=json_document(run.root/'config/settings-v3.json')[1]
+        run.settings_action('save')
+        required=run.settings_action('observe')
+        if required['saveSubmitted'] or not required['historyValidationBlocked'] or not required['historyValueMissing'] or not required['historyDateVisible'] or not required['historyDateRequired']:
+            raise ValueError('Empty enabled history date was not required')
+        if json_document(run.root/'config/settings-v3.json')[1] != before_required:
+            raise ValueError('Rejected empty-date Save changed settings')
+        receipt['captures']+=captures(run,'On-empty-required',history=True)
+        receipt['emptyDateRequired']=True
         receipt['captures']+=save(run,True,False,models)
         if run.http('/identity')['origin'] != original_origin: raise ValueError('Native Save restarted backend')
         run.stop();run.start(run.binary)
         active=metadata(run)
         if not active['enabled'] or active['model'] != 'gpt-6-luna' or api(run,'GET','/api/model-settings') != models: raise ValueError('Owned restart failed independent On without chat retarget')
-        run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOn'],'reloaded native On/Luna/6000')
+        run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOn'] and value['legacyLimit'] and value['technicalControlsAbsent'],'reloaded native On/Luna/6000/history')
+        verify_saved(run,True)
         receipt['captures']+=save(run,False,True,models)
         run.stop();run.start(run.binary)
         if metadata(run)['enabled'] or api(run,'GET','/api/model-settings') != models: raise ValueError('Owned restart failed Off or changed chat')
-        run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOff'],'reloaded native Off/Luna/6000')
+        run.settings_action('open');run.wait_settings(lambda value:value['ready'] and value['summaryOff'] and value['automaticHistory'] and not value['historyDateVisible'] and value['technicalControlsAbsent'],'reloaded native Off/Luna/6000/automatic')
+        verify_saved(run,False)
         run.settings_action('close')
         if source_identity()!=source or audit(bundle)!=inventory: raise ValueError('Source/artifact changed')
-        receipt.update({'savedOnOff':True,'reloadedOnOff':True,'pendingUntilOwnedRestart':True,'chatUnchanged':True,'scenarioPassed':True})
+        receipt.update({'savedOnOff':True,'reloadedOnOff':True,'pendingUntilOwnedRestart':True,'chatUnchanged':True,'hiddenValuesPreserved':True,'technicalControlsAbsent':True,'historyLimitSavedReloadedDisabled':True,'scenarioPassed':True})
     finally:
         with resources.preserve_failure():
             run.stop();run.verify_settled()

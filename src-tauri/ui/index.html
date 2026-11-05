@@ -231,85 +231,41 @@
         <fieldset id="memory-section" aria-describedby="memory-help">
           <legend>Memory</legend>
           <p id="memory-help">
-            Stable cross-chat summaries preserve useful user decisions,
-            rationale and constraints without embeddings or an Ollama
-            dependency. Summary and future automatic chat titles share the
-            explicit model below; chat selection stays independent. Off stops
-            summary use/processing, not title processing or deletion of original
-            data. Enabled summary processing has no daily attempt or spend
-            ceiling; larger memory can cost more. Trainer Memory separates
-            token-derived estimates, conservative reservations and unknown
-            effects, not invoices. Disable summary processing to stop new work.
+            Keep useful decisions, preferences and constraints between chats.
+            Eligible conversation context may be sent to the selected provider.
+            Larger memory can cost more; automatic summaries have no daily
+            spending cap.
           </p>
           <div id="memory-control"></div>
+          <p id="memory-model-help" class="helper">
+            Shared by memory summaries and automatic chat titles, separate from
+            Trainer’s chat model. Memory is used in supported OpenAI gpt-6-luna
+            chats.
+          </p>
+          <p id="memory-size-help" class="helper">
+            1,000–20,000 Unicode characters.
+          </p>
+          <p id="memory-off-help" class="helper">
+            Off stops summary use and new processing. Stored data stays;
+            automatic titles continue. Trainer → Memory disables memory
+            immediately; saving On does not undo it.
+          </p>
           <p id="memory-draft" role="status"></p>
-          <p>
-            Trainer Memory inspects latest versus selected-chat pins and
-            provides Refresh, manual edits, Forget, Clear and immediate
-            Disable/Enable. Unchanged saved On does not override an immediate
-            Disable. Changing model or character limit requires explicit
-            quit/reopen.
-          </p>
-          <p id="memory-processing" role="status"></p>
-          <details id="memory-configuration">
-            <summary>Preserved legacy configuration — inactive</summary>
-            <p>
-              Original extraction and embedding fields, facts, vectors and
-              migration markers are preserved for compatibility. They are not
-              used by ordinary chat or titles, and require no service/key/probe.
-              No re-embedding, historical import, conversion or deletion happens
-              on Save.
-            </p>
-            <div id="memory-fields"></div>
-          </details>
-          <p id="memory-active" role="status">
-            Active memory: unknown — no current observation. Saved settings are
-            not proof of readiness.
-          </p>
-          <button type="button" id="memory-check">
-            Read active memory status
-          </button>
-          <p class="helper">
-            Reads fixed active summary metadata only, never content, embeddings
-            or a model request. Saved/draft state is separate. Remote
-            availability and actual selected-chat consumption are not certified
-            by this status.
+        </fieldset>
+        <fieldset id="history-options" aria-describedby="history-help">
+          <legend>Garmin history</legend>
+          <label class="history-mode"
+            ><input id="history-limited" type="checkbox" /> Limit how far back
+            to import</label
+          >
+          <p id="history-help" class="helper">
+            Limits older exploration, not latest sync. Off allows automatic
+            discovery; a limit does not prove remote coverage. Save, then quit
+            and reopen to apply.
           </p>
         </fieldset>
-        <details id="advanced-settings">
-          <summary>Troubleshooting / technical controls</summary>
-          <p>
-            Normally leave these unchanged. Preserved inactive legacy fields and
-            executable paths retain their validators. External tools remain
-            operator-managed; nothing is installed or started here.
-          </p>
-          <fieldset id="memory-technical">
-            <legend>Preserved inactive memory compatibility fields</legend>
-          </fieldset>
-          <fieldset id="external-tools">
-            <legend>External tool executables</legend>
-          </fieldset>
-          <fieldset id="history-options">
-            <legend>Garmin history exploration (optional)</legend>
-            <label class="history-mode"
-              ><input id="history-limited" type="checkbox" /> Use an exploration
-              limit</label
-            >
-            <p>
-              Automatic discovery needs no date. Select a limit only to
-              constrain older exploration; then choose a valid date.
-            </p>
-            <p>
-              Turn the limit off for automatic bounded discovery. A selected
-              limit does not prove earliest remote history. Applies after
-              explicit quit/reopen.
-            </p>
-          </fieldset>
-          <fieldset id="advanced">
-            <legend>Preserved extraction and title configuration</legend>
-            <p id="extraction-compatibility"></p>
-          </fieldset>
-        </details>
+        <!-- Full compatibility/executable inventory stays mounted for native validation and Save. -->
+        <div id="preserved-fields" hidden inert></div>
         <section id="review" hidden aria-label="Review setup">
           <h2>Review and open Trainer</h2>
           <p id="review-summary"></p>
