@@ -51,7 +51,7 @@ export type SummaryInspection = Omit<SummaryStatus, "usedByChat"> & {
   } | null;
   authority: string;
 };
-type Action = SummaryCommand extends infer C
+export type MemoryAction = SummaryCommand extends infer C
   ? C extends SummaryCommand
     ? Omit<C, "version" | "expected">
     : never
@@ -69,6 +69,11 @@ export function useMemoryFeature({
     "Memory has not been inspected.",
   );
   const [isMemoryLoading, setIsMemoryLoading] = useState(false);
+  const [pendingMemoryAction, setPendingMemoryAction] = useState<
+    MemoryAction["action"] | null
+  >(null);
+  const currentInspection = useRef<SummaryInspection | null>(null);
+  const editorOriginal = useRef("");
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
   const [editingMemoryText, setEditingMemoryText] = useState("");
   const selected = useRef<string | null>(null);
@@ -85,6 +90,7 @@ export function useMemoryFeature({
     async (showStatus = true, conversationId?: string | null) => {
       if (conversationId !== undefined && selected.current !== conversationId) {
         selected.current = conversationId;
+        currentInspection.current = null;
         setMemory(null);
         setEditingMemoryId(null);
         setEditingMemoryText("");
@@ -104,6 +110,16 @@ export function useMemoryFeature({
         );
         if (
           result.version !== 1 ||
+          ![
+            "disabled",
+            "unselected",
+            "unavailable",
+            "never-produced",
+            "fresh",
+            "stale",
+          ].includes(result.state) ||
+          typeof result.enabled !== "boolean" ||
+          (result.reason !== null && typeof result.reason !== "string") ||
           !result.expected ||
           !result.stored ||
           result.stored.version !== 1 ||
@@ -131,23 +147,32 @@ export function useMemoryFeature({
               !Object.values(result.rebuild.counts).every(
                 (n) => Number.isSafeInteger(n) && n >= 0,
               ) ||
+              !Number.isFinite(result.rebuild.estimatedUsd?.low) ||
+              result.rebuild.estimatedUsd.low < 0 ||
               !Number.isFinite(
                 result.rebuild.estimatedUsd?.conservativeMaximum,
+              ) ||
+              result.rebuild.estimatedUsd.conservativeMaximum <
+                result.rebuild.estimatedUsd.low ||
+              typeof result.rebuild.capability !== "string" ||
+              !result.rebuild.reasons ||
+              !Object.values(result.rebuild.reasons).every(
+                (n) => Number.isSafeInteger(n) && n >= 0,
               )))
         )
           throw new Error("Unsupported memory inspection");
         if (request !== sequence.current) return;
+        currentInspection.current = result;
         setMemory(result);
-        setMemoryMessage(
-          `Summary ${result.state}${result.reason ? `: ${result.reason}` : ""}. Reads do not call a model or embeddings.`,
-        );
+        setMemoryMessage("");
         if (showStatus)
           setStatus({ kind: "ok", message: "Memory inspected locally." });
       } catch {
         if (request !== sequence.current) return;
+        currentInspection.current = null;
         setMemory(null);
         setMemoryMessage(
-          "Memory inspection unavailable. Preserve data and use a compatible build; no reset or success claimed.",
+          "Memory inspection unavailable. Check again to reconcile saved state; your data has not been reset.",
         );
         if (showStatus)
           setStatus({
@@ -173,9 +198,28 @@ export function useMemoryFeature({
     }, 2000);
     return () => clearInterval(timer);
   }, [memory?.rebuild?.operation?.state, loadMemories]);
-  async function changeMemory(action: Action) {
+  async function changeMemory(
+    action: MemoryAction,
+    reviewed?: SummaryInspection,
+  ) {
     if (!memory || changing.current) return;
     if (
+      reviewed &&
+      (reviewed !== currentInspection.current || reviewed !== memory)
+    ) {
+      setMemoryMessage(
+        "Memory changed. Review the current information before confirming again.",
+      );
+      return;
+    }
+    if (
+      action.action === "refresh" &&
+      (action.conversationId !== selected.current ||
+        action.segmentRevision !== memory.selectedChat?.segmentRevision)
+    )
+      return;
+    if (
+      !reviewed &&
       action.action === "clear" &&
       !window.confirm(
         "Clear summary, manual items and chat pins? Transcripts, Profile, Garmin, plans and preserved legacy records remain. Future new turns may create memory; backups/provider logs are not erased.",
@@ -183,6 +227,7 @@ export function useMemoryFeature({
     )
       return;
     if (
+      !reviewed &&
       action.action === "forget" &&
       !window.confirm(
         "Forget this item and suppress its exact source versions? Original transcripts and other stores remain.",
@@ -190,6 +235,7 @@ export function useMemoryFeature({
     )
       return;
     if (
+      !reviewed &&
       (action.action === "import-create" ||
         action.action === "import-resume") &&
       !window.confirm(
@@ -198,15 +244,17 @@ export function useMemoryFeature({
     )
       return;
     if (
+      !reviewed &&
       action.action === "rebuild-start" &&
       !window.confirm(
         "Rebuild generated memory from the reviewed original-message inventory with the configured cloud model? Minimized originals and screened assistant context may leave this device and incur the displayed cost. Old memory stays active until one complete validated replacement. Manual overlays, suppressed sources and originals remain; existing chat pins do not refresh. Unknown prior costs remain reserved. Keep the app open; cancellation or interruption does not replay unknown effects.",
       )
     )
       return;
-    const selectedAtStart = selected.current;
     sequence.current++;
     changing.current = true;
+    currentInspection.current = null;
+    setPendingMemoryAction(action.action);
     setMemory(null);
     setMemoryMessage(
       "Applying memory change; prior projection hidden until reinspection.",
@@ -230,11 +278,39 @@ export function useMemoryFeature({
       await onChangeCommitted?.(selected.current);
       changing.current = false;
       await loadMemories(false);
+      const feedback: Record<MemoryAction["action"], string> = {
+        edit:
+          action.action === "edit" && action.id === null
+            ? "Memory added."
+            : "Memory edited.",
+        forget: "Item forgotten. Original transcripts remain.",
+        clear:
+          "Saved memory and chat snapshots cleared. Original transcripts remain; future new turns may create memory.",
+        disable:
+          "Memory is Off. Saved items stay; automatic titles are separate.",
+        enable:
+          "Memory is On. Earlier Off history was not automatically imported.",
+        retry:
+          "Summary scheduling retry requested. Previous unknown costs remain reserved.",
+        refresh:
+          "This chat update checked. Only the available memory was saved; review this chat and any pending updates below.",
+        "rebuild-start":
+          "History update started. Keep the app open; this chat is not automatically updated.",
+        "rebuild-cancel":
+          "Cancellation checked. Review the actual update status; sent requests and costs cannot be recalled.",
+        "import-create": "Reviewed source import created.",
+        "import-pause":
+          "Import pause checked; sent requests cannot be recalled.",
+        "import-resume": "Reviewed import resumed.",
+        "import-cancel": "Import cancellation checked; prior costs remain.",
+      };
       setMemoryMessage(
-        "Memory change committed. Refresh gives pending work up to 8 seconds, then freezes only the available snapshot (or none). Inspect pending/as-of and selected-chat use; late work requires another explicit Refresh. Native settings still require an explicit restart.",
+        currentInspection.current
+          ? feedback[action.action]
+          : "Change committed, but saved state could not be inspected. Check again before another action.",
       );
     } catch {
-      if (selected.current !== selectedAtStart) return;
+      currentInspection.current = null;
       setMemoryMessage(
         "Memory change failed or outcome unknown. Reload and review before another action; nothing was automatically retried.",
       );
@@ -243,7 +319,20 @@ export function useMemoryFeature({
     } finally {
       changing.current = false;
       setIsMemoryLoading(false);
+      setPendingMemoryAction(null);
     }
+  }
+  function beginMemoryEdit(id: string, text: string) {
+    editorOriginal.current = text;
+    setEditingMemoryId(id);
+    setEditingMemoryText(text);
+  }
+  function canDiscardMemoryEdit() {
+    return (
+      !editingMemoryId ||
+      editingMemoryText === editorOriginal.current ||
+      window.confirm("Discard unsaved memory changes? Cancel keeps editing.")
+    );
   }
   function cancelMemoryEdit() {
     setEditingMemoryId(null);
@@ -253,6 +342,9 @@ export function useMemoryFeature({
     memory,
     memoryMessage,
     isMemoryLoading,
+    pendingMemoryAction,
+    beginMemoryEdit,
+    canDiscardMemoryEdit,
     loadMemories,
     changeMemory,
     editingMemoryId,

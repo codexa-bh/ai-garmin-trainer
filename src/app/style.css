@@ -335,7 +335,144 @@ body::before {
   display: flex;
   min-width: 0;
   flex-direction: column;
+  gap: 18px;
+  padding: 4px;
+  overflow-wrap: anywhere;
+}
+
+.memory-root-card :is(h3, h4, p) {
+  margin: 0;
+}
+.memory-root-card h3 {
+  font-size: 1.35rem;
+}
+.memory-root-card h4 {
+  font-size: 1rem;
+}
+.memory-root-card section {
+  display: grid;
   gap: 14px;
+  min-width: 0;
+}
+.memory-root-card .memory-text {
+  display: block;
+  overflow: visible;
+  white-space: pre-wrap;
+  -webkit-line-clamp: unset;
+  line-height: 1.65;
+}
+.memory-root-card .memory-row {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.memory-root-card .memory-row-main {
+  display: grid;
+  gap: 12px;
+}
+.memory-root-card .memory-qualifier {
+  color: var(--faint);
+  font-size: 0.85rem;
+}
+.memory-status-row,
+.memory-section-heading {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.memory-status-row {
+  font-size: 0.9rem;
+}
+.memory-status-row p {
+  flex: 1;
+  min-width: 160px;
+}
+.memory-notice,
+.memory-chat-notice,
+.memory-confirm,
+.memory-editor,
+.memory-empty {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.035);
+}
+.memory-confirm {
+  display: grid;
+  gap: 16px;
+  white-space: pre-wrap;
+}
+.memory-root-card .memory-routes {
+  display: grid;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.memory-routes > button {
+  text-align: left;
+}
+.memory-back {
+  align-self: flex-start;
+}
+.memory-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.memory-facts dt {
+  color: var(--faint);
+}
+.memory-facts dd {
+  margin: 0 0 10px;
+}
+.memory-source-choice {
+  display: flex;
+  flex-direction: row;
+  align-items: start;
+  gap: 12px;
+  font-weight: 400;
+}
+.memory-source-context {
+  display: block;
+  margin-top: 10px;
+  color: var(--faint);
+}
+.memory-coverage {
+  display: grid;
+  gap: 10px;
+}
+.memory-root-card textarea {
+  min-height: 150px;
+  width: 100%;
+}
+.memory-root-card button {
+  max-width: 100%;
+  white-space: normal;
+}
+.memory-root-card .button-row {
+  width: auto;
+}
+.memory-root-card .button-row button {
+  width: auto;
+  flex: 0 1 auto;
+}
+.memory-root-card .memory-row button {
+  font-size: 0.9rem;
+  padding: 10px 12px;
+}
+.memory-root-card :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .memory-root-card .button-row {
+    flex-wrap: wrap;
+  }
+  .memory-root-card {
+    gap: 16px;
+  }
 }
 
 .sync-view-content {

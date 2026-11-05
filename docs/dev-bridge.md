@@ -64,14 +64,21 @@ scheduler/larger allowances; requalify exact cumulative worst-case costs before 
 
 ### Integrated keyless Memory controls
 
+The content-first sheet uses Add memory / Save memory / Turn Off / Turn On labels;
+old control names below describe the retained semantic actions, not the current
+button labels. Ordinary observations use the explicit settled inspection marker,
+including secondary views, rather than inferring readiness from Add visibility.
+
 The `--summary-engine` scenario also exercises the actual Trainer Memory sheet
 through an ordinary-only finite `memory` command. Actions are exactly `observe`,
 `open`, `close`, `reload`, `add`, `edit`, `draft`, `draft-update`, `save`, `forget`,
 `clear`, `disable`, `enable`, `retry`, and `refresh`. No caller text, source ID,
 selector, script, import selection or private readback is accepted. Drafts are
 fixed run-attributed T0272 synthetic preferences; existing noncanonical saved/draft
-content refuses. Destructive confirmation supplies synthetic yes only to the exact
-Clear/Forget product confirmation, restoring the original function synchronously.
+content refuses. Destructive in-sheet review requires a separate finite `confirm` action;
+fixture mode refuses that effect. The retained exact native-confirm compatibility
+adapter restores the original function synchronously and never accepts arbitrary
+confirmation prose.
 Results contain only action/visibility/loaded/manual-state/Off/editor booleans.
 Native ordinary/run/boot/origin/request/deadline and unknown-effect guards remain.
 
@@ -80,19 +87,25 @@ persistence, Forgets it, disables/enables and Clears derivatives while verifying
 original conversation/message hashes. Bounded reads observe settlement; mutations
 are never repeated to obtain green. `captureView:memory` at existing wide/narrow
 sizes reveals only verified static headings/buttons at their actual geometry.
-Summary/pin/source/legacy text, input values and status remain hidden; direct text
-in revealed ancestors refuses and masks restore/expire. Inspect every PNG. This is
+Only exact run-attributed canonical manual content, verified concise static copy,
+qualifications and canonical editor values may now be revealed. Other source/pin/
+legacy/status values stay hidden. Direct text in revealed ancestors refuses and
+masks restore/expire. Inspect every PNG. This is
 actual ordinary isolated synthetic-DOM control/layout evidence, not trusted input,
 real summary/title generation, qualified token projection, primary activation or
 historical private export. Versioned API controls read fixed expected authority
 metadata before CAS; unknown/extra/changed authority refuses, never bypasses.
 Validate native/DOM/Python contracts and the exact-source artifact before use.
 
-T0276 adds only `memory/rebuild-preflight`: scroll the fixed rendered Rebuild
-section, with closed `rebuildVisible`, `rebuildStartDisabled` and
-`rebuildCancelDisabled` booleans on Memory results. No source IDs, counts, cost,
-text, selectors or caller script are returned. `rebuild-start` and
-`rebuild-cancel` remain denied by this keyless bridge. The existing
+T0279 adapts `memory/rebuild-preflight` to enter the dedicated history view.
+Finite navigation adds `back`, `manage`, `usage`, `item-details`, `chat-details`,
+`cancel-edit`, `confirm`, `cancel-confirm`, `history-effects`. Clear enters Manage,
+then a separate Clear review; Forget and Enable similarly require their visible
+confirmation. `confirm` accepts only Clear/Forget/Enable/Update-this-chat, never
+history Start. Existing `rebuildVisible`, `rebuildStartDisabled` and
+`rebuildCancelDisabled` remain boolean observations; `presentationFixture` and
+`confirmationVisible` are added, with no text/source/cost readback. The keyless
+`rebuild-start` and `rebuild-cancel` remain denied. The existing
 `--summary-engine` runner asserts actual native preflight and missing-capability
 Start refusal, then captures wide/narrow static Rebuild heading/buttons under the
 same geometry-preserving masks. Counts/cost/summary text remain hidden. This is
@@ -101,6 +114,34 @@ proof: those mechanics have real-SQLite supplied-generation tests; actual provid
 claims still need separately approved exact native route/model/export/cumulative
 cost. No fake provider, inherited paid preset or normal-app key lookup is added.
 Validate native/DOM/Python positive/negative contracts before artifact use.
+
+### Fixed Memory presentation evidence (T0279)
+
+The admitted ordinary synthetic controller additionally accepts exactly
+`fixture-populated|fixture-off|fixture-history|fixture-running|fixture-complete|fixture-interrupted|fixture-unknown|fixture-reset`.
+This is **instrumented fixed presentation**, not actual engine progression or
+ordinary unmodified-app behavior: a temporary renderer-only adapter returns closed
+fixed authored Memory inspection snapshots to the same production hook/components.
+It refuses every Memory POST locally, never fakes a successful mutation, and never
+reads private inputs or calls a provider. Native keyless scheduling is unchanged.
+No caller text, IDs, paths, fixtures, selectors, scripts or DTOs are accepted.
+
+Fixtures include three fully authored qualified/negative/past items, a distinct
+older unmeasured chat snapshot, 184 excluded user messages with accurate provenance
+wording, separate cost estimates/reservations and fixed running/complete/interrupted
+or unavailable-read states. Only exact independently enumerated authored/static
+text and canonical draft values can be captured under unchanged geometry-preserving
+hide-by-default masks. Unknown values stay masked or refuse. Fixture mode blocks
+mutation/confirmation actions; Forget/Clear may only open then cancel review.
+Reset, close and 120-second expiry restore the original fetch. Per-capture mask
+restoration deliberately does not end fixture authority between wide/narrow images;
+no adapter is installed until the finite command in an already admitted run.
+Default launches still have no controller or fixture grant. Before-use native,
+DOM and Python schema/privacy/extra-field/default-denial/expiry/restoration tests
+remain mandatory. This supplements representative real keyless manual lifecycle
+and adjacent isolation/Goals/restart smoke; it proves no paid provider quality,
+qualified actual chat use or installed/primary state. All images stay local and
+must be inspected.
 
 ## Finite authored rebuild integration
 

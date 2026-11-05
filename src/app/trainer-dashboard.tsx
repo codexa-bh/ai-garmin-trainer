@@ -672,6 +672,7 @@ export function TrainerDashboard() {
   }
 
   function closeMemoryView() {
+    if (!memoryFeature.canDiscardMemoryEdit()) return;
     memoryReturnFocusRef.current = true;
     setMemoryOpen(false);
     memoryFeature.cancelMemoryEdit();
@@ -976,10 +977,34 @@ export function TrainerDashboard() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="memory-sheet-heading"
+            onKeyDown={(event) => {
+              if (event.key !== "Tab") return;
+              const controls = [
+                ...event.currentTarget.querySelectorAll<HTMLElement>(
+                  "button:not(:disabled), textarea:not(:disabled), input:not(:disabled), summary, [tabindex='0']",
+                ),
+              ].filter(
+                (node) =>
+                  !node.closest("details:not([open])") ||
+                  node.tagName === "SUMMARY",
+              );
+              const first = controls[0],
+                last = controls.at(-1);
+              if (
+                event.shiftKey &&
+                (document.activeElement === first ||
+                  !controls.includes(document.activeElement as HTMLElement))
+              ) {
+                event.preventDefault();
+                last?.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first?.focus();
+              }
+            }}
           >
             <header className="sheet-header">
               <div>
-                <p className="section-kicker">Memory</p>
                 <h2 id="memory-sheet-heading">Memory</h2>
               </div>
               <button

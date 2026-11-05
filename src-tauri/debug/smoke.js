@@ -269,6 +269,177 @@
   // Fixed T0272 synthetic Memory controls; no caller text/ID/selector or export.
   const memoryText = (updated = false) =>
     `T0272-${globalThis.__trainerOrdinaryIsolated?.runId}: ${updated ? "Weekends remain optional; poles not chosen." : "Short weekdays chosen for time; long weekdays rejected."}`;
+  let memoryFixture = null;
+  let memoryCaptureCost = false;
+  let memoryStage = "idle";
+  let memoryFixtureExpiry;
+  let originalMemoryFetch;
+  const presentationText = [
+    "Short weekday sessions work because time is limited; long weekdays did not work. Weekends remain optional, not mandatory.",
+    "Could poles help? We discussed them, but I have not decided to use them. This is an open question, not a preference or commitment.",
+    "Last winter only: evening sessions were convenient. That past arrangement does not describe my current schedule. Keep the historical scope and do not turn it into an ongoing preference.",
+  ];
+  function memoryFixtureValue() {
+    const items = presentationText.map((text, index) => ({
+      id: `fixture_${index}`,
+      text,
+      category: ["constraint", "question", "temporary"][index],
+      stance: index === 1 ? "discussed-not-endorsed" : "user-stated",
+      sourceIds: [],
+      priority: 3,
+      expiresAt: null,
+      reviewAt: 0,
+    }));
+    const running = memoryFixture === "fixture-running";
+    const operationState = running
+      ? "active"
+      : memoryFixture === "fixture-complete"
+        ? "complete"
+        : memoryFixture === "fixture-interrupted"
+          ? "interrupted"
+          : null;
+    const off = memoryFixture === "fixture-off";
+    return {
+      version: 1,
+      state: off ? "disabled" : "fresh",
+      reason: null,
+      revision: 3,
+      frontier: 4,
+      pending: 0,
+      items: items.length,
+      characters: 420,
+      cap: 6000,
+      publishedAt: null,
+      enabled: !off,
+      model: "gpt-6-luna",
+      usedByChat: false,
+      attemptsToday: 1,
+      reservedUsdToday: 0.04,
+      estimatedUsdToday: 0.002,
+      unknownReservedUsd: 0.01,
+      priceBasis: "authored-presentation-only",
+      expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
+      stored: { version: 1, text: presentationText.join("\n"), items },
+      manualIds: [],
+      sources: [],
+      legacy: [],
+      historical: {
+        candidates: [],
+        manifests: [],
+        exclusions: "Authored fixture: no earlier linked sources selected.",
+      },
+      selectedChat: {
+        conversationId: "fixture_chat",
+        segmentRevision: 1,
+        reason: null,
+        pin: {
+          version: 1,
+          value: {
+            version: 1,
+            items: [],
+            text: "Earlier chat snapshot: weekends were still undecided.",
+          },
+          stamp: {
+            version: 1,
+            revision: 2,
+            privacyGeneration: 0,
+            controlGeneration: 1,
+            manualRevision: 0,
+            validUntil: null,
+          },
+          omitted: 0,
+          tokens: null,
+        },
+      },
+      authority: "Authored fixture continuity, not provider evidence.",
+      rebuild: {
+        version: 1,
+        snapshot: "a".repeat(64),
+        ready: !off && !running,
+        complete: true,
+        limitExceeded: false,
+        configuredProvider: "openai",
+        model: "gpt-6-luna",
+        enabled: !off,
+        capability: "configured-not-probed",
+        counts: {
+          chats: 12,
+          messages: 400,
+          userMessages: 200,
+          assistantMessages: 200,
+          includedChats: 4,
+          excludedChats: 8,
+          includedUserMessages: 16,
+          assistantContext: 3,
+          excludedUserMessages: 184,
+          excludedMessages: 381,
+        },
+        reasons: { "unproven-legacy-or-cleared-original": 180, suppressed: 4 },
+        estimatedUsd: {
+          low: 0,
+          conservativeMaximum: 0.4,
+          priceBasis: "authored-presentation-only",
+          uncertainty: "Authored conservative estimate, not billing evidence.",
+        },
+        semantics: "Manual overlays and originals remain.",
+        operation: operationState
+          ? {
+              id: "fixture_operation",
+              state: operationState,
+              reason:
+                operationState === "interrupted" ? "summary_interrupted" : null,
+              processed: operationState === "complete" ? 16 : 8,
+              total: 16,
+              dispositions: {},
+              createdAt: 0,
+              deadline: 9999999999999,
+            }
+          : null,
+      },
+    };
+  }
+  function resetMemoryFixture() {
+    clearTimeout(memoryFixtureExpiry);
+    if (originalMemoryFetch) globalThis.fetch = originalMemoryFetch;
+    originalMemoryFetch = undefined;
+    memoryFixture = null;
+  }
+  function selectMemoryFixture(action) {
+    if (!originalMemoryFetch) {
+      originalMemoryFetch = globalThis.fetch;
+      globalThis.fetch = (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (
+          url === "/api/cross-chat-summary" ||
+          url?.startsWith("/api/cross-chat-summary?")
+        ) {
+          if ((init?.method ?? "GET") !== "GET")
+            return Promise.reject(
+              Error(
+                "Presentation fixtures cannot mutate or contact a provider",
+              ),
+            );
+          return Promise.resolve(
+            new Response(
+              JSON.stringify(
+                memoryFixture === "fixture-unknown"
+                  ? { error: "Authored unavailable inspection" }
+                  : memoryFixtureValue(),
+              ),
+              {
+                status: memoryFixture === "fixture-unknown" ? 503 : 200,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+          );
+        }
+        return originalMemoryFetch.call(globalThis, input, init);
+      };
+    }
+    memoryFixture = action;
+    clearTimeout(memoryFixtureExpiry);
+    memoryFixtureExpiry = setTimeout(resetMemoryFixture, 120000);
+  }
   function memoryPanel() {
     return document.querySelector(
       '.memory-sheet[role="dialog"][aria-labelledby="memory-sheet-heading"] .memory-root-card',
@@ -283,7 +454,12 @@
     ];
     if (
       rows.some(
-        (row) => ![memoryText(), memoryText(true)].includes(row.textContent),
+        (row) =>
+          ![
+            memoryText(),
+            memoryText(true),
+            ...(memoryFixture ? presentationText : []),
+          ].includes(row.textContent),
       )
     )
       throw Error("Noncanonical Memory source refused");
@@ -293,27 +469,32 @@
       action,
       trustedInput: false,
       visible: !!panel && visible(panel),
-      loaded: buttons.some(
-        (button) =>
-          name(button) === "Add manual preference" && !button.disabled,
+      loaded: panel?.getAttribute("data-memory-ready") === "true",
+      presentationFixture: memoryFixture !== null,
+      confirmationVisible: !!panel?.querySelector(".memory-confirm"),
+      hasManual: rows.some((row) =>
+        [memoryText(), memoryText(true)].includes(row.textContent),
       ),
-      hasManual: rows.length === 1,
       updatedManual:
         rows.length === 1 && rows[0].textContent === memoryText(true),
-      off: buttons.some((button) => name(button) === "Enable processing"),
+      off: buttons.some((button) => name(button) === "Turn On"),
       editing: !!panel?.querySelector("textarea"),
       rebuildVisible: visible(
         panel?.querySelector('[aria-label="Rebuild from chat history"]'),
       ),
       rebuildStartDisabled: buttons.some(
-        (button) => name(button) === "Start rebuild" && button.disabled,
+        (button) => name(button) === "Review and update" && button.disabled,
       ),
-      rebuildCancelDisabled: buttons.some(
-        (button) => name(button) === "Cancel rebuild" && button.disabled,
-      ),
+      rebuildCancelDisabled:
+        buttons.some(
+          (button) =>
+            name(button) === "Cancel history update" && button.disabled,
+        ) ||
+        !buttons.some((button) => name(button) === "Cancel history update"),
     };
   }
   function memoryAction(command) {
+    memoryStage = "action";
     if (
       !globalThis.__trainerOrdinaryIsolated ||
       Object.keys(command).sort().join(",") !== "action,type" ||
@@ -334,26 +515,112 @@
         "retry",
         "refresh",
         "rebuild-preflight",
+        "back",
+        "manage",
+        "usage",
+        "item-details",
+        "chat-details",
+        "cancel-edit",
+        "confirm",
+        "cancel-confirm",
+        "history-effects",
+        "fixture-populated",
+        "fixture-off",
+        "fixture-history",
+        "fixture-running",
+        "fixture-complete",
+        "fixture-interrupted",
+        "fixture-unknown",
+        "fixture-reset",
       ].includes(command.action)
     )
       throw Error("Unsupported Memory action/fields");
     const before = memoryObservation(command.action);
     if (command.action === "observe") return before;
+    memoryCaptureCost = command.action === "history-effects";
     if (command.action === "open") {
       if (before.visible) throw Error("Memory already open");
       target("Memory").click();
     } else {
       const panel = memoryPanel();
       if (!before.visible) throw Error("Memory not visible");
-      if (command.action === "close") target("Close memory").click();
-      else if (command.action === "rebuild-preflight") {
-        const section = panel.querySelector(
+      if (command.action.startsWith("fixture-")) {
+        if (before.editing || before.confirmationVisible)
+          throw Error("Settle editor/confirmation before fixture selection");
+        if (command.action === "fixture-reset") resetMemoryFixture();
+        else selectMemoryFixture(command.action);
+        const refresh = panel.querySelector(
           '[aria-label="Rebuild from chat history"]',
+        )
+          ? "Check update status"
+          : "Check saved memory";
+        target(refresh).click();
+      } else if (
+        memoryFixture &&
+        ![
+          "close",
+          "back",
+          "manage",
+          "usage",
+          "item-details",
+          "chat-details",
+          "cancel-edit",
+          "cancel-confirm",
+          "rebuild-preflight",
+          "history-effects",
+          "reload",
+          "add",
+          "edit",
+          "draft",
+          "draft-update",
+          "forget",
+          "clear",
+        ].includes(command.action)
+      )
+        throw Error("Presentation-only action refused");
+      else if (command.action === "close") {
+        resetMemoryFixture();
+        target("Close memory").click();
+      } else if (command.action === "rebuild-preflight") {
+        memoryStage = "history-navigation";
+        if (!panel.querySelector('[aria-label="Rebuild from chat history"]'))
+          target(
+            [...panel.querySelectorAll("button")].some(
+              (button) => name(button) === "Update from chat history · running",
+            )
+              ? "Update from chat history · running"
+              : "Update from chat history",
+          ).click();
+      } else if (command.action === "history-effects") {
+        const cost = [...panel.querySelectorAll("h4")].find(
+          (node) => node.textContent === "Cost & privacy",
         );
-        if (!before.loaded || !before.rebuildVisible || !section)
-          throw Error("Rebuild preflight unavailable");
-        section.scrollIntoView({ block: "start" });
-      } else if (["draft", "draft-update"].includes(command.action)) {
+        if (!cost) throw Error("History cost unavailable");
+        cost.scrollIntoView({ block: "start" });
+      } else if (command.action === "confirm") {
+        const confirmButton = panel.querySelector(
+          ".memory-confirm .button-row button:last-child",
+        );
+        if (
+          !confirmButton ||
+          ![
+            "Forget memory",
+            "Clear saved memory",
+            "Turn memory On",
+            "Update this chat",
+          ].includes(name(confirmButton)) ||
+          confirmButton.disabled
+        )
+          throw Error("Unsupported confirmation");
+        confirmButton.click();
+      } else if (command.action === "cancel-confirm") target("Cancel").click();
+      else if (command.action === "back") target("Back to memory").click();
+      else if (
+        command.action === "clear" &&
+        panel.getAttribute("data-memory-view") === "overview"
+      )
+        target("Manage memory").click();
+      else if (["draft", "draft-update"].includes(command.action)) {
         const input = panel.querySelector("textarea");
         if (
           !input ||
@@ -372,18 +639,34 @@
       } else {
         if (!before.loaded) throw Error("Memory is busy or unavailable");
         const labels = {
-          reload: "Reload memory",
-          add: "Add manual preference",
+          reload: "Check saved memory",
+          back: "Back to memory",
+          manage: "Manage memory",
+          usage: "How memory works & costs",
+          "item-details": "Source & details",
+          "chat-details": "View chat memory",
+          "cancel-edit": "Cancel edit",
+          add: "Add memory",
           edit: "Edit",
-          save: "Save manual edit",
-          forget: "Forget item",
-          clear: "Clear summary",
-          disable: "Disable processing",
-          enable: "Enable processing",
-          retry: "Retry processing",
-          refresh: "Refresh selected chat memory",
+          save: "Save memory",
+          forget: "Forget",
+          clear: "Clear saved memory",
+          disable: "Turn Off",
+          enable: "Turn On",
+          retry: "Retry summary processing",
+          refresh: "Update this chat",
         };
-        const button = target(labels[command.action]);
+        const label = labels[command.action];
+        const matches = [...panel.querySelectorAll("button")].filter(
+          (button) =>
+            name(button) === label && visible(button) && !button.disabled,
+        );
+        const button = ["edit", "forget", "item-details"].includes(
+          command.action,
+        )
+          ? matches[0]
+          : target(label);
+        if (!button) throw Error("Missing canonical memory action");
         if (!panel.contains(button))
           throw Error("Memory-only control required");
         const confirm = window.confirm;
@@ -394,7 +677,9 @@
                 ? "Forget this item and suppress its exact source versions? Original transcripts and other stores remain."
                 : command.action === "clear"
                   ? "Clear summary, manual items and chat pins? Transcripts, Profile, Garmin, plans and preserved legacy records remain. Future new turns may create memory; backups/provider logs are not erased."
-                  : null;
+                  : command.action === "cancel-edit"
+                    ? "Discard unsaved memory changes? Cancel keeps editing."
+                    : null;
             if (message !== exact)
               throw Error("Unexpected Memory confirmation refused");
             return true;
@@ -408,35 +693,146 @@
     return memoryObservation(command.action);
   }
   function revealMemory() {
+    memoryStage = "inspection";
     const observation = memoryObservation("observe");
-    if (!observation.visible || !observation.loaded)
+    if (
+      !observation.visible ||
+      (!observation.loaded && memoryFixture !== "fixture-unknown")
+    )
       throw Error("Memory capture requires settled canonical state");
     const panel = memoryPanel();
+    memoryStage = "anchor";
+    const anchor =
+      panel.querySelector(".memory-confirm, .memory-editor") ||
+      (memoryCaptureCost
+        ? [...panel.querySelectorAll("h4")].find(
+            (node) => node.textContent === "Cost & privacy",
+          )
+        : panel.querySelector("h3"));
+    anchor?.scrollIntoView({ block: "start", behavior: "instant" });
     const labels = new Set([
-      "Cross-chat memory",
-      "Rebuild from chat history",
-      "Start rebuild",
-      "Cancel rebuild",
-      "Selected chat projection",
-      "Saved summary",
-      "Reload memory",
-      "Disable processing",
-      "Enable processing",
-      "Retry processing",
-      "Clear summary",
-      "Refresh selected chat memory",
-      "Add manual preference",
+      "What your trainer remembers",
+      "Saved memories",
+      "Update memory from chat history",
+      "How memory works & costs",
+      "Manage memory",
+      "Memory details",
+      "This chat’s memory",
+      "Add memory",
       "Edit",
-      "Forget item",
+      "Forget",
+      "Source & details",
+      "Check saved memory",
+      "Turn Off",
+      "Turn On",
+      "View chat memory",
+      "Update this chat",
+      "Update from chat history",
+      "Update from chat history · running",
+      "How memory works & costs",
+      "Manage memory",
+      "Back to memory",
+      "Review and update",
+      "Cancel history update",
+      "Check update status",
+      "Cancel edit",
+      "Save memory",
+      "Forget this memory?",
+      "Forget memory",
+      "Clear saved memory?",
+      "Clear saved memory",
+      "Cancel",
+      "Cost & privacy",
+      "What changes",
+      "Updating from history",
+      "Saved memory updated",
+      "History update interrupted",
+      "View saved memory",
+      "Constraint · User-stated",
+      "Open question · Discussed · not decided",
+      "Temporary · User-stated",
+      "Decision · User-stated",
+      "Nothing saved here yet. Add something you want your trainer to remember, or review eligible chat history below. Other app data has not been deleted.",
+      "This chat has earlier memory",
+      "This chat has no usable saved memory",
+      "Saved for this chat; use not yet verified",
+      "On · Memory processing needs an available provider key in native Settings.",
+      "Off · Saved items retained",
+      "Standalone manual source",
+      "Source unavailable; no reconstructed transcript.",
+      "Memory added.",
+      "Memory edited.",
+      "Item forgotten. Original transcripts remain.",
+      "Memory is Off. Saved items stay; automatic titles are separate.",
+      "Memory is On. Earlier Off history was not automatically imported.",
+      "Replace generated memory after a complete, validated update. Opening this review does not send anything.",
+      "Old generated memory stays available until successful complete replacement. Manual edits, originals and forgotten-source restrictions remain. Existing chats are not automatically updated.",
+      "Keep the app open. Cancellation or interruption cannot recall sent content, refund costs or replay unknown requests.",
+      "Saved as a standalone manual memory. Safety rules still apply. Maximum 2400 text units.",
+      "Keeps the existing source and expiry. Safety rules still apply. Maximum 2400 text units.",
+      "Memory",
+      "Use the On/Off control on the overview to pause use without deleting saved items.",
+      "Review earlier sources",
+      "Older saved records",
+      "Remove saved summary, manual items and chat snapshots. Future new turns may create memory. Original transcripts, Profile, Garmin, plans and older stores remain. Backups, exports and provider logs are not erased. This is not turning memory Off.",
+      memoryText(),
+      memoryText(true),
+      `Memory${memoryText()}`,
+      `Memory${memoryText(true)}`,
+      `“${memoryText(true)}”\n\nRemove this item and suppress its exact source versions. Original transcripts and other stores remain. Future new statements are separate sources.`,
+      ...(memoryFixture
+        ? [
+            ...presentationText,
+            "On · Saved memory up to date",
+            "Off · Saved items retained",
+            "Generated from eligible sources · 0 sources",
+            "Not all history can be included",
+            "16 user messages included from 4 chats.",
+            "184 user messages excluded from the inventoried history.",
+            "180 — Earlier messages excluded: the app cannot prove they are safe to reuse after previous memory clearing.",
+            "4 — Forgotten sources",
+            "3 assistant context passages are separate from user sources, not evidence of user endorsement. Inventory: 12 chats, 200 user messages.",
+            "Estimated range: $0.0000–$0.4000 (conservative maximum, not an invoice or spending cap).",
+            "Eligible minimized originals and screened assistant context will be sent to the configured provider/model: openai / gpt-6-luna. Configuration is not proof of provider readiness. Automatic summary costs have no daily cap.",
+            "Processed 8 of 16 eligible messages. Processing counts do not certify memory quality.",
+            "Processed 16 of 16 eligible messages. Processing counts do not certify memory quality.",
+            "Old saved memory is separate from the staged result. Keep the app open.",
+            "Manual edits and originals remain. This chat has not automatically adopted the update.",
+            "No successful staged replacement is reported. Independent Off, Clear or privacy changes still apply; no rollback or refund is promised. Check status, then review anew before any new Start.",
+            "Memory inspection unavailable. Check again to reconcile saved state; your data has not been reset.",
+            "Earlier chat snapshot: weekends were still undecided.",
+            "Saved revision 2; latest saved revision 3. 0 whole items omitted. Not measured yet.",
+            "Update explicitly adopts only available memory after bounded catch-up; recent pending changes may still need another update.",
+            `“${presentationText[0]}”\n\nRemove this item and suppress its exact source versions. Original transcripts and other stores remain. Future new statements are separate sources.`,
+          ]
+        : []),
     ]);
-    for (const node of panel.querySelectorAll("h2,h3,button")) {
-      if (
-        node.childElementCount ||
-        !labels.has(node.textContent.trim()) ||
-        !visible(node)
+    const header = panel
+      .closest(".memory-sheet")
+      ?.querySelector(".sheet-header");
+    if (
+      header &&
+      header.textContent.replace(/\s+/g, "") === "MemoryClose" &&
+      [...header.querySelectorAll("*")].every((node) =>
+        ["DIV", "H2", "BUTTON"].includes(node.tagName),
       )
-        continue;
-      node.setAttribute("data-smoke-reveal", "");
+    ) {
+      header.setAttribute("data-smoke-reveal", "");
+      for (const node of header.querySelectorAll("*"))
+        node.setAttribute("data-smoke-reveal", "");
+    }
+    memoryStage = "canonical-copy";
+    for (const node of panel.querySelectorAll("h2,h3,h4,p,li,button,label")) {
+      if (!labels.has(node.textContent.trim()) || !visible(node)) continue;
+      if (
+        node.querySelector("textarea") &&
+        !["", memoryText(), memoryText(true)].includes(
+          node.querySelector("textarea").value,
+        )
+      )
+        throw Error("Private editor capture refused");
+      for (const child of [node, ...node.querySelectorAll("*")])
+        child.setAttribute("data-smoke-reveal", "");
       for (
         let parent = node.parentElement;
         parent && parent !== document.body;
@@ -449,6 +845,7 @@
           )
         ) {
           restore();
+          memoryStage = "private-ancestor";
           throw Error("Memory capture refuses direct ancestor text");
         }
         parent.setAttribute("data-smoke-reveal", "");
@@ -1347,7 +1744,11 @@
       "body * {visibility:hidden !important} [data-smoke-reveal] {visibility:visible !important}";
     document.head.append(style);
     maskExpiry = setTimeout(restore, 10000);
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    // Memory's changing subviews/scroll layers need a bounded background paint
+    // turn after resize and masks; 120ms produced partial cached native frames.
+    await new Promise((resolve) =>
+      setTimeout(resolve, command.view === "memory" ? 350 : 120),
+    );
     return {
       ok: true,
       view: command.view,
@@ -1355,6 +1756,8 @@
       boundary: "geometry-preserving redacted own-WebView",
     };
   }
+  // Native invokes this after every capture. Fixture lifetime is independent:
+  // resetting it here would revoke canonical authority between wide/narrow images.
   globalThis.__trainerSmokeRestore = restore;
   async function execute(command) {
     if (!command || typeof command !== "object") throw Error("Invalid command");
@@ -1615,7 +2018,10 @@
         error:
           request.command?.type === "conversation"
             ? `Conversation action failed at ${conversationStage}`
-            : "Rendered command refused or failed",
+            : request.command?.type === "memory" ||
+                request.command?.view === "memory"
+              ? `Memory action failed at ${memoryStage}`
+              : "Rendered command refused or failed",
       };
     }
     try {
