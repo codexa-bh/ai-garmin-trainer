@@ -80,6 +80,9 @@ def memory_controls(run):
     action = lambda name: run.command({'type': 'memory', 'action': name})
     action('open')
     memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'empty canonical summary')
+    run.command({'type': 'setViewport', 'preset': 'narrow'})
+    empty_image = run.command({'type': 'captureView', 'view': 'memory', 'preset': 'narrow'})
+    private_json(run.root / 'memory-empty-narrow.json', empty_image)
     action('rebuild-preflight')
     memory_wait(run, lambda value: value['rebuildVisible'] and value['rebuildStartDisabled'] and value['rebuildCancelDisabled'], 'keyless rebuild is visible and refuses generation')
     rebuild_images = []
@@ -89,6 +92,7 @@ def memory_controls(run):
         image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
         rebuild_images.append({'state': 'rebuild-keyless-preflight', 'preset': preset, **image})
         private_json(run.root / ('rebuild-capture-' + preset + '.json'), rebuild_images[-1])
+    action('back')
     action('add')
     memory_wait(run, lambda value: value['editing'], 'manual editor')
     action('draft')
@@ -111,31 +115,77 @@ def memory_controls(run):
     action('open')
     memory_wait(run, lambda value: value['loaded'] and value['updatedManual'], 'manual survives owned restart')
     action('forget')
+    memory_wait(run, lambda value: value['confirmationVisible'], 'forget review')
+    action('confirm')
     memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'forget committed')
     action('disable')
     memory_wait(run, lambda value: value['loaded'] and value['off'], 'Off committed')
     action('enable')
+    memory_wait(run, lambda value: value['confirmationVisible'], 'Enable privacy review')
+    action('confirm')
     memory_wait(run, lambda value: value['loaded'] and not value['off'], 'explicit Enable')
     before_clear = status(run)['expected']
+    action('manage')
     action('clear')
+    memory_wait(run, lambda value: value['confirmationVisible'], 'Clear review')
+    action('confirm')
     deadline = time.monotonic() + 8
     while status(run)['expected'] == before_clear:
         if time.monotonic() >= deadline:
             raise TimeoutError('Clear authority did not commit; no retry')
         time.sleep(.1)
     memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'Clear committed')
+    action('back')
+    presentation_images = memory_presentations(run)
     action('close')
     if run.chat_hash() != before:
         raise ValueError('Memory controls changed original conversation/message bytes')
     private_json(run.root / 'integrated-memory-controls.json', {
         'task': 'T0272', 'runId': run.id, 'source': run.config['source'],
         'manualEditForgetClearOffEnableRestart': True, 'originalChatsPreserved': True,
-        'providerCalls': 0, 'captures': images, 'rebuildCaptures': rebuild_images,
+        'providerCalls': 0, 'captures': images, 'emptyCapture': empty_image, 'rebuildCaptures': rebuild_images, 'presentationCaptures': presentation_images,
         'rebuildPreflightKeylessRefusal': True,
         'rebuildSuccess': 'unavailable without separate native provider/model/export/cumulative-cost approval',
         'input': 'finite synthetic DOM; not trusted OS input',
-        'limitations': 'Static controls only revealed; no hidden-content, semantic-provider, qualified pin projection or primary activation certification',
+        'limitations': 'Canonical authored content and static copy only. Presentation snapshots are explicitly instrumented fixtures, not provider/engine progression, qualified consumption or installed/primary proof.',
     })
+
+
+def memory_presentations(run):
+    """Fixed renderer-only snapshots; no backend mutation or provider success."""
+    images = []
+    action = lambda name: run.command({'type': 'memory', 'action': name})
+    def capture(label, presets=('wide', 'narrow')):
+        for preset in presets:
+            run.command({'type': 'setViewport', 'preset': preset})
+            image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
+            images.append({'state': label, 'preset': preset, 'evidenceClass': 'instrumented fixed presentation fixture, not engine progression', **image})
+            private_json(run.root / ('presentation-' + label + '-' + preset + '.json'), images[-1])
+    action('fixture-populated')
+    memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'populated fixed presentation')
+    capture('populated')
+    action('chat-details'); capture('chat-snapshot', ('narrow',)); action('back')
+    action('item-details'); capture('item-detail', ('wide',)); action('back')
+    action('forget'); capture('forget-confirmation', ('narrow',)); action('cancel-confirm')
+    action('add'); action('draft'); capture('editor', ('narrow',)); action('cancel-edit')
+    action('fixture-off')
+    memory_wait(run, lambda value: value['loaded'] and value['off'], 'Off fixed retained presentation')
+    capture('off', ('narrow',))
+    for fixture in ['history', 'running', 'complete', 'interrupted']:
+        action('fixture-' + fixture)
+        memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], fixture + ' fixed presentation')
+        action('rebuild-preflight')
+        memory_wait(run, lambda value: value['rebuildVisible'], 'history view')
+        capture(fixture, ('wide', 'narrow') if fixture == 'history' else ('narrow',))
+        if fixture == 'history':
+            action('history-effects'); capture('history-cost-effects')
+        action('back')
+    action('fixture-unknown')
+    memory_wait(run, lambda value: not value['loaded'] and value['presentationFixture'], 'unknown fixed inspection')
+    capture('unknown', ('narrow',))
+    action('fixture-reset')
+    memory_wait(run, lambda value: value['loaded'] and not value['presentationFixture'], 'real inspection restored')
+    return images
 
 
 def scenario(run):

@@ -5119,7 +5119,9 @@ describe("TrainerDashboard memory and new chat", () => {
     const memoryDialog = await screen.findByRole("dialog", { name: "Memory" });
     expect(memoryDialog).toBeTruthy();
     expect(
-      await screen.findByRole("heading", { name: "Cross-chat memory" }),
+      await screen.findByRole("heading", {
+        name: "What your trainer remembers",
+      }),
     ).toBeTruthy();
     expect(container.querySelector(".memory-view-panel")).toBeNull();
     expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
@@ -5129,27 +5131,23 @@ describe("TrainerDashboard memory and new chat", () => {
     });
     await waitFor(() => expect(document.activeElement).toBe(closeButton));
     expect(screen.queryByRole("dialog", { name: "Profile & data" })).toBeNull();
-    expect(screen.getByText(/Latest revision 3/)).toBeTruthy();
-    expect(screen.getByText("Preserved inactive record")).toBeTruthy();
+    expect(screen.queryByText(/Latest revision 3/)).toBeNull();
+    expect(screen.queryByText("Preserved inactive record")).toBeNull();
     expect(screen.getByText("Prefers morning hikes")).toBeTruthy();
     expect(screen.getByText("Temporary plan for taper week")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(4);
-    expect(screen.getAllByRole("button", { name: "Forget item" })).toHaveLength(
-      4,
-    );
+    expect(screen.getAllByRole("button", { name: "Forget" })).toHaveLength(4);
     expect(screen.queryByLabelText("Search memory text")).toBeNull();
     expect(
-      screen
-        .getByRole("button", { name: "Refresh selected chat memory" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+      screen.queryByRole("button", { name: "Update this chat" }),
+    ).toBeNull();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
-    const editBox = screen.getByLabelText(
-      "Manual memory text",
-    ) as HTMLTextAreaElement;
+    const editBox = screen.getByRole("textbox", {
+      name: "Memory",
+    }) as HTMLTextAreaElement;
     fireEvent.change(editBox, { target: { value: "Prefers sunrise hikes" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save manual edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save memory" }));
     await waitFor(() =>
       expect(patchedBody).toMatchObject({
         version: 1,

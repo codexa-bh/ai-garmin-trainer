@@ -46,9 +46,17 @@ its removed button. Trainer → Memory retains the actual pin and immediate cont
 
 ## Stable memory and visible controls
 
-Trainer **Memory** distinguishes the latest stored summary from the selected chat's
-pin, revision, whole-item projection omissions, exact measured token count and
-qualified-route use. New chat and Refresh give pending activity up to eight seconds
+Trainer **Memory** opens with **What your trainer remembers**: complete saved item
+text, meaningful stance/temporal qualification and **Add memory**, with Edit, Forget
+and Source & details on each item. Off retains saved content. Manage memory holds
+Clear, Review earlier sources and read-only Older saved records. How memory works &
+costs separates observed-token estimates, reservations and unknown liabilities;
+Technical details retains exact configuration, revision, frontier and admission data.
+No model/size editor duplicates native Settings.
+
+**View chat memory** distinguishes the latest stored summary from the selected chat's
+actual saved snapshot, whole-item omissions, measured token count and qualified-route
+eligibility; it never claims that an answer already used the latest saved text. New chat and Refresh give pending activity up to eight seconds
 to catch up, then freeze only the available revision or null. Single small completed
 turns wake native foreground processing after a two-second debounce; ordinary backlog
 automatically drains in finite serialized jobs. A later publication does not replace
@@ -57,7 +65,7 @@ without the former2048-token projection ceiling; total serialized request admiss
 adds measured memory to the existing non-memory allocation while reserving output,
 safety, tools and fresh input. Impossible requests report capacity rather than clip.
 Existing sealed projections/omissions remain unchanged until explicit adoption.
-Restart retains the exact pin. **Refresh selected chat memory** and deliberate local
+Restart retains the exact pin. **Update this chat** and deliberate local
 compaction are explicit adoption boundaries. Refresh refuses busy/stale actions.
 Unsupported chat routes keep ordinary local behavior without semantic retrieval.
 
@@ -67,7 +75,7 @@ outrank them. Source links open local conversations, never reconstructed deleted
 transcripts. Summary generation is foreground-only, bounded and incremental; neither
 JSON nor NDJSON answer completion awaits its provider or legacy extraction.
 
-- **Edit / Add manual preference:** bounded safety-validated source-linked overlay
+- **Edit / Add memory:** bounded safety-validated source-linked overlay
   or honestly standalone manual source. Manual lineage wins over later generated
   patches. No unsafe diagnosis/secret/raw/location bypass.
 - **Forget item:** removes it and suppresses its exact source versions, not the
@@ -80,6 +88,10 @@ JSON nor NDJSON answer completion awaits its provider or legacy extraction.
 - **Retry:** preserves reservations and unknown costs, changes no model or cutoff,
   and does not synchronously call a provider.
 
+Action-specific feedback distinguishes saved, Off, unknown and reconciled results.
+Destructive confirmations name their consequences and default to Cancel. Editors
+have labelled text, Save/Cancel and explicit dirty-discard protection; subviews and
+resulting item rows receive focus, and Tab stays inside the sheet.
 Actions carry expected revision/privacy/control/manual generations. Stale/busy/
 unknown effects require reload/review, never automatic mutation replay. The UI
 hides the prior projection while mutating and reloads the selected transcript after
@@ -92,11 +104,11 @@ or exported content cannot be recalled.
 Legacy semantic facts/vectors, trainer-memory records and migration markers remain
 in SQLite. Their native configuration fields remain preserved but inactive/hidden;
 ordinary chat/title/status reads neither invoke that adapter nor lazily migrate it.
-The separate **Preserved legacy records** disclosure is read-only local review,
+Manage memory → **Older saved records** is read-only local review,
 not active memory. No automatic deletion, vector conversion or re-embedding occurs.
 Retained legacy maintenance APIs are not the ordinary chat path.
 
-**Explicit historical transition** offers only eligible source-backed completed Off
+Manage memory → **Review earlier sources** offers only eligible source-backed completed Off
 turn versions after the authoritative cutoff. Selection is reviewed, capped at200
 turns/100000 source scalars, and sealed with privacy/control/manual/cutoff authority.
 It uses the existing summary writer in batches of at most20 with finite size-aware
@@ -112,8 +124,13 @@ requires independently approved scope.
 
 ### Rebuild from chat history
 
-**Start rebuild** follows one local full-pool preflight with counts, exclusions,
-configured provider/model and a labeled conservative cost range. It regenerates
+**Update from chat history** opens a separate local review with included and excluded
+user-message counts, human explanations, configured provider/model, a labeled
+conservative cost range and preservation/replacement effects. **Review and update**
+opens the final **Start update** confirmation bound to that exact inspection; changed
+history or selection requires a new review. Opening/back/cancel never starts work.
+Running, cancellation, complete, interrupted/invalidated and unknown-effect states
+remain distinct. **Check update status** only reads; it never replays Start. It regenerates
 useful durable coaching context from admitted originals through the existing
 summary engine, not old generated noise. Finite internal batches stage privately;
 only a complete validated result replaces generated memory. Manual overlays and

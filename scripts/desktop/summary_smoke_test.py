@@ -83,10 +83,10 @@ class SummarySmokeTests(unittest.TestCase):
     def test_memory_controls_are_one_finite_sequence_with_owned_restart_and_preservation(self):
         with tempfile.TemporaryDirectory() as folder:
             run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},binary=Path('/unit-app'),command=Mock(return_value={'ok':True}),chat_hash=Mock(return_value='same'),stop=Mock(),start=Mock())
-            with patch.object(smoke,'memory_wait'), patch.object(smoke,'status',side_effect=[{'expected':{'revision':1}},{'expected':{'revision':2}}]):
+            with patch.object(smoke,'memory_wait'), patch.object(smoke,'memory_presentations',return_value=[]), patch.object(smoke,'status',side_effect=[{'expected':{'revision':1}},{'expected':{'revision':2}}]):
                 smoke.memory_controls(run)
             actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
-            self.assertEqual(actions,['open','rebuild-preflight','rebuild-preflight','rebuild-preflight','add','draft','save','edit','draft-update','save','close','open','forget','disable','enable','clear','close'])
+            self.assertEqual(actions,['open','rebuild-preflight','rebuild-preflight','rebuild-preflight','back','add','draft','save','edit','draft-update','save','close','open','forget','confirm','disable','enable','confirm','manage','clear','confirm','back','close'])
             run.stop.assert_called_once();run.start.assert_called_once_with(run.binary)
             receipt=json.loads((run.root/'integrated-memory-controls.json').read_text())
             self.assertEqual(len(receipt['captures']),2)
@@ -94,6 +94,20 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertTrue(receipt['rebuildPreflightKeylessRefusal'])
             self.assertIn('unavailable',receipt['rebuildSuccess'])
             self.assertIn('not trusted OS input',receipt['input'])
+
+    def test_fixed_presentation_sequence_never_dispatches_a_mutation_or_confirms_one(self):
+        with tempfile.TemporaryDirectory() as folder:
+            run=SimpleNamespace(root=Path(folder), command=Mock(return_value={'ok':True}))
+            with patch.object(smoke, 'memory_wait'):
+                images=smoke.memory_presentations(run)
+            actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
+            self.assertNotIn('confirm', actions)
+            self.assertNotIn('save', actions)
+            self.assertNotIn('rebuild-start', actions)
+            self.assertEqual(actions[-1], 'fixture-reset')
+            self.assertEqual(len(images), 15)
+            self.assertTrue(all('not engine progression' in image['evidenceClass'] for image in images))
+            run.command.assert_any_call({'type':'memory','action':'fixture-unknown'})
 
     def test_scenario_proves_restart_no_replay_clear_cutoff_and_preservation_without_generation_claim(self):
         with tempfile.TemporaryDirectory() as folder:

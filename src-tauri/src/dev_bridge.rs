@@ -258,7 +258,8 @@ impl Command {
                 "enable",
                 "retry",
                 "refresh",
-                "rebuild-preflight",
+                "rebuild-preflight", "back", "manage", "usage", "item-details", "chat-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects",
+                "fixture-populated", "fixture-off", "fixture-history", "fixture-running", "fixture-complete", "fixture-interrupted", "fixture-unknown", "fixture-reset",
             ]
             .contains(&action.as_str()),
             Self::Tables { surface, edge } => {
@@ -615,6 +616,9 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
     if value["ok"] == false {
         return (exact_keys(value, &["ok", "error"])
             && (value["error"] == "Rendered command refused or failed"
+                || (matches!(command, Command::Memory { .. } | Command::CaptureView { .. })
+                    && ["idle", "action", "history-navigation", "inspection", "anchor", "canonical-copy", "private-ancestor"]
+                        .iter().any(|stage| value["error"] == format!("Memory action failed at {stage}")))
                 || (matches!(command, Command::Conversation { .. })
                     && [
                         "admission",
@@ -851,6 +855,8 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 "rebuildVisible",
                 "rebuildStartDisabled",
                 "rebuildCancelDisabled",
+                "presentationFixture",
+                "confirmationVisible",
             ];
             let mut keys = vec!["ok", "action", "trustedInput"];
             keys.extend(booleans);
@@ -1429,14 +1435,15 @@ mod tests {
             "enable",
             "retry",
             "refresh",
-            "rebuild-preflight",
+            "rebuild-preflight", "back", "manage", "usage", "item-details", "chat-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects",
+            "fixture-populated", "fixture-off", "fixture-history", "fixture-running", "fixture-complete", "fixture-interrupted", "fixture-unknown", "fixture-reset",
         ] {
             let command = Command::Memory {
                 action: action.into(),
             };
             assert!(command.valid());
             assert!(!config().permits(&command));
-            let value = json!({"ok":true,"action":action,"trustedInput":false,"visible":true,"loaded":true,"hasManual":false,"updatedManual":false,"off":false,"editing":false,"rebuildVisible":true,"rebuildStartDisabled":true,"rebuildCancelDisabled":true});
+            let value = json!({"ok":true,"action":action,"trustedInput":false,"visible":true,"loaded":true,"hasManual":false,"updatedManual":false,"off":false,"editing":false,"rebuildVisible":true,"rebuildStartDisabled":true,"rebuildCancelDisabled":true,"presentationFixture":false,"confirmationVisible":false});
             assert!(super::safe_result(&command, &value, true));
             assert!(!safe_result(&command, &value));
             for (key, changed) in [
@@ -1450,6 +1457,9 @@ mod tests {
                 assert!(!super::safe_result(&command, &invalid, true));
             }
         }
+        let diagnostic = Command::Memory { action: "observe".into() };
+        assert!(super::safe_result(&diagnostic, &json!({"ok":false,"error":"Memory action failed at history-navigation"}), true));
+        assert!(!super::safe_result(&diagnostic, &json!({"ok":false,"error":"Memory action failed at private-content"}), true));
         for action in ["export", "import", "select", "eval", "login", "rebuild-start", "rebuild-cancel"] {
             assert!(!Command::Memory {
                 action: action.into()
