@@ -136,7 +136,7 @@ export function assertDesktopDatabase(path: string): void {
       ["summary_import_disposition", ["source_id", "manifest_id", "reason"]],
       ["summary_attempt", ["import_id"]],
       ["summary_manual", ["item_id", "payload"]],
-      ["summary_original_boundary", ["id", "floor"]],
+      ["summary_original_boundary", ["id", "floor", "clear_floor"]],
       [
         "summary_rebuild",
         [

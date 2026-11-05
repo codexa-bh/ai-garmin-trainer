@@ -98,6 +98,28 @@ No automatic backfill/regeneration, primary migration, restart or installation i
 authorized by source delivery; preserve compatible backups and use a forward fix,
 not an older writer/downgrade or blind copy-back.
 
+### Schema23 recovery activation (separately authorized)
+
+Source delivery is not installed adoption or recovered primary memory. Schema23
+adds a known future-Clear floor, initialized to zero without inventing historical
+Clear provenance; schema22 migration bytes and existing floor remain unchanged.
+New recovery operations seal selected-chat/legacy intent; active memory/pin formats
+and unrelated data are unchanged. Schema22 readers refuse23 through existing exact
+version admission. Startup/Use existing never migrate.
+
+For actual primary activation, separately approve the exact private DB/settings,
+qualified artifact and current owners without publishing private values. First
+make and integrity-verify a durable WAL-consistent recovery backup; rehearse the
+explicit migration/reopen/restore on an independent populated disposable copy and
+verify originals/manual/restrictions/accounting. Obtain exact target mutation and
+artifact replacement/stop/reopen authority before migrating the stopped primary.
+Use compatible forward recovery, never downgrade or blind copy-back. After launch,
+review All retained or selected conversations and explicitly permit uncertain old
+history only if wanted; confirm exact provider/export/spend/rebuild authority before
+a live recovery. Verify scope/exclusions, meaningful saved content and next-turn
+consumption separately. Nothing here grants primary access, migration, restart,
+provider spending, installation or historical cleanup.
+
 ## Integrations and GUI execution
 
 The cleared child environment uses fixed GUI tool search `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`. Overrides accept canonical absolute executable paths or the supported uv/uvx names, never shell text/relative commands. No terminal init scripts run. Missing tools degrade integrations, not offline saved views. Guidance appears at the requested action: native sign-in uses only its selected uv plus installed Python 3.12; MCP reads use their configured uvx/override and the pinned package's compatible Python (>=3.10), not a global uv-and-uvx requirement. Native sign-in performs a bounded action-time `uv python list 3.12 --only-installed --output-format json --offline --no-config --no-python-downloads` diagnostic with a cleared environment and discarded stderr. Only a successful valid empty inventory establishes missing Python; unsupported/malformed/failed/timed-out checks remain inconclusive and preserve the existing auth path. uvx has no equivalent installed-interpreter diagnostic: an unknown initialization exit is not called missing Python. Executable OS failures are sanitized separately from network/rate/auth failures. Manage external prerequisites using [README Installation](../README.md#installation), then explicitly retry; saved executable overrides remain internal, without normal Settings editors. Startup, Settings reads and local navigation never run these checks. Optional FIT fallback remains best-effort without blocking successful MCP data. Ordinary Garmin remains pinned commit `3610be6feed93088d85b0f35aba9d7d07c2505a7`, exact `mcp==1.28.1`, local stdio/read allowlist; no inherited password/email/file or provider-key fallback reaches MCP/FIT.

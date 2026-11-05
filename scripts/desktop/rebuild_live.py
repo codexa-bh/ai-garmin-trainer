@@ -169,7 +169,7 @@ def seed_originals(run, focused=False):
     if run.database.is_symlink() or run.database.stat().st_nlink != 1:
         raise ValueError('Seed copy identity refused')
     with contextlib.closing(sqlite3.connect(run.database)) as db:
-        if db.execute("select value from app_metadata where key='schema_version'").fetchone() != ('22',):
+        if db.execute("select value from app_metadata where key='schema_version'").fetchone() != ('23',):
             raise ValueError('Current authored schema required; never migrate a selected target')
         if db.execute("select 1 from conversation where id='T0276-authored-originals'").fetchone():
             raise ValueError('Authored input cannot be replayed')

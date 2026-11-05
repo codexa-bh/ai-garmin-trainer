@@ -390,7 +390,6 @@ body::before {
   min-width: 160px;
 }
 .memory-notice,
-.memory-chat-notice,
 .memory-confirm,
 .memory-editor,
 .memory-empty {
@@ -416,16 +415,22 @@ body::before {
 .memory-back {
   align-self: flex-start;
 }
-.memory-facts {
+.memory-root-card fieldset {
   display: grid;
-  gap: 8px;
-  margin: 0;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  min-width: 0;
 }
-.memory-facts dt {
-  color: var(--faint);
+.memory-chat-choices {
+  display: grid;
+  gap: 12px;
+  max-height: 240px;
+  overflow: auto;
 }
-.memory-facts dd {
-  margin: 0 0 10px;
+.memory-chat-choices span {
+  overflow-wrap: anywhere;
 }
 .memory-source-choice {
   display: flex;
@@ -434,14 +439,16 @@ body::before {
   gap: 12px;
   font-weight: 400;
 }
+.memory-source-choice input {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0;
+  margin: 4px 0 0;
+}
 .memory-source-context {
   display: block;
   margin-top: 10px;
   color: var(--faint);
-}
-.memory-coverage {
-  display: grid;
-  gap: 10px;
 }
 .memory-root-card textarea {
   min-height: 150px;

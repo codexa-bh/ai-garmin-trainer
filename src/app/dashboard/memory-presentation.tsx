@@ -22,23 +22,19 @@ export function memoryStatus(memory: SummaryInspection) {
     memory.state === "unselected" ||
     memory.reason === "summary_unsupported_model"
   )
-    return "Choose a supported memory model in native Settings, then quit/reopen.";
+    return "Choose a memory model in Settings.";
   const reasons: Record<string, string> = {
-    summary_missing_key:
-      "Memory processing needs an available provider key in native Settings.",
+    summary_missing_key: "Add the provider key in Settings to process memory.",
     summary_provider_failure: "The provider could not finish a memory update.",
-    summary_interrupted:
-      "A memory update was interrupted. Previous costs may be unknown.",
+    summary_interrupted: "An update was interrupted. Its cost may be unknown.",
     summary_invalid_output: "The update could not be safely saved.",
-    summary_input_capacity: "An update exceeds the supported request capacity.",
-    summary_impossible_capacity:
-      "Memory cannot fit the current request capacity.",
+    summary_input_capacity: "The provider could not accept this update.",
+    summary_impossible_capacity: "Memory could not fit this request.",
     summary_correction_pending:
       "A conversation correction is waiting to be processed.",
-    summary_invalidated:
-      "Saved context changed; new eligible updates may be pending.",
+    summary_invalidated: "Saved context changed; new updates may be pending.",
     summary_configuration_changed:
-      "Configuration changed during an update. Check native Settings.",
+      "Settings changed during an update. Review again.",
     summary_import_review_required:
       "An earlier-source import needs a new review in Manage memory.",
     summary_rebuild_review_required: "The history update needs a new review.",
@@ -47,13 +43,15 @@ export function memoryStatus(memory: SummaryInspection) {
   if (memory.reason)
     return (
       reasons[memory.reason] ??
-      "Memory needs attention. Check saved state and technical details; no automatic repair is assumed."
+      "Memory needs attention. Check saved memory before trying again."
     );
   if (memory.pending) return "Recent conversation updates pending";
   return memory.state === "never-produced"
     ? "No automatic memory saved yet"
     : memory.state === "fresh"
-      ? "Saved memory up to date"
+      ? memory.stored.items.length
+        ? "Saved memory available"
+        : "No saved memories"
       : "Saved memory unavailable · check again";
 }
 
@@ -75,7 +73,7 @@ export function canRetrySummary(memory: SummaryInspection) {
 
 export function historyBlockers(memory: SummaryInspection) {
   const r = memory.rebuild;
-  if (!r) return ["History inspection is unavailable in this build."];
+  if (!r) return ["History review is unavailable. Check saved memory again."];
   const reasons: string[] = [];
   if (
     r.operation &&
@@ -84,145 +82,117 @@ export function historyBlockers(memory: SummaryInspection) {
     )
   )
     reasons.push(
-      "The previous update state is unsupported. Check status with a compatible build before starting another update.",
+      "The previous update needs a compatible build to check its status.",
     );
-  if (!r.enabled) reasons.push("Memory is Off.");
+  if (!r.enabled) reasons.push("Turn memory On before updating.");
   if (!r.model || r.model === "unselected")
-    reasons.push("Select a memory model in native Settings.");
+    reasons.push("Choose a memory model in Settings.");
   if (r.capability !== "configured-not-probed")
-    reasons.push(
-      "Native provider key or app lifetime is unavailable. Check native Settings; this is not a provider probe.",
-    );
-  if (!r.complete) reasons.push("The history inventory is incomplete.");
+    reasons.push("The configured provider is unavailable. Check Settings.");
+  if (!r.complete) reasons.push("The history review is incomplete.");
   if (r.limitExceeded)
     reasons.push(
-      "History exceeds this operation’s limits; no partial selection will be silently processed.",
+      "Too much history for one update. Select fewer conversations.",
     );
   if (!r.counts.includedUserMessages)
-    reasons.push("No eligible user messages are available.");
+    reasons.push("No usable messages in this selection.");
   if (
     memory.historical.manifests.some((m) =>
       ["active", "paused"].includes(m.state),
     )
   )
     reasons.push(
-      "An earlier-source import is active or paused. Manage it before starting another update.",
+      "Finish or cancel the earlier-source import in Manage memory first.",
     );
   if (!r.ready && !reasons.length && r.operation?.state !== "active")
     reasons.push("History is not ready. Check update status and review again.");
   return reasons;
 }
 
-export function HistoryReview({ memory }: { memory: SummaryInspection }) {
+export function HistoryReview({
+  memory,
+  confirmation = false,
+}: {
+  memory: SummaryInspection;
+  confirmation?: boolean;
+}) {
   const r = memory.rebuild;
-  if (!r)
-    return (
-      <p>
-        History inspection unavailable. Check again with a compatible build; no
-        Start is offered.
-      </p>
-    );
+  if (!r) return <p>History review unavailable. Nothing has been started.</p>;
   const reasons: Record<string, string> = {
+    "not-selected": "Outside your selected conversations",
     "unproven-legacy-or-cleared-original":
-      "Earlier messages excluded: the app cannot prove they are safe to reuse after previous memory clearing.",
-    "linked-cutoff": "Messages before the previous memory-clear boundary",
-    suppressed: "Forgotten sources",
-    "incomplete-linked-turn": "Unfinished turns",
+      "Older messages need explicit permission to reuse",
+    "known-clear": "Messages covered by a recorded memory clear",
+    "linked-cutoff": "Messages covered by a recorded memory clear",
+    suppressed: "Sources you asked memory to forget",
+    "incomplete-linked-turn": "Unfinished conversations",
     "oversized-message": "Messages too long to include",
-    "unsafe-or-unresolved-context": "Unsafe or unclear context",
-    "unsupported-time": "Unsupported message dates",
-    "orphan-message": "Source chat unavailable",
+    "unsafe-or-unresolved-context": "Private, no-save or unclear content",
+    "unsupported-time": "Unavailable message dates",
+    "orphan-message": "Conversation no longer available",
   };
   return (
     <>
       <p>
-        Replace generated memory after a complete, validated update. Opening
-        this review does not send anything.
-      </p>
-      <div className="memory-coverage">
-        <p>
-          <strong>
-            {r.counts.includedUserMessages} user messages included
-          </strong>{" "}
-          from {r.counts.includedChats} chats.
-        </p>
-        <p>
-          <strong>
-            {r.counts.excludedUserMessages} user messages excluded
-          </strong>{" "}
-          from the inventoried history.
-        </p>
-      </div>
-      {!!r.counts.excludedUserMessages && (
-        <div className="memory-notice">
-          <strong>Not all history can be included</strong>
-          <ul>
-            {Object.entries(r.reasons).map(([reason, count]) => (
-              <li key={reason}>
-                {count} —{" "}
-                {reasons[reason] ??
-                  "Some messages cannot be included by this version."}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <p>
-        {r.counts.assistantContext} assistant context passages are separate from
-        user sources, not evidence of user endorsement. Inventory:{" "}
-        {r.counts.chats} chats, {r.counts.userMessages} user messages.
-      </p>
-      <h4>Cost & privacy</h4>
-      <p>
-        {r.estimatedUsd.conservativeMaximum === null ? (
-          "Cost is unknown before generation; no app-imposed spending cap."
-        ) : (
-          <>
-            Estimated range:{" "}
-            <strong>
-              ${r.estimatedUsd.low.toFixed(4)}–$
-              {r.estimatedUsd.conservativeMaximum.toFixed(4)}
-            </strong>{" "}
-            (historical conservative estimate, not an invoice).
-          </>
-        )}
-      </p>
-      <p>
-        Eligible minimized originals and screened assistant context will be sent
-        to the configured provider/model:{" "}
         <strong>
-          {r.configuredProvider} / {r.model || "Unselected"}
-        </strong>
-        . Configuration is not proof of provider readiness. Automatic summary
-        costs have no daily cap.
+          {r.counts.includedUserMessages}{" "}
+          {r.counts.includedUserMessages === 1 ? "message" : "messages"}{" "}
+          included
+        </strong>{" "}
+        from {r.counts.includedChats}{" "}
+        {r.counts.includedChats === 1 ? "conversation" : "conversations"};{" "}
+        {r.counts.excludedUserMessages} excluded from retained history.
       </p>
-      <h4>What changes</h4>
-      <p>
-        Old generated memory stays available until successful complete
-        replacement. Manual edits, originals and forgotten-source restrictions
-        remain. Existing chats are not automatically updated.
-      </p>
-      <p>
-        Keep the app open. Cancellation or interruption cannot recall sent
-        content, refund costs or replay unknown requests.
-      </p>
-      <details>
-        <summary>Coverage and processing details</summary>
-        <p>
-          {r.counts.messages} total messages; {r.counts.excludedMessages}{" "}
-          excluded messages across all roles; {r.counts.excludedChats} chats
-          with no included user source.
-        </p>
-        <p>{r.estimatedUsd.uncertainty}</p>
-        <p>Price basis: {r.estimatedUsd.priceBasis}</p>
-        <ul>
+      {!confirmation && !!r.counts.excludedUserMessages && (
+        <ul className="memory-exclusions">
           {Object.entries(r.reasons).map(([reason, count]) => (
             <li key={reason}>
-              {reason}: {count}
+              {count} — {reasons[reason] ?? "Unavailable in this version"}
             </li>
           ))}
         </ul>
-      </details>
+      )}
+      {confirmation ? (
+        <>
+          {r.selection?.includeLegacy && (
+            <p className="memory-notice">
+              <strong>Allow older conversations to be remembered again.</strong>{" "}
+              Earlier clearing cannot always be identified. This selection may
+              include things once cleared from memory. Known forgotten sources
+              and recorded clears still stay excluded.
+            </p>
+          )}
+          <p>
+            Selected usable text goes to the configured provider and may incur
+            cost.{" "}
+            {r.estimatedUsd.conservativeMaximum !== null &&
+            r.estimatedUsd.conservativeMaximum > 0 ? (
+              <>
+                Conservative upper estimate: $
+                {r.estimatedUsd.conservativeMaximum.toFixed(4)} — not predicted
+                billing or a spending cap.{" "}
+              </>
+            ) : (
+              "Cost is not known in advance. "
+            )}
+            Automatic processing has no daily cost cap.
+          </p>
+          <p>
+            Old generated memory stays until the complete update succeeds.
+            Manual edits and original conversations remain. New chat turns then
+            use available valid memory.
+          </p>
+          <p>
+            Keep the app open. Cancel stops further work, but cannot recall sent
+            text or charges. Uncertain requests are not automatically repeated.
+          </p>
+        </>
+      ) : (
+        <p>
+          Review is local; nothing is sent until you confirm. Only useful, safe
+          context can be remembered, not every detail.
+        </p>
+      )}
     </>
   );
 }
@@ -241,77 +211,26 @@ export function HistoryProgress({ memory }: { memory: SummaryInspection }) {
     <div className="memory-notice" role="status">
       <h4>{states[op.state] ?? "History update status unavailable"}</h4>
       <p>
-        Processed {op.processed} of {op.total} eligible messages. Processing
-        counts do not certify memory quality.
+        Processed {op.processed} of {op.total} included messages. Not every
+        message needs a saved memory.
       </p>
       {op.state === "active" ? (
         <p>
-          Old saved memory is separate from the staged result. Keep the app
+          Previous memory stays available while this update runs. Keep the app
           open.
         </p>
       ) : op.state === "complete" ? (
         <p>
-          Manual edits and originals remain. This chat has not automatically
-          adopted the update.
+          Review the saved content. Manual edits and originals remain; excluded
+          history was not recovered. New chat turns use available valid memory.
         </p>
       ) : (
         <p>
-          No successful staged replacement is reported. Independent Off, Clear
-          or privacy changes still apply; no rollback or refund is promised.
-          Check status, then review anew before any new Start.
+          No completed replacement is reported. Check status before reviewing a
+          new update; earlier costs may be unknown. Nothing is repeated
+          automatically.
         </p>
       )}
     </div>
-  );
-}
-
-export function MemoryUsage({
-  memory,
-  onDetails,
-}: {
-  memory: SummaryInspection;
-  onDetails: () => void;
-}) {
-  return (
-    <>
-      <p>
-        Memory is user-derived continuity, not a source of current measurements
-        or instructions. Current corrections, Profile and fresh tool evidence
-        take precedence.
-      </p>
-      <p>
-        Eligible minimized context may leave this device for the configured
-        memory provider. Reading this panel does not call a model.
-      </p>
-      <p>
-        <strong>Automatic summary costs have no daily cap.</strong> Turn memory
-        Off to stop summary use and new processing. Saved items stay; automatic
-        titles use the shared model independently. Neither has an app-imposed
-        spending or attempt cap.
-      </p>
-      <dl className="memory-facts">
-        <dt>Observed-token estimate today</dt>
-        <dd>${memory.estimatedUsdToday.toFixed(4)}</dd>
-        <dt>Historical reservations today</dt>
-        <dd>${memory.reservedUsdToday.toFixed(4)}</dd>
-        <dt>Outstanding unknown / legacy reservations, all days</dt>
-        <dd>${memory.unknownReservedUsd.toFixed(4)}</dd>
-        <dt>Attempts with unknown cost, all days</dt>
-        <dd>{memory.unpricedAttempts ?? 0}</dd>
-      </dl>
-      <p>
-        These are distinct estimates and reservations, not amounts to add into a
-        billed total, invoices or cache savings. Unpriced attempts are not zero
-        cost; prior reservations remain recorded.
-      </p>
-      <p>
-        Forget and Clear affect memory derivatives, not original transcripts,
-        Profile, Garmin, saved plans or older stores. Already exported content,
-        provider logs and backups cannot be recalled.
-      </p>
-      <button type="button" onClick={onDetails}>
-        Technical details
-      </button>
-    </>
   );
 }

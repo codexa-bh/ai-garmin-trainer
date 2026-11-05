@@ -11,19 +11,9 @@ import {
   HistoryReview,
   memoryQualification,
   memoryStatus,
-  MemoryUsage,
 } from "./memory-presentation";
 
-type View =
-  | "overview"
-  | "item"
-  | "chat"
-  | "history"
-  | "usage"
-  | "technical"
-  | "manage"
-  | "import"
-  | "legacy";
+type View = "overview" | "item" | "history" | "manage" | "import" | "legacy";
 type Confirmation = {
   action: MemoryAction;
   inspection: SummaryInspection;
@@ -39,6 +29,7 @@ export function MemoryContent({
   isMemoryLoading,
   pendingMemoryAction,
   loadMemories,
+  reviewHistory,
   changeMemory,
   editingMemoryId,
   editingMemoryText,
@@ -55,6 +46,8 @@ export function MemoryContent({
   const [view, setView] = useState<View>("overview");
   const [itemId, setItemId] = useState<string | null>(null);
   const [reviewed, setReviewed] = useState<string[]>([]);
+  const [chatIds, setChatIds] = useState<string[] | null>(null);
+  const [includeLegacy, setIncludeLegacy] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -62,18 +55,21 @@ export function MemoryContent({
   const rowAfterSave = useRef<string | null>(null);
   const beforeAdd = useRef<string[] | null>(null);
   const previousEditing = useRef(editingMemoryId);
-  const pin = memory?.selectedChat?.pin;
   const item = memory?.stored.items.find((i) => i.id === itemId);
   const selectedSources = reviewed.filter((id) =>
     memory?.historical.candidates.some((s) => s.id === id),
   );
+  const selection = {
+    version: 1 as const,
+    conversationIds: chatIds === null ? null : [...chatIds].sort(),
+    includeLegacy,
+  };
+  const selectionReviewed =
+    JSON.stringify(selection) === JSON.stringify(memory?.rebuild?.selection);
   const titles: Record<View, string> = {
     overview: "What your trainer remembers",
     item: "Memory details",
-    chat: "This chat’s memory",
     history: "Update memory from chat history",
-    usage: "How memory works & costs",
-    technical: "Technical details",
     manage: "Manage memory",
     import: "Review earlier sources",
     legacy: "Older saved records",
@@ -154,18 +150,6 @@ export function MemoryContent({
       if (invoker.current?.isConnected) invoker.current.focus();
     });
   };
-  const updateChat = () =>
-    memory?.selectedChat &&
-    confirm(
-      {
-        action: "refresh",
-        conversationId: memory.selectedChat.conversationId,
-        segmentRevision: memory.selectedChat.segmentRevision,
-      },
-      "Update this chat?",
-      "Update this chat",
-      "This changes the chat’s next usable saved memory snapshot. The app allows bounded catch-up, then saves only currently available memory (or none). Pending work may still need a later explicit update. It does not rewrite your transcript.",
-    );
   return (
     <div
       className="memory-root-card"
@@ -222,9 +206,9 @@ export function MemoryContent({
       {confirmation && (
         <section className="memory-confirm" aria-label={confirmation.title}>
           <h4>{confirmation.title}</h4>
-          <p>{confirmation.text}</p>
+          {confirmation.text && <p>{confirmation.text}</p>}
           {confirmation.action.action === "rebuild-start" && (
-            <HistoryReview memory={confirmation.inspection} />
+            <HistoryReview memory={confirmation.inspection} confirmation />
           )}
           {!confirmationCurrent && (
             <p role="alert">
@@ -277,7 +261,7 @@ export function MemoryContent({
                           { action: "enable" },
                           "Turn memory On?",
                           "Turn memory On",
-                          "Eligible minimized context may be sent to the configured provider. Automatic summary costs have no daily cap. Saved items can be used again, but earlier Off history is not automatically imported. Native configuration must already support On; pending Settings are not activated here.",
+                          "Usable context may be sent to the configured provider. Automatic processing has no daily cost cap. Saved items can be used again; past conversations are not automatically recovered.",
                         )
                   }
                 >
@@ -298,8 +282,7 @@ export function MemoryContent({
                 {!memory.stored.items.length && !editingMemoryId && (
                   <p className="memory-empty">
                     Nothing saved here yet. Add something you want your trainer
-                    to remember, or review eligible chat history below. Other
-                    app data has not been deleted.
+                    to remember, or update from past conversations below.
                   </p>
                 )}
                 {memory.stored.items.map((saved) => (
@@ -331,7 +314,7 @@ export function MemoryContent({
                               { action: "forget", id: saved.id },
                               "Forget this memory?",
                               "Forget memory",
-                              `“${saved.text}”\n\nRemove this item and suppress its exact source versions. Original transcripts and other stores remain. Future new statements are separate sources.`,
+                              `“${saved.text}”\n\nRemove this memory and keep its sources from recreating it. The original conversation remains. New statements can still become new memories.`,
                               true,
                             )
                           }
@@ -376,9 +359,9 @@ export function MemoryContent({
                     </label>
                     <p>
                       {editingMemoryId === "new"
-                        ? "Saved as a standalone manual memory."
-                        : "Keeps the existing source and expiry."}{" "}
-                      Safety rules still apply. Maximum 2400 text units.
+                        ? "Saved as your own memory."
+                        : "Keeps its existing sources and expiry."}{" "}
+                      Keep it concise; sensitive details cannot be saved.
                     </p>
                     <div className="button-row">
                       <button
@@ -418,38 +401,6 @@ export function MemoryContent({
                   </section>
                 )}
               </section>
-              {memory.selectedChat && (
-                <section className="memory-chat-notice" aria-label="This chat">
-                  <p>
-                    {!pin
-                      ? "This chat has no usable saved memory"
-                      : memory.revision > pin.stamp.revision
-                        ? "This chat has earlier memory"
-                        : memory.usedByChat
-                          ? "Used in this chat’s latest completed answer"
-                          : "Saved for this chat; not yet used in a completed answer"}
-                  </p>
-                  <div className="button-row">
-                    {(!pin || memory.revision > pin.stamp.revision) && (
-                      <button
-                        type="button"
-                        disabled={isMemoryLoading || !memory.enabled}
-                        onClick={updateChat}
-                      >
-                        Update this chat
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={isMemoryLoading}
-                      onClick={() => go("chat")}
-                    >
-                      View chat memory
-                    </button>
-                  </div>
-                </section>
-              )}
               <nav className="memory-routes" aria-label="Memory options">
                 <button
                   type="button"
@@ -460,13 +411,6 @@ export function MemoryContent({
                   {memory.rebuild?.operation?.state === "active"
                     ? " · running"
                     : ""}
-                </button>
-                <button
-                  type="button"
-                  disabled={isMemoryLoading || !!editingMemoryId}
-                  onClick={() => go("usage")}
-                >
-                  How memory works & costs
                 </button>
                 <button
                   type="button"
@@ -504,117 +448,160 @@ export function MemoryContent({
                 <p className="memory-text">{item.text}</p>
                 <p>
                   {memory.manualIds.includes(item.id)
-                    ? "Manual memory"
-                    : "Generated from eligible sources"}{" "}
-                  · {item.sourceIds.length} sources
-                </p>
-                <p>
-                  {item.expiresAt === null
-                    ? "No automatic expiry"
-                    : `Expires ${new Date(item.expiresAt).toLocaleString()}`}{" "}
-                  · Review {new Date(item.reviewAt).toLocaleDateString()}
+                    ? "Manually saved"
+                    : "Saved from conversations"}
+                  {item.expiresAt !== null
+                    ? ` · Expires ${new Date(item.expiresAt).toLocaleDateString()}`
+                    : ""}
                 </p>
                 {!item.sourceIds.length && (
-                  <p>Source unavailable; no reconstructed transcript.</p>
+                  <p>
+                    Source unavailable; the conversation cannot be
+                    reconstructed.
+                  </p>
                 )}
-                {item.sourceIds.map((id) => {
-                  const source = memory.sources.find((s) => s.sourceId === id);
-                  return source?.conversationId ? (
-                    <button
-                      key={id}
-                      type="button"
-                      disabled={isMemoryLoading}
-                      onClick={() => onOpenSource(source.conversationId!)}
-                    >
-                      Open source conversation
-                    </button>
-                  ) : (
-                    <p key={id}>
-                      {source?.manual
-                        ? "Standalone manual source"
-                        : "Source unavailable; no reconstructed transcript"}
-                    </p>
-                  );
-                })}
+                {[
+                  ...new Set(
+                    item.sourceIds
+                      .map(
+                        (id) =>
+                          memory.sources.find((s) => s.sourceId === id)
+                            ?.conversationId,
+                      )
+                      .filter((id): id is string => !!id),
+                  ),
+                ].map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    disabled={isMemoryLoading}
+                    onClick={() => onOpenSource(id)}
+                  >
+                    Open source conversation
+                  </button>
+                ))}
+                {item.sourceIds.some(
+                  (id) =>
+                    !memory.sources.find((s) => s.sourceId === id)
+                      ?.conversationId,
+                ) && (
+                  <p>
+                    {memory.manualIds.includes(item.id)
+                      ? "Includes your own saved text."
+                      : "Some source conversations are unavailable."}
+                  </p>
+                )}
               </>
             ) : (
               <p>This item is no longer available. Return to saved memory.</p>
             ))}
-          {view === "chat" && (
-            <>
-              {memory.selectedChat ? (
-                <>
-                  <p>
-                    {!pin
-                      ? "This chat has no usable saved memory. It may have been cleared or invalidated; local chat remains available."
-                      : memory.usedByChat
-                        ? "This saved snapshot was included in this chat’s latest completed answer."
-                        : "Saved for this chat; not yet used in a completed answer. The full snapshot is included on the configured chat route."}
-                  </p>
-                  {pin && (
-                    <>
-                      <p className="memory-text">
-                        {pin.value.text || "This snapshot has no saved text."}
-                      </p>
-                      <p>
-                        Saved revision {pin.stamp.revision}; latest saved
-                        revision {memory.revision}. {pin.omitted} whole items
-                        omitted. Provider manages context capacity; saved token
-                        counts from older builds are not model-fit guarantees.
-                      </p>
-                    </>
-                  )}
-                  <p>
-                    Update explicitly adopts only available memory after bounded
-                    catch-up; recent pending changes may still need another
-                    update.
-                  </p>
-                  <button
-                    type="button"
-                    disabled={isMemoryLoading || !memory.enabled}
-                    onClick={updateChat}
-                  >
-                    Update this chat
-                  </button>
-                </>
-              ) : (
-                <p>No chat selected.</p>
-              )}
-            </>
-          )}
           {view === "history" && (
             <section aria-label="Rebuild from chat history">
               <HistoryProgress memory={memory} />
+              {memory.rebuild?.operation?.state === "complete" && (
+                <button type="button" onClick={back}>
+                  View saved memory
+                </button>
+              )}
               {memory.rebuild?.operation?.state !== "active" && (
                 <>
-                  <HistoryReview memory={memory} />
-                  <ul>
-                    {historyBlockers(memory).map((reason) => (
-                      <li key={reason}>{reason}</li>
-                    ))}
-                  </ul>
-                  <button
-                    type="button"
-                    disabled={
-                      isMemoryLoading ||
-                      !memory.rebuild?.ready ||
-                      !!historyBlockers(memory).length
-                    }
-                    onClick={() =>
-                      confirm(
-                        {
-                          action: "rebuild-start",
-                          id: crypto.randomUUID(),
-                          snapshot: memory.rebuild!.snapshot,
-                        },
-                        "Start reviewed history update?",
-                        "Start update",
-                        "This confirmation uses exactly the inventory and authority reviewed below. Changed history requires a new review.",
-                      )
-                    }
-                  >
-                    Review and update
-                  </button>
+                  <fieldset disabled={isMemoryLoading}>
+                    <legend>Conversations to review</legend>
+                    <label className="memory-source-choice">
+                      <input
+                        type="radio"
+                        name="memory-scope"
+                        checked={chatIds === null}
+                        onChange={() => setChatIds(null)}
+                      />
+                      All retained conversations
+                    </label>
+                    <label className="memory-source-choice">
+                      <input
+                        type="radio"
+                        name="memory-scope"
+                        checked={chatIds !== null}
+                        onChange={() => setChatIds([])}
+                      />
+                      Choose conversations
+                    </label>
+                    {chatIds !== null && (
+                      <div className="memory-chat-choices">
+                        {memory.rebuild?.conversations?.map((chat) => (
+                          <label className="memory-source-choice" key={chat.id}>
+                            <input
+                              type="checkbox"
+                              checked={chatIds.includes(chat.id)}
+                              onChange={(event) =>
+                                setChatIds((ids) =>
+                                  event.target.checked
+                                    ? [...(ids ?? []), chat.id]
+                                    : (ids ?? []).filter(
+                                        (id) => id !== chat.id,
+                                      ),
+                                )
+                              }
+                            />
+                            <span>{chat.title || "Untitled conversation"}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <label className="memory-source-choice">
+                      <input
+                        type="checkbox"
+                        checked={includeLegacy}
+                        onChange={(event) =>
+                          setIncludeLegacy(event.target.checked)
+                        }
+                      />
+                      <span>
+                        Include older conversations that need permission to
+                        reuse
+                      </span>
+                    </label>
+                  </fieldset>
+                  {!selectionReviewed ? (
+                    <button
+                      type="button"
+                      disabled={isMemoryLoading}
+                      onClick={() => runInBackground(reviewHistory(selection))}
+                    >
+                      Review selected history
+                    </button>
+                  ) : (
+                    <>
+                      <HistoryReview memory={memory} />
+                      <ul>
+                        {historyBlockers(memory).map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        disabled={
+                          isMemoryLoading ||
+                          !memory.rebuild?.ready ||
+                          !!historyBlockers(memory).length
+                        }
+                        onClick={() =>
+                          confirm(
+                            {
+                              action: "rebuild-start",
+                              id: crypto.randomUUID(),
+                              snapshot: memory.rebuild!.snapshot,
+                              selection: memory.rebuild!.selection,
+                            },
+                            "Start reviewed history update?",
+                            "Start update",
+                            "",
+                          )
+                        }
+                      >
+                        Review and update
+                      </button>
+                    </>
+                  )}
                 </>
               )}
               {memory.rebuild?.operation?.state === "active" && (
@@ -641,80 +628,10 @@ export function MemoryContent({
               >
                 Check update status
               </button>
-              {memory.rebuild?.operation?.state === "complete" && (
-                <button type="button" onClick={back}>
-                  View saved memory
-                </button>
-              )}
             </section>
-          )}
-          {view === "usage" && (
-            <MemoryUsage memory={memory} onDetails={() => go("technical")} />
-          )}
-          {view === "technical" && (
-            <>
-              <p>
-                Change model and memory size in native Settings; saved topology
-                needs explicit quit/reopen. No configuration editor is
-                duplicated here.
-              </p>
-              <dl className="memory-facts">
-                <dt>Model / character limit</dt>
-                <dd>
-                  {memory.model || "Unselected"} / {memory.cap}
-                </dd>
-                <dt>Latest revision / source frontier / pending</dt>
-                <dd>
-                  {memory.revision} / {memory.frontier} / {memory.pending}
-                </dd>
-                <dt>Saved at</dt>
-                <dd>
-                  {memory.publishedAt === null
-                    ? "Never produced"
-                    : new Date(memory.publishedAt).toLocaleString()}
-                </dd>
-                <dt>Items / characters</dt>
-                <dd>
-                  {memory.items} / {memory.characters}
-                </dd>
-                <dt>Attempts today</dt>
-                <dd>{memory.attemptsToday}</dd>
-                <dt>Price basis</dt>
-                <dd>{memory.priceBasis}</dd>
-              </dl>
-              <p>
-                The configured provider receives the full saved memory with
-                policy, tools and fresh context. No capacity/tokenizer metadata
-                is required. Provider capacity errors do not silently clip
-                memory or switch models.
-              </p>
-              <p>{memory.authority}</p>
-              <p>
-                Diagnostic:{" "}
-                {/^summary_[a-z_]+$/.test(memory.reason ?? "")
-                  ? memory.reason
-                  : memory.reason
-                    ? "Unrecognized reason"
-                    : memory.state}
-              </p>
-              {canRetrySummary(memory) && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    runInBackground(changeMemory({ action: "retry" }))
-                  }
-                >
-                  Retry summary processing
-                </button>
-              )}
-            </>
           )}
           {view === "manage" && (
             <div className="memory-routes">
-              <p>
-                Use the On/Off control on the overview to pause use without
-                deleting saved items.
-              </p>
               <button type="button" onClick={() => go("import")}>
                 Review earlier sources
               </button>
@@ -730,7 +647,7 @@ export function MemoryContent({
                     { action: "clear" },
                     "Clear saved memory?",
                     "Clear saved memory",
-                    "Remove saved summary, manual items and chat snapshots. Future new turns may create memory. Original transcripts, Profile, Garmin, plans and older stores remain. Backups, exports and provider logs are not erased. This is not turning memory Off.",
+                    "Remove saved memory, including manual entries. Future new turns can create memory. Conversations, Profile, Garmin, plans and older records remain. Backups and text already sent to providers are not erased. To pause without deleting, turn memory Off instead.",
                     true,
                   )
                 }
@@ -742,17 +659,8 @@ export function MemoryContent({
           {view === "import" && (
             <>
               <p>
-                Choose individual minimized earlier sources; none are selected
-                automatically. Originals remain. Only eligible completed sources
-                are offered.
-              </p>
-              <p>{memory.historical.exclusions}</p>
-              <p>
-                At most 200 records / 100,000 Unicode scalars per selection;
-                batches at most 20 share the existing foreground writer.
-                Minimized text goes to the configured cloud model and can incur
-                cost, with no daily summary spend cap. Pause/cancel cannot
-                recall a request or refund unknown costs.
+                Choose earlier messages to add to memory. Only usable completed
+                sources are offered; originals remain.
               </p>
               {memory.historical.candidates.map((source) => (
                 <label className="memory-source-choice" key={source.id}>
@@ -772,7 +680,7 @@ export function MemoryContent({
                     {source.text}
                     {source.referent && (
                       <span className="memory-source-context">
-                        Selected antecedent only: {source.referent}
+                        Context: {source.referent}
                       </span>
                     )}
                   </span>
@@ -780,8 +688,8 @@ export function MemoryContent({
               ))}
               {!memory.historical.candidates.length && (
                 <p>
-                  No eligible linked source is available. Unproven or expired
-                  records require manual review, not inferred provenance.
+                  No usable earlier messages available. To recover older
+                  conversations, use Update from chat history.
                 </p>
               )}
               <button
@@ -799,7 +707,7 @@ export function MemoryContent({
                     { action: "import-create", sourceIds: selectedSources },
                     "Process reviewed sources?",
                     "Process selection",
-                    `${selectedSources.length} explicitly selected records will be processed using the configured cloud summary model. Minimized text may leave this device and incur cost with no daily summary cap. Originals remain; prior unknown costs remain reserved.`,
+                    `${selectedSources.length} selected messages go to the configured provider and may incur cost, with no daily processing cap. Original conversations remain. Cancel cannot recall sent text or charges.`,
                   )
                 }
               >
@@ -808,9 +716,15 @@ export function MemoryContent({
               {memory.historical.manifests.map((manifest) => (
                 <section className="memory-notice" key={manifest.id}>
                   <p>
-                    Import {manifest.state}: {manifest.position} /{" "}
-                    {manifest.total} records dispositioned. Check saved memory
-                    for progress.
+                    {manifest.state === "active"
+                      ? "Import running"
+                      : manifest.state === "paused"
+                        ? "Import paused"
+                        : manifest.state === "complete"
+                          ? "Import finished"
+                          : "Import needs review"}
+                    : {manifest.position} of {manifest.total} messages
+                    processed.
                   </p>
                   {manifest.state === "active" && (
                     <button
@@ -837,7 +751,7 @@ export function MemoryContent({
                           { action: "import-resume", id: manifest.id },
                           "Resume reviewed import?",
                           "Resume import",
-                          "Resume only the previously reviewed selection with the configured cloud summary model. Text may leave this device; costs have no daily cap. Original records and unknown previous costs remain. Changed authority will refuse rather than silently resume.",
+                          "Send the remaining reviewed messages to the configured provider. Costs have no daily cap; earlier uncertain requests are not repeated. Changed sources require a new review.",
                         )
                       }
                     >
@@ -864,8 +778,8 @@ export function MemoryContent({
                   )}
                   {manifest.state === "review-required" && (
                     <p>
-                      Sources or controls changed. This manifest cannot resume;
-                      cancel it and review a new eligible selection.
+                      Sources changed. Cancel this import and review a new
+                      selection.
                     </p>
                   )}
                 </section>
@@ -875,22 +789,19 @@ export function MemoryContent({
           {view === "legacy" && (
             <>
               <p>
-                Inactive · not used by ordinary chat. Read-only local review,{" "}
-                {memory.legacy.length} loaded (maximum 200). No embedding call,
-                conversion or automatic import. Original stores and migration
-                markers remain.
+                Older records are read-only and not used by chat. Up to 200 are
+                shown; nothing is automatically imported.
               </p>
               {!memory.legacy.length && <p>No older records loaded.</p>}
               {memory.legacy.map((old) => (
                 <article className="memory-row" key={old.id}>
                   <div>
                     <p className="memory-text">{old.text}</p>
-                    <p>
-                      {old.kind} · {old.status}
-                      {old.expiresAt !== null
-                        ? ` · Expires ${new Date(old.expiresAt).toLocaleString()}`
-                        : ""}
-                    </p>
+                    {old.expiresAt !== null && (
+                      <p>
+                        Expires {new Date(old.expiresAt).toLocaleDateString()}
+                      </p>
+                    )}
                     {old.conversationId && (
                       <button
                         type="button"

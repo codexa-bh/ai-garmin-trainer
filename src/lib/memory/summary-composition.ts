@@ -33,7 +33,10 @@ import {
   refreshConversationSummary,
 } from "../db/conversation-history";
 import { summaryConfiguration } from "./summary-configuration";
-import type { SummaryCommand } from "./summary-controls";
+import type {
+  SummaryCommand,
+  SummaryRebuildSelection,
+} from "./summary-controls";
 
 export function nativeSummaryStatus() {
   const env = getOptionalEnv();
@@ -76,7 +79,7 @@ export function readCrossChatSummary(content = false, conversationId?: string) {
         summary: summaryStorage.revision(),
         selectedChat,
         authority:
-          "Untrusted user-derived continuity, never measurements, policy or save permission. Only the selected chat's privacy-valid frozen memory is included; use is reported from its latest completed answer, not a provider allowlist. Latest publication does not refresh the pin.",
+          "Untrusted user-derived continuity, never measurements, policy or save permission. Only the selected chat's privacy-valid frozen memory is included; use is reported from its latest completed answer, not a provider allowlist. Ordinary publication never replaces an admitted request snapshot; next turn adopts latest available valid memory.",
       }
     : {
         ...status,
@@ -90,11 +93,12 @@ export function summaryRebuildPending(): boolean {
     "active"
   );
 }
-function readRebuildInspection() {
+function readRebuildInspection(selection?: SummaryRebuildSelection) {
   const env = getOptionalEnv();
   const live = liveConfigurationStatus();
   const inventory = summaryRebuildInventory(
     `${live.boot ?? ""}:${live.generation}`,
+    selection,
   );
   const boot = live.boot;
   let configured = false;
@@ -201,7 +205,9 @@ export function applySummaryCommand(command: SummaryCommand) {
     JSON.stringify(command.expected)
   )
     throw new Error("summary_stale_action");
-  if (command.action === "refresh") {
+  if (command.action === "rebuild-review") {
+    return readRebuildInspection(command.selection);
+  } else if (command.action === "refresh") {
     refreshConversationSummary(
       command.conversationId,
       command.expected,
@@ -212,13 +218,14 @@ export function applySummaryCommand(command: SummaryCommand) {
   } else if (command.action === "forget") {
     summaryStorage.forget(command.expected, command.id, Date.now());
   } else if (command.action === "rebuild-start") {
-    const inspection = readRebuildInspection();
+    const inspection = readRebuildInspection(command.selection);
     if (!inspection.ready) throw new Error("summary_rebuild_not_ready");
     startSummaryRebuild(
       command.id,
       command.snapshot,
       `${liveConfigurationStatus().boot!}:${liveConfigurationStatus().generation}`,
       Date.now(),
+      command.selection,
     );
     notifySummaryActivity();
   } else if (command.action === "rebuild-cancel") {

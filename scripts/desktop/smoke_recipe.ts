@@ -240,7 +240,7 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
   if (
     JSON.stringify(
       db.prepare("select * from summary_original_boundary").all(),
-    ) !== JSON.stringify([{ id: 1, floor: 0 }])
+    ) !== JSON.stringify([{ id: 1, floor: 0, clear_floor: 0 }])
   )
     throw new Error("Smoke original-message authority must be pristine.");
   const summary = db.prepare("select * from summary_state").all() as {

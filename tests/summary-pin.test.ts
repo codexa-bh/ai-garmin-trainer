@@ -120,22 +120,26 @@ it("production turn includes the real unmeasured SQLite pin without compaction a
   expect(readSummaryPin("non-luna")?.tokens).toBeNull();
 });
 
-it("freezes null at explicit creation even when S publishes before first message", () => {
+it("adopts memory published after creation at first admission without a manual refresh", () => {
   ensureConversation("empty");
   publish(1);
   const admitted = history.admit("empty", "What did we choose?");
-  expect(history.read(admitted.admission).segment.pinnedSummary).toBeNull();
+  expect(
+    history.read(admitted.admission).segment.pinnedSummary?.stamp.revision,
+  ).toBe(1);
   ensureConversation("later");
   expect(readSummaryPin("later")?.stamp.revision).toBe(1);
 });
 
-it("retains exact R1 after ordinary R2, across serialization and reopening SQLite bytes", async () => {
+it("adopts R2 at admission then keeps that request immutable across R3 and SQLite reopening", async () => {
   publish(1);
   ensureConversation("A");
   publish(2, "Considering weekends; not chosen.");
   const admitted = history.admit("A", "Why?");
   let replay = history.read(admitted.admission);
-  expect(replay.segment.pinnedSummary?.stamp.revision).toBe(1);
+  expect(replay.segment.pinnedSummary?.stamp.revision).toBe(2);
+  publish(3, "New publication during an admitted request must wait.");
+  expect(() => history.admit("A", "Overlapping window")).toThrow("busy");
   const pin = await projectSummaryPin(
     replay.segment.pinnedSummary!,
     counter(),
@@ -148,13 +152,19 @@ it("retains exact R1 after ordinary R2, across serialization and reopening SQLit
   db.close();
   db = new Database(bytes);
   expect(replayMessages(history.read(admitted.admission))[0]).toEqual(prefix);
-  expect(prefix.content).toContain("long weekdays rejected");
-  expect(prefix.content).not.toContain("Considering weekends");
-  expect(prefix.role).toBe("user");
+  expect(prefix.content).toContain("Considering weekends");
+  expect(prefix.content).not.toContain("New publication");
   expect(readSummaryPin("A")?.tokens).toBe(100);
+  history.abandon(admitted.admission);
+  const next = history.admit("A", "Next turn after reopening");
+  expect(
+    history.read(next.admission).segment.pinnedSummary?.stamp.revision,
+  ).toBe(3);
+  expect(prefix.role).toBe("user");
+  expect(readSummaryPin("A")?.tokens).toBeNull();
 });
 
-it("serializes the SQLite pin in actual locked-SDK planner and synthesis requests, stable across publication/reopen until explicit Refresh", async () => {
+it("serializes immutable in-flight memory then automatically adopts latest on next turn in actual SDK planner and synthesis requests", async () => {
   const requests: { url: string; body: Record<string, unknown> }[] = [];
   const transport: typeof fetch = async (url, init) => {
     const body = JSON.parse(String(init?.body));
@@ -256,11 +266,7 @@ it("serializes the SQLite pin in actual locked-SDK planner and synthesis request
   expect(calls[1].body.input).toEqual(calls[3].body.input);
   replay = history.read(admission);
   history.abandon(admission);
-  refreshConversationSummary(
-    "sdk-chat",
-    summaryStorage.version(),
-    replay.segment.revision,
-  );
+  // No Refresh or segment maintenance: admission alone adopts the latest.
   const fresh = history.admit("sdk-chat", "What remains unresolved?");
   const freshReplay = history.read(fresh.admission);
   const freshPin = await projectSummaryPin(
@@ -269,25 +275,30 @@ it("serializes the SQLite pin in actual locked-SDK planner and synthesis request
     new AbortController().signal,
   );
   expect(history.projectSummary!(freshReplay, freshPin)).toBe(true);
-  await generate({
-    purpose: "planner",
-    system: {
-      policy: "Current policy outranks untrusted continuity.",
-      context: "Fresh Profile.",
-    },
-    prompt: "What remains unresolved?",
-    conversation: {
-      history: replayMessages(history.read(fresh.admission)),
-      allowSoftLimit: false,
-    },
-  });
+  for (const purpose of ["planner", "final_synthesis"] as const) {
+    await generate({
+      purpose,
+      system: {
+        policy: "Current policy outranks untrusted continuity.",
+        context: "Fresh Profile.",
+      },
+      prompt: "What remains unresolved?",
+      conversation: {
+        history: replayMessages(history.read(fresh.admission)),
+        allowSoftLimit: false,
+      },
+    });
+  }
   const refreshed = requests
     .filter((value) => value.url.endsWith("/responses"))
-    .at(-1)!;
-  expect(JSON.stringify(refreshed.body.input)).toContain("poles not chosen");
-  expect(JSON.stringify(refreshed.body.input)).not.toContain(
-    "long weekdays rejected",
-  );
+    .slice(-2);
+  expect(refreshed).toHaveLength(2);
+  for (const request of refreshed) {
+    expect(JSON.stringify(request.body.input)).toContain("poles not chosen");
+    expect(JSON.stringify(request.body.input)).not.toContain(
+      "long weekdays rejected",
+    );
+  }
 });
 
 it("revokes only new summary-dependent debug copies, preserves original transcript/legacy grounding and returns committed correction metadata", () => {

@@ -23,6 +23,7 @@ import {
   type SummaryCandidate,
 } from "@/lib/memory/summary-policy";
 import { parseSummaryCommand } from "@/lib/memory/summary-controls";
+import { replayMessages } from "@/lib/chat/conversation-replay";
 import { createSummaryEngine } from "@/lib/memory/summary-application";
 import { removeRebuildFixtureSchema } from "./conversation-migration-fixture";
 let db: Database.Database, now: number;
@@ -105,6 +106,156 @@ function oldMemory() {
   now += 3000;
   return storage.inspect();
 }
+describe("explicit selected legacy recovery", () => {
+  const selection = {
+    version: 1 as const,
+    conversationIds: null,
+    includeLegacy: true,
+  };
+  it("reauthorizes only reviewed uncertainty, never known Clear or suppression, across the full pool", () => {
+    for (let n = 0; n < 260; n++)
+      message(`legacy-${n}`, undefined, "user", `chat-${n % 13}`);
+    db.prepare(
+      "update summary_original_boundary set floor=(select max(rowid) from message)",
+    ).run();
+    db.prepare("insert into summary_suppression(source_id) values(?)").run(
+      // Obtain the authentic original hash without granting legacy authority.
+      summaryRebuildInventory("boot", selection).selected[0]?.sourceId ??
+        "missing",
+    );
+    expect(inventory().counts.includedUserMessages).toBe(0);
+    expect(inventory().reasons.suppressed).toBe(1);
+    const reviewed = summaryRebuildInventory("boot", selection);
+    expect(reviewed.counts.includedUserMessages).toBe(259);
+    expect(reviewed.preflight.selection).toEqual(selection);
+    start("legacy", reviewed.snapshot, "boot", now, selection);
+    expect(readSummaryRebuildBatch()!.sources).toHaveLength(20);
+    cancelSummaryRebuild("legacy");
+    storage.control("clear", now);
+    expect(
+      summaryRebuildInventory("boot", selection).counts.includedUserMessages,
+    ).toBe(0);
+    expect(
+      summaryRebuildInventory("boot", selection).reasons["known-clear"],
+    ).toBe(260);
+  });
+  it("binds selected chat and legacy intent to review, duplicate identity and final source authority", () => {
+    message("A", undefined, "user", "A");
+    message("B", undefined, "user", "B");
+    const chosen = { ...selection, conversationIds: ["A"] };
+    const reviewed = summaryRebuildInventory("boot", chosen);
+    expect(reviewed.counts).toMatchObject({
+      chats: 2,
+      selectedChats: 1,
+      includedUserMessages: 1,
+      excludedUserMessages: 1,
+    });
+    expect(reviewed.reasons["not-selected"]).toBe(1);
+    expect(() => start("selected", reviewed.snapshot, "boot", now)).toThrow(
+      "stale_preflight",
+    );
+    start("selected", reviewed.snapshot, "boot", now, chosen);
+    expect(() =>
+      start("selected", reviewed.snapshot, "boot", now, selection),
+    ).toThrow("identity_conflict");
+    expect(readSummaryRebuildBatch()!.sources[0].original?.conversationId).toBe(
+      "A",
+    );
+    db.prepare(
+      "update message set content='Changed source' where id='A'",
+    ).run();
+    expect(status()?.state).toBe("invalidated");
+    expect(readSummaryRebuildBatch()).toBeNull();
+    expect(() =>
+      readSummaryRebuildBatch({ id: "selected", position: 0 }),
+    ).toThrow("not_active");
+  });
+  it("rejects empty/foreign/stale/extra recovery authority without acquiring consent", () => {
+    message("A", undefined, "user", "A");
+    const selection = {
+      version: 1 as const,
+      conversationIds: ["A"],
+      includeLegacy: true,
+    };
+    const base = {
+      version: 1,
+      expected: storage.version(),
+      action: "rebuild-review",
+      selection,
+    };
+    const bytes = db.serialize();
+    expect(parseSummaryCommand(base)).not.toBeNull();
+    for (const changed of [
+      { ...base, force: true },
+      { ...base, selection: { ...selection, version: 2 } },
+      { ...base, selection: { ...selection, force: true } },
+      { ...base, selection: { ...selection, conversationIds: ["A", "A"] } },
+      { ...base, selection: { ...selection, includeLegacy: "yes" } },
+    ])
+      expect(parseSummaryCommand(changed)).toBeNull();
+    expect(() =>
+      summaryRebuildInventory("boot", {
+        ...selection,
+        conversationIds: ["missing"],
+      }),
+    ).toThrow("selection_changed");
+    const empty = summaryRebuildInventory("boot", {
+      ...selection,
+      conversationIds: [],
+    });
+    expect(empty.preflight.ready).toBe(false);
+    expect(() =>
+      start("empty", empty.snapshot, "boot", now, {
+        ...selection,
+        conversationIds: [],
+      }),
+    ).toThrow("not_ready");
+    expect(db.serialize()).toEqual(bytes);
+  });
+  it("applies reviewed legacy authority to assistant context and its no-save/suppressed origin", () => {
+    message(
+      "u1",
+      "Equipment is unresolved; weekdays are short because of caregiving.",
+      "user",
+      "A",
+      1700000000,
+    );
+    message(
+      "a1",
+      "Consider poles or a bag; neither is chosen yet.",
+      "assistant",
+      "A",
+      1700000001,
+    );
+    message(
+      "u2",
+      "I reject the bag because it is awkward; are poles suitable?",
+      "user",
+      "A",
+      1700000002,
+    );
+    db.prepare(
+      "update summary_original_boundary set floor=(select max(rowid) from message)",
+    ).run();
+    const reviewed = summaryRebuildInventory("boot", selection);
+    expect(reviewed.counts.assistantContext).toBe(1);
+    start("context", reviewed.snapshot, "boot", now, selection);
+    const input = readSummaryRebuildBatch()!.sources.find(
+      (s) => s.original?.messageId === "u2",
+    )!;
+    expect(minimizeSummarySource(input)?.referent).toContain(
+      "neither is chosen",
+    );
+    db.prepare("insert into summary_suppression(source_id) values(?)").run(
+      input.original!.context!.userSourceId,
+    );
+    expect(() => readSummaryRebuildBatch()).toThrow("source_changed");
+    expect(
+      summaryRebuildInventory("boot", selection).counts.assistantContext,
+    ).toBe(0);
+  });
+});
+
 describe("full-pool original admission and local preflight", () => {
   it("counts more than the sidebar/import cap without export or effects and preserves genuine original roles/time/hash", () => {
     for (let n = 0; n < 241; n++)
@@ -249,6 +400,37 @@ describe("full-pool original admission and local preflight", () => {
     begin();
     expect(readSummaryRebuildBatch()!.sources[0].referent).toBeNull();
   });
+  it("refuses ambiguous equal-time user ancestry rather than bypassing a no-save origin via an arbitrary safe user", () => {
+    message(
+      "a-private",
+      "Do not save this equipment discussion.",
+      "user",
+      "tie",
+      1700000000,
+    );
+    message(
+      "z-safe",
+      "I prefer short weekday sessions.",
+      "user",
+      "tie",
+      1700000000,
+    );
+    message(
+      "offer",
+      "Consider poles or a bag; neither is chosen.",
+      "assistant",
+      "tie",
+      1700000001,
+    );
+    message("choice", "I choose the first option.", "user", "tie", 1700000002);
+    begin();
+    const batch = readSummaryRebuildBatch()!;
+    expect(
+      batch.sources.some((source) => source.original?.messageId === "choice"),
+    ).toBe(false);
+    expect(inventory().counts.assistantContext).toBe(0);
+    expect(inventory().reasons["unsafe-or-unresolved-context"]).toBe(2);
+  });
   it("Clear covers unlinked originals even with no completion/admission rows and does not reopen on enable", () => {
     message("pre-clear");
     storage.control("clear", now);
@@ -260,8 +442,20 @@ describe("full-pool original admission and local preflight", () => {
       excludedUserMessages: 1,
     });
     expect(inventory().reasons).toEqual({
-      "unproven-legacy-or-cleared-original": 1,
+      "known-clear": 1,
     });
+  });
+  it("refuses an oversized encoded selection before persisting an unreadable operation", () => {
+    message("x".repeat(5000000));
+    const reviewed = inventory();
+    expect(reviewed.counts.includedUserMessages).toBe(1);
+    expect(reviewed.limitExceeded).toBe(true);
+    expect(() =>
+      start("too-large-receipt", reviewed.snapshot, "boot", now),
+    ).toThrow("not_ready");
+    expect(
+      db.prepare("select count(*) as n from summary_rebuild").get(),
+    ).toEqual({ n: 0 });
   });
   it("discloses oversized sources and unresolved tied assistant context without clipping or invented pairing", () => {
     message("large", "x".repeat(16001));
@@ -300,6 +494,184 @@ describe("full-pool original admission and local preflight", () => {
   });
 });
 describe("same writer, staged candidate and atomic complete replacement", () => {
+  it("maps rich authored legacy meanings through admitted context, supplied patches, rendered memory and next-turn consumption (not remote quality)", async () => {
+    const rubric = [
+      {
+        chat: "weekdays",
+        user: "Caregiving leaves only short weekdays. Repeated long weekday plans failed; brief morning sessions are feasible.",
+        text: "Short weekday mornings fit caregiving; repeatedly long weekday plans failed, so use brief sessions.",
+        category: "constraint",
+        stance: "user-stated",
+      },
+      {
+        chat: "hiking",
+        user: "My weekend goal is a mountain hike with family; I need hiking preparation. Cycling helps fitness but does not replace time on feet.",
+        text: "Prepare for a weekend family mountain hike: cycling helps fitness, not a substitute for hiking-specific time on feet.",
+        category: "goal",
+        stance: "user-stated",
+      },
+      {
+        chat: "equipment",
+        user: "Poles are still an unresolved question. I reject the bag because carrying it is awkward, not because all equipment is bad.",
+        text: "The bag was rejected because carrying it is awkward. Poles remain an open question, not an endorsed choice.",
+        category: "rejected",
+        stance: "user-stated",
+      },
+      {
+        chat: "schedule",
+        user: "Evenings worked last winter only. My current schedule is mornings, replacing that earlier evening arrangement.",
+        text: "Mornings replace the historical last-winter evening arrangement; evenings are not a current preference.",
+        category: "decision",
+        stance: "user-stated",
+      },
+    ];
+    storage.edit(
+      storage.version(),
+      null,
+      "Current manual instruction: keep coaching concise.",
+      now,
+    );
+    message(
+      "equipment-origin",
+      "I have not chosen equipment; short weekdays fit caregiving.",
+      "user",
+      "equipment",
+      1699999998,
+    );
+    message(
+      "equipment-offer",
+      "Consider poles or a bag; neither is chosen yet.",
+      "assistant",
+      "equipment",
+      1699999999,
+    );
+    rubric.forEach((entry, index) =>
+      message(
+        `meaning-${index}`,
+        entry.user,
+        "user",
+        entry.chat,
+        1700000000 + index,
+      ),
+    );
+    for (let n = 0; n < 23; n++)
+      message(
+        `incidental-${n}`,
+        "One-off weather and route chatter, not a future preference.",
+        "user",
+        `noise-${n % 2}`,
+        1700000010 + n,
+      );
+    message("no-save-rich", "Do not save this: I prefer evening coaching.");
+    message("secret-rich", "My password is authored-private.");
+    db.prepare(
+      "update summary_original_boundary set floor=(select max(rowid) from message)",
+    ).run();
+    const selection = {
+      version: 1 as const,
+      conversationIds: null,
+      includeLegacy: true,
+    };
+    const review = summaryRebuildInventory("boot", selection);
+    expect(review.counts).toMatchObject({
+      includedUserMessages: 28,
+      excludedUserMessages: 2,
+      assistantContext: 1,
+    });
+    start("rich", review.snapshot, "boot", now, selection);
+    const before = storage.inspect();
+    const seen: {
+      user: string;
+      referent?: string;
+      sourceId: string;
+      original: { messageId: string };
+    }[] = [];
+    let jobs = 0;
+    const engine = createSummaryEngine({
+      storage,
+      identity: () => `rich-${jobs++}`,
+      now: () => now,
+      current: () => true,
+      jitter: () => 0,
+      generation: {
+        generate: async (system, prompt) => {
+          expect(system).toContain("A question is not commitment");
+          const request = JSON.parse(prompt) as {
+            previous: { id: string }[];
+            newSources: typeof seen;
+          };
+          seen.push(...request.newSources);
+          const upsert = request.newSources.flatMap((source) => {
+            const index = rubric.findIndex(
+              (entry) => entry.user === source.user,
+            );
+            if (index < 0) return [];
+            const entry = rubric[index];
+            return [
+              {
+                id: `meaning_${index}`,
+                text: entry.text,
+                category: entry.category,
+                stance: entry.stance,
+                sourceIds: [source.sourceId],
+                priority: 5,
+                expiresAt: null,
+                replaces: [],
+              },
+            ];
+          });
+          return {
+            patch: {
+              version: 1,
+              keep: request.previous.map((item) => item.id),
+              upsert,
+              remove: [],
+              coverage: request.newSources.map((source) => ({
+                sourceId: source.sourceId,
+                reason: rubric.some((entry) => entry.user === source.user)
+                  ? "represented"
+                  : "low-value",
+              })),
+            },
+            usage: { input: 100, output: 100, cached: 0 },
+          };
+        },
+      },
+    });
+    now += 3000;
+    await engine.tick(new AbortController().signal);
+    expect(status()?.state).toBe("active");
+    expect(storage.inspect()).toEqual(before);
+    now += 2100;
+    await engine.tick(new AbortController().signal);
+    expect(status()).toMatchObject({ state: "complete", processed: 28 });
+    expect(
+      seen.find((source) => source.original.messageId === "meaning-2")
+        ?.referent,
+    ).toContain("neither is chosen");
+    expect(
+      seen.some((source) => /password|Do not save/.test(source.user)),
+    ).toBe(false);
+    const saved = storage.inspect();
+    for (const entry of rubric) expect(saved.text).toContain(entry.text);
+    expect(saved.text).toContain("Current manual instruction");
+    expect(saved.text).not.toMatch(
+      /never cycle|poles chosen|must train evenings|weather/,
+    );
+    expect([...saved.text].length).toBeLessThan(6000);
+    expect(saved.items.every((item) => item.sourceIds.length <= 32)).toBe(true);
+    expect(
+      saved.items.find((item) => item.id === "meaning_2")!.sourceIds.length,
+    ).toBe(3);
+    const next = history.admit(
+      "existing-null-chat",
+      "What should guide us next?",
+    );
+    const consumed = JSON.stringify(
+      replayMessages(history.read(next.admission)),
+    );
+    for (const entry of rubric) expect(consumed).toContain(entry.text);
+  });
   it("handles >200 originals in finite batches, retaining old memory/pins until one complete publication, without copying old generated noise", () => {
     const old = oldMemory();
     storage.edit(storage.version(), null, "Keep concise coaching.", now);
@@ -608,7 +980,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     expect(inventory().counts.includedUserMessages).toBe(0);
   });
   it.each([
-    "format_version=2",
+    "format_version=3",
     "candidate_json='corrupt'",
     "position=1",
     "state='unknown'",
@@ -643,7 +1015,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     const result = migrateDatabase(db);
     expect(result).toMatchObject({
       fromVersion: 21,
-      toVersion: 22,
+      toVersion: 23,
       integrity: "ok",
     });
     const bytes = db.serialize();

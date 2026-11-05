@@ -176,45 +176,96 @@ it("admits only fixed presentation snapshots, blocks all Memory POSTs locally an
     (await command({ type: "memory", action: "fixture-populated" })).ok,
   ).toBe(false);
 });
-it("captures actual production Memory components with fixed authored content across secondary views", async () => {
+it("permits only closed non-generating fixed history reviews, never caller inputs or mutations", async () => {
   document.querySelector("textarea")!.remove();
   document.querySelector('[aria-label="Rebuild from chat history"]')!.remove();
-  await command({ type: "memory", action: "fixture-populated" });
-  const dto = (await (
-    await fetch("/api/cross-chat-summary?view=content")
-  ).json()) as SummaryInspection;
-  const aside = document.querySelector("aside")!;
-  aside.querySelector(".memory-root-card")!.remove();
-  render(
-    React.createElement(MemoryContent, {
-      memory: dto,
-      memoryMessage: "",
-      isMemoryLoading: false,
-      pendingMemoryAction: null,
-      loadMemories: vi.fn(),
-      changeMemory: vi.fn(),
-      editingMemoryId: null,
-      editingMemoryText: "",
-      setEditingMemoryId: vi.fn(),
-      setEditingMemoryText: vi.fn(),
-      cancelMemoryEdit: vi.fn(),
-      beginMemoryEdit: vi.fn(),
-      canDiscardMemoryEdit: () => true,
-      onOpenSource: vi.fn(),
-      runInBackground: vi.fn(),
-    }),
-    { container: aside.appendChild(document.createElement("div")) },
-  );
-  for (const action of [
-    null,
-    "chat-details",
-    "back",
-    "rebuild-preflight",
-    "history-effects",
-    "back",
-    "forget",
-  ]) {
-    if (action)
+  await command({ type: "memory", action: "fixture-history" });
+  const expected = { revision: 3, privacy: 0, control: 1, manual: 0 };
+  const selection = {
+    version: 1,
+    conversationIds: ["fixture_chat_0"],
+    includeLegacy: true,
+  };
+  const review = { version: 1, expected, action: "rebuild-review", selection };
+  const result = await (
+    await fetch("/api/cross-chat-summary", {
+      method: "POST",
+      body: JSON.stringify(review),
+    })
+  ).json();
+  expect(result.rebuild.selection).toEqual(selection);
+  expect(result.rebuild.counts).toMatchObject({
+    includedUserMessages: 19,
+    excludedUserMessages: 181,
+    selectedChats: 1,
+  });
+  for (const changed of [
+    { ...review, force: true },
+    { ...review, action: "rebuild-start" },
+    { ...review, selection: { ...selection, conversationIds: ["private-id"] } },
+    { ...review, selection: { ...selection, text: "private" } },
+    { ...review, expected: { ...expected, control: 2 } },
+  ])
+    await expect(
+      fetch("/api/cross-chat-summary", {
+        method: "POST",
+        body: JSON.stringify(changed),
+      }),
+    ).rejects.toThrow(/cannot mutate/);
+  for (const action of ["usage", "chat-details", "refresh"])
+    expect((await command({ type: "memory", action })).ok).toBe(false);
+});
+it.each([
+  { name: "overview", actions: [] },
+  { name: "history review", actions: ["rebuild-preflight"] },
+  {
+    name: "history confirmation",
+    actions: ["rebuild-preflight", "history-effects"],
+  },
+  {
+    name: "cancelled confirmation",
+    actions: ["rebuild-preflight", "history-effects", "cancel-confirm"],
+  },
+  { name: "management", actions: ["manage"] },
+  { name: "earlier sources", actions: ["manage", "earlier-sources"] },
+  { name: "older records", actions: ["manage", "older-records"] },
+  { name: "back navigation", actions: ["manage", "back"] },
+  { name: "Forget confirmation", actions: ["forget"] },
+])(
+  "captures and restores actual production Memory $name with fixed authored content",
+  async ({ actions }) => {
+    document.querySelector("textarea")!.remove();
+    document
+      .querySelector('[aria-label="Rebuild from chat history"]')!
+      .remove();
+    await command({ type: "memory", action: "fixture-populated" });
+    const dto = (await (
+      await fetch("/api/cross-chat-summary?view=content")
+    ).json()) as SummaryInspection;
+    const aside = document.querySelector("aside")!;
+    aside.querySelector(".memory-root-card")!.remove();
+    render(
+      React.createElement(MemoryContent, {
+        memory: dto,
+        memoryMessage: "",
+        isMemoryLoading: false,
+        pendingMemoryAction: null,
+        loadMemories: vi.fn(),
+        reviewHistory: vi.fn(),
+        changeMemory: vi.fn(),
+        editingMemoryId: null,
+        editingMemoryText: "",
+        setEditingMemoryId: vi.fn(),
+        setEditingMemoryText: vi.fn(),
+        cancelMemoryEdit: vi.fn(),
+        beginMemoryEdit: vi.fn(),
+        canDiscardMemoryEdit: () => true,
+        onOpenSource: vi.fn(),
+        runInBackground: vi.fn(),
+      }),
+      { container: aside.appendChild(document.createElement("div")) },
+    );
+    for (const action of actions)
       expect((await command({ type: "memory", action })).ok).toBe(true);
     const result = await command({
       type: "captureView",
@@ -227,8 +278,8 @@ it("captures actual production Memory components with fixed authored content acr
       (await command({ type: "memory", action: "observe" }))
         .presentationFixture,
     ).toBe(true);
-  }
-});
+  },
+);
 it("restores the fixed presentation adapter on expiry and refuses caller fixture fields", async () => {
   vi.useFakeTimers();
   document.querySelector("textarea")!.remove();

@@ -1,5 +1,44 @@
 import type { SummaryVersion } from "./summary-policy";
 
+export type SummaryRebuildSelection = {
+  version: 1;
+  conversationIds: string[] | null;
+  includeLegacy: boolean;
+};
+export const DEFAULT_REBUILD_SELECTION: SummaryRebuildSelection = {
+  version: 1,
+  conversationIds: null,
+  includeLegacy: false,
+};
+export function parseRebuildSelection(
+  value: unknown,
+): SummaryRebuildSelection | null {
+  if (
+    !object(value) ||
+    Object.keys(value).sort().join() !==
+      "conversationIds,includeLegacy,version" ||
+    value.version !== 1 ||
+    typeof value.includeLegacy !== "boolean"
+  )
+    return null;
+  const ids = value.conversationIds;
+  if (
+    ids !== null &&
+    (!Array.isArray(ids) ||
+      ids.length > 10000 ||
+      new Set(ids).size !== ids.length ||
+      ids.some(
+        (id) => typeof id !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(id),
+      ))
+  )
+    return null;
+  return {
+    version: 1,
+    conversationIds: ids === null ? null : [...(ids as string[])].sort(),
+    includeLegacy: value.includeLegacy,
+  };
+}
+
 export type SummaryCommand = {
   version: 1;
   expected: SummaryVersion;
@@ -9,7 +48,13 @@ export type SummaryCommand = {
   | { action: "forget"; id: string }
   | { action: "refresh"; conversationId: string; segmentRevision: number }
   | { action: "import-create"; sourceIds: string[] }
-  | { action: "rebuild-start"; id: string; snapshot: string }
+  | { action: "rebuild-review"; selection: SummaryRebuildSelection }
+  | {
+      action: "rebuild-start";
+      id: string;
+      snapshot: string;
+      selection?: SummaryRebuildSelection;
+    }
   | { action: "rebuild-cancel"; id: string }
   | { action: "import-pause" | "import-resume" | "import-cancel"; id: string }
 );
@@ -17,6 +62,8 @@ export type SummaryCommand = {
 export type SummaryRebuildInspection = {
   version: 1;
   snapshot: string;
+  selection: SummaryRebuildSelection;
+  conversations: { id: string; title: string }[];
   ready: boolean;
   complete: boolean;
   limitExceeded: boolean;
@@ -26,6 +73,8 @@ export type SummaryRebuildInspection = {
   capability: string;
   counts: {
     chats: number;
+    selectedChats: number;
+    legacyUserMessages: number;
     messages: number;
     userMessages: number;
     assistantMessages: number;
@@ -86,9 +135,18 @@ export function parseSummaryCommand(value: unknown): SummaryCommand | null {
       return null;
   } else if (value.action === "forget") {
     if (fields !== "action,expected,id,version" || !id(value.id)) return null;
+  } else if (value.action === "rebuild-review") {
+    if (
+      fields !== "action,expected,selection,version" ||
+      !parseRebuildSelection(value.selection)
+    )
+      return null;
   } else if (value.action === "rebuild-start") {
     if (
-      fields !== "action,expected,id,snapshot,version" ||
+      (fields !== "action,expected,id,snapshot,version" &&
+        fields !== "action,expected,id,selection,snapshot,version") ||
+      (value.selection !== undefined &&
+        !parseRebuildSelection(value.selection)) ||
       !id(value.id) ||
       typeof value.snapshot !== "string" ||
       !/^[a-f0-9]{64}$/.test(value.snapshot)

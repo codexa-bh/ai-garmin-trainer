@@ -258,9 +258,10 @@ export const conversationHistory: ConversationHistoryPorts = {
         role: "user",
         content: userText,
       });
-      // Preexisting conversations get a compatible initial boundary; an existing
-      // creation-time null is never replaced merely because S has since published.
-      adoptSummaryPin(userRecord.conversationId);
+      // Busy exclusion above owns this atomic between-turn boundary. Capture
+      // latest available memory once, including replacing a stale/null pin;
+      // ordinary publication cannot swap the snapshot of an admitted request.
+      adoptSummaryPin(userRecord.conversationId, true);
       const pin = readSummaryPin(userRecord.conversationId);
       const privacyGeneration = generation();
       const turnId = randomUUID();

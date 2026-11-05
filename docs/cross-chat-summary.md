@@ -117,18 +117,20 @@ Restart retains backlog/checkpoint/attempt/cost facts and refuses blind uncertai
 
 ## Stable pin, inspection, controls and privacy
 
-Schema20 freezes a sealed summary/null snapshot transactionally at explicit New
-chat; existing conversations acquire a compatible boundary at first admission.
-Before qualified inference, exact token accounting measures the entire frozen
-snapshot once, without an independent memory clipping ceiling. The whole request
-adds that measured memory to its existing non-memory allocation and retains model,
-output/safety and fresh-tail bounds. Genuine whole-request overflow reports capacity
-rather than silently dropping meanings. The measured pin is sealed and survives
-ordinary publication and restart; old already-measured projections (including their
-old omissions) remain byte-stable until explicit adoption; neither rewrites latest S.
-New chat and Refresh give pending activity at most eight seconds to catch up before
-freezing only the available revision/null. A late publication never silently replaces
-that pin; inspect pending/as-of/selected use and explicitly Refresh later if needed.
+Schema20 stores sealed summary/null snapshots. Prospectively, each turn's atomic
+admission replaces stale/null adoption with latest available privacy-valid memory,
+after busy exclusion. Reads never adopt. Publication during a turn never swaps its
+snapshot; the next admission adopts it without manual maintenance.
+Full newly adopted memory is included on all configured chat routes without
+requiring tokenizer/capacity metadata or an independent projection ceiling. Old
+sealed token counts/omissions are historical metadata, not current model-fit proof.
+Provider capacity errors do not silently drop meanings or switch models. The pin
+is sealed and survives ordinary publication and restart within its admitted request;
+next-turn adoption never rewrites latest S.
+Explicit New chat and the compatibility Refresh API retain their bounded catch-up,
+but normal next-turn adoption adds no provider wait and needs no Refresh. A late
+publication cannot replace a currently admitted snapshot. Cross-turn prefixes may
+change; structural prefix identity is not a cache-billing guarantee.
 Explicit Refresh compares summary authority and segment revision and refuses a
 busy chat; deliberate local compaction adopts latest S inside its existing CAS.
 Both planner and synthesis replay the pin as untrusted user data, not policy.
@@ -138,8 +140,8 @@ pending count, character/item counts, shared model, enable state, N/as-of/spend 
 expected revision/privacy/control/manual authority. Without a selected chat it
 reports `usedByChat:false`. `?view=content&conversationId=<id>` separately returns
 local items/manual IDs/source links, preserved legacy review, historical manifests
-and the selected-chat pin; `usedByChat` reflects its measured qualified-route
-projection, not a global toggle. `?view=native` is a smaller closed version1 native
+and the selected-chat pin; `usedByChat` requires a matching completed-answer
+consumption observation, not a token count, provider allowlist or global toggle. `?view=native` is a smaller closed version1 native
 status with no content. States distinguish Off, unselected, never-produced, stale,
 unavailable and fresh. Corrupt/unknown state preserves bytes and refuses use/writes,
 never resets the cursor.
@@ -219,14 +221,21 @@ Preflight paginates the full original conversation/message pool in250-row pages,
 not the sidebar or200-row import window. It reports total/included/excluded chats,
 user messages and separate unique assistant-context counts. User exclusion reasons
 are exclusive; other message roles are not user sources. Local inspection neither
-exports nor calls a provider. Pre-generation cost is explicitly unknown, not a finite worst-case quote or invoice.
-There is no tokenizer/price prerequisite or app spending cap. Historical reservations,
-observed usage, unpriced attempts, manual preservation and replacement semantics remain visible. Off, unselected,
+exports nor calls a provider. Pre-generation cost is explicitly unknown, not a finite
+worst-case quote or invoice. There is no tokenizer/price prerequisite or app spending
+cap. A concise final confirmation names privacy/uncertain cost and manual preservation/
+replacement consequences. Historical reservations, observed usage and unpriced attempts
+remain recorded internally; raw accounting, technical tables and per-chat snapshot
+routes are not routine UI. Off, unselected,
 missing native key/lifetime, empty selections and operation limits refuse Start;
 no model/key/topology is enabled or substituted.
 
-Schema22 adds only an original-message authority watermark and staged-operation
-records. Old Clear cutoffs covered linked admissions, not unlinked originals.
+Schema22 added an original-message authority watermark and staged-operation
+records. Schema23 adds only a known future-Clear floor initialized to zero, preserving
+the original migration/floor, active summary/pin formats and historical receipts.
+Old clearing remains uncertain, not retrospectively certified. Exact all/selected-chat
+review plus explicit legacy inclusion can admit that uncertainty; known suppression,
+recorded Clear and linked cutoff remain binding on sources and context ancestry. Old Clear cutoffs covered linked admissions, not unlinked originals.
 Migration therefore fences all then-existing **unlinked** rows as unproven, rather
 than treating button consent/timestamps as resurrection permission. Completed linked
 sources still obey actual version/cutoff/suppression authority. Genuinely post-fence
@@ -238,9 +247,15 @@ endorsement; its original and originating-user ancestry follows derived items so
 Forget/manual precedence cannot disappear. A forgotten unlinked original remains
 suppressed across edits; a genuinely new message has a different identity.
 
-Strict version1 commands add `rebuild-start` (`id`, reviewed `snapshot`) and
-`rebuild-cancel` (`id`) under the existing expected revision/privacy/control/manual
-CAS. The operation binds source inventory/content, authority and native boot/live
+Strict version1 commands include non-generating `rebuild-review` (`selection`),
+`rebuild-start` (`id`, reviewed `snapshot`, optional `selection`) and `rebuild-cancel`
+(`id`) under the existing expected revision/privacy/control/manual CAS. Selection
+is exactly `{version:1,conversationIds:null|string[],includeLegacy:boolean}`:
+null is all retained, a unique sorted ID set is selected chats; empty is non-ready.
+Unknown/extra/duplicate/foreign inputs refuse. Bare old Start stays conservative.
+New format2 operations seal selection and explicit inclusion intent into authority
+JSON; format1 receipts remain readable without consent backfill. Same-ID requests
+with different consent refuse; read/final publish revalidate the same inventory. The operation binds source inventory/content, authority and native boot/live
 configuration generation. Same-ID reconciliation never starts another operation;
 concurrent rebuild/import/writer starts refuse. Internal jobs reuse S's20-source
 provider/lease/attempt-accounting seams, but start from an empty generated
@@ -260,7 +275,8 @@ wins. Manual and privacy authority changes invalidate staging; candidate text is
 scrubbed while bounded progress/provenance/accounting receipts remain. Completed
 operations retain no duplicate generated-text history. Original messages, Profile,
 Garmin, plans, legacy stores and gross/unknown liabilities are not rewritten.
-Existing chat pins do not adopt ordinary rebuild publication automatically.
+Next admitted chat turns adopt available valid rebuild publication automatically;
+a request already admitted retains its snapshot unless immediate privacy revokes it.
 
 Authored semantic rubric (separate real-provider approval/evidence required):
 
@@ -273,8 +289,10 @@ Authored semantic rubric (separate real-provider approval/evidence required):
 | Isolated measurement/rewrite/obsolete monthly target                     | Exclude unless needed for a durable conclusion; unused capacity is preferable     |
 | No-save, unsafe, suppressed or cleared history                           | No export/resurrection or plan-save permission                                    |
 
-Current keyless ordinary smoke proves rendered preflight and missing-capability
-Start refusal, not successful generation/progress/cancel or semantic quality.
+Current keyless ordinary smoke proves real manual lifecycle and rendered preflight/
+missing-capability refusal. Fixed authored presentation separately covers selected
+legacy review/final confirmation, populated/empty/Off/error/progress/result/recovery
+states, never successful provider progression or semantic quality.
 Real-SQLite supplied-generation tests prove staging/races/mechanics. Exact separately
 approved native provider/model/export/cumulative-spend evidence is required before
 claiming actual relevance selection or live consumption. Source delivery does not
