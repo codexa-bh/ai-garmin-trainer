@@ -7,6 +7,12 @@
     provider: "ollama",
     modelId: "synthetic-memory:small",
   });
+  const cloudSummaryChoice = JSON.stringify({
+    version: 1,
+    entryId: "entry_summary_cloud",
+    provider: "openai",
+    modelId: "gpt-6-luna",
+  });
   const byId = (id) => document.getElementById(id);
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -61,13 +67,24 @@
       legacyLimit:
         byId("history-limited")?.checked === true &&
         date?.value === "2024-01-01",
+      summaryScalar:
+        byId("SUMMARY_MODEL")?.value === "gpt-6-luna" &&
+        visible(byId("memory-bind-catalog")),
+      summaryBound:
+        byId("SUMMARY_MODEL")?.value === cloudSummaryChoice &&
+        !visible(byId("memory-bind-catalog")),
       summaryOn:
         byId("SUMMARY_ENABLED")?.value === "true" &&
         byId("SUMMARY_MODEL")?.value === summaryChoice &&
         byId("SUMMARY_CHAR_LIMIT")?.value === "6000",
       summaryOff:
         byId("SUMMARY_ENABLED")?.value === "false" &&
-        ["unselected", summaryChoice].includes(byId("SUMMARY_MODEL")?.value) &&
+        [
+          "unselected",
+          summaryChoice,
+          "gpt-6-luna",
+          cloudSummaryChoice,
+        ].includes(byId("SUMMARY_MODEL")?.value) &&
         byId("SUMMARY_CHAR_LIMIT")?.value === "6000",
       saveSubmitted,
       saveRequested,
@@ -170,13 +187,10 @@
           ["unselected", "Unselected"],
           [summaryChoice, "Ollama / synthetic-memory:small"],
           [
-            JSON.stringify({
-              version: 1,
-              entryId: "entry_summary_cloud",
-              provider: "openai",
-              modelId: "synthetic-title:small",
-            }),
-            "OpenAI / synthetic-title:small — key unavailable",
+            byId("SUMMARY_MODEL")?.value === "gpt-6-luna"
+              ? "gpt-6-luna"
+              : cloudSummaryChoice,
+            "OpenAI / gpt-6-luna — key unavailable",
           ],
           [
             JSON.stringify({
@@ -282,6 +296,23 @@
             form.requestSubmit(button);
           }
           break;
+        case "cancelDraft":
+          if (observe().firstRun)
+            throw Error("Existing-installation scope required");
+          click("cancel");
+          break;
+        case "bindSummary":
+          if (
+            observe().firstRun ||
+            byId("SUMMARY_MODEL")?.value !== "gpt-6-luna" ||
+            byId("SUMMARY_ENABLED")?.value !== "false"
+          )
+            throw Error("Fixed keyless scalar scope required");
+          summaryLabels();
+          click("memory-bind-catalog");
+          if (byId("SUMMARY_MODEL").value !== cloudSummaryChoice)
+            throw Error("Exact catalog binding required");
+          break;
         case "summaryOn":
         case "summaryOff":
           if (observe().firstRun)
@@ -377,7 +408,7 @@
               ...summaryLabels(),
               staticCopy(
                 "memory-help",
-                "Keep useful decisions, preferences and constraints between chats. Eligible conversation context may be sent to the selected provider. Larger memory can cost more; automatic summaries have no daily spending cap.",
+                "Keep useful decisions, preferences and constraints between chats. Eligible conversation context may be sent to the selected provider. Larger memory can cost more.",
               ),
               staticCopy(
                 "memory-model-help",
@@ -389,9 +420,20 @@
               ),
               staticCopy(
                 "memory-off-help",
-                "Off stops summary use and new processing. Stored data stays; automatic titles continue. Trainer → Memory disables memory immediately; saving On does not undo it.",
+                "Automatic processing may incur charges and has no daily spending cap. Off stops summary use and new processing. Stored data stays; automatic titles continue. Trainer → Memory disables memory immediately; saving On does not undo it.",
               ),
             ];
+            const bind = byId("memory-bind-catalog");
+            if (visible(bind)) {
+              if (
+                byId("SUMMARY_MODEL").value !== "gpt-6-luna" ||
+                bind.childElementCount ||
+                bind.textContent.replace(/\s+/g, " ").trim() !==
+                  "Use this catalog entry on Save"
+              )
+                throw Error("Unknown explicit binding control");
+              labels.push(bind);
+            }
             const legend = byId("memory-section").querySelector("legend");
             if (legend.childElementCount || legend.textContent !== "Memory")
               throw Error("Unknown Memory heading");

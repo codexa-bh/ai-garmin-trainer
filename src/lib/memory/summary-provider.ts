@@ -48,8 +48,8 @@ const summaryPatchSchema = z.strictObject({
   keep: z.array(z.string()),
   upsert: z.array(
     z.strictObject({
-      id: z.string(),
-      text: z.string(),
+      id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
+      text: z.string().min(1),
       category: z.enum([
         "decision",
         "constraint",
@@ -60,8 +60,8 @@ const summaryPatchSchema = z.strictObject({
         "discussion",
       ]),
       stance: z.enum(["user-stated", "endorsed", "discussed-not-endorsed"]),
-      sourceIds: z.array(z.string()),
-      priority: z.number().int(),
+      sourceIds: z.array(z.string().max(160)).min(1).max(32),
+      priority: z.number().int().min(0).max(5),
       expiresAt: z.number().int().nullable(),
       replaces: z.array(z.string()),
     }),

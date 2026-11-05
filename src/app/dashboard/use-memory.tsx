@@ -97,6 +97,8 @@ export function useMemoryFeature({
     "Memory has not been inspected.",
   );
   const [isMemoryLoading, setIsMemoryLoading] = useState(false);
+  const [isMemoryReadUnavailable, setIsMemoryReadUnavailable] = useState(false);
+  const reading = useRef<number | null>(null);
   const [pendingMemoryAction, setPendingMemoryAction] = useState<
     MemoryAction["action"] | null
   >(null);
@@ -107,27 +109,39 @@ export function useMemoryFeature({
   const selected = useRef<string | null>(null);
   const sequence = useRef(0);
   const changing = useRef(false);
-  useEffect(
-    () => () => {
-      sequence.current++;
-    },
-    [],
-  );
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    const generation = sequence;
+    return () => {
+      mounted.current = false;
+      generation.current++;
+    };
+  }, []);
 
   const loadMemories = useCallback(
     async (showStatus = true, conversationId?: string | null) => {
+      if (!mounted.current) return;
       if (conversationId !== undefined && selected.current !== conversationId) {
         selected.current = conversationId;
-        currentInspection.current = null;
-        setMemory(null);
-        setEditingMemoryId(null);
-        setEditingMemoryText("");
+        sequence.current++;
+        // Resolving/selecting a conversation is a passive metadata read, not a
+        // revocation of global memory or its editor. Discard only the old chat
+        // projection and confirmation identity; privacy mutations still clear all.
+        if (currentInspection.current) {
+          const global = { ...currentInspection.current, selectedChat: null };
+          currentInspection.current = global;
+          setMemory(global);
+        }
       }
       // Global memory changes revoke every selected-chat projection. A read made
       // before commit must not repopulate the hidden snapshot, even after failure.
       if (changing.current) return;
+      if (reading.current === sequence.current) return;
       const request = ++sequence.current;
-      setIsMemoryLoading(true);
+      reading.current = request;
+      // Passive observation never blanks, disables or inserts a loading row.
+      setIsMemoryLoading(currentInspection.current === null);
       try {
         const query = new URLSearchParams({ view: "content" });
         if (selected.current) query.set("conversationId", selected.current);
@@ -172,17 +186,23 @@ export function useMemoryFeature({
         )
           throw new Error("Unsupported memory inspection");
         if (request !== sequence.current) return;
-        currentInspection.current = result;
-        setMemory(result);
+        const same =
+          JSON.stringify(currentInspection.current) === JSON.stringify(result);
+        if (!same) {
+          currentInspection.current = result;
+          setMemory(result);
+        }
+        setIsMemoryReadUnavailable(false);
         setMemoryMessage("");
         if (showStatus)
           setStatus({ kind: "ok", message: "Memory inspected locally." });
       } catch {
         if (request !== sequence.current) return;
-        currentInspection.current = null;
-        setMemory(null);
+        // Keep the last observed content/operation visibly marked as stale.
+        // All mutations are refused until a successful read restores authority.
+        setIsMemoryReadUnavailable(true);
         setMemoryMessage(
-          "Memory inspection unavailable. Check again to reconcile saved state; your data has not been reset.",
+          "Connection lost. Shown memory and progress are last known, not current. Reconnecting automatically; no update is repeated.",
         );
         if (showStatus)
           setStatus({
@@ -190,27 +210,34 @@ export function useMemoryFeature({
             message: "Memory inspection unavailable.",
           });
       } finally {
+        if (reading.current === request) reading.current = null;
         if (request === sequence.current) setIsMemoryLoading(changing.current);
       }
     },
     [setStatus],
   );
   useEffect(() => {
-    if (memory?.rebuild?.operation?.state !== "active") return;
+    if (
+      memory?.rebuild?.operation?.state !== "active" &&
+      !isMemoryReadUnavailable &&
+      !memory?.historical.manifests.some((m) => m.state === "active")
+    )
+      return;
     // Status reconciliation only. Never replay Start or unknown mutations.
     const timer = setInterval(() => {
-      loadMemories(false).catch(() => {
-        setMemory(null);
-        setMemoryMessage(
-          "Rebuild status unavailable. Reload to reconcile; no action was replayed.",
-        );
-      });
+      loadMemories(false).catch(() => setIsMemoryReadUnavailable(true));
     }, 2000);
     return () => clearInterval(timer);
-  }, [memory?.rebuild?.operation?.state, loadMemories]);
+  }, [
+    memory?.rebuild?.operation?.state,
+    memory?.historical.manifests,
+    isMemoryReadUnavailable,
+    loadMemories,
+  ]);
   async function reviewHistory(selection: SummaryRebuildSelection) {
-    if (!memory || changing.current) return;
+    if (!memory || changing.current || isMemoryReadUnavailable) return;
     const request = ++sequence.current;
+    changing.current = true;
     const before = memory;
     setIsMemoryLoading(true);
     try {
@@ -243,14 +270,18 @@ export function useMemoryFeature({
         "History review unavailable. Check saved memory and review again; nothing was started.",
       );
     } finally {
-      if (request === sequence.current) setIsMemoryLoading(false);
+      changing.current = false;
+      if (mounted.current) {
+        setIsMemoryLoading(false);
+        if (request !== sequence.current) await loadMemories(false);
+      }
     }
   }
   async function changeMemory(
     action: MemoryAction,
     reviewed?: SummaryInspection,
   ) {
-    if (!memory || changing.current) return;
+    if (!memory || changing.current || isMemoryReadUnavailable) return;
     if (action.action === "rebuild-review")
       return reviewHistory(action.selection);
     if (
@@ -367,6 +398,7 @@ export function useMemoryFeature({
       );
       // Do not permit another mutation against an uncertain saved snapshot.
       setMemory(null);
+      setIsMemoryReadUnavailable(true);
     } finally {
       changing.current = false;
       setIsMemoryLoading(false);
@@ -393,6 +425,7 @@ export function useMemoryFeature({
     memory,
     memoryMessage,
     isMemoryLoading,
+    isMemoryReadUnavailable,
     pendingMemoryAction,
     beginMemoryEdit,
     canDiscardMemoryEdit,

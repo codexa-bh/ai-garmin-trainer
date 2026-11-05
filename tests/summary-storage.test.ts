@@ -163,6 +163,25 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
       ),
     ).toThrow("summary_invalid_usage");
   });
+  it("refuses malformed/private diagnostic shapes before persistence and preserves historical coarse usage", () => {
+    const job = { jobId: "unused" } as SummaryBatch;
+    const usage = { input: 10, output: 5, cached: null };
+    const before = db.serialize();
+    for (const detail of [
+      { invariant: "vendor private error" },
+      { invariant: "item-id", sourceId: "private" },
+      { invariant: "character-cap", actual: 2_000_001 },
+      { invariant: "item-text", itemIndex: -1 },
+    ])
+      expect(() => storage.usage(job, usage, "value", detail as never)).toThrow(
+        "summary_invalid_usage",
+      );
+    expect(() =>
+      storage.usage(job, usage, "shape", { invariant: "item-id" }),
+    ).toThrow("summary_invalid_usage");
+    expect(db.serialize()).toEqual(before);
+    expect(() => storage.usage(job, usage, "value")).not.toThrow();
+  });
   it("orders late/equal-time completions, excludes abandoned and old history, and never repeats covered source", () => {
     const a = history.admit("A", "Mornings chosen for time.");
     const b = history.admit("B", "Evenings considered, not chosen.");

@@ -103,6 +103,28 @@ function valid(_system: string, prompt: string) {
   };
 }
 describe("actual production summary composition and foreground cancellation", () => {
+  it("omits unused archive/import excerpts from ordinary content without changing preserved legacy bytes", () => {
+    db.exec(`insert into trainer_memory(id,category,value,status,source_type,provenance_text,created_at,updated_at)
+      values('legacy','preference','Authored preserved legacy fact','confirmed','user','Authored original',1,1);
+      insert into semantic_memory(id,user_id,kind,text,status,embedding_json,embedding_model,source,created_at,updated_at)
+      values('vector','default','preference','Authored preserved vector fact','active','[0.1,0.2]','old-model','legacy',1,1);`);
+    const before = db.serialize();
+    const statements = vi.spyOn(db, "prepare");
+    const content = readCrossChatSummary(true);
+    expect(content).toMatchObject({
+      legacy: [],
+      historical: { candidates: [], manifests: [] },
+    });
+    expect(JSON.stringify(content)).not.toContain("Authored preserved");
+    expect(
+      statements.mock.calls.every(
+        ([sql]) =>
+          !/from (semantic_memory|trainer_memory)|summary_eligible=0/.test(sql),
+      ),
+    ).toBe(true);
+    statements.mockRestore();
+    expect(db.serialize()).toEqual(before);
+  });
   it("owns activity notification only in the native lifetime and stops it on shutdown", () => {
     const wake = vi.fn();
     notifySummaryActivity();

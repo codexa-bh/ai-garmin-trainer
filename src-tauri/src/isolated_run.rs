@@ -421,6 +421,10 @@ impl Admission {
         )) else {
             return false;
         };
+        let cloud_summary = input.fields.get("SUMMARY_MODEL")
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            == Some(serde_json::json!({"version":1,"entryId":"entry_summary_cloud","provider":"openai","modelId":"gpt-6-luna"}))
+            && expected_catalog.entries.iter().any(|entry| entry.id == "entry_summary_cloud" && entry.provider == "openai" && entry.model_id == "gpt-6-luna");
         let catalog_summary = input
             .fields
             .get("SUMMARY_MODEL")
@@ -441,7 +445,7 @@ impl Admission {
                 input.fields.get("SUMMARY_ENABLED").map(String::as_str),
                 Some("true" | "false")
             )
-            && (catalog_summary
+            && (catalog_summary || cloud_summary
                 || input.fields.get("SUMMARY_MODEL").map(String::as_str) == Some("gpt-6-luna"))
             && input.fields.get("SUMMARY_CHAR_LIMIT").map(String::as_str) == Some("6000");
         input.fields.iter().all(|(key, value)| {
@@ -784,7 +788,7 @@ mod tests {
             ("SUMMARY_MODEL".into(), "unselected".into()),
             ("SUMMARY_CHAR_LIMIT".into(), "6000".into()),
         ]);
-        let authored_catalog: crate::chat_catalog::Catalog = serde_json::from_value(serde_json::json!({"version":1,"entries":[{"id":"entry_summary_local","provider":"ollama","modelId":"synthetic-memory:small"}],"defaultEntryId":null})).unwrap();
+        let authored_catalog: crate::chat_catalog::Catalog = serde_json::from_value(serde_json::json!({"version":1,"entries":[{"id":"entry_summary_local","provider":"ollama","modelId":"synthetic-memory:small"},{"id":"entry_summary_cloud","provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null})).unwrap();
         let saved = serde_json::json!({"version":3,"fields":fields,"keys":{},"chatCatalog":authored_catalog.clone()});
         let v3 = root.join("config/settings-v3.json");
         fs::write(&v3, serde_json::to_vec(&saved).unwrap()).unwrap();
@@ -809,6 +813,10 @@ mod tests {
         input.fields.insert("SUMMARY_MODEL".into(), serde_json::json!({"version":1,"entryId":"entry_summary_local","provider":"ollama","modelId":"synthetic-memory:small"}).to_string());
         assert!(admission.accepts_history_settings(&input));
         let valid_choice = input.fields["SUMMARY_MODEL"].clone();
+        for model in ["gpt-6-luna", "GPT-6-luna", "different"] {
+            input.fields.insert("SUMMARY_MODEL".into(), serde_json::json!({"version":1,"entryId":"entry_summary_cloud","provider":"openai","modelId":model}).to_string());
+            assert_eq!(admission.accepts_history_settings(&input), model == "gpt-6-luna");
+        }
         input.fields.insert("SUMMARY_MODEL".into(), serde_json::json!({"version":1,"entryId":"entry_summary_local","provider":"ollama","modelId":"synthetic-memory:small","extra":true}).to_string());
         assert!(!admission.accepts_history_settings(&input));
         input.fields.insert("SUMMARY_MODEL".into(), valid_choice);

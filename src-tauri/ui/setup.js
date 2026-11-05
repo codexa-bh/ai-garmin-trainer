@@ -178,6 +178,33 @@ function renderSummaryModels(
 ) {
   const input = byId("SUMMARY_MODEL");
   if (!input) return;
+  const matches =
+    value === "gpt-6-luna"
+      ? catalog.entries.filter(
+          (entry) =>
+            entry.provider === "openai" && entry.modelId === "gpt-6-luna",
+        )
+      : [];
+  const exactMatch = matches.length === 1 ? matches[0] : null;
+  const bind = byId("memory-bind-catalog");
+  if (bind) {
+    bind.hidden = !exactMatch;
+    bind.disabled = catalogLocked();
+    bind.onclick = exactMatch
+      ? () => {
+          renderSummaryModels(
+            JSON.stringify({
+              version: 1,
+              entryId: exactMatch.id,
+              provider: exactMatch.provider,
+              modelId: exactMatch.modelId,
+            }),
+          );
+          renderMemory();
+          input.focus();
+        }
+      : null;
+  }
   const choices = [{ value: "unselected", label: "Unselected" }];
   for (const entry of catalog.entries) {
     if (!entry.modelId.trim()) continue;
@@ -188,19 +215,21 @@ function renderSummaryModels(
         (state.intent === "replace" ||
           (state.present && state.intent !== "clear" && !state.legacy)));
     choices.push({
-      value: JSON.stringify({
-        version: 1,
-        entryId: entry.id,
-        provider: entry.provider,
-        modelId: entry.modelId,
-      }),
+      value:
+        entry === exactMatch
+          ? value
+          : JSON.stringify({
+              version: 1,
+              entryId: entry.id,
+              provider: entry.provider,
+              modelId: entry.modelId,
+            }),
       label: `${providers[entry.provider]} / ${entry.modelId}${available ? "" : " — key unavailable"}`,
     });
   }
   if (!choices.some((choice) => choice.value === value)) {
     let label = "Unavailable saved choice — reselect explicitly";
-    if (value === "gpt-6-luna")
-      label = "OpenAI / gpt-6-luna (preserved legacy choice)";
+    if (value === "gpt-6-luna") label = "OpenAI / gpt-6-luna — fixed model";
     else {
       try {
         const saved = JSON.parse(value);

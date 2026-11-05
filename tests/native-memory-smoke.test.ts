@@ -1,7 +1,15 @@
 /** @vitest-environment jsdom */
 import { readFileSync } from "node:fs";
 import React from "react";
-import { render, cleanup } from "@testing-library/react";
+import {
+  render,
+  cleanup,
+  act,
+  fireEvent,
+  screen,
+} from "@testing-library/react";
+import { useMemoryFeature } from "@/app/dashboard/use-memory";
+import type { Status } from "@/app/dashboard/contracts";
 import { MemoryContent } from "@/app/dashboard/memory-content";
 import type { SummaryInspection } from "@/app/dashboard/use-memory";
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
@@ -29,7 +37,7 @@ beforeEach(() => {
   );
   vi.stubGlobal("innerWidth", 1280);
   vi.stubGlobal("innerHeight", 850);
-  document.body.innerHTML = `<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="settings-sheet memory-sheet" role="dialog" aria-labelledby="memory-sheet-heading"><h2 id="memory-sheet-heading">Memory</h2><div class="memory-root-card" data-memory-ready="true" data-memory-view="manage"><h3>What your trainer remembers</h3><p>private copied sentinel</p><button>Add memory</button><button>Check saved memory</button><button>Clear saved memory</button><section aria-label="Saved summary items"><h4>Saved memories</h4></section><section aria-label="Rebuild from chat history"><h3>Update memory from chat history</h3><p>private counts and cost</p><button disabled>Review and update</button></section><label>Memory<textarea></textarea></label><button>Save memory</button></div></aside>`;
+  document.body.innerHTML = `<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="settings-sheet memory-sheet" role="dialog" aria-labelledby="memory-sheet-heading"><h2 id="memory-sheet-heading">Memory</h2><div class="memory-root-card" data-memory-ready="true" data-memory-chat-ready="true" data-memory-view="manage"><h3>What your trainer remembers</h3><p>private copied sentinel</p><button>Add memory</button><button>Refresh</button><button>Clear saved memory</button><section aria-label="Saved summary items"><h4>Saved memories</h4></section><section aria-label="Rebuild from chat history"><h3>Update memory from chat history</h3><p>private counts and cost</p><button disabled>Review and update</button></section><label>Memory<textarea></textarea></label><button>Save memory</button></div></aside>`;
   window.eval(source);
 });
 afterEach(async () => {
@@ -50,6 +58,7 @@ it("returns closed booleans, uses only fixed run draft and preserves exact confi
     visible: true,
     loaded: true,
     presentationFixture: false,
+    progressiveComplete: false,
     confirmationVisible: false,
     hasManual: false,
     updatedManual: false,
@@ -73,6 +82,19 @@ it("returns closed booleans, uses only fixed run draft and preserves exact confi
   expect((await command({ type: "memory", action: "clear" })).ok).toBe(true);
   expect(clicked).toHaveBeenCalledOnce();
   expect(window.confirm).toBe(confirm);
+});
+it("waits for retained-chat startup inspection before fixed native mutations, without hiding global content", async () => {
+  const panel = document.querySelector<HTMLElement>(".memory-root-card")!;
+  panel.dataset.memoryChatReady = "false";
+  expect((await command({ type: "memory", action: "observe" })).loaded).toBe(
+    false,
+  );
+  expect(panel.dataset.memoryReady).toBe("true");
+  expect((await command({ type: "memory", action: "forget" })).ok).toBe(false);
+  panel.dataset.memoryChatReady = "true";
+  expect((await command({ type: "memory", action: "observe" })).loaded).toBe(
+    true,
+  );
 });
 it("refuses unknown/extra/private selectors, noncanonical content and debug mode without edits", async () => {
   const input = document.querySelector("textarea")!;
@@ -135,6 +157,8 @@ it("admits only fixed presentation snapshots, blocks all Memory POSTs locally an
     "fixture-running",
     "fixture-complete",
     "fixture-interrupted",
+    "fixture-failed",
+    "fixture-cancelled",
     "fixture-unknown",
   ]) {
     const result = await command({ type: "memory", action });
@@ -145,10 +169,20 @@ it("admits only fixed presentation snapshots, blocks all Memory POSTs locally an
     if (value.ok) {
       const dto = (await value.json()) as {
         stored: { items: unknown[] };
-        rebuild: { counts: { excludedUserMessages: number } };
+        rebuild: {
+          counts: { excludedUserMessages: number };
+          operation: { state: string; reason: string | null } | null;
+        };
       };
       expect(dto.stored.items).toHaveLength(3);
       expect(dto.rebuild.counts.excludedUserMessages).toBe(184);
+      if (action === "fixture-failed")
+        expect(dto.rebuild.operation).toMatchObject({
+          state: "interrupted",
+          reason: "summary_invalid_output",
+        });
+      if (action === "fixture-cancelled")
+        expect(dto.rebuild.operation?.state).toBe("cancelled");
     }
     await expect(
       fetch("/api/cross-chat-summary", { method: "POST" }),
@@ -175,6 +209,115 @@ it("admits only fixed presentation snapshots, blocks all Memory POSTs locally an
   expect(
     (await command({ type: "memory", action: "fixture-populated" })).ok,
   ).toBe(false);
+});
+it("binds the finite progressive response sequence to actual production hook observations and refuses mutation/extra input", async () => {
+  vi.useFakeTimers();
+  document.querySelector("textarea")!.remove();
+  document.querySelector('[aria-label="Rebuild from chat history"]')!.remove();
+  const original = vi.fn();
+  vi.stubGlobal("fetch", original);
+  expect(
+    (
+      await command({
+        type: "memory",
+        action: "fixture-progressive",
+        text: "private",
+      })
+    ).ok,
+  ).toBe(false);
+  expect(
+    (await command({ type: "memory", action: "fixture-progressive" })).ok,
+  ).toBe(true);
+  function Harness() {
+    const [, setStatus] = React.useState<Status>({ kind: "ok", message: "" });
+    const feature = useMemoryFeature({ setStatus });
+    const { loadMemories } = feature;
+    React.useEffect(() => {
+      loadMemories(false).catch(() => {
+        throw new Error("Test load failed");
+      });
+    }, [loadMemories]);
+    return React.createElement(MemoryContent, {
+      ...feature,
+      onOpenSource: vi.fn(),
+      runInBackground: (work) => {
+        work.catch(() => {
+          throw new Error("Test action failed");
+        });
+      },
+    });
+  }
+  const aside = document.querySelector("aside")!;
+  aside.replaceChildren();
+  await act(async () => {
+    render(React.createElement(Harness), { container: aside });
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: /Update from chat history/ }),
+  );
+  expect(
+    (await command({ type: "memory", action: "observe" })).progressiveComplete,
+  ).toBe(false);
+  await expect(
+    fetch("/api/cross-chat-summary", { method: "POST" }),
+  ).rejects.toThrow(/cannot mutate/);
+  for (let n = 0; n < 6; n++) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    const result = await command({ type: "memory", action: "observe" });
+    expect(result.progressiveComplete).toBe(n === 5);
+  }
+  expect(original).not.toHaveBeenCalled();
+  expect(screen.getByText("Saved memory updated")).toBeTruthy();
+  expect(
+    screen.queryByRole("button", { name: "Review and update" }),
+  ).toBeNull();
+  // A failed read now intentionally retains the last projection. Reset must
+  // observe its asynchronous replacement, not reject that known transitional DOM.
+  fireEvent.click(screen.getByRole("button", { name: "Back to memory" }));
+  await act(async () => {
+    await command({ type: "memory", action: "fixture-unknown" });
+  });
+  const restored = await (
+    await fetch("/api/cross-chat-summary?view=content")
+  ).json();
+  expect(restored.error).toBeTruthy();
+  original.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        version: 1,
+        state: "fresh",
+        reason: null,
+        enabled: true,
+        expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
+        stored: { version: 1, items: [], text: "" },
+        sources: [],
+        manualIds: [],
+        legacy: [],
+        historical: { candidates: [], manifests: [] },
+        reservedUsdToday: 0,
+        estimatedUsdToday: 0,
+        unknownReservedUsd: 0,
+        priceBasis: "authored",
+        selectedChat: {
+          conversationId: "A",
+          segmentRevision: 0,
+          pin: null,
+          reason: null,
+        },
+      }),
+    ),
+  );
+  await act(async () => {
+    expect(
+      (await command({ type: "memory", action: "fixture-reset" })).ok,
+    ).toBe(true);
+  });
+  expect(fetch).toBe(original);
+  const final = await command({ type: "memory", action: "observe" });
+  expect(final).toMatchObject({ loaded: true, presentationFixture: false });
+  vi.useRealTimers();
 });
 it("permits only closed non-generating fixed history reviews, never caller inputs or mutations", async () => {
   document.querySelector("textarea")!.remove();
@@ -227,18 +370,27 @@ it.each([
     actions: ["rebuild-preflight", "history-effects", "cancel-confirm"],
   },
   { name: "management", actions: ["manage"] },
-  { name: "earlier sources", actions: ["manage", "earlier-sources"] },
-  { name: "older records", actions: ["manage", "older-records"] },
+  {
+    name: "failed validation result",
+    fixture: "fixture-failed",
+    actions: ["rebuild-preflight"],
+  },
+  {
+    name: "cancelled result",
+    fixture: "fixture-cancelled",
+    actions: ["rebuild-preflight"],
+  },
+
   { name: "back navigation", actions: ["manage", "back"] },
   { name: "Forget confirmation", actions: ["forget"] },
 ])(
   "captures and restores actual production Memory $name with fixed authored content",
-  async ({ actions }) => {
+  async ({ actions, fixture }) => {
     document.querySelector("textarea")!.remove();
     document
       .querySelector('[aria-label="Rebuild from chat history"]')!
       .remove();
-    await command({ type: "memory", action: "fixture-populated" });
+    await command({ type: "memory", action: fixture ?? "fixture-populated" });
     const dto = (await (
       await fetch("/api/cross-chat-summary?view=content")
     ).json()) as SummaryInspection;
@@ -249,6 +401,7 @@ it.each([
         memory: dto,
         memoryMessage: "",
         isMemoryLoading: false,
+        isMemoryReadUnavailable: false,
         pendingMemoryAction: null,
         loadMemories: vi.fn(),
         reviewHistory: vi.fn(),

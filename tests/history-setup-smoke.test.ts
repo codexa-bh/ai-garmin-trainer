@@ -20,7 +20,7 @@ const summaryCatalog = {
     {
       id: "entry_summary_cloud",
       provider: "openai",
-      modelId: "synthetic-title:small",
+      modelId: "gpt-6-luna",
     },
     {
       id: "entry_summary_other",
@@ -43,7 +43,11 @@ afterEach(() => {
   vi.restoreAllMocks();
   document.body.replaceChildren();
 });
-async function setup(firstRun: boolean, historyLimit = "") {
+async function setup(
+  firstRun: boolean,
+  historyLimit = "",
+  summaryModel = "unselected",
+) {
   document.documentElement.innerHTML = readFileSync(
     "src-tauri/ui/index.html",
     "utf8",
@@ -70,6 +74,7 @@ async function setup(firstRun: boolean, historyLimit = "") {
   let savedFields: Record<string, string> = {
     DATABASE_PATH: "/private/task-copy/trainer.sqlite",
     GARMIN_HISTORY_START_DATE: historyLimit,
+    SUMMARY_MODEL: summaryModel,
   };
   const invoke = vi.fn(
     async (
@@ -265,6 +270,33 @@ it("proves history off/on/required visibility and rejects empty-date Save withou
     document.getElementById("GARMIN_HISTORY_START_DATE")!.closest("label")
       ?.hidden,
   ).toBe(true);
+});
+it("admits only exact keyless scalar binding/cancel through actual controls and masks the unique choice safely", async () => {
+  const invoke = await setup(false, "", "gpt-6-luna");
+  const select = document.getElementById("SUMMARY_MODEL") as HTMLSelectElement;
+  expect(window.__trainerHistorySetup("observe").summaryScalar).toBe(true);
+  expect(window.__trainerHistorySetup("captureSummaryWide").ok).toBe(true);
+  expect(
+    getComputedStyle(document.getElementById("memory-bind-catalog")!)
+      .visibility,
+  ).toBe("visible");
+  window.__trainerHistoryRestore();
+  expect(window.__trainerHistorySetup("bindSummary")).toMatchObject({
+    ok: true,
+    summaryBound: true,
+    summaryScalar: false,
+  });
+  expect(invoke.mock.calls.some(([name]) => name === "save_settings")).toBe(
+    false,
+  );
+  expect(window.__trainerHistorySetup("captureSummaryNarrow").ok).toBe(true);
+  window.__trainerHistoryRestore();
+  expect(window.__trainerHistorySetup("bindSummary").ok).toBe(false);
+  expect(window.__trainerHistorySetup("cancelDraft").ok).toBe(true);
+  await waitFor(() => expect(select.value).toBe("gpt-6-luna"));
+  expect(window.__trainerHistorySetup("observe").summaryScalar).toBe(true);
+  document.getElementById("memory-bind-catalog")!.append("private unexpected");
+  expect(window.__trainerHistorySetup("captureSummaryWide").ok).toBe(false);
 });
 it.each([
   "memory-help",

@@ -1704,9 +1704,19 @@ describe("trusted local desktop settings UI", () => {
     expect(input("SUMMARY_MODEL").getAttribute("aria-describedby")).toBe(
       "memory-model-help",
     );
-    expect(
-      document.getElementById("memory-help")?.textContent?.replace(/\s+/g, " "),
-    ).toContain("no daily spending cap");
+    const automaticCost = document.getElementById("memory-off-help");
+    expect(automaticCost?.textContent?.replace(/\s+/g, " ")).toContain(
+      "Automatic processing may incur charges and has no daily spending cap",
+    );
+    expect(input("SUMMARY_ENABLED").getAttribute("aria-describedby")).toBe(
+      "memory-off-help",
+    );
+    expect(input("SUMMARY_ENABLED").closest("label")?.nextElementSibling).toBe(
+      automaticCost,
+    );
+    expect(document.getElementById("memory-help")?.textContent).not.toContain(
+      "no daily spending cap",
+    );
     expect(
       invoke.mock.calls.some(([command]) => command === "read_memory_status"),
     ).toBe(false);

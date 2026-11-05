@@ -16,7 +16,6 @@ import {
   summaryStorage,
   summaryInspectionSources,
   summaryManualIds,
-  preservedLegacySummaryReview,
 } from "../db/summary-storage";
 import { createSummaryEngine } from "./summary-application";
 import { createSummaryGeneration } from "./summary-provider";
@@ -73,8 +72,10 @@ export function readCrossChatSummary(content = false, conversationId?: string) {
         stored: summaryStorage.inspect(),
         sources: summaryInspectionSources(),
         manualIds: summaryManualIds(),
-        legacy: preservedLegacySummaryReview(),
-        historical: summaryImportInspection(),
+        // Empty compatible projections: ordinary Memory no longer reads or ships
+        // archive excerpts or offers the obsolete selective-import workflow.
+        legacy: [],
+        historical: summaryImportInspection(false),
         rebuild: readRebuildInspection(),
         summary: summaryStorage.revision(),
         selectedChat,

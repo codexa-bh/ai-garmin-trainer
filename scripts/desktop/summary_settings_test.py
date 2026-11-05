@@ -18,7 +18,7 @@ class SummarySettingsTests(unittest.TestCase):
             self.assertEqual(value['keys'],{})
             self.assertEqual(value['chatCatalog'],settings.SUMMARY_CATALOG)
             self.assertEqual(value['fields']['SUMMARY_ENABLED'],'false')
-            self.assertEqual(value['fields']['SUMMARY_MODEL'],'unselected')
+            self.assertEqual(value['fields']['SUMMARY_MODEL'],'gpt-6-luna')
             self.assertTrue(run.keyless_lifecycle)
             self.assertEqual(len(settings.preserved_fields(run)),19)
             for key,value in settings.preserved_fields(run).items():self.assertEqual(value,json.loads((root/'config/settings-v3.json').read_text())['fields'][key])
@@ -50,10 +50,10 @@ class SummarySettingsTests(unittest.TestCase):
         self.assertEqual(len(settings.captures(run,'Off',history=True)),2)
         self.assertEqual(calls,['captureSummaryWide','captureSummaryNarrow','captureHistoryWide','captureHistoryNarrow'])
 
-    def test_native_unselected_projects_to_empty_api_model_without_accepting_enabled_or_pending_state(self):
-        value={'enabled':False,'model':'','state':'disabled','pending':0,'items':0}
+    def test_fixed_disabled_scalar_never_accepts_enabled_wrong_model_or_pending_state(self):
+        value={'enabled':False,'model':'gpt-6-luna','state':'disabled','pending':0,'items':0}
         self.assertTrue(settings.default_summary(value))
-        for wrong in [{**value,'enabled':True},{**value,'model':'gpt-6-luna'},{**value,'pending':1},{**value,'items':1}]:
+        for wrong in [{**value,'enabled':True},{**value,'model':''},{**value,'pending':1},{**value,'items':1}]:
             self.assertFalse(settings.default_summary(wrong))
 
     def test_settings_only_metadata_refuses_sources_and_attempts_before_any_inference(self):

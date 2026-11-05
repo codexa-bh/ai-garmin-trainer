@@ -93,6 +93,78 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it.each(["configured", "not configured"])(
+  "presents one exact scalar/catalog match with explicit Save-only binding (%s key), no render writes, and cancel/reload safety",
+  async (key) => {
+    const original = invoke.getMockImplementation()!;
+    let saved = "gpt-6-luna";
+    let entryModel = "gpt-6-luna";
+    const submitted: string[] = [];
+    invoke.mockImplementation(async (command, args) => {
+      const result = await original(command, args);
+      if (command === "read_settings")
+        return {
+          ...result,
+          fields: { ...result.fields, SUMMARY_MODEL: saved },
+          keys: { ...result.keys, OPENAI_API_KEY: key },
+          chatCatalog: {
+            version: 1,
+            entries: [
+              { id: "exact_luna", provider: "openai", modelId: entryModel },
+            ],
+          },
+        };
+      if (command === "save_settings") {
+        submitted.push(args.input.fields.SUMMARY_MODEL);
+        saved = args.input.fields.SUMMARY_MODEL;
+      }
+      return result;
+    });
+    controller.__trainerSetupSmoke("cancel");
+    const select = document.getElementById(
+      "SUMMARY_MODEL",
+    ) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe("gpt-6-luna"));
+    const luna = [...select.options].filter((o) =>
+      o.textContent?.includes("gpt-6-luna"),
+    );
+    expect(luna).toHaveLength(1);
+    expect(luna[0].textContent).not.toContain("legacy");
+    if (key === "not configured")
+      expect(luna[0].textContent).toContain("key unavailable");
+    expect(submitted).toEqual([]);
+    controller.__trainerSetupSmoke("save");
+    await waitFor(() => expect(submitted).toEqual(["gpt-6-luna"]));
+    const bind = document.getElementById(
+      "memory-bind-catalog",
+    ) as HTMLButtonElement;
+    await waitFor(() => expect(bind.disabled).toBe(false));
+    bind.click();
+    expect(JSON.parse(select.value)).toEqual({
+      version: 1,
+      entryId: "exact_luna",
+      provider: "openai",
+      modelId: "gpt-6-luna",
+    });
+    expect(submitted).toHaveLength(1);
+    controller.__trainerSetupSmoke("cancel");
+    await waitFor(() => expect(select.value).toBe("gpt-6-luna"));
+    bind.click();
+    controller.__trainerSetupSmoke("save");
+    await waitFor(() => expect(submitted).toHaveLength(2));
+    expect(JSON.parse(saved).entryId).toBe("exact_luna");
+    entryModel = "gpt-6-luna-different";
+    controller.__trainerSetupSmoke("cancel");
+    await waitFor(() =>
+      expect(select.selectedOptions[0].textContent).toContain(
+        "unavailable; reselect explicitly",
+      ),
+    );
+    expect(select.value).toBe(saved);
+    expect(bind.hidden).toBe(true);
+    expect(submitted).toHaveLength(2);
+  },
+);
 it("drives only actual Connect/later/cancel/Save controls without authentication", async () => {
   expect(controller.__trainerSetupSmoke("observe")).toMatchObject({
     notConnected: true,

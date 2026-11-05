@@ -65,8 +65,8 @@ def status(run, action=None):
         client.close()
 
 
-def memory_wait(run, predicate, label):
-    deadline = time.monotonic() + 8
+def memory_wait(run, predicate, label, timeout=8):
+    deadline = time.monotonic() + timeout
     observed = None
     while time.monotonic() < deadline:
         observed = run.command({'type': 'memory', 'action': 'observe'})
@@ -79,7 +79,19 @@ def memory_wait(run, predicate, label):
 
 def memory_controls(run):
     before = run.chat_hash()
-    action = lambda name: run.command({'type': 'memory', 'action': name})
+    def action(name):
+        try:
+            return run.command({'type': 'memory', 'action': name})
+        except Exception:
+            # Diagnostic observations only: never replay a failed/unknown action.
+            diagnostics = {'action': name, 'mutationReplayed': False}
+            try:
+                diagnostics['observation'] = run.command({'type': 'memory', 'action': 'observe'})
+                diagnostics['capture'] = run.command({'type': 'captureView', 'view': 'memory', 'preset': 'wide'})
+            except Exception:
+                diagnostics['diagnosticUnavailable'] = True
+            private_json(run.root / 'memory-action-failure.json', diagnostics)
+            raise
     action('open')
     memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'empty canonical summary')
     run.command({'type': 'setViewport', 'preset': 'narrow'})
@@ -167,9 +179,7 @@ def memory_presentations(run):
     memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'populated fixed presentation')
     capture('populated')
     action('item-details'); capture('item-detail', ('wide',)); action('back')
-    action('manage'); capture('manage', ('narrow',))
-    action('earlier-sources'); capture('earlier-sources'); action('back')
-    action('manage'); action('older-records'); capture('older-records', ('narrow',)); action('back')
+    action('manage'); capture('manage', ('narrow',)); action('back')
     action('manage'); action('clear'); capture('clear-confirmation', ('narrow',)); action('cancel-confirm'); action('back')
     action('forget'); capture('forget-confirmation', ('narrow',)); action('cancel-confirm')
     action('add'); action('draft'); capture('editor', ('narrow',)); action('cancel-edit')
@@ -180,12 +190,12 @@ def memory_presentations(run):
     action('fixture-off')
     memory_wait(run, lambda value: value['loaded'] and value['off'], 'Off fixed retained presentation')
     capture('off', ('narrow',))
-    for fixture in ['history', 'running', 'complete', 'interrupted']:
+    for fixture in ['history', 'running', 'complete', 'interrupted', 'failed', 'cancelled']:
         action('fixture-' + fixture)
         memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], fixture + ' fixed presentation')
         action('rebuild-preflight')
         memory_wait(run, lambda value: value['rebuildVisible'], 'history view')
-        capture(fixture, ('wide', 'narrow') if fixture == 'history' else ('narrow',))
+        capture(fixture, ('wide', 'narrow'))
         if fixture == 'history':
             action('history-select')
             action('history-legacy')
@@ -195,6 +205,18 @@ def memory_presentations(run):
             action('history-effects'); capture('history-cost-effects')
             action('cancel-confirm')
         action('back')
+    action('fixture-progressive')
+    memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'progressive authored presentation loaded')
+    action('rebuild-preflight')
+    memory_wait(run, lambda value: value['progressiveComplete'], 'multiple actual hook polls preserve DOM/focus/scroll through unchanged, growing, unavailable and terminal observations', timeout=25)
+    private_json(run.root / 'memory-progressive.json', {
+        'task': 'T0282', 'runId': run.id, 'source': run.config['source'],
+        'counts': [20, 20, 40, 60, 'unavailable', 80, 184],
+        'stableDOMFocusScroll': True, 'automaticObservation': True, 'providerCalls': 0,
+        'evidenceClass': 'actual native WebView DOM temporal observations with renderer-only authored responses; not engine/provider or compositor-frame proof',
+    })
+    capture('progressive-complete')
+    action('back')
     action('fixture-unknown')
     memory_wait(run, lambda value: not value['loaded'] and value['presentationFixture'], 'unknown fixed inspection')
     capture('unknown', ('narrow',))

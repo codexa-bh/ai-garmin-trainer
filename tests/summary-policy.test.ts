@@ -7,6 +7,7 @@ import {
   scalarText,
   summaryCap,
   validSummaryValue,
+  validSummaryDiagnostic,
   validateSummaryPatch,
   type SummaryBatch,
 } from "@/lib/memory/summary-policy";
@@ -57,6 +58,65 @@ function patch() {
 }
 const inputs = () => [minimizeSummarySource(batch().sources[0]!)!];
 describe("global summary closed policy and authored meaning oracles", () => {
+  it.each([
+    ["id", "invalid.id", "item-id"],
+    ["text", "", "item-text"],
+    ["text", "x".repeat(1201), "item-text"],
+    ["text", "\ud800", "unicode"],
+    ["text", "My password is private.", "unsafe-text"],
+    ["category", "invented", "category"],
+    ["stance", "certain", "stance"],
+    ["priority", 6, "priority"],
+    ["priority", 0.5, "priority"],
+  ])(
+    "reports closed %s final-value diagnostics without retaining rejected values",
+    (field, value, invariant) => {
+      const raw = patch();
+      Object.assign(raw.upsert[0], { [field]: value });
+      const observed: unknown[] = [];
+      expect(
+        validateSummaryPatch(raw, batch(), inputs(), now, (code, detail) =>
+          observed.push({ code, detail }),
+        ),
+      ).toBeNull();
+      expect(observed).toEqual([
+        {
+          code: "value",
+          detail: {
+            invariant,
+            itemIndex: 0,
+            ...(field === "text" &&
+            typeof value === "string" &&
+            value.length === 1201
+              ? { actual: 1201, limit: 1200 }
+              : {}),
+          },
+        },
+      ]);
+      expect(
+        validSummaryDiagnostic((observed[0] as { detail: unknown }).detail),
+      ).toBe(true);
+    },
+  );
+  it("refuses unknown/extra/unbounded diagnostic data at its boundary", () => {
+    for (const detail of [
+      null,
+      {},
+      { invariant: "private text" },
+      { invariant: "item-text", raw: "private" },
+      { invariant: "item-id", itemIndex: 256 },
+      { invariant: "character-cap", actual: 2_000_001 },
+      { invariant: "shape", actual: -1 },
+    ])
+      expect(validSummaryDiagnostic(detail)).toBe(false);
+    expect(
+      validSummaryDiagnostic({
+        invariant: "character-cap",
+        actual: 7000,
+        limit: 6000,
+      }),
+    ).toBe(true);
+  });
   it("counts scalars independently of tokens without folding accents or splitting pairs", () => {
     expect(characters("🥾 é\r\n週末")).toBe(7);
     expect(scalarText("é")).not.toBe("é");

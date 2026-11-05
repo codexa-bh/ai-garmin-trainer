@@ -122,7 +122,7 @@ Validate native/DOM/Python positive/negative contracts before artifact use.
 ### Fixed Memory presentation evidence (T0279)
 
 The admitted ordinary synthetic controller additionally accepts exactly
-`fixture-populated|fixture-empty|fixture-error|fixture-off|fixture-history|fixture-running|fixture-complete|fixture-interrupted|fixture-unknown|fixture-reset`.
+`fixture-populated|fixture-empty|fixture-error|fixture-off|fixture-history|fixture-running|fixture-progressive|fixture-complete|fixture-interrupted|fixture-failed|fixture-cancelled|fixture-unknown|fixture-reset`.
 This is **instrumented fixed presentation**, not actual engine progression or
 ordinary unmodified-app behavior: a temporary renderer-only adapter returns closed
 fixed authored Memory inspection snapshots to the same production hook/components.
@@ -147,7 +147,23 @@ restoration deliberately does not end fixture authority between wide/narrow imag
 no adapter is installed until the finite command in an already admitted run.
 Default launches still have no controller or fixture grant. Before-use native,
 DOM and Python schema/privacy/extra-field/default-denial/expiry/restoration tests
-remain mandatory. This supplements representative real keyless manual lifecycle
+remain mandatory. `fixture-progressive` additionally returns a fixed sequence through seven ordinary
+GET observations:20,20,40,60,one unavailable read,80,then complete184. All POSTs
+refuse in this mode. The actual production hook polls without caller stepping.
+The closed boolean `progressiveComplete` requires observed advancement and connection
+loss/recovery while retaining the exact panel/progress/Cancel elements, DOM focus and
+scroll during active observations. Unknown/extra/private result fields still refuse.
+The runner performs no captures/resizes during this temporal measurement and captures
+the terminal result afterward. Default/other modes deny fixture commands; reset/close/
+120-second expiry restore fetch. This is native WebView temporal DOM evidence, not
+advancing compositor-frame/flicker or trusted-input proof. Obsolete archive/import
+navigation actions have no ordinary UI target; only contextual compatibility recovery
+remains. Static running/complete/interrupted captures remain supplementary. Closed
+`fixture-failed` uses the existing interrupted state with invalid-output reason;
+`fixture-cancelled` uses cancelled. Their wide/narrow captures verify distinct
+plain failure/cancellation copy and retained previous-memory disposition, never
+provider success, actual paid cancellation or resumable staging.
+This supplements representative real keyless manual lifecycle
 and adjacent isolation/Goals/restart smoke; it proves no paid provider quality,
 qualified actual chat use or installed/primary state. All images stay local and
 must be inspected.
@@ -545,9 +561,21 @@ bundle replacement and normal-app stop/restart still require separate exact appr
 uses existing explicit ordinary keyless local Settings/history admission on a fresh
 built-in synthetic online copy. T0280 evolves only the fixed summaryOn/Off presets:
 select exact `entry_summary_local` / Ollama / `synthetic-memory:small` from an authored
-three-entry catalog, alongside missing-key OpenAI `synthetic-title:small` and alternate
+three-entry catalog, alongside missing-key OpenAI `gpt-6-luna` and alternate
 Ollama `synthetic-chat:large`. The existing scalar stores version1 entryId/provider/modelId
-JSON; no new action, caller value or result field is admitted. Native Save requires
+JSON. T0282 additionally starts Off with the fixed legacy `gpt-6-luna` scalar and
+one exact catalog match. Closed `bindSummary` clicks only **Use this catalog entry
+on Save** after verifying that exact keyless Off/scalar/fixed catalog state;
+`cancelDraft` clicks the real existing Cancel in existing-installation scope.
+Boolean-only `summaryScalar`/`summaryBound` observations expose no values. No caller
+model/text/selector or provider request is admitted. Render and draft binding are
+verified not to write; Cancel restores the scalar, explicit Save binds only
+entry_summary_cloud/OpenAI/gpt-6-luna, and owned restart verifies that exact saved
+identity while memory stays Off and source/attempt counts remain zero. Separate
+wide/narrow scalar and bound-draft captures reveal only the verified single option,
+missing-key label and explicit Save affordance. Native save accepts only that exact
+added JSON identity in the unchanged authored catalog; wrong-case/different/extra
+fields and any key still refuse. Existing local On/Off/save/restart checks follow. Native Save requires
 that exact fixed identity in the unchanged saved catalog and no keys, while retaining
 legacy preset compatibility. Captures validate exactly these four options including
 Unselected, the concise recommendation and the missing-key label; arbitrary labels,

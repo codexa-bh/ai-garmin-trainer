@@ -256,6 +256,193 @@ describe("explicit selected legacy recovery", () => {
   });
 });
 
+describe("growing authored184-source multi-chat repair", () => {
+  const meanings = [
+    [
+      "constraint",
+      "user-stated",
+      "Short weekday mornings fit caregiving. Repeatedly long weekday plans failed because family responsibilities leave limited time; prefer brief feasible sessions rather than treating missed long sessions as lack of commitment.",
+    ],
+    [
+      "goal",
+      "user-stated",
+      "Prepare for a weekend family mountain hike with hiking-specific time on feet. Cycling remains useful general fitness but does not replace hiking preparation; do not turn this distinction into a prohibition on cycling.",
+    ],
+    [
+      "rejected",
+      "user-stated",
+      "The heavy bag was rejected because carrying it felt awkward during practice. This is a scoped equipment decision, not rejection of all equipment, and does not establish any medical explanation for that preference.",
+    ],
+    [
+      "question",
+      "discussed-not-endorsed",
+      "Poles remain an unresolved equipment question. The assistant suggested them but the user has not chosen; discuss practical tradeoffs when asked rather than saving the suggestion as an endorsed purchase or settled plan.",
+    ],
+    [
+      "decision",
+      "user-stated",
+      "Mornings replace the earlier winter evening arrangement after an explicit schedule correction. Evenings belong to historical context, not a simultaneous current preference; ask again if circumstances actually change.",
+    ],
+    [
+      "constraint",
+      "user-stated",
+      "Keep coaching concise because lengthy explanations made it harder to act. Preserve a short rationale for important tradeoffs rather than removing qualifications; brevity is not permission to invent certainty or skip evidence.",
+    ],
+    [
+      "discussion",
+      "discussed-not-endorsed",
+      "A multi-day outing was discussed as a possibility, not a commitment. Family availability is unresolved; retain that uncertainty and do not silently convert brainstorming into a booked event, fixed date or accepted training goal.",
+    ],
+    [
+      "decision",
+      "endorsed",
+      "Use gradual practice that fits the current schedule because abrupt long sessions previously failed to fit family life. This is a practical planning lesson, not a universal performance rule or permission to save new plans without direction.",
+    ],
+  ];
+  it("reproduces staged20 then rendered-cap rejection and completes a new reviewed repacked184-source operation atomically", async () => {
+    oldMemory();
+    storage.edit(storage.version(), null, "Keep coaching concise.", now);
+    for (let n = 0; n < 184; n++)
+      message(
+        `rich184-${n}`,
+        `${meanings[n % 8][2]} Authored observation ${n}.`,
+        "user",
+        `rich-chat-${n % 7}`,
+        1700000000 + n,
+      );
+    const before = storage.inspect(),
+      revision = storage.version().revision;
+    const originals = db
+      .prepare("select id,content from message order by id")
+      .all();
+    let calls = 0,
+      repack = false;
+    const generate = vi.fn(async (_system: string, prompt: string) => {
+      const input = JSON.parse(prompt) as {
+        constraints: { renderedCharacters: number; renderFormat: string };
+        previous: { id: string; text: string; sourceIds: string[] }[];
+        newSources: { sourceId: string; user: string }[];
+      };
+      expect(input.constraints.renderFormat).toContain("[stance; category]");
+      if (input.previous.length)
+        expect(input.constraints.renderedCharacters).toBeGreaterThan(0);
+      const upsert = repack
+        ? meanings.flatMap(([category, stance, text], theme) => {
+            const current = input.newSources.filter((s) =>
+              s.user.includes(text),
+            );
+            const previous = input.previous.filter((i) => i.text === text);
+            return current.length || previous.length
+              ? [
+                  {
+                    id: `theme_${calls}_${theme}`,
+                    text,
+                    category,
+                    stance,
+                    sourceIds: current.map((s) => s.sourceId),
+                    replaces: previous.map((i) => i.id),
+                    priority: 5,
+                    expiresAt: null,
+                  },
+                ]
+              : [];
+          })
+        : input.newSources.map((s, n) => {
+            const [category, stance, text] =
+              meanings.find(([, , text]) => s.user.includes(text)) ??
+              meanings[0];
+            return {
+              id: `item_${calls}_${n}`,
+              text,
+              category,
+              stance,
+              sourceIds: [s.sourceId],
+              priority: 5,
+              expiresAt: null,
+              replaces: [],
+            };
+          });
+      calls++;
+      return {
+        patch: {
+          version: 1,
+          keep: repack ? [] : input.previous.map((i) => i.id),
+          upsert,
+          remove: [],
+          coverage: input.newSources.map((s) => ({
+            sourceId: s.sourceId,
+            reason: "represented",
+          })),
+        },
+        usage: { input: 200, output: 200, cached: 0 },
+      };
+    });
+    let identity = 0;
+    const engine = createSummaryEngine({
+      storage,
+      generation: { generate },
+      now: () => now,
+      identity: () => `growing-${identity++}`,
+      current: () => true,
+      jitter: () => 0,
+    });
+    const beginRich = (id: string) => {
+      const selection = {
+        version: 1 as const,
+        conversationIds: Array.from({ length: 7 }, (_, i) => `rich-chat-${i}`),
+        includeLegacy: false,
+      };
+      const review = summaryRebuildInventory("boot", selection);
+      expect(review.counts.includedUserMessages).toBe(184);
+      start(id, review.snapshot, "boot", now, selection);
+    };
+    beginRich("growing-failure");
+    for (let n = 0; n < 2; n++) {
+      now += 3000;
+      await engine.tick(new AbortController().signal);
+    }
+    expect(status()).toMatchObject({
+      state: "interrupted",
+      processed: 20,
+      total: 184,
+      reason: "summary_invalid_output",
+    });
+    expect(storage.inspect()).toEqual(before);
+    const usage = db
+      .prepare(
+        "select usage_json from summary_attempt where job_id='growing-1'",
+      )
+      .get() as { usage_json: string };
+    expect(JSON.parse(usage.usage_json)).toMatchObject({
+      rejection: "value",
+      diagnostic: { invariant: "character-cap", limit: 6000 },
+    });
+    now += 3000;
+    await engine.tick(new AbortController().signal);
+    expect(generate).toHaveBeenCalledTimes(2);
+    // New explicit review/identity, never replay or blind retry of failed work.
+    repack = true;
+    beginRich("growing-repacked");
+    for (let n = 0; n < 10; n++) {
+      now += 3000;
+      await engine.tick(new AbortController().signal);
+      if (n < 9) expect(storage.inspect()).toEqual(before);
+    }
+    expect(status()).toMatchObject({ state: "complete", processed: 184 });
+    expect(storage.version().revision).toBe(revision + 1);
+    for (const [, , text] of meanings)
+      expect(storage.inspect().text).toContain(text);
+    expect(storage.inspect().text).toContain("Keep coaching concise.");
+    expect(storage.inspect().items.every((i) => i.sourceIds.length <= 32)).toBe(
+      true,
+    );
+    expect(
+      db.prepare("select id,content from message order by id").all(),
+    ).toEqual(originals);
+    expect(generate).toHaveBeenCalledTimes(12);
+  });
+});
+
 describe("full-pool original admission and local preflight", () => {
   it("counts more than the sidebar/import cap without export or effects and preserves genuine original roles/time/hash", () => {
     for (let n = 0; n < 241; n++)

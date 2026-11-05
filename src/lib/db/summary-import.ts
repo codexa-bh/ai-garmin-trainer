@@ -108,20 +108,22 @@ function source(sourceId: string): SummarySource | null {
     return null;
   return row ? { ...row, sourceId, eligible: true } : null;
 }
-export function summaryImportInspection() {
+export function summaryImportInspection(includeCandidates = true) {
   const db = getDatabase();
   const rows = db
     .prepare("select * from summary_import order by rowid desc limit 10")
     .all() as Manifest[];
-  const candidates = db
-    .prepare(
-      `select t.turn_id||':'||t.source_version as id,t.conversation_id as conversationId from conversation_turn t
+  const candidates = includeCandidates
+    ? (db
+        .prepare(
+          `select t.turn_id||':'||t.source_version as id,t.conversation_id as conversationId from conversation_turn t
     where t.status='completed' and t.summary_eligible=0 and t.admission_seq>(select cutoff from summary_control where id=1)
     and not exists(select 1 from summary_suppression where source_id=t.turn_id||':'||t.source_version)
     and not exists(select 1 from summary_import_disposition where source_id=t.turn_id||':'||t.source_version)
     order by t.admission_seq desc limit 200`,
-    )
-    .all() as { id: string; conversationId: string }[];
+        )
+        .all() as { id: string; conversationId: string }[])
+    : [];
   return {
     manifests: rows.map((row) => ({
       id: row.id,
