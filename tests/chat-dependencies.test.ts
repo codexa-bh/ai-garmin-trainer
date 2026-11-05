@@ -70,6 +70,10 @@ const allowed = new Set([
   // Neutral sealed-pin shape/projection and pure S policy; no SQL/SDK edges.
   "chat/summary-pin.ts",
   "memory/summary-policy.ts",
+  // Reviewed pure exact-selection/catalog validation; no env/SDK/storage edges.
+  "model-settings/summary-selection.ts",
+  "model-settings/catalog.ts",
+  "model-settings/contracts.ts",
   "chat/conversation-compaction.ts",
   "ai/context.ts",
   "ai/debug-types.ts",
@@ -140,6 +144,20 @@ it.each([
   "const opaque = import(moduleName);",
 ])("rejects an outer dependency: %s", (text) => {
   expect(() => checkClosure(turn, new Map([["chat/turn.ts", text]]))).toThrow();
+});
+
+it("rejects infrastructure smuggled through exact summary selection", () => {
+  expect(() =>
+    checkClosure(
+      turn,
+      new Map([
+        [
+          "model-settings/summary-selection.ts",
+          'import type { AppEnv } from "../env";',
+        ],
+      ]),
+    ),
+  ).toThrow("outside reviewed policy/contracts");
 });
 
 it("rejects infrastructure smuggled through the reviewed plan policy", () => {

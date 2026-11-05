@@ -52,6 +52,10 @@ const allowed = new Set([
   // Neutral sealed-pin shape/projection and pure S policy; no SQL/SDK edges.
   "chat/summary-pin.ts",
   "memory/summary-policy.ts",
+  // Reviewed pure exact-selection/catalog validation; no env/SDK/storage edges.
+  "model-settings/summary-selection.ts",
+  "model-settings/catalog.ts",
+  "model-settings/contracts.ts",
   "memory/filters.ts",
   "memory/types.ts",
   "garmin/detail-types.ts",
@@ -176,6 +180,20 @@ it.each([
     ),
   ).toThrow();
 });
+it("rejects outer capability smuggled through exact summary selection", () => {
+  expect(() =>
+    check(
+      path.join(root, "src/lib/ai/orchestrator.ts"),
+      new Map([
+        [
+          "model-settings/summary-selection.ts",
+          'import type { AppEnv } from "../env";',
+        ],
+      ]),
+    ),
+  ).toThrow("outer AI dependency");
+});
+
 it("follows transitive type-only contracts rather than ignoring them", () => {
   expect(() =>
     check(
