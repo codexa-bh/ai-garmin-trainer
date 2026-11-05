@@ -176,6 +176,45 @@ it("admits only fixed presentation snapshots, blocks all Memory POSTs locally an
     (await command({ type: "memory", action: "fixture-populated" })).ok,
   ).toBe(false);
 });
+it("permits only closed non-generating fixed history reviews, never caller inputs or mutations", async () => {
+  document.querySelector("textarea")!.remove();
+  document.querySelector('[aria-label="Rebuild from chat history"]')!.remove();
+  await command({ type: "memory", action: "fixture-history" });
+  const expected = { revision: 3, privacy: 0, control: 1, manual: 0 };
+  const selection = {
+    version: 1,
+    conversationIds: ["fixture_chat_0"],
+    includeLegacy: true,
+  };
+  const review = { version: 1, expected, action: "rebuild-review", selection };
+  const result = await (
+    await fetch("/api/cross-chat-summary", {
+      method: "POST",
+      body: JSON.stringify(review),
+    })
+  ).json();
+  expect(result.rebuild.selection).toEqual(selection);
+  expect(result.rebuild.counts).toMatchObject({
+    includedUserMessages: 19,
+    excludedUserMessages: 181,
+    selectedChats: 1,
+  });
+  for (const changed of [
+    { ...review, force: true },
+    { ...review, action: "rebuild-start" },
+    { ...review, selection: { ...selection, conversationIds: ["private-id"] } },
+    { ...review, selection: { ...selection, text: "private" } },
+    { ...review, expected: { ...expected, control: 2 } },
+  ])
+    await expect(
+      fetch("/api/cross-chat-summary", {
+        method: "POST",
+        body: JSON.stringify(changed),
+      }),
+    ).rejects.toThrow(/cannot mutate/);
+  for (const action of ["usage", "chat-details", "refresh"])
+    expect((await command({ type: "memory", action })).ok).toBe(false);
+});
 it("captures actual production Memory components with fixed authored content across secondary views", async () => {
   document.querySelector("textarea")!.remove();
   document.querySelector('[aria-label="Rebuild from chat history"]')!.remove();
@@ -192,6 +231,7 @@ it("captures actual production Memory components with fixed authored content acr
       isMemoryLoading: false,
       pendingMemoryAction: null,
       loadMemories: vi.fn(),
+      reviewHistory: vi.fn(),
       changeMemory: vi.fn(),
       editingMemoryId: null,
       editingMemoryText: "",
@@ -207,10 +247,15 @@ it("captures actual production Memory components with fixed authored content acr
   );
   for (const action of [
     null,
-    "chat-details",
-    "back",
     "rebuild-preflight",
     "history-effects",
+    "cancel-confirm",
+    "back",
+    "manage",
+    "earlier-sources",
+    "back",
+    "manage",
+    "older-records",
     "back",
     "forget",
   ]) {

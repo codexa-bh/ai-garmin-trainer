@@ -72,7 +72,7 @@ including secondary views, rather than inferring readiness from Add visibility.
 The `--summary-engine` scenario also exercises the actual Trainer Memory sheet
 through an ordinary-only finite `memory` command. Actions are exactly `observe`,
 `open`, `close`, `reload`, `add`, `edit`, `draft`, `draft-update`, `save`, `forget`,
-`clear`, `disable`, `enable`, `retry`, and `refresh`. No caller text, source ID,
+`clear`, `disable`, `enable`, and `retry`. No caller text, source ID,
 selector, script, import selection or private readback is accepted. Drafts are
 fixed run-attributed T0272 synthetic preferences; existing noncanonical saved/draft
 content refuses. Destructive in-sheet review requires a separate finite `confirm` action;
@@ -98,11 +98,15 @@ metadata before CAS; unknown/extra/changed authority refuses, never bypasses.
 Validate native/DOM/Python contracts and the exact-source artifact before use.
 
 T0279 adapts `memory/rebuild-preflight` to enter the dedicated history view.
-Finite navigation adds `back`, `manage`, `usage`, `item-details`, `chat-details`,
-`cancel-edit`, `confirm`, `cancel-confirm`, `history-effects`. Clear enters Manage,
+Current finite navigation adds `back`, `manage`, `earlier-sources`, `older-records`, `item-details`,
+`cancel-edit`, `confirm`, `cancel-confirm`, `history-effects`, `history-select`,
+`history-legacy`. Removed `usage`, `chat-details` and `refresh` are refused.
+`history-select` chooses only the first fixed authored presentation conversation;
+`history-legacy` toggles only the fixed older-history permission checkbox.
+`history-effects` locally reviews that scope, then opens its final confirmation;
+it never clicks Start. These three actions are fixed-presentation-only. Clear enters Manage,
 then a separate Clear review; Forget and Enable similarly require their visible
-confirmation. `confirm` accepts only Clear/Forget/Enable/Update-this-chat, never
-history Start. Existing `rebuildVisible`, `rebuildStartDisabled` and
+confirmation. `confirm` accepts only Clear/Forget/Enable, never history Start. Existing `rebuildVisible`, `rebuildStartDisabled` and
 `rebuildCancelDisabled` remain boolean observations; `presentationFixture` and
 `confirmationVisible` are added, with no text/source/cost readback. The keyless
 `rebuild-start` and `rebuild-cancel` remain denied. The existing
@@ -118,18 +122,23 @@ Validate native/DOM/Python positive/negative contracts before artifact use.
 ### Fixed Memory presentation evidence (T0279)
 
 The admitted ordinary synthetic controller additionally accepts exactly
-`fixture-populated|fixture-off|fixture-history|fixture-running|fixture-complete|fixture-interrupted|fixture-unknown|fixture-reset`.
+`fixture-populated|fixture-empty|fixture-error|fixture-off|fixture-history|fixture-running|fixture-complete|fixture-interrupted|fixture-unknown|fixture-reset`.
 This is **instrumented fixed presentation**, not actual engine progression or
 ordinary unmodified-app behavior: a temporary renderer-only adapter returns closed
 fixed authored Memory inspection snapshots to the same production hook/components.
-It refuses every Memory POST locally, never fakes a successful mutation, and never
-reads private inputs or calls a provider. Native keyless scheduling is unchanged.
+It refuses all mutations locally, never fakes a successful mutation, and never
+reads private inputs or calls a provider. The only admitted POST is a closed
+non-generating `rebuild-review` with exact authored expected counters and selection:
+all or first fixed fixture chat, version1 and boolean legacy intent; extra/foreign/
+stale fields refuse. This answers presentation metadata only, never backend authority. Native keyless scheduling is unchanged.
 No caller text, IDs, paths, fixtures, selectors, scripts or DTOs are accepted.
 
-Fixtures include three fully authored qualified/negative/past items, a distinct
-older unmeasured chat snapshot, 184 excluded user messages with accurate provenance
-wording, separate cost estimates/reservations and fixed running/complete/interrupted
-or unavailable-read states. Only exact independently enumerated authored/static
+Fixtures include three fully authored qualified/negative/past items, empty/error/
+Off states, all/selected-chat review with180 uncertain old messages and4 known
+forgotten sources, explicit legacy confirmation and fixed running/complete/
+interrupted or unavailable-read states. Internal older-pin/accounting metadata is
+not rendered. Final confirmation names uncertain clearing without presenting raw
+codes, price formulas, counters or technical dashboards. Only exact independently enumerated authored/static
 text and canonical draft values can be captured under unchanged geometry-preserving
 hide-by-default masks. Unknown values stay masked or refuse. Fixture mode blocks
 mutation/confirmation actions; Forget/Clear may only open then cancel review.

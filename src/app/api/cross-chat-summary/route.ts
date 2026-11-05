@@ -50,7 +50,12 @@ export async function POST(request: Request) {
           { error: "Unsupported summary control." },
           { status: 400 },
         );
-      applySummaryCommand(await prepareSummaryAdoption(command));
+      const review = applySummaryCommand(await prepareSummaryAdoption(command));
+      if (command.action === "rebuild-review")
+        return NextResponse.json(
+          { rebuild: review },
+          { headers: { "cache-control": "no-store" } },
+        );
     }
     return NextResponse.json(readCrossChatSummary(), {
       headers: identity

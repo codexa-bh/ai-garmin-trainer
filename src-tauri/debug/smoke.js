@@ -270,7 +270,11 @@
   const memoryText = (updated = false) =>
     `T0272-${globalThis.__trainerOrdinaryIsolated?.runId}: ${updated ? "Weekends remain optional; poles not chosen." : "Short weekdays chosen for time; long weekdays rejected."}`;
   let memoryFixture = null;
-  let memoryCaptureCost = false;
+  let memoryReviewSelection = {
+    version: 1,
+    conversationIds: null,
+    includeLegacy: false,
+  };
   let memoryStage = "idle";
   let memoryFixtureExpiry;
   let originalMemoryFetch;
@@ -299,15 +303,25 @@
           ? "interrupted"
           : null;
     const off = memoryFixture === "fixture-off";
+    const empty = memoryFixture === "fixture-empty";
+    const selectedChat = memoryReviewSelection.conversationIds !== null;
+    const included = selectedChat
+      ? memoryReviewSelection.includeLegacy
+        ? 19
+        : 1
+      : memoryReviewSelection.includeLegacy
+        ? 196
+        : 16;
     return {
       version: 1,
       state: off ? "disabled" : "fresh",
-      reason: null,
+      reason:
+        memoryFixture === "fixture-error" ? "summary_invalid_output" : null,
       revision: 3,
       frontier: 4,
       pending: 0,
-      items: items.length,
-      characters: 420,
+      items: empty ? 0 : items.length,
+      characters: empty ? 0 : [...presentationText.join("\n")].length,
       cap: 6000,
       publishedAt: null,
       enabled: !off,
@@ -319,7 +333,11 @@
       unknownReservedUsd: 0.01,
       priceBasis: "authored-presentation-only",
       expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
-      stored: { version: 1, text: presentationText.join("\n"), items },
+      stored: {
+        version: 1,
+        text: empty ? "" : presentationText.join("\n"),
+        items: empty ? [] : items,
+      },
       manualIds: [],
       sources: [],
       legacy: [],
@@ -355,6 +373,11 @@
       rebuild: {
         version: 1,
         snapshot: "a".repeat(64),
+        selection: memoryReviewSelection,
+        conversations: Array.from({ length: 12 }, (_, i) => ({
+          id: `fixture_chat_${i}`,
+          title: `Authored conversation ${i + 1}`,
+        })),
         ready: !off && !running,
         complete: true,
         limitExceeded: false,
@@ -364,17 +387,37 @@
         capability: "configured-not-probed",
         counts: {
           chats: 12,
+          selectedChats: selectedChat ? 1 : 12,
+          legacyUserMessages: memoryReviewSelection.includeLegacy
+            ? selectedChat
+              ? 18
+              : 180
+            : 0,
           messages: 400,
           userMessages: 200,
           assistantMessages: 200,
-          includedChats: 4,
-          excludedChats: 8,
-          includedUserMessages: 16,
+          includedChats: selectedChat
+            ? 1
+            : memoryReviewSelection.includeLegacy
+              ? 12
+              : 4,
+          excludedChats: selectedChat
+            ? 11
+            : memoryReviewSelection.includeLegacy
+              ? 0
+              : 8,
+          includedUserMessages: included,
           assistantContext: 3,
-          excludedUserMessages: 184,
-          excludedMessages: 381,
+          excludedUserMessages: 200 - included,
+          excludedMessages: 400 - included - 3,
         },
-        reasons: { "unproven-legacy-or-cleared-original": 180, suppressed: 4 },
+        reasons: {
+          ...(selectedChat ? { "not-selected": 180 } : {}),
+          ...(!memoryReviewSelection.includeLegacy
+            ? { "unproven-legacy-or-cleared-original": selectedChat ? 18 : 180 }
+            : {}),
+          suppressed: selectedChat ? 1 : 4,
+        },
         estimatedUsd: {
           low: 0,
           conservativeMaximum: 0.4,
@@ -413,12 +456,49 @@
           url === "/api/cross-chat-summary" ||
           url?.startsWith("/api/cross-chat-summary?")
         ) {
-          if ((init?.method ?? "GET") !== "GET")
-            return Promise.reject(
-              Error(
-                "Presentation fixtures cannot mutate or contact a provider",
-              ),
-            );
+          if ((init?.method ?? "GET") !== "GET") {
+            try {
+              const command = JSON.parse(String(init?.body));
+              const s = command.selection;
+              if (
+                init?.method !== "POST" ||
+                memoryFixture === "fixture-unknown" ||
+                Object.keys(command).sort().join() !==
+                  "action,expected,selection,version" ||
+                command.action !== "rebuild-review" ||
+                command.version !== 1 ||
+                JSON.stringify(command.expected) !==
+                  JSON.stringify(memoryFixtureValue().expected) ||
+                !s ||
+                Object.keys(s).sort().join() !==
+                  "conversationIds,includeLegacy,version" ||
+                s.version !== 1 ||
+                typeof s.includeLegacy !== "boolean" ||
+                !(
+                  s.conversationIds === null ||
+                  JSON.stringify(s.conversationIds) === '["fixture_chat_0"]'
+                )
+              )
+                throw Error("Unsupported fixed review");
+              memoryReviewSelection = {
+                version: 1,
+                conversationIds: s.conversationIds,
+                includeLegacy: s.includeLegacy,
+              };
+              return Promise.resolve(
+                new Response(
+                  JSON.stringify({ rebuild: memoryFixtureValue().rebuild }),
+                  { headers: { "content-type": "application/json" } },
+                ),
+              );
+            } catch {
+              return Promise.reject(
+                Error(
+                  "Presentation fixtures cannot mutate or contact a provider",
+                ),
+              );
+            }
+          }
           return Promise.resolve(
             new Response(
               JSON.stringify(
@@ -437,6 +517,11 @@
       };
     }
     memoryFixture = action;
+    memoryReviewSelection = {
+      version: 1,
+      conversationIds: null,
+      includeLegacy: false,
+    };
     clearTimeout(memoryFixtureExpiry);
     memoryFixtureExpiry = setTimeout(resetMemoryFixture, 120000);
   }
@@ -447,6 +532,18 @@
   }
   function memoryObservation(action) {
     const panel = memoryPanel();
+    if (
+      [...(panel?.querySelectorAll("button,h3,h4") ?? [])].some((node) =>
+        [
+          "How memory works & costs",
+          "Technical details",
+          "View chat memory",
+          "Update this chat",
+          "This chat’s memory",
+        ].includes(name(node)),
+      )
+    )
+      throw Error("Removed Memory controls remain");
     const rows = [
       ...(panel?.querySelectorAll(
         '[aria-label="Saved summary items"] .memory-text',
@@ -513,18 +610,21 @@
         "disable",
         "enable",
         "retry",
-        "refresh",
         "rebuild-preflight",
+        "history-select",
+        "history-legacy",
         "back",
         "manage",
-        "usage",
+        "earlier-sources",
+        "older-records",
         "item-details",
-        "chat-details",
         "cancel-edit",
         "confirm",
         "cancel-confirm",
         "history-effects",
         "fixture-populated",
+        "fixture-empty",
+        "fixture-error",
         "fixture-off",
         "fixture-history",
         "fixture-running",
@@ -537,7 +637,6 @@
       throw Error("Unsupported Memory action/fields");
     const before = memoryObservation(command.action);
     if (command.action === "observe") return before;
-    memoryCaptureCost = command.action === "history-effects";
     if (command.action === "open") {
       if (before.visible) throw Error("Memory already open");
       target("Memory").click();
@@ -561,9 +660,11 @@
           "close",
           "back",
           "manage",
-          "usage",
+          "earlier-sources",
+          "older-records",
           "item-details",
-          "chat-details",
+          "history-select",
+          "history-legacy",
           "cancel-edit",
           "cancel-confirm",
           "rebuild-preflight",
@@ -591,24 +692,45 @@
               ? "Update from chat history · running"
               : "Update from chat history",
           ).click();
+      } else if (
+        command.action === "history-select" ||
+        command.action === "history-legacy"
+      ) {
+        if (
+          !memoryFixture ||
+          panel.getAttribute("data-memory-view") !== "history"
+        )
+          throw Error("Fixed presentation history only");
+        if (command.action === "history-select") {
+          const radio = panel.querySelectorAll('input[type="radio"]')[1];
+          if (!radio) throw Error("History selection unavailable");
+          radio.click();
+          queueMicrotask(() =>
+            panel.querySelector(".memory-chat-choices input")?.click(),
+          );
+        } else {
+          const boxes = panel.querySelectorAll(
+            'fieldset > label input[type="checkbox"]',
+          );
+          if (boxes.length !== 1) throw Error("Legacy review unavailable");
+          boxes[0].click();
+        }
       } else if (command.action === "history-effects") {
-        const cost = [...panel.querySelectorAll("h4")].find(
-          (node) => node.textContent === "Cost & privacy",
+        if (!memoryFixture) throw Error("Fixed presentation confirmation only");
+        const review = [...panel.querySelectorAll("button")].find(
+          (node) => name(node) === "Review selected history",
         );
-        if (!cost) throw Error("History cost unavailable");
-        cost.scrollIntoView({ block: "start" });
+        if (review) review.click();
+        else target("Review and update").click();
       } else if (command.action === "confirm") {
         const confirmButton = panel.querySelector(
           ".memory-confirm .button-row button:last-child",
         );
         if (
           !confirmButton ||
-          ![
-            "Forget memory",
-            "Clear saved memory",
-            "Turn memory On",
-            "Update this chat",
-          ].includes(name(confirmButton)) ||
+          !["Forget memory", "Clear saved memory", "Turn memory On"].includes(
+            name(confirmButton),
+          ) ||
           confirmButton.disabled
         )
           throw Error("Unsupported confirmation");
@@ -642,9 +764,9 @@
           reload: "Check saved memory",
           back: "Back to memory",
           manage: "Manage memory",
-          usage: "How memory works & costs",
+          "earlier-sources": "Review earlier sources",
+          "older-records": "Older saved records",
           "item-details": "Source & details",
-          "chat-details": "View chat memory",
           "cancel-edit": "Cancel edit",
           add: "Add memory",
           edit: "Edit",
@@ -654,7 +776,6 @@
           disable: "Turn Off",
           enable: "Turn On",
           retry: "Retry summary processing",
-          refresh: "Update this chat",
         };
         const label = labels[command.action];
         const matches = [...panel.querySelectorAll("button")].filter(
@@ -704,20 +825,14 @@
     memoryStage = "anchor";
     const anchor =
       panel.querySelector(".memory-confirm, .memory-editor") ||
-      (memoryCaptureCost
-        ? [...panel.querySelectorAll("h4")].find(
-            (node) => node.textContent === "Cost & privacy",
-          )
-        : panel.querySelector("h3"));
+      panel.querySelector("h3");
     anchor?.scrollIntoView({ block: "start", behavior: "instant" });
     const labels = new Set([
       "What your trainer remembers",
       "Saved memories",
       "Update memory from chat history",
-      "How memory works & costs",
       "Manage memory",
       "Memory details",
-      "This chat’s memory",
       "Add memory",
       "Edit",
       "Forget",
@@ -725,13 +840,17 @@
       "Check saved memory",
       "Turn Off",
       "Turn On",
-      "View chat memory",
-      "Update this chat",
       "Update from chat history",
       "Update from chat history · running",
-      "How memory works & costs",
       "Manage memory",
       "Back to memory",
+      "Conversations to review",
+      "All retained conversations",
+      "Choose conversations",
+      "Include older conversations that need permission to reuse",
+      "Review selected history",
+      "Start reviewed history update?",
+      "Start update",
       "Review and update",
       "Cancel history update",
       "Check update status",
@@ -742,8 +861,6 @@
       "Clear saved memory?",
       "Clear saved memory",
       "Cancel",
-      "Cost & privacy",
-      "What changes",
       "Updating from history",
       "Saved memory updated",
       "History update interrupted",
@@ -752,58 +869,65 @@
       "Open question · Discussed · not decided",
       "Temporary · User-stated",
       "Decision · User-stated",
-      "Nothing saved here yet. Add something you want your trainer to remember, or review eligible chat history below. Other app data has not been deleted.",
-      "This chat has earlier memory",
-      "This chat has no usable saved memory",
-      "Saved for this chat; use not yet verified",
-      "On · Memory processing needs an available provider key in native Settings.",
+      "Nothing saved here yet. Add something you want your trainer to remember, or update from past conversations below.",
+      "On · Add the provider key in Settings to process memory.",
       "Off · Saved items retained",
-      "Standalone manual source",
-      "Source unavailable; no reconstructed transcript.",
+      "Includes your own saved text.",
+      "Manually saved",
+      "Saved from conversations",
+      "Source unavailable; the conversation cannot be reconstructed.",
       "Memory added.",
       "Memory edited.",
       "Item forgotten. Original transcripts remain.",
       "Memory is Off. Saved items stay; automatic titles are separate.",
       "Memory is On. Earlier Off history was not automatically imported.",
-      "Replace generated memory after a complete, validated update. Opening this review does not send anything.",
-      "Old generated memory stays available until successful complete replacement. Manual edits, originals and forgotten-source restrictions remain. Existing chats are not automatically updated.",
-      "Keep the app open. Cancellation or interruption cannot recall sent content, refund costs or replay unknown requests.",
-      "Saved as a standalone manual memory. Safety rules still apply. Maximum 2400 text units.",
-      "Keeps the existing source and expiry. Safety rules still apply. Maximum 2400 text units.",
+      "Review is local; nothing is sent until you confirm. Only useful, safe context can be remembered, not every detail.",
+      "Old generated memory stays until the complete update succeeds. Manual edits and original conversations remain. New chat turns then use available valid memory.",
+      "Keep the app open. Cancel stops further work, but cannot recall sent text or charges. Uncertain requests are not automatically repeated.",
+      "Saved as your own memory. Keep it concise; sensitive details cannot be saved.",
+      "Keeps its existing sources and expiry. Keep it concise; sensitive details cannot be saved.",
       "Memory",
-      "Use the On/Off control on the overview to pause use without deleting saved items.",
       "Review earlier sources",
       "Older saved records",
-      "Remove saved summary, manual items and chat snapshots. Future new turns may create memory. Original transcripts, Profile, Garmin, plans and older stores remain. Backups, exports and provider logs are not erased. This is not turning memory Off.",
+      "Choose earlier messages to add to memory. Only usable completed sources are offered; originals remain.",
+      "No usable earlier messages available. To recover older conversations, use Update from chat history.",
+      "Process reviewed selection (0)",
+      "Older records are read-only and not used by chat. Up to 200 are shown; nothing is automatically imported.",
+      "No older records loaded.",
+      "Remove saved memory, including manual entries. Future new turns can create memory. Conversations, Profile, Garmin, plans and older records remain. Backups and text already sent to providers are not erased. To pause without deleting, turn memory Off instead.",
       memoryText(),
       memoryText(true),
       `Memory${memoryText()}`,
       `Memory${memoryText(true)}`,
-      `“${memoryText(true)}”\n\nRemove this item and suppress its exact source versions. Original transcripts and other stores remain. Future new statements are separate sources.`,
+      `“${memoryText(true)}”\n\nRemove this memory and keep its sources from recreating it. The original conversation remains. New statements can still become new memories.`,
       ...(memoryFixture
         ? [
             ...presentationText,
-            "On · Saved memory up to date",
+            "On · Saved memory available",
+            "On · The update could not be safely saved.",
+            ...Array.from(
+              { length: 12 },
+              (_, i) => `Authored conversation ${i + 1}`,
+            ),
+            "16 messages included from 4 conversations; 184 excluded from retained history.",
+            "196 messages included from 12 conversations; 4 excluded from retained history.",
+            "1 message included from 1 conversation; 199 excluded from retained history.",
+            "19 messages included from 1 conversation; 181 excluded from retained history.",
+            "180 — Older messages need explicit permission to reuse",
+            "18 — Older messages need explicit permission to reuse",
+            "180 — Outside your selected conversations",
+            "4 — Sources you asked memory to forget",
+            "1 — Sources you asked memory to forget",
+            "Allow older conversations to be remembered again. Earlier clearing cannot always be identified. This selection may include things once cleared from memory. Known forgotten sources and recorded clears still stay excluded.",
+            "Selected usable text goes to the configured provider and may incur cost. Conservative upper estimate: $0.4000 — not predicted billing or a spending cap. Automatic processing has no daily cost cap.",
+            "Processed 8 of 16 included messages. Not every message needs a saved memory.",
+            "Processed 16 of 16 included messages. Not every message needs a saved memory.",
+            "Previous memory stays available while this update runs. Keep the app open.",
+            "Review the saved content. Manual edits and originals remain; excluded history was not recovered. New chat turns use available valid memory.",
+            "No completed replacement is reported. Check status before reviewing a new update; earlier costs may be unknown. Nothing is repeated automatically.",
             "Off · Saved items retained",
-            "Generated from eligible sources · 0 sources",
-            "Not all history can be included",
-            "16 user messages included from 4 chats.",
-            "184 user messages excluded from the inventoried history.",
-            "180 — Earlier messages excluded: the app cannot prove they are safe to reuse after previous memory clearing.",
-            "4 — Forgotten sources",
-            "3 assistant context passages are separate from user sources, not evidence of user endorsement. Inventory: 12 chats, 200 user messages.",
-            "Estimated range: $0.0000–$0.4000 (conservative maximum, not an invoice or spending cap).",
-            "Eligible minimized originals and screened assistant context will be sent to the configured provider/model: openai / gpt-6-luna. Configuration is not proof of provider readiness. Automatic summary costs have no daily cap.",
-            "Processed 8 of 16 eligible messages. Processing counts do not certify memory quality.",
-            "Processed 16 of 16 eligible messages. Processing counts do not certify memory quality.",
-            "Old saved memory is separate from the staged result. Keep the app open.",
-            "Manual edits and originals remain. This chat has not automatically adopted the update.",
-            "No successful staged replacement is reported. Independent Off, Clear or privacy changes still apply; no rollback or refund is promised. Check status, then review anew before any new Start.",
             "Memory inspection unavailable. Check again to reconcile saved state; your data has not been reset.",
-            "Earlier chat snapshot: weekends were still undecided.",
-            "Saved revision 2; latest saved revision 3. 0 whole items omitted. Not measured yet.",
-            "Update explicitly adopts only available memory after bounded catch-up; recent pending changes may still need another update.",
-            `“${presentationText[0]}”\n\nRemove this item and suppress its exact source versions. Original transcripts and other stores remain. Future new statements are separate sources.`,
+            `“${presentationText[0]}”\n\nRemove this memory and keep its sources from recreating it. The original conversation remains. New statements can still become new memories.`,
           ]
         : []),
     ]);
@@ -822,7 +946,9 @@
         node.setAttribute("data-smoke-reveal", "");
     }
     memoryStage = "canonical-copy";
-    for (const node of panel.querySelectorAll("h2,h3,h4,p,li,button,label")) {
+    for (const node of panel.querySelectorAll(
+      "h2,h3,h4,p,li,button,label,legend",
+    )) {
       if (!labels.has(node.textContent.trim()) || !visible(node)) continue;
       if (
         node.querySelector("textarea") &&

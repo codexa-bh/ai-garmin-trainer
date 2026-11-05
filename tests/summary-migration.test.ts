@@ -53,7 +53,7 @@ function preserved(db: Database.Database, before: ReturnType<typeof snapshot>) {
     expect(db.prepare(table.query).all(), table.name).toEqual(table.rows);
 }
 
-it("rehearses additive19→22 on a populated online copy and restores only a separate pre-write backup", async () => {
+it("rehearses additive19→23 on a populated online copy and restores only a separate pre-write backup", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "summary-transition-")));
   const source = new Database(join(root, "original.sqlite"));
   let copy: Database.Database | undefined;
@@ -75,7 +75,7 @@ it("rehearses additive19→22 on a populated online copy and restores only a sep
     expect(currentSchemaVersion(copy)).toBe(LATEST_SCHEMA_VERSION);
     expect(
       copy.prepare("select * from summary_original_boundary").get(),
-    ).toEqual({ id: 1, floor: 2 });
+    ).toEqual({ id: 1, floor: 2, clear_floor: 0 });
     expect(copy.pragma("integrity_check", { simple: true })).toBe("ok");
     preserved(copy, before);
     expect(() => assertDesktopDatabase(path)).not.toThrow();

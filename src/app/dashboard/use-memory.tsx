@@ -9,7 +9,9 @@ import type {
 import type {
   SummaryCommand,
   SummaryRebuildInspection,
+  SummaryRebuildSelection,
 } from "@/lib/memory/summary-controls";
+import { parseRebuildSelection } from "@/lib/memory/summary-controls";
 import type { SummaryPin } from "@/lib/chat/summary-pin";
 import { readJsonResponse } from "./transport";
 
@@ -56,6 +58,31 @@ export type MemoryAction = SummaryCommand extends infer C
     ? Omit<C, "version" | "expected">
     : never
   : never;
+
+function validRebuildInspection(
+  r: SummaryRebuildInspection | undefined,
+): boolean {
+  return (
+    !!r &&
+    r.version === 1 &&
+    typeof r.ready === "boolean" &&
+    /^[a-f0-9]{64}$/.test(r.snapshot) &&
+    !!parseRebuildSelection(r.selection) &&
+    Array.isArray(r.conversations) &&
+    r.conversations.every(
+      (chat) => typeof chat.id === "string" && typeof chat.title === "string",
+    ) &&
+    !!r.counts &&
+    Object.values(r.counts).every((n) => Number.isSafeInteger(n) && n >= 0) &&
+    Number.isFinite(r.estimatedUsd?.low) &&
+    r.estimatedUsd.low >= 0 &&
+    Number.isFinite(r.estimatedUsd?.conservativeMaximum) &&
+    r.estimatedUsd.conservativeMaximum >= r.estimatedUsd.low &&
+    typeof r.capability === "string" &&
+    !!r.reasons &&
+    Object.values(r.reasons).every((n) => Number.isSafeInteger(n) && n >= 0)
+  );
+}
 
 export function useMemoryFeature({
   setStatus,
@@ -140,25 +167,7 @@ export function useMemoryFeature({
           !Array.isArray(result.historical?.candidates) ||
           !Array.isArray(result.historical?.manifests) ||
           (result.rebuild !== undefined &&
-            (result.rebuild.version !== 1 ||
-              typeof result.rebuild.ready !== "boolean" ||
-              !/^[a-f0-9]{64}$/.test(result.rebuild.snapshot) ||
-              !result.rebuild.counts ||
-              !Object.values(result.rebuild.counts).every(
-                (n) => Number.isSafeInteger(n) && n >= 0,
-              ) ||
-              !Number.isFinite(result.rebuild.estimatedUsd?.low) ||
-              result.rebuild.estimatedUsd.low < 0 ||
-              !Number.isFinite(
-                result.rebuild.estimatedUsd?.conservativeMaximum,
-              ) ||
-              result.rebuild.estimatedUsd.conservativeMaximum <
-                result.rebuild.estimatedUsd.low ||
-              typeof result.rebuild.capability !== "string" ||
-              !result.rebuild.reasons ||
-              !Object.values(result.rebuild.reasons).every(
-                (n) => Number.isSafeInteger(n) && n >= 0,
-              )))
+            !validRebuildInspection(result.rebuild))
         )
           throw new Error("Unsupported memory inspection");
         if (request !== sequence.current) return;
@@ -198,11 +207,51 @@ export function useMemoryFeature({
     }, 2000);
     return () => clearInterval(timer);
   }, [memory?.rebuild?.operation?.state, loadMemories]);
+  async function reviewHistory(selection: SummaryRebuildSelection) {
+    if (!memory || changing.current) return;
+    const request = ++sequence.current;
+    const before = memory;
+    setIsMemoryLoading(true);
+    try {
+      const result = await readJsonResponse<{
+        rebuild: SummaryRebuildInspection;
+      }>(
+        await fetch("/api/cross-chat-summary", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            version: 1,
+            expected: before.expected,
+            action: "rebuild-review",
+            selection,
+          }),
+        }),
+      );
+      if (request !== sequence.current) return;
+      if (!validRebuildInspection(result.rebuild))
+        throw new Error("Unsupported review");
+      const reviewed = { ...before, rebuild: result.rebuild };
+      currentInspection.current = reviewed;
+      setMemory(reviewed);
+      setMemoryMessage("");
+    } catch {
+      if (request !== sequence.current) return;
+      currentInspection.current = null;
+      setMemory(null);
+      setMemoryMessage(
+        "History review unavailable. Check saved memory and review again; nothing was started.",
+      );
+    } finally {
+      if (request === sequence.current) setIsMemoryLoading(false);
+    }
+  }
   async function changeMemory(
     action: MemoryAction,
     reviewed?: SummaryInspection,
   ) {
     if (!memory || changing.current) return;
+    if (action.action === "rebuild-review")
+      return reviewHistory(action.selection);
     if (
       reviewed &&
       (reviewed !== currentInspection.current || reviewed !== memory)
@@ -247,7 +296,7 @@ export function useMemoryFeature({
       !reviewed &&
       action.action === "rebuild-start" &&
       !window.confirm(
-        "Rebuild generated memory from the reviewed original-message inventory with the configured cloud model? Minimized originals and screened assistant context may leave this device and incur the displayed cost. Old memory stays active until one complete validated replacement. Manual overlays, suppressed sources and originals remain; existing chat pins do not refresh. Unknown prior costs remain reserved. Keep the app open; cancellation or interruption does not replay unknown effects.",
+        "Rebuild generated memory from the reviewed original-message inventory with the configured cloud model? Minimized originals and screened assistant context may leave this device and incur the displayed cost. Old memory stays active until one complete validated replacement. Manual overlays, suppressed sources and originals remain; next chat turns use available valid memory. Unknown prior costs remain reserved. Keep the app open; cancellation or interruption does not replay unknown effects.",
       )
     )
       return;
@@ -294,8 +343,9 @@ export function useMemoryFeature({
           "Summary scheduling retry requested. Previous unknown costs remain reserved.",
         refresh:
           "This chat update checked. Only the available memory was saved; review this chat and any pending updates below.",
+        "rebuild-review": "History reviewed locally; nothing started.",
         "rebuild-start":
-          "History update started. Keep the app open; this chat is not automatically updated.",
+          "History update started. Keep the app open. Saved memory changes only after the update finishes.",
         "rebuild-cancel":
           "Cancellation checked. Review the actual update status; sent requests and costs cannot be recalled.",
         "import-create": "Reviewed source import created.",
@@ -347,6 +397,7 @@ export function useMemoryFeature({
     canDiscardMemoryEdit,
     loadMemories,
     changeMemory,
+    reviewHistory,
     editingMemoryId,
     editingMemoryText,
     setEditingMemoryId,

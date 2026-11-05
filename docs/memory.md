@@ -49,25 +49,24 @@ its removed button. Trainer → Memory retains the actual pin and immediate cont
 Trainer **Memory** opens with **What your trainer remembers**: complete saved item
 text, meaningful stance/temporal qualification and **Add memory**, with Edit, Forget
 and Source & details on each item. Off retains saved content. Manage memory holds
-Clear, Review earlier sources and read-only Older saved records. How memory works &
-costs separates observed-token estimates, reservations and unknown liabilities;
-Technical details retains exact configuration, revision, frontier and admission data.
-No model/size editor duplicates native Settings.
+Clear, Review earlier sources and read-only Older saved records. Technical/cost
+dashboards and per-chat snapshot maintenance are removed. Settings owns model/size;
+privacy, uncertain cost and replacement consequences appear at paid-action confirmation.
+“Saved memory available” describes stored content, not complete history coverage or
+proof that a particular answer consumed it.
 
-**View chat memory** distinguishes the latest stored summary from the selected chat's
-actual saved snapshot, whole-item omissions, measured token count and qualified-route
-eligibility; it never claims that an answer already used the latest saved text. New chat and Refresh give pending activity up to eight seconds
-to catch up, then freeze only the available revision or null. Single small completed
-turns wake native foreground processing after a two-second debounce; ordinary backlog
-automatically drains in finite serialized jobs. A later publication does not replace
-that pin, including before the first message. Full newly adopted memory is measured
-without the former2048-token projection ceiling; total serialized request admission
-adds measured memory to the existing non-memory allocation while reserving output,
-safety, tools and fresh input. Impossible requests report capacity rather than clip.
-Existing sealed projections/omissions remain unchanged until explicit adoption.
-Restart retains the exact pin. **Update this chat** and deliberate local
-compaction are explicit adoption boundaries. Refresh refuses busy/stale actions.
-Unsupported chat routes keep ordinary local behavior without semantic retrieval.
+At each turn's atomic admission, after busy exclusion, the chat adopts latest
+available privacy-valid saved memory or null, including after rebuild/manual edit
+and across restart. No per-chat Refresh is needed. No provider wait is added:
+background processing may still be pending. The admitted snapshot is immutable
+through planner, tools, synthesis and delivery; an ordinary publication waits for
+the next turn. Immediate privacy/Off/Forget/Clear/source/manual invalidation still
+revokes unsafe admitted work. Panel/history reads do not adopt or generate memory.
+Single small completed turns wake foreground processing after a two-second debounce;
+ordinary backlog drains in finite serialized jobs. Full memory is used or admission
+refuses; no silent clipping or new route capability. Changing prefixes between
+turns can affect caching; no billed-cache saving is guaranteed. Internal consumption
+metadata and the compatibility Refresh API remain diagnostic, not routine UI.
 
 Pins are untrusted user-derived continuity, not policy, current measurements or
 permission to save a plan. Current corrections/Profile and fresh tool evidence
@@ -134,13 +133,20 @@ remain distinct. **Check update status** only reads; it never replays Start. It 
 useful durable coaching context from admitted originals through the existing
 summary engine, not old generated noise. Finite internal batches stage privately;
 only a complete validated result replaces generated memory. Manual overlays and
-originals remain, and existing chat pins still require explicit Refresh/adoption.
+originals remain; next admitted turns automatically adopt available valid memory.
 Cancel, interruption, invalid output, stale authority or capacity refusal cannot
 partially publish. Status reload reconciles the same operation without replaying
 Start or unknown costs. Keep the app open; no background full rebuild is promised.
 
-Schema22 conservatively excludes pre-existing unlinked originals whose relationship
-to earlier Clear operations cannot be proved. Post-fence unlinked originals retain
+Schema22 conservatively fenced pre-existing unlinked originals whose relationship
+to earlier Clear operations cannot be proved. Schema23 preserves that floor and
+adds a separately recorded future-Clear floor, initially zero (no invented audit
+history). Choose All retained conversations or selected conversations, then explicitly
+include older conversations needing permission. Local review binds that scope;
+final confirmation explains that things once cleared may be remembered again where
+old clearing cannot be reconstructed. Known forgotten sources and recorded clears
+remain excluded, including assistant context and its originating user. Old bare
+Start, startup, incremental work and passive reads never obtain legacy authority. Post-fence unlinked originals retain
 honest message/time/hash provenance, not fabricated completed turns. Suppressed,
 unsafe, oversized and unsupported sources are disclosed. No-save requests and
 assistant context cannot grant endorsement or plan-save permission. Off/unselected/

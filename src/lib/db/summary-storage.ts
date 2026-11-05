@@ -850,7 +850,7 @@ export const summaryStorage: SummaryStorage = {
         );
       if (action === "clear") {
         db.prepare(
-          "update summary_original_boundary set floor=max(floor,(select coalesce(max(rowid),0) from message)) where id=1",
+          "update summary_original_boundary set floor=max(floor,(select coalesce(max(rowid),0) from message)),clear_floor=max(clear_floor,(select coalesce(max(rowid),0) from message)) where id=1",
         ).run();
         db.prepare(
           "update summary_control set cutoff=(select coalesce(max(admission_seq),0) from conversation_turn),manual_revision=manual_revision+1,reason=null,retry_at=0 where id=1",

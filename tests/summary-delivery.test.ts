@@ -8,6 +8,7 @@ import {
   listRecentChatMessages,
 } from "@/lib/db/conversation-repository";
 import { createChatTurns } from "@/lib/chat/turn";
+import type { ChatGenerationInput, ChatGenerator } from "@/lib/chat/ports";
 import { fallbackLlmDebugTrace } from "@/lib/ai/debug-trace";
 import { summaryStorage } from "@/lib/db/summary-storage";
 import { createSummaryEngine } from "@/lib/memory/summary-application";
@@ -29,6 +30,69 @@ beforeEach(() => {
   summaryStorage.configure(true, "gpt-6-luna", 6000);
 });
 afterEach(() => db.close());
+it.each(["JSON", "NDJSON"])(
+  "actual %s delivery adopts a saved edit on the next turn without Refresh, including a previously null restarted chat",
+  async (mode) => {
+    ensureConversation("next-turn");
+    const bytes = db.serialize();
+    db.close();
+    db = new Database(bytes);
+    summaryStorage.edit(
+      summaryStorage.version(),
+      null,
+      "Short weekday mornings fit caregiving; poles remain unresolved.",
+      Date.now(),
+    );
+    const requests: ChatGenerationInput[] = [];
+    const generate: ChatGenerator = Object.assign(
+      async (input: ChatGenerationInput) => {
+        requests.push(input);
+        expect(JSON.stringify(input.conversation?.history)).toContain(
+          "poles remain unresolved",
+        );
+        return {
+          text: "Short mornings respect caregiving; poles are not decided.",
+          grounding: null,
+          toolSteps: [],
+          progressCounters: {
+            modelCalls: 1,
+            toolsSucceeded: 0,
+            toolsUnsuccessful: 0,
+          },
+        };
+      },
+      {
+        compaction: { count: async () => 100, generate: async () => "unused" },
+      },
+    );
+    app = createChatTurns({
+      history,
+      ensureConversation,
+      appendChatMessage,
+      listRecentChatMessages,
+      buildSystemContext: async () => ({
+        policy: "Current policy",
+        context: "Fresh Profile outranks memory",
+      }),
+      selectGeneration: () => generate,
+      fallbackDebugTrace: fallbackLlmDebugTrace,
+    });
+    const turn = app.prepareChatTurn("next-turn", "What still matters?");
+    const response =
+      mode === "JSON"
+        ? await jsonResponse(turn, false)
+        : streamingResponse({
+            ...turn,
+            debugTraceEnabled: false,
+            memoryProposal: { status: "none" },
+            requestSignal: new AbortController().signal,
+          });
+    const body = await response.text();
+    expect(body).toContain(mode === "JSON" ? '"assistant"' : '"type":"done"');
+    expect(body).toContain("Short mornings respect caregiving");
+    expect(requests).toHaveLength(1);
+  },
+);
 it.each(["JSON", "NDJSON"])(
   "actual %s completion commits its source without waiting for a never-settling summary provider",
   async (mode) => {

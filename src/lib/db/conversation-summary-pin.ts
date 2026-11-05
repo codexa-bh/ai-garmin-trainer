@@ -28,6 +28,31 @@ export function adoptSummaryPin(conversationId: string, replace = false): void {
       .get(conversationId)
   )
     return;
+  const existing = db
+    .prepare(
+      "select format_version,payload,seal from conversation_summary_pin where conversation_id=?",
+    )
+    .get(conversationId) as
+    { format_version: number; payload: string; seal: string } | undefined;
+  // Adoption is not authority to repair unsupported/corrupt saved bytes.
+  if (
+    existing &&
+    (existing.format_version !== 1 ||
+      (existing.payload !== "null" && seal(existing.payload) !== existing.seal))
+  )
+    return;
+  if (
+    existing?.payload !== undefined &&
+    existing.payload !== "null" &&
+    !readSummaryPin(conversationId)
+  ) {
+    const current = db
+      .prepare(
+        "select payload from conversation_summary_pin where conversation_id=?",
+      )
+      .get(conversationId) as { payload: string };
+    if (current.payload !== "null") return;
+  }
   let pin: SummaryPin | null = null;
   let reason: string | null = null;
   try {
@@ -36,6 +61,15 @@ export function adoptSummaryPin(conversationId: string, replace = false): void {
   } catch {
     reason = "summary_unavailable";
   }
+  const previous = existing ? readSummaryPin(conversationId) : null;
+  if (
+    previous &&
+    pin &&
+    previous.omitted === 0 &&
+    JSON.stringify(previous.stamp) === JSON.stringify(pin.stamp) &&
+    JSON.stringify(previous.value) === JSON.stringify(pin.value)
+  )
+    return;
   const payload = JSON.stringify(pin);
   db.prepare(
     `insert into conversation_summary_pin(conversation_id,payload,seal,reason) values(?,?,?,?)

@@ -370,11 +370,14 @@ by new history/global-summary paths, even if optional Ollama embeddings are offl
 
 ### Pinning and urgent invalidation
 
-New chat pins the latest usable global revision, or null. Ordinary background
-publication changes only what **future** segments may adopt. Existing chat pins
-survive reload/restart by exact revision, not “latest.” Deliberate compaction and
-explicit Refresh memory create a new segment using the newest valid projection;
-prior history remains source-owned, not copied as new global evidence.
+Prospective T0281 amendment: at each turn's atomic admission, after existing busy
+exclusion, adopt latest available privacy-valid global revision or null. No routine
+Refresh, panel mutation or provider wait. Preserve the captured snapshot throughout
+that request; ordinary publication waits until the next admission. Restarted chats
+also adopt at next admission. Explicit compaction/compatibility Refresh remain
+internal supported boundaries. Cross-turn prefixes can change; no cache-billing
+claim. Prior history stays source-owned, never copied as new global evidence.
+Immediate privacy/Off/source/manual invalidation below remains unchanged.
 
 Every use and publication checks durable privacy/control/correction generations,
 not merely a revision number or in-memory boolean. Deletion, source edit, clear,

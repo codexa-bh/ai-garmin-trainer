@@ -48,6 +48,12 @@ function snapshot(conversationId = "A"): SummaryInspection {
     rebuild: {
       version: 1,
       snapshot: "a".repeat(64),
+      selection: { version: 1, conversationIds: null, includeLegacy: false },
+      conversations: [
+        { id: "A", title: "Authored caregiving" },
+        { id: "B", title: "Authored equipment" },
+        { id: "C", title: "Authored hiking" },
+      ],
       ready: true,
       complete: true,
       limitExceeded: false,
@@ -57,6 +63,8 @@ function snapshot(conversationId = "A"): SummaryInspection {
       capability: "configured-not-probed",
       counts: {
         chats: 3,
+        selectedChats: 3,
+        legacyUserMessages: 0,
         messages: 12,
         userMessages: 6,
         assistantMessages: 6,
@@ -379,6 +387,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
         beginMemoryEdit={vi.fn()}
         canDiscardMemoryEdit={() => true}
         loadMemories={vi.fn()}
+        reviewHistory={vi.fn()}
         changeMemory={change}
         editingMemoryId={null}
         editingMemoryText=""
@@ -415,14 +424,11 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Back to memory" }));
     expect(
-      screen.getByText(/This chat has no usable saved memory/),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Update this chat" }));
-    fireEvent.click(screen.getByRole("button", { name: "Update this chat" }));
-    expect(change).toHaveBeenCalledWith(
-      { action: "refresh", conversationId: "A", segmentRevision: 0 },
-      value,
-    );
+      screen.queryByText(/This chat has no usable saved memory/),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Update this chat" }),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Manage memory" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Older saved records" }),
@@ -443,6 +449,95 @@ describe("integrated Memory visible controls and stale-response safety", () => {
         .getByRole("button", { name: "Process reviewed selection (0)" })
         .hasAttribute("disabled"),
     ).toBe(true);
+  });
+  it("reviews selected conversations locally and requires separate explicit legacy confirmation before Start", async () => {
+    const value = snapshot();
+    const expectedSelection = {
+      version: 1,
+      conversationIds: ["A"],
+      includeLegacy: true,
+    };
+    const fetcher = await mountMemory(value, (body) => {
+      if (body.action === "rebuild-review") {
+        expect(body.selection).toEqual(expectedSelection);
+        return response({
+          rebuild: {
+            ...value.rebuild,
+            snapshot: "b".repeat(64),
+            selection: expectedSelection,
+          },
+        });
+      }
+      return response({ ok: true });
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Update from chat history" }),
+    );
+    fireEvent.click(
+      screen.getByRole("radio", { name: "Choose conversations" }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Authored caregiving" }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Include older conversations/ }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Review and update" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review selected history" }),
+    );
+    await screen.findByRole("button", { name: "Review and update" });
+    expect(
+      fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
+    ).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Review and update" }));
+    expect(screen.getByText(/things once cleared from memory/)).toBeTruthy();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Cancel" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start update" }));
+    await screen.findByText(/History update started/);
+    const posts = fetcher.mock.calls
+      .filter((call) => call[1]?.method === "POST")
+      .map((call) => JSON.parse(String(call[1]?.body)));
+    expect(posts.map((post) => post.action)).toEqual([
+      "rebuild-review",
+      "rebuild-start",
+    ]);
+    expect(posts[1]).toMatchObject({
+      selection: expectedSelection,
+      snapshot: "b".repeat(64),
+    });
+  });
+  it("refuses malformed selected-history review metadata without inventing readiness or replaying", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(snapshot()))
+      .mockResolvedValueOnce(
+        response({
+          rebuild: { version: 1, snapshot: "b".repeat(64), ready: true },
+        }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    const { result } = renderHook(() =>
+      useMemoryFeature({ setStatus: vi.fn() }),
+    );
+    await act(() => result.current.loadMemories(false, "A"));
+    await act(() =>
+      result.current.reviewHistory({
+        version: 1,
+        conversationIds: ["A"],
+        includeLegacy: true,
+      }),
+    );
+    expect(result.current.memory).toBeNull();
+    expect(result.current.memoryMessage).toContain("nothing was started");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetcher.mock.calls[1][1].body)).action).toBe(
+      "rebuild-review",
+    );
   });
   it("confirms one identity-bound rebuild Start and refuses double-click/unknown-effect replay", async () => {
     let finish!: (value: Response) => void;
@@ -522,7 +617,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       true,
     );
   });
-  it("puts faithful complete content first and rehomes sources, legacy and accounting", async () => {
+  it("puts faithful complete content first and removes technical and snapshot dashboards rather than relocating them", async () => {
     const value = populated();
     value.enabled = false;
     value.state = "disabled";
@@ -541,17 +636,18 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect(screen.getByRole("heading", { name: "Memory details" })).toBe(
       document.activeElement,
     );
-    expect(screen.getByText("Standalone manual source")).toBeTruthy();
+    expect(screen.getByText("Includes your own saved text.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Back to memory" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "How memory works & costs" }),
-    );
-    expect(screen.getByText(/no daily cap/)).toBeTruthy();
-    expect(
-      screen.getByText("Outstanding unknown / legacy reservations, all days"),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
-    expect(screen.getByText("synthetic-review-basis")).toBeTruthy();
+    for (const name of [
+      "How memory works & costs",
+      "Technical details",
+      "View chat memory",
+      "Update this chat",
+    ])
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Manage memory" }));
+    expect(document.querySelector(".memory-facts,table,dl")).toBeNull();
+    expect(screen.queryByText("synthetic-review-basis")).toBeNull();
   });
   it("guards dirty cancel, adds with exact authority, and gives action-specific feedback", async () => {
     const value = snapshot();
@@ -595,7 +691,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Forget" })[0]);
     expect(
       screen.getByText(
-        /Remove this item and suppress its exact source versions/,
+        /Remove this memory and keep its sources from recreating it/,
       ).textContent,
     ).toContain(value.stored.items[0].text);
     expect(document.activeElement).toBe(
@@ -606,7 +702,9 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     fireEvent.click(screen.getByRole("button", { name: "Manage memory" }));
     fireEvent.click(screen.getByRole("button", { name: "Clear saved memory" }));
     expect(
-      screen.getByText(/Backups, exports and provider logs are not erased/),
+      screen.getByText(
+        /Backups and text already sent to providers are not erased/,
+      ),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
@@ -630,15 +728,18 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Update from chat history" }),
     );
-    expect(screen.getByText("184 user messages excluded")).toBeTruthy();
-    expect(screen.getByText(/cannot prove they are safe/)).toBeTruthy();
+    expect(screen.getByText(/184 excluded from retained history/)).toBeTruthy();
     expect(
-      screen.getByText(/Some messages cannot be included by this version/),
+      screen.getByText(/Older messages need explicit permission/),
     ).toBeTruthy();
+    expect(screen.getByText(/Unavailable in this version/)).toBeTruthy();
     expect(
-      screen.getByText(/conservative maximum, not an invoice or spending cap/),
-    ).toBeTruthy();
+      screen.queryByText(/unproven-legacy-or-cleared-original/),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Review and update" }));
+    expect(
+      screen.getByText(/not predicted billing or a spending cap/),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
       fetcher.mock.calls.filter((c) => c[1]?.method === "POST"),
@@ -683,7 +784,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       screen.getByRole("button", { name: /Update from chat history/ }),
     );
     expect(
-      screen.getByText(/Processed 20 of 41 eligible messages/),
+      screen.getByText(/Processed 20 of 41 included messages/),
     ).toBeTruthy();
     if (state === "active")
       expect(
@@ -691,16 +792,16 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       ).toBeTruthy();
     else if (state === "complete")
       expect(
-        screen.getByText(/This chat has not automatically adopted/),
+        screen.getByText(/New chat turns use available valid memory/),
       ).toBeTruthy();
     else
       expect(
-        screen.getByText(/No successful staged replacement is reported/),
+        screen.getByText(/No completed replacement is reported/),
       ).toBeTruthy();
     expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(true);
   });
   it.each(["unmeasured", "older", "unsupported"])(
-    "keeps %s chat text distinct and never silently adopts latest",
+    "keeps %s internal chat snapshots out of routine Memory without read-time adoption",
     async (state) => {
       const value = populated();
       value.selectedChat!.pin = {
@@ -723,23 +824,18 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       };
       value.usedByChat = state === "older";
       const fetcher = await mountMemory(value);
-      fireEvent.click(screen.getByRole("button", { name: "View chat memory" }));
       expect(
-        screen.getByText("Only earlier chat memory, not latest saved content."),
-      ).toBeTruthy();
-      expect(screen.queryByText(value.stored.items[0].text)).toBeNull();
-      if (state === "unsupported")
-        expect(
-          (
-            screen.getByRole("button", {
-              name: "Update this chat",
-            }) as HTMLButtonElement
-          ).disabled,
-        ).toBe(true);
-      if (state === "unmeasured")
-        expect(
-          screen.getByText("Saved for this chat; use not yet verified"),
-        ).toBeTruthy();
+        screen.queryByRole("button", { name: "View chat memory" }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Update this chat" }),
+      ).toBeNull();
+      expect(
+        screen.queryByText(
+          "Only earlier chat memory, not latest saved content.",
+        ),
+      ).toBeNull();
+      expect(screen.getByText(value.stored.items[0].text)).toBeTruthy();
       expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(
         true,
       );
@@ -766,13 +862,17 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(
       false,
     );
-    expect(screen.getByText(/This manifest cannot resume/)).toBeTruthy();
+    expect(
+      screen.getByText(/Cancel this import and review a new selection/),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel import" })).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(
       screen.getByRole("button", { name: "Process reviewed selection (1)" }),
     );
-    expect(screen.getByText(/1 explicitly selected records/)).toBeTruthy();
+    expect(
+      screen.getByText(/1 selected messages go to the configured provider/),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(true);
     fireEvent.click(

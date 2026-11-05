@@ -257,9 +257,8 @@ impl Command {
                 "disable",
                 "enable",
                 "retry",
-                "refresh",
-                "rebuild-preflight", "back", "manage", "usage", "item-details", "chat-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects",
-                "fixture-populated", "fixture-off", "fixture-history", "fixture-running", "fixture-complete", "fixture-interrupted", "fixture-unknown", "fixture-reset",
+                "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
+                "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-complete", "fixture-interrupted", "fixture-unknown", "fixture-reset",
             ]
             .contains(&action.as_str()),
             Self::Tables { surface, edge } => {
@@ -1434,9 +1433,8 @@ mod tests {
             "disable",
             "enable",
             "retry",
-            "refresh",
-            "rebuild-preflight", "back", "manage", "usage", "item-details", "chat-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects",
-            "fixture-populated", "fixture-off", "fixture-history", "fixture-running", "fixture-complete", "fixture-interrupted", "fixture-unknown", "fixture-reset",
+            "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
+            "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-complete", "fixture-interrupted", "fixture-unknown", "fixture-reset",
         ] {
             let command = Command::Memory {
                 action: action.into(),

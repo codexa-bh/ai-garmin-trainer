@@ -12,11 +12,18 @@ import {
   type SummaryValue,
 } from "../memory/summary-policy";
 
+import {
+  DEFAULT_REBUILD_SELECTION,
+  parseRebuildSelection,
+  type SummaryRebuildSelection,
+} from "../memory/summary-controls";
+
 // Finite operation bounds, not inventory/list limits. Every available row is
 // counted; an over-limit selection refuses Start rather than silently clipping.
 const MAX_SOURCES = 10000;
 const MAX_SCALARS = 2000000;
 const MAX_MESSAGE = 16000;
+const MAX_SELECTION_JSON = 5000000;
 const MAX_OPERATION_MS = 2 * 60 * 60 * 1000;
 const digest = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -27,6 +34,7 @@ type Authority = {
   manual: number;
   cutoff: number;
   floor: number;
+  clearFloor: number;
   model: string;
   cap: number;
   enabled: number;
@@ -35,7 +43,7 @@ function authority(): Authority {
   return getDatabase()
     .prepare(
       `select s.revision,s.privacy_generation as privacy,
-    c.generation as control,c.manual_revision as manual,c.cutoff,b.floor,c.model,c.cap,c.enabled
+    c.generation as control,c.manual_revision as manual,c.cutoff,b.floor,b.clear_floor as clearFloor,c.model,c.cap,c.enabled
     from summary_state s,summary_control c,summary_original_boundary b where s.id=1 and c.id=1 and b.id=1`,
     )
     .get() as Authority;
@@ -55,6 +63,7 @@ type Original = {
   status: string | null;
   eventSeq: number | null;
   contextUserSourceId?: string;
+  contextUserMessageId?: string;
 };
 type Selected = {
   sourceId: string;
@@ -65,6 +74,7 @@ type Selected = {
   contextId: string | null;
   contextHash: string | null;
   contextUserSourceId: string | null;
+  contextUserMessageId: string | null;
 };
 function originals(after: number): Original[] {
   return getDatabase()
@@ -120,12 +130,42 @@ function suppressedOriginal(messageId: string, sourceId: string): boolean {
     union all select 1 from summary_rebuild r,json_each(r.selection_json) j join summary_suppression s
     on s.source_id=json_extract(j.value,'$.sourceId')
       or s.source_id='original-assistant:'||json_extract(j.value,'$.contextHash')
-    where json_extract(j.value,'$.messageId')=? or json_extract(j.value,'$.contextId')=? limit 1`,
+    where json_extract(j.value,'$.messageId')=? or json_extract(j.value,'$.contextId')=? or json_extract(j.value,'$.contextUserMessageId')=? limit 1`,
       )
-      .get(sourceId, messageId, messageId),
+      .get(sourceId, messageId, messageId, messageId),
   );
 }
-function context(row: Original, a: Authority): Original | undefined {
+function restricted(
+  row: Original,
+  a: Authority,
+  selection: SummaryRebuildSelection,
+): boolean {
+  return row.turnId
+    ? row.status !== "completed" ||
+        row.eventSeq === null ||
+        (row.admissionSeq ?? 0) <= a.cutoff
+    : row.rowid <= a.clearFloor ||
+        (row.rowid <= a.floor && !selection.includeLegacy);
+}
+function precedingUserId(row: Original): string | undefined {
+  const users = getDatabase()
+    .prepare(
+      "select id,created_at as createdAt from message where conversation_id=? and role='user' and created_at<? order by created_at desc,id limit 2",
+    )
+    .all(row.conversationId, row.createdAt) as {
+    id: string;
+    createdAt: number;
+  }[];
+  // Tied unlinked users do not prove which privacy intent owns the referent.
+  return users[0] && users[0].createdAt !== users[1]?.createdAt
+    ? users[0].id
+    : undefined;
+}
+function context(
+  row: Original,
+  a: Authority,
+  selection: SummaryRebuildSelection,
+): Original | undefined {
   // Equal timestamps are not causal proof; do not choose an arbitrary tied role.
   const candidates = getDatabase()
     .prepare(
@@ -139,10 +179,7 @@ function context(row: Original, a: Authority): Original | undefined {
     previous.role !== "assistant" ||
     previous.length > 1200 ||
     previous.createdAt === other?.createdAt ||
-    (previous.turnId
-      ? previous.status !== "completed" ||
-        (previous.admissionSeq ?? 0) <= a.cutoff
-      : previous.rowid <= a.floor)
+    restricted(previous, a, selection)
   )
     return undefined;
   const originId = previous.turnId
@@ -153,22 +190,13 @@ function context(row: Original, a: Authority): Original | undefined {
           )
           .get(previous.turnId) as { id: string } | undefined
       )?.id
-    : (
-        getDatabase()
-          .prepare(
-            "select id from message where conversation_id=? and role='user' and created_at<? order by created_at desc,id limit 1",
-          )
-          .get(previous.conversationId, previous.createdAt) as
-          { id: string } | undefined
-      )?.id;
+    : precedingUserId(previous);
   const origin = originId ? original(originId) : undefined;
   if (
     !origin ||
     origin.role !== "user" ||
     origin.length > MAX_MESSAGE ||
-    (origin.turnId
-      ? origin.status !== "completed" || (origin.admissionSeq ?? 0) <= a.cutoff
-      : origin.rowid <= a.floor)
+    restricted(origin, a, selection)
   )
     return undefined;
   const originSourceId = origin.turnId
@@ -201,7 +229,11 @@ function context(row: Original, a: Authority): Original | undefined {
   const assistantSourceId = `original-assistant:${originalHash(previous)}`;
   if (suppressedOriginal(previous.id, assistantSourceId)) return undefined;
   return safe?.referent
-    ? { ...previous, contextUserSourceId: originSourceId }
+    ? {
+        ...previous,
+        contextUserSourceId: originSourceId,
+        contextUserMessageId: origin.id,
+      }
     : undefined;
 }
 function materialize(row: Original, selected: Selected): SummarySource {
@@ -235,12 +267,34 @@ function materialize(row: Original, selected: Selected): SummarySource {
     },
   };
 }
-export function summaryRebuildInventory(configuration = "") {
+export function summaryRebuildInventory(
+  configuration = "",
+  requested: SummaryRebuildSelection = DEFAULT_REBUILD_SELECTION,
+) {
   const db = getDatabase(),
     a = authority();
-  const hash = createHash("sha256").update(JSON.stringify([a, configuration]));
+  const selection = parseRebuildSelection(requested);
+  if (!selection) throw new Error("summary_rebuild_selection_invalid");
+  const conversations = db
+    .prepare("select id,title from conversation order by updated_at desc,id")
+    .all() as { id: string; title: string }[];
+  if (
+    selection.conversationIds?.some(
+      (id) => !conversations.some((chat) => chat.id === id),
+    )
+  )
+    throw new Error("summary_rebuild_selection_changed");
+  const scope =
+    selection.conversationIds === null
+      ? null
+      : new Set(selection.conversationIds);
+  const hash = createHash("sha256").update(
+    JSON.stringify([a, configuration, selection, conversations]),
+  );
   const counts = {
     chats: 0,
+    selectedChats: scope?.size ?? conversations.length,
+    legacyUserMessages: 0,
     messages: 0,
     userMessages: 0,
     assistantMessages: 0,
@@ -282,24 +336,24 @@ export function summaryRebuildInventory(configuration = "") {
         ? `${row.turnId}:${row.version}`
         : `original:${originalHash(row)}`;
       let reason: string | null = null;
-      if (!row.conversationExists) reason = "orphan-message";
+      if (scope && !scope.has(row.conversationId)) reason = "not-selected";
+      else if (!row.conversationExists) reason = "orphan-message";
+      else if (suppressed.has(sourceId) || suppressedOriginal(row.id, sourceId))
+        reason = "suppressed";
       else if (
         row.turnId &&
         (row.status !== "completed" || row.eventSeq === null)
       )
         reason = "incomplete-linked-turn";
-      else if (
-        row.turnId ? (row.admissionSeq ?? 0) <= a.cutoff : row.rowid <= a.floor
-      )
-        reason = row.turnId
-          ? "linked-cutoff"
-          : "unproven-legacy-or-cleared-original";
-      else if (suppressed.has(sourceId) || suppressedOriginal(row.id, sourceId))
-        reason = "suppressed";
+      else if (row.turnId && (row.admissionSeq ?? 0) <= a.cutoff)
+        reason = "linked-cutoff";
+      else if (!row.turnId && row.rowid <= a.clearFloor) reason = "known-clear";
+      else if (!row.turnId && row.rowid <= a.floor && !selection.includeLegacy)
+        reason = "unproven-legacy-or-cleared-original";
       else if (!Number.isSafeInteger(row.createdAt) || row.createdAt < 0)
         reason = "unsupported-time";
       else if (row.length > MAX_MESSAGE) reason = "oversized-message";
-      const preceding = reason ? undefined : context(row, a);
+      const preceding = reason ? undefined : context(row, a, selection);
       const entry: Selected = {
         sourceId,
         messageId: row.id,
@@ -309,6 +363,7 @@ export function summaryRebuildInventory(configuration = "") {
         contextId: preceding?.id ?? null,
         contextHash: preceding ? originalHash(preceding) : null,
         contextUserSourceId: preceding?.contextUserSourceId ?? null,
+        contextUserMessageId: preceding?.contextUserMessageId ?? null,
       };
       if (!reason && !minimizeSummarySource(materialize(row, entry)))
         reason = "unsafe-or-unresolved-context";
@@ -319,6 +374,7 @@ export function summaryRebuildInventory(configuration = "") {
         continue;
       }
       counts.includedUserMessages++;
+      if (!row.turnId && row.rowid <= a.floor) counts.legacyUserMessages++;
       includedChats.add(row.conversationId);
       if (preceding) contextIds.add(preceding.id);
       scalars += row.length + (preceding?.length ?? 0);
@@ -340,12 +396,15 @@ export function summaryRebuildInventory(configuration = "") {
   counts.excludedMessages =
     counts.messages - counts.includedUserMessages - counts.assistantContext;
   const limitExceeded =
-    counts.includedUserMessages > MAX_SOURCES || scalars > MAX_SCALARS;
+    counts.includedUserMessages > MAX_SOURCES ||
+    scalars > MAX_SCALARS ||
+    JSON.stringify(selected).length > MAX_SELECTION_JSON;
   const maxBatches = counts.includedUserMessages; // Exact token admission can reduce a batch to one.
   const allowance = summaryLimits(a.cap);
   return {
     snapshot: hash.digest("hex"),
     authority: a,
+    selection,
     selected,
     counts,
     reasons,
@@ -353,6 +412,8 @@ export function summaryRebuildInventory(configuration = "") {
     limitExceeded,
     preflight: {
       version: 1 as const,
+      selection,
+      conversations,
       counts,
       reasons,
       complete: true,
@@ -373,7 +434,7 @@ export function summaryRebuildInventory(configuration = "") {
           "Local non-generating range, not a token count or invoice. Exact serialized preflight may shrink internal batches; reservations and unknown effects are retained.",
       },
       semantics:
-        "Complete generated-memory replacement only after validation; manual overlays and originals remain. Existing chat pins do not refresh. Exclusion reasons are exclusive user-message categories; assistant context is counted separately and may overlap passages. Unused/duplicate/low-value dispositions are reported after processing, not as admission exclusions.",
+        "Complete generated-memory replacement only after validation; manual overlays and originals remain. Next admitted chat turns adopt available valid memory. Exclusion reasons are exclusive user-message categories; assistant context is counted separately and may overlap passages. Unused/duplicate/low-value dispositions are reported after processing, not as admission exclusions.",
     },
   };
 }
@@ -414,7 +475,7 @@ function checked(row: Operation): {
   dispositions: SummaryCandidate["dispositions"];
 } {
   if (
-    row.format_version !== 1 ||
+    ![1, 2].includes(row.format_version) ||
     !["active", "complete", "cancelled", "interrupted", "invalidated"].includes(
       row.state,
     ) ||
@@ -425,7 +486,7 @@ function checked(row: Operation): {
         row.candidate_checksum === "" &&
         row.candidate_json === JSON.stringify(emptySummary())
       )) ||
-    row.selection_json.length > 5000000 ||
+    row.selection_json.length > MAX_SELECTION_JSON ||
     row.candidate_json.length > 1048576 ||
     row.dispositions_json.length > 2000000
   )
@@ -435,7 +496,11 @@ function checked(row: Operation): {
     dispositions = JSON.parse(
       row.dispositions_json,
     ) as SummaryCandidate["dispositions"];
-  const a = JSON.parse(row.authority_json) as Authority;
+  const a = JSON.parse(row.authority_json) as Authority & {
+    selection?: SummaryRebuildSelection;
+  };
+  if (row.format_version === 2 && !parseRebuildSelection(a.selection))
+    throw new Error("summary_rebuild_unavailable");
   if (
     !Array.isArray(selected) ||
     !selected.length ||
@@ -461,7 +526,10 @@ export function startSummaryRebuild(
   snapshot: string,
   boot: string,
   now: number,
+  requested: SummaryRebuildSelection = DEFAULT_REBUILD_SELECTION,
 ): string {
+  const selection = parseRebuildSelection(requested);
+  if (!selection) throw new Error("summary_rebuild_selection_invalid");
   const db = getDatabase();
   return db.transaction(() => {
     summaryRebuildStatus(); // Unknown/corrupt saved operation state never grants a fresh Start.
@@ -470,7 +538,19 @@ export function startSummaryRebuild(
       .get(id) as Operation | undefined;
     if (prior) {
       checked(prior);
-      if (prior.snapshot !== snapshot || prior.boot !== boot)
+      const consent =
+        prior.format_version === 2
+          ? (
+              JSON.parse(prior.authority_json) as {
+                selection: SummaryRebuildSelection;
+              }
+            ).selection
+          : DEFAULT_REBUILD_SELECTION;
+      if (
+        prior.snapshot !== snapshot ||
+        prior.boot !== boot ||
+        JSON.stringify(consent) !== JSON.stringify(selection)
+      )
         throw new Error("summary_rebuild_identity_conflict");
       return prior.id; // Same request reconciliation never dispatches another operation.
     }
@@ -486,18 +566,18 @@ export function startSummaryRebuild(
         .get()
     )
       throw new Error("summary_rebuild_busy");
-    const inventory = summaryRebuildInventory(boot);
+    const inventory = summaryRebuildInventory(boot, selection);
     if (inventory.snapshot !== snapshot)
       throw new Error("summary_rebuild_stale_preflight");
     if (!inventory.preflight.ready || !boot)
       throw new Error("summary_rebuild_not_ready");
     const row: Operation = {
       id,
-      format_version: 1,
+      format_version: 2,
       boot,
       snapshot,
       selection_json: JSON.stringify(inventory.selected),
-      authority_json: JSON.stringify(inventory.authority),
+      authority_json: JSON.stringify({ ...inventory.authority, selection }),
       candidate_json: JSON.stringify(emptySummary()),
       candidate_checksum: digest(JSON.stringify(emptySummary())),
       dispositions_json: "[]",
@@ -601,9 +681,14 @@ export function readSummaryRebuildBatch(expected?: {
     (expected.id !== row.id || expected.position !== row.position)
   )
     throw new Error("summary_rebuild_conflict");
+  const saved = JSON.parse(row.authority_json) as Authority & {
+    selection?: SummaryRebuildSelection;
+  };
+  const { selection: consent = DEFAULT_REBUILD_SELECTION, ...savedAuthority } =
+    saved;
   if (
-    JSON.stringify(authority()) !== row.authority_json ||
-    summaryRebuildInventory(row.boot).snapshot !== row.snapshot
+    JSON.stringify(authority()) !== JSON.stringify(savedAuthority) ||
+    summaryRebuildInventory(row.boot, consent).snapshot !== row.snapshot
   )
     throw new Error("summary_rebuild_source_changed");
   const batch = selected.slice(row.position, row.position + 20);

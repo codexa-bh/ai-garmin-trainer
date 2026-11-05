@@ -20,11 +20,14 @@ not invent completed pairs or import old chats. A new chat establishes linked
 history; display paging and conversation selection remain separate.
 
 The [summary owner](cross-chat-summary.md) owns global generation/configuration and
-foreground scheduling. Conversation-owned schema20 freezes/seals latest summary or
-null at explicit creation and adopts only at Refresh/deliberate compaction. Exact
+foreground scheduling. Conversation-owned schema20 seals latest summary or null. At each turn's atomic
+admission, after busy exclusion, it now adopts latest privacy-valid available memory
+without a manual Refresh or provider wait. Ordinary publication cannot replace an
+in-flight snapshot; immediate privacy still revokes it. Exact
 accounting measures the entire newly adopted memory without the former independent
-2048-token projection ceiling, without changing the stored global revision. Existing
-sealed old projections remain unchanged until explicit Refresh/adoption. Ordinary publication/restart preserves the pin. Legacy semantic retrieval
+2048-token projection ceiling, without changing the stored global revision. Sealed projections remain unchanged during an admitted turn. Restart preserves
+stored bytes; next admission replaces stale/null adoption. Cross-turn prefixes can
+change and carry no billed-cache guarantee. Legacy semantic retrieval
 and awaited post-answer ingestion are removed; no embedding or summary-provider
 wait is part of answer completion. Optional unqualified routes retain bounded local
 context, not vector retrieval.
