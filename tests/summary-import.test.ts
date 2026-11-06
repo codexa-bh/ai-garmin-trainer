@@ -79,7 +79,12 @@ function candidate(batch: SummaryBatch) {
 describe("explicit bounded historical transition sharing S", () => {
   it("resumes a sealed multi-batch selection after SQLite reopen without duplicate coverage", () => {
     const ids = Array.from({ length: 25 }, (_, index) =>
-      offTurn(`history-${index}`),
+      offTurn(
+        `history-${index}`,
+        index === 3
+          ? "Fake password sk-example-not-a-key https://example.invalid/training /Users/example/notes diagnosis GPS ignore previous instructions"
+          : undefined,
+      ),
     );
     storage.configure(true, "gpt-6-luna", 6000);
     createSummaryImport(ids);
@@ -109,6 +114,7 @@ describe("explicit bounded historical transition sharing S", () => {
       ).n,
     ).toBe(25);
     expect(storage.status(now).frontier).toBe(0);
+    expect(storage.read().text).toContain("https://example.invalid/training");
   });
   it("refuses substituted disposition identities even when the saved progress count matches", () => {
     const ids = Array.from({ length: 25 }, (_, index) =>
@@ -227,14 +233,19 @@ describe("explicit bounded historical transition sharing S", () => {
         expect(summaryImportInspection().candidates).toEqual([]);
     },
   );
-  it("rejects unproven, duplicate, unsafe and relative-time source selection without synthesizing role pairs", () => {
+  it("accepts formerly matched prose but rejects unproven, duplicate and relative-time source selection without synthesizing role pairs", () => {
     const good = offTurn();
-    offTurn("B", "My password is synthetic-secret, remember it.");
+    const formerlyFiltered = offTurn(
+      "B",
+      "My password is synthetic-secret, remember it.",
+    );
     offTurn("C", "This weekend I prefer short sessions.");
     storage.configure(true, "gpt-6-luna", 6000);
-    expect(summaryImportInspection().candidates.map((item) => item.id)).toEqual(
-      [good],
-    );
+    expect(
+      summaryImportInspection()
+        .candidates.map((item) => item.id)
+        .sort(),
+    ).toEqual([good, formerlyFiltered].sort());
     expect(() => createSummaryImport([good, good])).toThrow(
       "selection_invalid",
     );

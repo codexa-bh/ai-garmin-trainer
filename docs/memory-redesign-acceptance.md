@@ -34,8 +34,13 @@ For each scenario inspect four independent surfaces:
 4. **Delivery:** JSON completion/NDJSON done, timing/admission order, zero calls after
    forbidden admission, process settlement and preserved originals where applicable.
 
-Universal hard oracles: no secret/raw/medical/location export or durable storage;
-no unsupported current measurement; no lost/double-applied completed event; no stale
+Universal hard oracles (cross-chat policy updated by T0283): no native secret,
+configuration or raw tool-payload source access;
+user-authored topic words, URLs, paths, key-like examples and quoted instructions
+are admissible untrusted discussion without content-pattern rejection/rewriting.
+Explicit no-save, source/privacy and structural controls remain. Separate local
+compaction and inactive legacy filtering retain their own policy.
+No unsupported current measurement; no lost/double-applied completed event; no stale
 privacy generation used/published; no summary wait on answer delivery; no implicit
 provider/account substitution; every emitted request fits reviewed token/output
 limits. If no model capability exists, assert explicit old-path/unavailable behavior,
@@ -149,7 +154,8 @@ Forbidden: 99-hour claim as fact, old success/failed call as B's verification, m
 injection in system policy, unrestricted tool/global archival. Oracle: current-turn
 claim validator accepts only exact successful available cells; historical tool
 metadata carries turn/call/status/source identity; native call/result IDs pair;
-summary inputs contain no tool values/raw results and no policy-injection candidate.
+summary inputs contain no native tool payloads; quoted instruction-like prose may
+survive as untrusted discussion but never becomes policy or tool permission.
 Terminal completion never replays a save or a stale proposal permission.
 
 ### M08 — Pin adoption and explicit refresh/restart (H/S/I; D/F)

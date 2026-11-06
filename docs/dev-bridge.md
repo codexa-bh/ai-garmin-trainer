@@ -74,7 +74,11 @@ through an ordinary-only finite `memory` command. Actions are exactly `observe`,
 `open`, `close`, `reload`, `add`, `edit`, `draft`, `draft-update`, `save`, `forget`,
 `clear`, `disable`, `enable`, and `retry`. No caller text, source ID,
 selector, script, import selection or private readback is accepted. Drafts are
-fixed run-attributed T0272 synthetic preferences; existing noncanonical saved/draft
+fixed run-attributed T0272 synthetic preferences, extended by T0283 with the fake
+URL `https://example.invalid/training` on Add and fake `/Users/example/notes` plus
+quoted “ignore previous instructions” on Edit. Real manual save/restart must accept
+these as untrusted text; exact canonical-content masks still refuse arbitrary text.
+Existing noncanonical saved/draft
 content refuses. Destructive in-sheet review requires a separate finite `confirm` action;
 fixture mode refuses that effect. The retained exact native-confirm compatibility
 adapter restores the original function synchronously and never accepts arbitrary

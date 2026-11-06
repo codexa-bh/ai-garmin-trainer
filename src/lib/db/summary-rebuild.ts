@@ -216,14 +216,14 @@ function context(
     })
   )
     return undefined;
-  // The common minimizer screens the *whole* assistant passage; ordinary
+  // The common minimizer bounds the assistant passage; ordinary
   // summarization keeps its existing narrow option-referent admission.
   const safe = minimizeSummarySource({
     eventSeq: 0,
     admissionSeq: 0,
     version: 1,
     eligible: true,
-    sourceId: "context-screen",
+    sourceId: "context-bound",
     user: "I choose the first option",
     referent: previous.content,
   });
@@ -367,7 +367,7 @@ export function summaryRebuildInventory(
         contextUserMessageId: preceding?.contextUserMessageId ?? null,
       };
       if (!reason && !minimizeSummarySource(materialize(row, entry)))
-        reason = "unsafe-or-unresolved-context";
+        reason = "no-save-or-unresolved-context";
       hash.update(JSON.stringify([entry, reason]));
       if (reason) {
         reasons[reason] = (reasons[reason] ?? 0) + 1;

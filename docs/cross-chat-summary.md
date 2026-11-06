@@ -53,7 +53,7 @@ not timestamps or alternating old messages, define coverage. The migration defau
 Off and records a cutoff over existing admitted sources; it does not backfill or
 export history. Completed events while Off are explicitly excluded after re-enable.
 Aborted/incomplete turns are never promoted. A necessary preceding option referent
-is separately bounded1200 scalars and screened; the newly generated answer and
+is separately bounded1200 scalars; the newly generated answer and
 unrestricted assistant/tool/compaction/summary text are not new global sources.
 
 The existing native-app lifetime coalesces completion notifications at a short
@@ -160,7 +160,7 @@ re-enable does not import Off events. Clear removes derived text and records an
 all-source admission cutoff including incomplete pre-clear turns. It leaves original
 messages/Profile/Garmin/legacy vectors/plans untouched. Retry preserves all spend/
 unknown attempts and still enforces bounds; it never performs inference synchronously.
-Manual edits use safety-validated source-linked or honestly standalone overlays,
+Manual edits use structurally validated, bounded source-linked or honestly standalone overlays,
 which outrank generated patches sharing their lineage. Forget removes the item and
 suppresses exact source versions; new explicit statements have new identities.
 Manual/control generations reject stale writers, active answers and old pins.
@@ -184,9 +184,17 @@ provider logs and backups cannot be recalled.
 Temporary items default to seven days, open questions receive a30-day review cue,
 stable decisions/preferences a180-day review cue. Expired items are omitted at use
 and a due local maintenance publication can remove them without a provider call.
-Whole-item dispositions preserve bounded loss without truncating negation. Unsafe
-credentials/medical/raw/GPS/tool/injection candidates are excluded whole; the generic
-M09 denial is minimized to “not for medical reasons,” not a positive diagnosis.
+Whole-item dispositions preserve bounded loss without truncating negation.
+T0283 removes the cross-chat content-pattern veto at source/referent admission,
+output validation, persistence, manual/import/rebuild and chat consumption. User
+prose containing medical topics, fake key-like strings, paths, URLs, raw/GPS words
+or quoted instructions is not excluded or rewritten for those patterns. No lexical
+replacement or moderation step is added. Native secrets/config/tool payloads are
+not sources; remembered instructions remain untrusted data. Explicit no-save,
+source authority, structure, Unicode, size, lineage and coverage still bind.
+Historical unsafe-text failures remain readable adverse metadata, never automatic
+upgrade/reopen retries. Separate same-chat compaction and inactive legacy semantic
+policy are unchanged.
 
 ## Explicit historical transition
 
@@ -200,7 +208,7 @@ privacy/control/manual generations, cutoff and suppression. Authority changes
 require new review. No timestamps/role alternation fabricate old completion.
 
 Legacy records remain bounded read-only review without lazy migration/embeddings.
-Unproven, unsafe, expired/relative-time, suppressed and already-imported sources are
+Unproven, no-save, expired/relative-time, suppressed and already-imported sources are
 excluded from automatic processing; manual review remains available. Historical
 expiry prose is not rebased to today. Imports retain original transcripts/facts/
 vectors/markers and never activate automatically at startup. Private export and
@@ -240,7 +248,7 @@ Migration therefore fences all then-existing **unlinked** rows as unproven, rath
 than treating button consent/timestamps as resurrection permission. Completed linked
 sources still obey actual version/cutoff/suppression authority. Genuinely post-fence
 unlinked originals can be admitted with their real IDs, speaker, stored millisecond
-time, full content hash and screened chronological context. Equal-time/unsafe/
+time, full content hash and bounded chronological context. Equal-time/no-save/
 suppressed/unproven option referents fail closed. No completion events or historical
 tool executions are fabricated. Assistant context is lower-authority, never user
 endorsement; its original and originating-user ancestry follows derived items so
@@ -287,7 +295,7 @@ Authored semantic rubric (separate real-provider approval/evidence required):
 | Earlier evenings explicitly corrected to mornings                        | Current mornings; evenings historical, not simultaneous current preferences       |
 | Assistant poles/bag offer, unresolved question, later bag rejection      | No endorsement until actual choice; retain rejection reason, not an invented goal |
 | Isolated measurement/rewrite/obsolete monthly target                     | Exclude unless needed for a durable conclusion; unused capacity is preferable     |
-| No-save, unsafe, suppressed or cleared history                           | No export/resurrection or plan-save permission                                    |
+| No-save, suppressed or cleared history                                   | No export/resurrection or plan-save permission                                    |
 
 Current keyless ordinary smoke proves real manual lifecycle and rendered preflight/
 missing-capability refusal. Fixed authored presentation separately covers selected

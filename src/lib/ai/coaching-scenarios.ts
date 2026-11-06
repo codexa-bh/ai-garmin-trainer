@@ -500,7 +500,7 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     ],
     forbiddenBehavior: [
       "app-authored medical refusal",
-      "durable storage of diagnosis or treatment",
+      "memory overrides explicit no-save or source privacy controls",
     ],
     severity: "critical",
   },

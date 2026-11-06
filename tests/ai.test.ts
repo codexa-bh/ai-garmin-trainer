@@ -278,7 +278,9 @@ describe("trainer AI", () => {
   it("uses the evidence-based coaching contract without an app-authored medical response restriction", () => {
     expect(TRAINER_SYSTEM_PROMPT).toMatch(/evidence-based fitness coach/);
     expect(TRAINER_SYSTEM_PROMPT).toMatch(/Hiking specialization/);
-    expect(TRAINER_SYSTEM_PROMPT).toMatch(/configured model may respond/);
+    expect(TRAINER_SYSTEM_PROMPT).toContain(
+      "Medical responses follow provider behavior, without app response restrictions",
+    );
     expect(TRAINER_SYSTEM_PROMPT).not.toMatch(
       /non-medical training guidance|Do not diagnose|seek qualified care/i,
     );
