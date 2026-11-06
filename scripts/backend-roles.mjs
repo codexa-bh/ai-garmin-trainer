@@ -211,7 +211,13 @@ const groups = [
     "memory",
     "application",
     "lib/memory",
-    ["application", "legacy-application", "management", "summary-application"],
+    [
+      "application",
+      "legacy-application",
+      "management",
+      "summary-application",
+      "summary-densify",
+    ],
   ],
   [
     "memory",

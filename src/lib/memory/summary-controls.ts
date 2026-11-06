@@ -44,6 +44,14 @@ export type SummaryCommand = {
   expected: SummaryVersion;
 } & (
   | { action: "clear" | "disable" | "enable" | "retry" }
+  | {
+      action:
+        | "densify-request"
+        | "densify-accept"
+        | "densify-discard"
+        | "densify-cancel";
+      id: string;
+    }
   | { action: "edit-summary"; text: string }
   | { action: "edit"; id: string | null; text: string }
   | { action: "forget"; id: string }
@@ -126,6 +134,15 @@ export function parseSummaryCommand(value: unknown): SummaryCommand | null {
     typeof input === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(input);
   if (["clear", "disable", "enable", "retry"].includes(String(value.action))) {
     if (fields !== common) return null;
+  } else if (
+    [
+      "densify-request",
+      "densify-accept",
+      "densify-discard",
+      "densify-cancel",
+    ].includes(String(value.action))
+  ) {
+    if (fields !== "action,expected,id,version" || !id(value.id)) return null;
   } else if (value.action === "edit-summary") {
     if (
       fields !== "action,expected,text,version" ||

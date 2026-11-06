@@ -260,6 +260,7 @@ impl Command {
                 "enable",
                 "retry",
                 "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
+                "fixture-densify-ready", "fixture-densify-busy", "fixture-densify-review", "fixture-densify-no-reduction", "fixture-densify-accepted", "fixture-densify-discarded", "densify", "densify-cancel", "densify-accept", "densify-discard",
                 "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-progressive", "fixture-complete", "fixture-interrupted", "fixture-failed", "fixture-cancelled", "fixture-unknown", "fixture-reset",
             ]
             .contains(&action.as_str()),
@@ -1439,6 +1440,7 @@ mod tests {
             "enable",
             "retry",
             "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
+            "fixture-densify-ready", "fixture-densify-busy", "fixture-densify-review", "fixture-densify-no-reduction", "fixture-densify-accepted", "fixture-densify-discarded", "densify", "densify-cancel", "densify-accept", "densify-discard",
             "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-progressive", "fixture-complete", "fixture-interrupted", "fixture-failed", "fixture-cancelled", "fixture-unknown", "fixture-reset",
         ] {
             let command = Command::Memory {
