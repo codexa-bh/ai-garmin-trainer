@@ -136,10 +136,20 @@ export function populate(db: Database.Database, anchor: string) {
         hrvMs: partial ? null : 42 + (index % 9),
         stressAvg: partial ? null : 20 + (index % 10),
         steps: index === 8 ? 0 : 6000 + index * 110,
-        calories: partial ? null : 2100,
-        activeCalories: partial ? null : 400,
-        restingCalories: partial ? null : 1700,
-        totalCalories: partial ? null : 2100,
+        // Fixed authored Calories evidence in the previous seven-date page.
+        calories: index === 11 ? 1800 : partial || index === 12 ? null : 2100,
+        activeCalories: index === 8 ? 0 : partial || index === 11 ? null : 400,
+        restingCalories: index === 8 ? 0 : index === 11 ? null : 1700,
+        totalCalories:
+          index === 7
+            ? 2150
+            : index === 8
+              ? 0
+              : index === 11 || index === 12
+                ? null
+                : partial
+                  ? 1900
+                  : 2100,
         intensityMinutes: index === 8 ? 0 : 25,
         bodyBatteryAvg: partial ? null : 61,
         bodyBatteryMorning: partial ? null : 85,

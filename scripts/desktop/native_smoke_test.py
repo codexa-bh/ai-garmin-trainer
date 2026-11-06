@@ -187,12 +187,13 @@ class OwnershipTests(unittest.TestCase):
         run.wait = Mock()
         run.command = Mock(return_value={'ok': True, 'healthPreviousEnabled': True})
         with patch('native_smoke.private_json') as receipt:
-            run.health_scenario()
+            run.health_scenario(synthetic_calories=True)
             self.assertTrue(receipt.call_args.args[1]['rangeTabsAwayBack'])
+            self.assertTrue(receipt.call_args.args[1]['syntheticCalories'])
         actions = [call.args[0] for call in run.command.call_args_list]
         self.assertEqual([action['action'] for action in actions if action['type'] == 'health'], [
             'previous', 'next', 'previous', 'remember-range', 'weekly', 'monthly', 'daily',
-            'assert-range', 'assert-range', 'capture-narrow', 'capture-wide', 'latest'])
+            'assert-range', 'assert-range', 'calories', 'capture-narrow', 'capture-wide', 'latest'])
         self.assertFalse(any(action['type'] in ['input', 'assert'] for action in actions))
         run.command = Mock(side_effect=[{'healthPreviousEnabled': True}, ValueError('effect unknown')])
         with self.assertRaises(ValueError):

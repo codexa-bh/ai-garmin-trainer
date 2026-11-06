@@ -83,6 +83,50 @@ describe("finite representative authored smoke recipe", () => {
           )
           .get(),
       ).toEqual({ steps: 0, intensity_minutes: 0 });
+      expect(
+        a
+          .prepare(
+            "select resting_calories, active_calories, total_calories, calories from daily_health where date between '2026-10-19' and '2026-10-25' order by date",
+          )
+          .all(),
+      ).toEqual([
+        {
+          resting_calories: 1700,
+          active_calories: 400,
+          total_calories: 2100,
+          calories: 2100,
+        },
+        {
+          resting_calories: 1700,
+          active_calories: 400,
+          total_calories: null,
+          calories: null,
+        },
+        {
+          resting_calories: null,
+          active_calories: null,
+          total_calories: null,
+          calories: 1800,
+        },
+        {
+          resting_calories: 1700,
+          active_calories: null,
+          total_calories: 1900,
+          calories: null,
+        },
+        {
+          resting_calories: 0,
+          active_calories: 0,
+          total_calories: 0,
+          calories: 2100,
+        },
+        {
+          resting_calories: 1700,
+          active_calories: 400,
+          total_calories: 2150,
+          calories: 2100,
+        },
+      ]);
       expect(statSync(first.path).mode & 0o777).toBe(0o600);
       expect(statSync(join(first.path, "..")).mode & 0o777).toBe(0o700);
     } finally {

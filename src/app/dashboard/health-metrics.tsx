@@ -2,6 +2,7 @@
 import { finiteNumberLabel } from "./formatting";
 import { useState } from "react";
 import { HealthRollupChart } from "../health-rollup-chart";
+import { DailyCaloriesChart } from "../daily-calories-chart";
 import {
   SLEEP_DETAIL_SOURCE_LIMITED,
   SLEEP_STAGE_FIELDS,
@@ -191,11 +192,6 @@ const DAILY_METRICS: Array<{
   },
   { title: "Steps", unit: "steps", value: (day) => day.steps },
   {
-    title: "Total calories",
-    unit: "kcal",
-    value: (day) => day.totalCalories ?? day.calories,
-  },
-  {
     title: "Resting HR",
     unit: "bpm",
     kind: "line",
@@ -221,16 +217,6 @@ const DAILY_METRICS: Array<{
     value: (day: HealthDashboardDay) => day[field],
     format: formatSleepMinutes,
   })),
-  {
-    title: "Active calories",
-    unit: "kcal",
-    value: (day) => day.activeCalories,
-  },
-  {
-    title: "Resting calories",
-    unit: "kcal",
-    value: (day) => day.restingCalories,
-  },
 ];
 
 function DailyComparison({
@@ -325,6 +311,17 @@ function DailyComparison({
         aria-describedby="health-daily-help"
       >
         <div className="health-rollup-grid">
+          <DailyCaloriesChart
+            days={slots.map((slot) => ({
+              key: slot.key,
+              label: slot.label,
+              resting: slot.record?.restingCalories ?? null,
+              active: slot.record?.activeCalories ?? null,
+              recordedTotal: slot.record
+                ? (slot.record.totalCalories ?? slot.record.calories)
+                : null,
+            }))}
+          />
           {DAILY_METRICS.map((metric) => (
             <HealthRollupChart
               key={metric.title}

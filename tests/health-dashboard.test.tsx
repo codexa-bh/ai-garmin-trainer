@@ -319,6 +319,7 @@ describe("TrainerDashboard Health dashboard", () => {
             totalCalories: 999,
             intensityMinutes: 0,
           }),
+          day("2026-07-19", { totalCalories: Infinity, calories: 2800 }),
           day("2026-07-20", {
             sleepMinutes: Number.NaN,
             hrvMs: Number.POSITIVE_INFINITY,
@@ -345,18 +346,24 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(values("Light sleep").slice(-2)).toEqual(["4 h 4 m", "4 h 4 m"]);
     expect(values("Awake sleep").slice(-2)).toEqual(["30 m", "30 m"]);
     expect(values("Nap sleep").slice(-2)).toEqual(["0 m", "Unavailable"]);
-    expect(values("Total calories").slice(-2)).toEqual([
-      "1,500 kcal",
-      "999 kcal",
+    const calories = within(
+      screen.getByLabelText("Calories daily values"),
+    ).getAllByRole("button");
+    expect(calories[4].getAttribute("aria-label")).toContain(
+      "Recorded total: Unavailable",
+    );
+    expect(
+      calories.slice(-2).map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "July 20, 2026: Resting: Unavailable · Active: Unavailable · Recorded total: 1,500 kcal · Breakdown incomplete; no stack shown.",
+      "July 21, 2026: Resting: 1,200 kcal · Active: 0 kcal · Recorded total: 999 kcal · Component sum 1,200 kcal; differs from recorded total.",
     ]);
-    expect(values("Active calories").slice(-2)).toEqual([
-      "Unavailable",
-      "0 kcal",
-    ]);
-    expect(values("Resting calories").slice(-2)).toEqual([
-      "Unavailable",
-      "1,200 kcal",
-    ]);
+    for (const title of [
+      "Total calories",
+      "Active calories",
+      "Resting calories",
+    ])
+      expect(screen.queryByLabelText(`${title} daily values`)).toBeNull();
     expect(values("HRV").slice(-2)).toEqual([
       "Unavailable · Low",
       "41.2 ms · Balanced",
@@ -366,7 +373,7 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(screen.queryByText(/16,824|2,200/)).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.getAllByRole("group", { name: /daily chart$/ })).toHaveLength(
-      15,
+      13,
     );
     expect(screen.queryByText(/Period average|Period total/)).toBeNull();
     expect(screen.queryByText("Complete daily health record")).toBeNull();
@@ -439,20 +446,37 @@ describe("TrainerDashboard Health dashboard", () => {
 
     expect(within(panel).queryByRole("table")).toBeNull();
     const cards = within(panel).getAllByRole("group", { name: /daily chart$/ });
-    expect(cards).toHaveLength(15);
-    expect(
-      Array.from(cards[0].querySelectorAll("[data-source-date]"), (node) =>
-        node.getAttribute("data-source-date"),
-      ),
-    ).toEqual([
-      "2026-07-15",
-      "2026-07-16",
-      "2026-07-17",
-      "2026-07-18",
-      "2026-07-19",
-      "2026-07-20",
-      "2026-07-21",
-    ]);
+    expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual(
+      [
+        "Calories",
+        "Sleep duration",
+        "Sleep score",
+        "Steps",
+        "Resting HR",
+        "HRV",
+        "Stress avg",
+        "Intensity minutes",
+        "Deep sleep",
+        "Light sleep",
+        "REM sleep",
+        "Awake sleep",
+        "Nap sleep",
+      ].map((title) => `${title} daily chart`),
+    );
+    for (const card of cards)
+      expect(
+        Array.from(card.querySelectorAll("[data-source-date]"), (node) =>
+          node.getAttribute("data-source-date"),
+        ),
+      ).toEqual([
+        "2026-07-15",
+        "2026-07-16",
+        "2026-07-17",
+        "2026-07-18",
+        "2026-07-19",
+        "2026-07-20",
+        "2026-07-21",
+      ]);
     for (const card of cards) {
       expect(within(card).getAllByRole("button")).toHaveLength(7);
       for (const button of within(card).getAllByRole("button"))
@@ -511,9 +535,10 @@ describe("TrainerDashboard Health dashboard", () => {
       ["HRV", "41.2 ms · balanced"],
       ["Stress avg", "38"],
       ["Steps", "8,412 steps"],
-      ["Total calories", "2,310 kcal"],
-      ["Active calories", "710 kcal"],
-      ["Resting calories", "1,600 kcal"],
+      [
+        "Calories",
+        "Resting: 1,600 kcal · Active: 710 kcal · Recorded total: 2,310 kcal",
+      ],
       ["Intensity minutes", "38 min"],
     ]) {
       const card = within(panel).getByRole("group", {

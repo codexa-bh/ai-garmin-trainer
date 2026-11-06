@@ -305,6 +305,7 @@ export const backendRoles = Object.fromEntries(
 // helper outside lib) from silently escaping coverage. These are UI-only owners,
 // never valid inward dependencies of a backend module.
 export const presentationModules = new Set([
+  "app/daily-calories-chart.tsx",
   "app/health-rollup-chart.tsx",
   "app/mobile-navigation-sheet.tsx",
   "app/trainer-dashboard.tsx",

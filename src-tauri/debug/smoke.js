@@ -57,6 +57,73 @@
     return el;
   }
   let rememberedHealthRange = null;
+  let syntheticCalories = false;
+  const dailyChartTitles = [
+    "Calories",
+    "Sleep duration",
+    "Sleep score",
+    "Steps",
+    "Resting HR",
+    "HRV",
+    "Stress avg",
+    "Intensity minutes",
+    "Deep sleep",
+    "Light sleep",
+    "REM sleep",
+    "Awake sleep",
+    "Nap sleep",
+  ];
+  // Closed authored recipe only; never infer permission from merely populated data.
+  function canonicalCalories(comparison) {
+    const card = comparison.querySelector(".health-calories-chart");
+    const buttons = [
+      ...(card?.querySelectorAll("button[data-source-date]") ?? []),
+    ];
+    const values = [
+      [1700, 400, 2100],
+      [1700, 400, null],
+      [null, null, 1800],
+      [null, null, null],
+      [1700, null, 1900],
+      [0, 0, 0],
+      [1700, 400, 2150],
+    ];
+    const kcal = (value) =>
+      value === null
+        ? "Unavailable"
+        : `${value.toLocaleString(undefined, { maximumFractionDigits: 20 })} kcal`;
+    const expected = values.map(([resting, active, total], index) => {
+      const date = buttons[index]?.dataset.sourceDate;
+      const label = new Date(`${date}T00:00:00Z`).toLocaleDateString(
+        undefined,
+        { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" },
+      );
+      const context =
+        resting === null || active === null
+          ? "Breakdown incomplete; no stack shown."
+          : total !== null && resting + active !== total
+            ? `Component sum ${kcal(resting + active)}; differs from recorded total.`
+            : "";
+      return {
+        name: `${label}: Resting: ${kcal(resting)} · Active: ${kcal(active)} · Recorded total: ${kcal(total)}${context ? ` · ${context}` : ""}`,
+        readout: `${label}Resting${kcal(resting)}Active${kcal(active)}Recorded total${kcal(total)}${context}`,
+      };
+    });
+    if (
+      !card ||
+      buttons.length !== 7 ||
+      buttons.some(
+        (button, index) =>
+          button.getAttribute("aria-label") !== expected[index].name,
+      ) ||
+      card.querySelector(".health-calories-legend")?.textContent !==
+        "RestingActive" ||
+      card.querySelectorAll(".recharts-bar").length !== 2 ||
+      card.querySelectorAll(".recharts-bar-rectangle path").length < 4
+    )
+      throw Error("Noncanonical/private Calories refused");
+    return { card, buttons, expected };
+  }
   const healthComparison = () => {
     const comparisons = [
       ...document.querySelectorAll(
@@ -79,7 +146,8 @@
           !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
           (index > 0 && date <= dates[index - 1]),
       ) ||
-      cards.length !== 15 ||
+      cards.map((card) => card.getAttribute("aria-label")).join(",") !==
+        dailyChartTitles.map((title) => `${title} daily chart`).join(",") ||
       cards.some(
         (card) =>
           [...card.querySelectorAll("[data-source-date]")]
@@ -2415,6 +2483,23 @@
           return { ok: true, action: command.action, trustedInput: false };
         }
         const comparison = healthComparison();
+        if (command.action === "calories") {
+          syntheticCalories = false;
+          const { card, buttons, expected } = canonicalCalories(comparison);
+          for (const [index, button] of buttons.entries()) {
+            button.dispatchEvent(new Event("pointerover", { bubbles: true }));
+            button.focus({ preventScroll: true });
+            button.click();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            if (
+              card.querySelector(".health-rollup-readout")?.textContent !==
+              expected[index].readout
+            )
+              throw Error("Synthetic shared Calories readout failed");
+          }
+          syntheticCalories = true;
+          return { ok: true, action: command.action, trustedInput: false };
+        }
         if (
           command.action === "remember-range" ||
           command.action === "assert-range"
@@ -2458,6 +2543,43 @@
           {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}
           .health-dashboard-panel [role="status"]::after, .health-dashboard-panel #health-daily-help::after
           {content:"Masked"; visibility:visible !important; position:absolute; inset:12px; color:var(--muted)}`;
+        if (syntheticCalories) {
+          const { card, buttons, expected } = canonicalCalories(comparison);
+          const selected = buttons.findIndex(
+            (button) => button.getAttribute("aria-pressed") === "true",
+          );
+          if (
+            selected !== 6 ||
+            card.querySelector(".health-rollup-readout")?.textContent !==
+              expected[6].readout
+          )
+            throw Error("Canonical Calories selection changed");
+          // Only known canonical Calories descendants are visible; unexpected content stays hidden.
+          style.textContent += `
+            .health-calories-chart .health-calories-legend,
+            .health-calories-chart .health-calories-legend > span,
+            .health-calories-chart .health-calories-legend > span > i,
+            .health-calories-chart .health-rollup-plot svg,
+            .health-calories-chart .recharts-bar-rectangle path,
+            .health-calories-chart .health-rollup-readout,
+            .health-calories-chart .health-rollup-readout > span,
+            .health-calories-chart .health-calories-breakdown dt,
+            .health-calories-chart .health-calories-breakdown dd,
+            .health-calories-chart button > span {visibility:visible !important}
+            .health-calories-chart .health-rollup-readout::after,
+            .health-calories-chart .health-rollup-value::after {content:none !important}`;
+          // Keep real geometry, scrolling only user-scrollable Health ancestors.
+          for (let node = card.parentElement; node; node = node.parentElement) {
+            if (
+              ["auto", "scroll"].includes(getComputedStyle(node).overflowY) &&
+              node.scrollHeight > node.clientHeight
+            )
+              node.scrollTop +=
+                card.getBoundingClientRect().top -
+                node.getBoundingClientRect().top -
+                8;
+          }
+        }
         document.head.append(style);
         await new Promise((resolve) => setTimeout(resolve, 120));
         return {

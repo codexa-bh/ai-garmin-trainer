@@ -957,10 +957,12 @@ primary discovery or additional durable fixture environment is introduced.
 
 The closed `health` command accepts only these actions: `daily`, `weekly`,
 `monthly`, `previous`, `next`, `latest`, `remember-range`, `assert-range`,
-`capture-wide`, `capture-narrow`. Range identity stays inside the renderer;
+`capture-wide`, `capture-narrow`, `calories`. The last action is a closed authored-only
+Calories assertion/capture opt-in, never generic/private unmasking. Range identity stays inside the renderer;
 observations expose only fixed mode and readiness/navigation/missing-record/
-partial-record booleans. Readiness checks the real fifteen chart cards, each with
-seven date-associated exact-value buttons, against the seven source-context dates. Both
+partial-record booleans. Readiness checks the complete thirteen-card inventory (one Calories, twelve
+unchanged metrics), each with seven date-associated exact-value buttons, against
+the seven source-context dates. Both
 native and renderer reject unknown action/field/selector/date/viewport inputs.
 Fixed capture cases resize only the admitted owned window, never activate it.
 
@@ -972,8 +974,19 @@ Daily status/helper boxes retain their actual borders/backgrounds and dimensions
 original text is transparent with text shadows disabled, unexpected descendants
 stay hidden, and fixed “Masked” overlays mark the concealed copy. This permits
 header-to-status and adjacent-helper spacing inspection, including wrapped actions.
-They do not reposition/reconstruct the comparison or prove masked exact values;
-synthetic DOM associations cover those. Inspect actual PNGs and record privacy,
+They do not reposition/reconstruct the comparison or prove masked exact values.
+The synthetic runner alone opts into `calories` on the historical page: seven
+canonical authored breakdowns cover complete, zero, incomplete, absent, legacy
+total-only, total-absent and inconsistent-total cases. Exact labels, two rendered
+series and every shared date readout must match before opt-in; changes refuse.
+Subsequent captures revalidate the canonical selected readout before revealing only
+known Calories legend, SVG root/stack paths, date controls and readout descendants;
+all axes, other source content and unexpected descendants remain hidden. Only real
+user-scrollable Health ancestors scroll to bring that card into view; no layout
+reconstruction or overflow-hidden ancestor scrolling is used. Default/private
+Health captures retain the complete mask. No source data is returned or uploaded;
+DOM actions are synthetic, not trusted input. Inspect visible Calories geometry and
+text separately from masked neighboring metrics. Inspect actual PNGs and record privacy,
 layout/overflow, source/hash and these limits. `health-scenario.json` records real
 scenario/capture outcomes, not image inspection or ordinary-artifact evidence.
 Existing Profile scenario, production exclusion, unknown-effect/no-retry and
