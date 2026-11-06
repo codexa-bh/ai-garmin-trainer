@@ -182,6 +182,12 @@ export function MemoryContent({
       <h3 tabIndex={-1} ref={heading}>
         {titles[view]}
       </h3>
+      {view === "overview" && (
+        <p>
+          When enabled, memory helps your trainer carry important details from
+          previous conversations into new chats.
+        </p>
+      )}
       {memoryMessage && (
         <p className="memory-notice" role="status" aria-live="polite">
           {memoryMessage}

@@ -958,6 +958,7 @@
     anchor?.scrollIntoView({ block: "start", behavior: "instant" });
     const labels = new Set([
       "What your trainer remembers",
+      "When enabled, memory helps your trainer carry important details from previous conversations into new chats.",
       "Generated summary",
       "Your preferences",
       "Add preference",
