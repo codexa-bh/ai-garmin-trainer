@@ -24,6 +24,63 @@ is performed.
 
 The Python preparation owner requires existing canonical uid-owned `0700` directories and bounded `0600` regular single-link files; aliases, hardlinks, unknown/duplicate JSON keys, insecure/foreign files and reused destinations refuse, never chmod/adopt. A fresh private UUID output holds database-only `selection.json` (`{"database":"/canonical/prepared/input.sqlite"}`) and bounded private preparation provenance. Private copying uses SQLite online backup with a deadline and original logical/identity/DB-WAL byte checks, not a live main-file copy. Implicit SQLite sidecars must also be canonical/private/single-link; rollback journals refuse recovery. SHM lock/read marks are validated for file safety, not certified immutable. Native owners then make independent writable run copies. All copies, Goals, provenance, logs and images are task-attributed, never back-synced or uploaded. For managed Pivan invocations, the existing category owner places new mutable synthetic/authorized numeric-copy preparation DBs under registered disposable scratch, not evidence; compact preparation provenance remains in evidence. This changes no grant classes, borrowed/standalone/prepare-only output promise or retention period. Actual runner invocations apply [evidence-first owned disposal](dev-bridge.md#preparation-reuse-and-owned-disposal) to their exclusively created DB copies after final settlement; compact diagnostics/PNGs remain. Standalone preparation, prepare-only and borrowed inputs retain promised outputs. Partial/failed outputs are retained for exact reconciliation, not adopted, overwritten or retried blindly.
 
+## Task-owned rehearsal, restore and run-backup placement
+
+Standalone `smoke:prepare` now establishes the same category/resource owner as
+runners **before** preparing inputs, and explicitly retains successful outputs.
+Stdout keeps its prepared-result record and also emits the existing resource
+disposition record; parse JSON records by key, not by line position. A managed
+readable root may contain private allocator-created categories without chmod.
+External explicit private scratch remains independent, even with an ambient task.
+Missing/incompatible tooling or invalid category proof refuses before input access;
+there is no root/evidence fallback or adoption of existing directories.
+
+For a future operational rehearsal, name the actual owning task and separately
+authorize the exact source/use **before DB access**. Do not execute or adopt an old
+ad-hoc script/allocation as an owner. The finite recipe is:
+
+1. Resolve canonical root and both categories using compatible installed tooling:
+   `pivan-harness task-scratch path "$PIVAN_TASK_PATH" --create`, then the same
+   command with `--category evidence --create` and `--category disposable --create`.
+   Use only their verified returned paths. For authored preparation, pass the
+   **root** to `smoke:prepare`, not the evidence/disposable path. `--task-id` is a
+   provenance label, not category authority. Real grants retain the private route below.
+2. Create a new exclusive `0700` UUID child under returned disposable for rehearsal,
+   restore and run-owned backup DBs and their run-owned WAL/SHM. Validate canonical
+   no-follow uid/private/single-link source files/sidecars using the existing
+   `smoke_input.database_state` boundary; refuse journals, changed/replaced parents,
+   aliases, hardlinks and reused destinations. Never chmod/adopt an input.
+3. For each copy, exclusively create a `0600` regular destination with
+   `O_CREAT | O_EXCL | O_NOFOLLOW`, then use a read-only SQLite source connection
+   and `source.backup(destination, pages=128, sleep=.01, progress=deadline_check)`
+   with the existing ten-second preparation deadline. Never independently copy
+   active WAL/SHM or use a live main-file copy. Each restore/run-backup copy uses
+   another exclusive destination; failure/cancellation retains partial outputs
+   and the original error, not an overwrite/retry or a recovery hold.
+4. Compare original identity/DB-WAL bytes and logical fingerprint before/after;
+   verify destination integrity, schema version/inventory, foreign keys, bounded
+   counts and source-equal logical state. Keep only compact non-sensitive outcomes,
+   provenance and failure facts in returned evidence. Source paths/grants/DB contents
+   are not public support evidence. Retain all promised standalone/prepare-only
+   outputs; consumption does not enroll borrowed inputs for deletion.
+5. Record output purpose, source preservation, receipt and normal expiry/cleanup
+   deferral in the owning task. Disposable expiry remains independent of immediate
+   runner disposal (normally six hours after canonical closure); evidence normally
+   seven days, subject to actual App policy. Failure grants no retention extension.
+   Placement does not authorize any deletion, migration, install or production use.
+
+The executable authored proof is
+`python3 -m unittest discover -s scripts/desktop -p smoke_prepare_test.py`: actual
+CLI/adapter routing, refusal and lifetime plus fresh active-WAL rehearsal → restore
+→ run-backup copies, original preservation and compact-only evidence. Its allocator
+is a test stand-in; a real-task CLI run with compatible tooling is separately
+required for producer evidence. It is not a general migration executable.
+
+A genuine operator/pre-upgrade backup is **not** a disposable rehearsal backup.
+The stopped-target migration CLI's sibling-backup contract remains unchanged;
+production restore/migration and existing or borrowed backup disposition require
+separate exact authority. See [local data lifecycle](source-beta-readiness.md#local-data-lifecycle).
+
 ## Explicit private route
 
 Private use is optional. **Before opening selection values, artifact provenance or a DB**, the already-authorized caller must explicitly select an attributable current authority record for that exact artifact/use. Neither a record discovered beside a fixture nor historic preparation consent creates authority. For Pivan E0007, the selected workspace's `content/private-smoke-fixture-inventory.md` is the single policy owner for approval, artifact-owner availability and retention. This implementation introduces no real personal grant, permission service, signature/authentication claim or general authorization store.

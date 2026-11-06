@@ -237,13 +237,17 @@ def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
     return PreparedInput(prepared, root, original, grant_check or (lambda: None), provenance)
 
 
+@resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     arguments(parser)
     args = parser.parse_args()
     os.umask(0o077)
-    prepared = prepare(args.scratch, args, 'native')
+    # CLI outputs are handed to another invocation, never disposed on successful preparation.
+    resources.retain('Standalone preparation outputs retained; scheduled expiry unchanged')
+    scratch = resources.configure(canonical(args.scratch))
+    prepared = prepare(scratch, args, 'native')
     prepared.verify_current()
     print(json.dumps({'prepared': str(prepared.root), 'route': prepared.provenance['route'], 'checks': prepared.provenance['checks'], 'launches': 0}))
 
