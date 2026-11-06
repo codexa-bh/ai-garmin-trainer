@@ -2420,6 +2420,7 @@
         const style = document.createElement("style");
         style.id = "trainer-smoke-sanitizer";
         // Hide by default, revealing only fixed static Health controls/card chrome.
+        // Helper boxes retain their chrome with transparent text and fixed overlays.
         // Source-derived dates, values, plot marks/ticks, coverage and HRV context
         // stay hidden at unchanged geometry; even unexpected descendants stay private.
         style.textContent = `body * {visibility:hidden !important}
@@ -2430,11 +2431,15 @@
           .health-rollup-plot .recharts-cartesian-grid line,
           .health-rollup-values button, .health-daily-coverage,
           .health-daily-coverage > summary {visibility:visible !important}
+          .health-dashboard-panel [role="status"], .health-dashboard-panel #health-daily-help
+          {visibility:visible !important; color:transparent !important; text-shadow:none !important; position:relative}
           .health-dashboard-panel #health-daily-range, .health-dashboard-panel [role="status"],
           .health-daily-comparison .health-rollup-readout, .health-daily-comparison .health-rollup-value {position:relative}
           .health-dashboard-panel #health-daily-range::after, .health-dashboard-panel [role="status"]::after,
           .health-daily-comparison .health-rollup-readout::after, .health-daily-comparison .health-rollup-value::after
-          {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}`;
+          {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}
+          .health-dashboard-panel [role="status"]::after, .health-dashboard-panel #health-daily-help::after
+          {content:"Masked"; visibility:visible !important; position:absolute; inset:12px; color:var(--muted)}`;
         document.head.append(style);
         await new Promise((resolve) => setTimeout(resolve, 120));
         return {
