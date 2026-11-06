@@ -6,7 +6,7 @@ import {
   TRAINER_INSTRUCTION_SECTIONS,
   TRAINER_SYSTEM_PROMPT,
 } from "../src/lib/ai/trainer-instructions";
-import { unsafeMemoryReason } from "../src/lib/memory/filters";
+import { minimizeSummarySource } from "../src/lib/memory/summary-policy";
 import {
   trainerToolInputSchemas,
   trainerCompletionSchema,
@@ -432,12 +432,25 @@ describe("canonical trainer instruction package", () => {
     );
   });
 
-  it("keeps diagnosis and treatment content out of durable memory", () => {
-    expect(unsafeMemoryReason("My diagnosis changed after treatment")).toBe(
-      "medical_or_sensitive_inference",
-    );
-    expect(unsafeMemoryReason("Remember my medication dosage")).toBe(
-      "medical_or_sensitive_inference",
+  it("allows user-authored medical discussion in cross-chat memory without changing source controls", () => {
+    const source = {
+      eventSeq: 1,
+      admissionSeq: 1,
+      version: 1,
+      sourceId: "turn:1",
+      eligible: true,
+      user: "My fictional diagnosis changed after treatment",
+      referent: null,
+    };
+    expect(minimizeSummarySource(source)?.user).toBe(source.user);
+    expect(
+      minimizeSummarySource({
+        ...source,
+        user: "Do not save my fictional diagnosis",
+      }),
+    ).toBeNull();
+    expect(TRAINER_SYSTEM_PROMPT).toContain(
+      "Cross-chat memory has no content-pattern filter",
     );
   });
 });

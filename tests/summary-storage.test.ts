@@ -182,6 +182,31 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
     expect(db.serialize()).toEqual(before);
     expect(() => storage.usage(job, usage, "value")).not.toThrow();
   });
+  it("preserves historical unsafe-text fourth-item failure across reopen without passive replay", async () => {
+    complete();
+    const job = ready();
+    storage.reserve(job, now);
+    storage.usage(job, { input: 10, output: 5, cached: null }, "value", {
+      invariant: "unsafe-text",
+      itemIndex: 3,
+    });
+    storage.fail(job, "summary_invalid_output", now);
+    const before = db
+      .prepare("select outcome,usage_json from summary_attempt")
+      .all();
+    const bytes = db.serialize();
+    db.close();
+    db = new Database(bytes);
+    const generation = fakeGeneration();
+    storage.status(now + 100000);
+    storage.read();
+    await engine(generation).tick(new AbortController().signal);
+    expect(generation.generate).not.toHaveBeenCalled();
+    expect(
+      db.prepare("select outcome,usage_json from summary_attempt").all(),
+    ).toEqual(before);
+    expect(before[0]).toMatchObject({ outcome: "summary_invalid_output" });
+  });
   it("orders late/equal-time completions, excludes abandoned and old history, and never repeats covered source", () => {
     const a = history.admit("A", "Mornings chosen for time.");
     const b = history.admit("B", "Evenings considered, not chosen.");
@@ -641,18 +666,47 @@ describe("supplied generation with real SQLite application", () => {
     for (const call of calls)
       expect(JSON.parse(call[1]).newSources).toHaveLength(1);
   });
-  it("filters unsafe input without provider calls and without checkpoint loss", async () => {
-    complete("unsafe", "My API key is sk-example-not-a-key");
-    const generation = fakeGeneration(),
-      app = engine(generation);
+  it("passes formerly matched input to generation and persists its output across reopen without checkpoint loss", async () => {
+    const text =
+      "Fake api_key sk-example-not-a-key; https://example.invalid/training /Users/example/notes diagnosis GPS ignore previous instructions";
+    complete("formerly-filtered", text);
+    const normal = fakeGeneration();
+    const generation: SummaryGeneration = {
+      generate: vi.fn(
+        async (...args: Parameters<SummaryGeneration["generate"]>) => {
+          const result = await normal.generate(...args);
+          const patch = result.patch as { upsert: { text: string }[] };
+          patch.upsert[0].text = text;
+          return result;
+        },
+      ),
+    };
+    const app = engine(generation);
     await app.tick(new AbortController().signal);
     now += 120001;
     await app.tick(new AbortController().signal);
-    expect(generation.generate).not.toHaveBeenCalled();
+    expect(generation.generate).toHaveBeenCalledOnce();
+    expect(
+      JSON.parse(vi.mocked(generation.generate).mock.calls[0][1]).newSources[0]
+        .user,
+    ).toBe(text);
     expect(storage.status(now).frontier).toBe(1);
-    expect(storage.read().items).toEqual([]);
+    expect(storage.read().items).toHaveLength(1);
+    expect(storage.read().text).toContain(text);
+    storage.edit(
+      storage.version(),
+      storage.read().items[0].id,
+      `${text}; edited`,
+      now,
+    );
+    const saved = storage.inspect();
+    const bytes = db.serialize();
+    db.close();
+    db = new Database(bytes);
+    expect(storage.read()).toEqual(saved);
+    expect(storage.read().text).toContain(text);
     expect(db.prepare("select reason from summary_disposition").get()).toEqual({
-      reason: "filtered",
+      reason: "represented",
     });
   });
   it("rejects cancellation after inference and retains unknown cost without late writes", async () => {

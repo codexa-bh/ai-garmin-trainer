@@ -89,9 +89,12 @@ outrank them. Source links open local conversations, never reconstructed deleted
 transcripts. Summary generation is foreground-only, bounded and incremental; neither
 JSON nor NDJSON answer completion awaits its provider or legacy extraction.
 
-- **Edit / Add memory:** bounded safety-validated source-linked overlay
+- **Edit / Add memory:** structurally validated, bounded source-linked overlay
   or honestly standalone manual source. Manual lineage wins over later generated
-  patches. No unsafe diagnosis/secret/raw/location bypass.
+  patches. There is no content-pattern veto or topic rewriting for generated or
+  manual cross-chat memory. User prose (including URLs, paths, medical topics,
+  key-like examples and quoted instructions) stays untrusted data, never authority
+  to access native secrets/files/tools. Actual source/no-save/privacy controls remain.
 - **Forget item:** removes it and suppresses its exact source versions, not the
   original transcript. Later new explicit statements have distinct source identity.
 - **Clear summary:** removes summary/manual/pin derivatives and records a cutoff
@@ -132,7 +135,7 @@ tokenizer/capacity prerequisite or hidden daily summary budget. Pause/cancel ret
 requires a new review, not stale resume. Routine frontier is separate. No startup
 backfill, inferred role pairs or migration timestamp grants export.
 
-Unproven/unlinked legacy entries, unsafe or expired/relative-time historical claims,
+Unproven/unlinked legacy entries and expired/relative-time historical claims,
 suppressed and already-imported source versions are excluded from automatic import.
 They remain preserved for separately authorized maintenance; old temporary prose is not rebased
 to today. Original records are preserved. Actual private selection/export/retirement
@@ -172,7 +175,7 @@ old clearing cannot be reconstructed. Known forgotten sources and recorded clear
 remain excluded, including assistant context and its originating user. Old bare
 Start, startup, incremental work and passive reads never obtain legacy authority. Post-fence unlinked originals retain
 honest message/time/hash provenance, not fabricated completed turns. Suppressed,
-unsafe, oversized and unsupported sources are disclosed. No-save requests and
+no-save, unresolved, oversized and unsupported sources are disclosed. No-save requests and
 assistant context cannot grant endorsement or plan-save permission. Off/unselected/
 missing capability/empty/over-limit preflight refuses rather than enabling or
 substituting a model. See [exact bounds, authority and semantic evidence limits](cross-chat-summary.md#explicit-rebuild-from-chat-history).
@@ -186,7 +189,7 @@ unsupported, missing-key or exhausted capability retains the prompt excerpt.
 The existing first-message/manual-title/clear/delete tombstones and Next `after()`
 lifetime remain. No historical retitling or retry queue is added.
 
-Title-only source input remains safety-filtered and bounded to2000 characters;
+Title-only source input retains explicit no-save controls and is bounded to2000 characters;
 the3000ms deadline, no tools/retries and supported stateless controls remain.
 There is no token-count/output-cap, pricing prerequisite, daily count or monetary
 admission cap. Captured keys/configuration survive awaits; manual titles and

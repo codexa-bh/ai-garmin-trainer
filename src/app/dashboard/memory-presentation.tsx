@@ -127,7 +127,9 @@ export function HistoryReview({
     suppressed: "Sources you asked memory to forget",
     "incomplete-linked-turn": "Unfinished conversations",
     "oversized-message": "Messages too long to include",
-    "unsafe-or-unresolved-context": "Private, no-save or unclear content",
+    "unsafe-or-unresolved-context":
+      "Excluded under the earlier content policy or unclear context",
+    "no-save-or-unresolved-context": "No-save request or unclear context",
     "unsupported-time": "Unavailable message dates",
     "orphan-message": "Conversation no longer available",
   };
@@ -187,8 +189,8 @@ export function HistoryReview({
         </>
       ) : (
         <p>
-          Review is local; nothing is sent until you confirm. Only useful, safe
-          context can be remembered, not every detail.
+          Review is local; nothing is sent until you confirm. Memory keeps
+          useful context, not every detail.
         </p>
       )}
     </>
@@ -224,7 +226,7 @@ export function HistoryProgress({
   };
   const reasons: Record<string, string> = {
     summary_invalid_output:
-      "The AI response did not meet memory's safety or format rules. It was not saved.",
+      "The AI response did not meet memory's structure, size or source rules. It was not saved.",
     summary_provider_failure: "The AI provider could not finish the request.",
     summary_missing_key:
       "The selected provider is unavailable. Check its key and model in Settings.",

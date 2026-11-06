@@ -77,7 +77,7 @@ export function createSummaryEngine(ports: {
         });
         let candidate: SummaryCandidate | null;
         if (!inputs.length) {
-          // Unsafe/Off/deleted events are dispositions, not a fabricated model answer.
+          // No-save/unresolved/Off/deleted events retain explicit dispositions.
           const items = job.previous.items.filter(
             (item) => item.expiresAt === null || item.expiresAt > ports.now(),
           );

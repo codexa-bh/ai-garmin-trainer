@@ -366,7 +366,8 @@ export function MemoryContent({
                       {editingMemoryId === "new"
                         ? "Saved as your own memory."
                         : "Keeps its existing sources and expiry."}{" "}
-                      Keep it concise; sensitive details cannot be saved.
+                      Keep it concise; this text may be sent to your AI
+                      provider.
                     </p>
                     <div className="button-row">
                       <button

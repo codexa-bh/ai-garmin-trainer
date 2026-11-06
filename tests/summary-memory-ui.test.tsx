@@ -655,6 +655,10 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     const value = snapshot();
     const fetcher = await mountMemory(value);
     fireEvent.click(screen.getByRole("button", { name: "Add memory" }));
+    expect(
+      screen.getByText(/this text may be sent to your AI provider/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/sensitive details cannot be saved/)).toBeNull();
     const editor = screen.getByRole("textbox", { name: "Memory" });
     expect(document.activeElement).toBe(editor);
     expect(

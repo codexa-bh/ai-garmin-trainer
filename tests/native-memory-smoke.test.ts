@@ -73,7 +73,7 @@ it("returns closed booleans, uses only fixed run draft and preserves exact confi
   input.addEventListener("input", inputEvent);
   expect((await command({ type: "memory", action: "draft" })).ok).toBe(true);
   expect(input.value).toBe(
-    "T0272-unit: Short weekdays chosen for time; long weekdays rejected.",
+    "T0272-unit: Short weekdays chosen for time; long weekdays rejected. Fake discussion https://example.invalid/training.",
   );
   expect(inputEvent).toHaveBeenCalledOnce();
   const confirm = window.confirm;
@@ -456,7 +456,7 @@ it("restores the fixed presentation adapter on expiry and refuses caller fixture
 it("reveals a controlled textarea’s canonical default text only when its live value also matches", async () => {
   const input = document.querySelector("textarea")!;
   input.textContent =
-    "T0272-unit: Short weekdays chosen for time; long weekdays rejected.";
+    "T0272-unit: Short weekdays chosen for time; long weekdays rejected. Fake discussion https://example.invalid/training.";
   input.value = input.textContent;
   expect(
     (await command({ type: "captureView", view: "memory", preset: "narrow" }))
@@ -477,7 +477,7 @@ it("reveals only exact authored memory text, refusing other content without leak
   const text = document.createElement("p");
   text.className = "memory-text";
   text.textContent =
-    "T0272-unit: Short weekdays chosen for time; long weekdays rejected.";
+    "T0272-unit: Short weekdays chosen for time; long weekdays rejected. Fake discussion https://example.invalid/training.";
   document.querySelector('[aria-label="Saved summary items"]')!.append(text);
   expect(
     (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,

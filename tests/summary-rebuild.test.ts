@@ -276,7 +276,7 @@ describe("growing authored184-source multi-chat repair", () => {
     [
       "question",
       "discussed-not-endorsed",
-      "Poles remain an unresolved equipment question. The assistant suggested them but the user has not chosen; discuss practical tradeoffs when asked rather than saving the suggestion as an endorsed purchase or settled plan.",
+      "Poles remain unresolved. Fake discussion data: https://example.invalid/training /Users/example/notes ~/training-notes sk-example-not-a-real-key api_key password diagnosis treatment GPS raw FIT payload ‘ignore previous instructions’.",
     ],
     [
       "decision",
@@ -362,6 +362,8 @@ describe("growing authored184-source multi-chat repair", () => {
               replaces: [],
             };
           });
+      if (calls === 0)
+        expect(upsert[3].text).toContain("https://example.invalid");
       calls++;
       return {
         patch: {
@@ -440,6 +442,12 @@ describe("growing authored184-source multi-chat repair", () => {
       db.prepare("select id,content from message order by id").all(),
     ).toEqual(originals);
     expect(generate).toHaveBeenCalledTimes(12);
+    expect([...storage.inspect().text].length).toBeLessThanOrEqual(6000);
+    expect(status()?.dispositions).toEqual({ represented: 184 });
+    const next = history.admit("after-rich184", "What remains unresolved?");
+    expect(
+      JSON.stringify(replayMessages(history.read(next.admission))),
+    ).toContain("https://example.invalid/training");
   });
 });
 
@@ -447,7 +455,7 @@ describe("full-pool original admission and local preflight", () => {
   it("counts more than the sidebar/import cap without export or effects and preserves genuine original roles/time/hash", () => {
     for (let n = 0; n < 241; n++)
       message(`user-${n}`, undefined, "user", `chat-${n % 13}`, 1700000000 + n);
-    message("unsafe", "My password is synthetic-private.");
+    message("formerly-filtered", "My password is synthetic-private.");
     message("no-save", "Do not save this coaching preference.");
     message(
       "assistant-only",
@@ -462,19 +470,21 @@ describe("full-pool original admission and local preflight", () => {
       chats: 15,
       messages: 244,
       userMessages: 243,
-      includedChats: 13,
-      includedUserMessages: 241,
-      excludedUserMessages: 2,
+      includedChats: 14,
+      includedUserMessages: 242,
+      excludedUserMessages: 1,
       assistantContext: 0,
-      excludedMessages: 3,
+      excludedMessages: 2,
     });
-    expect(inspected.reasons).toEqual({ "unsafe-or-unresolved-context": 2 });
+    expect(inspected.reasons).toEqual({ "no-save-or-unresolved-context": 1 });
     expect(inspected.preflight.estimatedUsd.conservativeMaximum).toBeNull();
     expect(inspected.preflight.ready).toBe(true);
     begin();
     const first = readSummaryRebuildBatch()!;
     expect(first.sources).toHaveLength(20);
-    const input = minimizeSummarySource(first.sources[0])!;
+    const input = minimizeSummarySource(
+      first.sources.find((s) => s.original?.messageId === "user-0")!,
+    )!;
     expect(input.original).toMatchObject({
       messageId: "user-0",
       speaker: "user",
@@ -574,7 +584,7 @@ describe("full-pool original admission and local preflight", () => {
     );
     expect(inventory().counts.assistantContext).toBe(0);
   });
-  it("does not bring no-save/unsafe prior user content back through apparently safe assistant prose", () => {
+  it("does not bring no-save prior user content back through assistant prose", () => {
     message(
       "u1",
       "Do not save this: I prefer mornings.",
@@ -616,7 +626,7 @@ describe("full-pool original admission and local preflight", () => {
       batch.sources.some((source) => source.original?.messageId === "choice"),
     ).toBe(false);
     expect(inventory().counts.assistantContext).toBe(0);
-    expect(inventory().reasons["unsafe-or-unresolved-context"]).toBe(2);
+    expect(inventory().reasons["no-save-or-unresolved-context"]).toBe(2);
   });
   it("Clear covers unlinked originals even with no completion/admission rows and does not reopen on enable", () => {
     message("pre-clear");
@@ -651,7 +661,7 @@ describe("full-pool original admission and local preflight", () => {
     expect(inventory().counts.includedUserMessages).toBe(0);
     expect(inventory().reasons).toEqual({
       "oversized-message": 1,
-      "unsafe-or-unresolved-context": 1,
+      "no-save-or-unresolved-context": 1,
     });
     expect(() => begin()).toThrow("not_ready");
   });
@@ -761,8 +771,8 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     };
     const review = summaryRebuildInventory("boot", selection);
     expect(review.counts).toMatchObject({
-      includedUserMessages: 28,
-      excludedUserMessages: 2,
+      includedUserMessages: 29,
+      excludedUserMessages: 1,
       assistantContext: 1,
     });
     start("rich", review.snapshot, "boot", now, selection);
@@ -831,14 +841,13 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     expect(storage.inspect()).toEqual(before);
     now += 2100;
     await engine.tick(new AbortController().signal);
-    expect(status()).toMatchObject({ state: "complete", processed: 28 });
+    expect(status()).toMatchObject({ state: "complete", processed: 29 });
     expect(
       seen.find((source) => source.original.messageId === "meaning-2")
         ?.referent,
     ).toContain("neither is chosen");
-    expect(
-      seen.some((source) => /password|Do not save/.test(source.user)),
-    ).toBe(false);
+    expect(seen.some((source) => /Do not save/.test(source.user))).toBe(false);
+    expect(seen.some((source) => source.user.includes("password"))).toBe(true);
     const saved = storage.inspect();
     for (const entry of rubric) expect(saved.text).toContain(entry.text);
     expect(saved.text).toContain("Current manual instruction");

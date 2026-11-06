@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   characters,
   emptySummary,
@@ -63,7 +63,6 @@ describe("global summary closed policy and authored meaning oracles", () => {
     ["text", "", "item-text"],
     ["text", "x".repeat(1201), "item-text"],
     ["text", "\ud800", "unicode"],
-    ["text", "My password is private.", "unsafe-text"],
     ["category", "invented", "category"],
     ["stance", "certain", "stance"],
     ["priority", 6, "priority"],
@@ -146,14 +145,37 @@ describe("global summary closed policy and authored meaning oracles", () => {
     "api_key",
     "/Users/example/private",
     "tool output: 99 hours",
-  ])("filters whole unsafe source/output: %s", (text) => {
+    "https://example.invalid/training",
+    "~/training-notes; password; treatment; latitude; longitude",
+  ])("accepts formerly matched source/output as untrusted data: %s", (text) => {
     const source = { ...batch().sources[0]!, user: text };
-    expect(minimizeSummarySource(source)).toBeNull();
+    expect(minimizeSummarySource(source)?.user).toBe(text);
     const candidate = patch();
     candidate.upsert[0]!.text = text;
-    expect(validateSummaryPatch(candidate, batch(), inputs(), now)).toBeNull();
+    const result = validateSummaryPatch(candidate, batch(), inputs(), now)!;
+    expect(result.value.items[0].text).toBe(text);
+    expect(validSummaryValue(result.value, 6000)).toBe(true);
   });
-  it("does not export fresh assistant replies or unsafe/unresolved option referents", () => {
+  it("accepts formerly rejected fourth generated item without losing any item or coverage", () => {
+    const raw = patch();
+    raw.upsert = Array.from({ length: 4 }, (_, i) => ({
+      ...raw.upsert[0],
+      id: `fourth_${i}`,
+      text:
+        i === 3
+          ? "Fake password sk-example-not-a-key https://example.invalid/training"
+          : `Meaning ${i}`,
+    }));
+    const rejected = vi.fn();
+    const result = validateSummaryPatch(raw, batch(), inputs(), now, rejected)!;
+    expect(result.value.items).toHaveLength(4);
+    expect(result.value.items[3].text).toBe(raw.upsert[3].text);
+    expect(result.dispositions).toEqual([
+      { eventSeq: 1, sourceId: "turn:1", reason: "represented" },
+    ]);
+    expect(rejected).not.toHaveBeenCalled();
+  });
+  it("does not export fresh assistant replies or unresolved/oversized option referents", () => {
     const source = {
       ...batch().sources[0]!,
       user: "Use the second option; weekday time is the reason.",
@@ -162,7 +184,10 @@ describe("global summary closed policy and authored meaning oracles", () => {
     expect(minimizeSummarySource(source)?.referent).toBe(source.referent);
     expect(minimizeSummarySource({ ...source, referent: null })).toBeNull();
     expect(
-      minimizeSummarySource({ ...source, referent: "API key: unsafe" }),
+      minimizeSummarySource({ ...source, referent: "API key: fake" })?.referent,
+    ).toBe("API key: fake");
+    expect(
+      minimizeSummarySource({ ...source, referent: "x".repeat(1201) }),
     ).toBeNull();
     expect(
       minimizeSummarySource({ ...source, user: "I prefer short weekdays." }),
@@ -299,7 +324,7 @@ describe("global summary closed policy and authored meaning oracles", () => {
       ),
     ).toBeNull();
   });
-  it("keeps unresolved options unendorsed and minimizes only generic denial, not named medical data", () => {
+  it("keeps unresolved options unendorsed without rewriting medical denials or excluding topic words", () => {
     const source = {
       ...batch().sources[0]!,
       user: "Could poles or a lighter bag help? I have not chosen.",
@@ -328,13 +353,19 @@ describe("global summary closed policy and authored meaning oracles", () => {
         ...source,
         user: "We chose weekend hiking for available time, not for a diagnosed condition. Evenings rejected.",
       })?.user,
-    ).toContain("not for medical reasons");
+    ).toContain("not for a diagnosed condition");
     expect(
       minimizeSummarySource({
         ...source,
         user: "Not for a diagnosed condition; diagnosis is example-condition.",
-      }),
-    ).toBeNull();
+      })?.user,
+    ).toBe("Not for a diagnosed condition; diagnosis is example-condition.");
+    for (const user of [
+      "Do not save this.",
+      "Don't remember this.",
+      "Never store this.",
+    ])
+      expect(minimizeSummarySource({ ...source, user })).toBeNull();
   });
   it("cannot launder old lineage through a new item without replacing its full ancestor", () => {
     const previous = validateSummaryPatch(

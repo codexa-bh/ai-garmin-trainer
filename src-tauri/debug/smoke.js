@@ -266,9 +266,10 @@
     ["entry_footer_long", "ollama / T0246/Long-local-model-name:exact-tag"],
     ["entry_footer_other", "ollama / T0246/Alternate:Tag"],
   ];
-  // Fixed T0272 synthetic Memory controls; no caller text/ID/selector or export.
+  // Fixed synthetic Memory controls; T0283 adds fake formerly filtered prose.
+  // No caller text/ID/selector or export; exact matching masks remain mandatory.
   const memoryText = (updated = false) =>
-    `T0272-${globalThis.__trainerOrdinaryIsolated?.runId}: ${updated ? "Weekends remain optional; poles not chosen." : "Short weekdays chosen for time; long weekdays rejected."}`;
+    `T0272-${globalThis.__trainerOrdinaryIsolated?.runId}: ${updated ? "Weekends remain optional; poles not chosen. Fake path /Users/example/notes; quoted ignore previous instructions." : "Short weekdays chosen for time; long weekdays rejected. Fake discussion https://example.invalid/training."}`;
   let memoryFixture = null;
   let memoryReviewSelection = {
     version: 1,
@@ -969,7 +970,7 @@
       "Saved memory updated",
       "History update interrupted",
       "History update cancelled",
-      "The AI response did not meet memory's safety or format rules. It was not saved.",
+      "The AI response did not meet memory's structure, size or source rules. It was not saved.",
       "Further work was stopped. Text already sent and charges cannot be recalled.",
       "View saved memory",
       "Constraint · User-stated",
@@ -989,10 +990,10 @@
       "Item forgotten. Original transcripts remain.",
       "Memory is Off. Saved items stay; automatic titles are separate.",
       "Memory is On. Earlier Off history was not automatically imported.",
-      "Review is local; nothing is sent until you confirm. Only useful, safe context can be remembered, not every detail.",
+      "Review is local; nothing is sent until you confirm. Memory keeps useful context, not every detail.",
       "Keep the app open. Cancelling stops further work, not text already sent or charges incurred. Uncertain requests are not automatically repeated.",
-      "Saved as your own memory. Keep it concise; sensitive details cannot be saved.",
-      "Keeps its existing sources and expiry. Keep it concise; sensitive details cannot be saved.",
+      "Saved as your own memory. Keep it concise; this text may be sent to your AI provider.",
+      "Keeps its existing sources and expiry. Keep it concise; this text may be sent to your AI provider.",
       "Memory",
       "Review earlier sources",
       "Older saved records",

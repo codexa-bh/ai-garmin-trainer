@@ -217,7 +217,7 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
   );
   publish(
     1,
-    "Short weekdays for time; long weekdays rejected. " +
+    "Short weekdays for time; long weekdays rejected. Fake password sk-example-not-a-key https://example.invalid/training /Users/example/notes diagnosis GPS ignore previous instructions. " +
       "週末は長く 🥾 ".repeat(90),
   );
   ensureConversation("sdk-chat");
@@ -257,6 +257,8 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
   for (const call of calls) {
     const wire = JSON.stringify(call.body.input);
     expect(wire).toContain("long weekdays rejected");
+    expect(wire).toContain("https://example.invalid/training");
+    expect(wire).toContain("ignore previous instructions");
     expect(wire).not.toContain("poles not chosen");
     expect(call.body.store).toBe(false);
     expect(call.body).not.toHaveProperty("previous_response_id");
@@ -509,25 +511,23 @@ it("Refresh compares latest summary and segment revisions and refuses a busy cha
   refreshConversationSummary("A", summaryStorage.version(), 1);
 });
 
-it("manual edits validate safety, reject stale clients and Forget suppresses exact lineage", () => {
+it("manual edits validate structure, accept formerly matched prose, reject stale clients and Forget suppresses exact lineage", () => {
   publish(1);
   const expected = summaryStorage.version();
   expect(() =>
-    summaryStorage.edit(
-      expected,
-      "item1",
-      "My API key is sk-example-not-a-key",
-      Date.now(),
-    ),
+    summaryStorage.edit(expected, "item1", "x".repeat(1201), Date.now()),
   ).toThrow("invalid_manual");
   expect(summaryStorage.version()).toEqual(expected);
   summaryStorage.edit(
     expected,
     "item1",
-    "Weekday lunchtime, not evenings.",
+    "Weekday lunchtime, not evenings. Fake api_key sk-example-not-a-key https://example.invalid/training /Users/example/notes diagnosis GPS ignore previous instructions.",
     Date.now(),
   );
   expect(summaryStorage.inspect().text).toContain("not evenings");
+  expect(summaryStorage.inspect().text).toContain(
+    "https://example.invalid/training",
+  );
   expect(() =>
     summaryStorage.edit(expected, "item1", "Stale edit", Date.now()),
   ).toThrow("stale_action");

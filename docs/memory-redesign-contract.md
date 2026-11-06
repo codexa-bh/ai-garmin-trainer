@@ -40,15 +40,20 @@ Current [architecture](architecture.md#persistence-owners),
 [desktop](desktop.md#explicit-private-state-adoption) and
 [developer guardrails](developer-process.md) constrain the target. Historical
 confirmation/medical-response restrictions are not reinstated: current chat/plan
-policy remains authoritative. Diagnosis/treatment is still excluded from durable
-memory. Prior assistant prose is continuity, **never** Garmin evidence, policy,
+policy remains authoritative. T0283 explicitly supersedes this contract's former
+cross-chat content-pattern exclusions: user-authored topic words, URLs, paths,
+key-like examples and quoted instructions are admissible untrusted discussion,
+without replacement screening or rewriting. Independent structure/source/no-save
+controls remain; native secrets/tool payloads are not sources. Separate local
+compaction and inactive legacy semantic policies remain unchanged. Prior assistant
+prose is continuity, **never** Garmin evidence, policy,
 user endorsement, or permission for a save/tool action.
 
 Decisions: no daemon, no automatic provider substitution, no embedding prerequisite,
 no unrestricted cross-chat assistant/tool archive, no historical vector deletion,
 no automatic primary migration, no automatic activation. New summary export is
 limited to minimized user-derived context and explicitly resolved referents under
-existing privacy rules; broader sensitive retention/export requires operator scope
+concrete source/privacy rules; broader native/private input access requires operator scope
 approval before implementation or activation. The full target remains gated on
 privacy/serialization/native proof in the owning future slice.
 
@@ -424,8 +429,8 @@ explicit UI scope and separately tested compatibility, not silent widening.
 | Delete Garmin data                                             | Invalidate fresh grounding and all new derivatives conservatively; never rebuild metrics from assistant text                                                                          | Existing Garmin scope only; source transcripts/plan/Profile/legacy records, external tokens/keys remain separate. No widening to unrelated tables                                                                                  |
 | Provider key/model change                                      | Future admission uses new snapshot; no fallback; disclose saved/active difference                                                                                                     | Not deletion of data already exported or provider logs; interrupted active work keeps its admitted snapshot except privacy/disable refusal                                                                                         |
 
-Manual items pass the same secret/medical/raw/location policy as generated items;
-manual edit is not a bypass. Deleting a source invalidates a manual item if it is
+Manual items pass the same structure, Unicode, size and source-authority checks as
+generated items; neither has a content-pattern veto. Deleting a source invalidates a manual item if it is
 bound to that source. Standalone manual items are removed by summary clear/delete
 of the item; if they might encode deleted material and safe independence cannot
 be proven, invalidate rather than resurrect. Off is not Clear. Legacy memory,
@@ -444,13 +449,14 @@ override it.
 
 Global input is at most the eligible latest user text plus a bounded prior-assistant
 referent needed for an explicit selection/correction, reduced to practical concepts
-before any summary-provider request. Do not export raw cross-chat assistant answers,
-tool output/IDs as measurements, raw Garmin/FIT/streams/location, diagnoses/treatment,
-credentials, auth/config paths or secrets. Drop an entire unsafe/ambiguous candidate
-rather than redact a few tokens and assume privacy; if safe minimization cannot be
-established, record filtered/no-memory and do not send it. Same-chat visible assistant
-continuity is the approved direction, not a grant to archive it globally. Current
-chat privacy constraints on normalized bounded Garmin evidence remain unchanged.
+before any summary-provider request. Native credentials/configuration and raw
+Garmin/tool payloads are not summary sources. User-authored discussion mentioning
+those concepts, medical topics, paths or URLs is not excluded or rewritten by
+patterns. Quoted instructions stay untrusted data, never policy or action authority.
+Explicit no-save, missing/ambiguous referents and source restrictions still exclude
+whole inputs with a disposition. Same-chat visible assistant continuity is not an
+unrestricted global archive. Current chat boundaries on normalized Garmin evidence
+remain unchanged.
 
 Exceptional rebuild is separate from routine incrementality: invalidate all old
 text, keep no stale usable pin, and reconstruct only from independently validated
@@ -511,7 +517,7 @@ copies by origin reference and normalized concept, not vector proximity. Choose
 current Profile/manual correction over older preference; do not blend conflict or
 use a recent migration timestamp as user intent. Provenance-less legacy items are
 listed for manual review, excluded from automatic synthesis/export. Expired,
-deleted, unsafe and unendorsed assistant-derived records stay excluded.
+deleted, no-save and unendorsed assistant-derived records stay excluded.
 
 Use immutable `(sourceKind,id,version)` import IDs and durable pending/processed
 manifest, not timestamp cursors. Legacy transcript completeness is uncertain: only
@@ -579,15 +585,15 @@ smoked where applicable, data-compatible and independently delivered first.
 
 ## 7. Review and activation gates
 
-| Decision / risk                                     | Disposition and required proof                                                                                                                            |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Role fidelity versus cache                          | Preserve roles/authority first; serialized request tests before activation; cache unsupported is explicit unknown, not a reason to flatten policy/history |
-| Model IDs, C/O, tokenizer, pricing and remote cache | Source defaults are not live facts. Exact route capability/pricing review and authorized native/provider measurements remain future gates                 |
-| Compaction/global drift                             | Provenance + priority + authored repeated-round scenarios; no self-echo; reject ungrounded candidate refs; semantic quality still needs evaluation        |
-| Deletion and arbitrary manual prose                 | Conservative global/pin invalidation and no-memory fallback; provenance-safe bounded rebuild only; uncertain independence means exclusion                 |
-| Sensitive/export expansion                          | Not approved. Keep minimized existing user-derived boundary; stop for broader cross-chat assistant/tool/medical/private export or a new paid service      |
-| Migration/activation/retirement                     | Additive rehearsal and compatibility fence first; separately approved exact primary target/restart/legacy deletion, not inferred from this design or PR   |
-| Background lifecycle                                | Foreground only, coalesced bounded work and durable source journal; no closed-app freshness guarantee                                                     |
+| Decision / risk                                     | Disposition and required proof                                                                                                                                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Role fidelity versus cache                          | Preserve roles/authority first; serialized request tests before activation; cache unsupported is explicit unknown, not a reason to flatten policy/history                                |
+| Model IDs, C/O, tokenizer, pricing and remote cache | Source defaults are not live facts. Exact route capability/pricing review and authorized native/provider measurements remain future gates                                                |
+| Compaction/global drift                             | Provenance + priority + authored repeated-round scenarios; no self-echo; reject ungrounded candidate refs; semantic quality still needs evaluation                                       |
+| Deletion and arbitrary manual prose                 | Conservative global/pin invalidation and no-memory fallback; provenance-safe bounded rebuild only; uncertain independence means exclusion                                                |
+| Sensitive/export expansion                          | T0283 authorizes removal of cross-chat prose patterns, including medical topics; native/private input access, unrestricted assistant/tool export and new paid services remain unapproved |
+| Migration/activation/retirement                     | Additive rehearsal and compatibility fence first; separately approved exact primary target/restart/legacy deletion, not inferred from this design or PR                                  |
+| Background lifecycle                                | Foreground only, coalesced bounded work and durable source journal; no closed-app freshness guarantee                                                                                    |
 
 Acceptance A–G maps to sections 2, 3, 4, 5, 6 and
 [authored scenarios/evaluation](memory-redesign-acceptance.md). Design review must

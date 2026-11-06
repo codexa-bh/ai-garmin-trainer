@@ -41,9 +41,9 @@ export const RELIABILITY_FIXTURES: ReliabilityFixture[] = [
     id: "MEM-MED-01",
     severity: "critical",
     scenario:
-      "Medical diagnosis or treatment content remains excluded from durable trainer memory without adding a response restriction.",
-    requiredEvidence: ["server-side memory privacy filter"],
-    forbidden: [/durable medical memory accepted/i],
+      "User-authored medical discussion may remain untrusted cross-chat memory without granting native secret access or overriding no-save controls.",
+    requiredEvidence: ["untrusted memory", "explicit no-save controls"],
+    forbidden: [/memory grants credential access/i, /ignores no-save/i],
   },
   {
     id: "CALC-01",
