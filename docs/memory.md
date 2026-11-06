@@ -16,9 +16,10 @@ Native Settings → Memory exposes:
 - **Memory and automatic chat-title model**, default Unselected. Choose an exact
   configured provider/model independently of Trainer chat. Missing/removed entries,
   keys or provider capability remain unavailable, never silently substituted.
-- **Generated summary size (characters)**, default6000 Unicode scalars, integer
-  1000–20000. This bounds **generated text only**. Separately authored preferences
-  do not consume the allowance; no hidden reservation or combined-memory clipping.
+- **Generated summary target (characters)**, default6000 Unicode scalars, integer
+  1000–20000. This guides concise **generated text only**, not a maximum. Complete
+  valid text above the target is saved and used unchanged; lowering the target
+  does not erase it. Separately authored preferences do not count toward the target.
 
 A smaller, cheaper model is usually sufficient. Minimized eligible context may
 leave the device through the selected provider's existing native private-slot owner;
@@ -103,10 +104,9 @@ messages are disclosed; excluded originals are never silently labelled processed
 
 A rebuild starts from **empty temporary generated text**, not the old publication.
 Each successful40-source batch receives the previous complete draft and the next
-eligible prose chunk, then replaces that draft in full. A fully returned draft that
-exceeds the generated cap may undergo ONE explicitly accounted condensation request;
-its complete result must pass the same hard scalar limit. No decoder-forced clipping,
-unknown replay, source shrinking or repeated condensation. Only full completion atomically
+eligible prose chunk, then replaces that draft in full. The generated-size target
+is advisory: one draft request per chunk, with no size-only rejection or additional
+condensation inference. No decoder-forced clipping, unknown replay or source shrinking. Only full completion atomically
 publishes once. Processing counts are application-owned; they do not certify semantic
 representation of every source. Failure/cancel/unknown/stale/config changes cannot
 publish a partial draft or silently spend again. Arrivals after the reviewed boundary
@@ -114,7 +114,7 @@ remain pending. No model item IDs, coverage arrays, keep/remove/upsert/replaces 
 source-fate/citation graph are part of generation.
 
 Useful rationale, constraints, rejected approaches and uncertainty matter more than
-filling the limit. Underfull output is valid; an empty result is not a substitute for
+filling the target. Underfull output is valid; an empty result is not a substitute for
 required meaningful real-history acceptance. Structural/mocked/native evidence is not
 real-provider semantic-quality proof. See [cross-chat summary](cross-chat-summary.md)
 for precise bounds, concurrency and forward-format admission.

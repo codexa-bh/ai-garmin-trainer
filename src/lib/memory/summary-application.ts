@@ -99,15 +99,12 @@ export function createSummaryEngine(ports: {
           if (!ports.generation) throw new Error("summary_missing_key");
           if (!storage.reserve(job, ports.now()))
             throw new Error("summary_budget_unavailable");
-          // Capacity/refusal cannot shrink/retry a source interval. Only a
-          // fully returned size-only rejection permits ONE known-draft rewrite.
+          // Capacity/refusal cannot shrink/retry a source interval. The size
+          // target guides this single draft, never another inference effect.
           const admitted = inputs;
           const prompt = JSON.stringify({
             now: ports.now(),
-            characterCap: job.cap,
-            // Headroom is drafting advice, not a second enforced limit. Real
-            // Luna overshot a6000-scalar cap at6904 without an explicit target.
-            softTargetCharacters: Math.floor(job.cap * 0.6),
+            targetCharacters: job.cap,
             previous: job.previous.text,
             newSources: admitted.map((source) => ({
               user: source.user,
@@ -120,57 +117,23 @@ export function createSummaryEngine(ports: {
               "Generated summary only; manual preferences are composed separately. Return one complete replacement, not an appended fragment.",
           });
           const output = await boundedGeneration(
-            ports.generation.generate(
-              `${SUMMARY_SYSTEM}\nHard limit: ${job.cap} Unicode characters INCLUDING spaces/punctuation for the ENTIRE summary. Aim for about ${Math.floor(job.cap / 12)} words total where the language has word boundaries; this is soft drafting advice, not another hard limit. Finish every sentence and the final thought. Repack redundant detail rather than growing to the character ceiling.`,
-              prompt,
-              signal,
-            ),
+            ports.generation.generate(SUMMARY_SYSTEM, prompt, signal),
             signal,
           );
-          const batch = job;
-          const validate = (
-            result: Awaited<ReturnType<SummaryGeneration["generate"]>>,
-            effect?: "condense",
-          ) => {
-            let rejection: SummaryPatchRejection | undefined;
-            let diagnostic: SummaryValueDiagnostic | undefined;
-            const value = validateSummaryReplacement(
-              result.patch,
-              batch,
-              admitted,
-              (code, detail) => {
-                rejection = code;
-                diagnostic = detail;
-              },
-            );
-            // Each actual request has its own durable admission and counters.
-            // Never persist the private draft or arbitrary provider error.
-            storage.usage(batch, result.usage, rejection, diagnostic, effect);
-            return { value, diagnostic };
-          };
-          const first = validate(output);
-          candidate = first.value;
-          if (!candidate && first.diagnostic?.invariant === "character-cap") {
-            signal.throwIfAborted();
-            if (!ports.current())
-              throw new Error("summary_configuration_changed");
-            if (!storage.reserve(batch, ports.now(), "condense"))
-              throw new Error("summary_budget_unavailable");
-            const condensed = await boundedGeneration(
-              ports.generation.generate(
-                `${SUMMARY_SYSTEM}\nThis request ONLY condenses the supplied fully returned oversized draft. No new sources or facts. Rewrite it MUCH more concisely, aiming for about ${Math.floor(batch.cap / 18)} words where applicable, comfortably below ${batch.cap} Unicode characters INCLUDING spaces. Preserve important meaning, rationale, negation, uncertainty and temporal scope. Finish every word and thought naturally; NEVER fill the ceiling, slice a prefix or emit an unfinished fragment. Return strict JSON with only summary.`,
-                JSON.stringify({
-                  characterCap: batch.cap,
-                  softTargetCharacters: Math.floor(batch.cap * 0.5),
-                  actualCharacters: first.diagnostic.actual,
-                  draft: (output.patch as { summary: string }).summary,
-                }),
-                signal,
-              ),
-              signal,
-            );
-            candidate = validate(condensed, "condense").value;
-          }
+          let rejection: SummaryPatchRejection | undefined;
+          let diagnostic: SummaryValueDiagnostic | undefined;
+          candidate = validateSummaryReplacement(
+            output.patch,
+            job,
+            admitted,
+            (code, detail) => {
+              rejection = code;
+              diagnostic = detail;
+            },
+          );
+          // Account only for the actual request. Never persist the private draft
+          // or arbitrary provider error, or manufacture a secondary effect.
+          storage.usage(job, output.usage, rejection, diagnostic);
         }
         if (!candidate) throw new Error("summary_invalid_output");
         signal.throwIfAborted();

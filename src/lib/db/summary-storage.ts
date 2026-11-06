@@ -9,6 +9,7 @@ import {
 import {
   characters,
   scalarText,
+  summaryCap,
   emptySummary,
   validSummaryValue,
   validSummaryDiagnostic,
@@ -79,6 +80,7 @@ function hash(
     .digest("hex");
 }
 function currentValue(row: State, cap: number): SummaryValue {
+  summaryCap(cap); // Configuration validity is independent of generated text size.
   if (row.format_version !== 2) throw new Error("summary_unknown_version");
   const checkpoint = (
     getDatabase()
@@ -108,7 +110,7 @@ function currentValue(row: State, cap: number): SummaryValue {
     throw new Error("summary_corrupt");
   try {
     const value: unknown = JSON.parse(row.payload);
-    if (validSummaryValue(value, cap)) return value;
+    if (validSummaryValue(value)) return value;
   } catch {
     /* Parsing failures must never echo private stored text in status. */
   }
@@ -252,6 +254,9 @@ function writeValue(value: SummaryValue, now: number): void {
     revision: s.revision + 1,
     payload: JSON.stringify(value),
   };
+  // Match the existing serialized read envelope, independently of the target.
+  if (next.payload.length > 1024 * 1024)
+    throw new Error("summary_input_capacity");
   getDatabase()
     .prepare(
       "update summary_state set revision=?,payload=?,checksum=?,published_at=? where id=1",
@@ -317,8 +322,7 @@ export const summaryStorage: SummaryStorage = {
     getDatabase().transaction(() => {
       assertVersion(expected);
       const value: SummaryValue = { version: 2, text: scalarText(text) };
-      if (!validSummaryValue(value, control().cap))
-        throw new Error("summary_invalid_text");
+      if (!validSummaryValue(value)) throw new Error("summary_invalid_text");
       invalidateManualJobs(now);
       writeValue(value, now);
     })();
@@ -396,6 +400,7 @@ export const summaryStorage: SummaryStorage = {
     );
   },
   configure(enabled, model, cap) {
+    summaryCap(cap);
     const db = getDatabase();
     db.transaction(() => {
       const c = control();
@@ -406,11 +411,8 @@ export const summaryStorage: SummaryStorage = {
         c.cap === cap
       )
         return;
-      // Smaller N cannot silently truncate old text. It requires a fresh bounded revision.
-      if (characters(currentValue(state(), c.cap).text) > cap)
-        db.prepare(
-          "update summary_state set payload=?,checksum='',revision=revision+1,published_at=null where id=1",
-        ).run(EMPTY);
+      // A smaller drafting target preserves the complete valid publication.
+      // Configuration generation still invalidates old in-flight authority.
       db.prepare(
         "update summary_control set enabled=?,configured_enabled=?,model=?,cap=?,generation=generation+1,job_id=null,lease_until=0 where id=1",
       ).run(Number(enabled), Number(enabled), model, cap);
@@ -573,42 +575,12 @@ export const summaryStorage: SummaryStorage = {
       };
     })();
   },
-  reserve(batch, now, effect) {
+  reserve(batch, now) {
     const db = getDatabase();
     return db.transaction(() => {
-      if (!current(batch, now)) return false;
-      if (effect !== undefined && effect !== "condense") return false;
-      const requestId = effect ? `${batch.jobId}:condense` : batch.jobId;
-      if (effect) {
-        const first = db
-          .prepare(
-            "select reserved,outcome,usage_json from summary_attempt where job_id=?",
-          )
-          .get(batch.jobId) as
-          | { reserved: number; outcome: string; usage_json: string | null }
-          | undefined;
-        if (
-          !first ||
-          first.reserved !== 1 ||
-          first.outcome !== "admitted" ||
-          !first.usage_json
-        )
-          return false;
-        const usage = JSON.parse(first.usage_json);
-        if (
-          usage.rejection !== "value" ||
-          usage.diagnostic?.invariant !== "character-cap" ||
-          usage.diagnostic.limit !== batch.cap ||
-          usage.diagnostic.actual <= batch.cap ||
-          db
-            .prepare("select 1 from summary_attempt where job_id=?")
-            .get(requestId)
-        )
-          return false;
-        db.prepare(
-          "insert into summary_attempt(job_id,started_at,outcome,reserved,policy_identity,source_ids_json,upper_event,prior_revision,privacy_generation,control_generation,import_id) select ?,?,'admitted',0,policy_identity,source_ids_json,upper_event,prior_revision,privacy_generation,control_generation,import_id from summary_attempt where job_id=?",
-        ).run(requestId, now, batch.jobId);
-      }
+      // Refuse obsolete callers requesting a secondary effect at runtime too.
+      if (arguments.length !== 2 || !current(batch, now)) return false;
+      const requestId = batch.jobId;
       const attempt = db
         .prepare("select reserved from summary_attempt where job_id=?")
         .get(requestId) as { reserved: number } | undefined;
@@ -645,7 +617,7 @@ export const summaryStorage: SummaryStorage = {
         return true;
       if (
         !current(batch, now) ||
-        !validSummaryValue(candidate.value, batch.cap) ||
+        !validSummaryValue(candidate.value) ||
         candidate.dispositions.length !== batch.sources.length ||
         candidate.dispositions.some(
           (entry, index) =>
@@ -654,10 +626,13 @@ export const summaryStorage: SummaryStorage = {
         )
       )
         return false;
-      // Preferences are independent: generation cannot rewrite them or spend
-      // their text against the generated-summary-only character allowance.
+      // Preferences are independent: generation cannot rewrite them or count
+      // their text toward the generated-summary-only drafting target.
       preferences();
       const value = candidate.value;
+      // Refuse before staging/publication rather than creating unreadable state.
+      if (JSON.stringify(value).length > 1024 * 1024)
+        throw new Error("summary_input_capacity");
       if (batch.rebuild && !stageSummaryRebuild(batch, candidate, now)) {
         db.prepare(
           "update summary_attempt set outcome='staged',finished_at=?,source_ids_json=? where job_id in (?,?) and outcome='admitted'",
@@ -730,7 +705,7 @@ export const summaryStorage: SummaryStorage = {
       return true;
     })();
   },
-  usage(batch, usage, rejection, diagnostic, effect) {
+  usage(batch, usage, rejection, diagnostic) {
     if (
       (diagnostic !== undefined &&
         (rejection !== "value" || !validSummaryDiagnostic(diagnostic))) ||
@@ -752,7 +727,7 @@ export const summaryStorage: SummaryStorage = {
           ...(rejection ? { rejection } : {}),
           ...(diagnostic ? { diagnostic } : {}),
         }),
-        effect ? `${batch.jobId}:condense` : batch.jobId,
+        batch.jobId,
       );
   },
   fail(batch, reason, now, retryDelay) {

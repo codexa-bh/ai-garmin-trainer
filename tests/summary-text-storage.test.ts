@@ -83,7 +83,62 @@ function complete(
   return admitted;
 }
 describe("complete-text real SQLite lifecycle", () => {
-  it("requests generous drafting headroom without creating a second hard generated-text limit", async () => {
+  it("preserves above20000 text, preferences and historical condensation accounting across target lowering and SQLite reopen without migration", () => {
+    const text = "😀".repeat(20001);
+    storage.editSummary(storage.version(), text, now);
+    storage.edit(
+      storage.version(),
+      null,
+      "Independent preference. ".repeat(400),
+      now,
+    );
+    complete();
+    const job = ready("historical");
+    expect(storage.reserve(job, now)).toBe(true);
+    storage.usage(job, { input: 10, output: 20, cached: 0 }, "value", {
+      invariant: "character-cap",
+      actual: 6578,
+      limit: 6000,
+    });
+    storage.fail(job, "summary_invalid_output", now);
+    // Authored legacy observation, never a new provider effect or spend claim.
+    db.prepare(
+      "insert into summary_attempt(job_id,started_at,outcome,reserved,reserved_usd,usage_json,source_ids_json,upper_event,prior_revision,privacy_generation,control_generation) select 'historical:condense',started_at,outcome,1,0.25,usage_json,source_ids_json,upper_event,prior_revision,privacy_generation,control_generation from summary_attempt where job_id='historical'",
+    ).run();
+    const historyBefore = db
+      .prepare("select * from summary_attempt order by job_id")
+      .all();
+    const spendBefore = db.prepare("select * from summary_spend").all();
+    const preferencesBefore = storage.preferences();
+    const revision = storage.version().revision;
+    const schema = db.pragma("user_version");
+    storage.configure(true, "gpt-6-luna", 6000);
+    storage.configure(true, "gpt-6-luna", 1000);
+    expect(storage.version().revision).toBe(revision);
+    expect(storage.inspect().text).toBe(text);
+    expect(storage.status(now)).toMatchObject({ characters: 20001, cap: 1000 });
+    const bytes = db.serialize();
+    db.close();
+    db = new Database(bytes);
+    expect(storage.read().text).toBe(text);
+    expect(storage.preferences()).toEqual(preferencesBefore);
+    expect(
+      db.prepare("select * from summary_attempt order by job_id").all(),
+    ).toEqual(historyBefore);
+    expect(db.prepare("select * from summary_spend").all()).toEqual(
+      spendBefore,
+    );
+    expect(db.pragma("user_version")).toEqual(schema);
+    expect(db.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+    const beforeInvalid = db.serialize();
+    for (const cap of [999, 20001, NaN, 6000.5])
+      expect(() => storage.configure(true, "gpt-6-luna", cap)).toThrow(
+        "summary_invalid_character_limit",
+      );
+    expect(db.serialize()).toEqual(beforeInvalid);
+  });
+  it("requests one advisory target without hidden word/percentage ceilings", async () => {
     storage.configure(true, "gpt-6-luna", 6000);
     complete();
     noteSummaryActivity(now);
@@ -103,13 +158,11 @@ describe("complete-text real SQLite lifecycle", () => {
       generation: {
         generate: async (system, prompt) => {
           const input = JSON.parse(prompt);
-          expect(input.characterCap).toBe(6000);
-          expect(input.softTargetCharacters).toBe(3600);
-          expect(system).toContain("target is advice, not a second hard limit");
-          expect(system).toContain(
-            "Hard limit: 6000 Unicode characters INCLUDING spaces/punctuation",
-          );
-          expect(system).toContain("about 500 words total");
+          expect(input.targetCharacters).toBe(6000);
+          expect(input).not.toHaveProperty("characterCap");
+          expect(input).not.toHaveProperty("softTargetCharacters");
+          expect(system).toContain("advisory guidance");
+          expect(system).not.toMatch(/Hard limit|about 500 words/);
           return {
             patch: { summary: text },
             usage: { input: 1, output: 1, cached: 0 },

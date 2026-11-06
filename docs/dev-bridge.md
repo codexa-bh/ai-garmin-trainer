@@ -89,7 +89,12 @@ Native ordinary/run/boot/origin/request/deadline and unknown-effect guards remai
 
 The keyless runner saves a manual preference and edits/saves the complete generated
 summary independently through fixed `summary-edit` and editor-context `save` actions.
-The same run-bound canonical synthetic drafts are the only permitted input; no caller
+T0285 makes its summary-context `draft-update` one exact6578-scalar authored text,
+above the6000 advisory target; Save/count/owned-restart prove unchanged acceptance.
+Preference drafts stay separate. Exact canonical masks reveal the actual count,
+target-oriented helper and this fixed text, never arbitrary long input. This is
+manual storage/UI evidence, not real-provider inference. The same run-bound
+canonical synthetic drafts are the only permitted input; no caller
 text/selector/API proxy or default-launch capability is added. It checks exact generated
 character count plus canonical DOM and separate-preference retention, captures wide/narrow,
 then edits the preference, observes both through owned restart, removes only the preference,

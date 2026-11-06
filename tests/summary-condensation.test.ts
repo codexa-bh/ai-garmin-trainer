@@ -21,13 +21,12 @@ beforeEach(() => {
   db = new Database(":memory:");
   migrateDatabase(db);
   now = Date.now();
-  storage.configure(true, "gpt-6-luna", 1000);
+  storage.configure(true, "gpt-6-luna", 6000);
   storage.editSummary(storage.version(), "Previous valid publication.", now);
 });
 afterEach(() => db.close());
-const oversized = "A complete authored constraint with its rationale. ".repeat(
-  25,
-);
+// Exact Unicode-scalar regressions of the attributed 6578 / 6399 at6000 failure.
+const authored = (n: number) => "😀".repeat(n - 1) + ".";
 const response = (summary: string) => ({
   patch: { summary },
   usage: { input: 30, output: 20, cached: 0 },
@@ -63,77 +62,46 @@ function attempts() {
     usage_json: string | null;
   }[];
 }
-it("uses one request for already bounded complete text", async () => {
-  source();
-  const generate = vi.fn(async () => response("Complete useful summary."));
-  await engine(generate).tick(new AbortController().signal);
-  expect(generate).toHaveBeenCalledTimes(1);
-  expect(attempts()).toHaveLength(1);
-  expect(storage.inspect().text).toBe("Complete useful summary.");
-});
-it("condenses only a fully known oversize, preserving both distinct effects and the whole draft", async () => {
-  source();
-  const revision = storage.version().revision;
-  let calls = 0;
-  const generate = vi.fn(async (system: string, prompt: string) => {
-    calls++;
-    if (calls === 1) return response(oversized);
-    expect(system).toContain("ONLY condenses");
-    const input = JSON.parse(prompt);
-    expect(input.draft).toBe(oversized);
-    expect(input.actualCharacters).toBe([...oversized].length);
-    expect(input.characterCap).toBe(1000);
-    expect(input).not.toHaveProperty("newSources");
-    expect(storage.inspect().text).toBe("Previous valid publication.");
-    expect(attempts().map((a) => a.reserved)).toEqual([1, 1]);
-    return response(
-      "Short weekdays due to caregiving; morning preference remains tentative.",
-    );
-  });
-  await engine(generate).tick(new AbortController().signal);
-  expect(calls).toBe(2);
-  expect(storage.version().revision).toBe(revision + 1);
-  const records = attempts();
-  expect(records.map((a) => a.job_id)).toEqual(["job", "job:condense"]);
-  expect(records.map((a) => a.outcome)).toEqual(["committed", "committed"]);
-  expect(JSON.parse(records[0].usage_json!)).toMatchObject({
-    input: 30,
-    output: 20,
-    rejection: "value",
-    diagnostic: { invariant: "character-cap", limit: 1000 },
-  });
-  expect(JSON.parse(records[1].usage_json!)).toEqual({
-    input: 30,
-    output: 20,
-    cached: 0,
-  });
-  expect(storage.status(now).attemptsToday).toBe(2);
-  expect(JSON.stringify(records)).not.toContain(oversized);
-});
-it("refuses a second oversize without a third request, keeping old publication", async () => {
-  source();
-  const before = storage.inspect();
-  const generate = vi.fn(async () => response(oversized));
-  await engine(generate).tick(new AbortController().signal);
-  expect(generate).toHaveBeenCalledTimes(2);
-  expect(storage.inspect()).toEqual(before);
-  expect(attempts().map((a) => a.outcome)).toEqual([
-    "summary_invalid_output",
-    "summary_invalid_output",
-  ]);
-  expect(
-    attempts().every(
-      (a) => JSON.parse(a.usage_json!).diagnostic.invariant === "character-cap",
-    ),
-  ).toBe(true);
-});
+it.each([5999, 6000, 6578, 6399, 20001])(
+  "accepts complete %i-scalar first drafts unchanged with one actual request and no secondary accounting",
+  async (n) => {
+    source();
+    const text = authored(n),
+      revision = storage.version().revision;
+    const generate = vi.fn(async (system: string, prompt: string) => {
+      expect(JSON.parse(prompt).targetCharacters).toBe(6000);
+      expect(system).toContain("advisory");
+      expect(system).not.toMatch(
+        /Hard limit|softTargetCharacters|characterCap/,
+      );
+      return response(text);
+    });
+    await engine(generate).tick(new AbortController().signal);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(storage.inspect().text).toBe(text);
+    expect(storage.version().revision).toBe(revision + 1);
+    expect(attempts()).toEqual([
+      {
+        job_id: "job",
+        outcome: "committed",
+        reserved: 1,
+        usage_json: JSON.stringify({ input: 30, output: 20, cached: 0 }),
+      },
+    ]);
+    expect(storage.status(now)).toMatchObject({
+      characters: n,
+      cap: 6000,
+      attemptsToday: 1,
+    });
+  },
+);
 it.each([
-  { summary: oversized, extra: true },
+  { summary: "valid", extra: true },
   { summary: 42 },
   { summary: "\ud800" },
   { summary: null },
   null,
-])("never condenses malformed/non-scalar output %j", async (patch) => {
+])("never repairs malformed/non-scalar output %j", async (patch) => {
   source();
   const generate = vi.fn(async () => ({
     patch,
@@ -142,25 +110,42 @@ it.each([
   await engine(generate).tick(new AbortController().signal);
   expect(generate).toHaveBeenCalledTimes(1);
   expect(attempts()).toHaveLength(1);
+  expect(attempts()[0].outcome).toBe("summary_invalid_output");
   expect(storage.inspect().text).toBe("Previous valid publication.");
 });
-it("does not replay a failed/unknown first effect", async () => {
+it("preserves the prior publication on the independent serialized envelope limit without a second effect", async () => {
+  source();
+  const generate = vi.fn(async () => response("x".repeat(1024 * 1024)));
+  await engine(generate).tick(new AbortController().signal);
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(storage.inspect().text).toBe("Previous valid publication.");
+  expect(storage.status(now).reason).toBe("summary_input_capacity");
+  expect(attempts()).toHaveLength(1);
+  expect(() =>
+    storage.editSummary(storage.version(), "x".repeat(1024 * 1024), now),
+  ).toThrow("summary_input_capacity");
+  expect(storage.inspect().text).toBe("Previous valid publication.");
+});
+it("does not replay a failed/unknown effect", async () => {
   source();
   const generate = vi.fn(async () => {
     throw Error("untrusted provider detail");
   });
-  await engine(generate).tick(new AbortController().signal);
+  const worker = engine(generate);
+  await worker.tick(new AbortController().signal);
+  now += 600000;
+  await worker.tick(new AbortController().signal);
   expect(generate).toHaveBeenCalledTimes(1);
   expect(attempts()[0].usage_json).toBeNull();
   expect(storage.status(now).unpricedAttempts).toBe(1);
   expect(storage.inspect().text).toBe("Previous valid publication.");
 });
 it.each(["abort", "configuration", "manual", "source", "lease"])(
-  "does not dispatch condensation after %s revocation",
+  "does not publish or dispatch again after %s revocation",
   async (mode) => {
     source();
-    const priorRevision = storage.version().revision;
-    const signal = new AbortController();
+    const priorRevision = storage.version().revision,
+      signal = new AbortController();
     let current = true;
     const generate = vi.fn(async () => {
       if (mode === "abort") signal.abort();
@@ -177,7 +162,7 @@ it.each(["abort", "configuration", "manual", "source", "lease"])(
           "delete from message where conversation_id='authored' and role='user'",
         ).run();
       if (mode === "lease") now += 31000;
-      return response(oversized);
+      return response(authored(6578));
     });
     await engine(generate, () => current).tick(signal.signal);
     expect(generate).toHaveBeenCalledTimes(1);
@@ -190,56 +175,54 @@ it.each(["abort", "configuration", "manual", "source", "lease"])(
     );
   },
 );
-it("preserves unknown condensation after cancel and rejects its late result", async () => {
+it("preserves unknown effect accounting after cancel and rejects its late result", async () => {
   source();
-  const before = storage.inspect();
-  const signal = new AbortController();
-  let release!: (v: ReturnType<typeof response>) => void;
-  let entered!: () => void;
-  const enteredSecond = new Promise<void>((resolve) => (entered = resolve));
-  let calls = 0;
+  const before = storage.inspect(),
+    signal = new AbortController();
+  let release!: (v: ReturnType<typeof response>) => void, entered!: () => void;
+  const started = new Promise<void>((resolve) => (entered = resolve));
   const generate = vi.fn(async () => {
-    if (++calls === 1) return response(oversized);
     entered();
     return new Promise<ReturnType<typeof response>>(
       (resolve) => (release = resolve),
     );
   });
   const running = engine(generate).tick(signal.signal);
-  await enteredSecond;
-  expect(attempts()).toHaveLength(2);
+  await started;
   signal.abort();
   await running;
-  release(response("Late result must not publish."));
+  release(response(authored(6578)));
   await Promise.resolve();
   expect(storage.inspect()).toEqual(before);
-  expect(attempts().map((a) => a.outcome)).toEqual([
-    "summary_interrupted",
-    "summary_interrupted",
-  ]);
-  expect(attempts()[1].usage_json).toBeNull();
+  expect(attempts()).toHaveLength(1);
+  expect(attempts()[0]).toMatchObject({
+    outcome: "summary_interrupted",
+    usage_json: null,
+  });
   expect(storage.status(now).unpricedAttempts).toBe(1);
-  expect(calls).toBe(2);
 });
-it("cannot reserve a condensation before a known size rejection or repeat its reservation", () => {
+it("refuses obsolete live secondary reservation even with historical size-only rejection data", () => {
   source();
   const job = storage.admit(now, "job")!;
-  expect(storage.reserve(job, now, "condense")).toBe(false);
   expect(storage.reserve(job, now)).toBe(true);
-  expect(storage.reserve(job, now, "condense")).toBe(false);
   storage.usage(job, { input: 1, output: 1, cached: 0 }, "value", {
     invariant: "character-cap",
-    actual: 1200,
-    limit: 1000,
+    actual: 6578,
+    limit: 6000,
   });
-  expect(storage.reserve(job, now, "condense")).toBe(true);
-  expect(storage.reserve(job, now, "condense")).toBe(false);
-  expect(attempts()).toHaveLength(2);
+  // Emulate an obsolete JS caller, outside the new two-argument TS port.
+  expect(Reflect.apply(storage.reserve, storage, [job, now, "condense"])).toBe(
+    false,
+  );
+  expect(storage.reserve(job, now)).toBe(false);
+  expect(attempts()).toHaveLength(1);
+  expect(JSON.parse(attempts()[0].usage_json!).diagnostic.invariant).toBe(
+    "character-cap",
+  );
 });
-it("serializes concurrent engines while the first effect is pending", async () => {
+it("serializes concurrent engines while the single effect is pending", async () => {
   source();
-  let release!: (v: ReturnType<typeof response>) => void;
-  let entered!: () => void;
+  let release!: (v: ReturnType<typeof response>) => void, entered!: () => void;
   const started = new Promise<void>((resolve) => (entered = resolve));
   const generate = vi.fn(async () => {
     entered();
@@ -251,36 +234,35 @@ it("serializes concurrent engines while the first effect is pending", async () =
   await started;
   await engine(generate).tick(new AbortController().signal);
   expect(generate).toHaveBeenCalledTimes(1);
-  release(response("Complete summary."));
+  release(response(authored(6399)));
   await first;
   expect(attempts()).toHaveLength(1);
 });
-it("stages every40-source chunk only after condensation and publishes once for the entire81-source pool", async () => {
+it("carries whole6578/6399 drafts through all184 sources and atomically publishes once with five effects", async () => {
   db.prepare(
     "insert into conversation(id,title,created_at,updated_at) values('originals','Authored',1,1)",
   ).run();
-  for (let n = 0; n < 81; n++)
+  for (let n = 0; n < 184; n++)
     db.prepare(
       "insert into message(id,conversation_id,role,content,created_at) values(?,'originals','user',?,?)",
     ).run(`u${n}`, `Authored durable fact ${n}`, 1700000000000 + n);
   const inventory = summaryRebuildInventory("boot");
   startSummaryRebuild("whole", inventory.snapshot, "boot", now);
-  const revision = storage.version().revision;
-  let effects = 0,
-    batches = 0;
+  const revision = storage.version().revision,
+    texts = [
+      authored(6578),
+      authored(6399),
+      authored(20001),
+      authored(6578),
+      authored(6399),
+    ];
+  let batches = 0;
   const generate = vi.fn(async (_system: string, prompt: string) => {
-    effects++;
-    if (effects % 2) {
-      const input = JSON.parse(prompt);
-      expect(input.newSources).toHaveLength(batches < 2 ? 40 : 1);
-      expect(input.previous).toBe(
-        batches ? `Complete revised draft ${batches}.` : "",
-      );
-      return response(oversized);
-    }
-    expect(summaryRebuildStatus()?.processed).toBe(batches * 40);
+    const input = JSON.parse(prompt);
+    expect(input.newSources).toHaveLength(batches < 4 ? 40 : 24);
+    expect(input.previous).toBe(batches ? texts[batches - 1] : "");
     expect(storage.version().revision).toBe(revision);
-    return response(`Complete revised draft ${++batches}.`);
+    return response(texts[batches++]);
   });
   const worker = createSummaryEngine({
     storage,
@@ -290,29 +272,31 @@ it("stages every40-source chunk only after condensation and publishes once for t
     current: () => true,
     jitter: () => 0,
   });
-  for (let n = 0; n < 3; n++) {
+  for (let n = 0; n < 5; n++) {
     noteSummaryActivity(now);
     now += 3000;
     await worker.tick(new AbortController().signal);
+    expect(summaryRebuildStatus()?.processed).toBe(Math.min((n + 1) * 40, 184));
+    if (n < 4)
+      expect(storage.inspect().text).toBe("Previous valid publication.");
   }
-  expect(effects).toBe(6);
+  expect(generate).toHaveBeenCalledTimes(5);
   expect(summaryRebuildStatus()).toMatchObject({
     state: "complete",
-    processed: 81,
-    total: 81,
-    dispositions: { processed: 81 },
+    processed: 184,
+    total: 184,
+    dispositions: { processed: 184 },
   });
   expect(storage.version().revision).toBe(revision + 1);
-  expect(storage.inspect().text).toBe("Complete revised draft 3.");
+  expect(storage.inspect().text).toBe(texts[4]);
   expect(attempts().map((a) => a.outcome)).toEqual([
     "staged",
     "staged",
     "staged",
     "staged",
     "committed",
-    "committed",
   ]);
   expect(
     db.prepare("select count(*) n from message where role='user'").get(),
-  ).toEqual({ n: 81 });
+  ).toEqual({ n: 184 });
 });

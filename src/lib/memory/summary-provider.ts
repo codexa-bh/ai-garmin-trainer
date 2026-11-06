@@ -26,9 +26,8 @@ export function createSummaryGeneration(
       : configuration;
   const selected = summaryConfiguration(env);
   if (!selected) throw new Error("summary_model_unselected");
-  // Validate configuration, but never force decoder termination at the cap:
-  // real output then ended mid-word. The application validates complete text
-  // and may make one explicitly accounted known-oversize condensation.
+  // Validate the configured drafting target independently of output validity.
+  // Never force decoder termination or buy another inference to meet it.
   summaryCap(cap ?? Number(env.SUMMARY_CHAR_LIMIT));
   const guardedFetch: typeof fetch = async (url, init) => {
     if (!current() || init?.signal?.aborted)

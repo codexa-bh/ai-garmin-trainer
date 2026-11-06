@@ -61,12 +61,12 @@ describe("closed complete-text policy and independent input/privacy boundaries",
     expect(characters("A😀é")).toBe(4);
     expect(scalarText("a\r\nb")).toBe("a\nb");
     expect(() => characters("\ud800")).toThrow("summary_invalid_unicode");
-    expect(
-      validSummaryValue({ version: 2, text: "😀".repeat(1000) }, 1000),
-    ).toBe(true);
-    expect(
-      validSummaryValue({ version: 2, text: "😀".repeat(1001) }, 1000),
-    ).toBe(false);
+    expect(validSummaryValue({ version: 2, text: "😀".repeat(1000) })).toBe(
+      true,
+    );
+    expect(validSummaryValue({ version: 2, text: "😀".repeat(1001) })).toBe(
+      true,
+    );
   });
   it("does not export ineligible/no-save/empty sources or fresh assistant answers", () => {
     expect(
@@ -146,7 +146,7 @@ describe("closed complete-text policy and independent input/privacy boundaries",
     );
     expect(SUMMARY_SYSTEM).toContain("their reasons");
   });
-  it("rejects extra/malformed/non-scalar/oversize outputs with only closed diagnostics and no repair", () => {
+  it("rejects extra/malformed/non-scalar outputs with only closed diagnostics and no repair", () => {
     for (const raw of [
       null,
       [],
@@ -169,14 +169,9 @@ describe("closed complete-text policy and independent input/privacy boundaries",
         batch,
         [],
         (code, detail) => details.push({ code, detail }),
-      ),
-    ).toBeNull();
-    expect(details).toEqual([
-      {
-        code: "value",
-        detail: { invariant: "character-cap", actual: 1001, limit: 1000 },
-      },
-    ]);
+      )?.value.text,
+    ).toBe("x".repeat(1001));
+    expect(details).toEqual([]);
     expect(
       validateSummaryReplacement({ summary: "broken\ud800" }, batch, []),
     ).toBeNull();

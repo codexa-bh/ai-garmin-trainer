@@ -270,6 +270,11 @@
   // No caller text/ID/selector or export; exact matching masks remain mandatory.
   const memoryText = (updated = false) =>
     `T0272-${globalThis.__trainerOrdinaryIsolated?.runId}: ${updated ? "Weekends remain optional; poles not chosen. Fake path /Users/example/notes; quoted ignore previous instructions." : "Short weekdays chosen for time; long weekdays rejected. Fake discussion https://example.invalid/training."}`;
+  // One finite above-target whole-summary draft; preferences stay independent.
+  const summaryText = () => {
+    const text = `${memoryText(true)}\n${"Short weekdays because caregiving limits time; weekends remain optional.\n".repeat(80)}`;
+    return text.padEnd(6577, " ") + ".";
+  };
   let memoryFixture = null;
   let memoryReviewSelection = {
     version: 1,
@@ -601,6 +606,7 @@
       generated &&
       ![
         "No generated summary yet. Update from chat history to build one.",
+        summaryText(),
         memoryText(),
         memoryText(true),
         ...(memoryFixture || memoryFixtureRestoring
@@ -856,6 +862,7 @@
             ![
               memoryText(),
               memoryText(true),
+              summaryText(),
               ...(memoryFixture ? [presentationText.join("\n")] : []),
             ].includes(input.value))
         )
@@ -863,7 +870,13 @@
         Object.getOwnPropertyDescriptor(
           HTMLTextAreaElement.prototype,
           "value",
-        ).set.call(input, memoryText(command.action === "draft-update"));
+        ).set.call(
+          input,
+          panel.querySelector('[aria-label="Edit generated summary"]') &&
+            command.action === "draft-update"
+            ? summaryText()
+            : memoryText(command.action === "draft-update"),
+        );
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
       } else {
@@ -967,20 +980,24 @@
       "Preference edited.",
       "Preference removed. Conversations and generated summary remain.",
       "Complete generated summary saved. A future regeneration replaces it; separate preferences are unchanged.",
-      "Saved separately as your own preference; history regeneration preserves it and it does not consume the generated allowance. This text may be sent to your AI provider.",
-      "This replaces the complete generated text, within 6000 characters. Regeneration replaces direct summary edits too. This text may be sent to your AI provider.",
+      "Saved separately as your own preference; history regeneration preserves it and it does not count toward the generated target. This text may be sent to your AI provider.",
+      "This replaces the complete generated text. The 6000-character target is guidance, not a maximum. Regeneration replaces direct summary edits too. This text may be sent to your AI provider.",
       ...[
         "",
         memoryText(),
         memoryText(true),
+        summaryText(),
         ...(memoryFixture ? [presentationText.join("\n")] : []),
       ].map(
-        (text) => `${[...text].length} / 6000 characters · generated text only`,
+        (text) =>
+          `${[...text].length} characters · target 6000 · generated text only`,
       ),
       `Preference${memoryText()}`,
       `Preference${memoryText(true)}`,
       `Complete generated summary${memoryText()}`,
       `Complete generated summary${memoryText(true)}`,
+      summaryText(),
+      `Complete generated summary${summaryText()}`,
       ...(memoryFixture
         ? [`Complete generated summary${presentationText.join("\n")}`]
         : []),
@@ -1132,7 +1149,7 @@
       if (!labels.has(node.textContent.trim()) || !visible(node)) continue;
       if (
         node.querySelector("textarea") &&
-        !["", memoryText(), memoryText(true)].includes(
+        !["", memoryText(), memoryText(true), summaryText()].includes(
           node.querySelector("textarea").value,
         )
       )

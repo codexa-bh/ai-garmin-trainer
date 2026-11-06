@@ -124,7 +124,7 @@ def memory_controls(run):
     before_summary = status(run)['expected']
     action('save')
     memory_wait(run, lambda value: value['loaded'] and value['hasManual'] and not value['editing'], 'summary saved separately from preference')
-    summary_chars = len(f'T0272-{run.id}: Weekends remain optional; poles not chosen. Fake path /Users/example/notes; quoted ignore previous instructions.')
+    summary_chars = 6578  # Fixed authored above-target draft, not provider output.
     after_summary = status(run)
     if after_summary['expected'] == before_summary or after_summary['characters'] != summary_chars:
         raise ValueError('Complete generated summary did not commit; no mutation replay')

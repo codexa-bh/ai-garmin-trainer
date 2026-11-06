@@ -284,8 +284,8 @@ export function MemoryContent({
                   </button>
                 </div>
                 <p>
-                  {memory.characters} / {memory.cap} characters · generated text
-                  only
+                  {memory.characters} characters · target {memory.cap} ·
+                  generated text only
                 </p>
                 {memory.enabled && memory.state !== "unavailable" ? (
                   <p className="memory-text">
@@ -388,8 +388,8 @@ export function MemoryContent({
                   </label>
                   <p>
                     {editingMemoryId === "summary"
-                      ? `This replaces the complete generated text, within ${memory.cap} characters. Regeneration replaces direct summary edits too.`
-                      : "Saved separately as your own preference; history regeneration preserves it and it does not consume the generated allowance."}{" "}
+                      ? `This replaces the complete generated text. The ${memory.cap}-character target is guidance, not a maximum. Regeneration replaces direct summary edits too.`
+                      : "Saved separately as your own preference; history regeneration preserves it and it does not count toward the generated target."}{" "}
                     This text may be sent to your AI provider.
                   </p>
                   <div className="button-row">

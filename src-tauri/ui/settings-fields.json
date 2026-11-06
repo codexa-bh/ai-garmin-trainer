@@ -70,7 +70,7 @@
   },
   {
     "key": "SUMMARY_CHAR_LIMIT",
-    "label": "Generated summary size (characters)",
+    "label": "Generated summary target (characters)",
     "type": "number",
     "default": "6000"
   },

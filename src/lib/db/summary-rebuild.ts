@@ -513,7 +513,7 @@ function checked(row: Operation): {
     !Array.isArray(dispositions) ||
     dispositions.length !== row.position ||
     dispositions.some((d, i) => d.sourceId !== selected[i].sourceId) ||
-    !validSummaryValue(candidate, a.cap)
+    !validSummaryValue(candidate)
   )
     throw new Error("summary_rebuild_unavailable");
   return { selected, candidate, dispositions };

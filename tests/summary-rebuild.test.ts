@@ -280,7 +280,7 @@ describe("growing authored184-source multi-chat repair", () => {
       "Use gradual practice that fits the current schedule because abrupt long sessions previously failed to fit family life. This is a practical planning lesson, not a universal performance rule or permission to save new plans without direction.",
     ],
   ];
-  it("reproduces staged40 then bounded-condensation rejection and completes a new reviewed repacked184-source operation atomically", async () => {
+  it("preserves publication after staged40 then genuine shape failure and completes a separately reviewed184-source operation atomically", async () => {
     oldMemory();
     storage.edit(storage.version(), null, "Keep coaching concise.", now);
     for (let n = 0; n < 184; n++)
@@ -301,24 +301,15 @@ describe("growing authored184-source multi-chat repair", () => {
     const generate = vi.fn(async (_system: string, prompt: string) => {
       const input = JSON.parse(prompt) as {
         previous: string;
-        characterCap: number;
+        targetCharacters: number;
         newSources: { user: string }[];
-        draft?: string;
       };
-      expect(input.characterCap).toBe(6000);
-      if (input.draft !== undefined) {
-        expect(input.draft).toBe("x".repeat(6001));
-        calls++;
-        return {
-          patch: { summary: input.draft },
-          usage: { input: 200, output: 200, cached: 0 },
-        };
-      }
+      expect(input.targetCharacters).toBe(6000);
       expect(typeof input.previous).toBe("string");
       expect(JSON.stringify(input)).not.toMatch(
         /requiredCoverageSourceIds|replaces|sourceIds/,
       );
-      // Deliberately exercise complete-output overflow, then a distinct reviewed compact replacement.
+      // A genuine independent shape failure must still refuse after staging.
       const summary = repack
         ? meanings.map(([, , text]) => text).join("\n")
         : calls === 0
@@ -326,7 +317,7 @@ describe("growing authored184-source multi-chat repair", () => {
           : "x".repeat(6001);
       calls++;
       return {
-        patch: { summary },
+        patch: !repack && calls > 1 ? { summary, extra: true } : { summary },
         usage: { input: 200, output: 200, cached: 0 },
       };
     });
@@ -367,12 +358,11 @@ describe("growing authored184-source multi-chat repair", () => {
       )
       .get() as { usage_json: string };
     expect(JSON.parse(usage.usage_json)).toMatchObject({
-      rejection: "value",
-      diagnostic: { invariant: "character-cap", limit: 6000 },
+      rejection: "shape",
     });
     now += 3000;
     await engine.tick(new AbortController().signal);
-    expect(generate).toHaveBeenCalledTimes(3);
+    expect(generate).toHaveBeenCalledTimes(2);
     // New explicit review/identity, never replay or blind retry of failed work.
     repack = true;
     beginRich("growing-repacked");
@@ -392,7 +382,7 @@ describe("growing authored184-source multi-chat repair", () => {
     expect(
       db.prepare("select id,content from message order by id").all(),
     ).toEqual(originals);
-    expect(generate).toHaveBeenCalledTimes(8);
+    expect(generate).toHaveBeenCalledTimes(7);
     expect([...storage.inspect().text].length).toBeLessThanOrEqual(6000);
     expect(status()?.dispositions).toEqual({ processed: 184 });
     const next = history.admit("after-rich184", "What remains unresolved?");
@@ -948,10 +938,8 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     });
     await engine.tick(new AbortController().signal);
     expect(generate).toHaveBeenCalledTimes(1);
-    const cap = JSON.parse(generate.mock.calls[0][1]).characterCap;
-    expect(generate.mock.calls[0][0]).toBe(
-      `${SUMMARY_SYSTEM}\nHard limit: ${cap} Unicode characters INCLUDING spaces/punctuation for the ENTIRE summary. Aim for about ${Math.floor(cap / 12)} words total where the language has word boundaries; this is soft drafting advice, not another hard limit. Finish every sentence and the final thought. Repack redundant detail rather than growing to the character ceiling.`,
-    );
+    expect(JSON.parse(generate.mock.calls[0][1]).targetCharacters).toBe(6000);
+    expect(generate.mock.calls[0][0]).toBe(SUMMARY_SYSTEM);
     expect(SUMMARY_SYSTEM).toContain("FUTURE COACHING");
     expect(SUMMARY_SYSTEM).toContain("One incident is not a universal rule");
     expect(SUMMARY_SYSTEM).toContain("Latest explicit corrections");
