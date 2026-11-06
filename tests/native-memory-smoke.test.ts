@@ -554,6 +554,15 @@ it("exercises only supplied Densify presentation through the actual hook, refuse
     await command({ type: "memory", action: "densify-discard" });
   });
   await screen.findByText(/Candidate discarded/);
+  await act(async () => {
+    expect(
+      (await command({ type: "memory", action: "fixture-populated" })).ok,
+    ).toBe(true);
+  });
+  expect((await command({ type: "memory", action: "observe" })).loaded).toBe(
+    true,
+  );
+  expect(screen.queryByText(/13250 characters/)).toBeNull();
   expect(fetcher).not.toHaveBeenCalled();
 });
 

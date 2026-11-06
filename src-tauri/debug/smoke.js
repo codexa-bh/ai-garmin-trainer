@@ -685,25 +685,29 @@
       )
     )
       throw Error("Noncanonical Memory source refused");
-    const generated = panel?.querySelector(
-      '[aria-label="Generated summary"] .memory-text',
-    );
+    const generatedRows = [
+      ...(panel?.querySelectorAll(
+        '[aria-label="Generated summary"] .memory-text',
+      ) ?? []),
+    ];
+    const generated = generatedRows.at(-1);
     if (
-      generated &&
-      ![
-        "No generated summary yet. Update from chat history to build one.",
-        summaryText(),
-        memoryText(),
-        memoryText(true),
-        ...(memoryFixture || memoryFixtureRestoring
-          ? [
-              presentationText.join("\n"),
-              ...(memoryFixture?.startsWith("fixture-densify-")
-                ? [densifyText(13250), densifyText(7000)]
-                : []),
-            ]
-          : []),
-      ].includes(generated.textContent)
+      generatedRows.some(
+        (row) =>
+          ![
+            "No generated summary yet. Update from chat history to build one.",
+            summaryText(),
+            memoryText(),
+            memoryText(true),
+            ...(memoryFixture || memoryFixtureRestoring
+              ? [
+                  presentationText.join("\n"),
+                  densifyText(13250),
+                  densifyText(7000),
+                ]
+              : []),
+          ].includes(row.textContent),
+      )
     )
       throw Error("Noncanonical generated summary refused");
     const buttons = [...(panel?.querySelectorAll("button") ?? [])];
@@ -750,6 +754,13 @@
       loaded:
         panel?.getAttribute("data-memory-ready") === "true" &&
         !memoryFixtureRestoring &&
+        (!memoryFixture ||
+          memoryFixture === "fixture-off" ||
+          !!panel?.querySelector(".memory-confirm, .memory-editor") ||
+          panel?.getAttribute("data-memory-view") !== "overview" ||
+          generated?.textContent ===
+            (memoryFixtureValue().stored.text ||
+              "No generated summary yet. Update from chat history to build one.")) &&
         // This finite native recipe has retained chats. Wait for their startup
         // selection inspection before opening a snapshot-bound confirmation.
         // Global content itself remains usable while that passive read settles.
