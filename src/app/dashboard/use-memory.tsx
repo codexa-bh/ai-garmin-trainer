@@ -14,6 +14,7 @@ import type {
 } from "@/lib/memory/summary-controls";
 import { parseRebuildSelection } from "@/lib/memory/summary-controls";
 import type { SummaryPin } from "@/lib/chat/summary-pin";
+import type { DensifyReview } from "@/lib/memory/summary-densify";
 import { readJsonResponse } from "./transport";
 
 export type SummaryInspection = Omit<SummaryStatus, "usedByChat"> & {
@@ -40,6 +41,7 @@ export type SummaryInspection = Omit<SummaryStatus, "usedByChat"> & {
     exclusions: string;
   };
   rebuild?: SummaryRebuildInspection;
+  densify?: { available: boolean; review: DensifyReview | null };
   selectedChat: {
     conversationId: string;
     segmentRevision: number;
@@ -97,6 +99,11 @@ export function useMemoryFeature({
   const [pendingMemoryAction, setPendingMemoryAction] = useState<
     MemoryAction["action"] | null
   >(null);
+  const [densifyReview, setDensifyReview] = useState<DensifyReview | null>(
+    null,
+  );
+  const densifyPending = useRef(false);
+  const densifySequence = useRef(0);
   const currentInspection = useRef<SummaryInspection | null>(null);
   const editorOriginal = useRef("");
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
@@ -191,6 +198,7 @@ export function useMemoryFeature({
           currentInspection.current = result;
           setMemory(result);
         }
+        if (result.densify?.review) setDensifyReview(result.densify.review);
         setIsMemoryReadUnavailable(false);
         setMemoryMessage("");
         if (showStatus)
@@ -284,6 +292,13 @@ export function useMemoryFeature({
     if (action.action === "rebuild-review")
       return reviewHistory(action.selection);
     if (
+      action.action === "densify-request" ||
+      action.action === "densify-accept" ||
+      action.action === "densify-discard" ||
+      action.action === "densify-cancel"
+    )
+      return densifyMemory(action.action, action.id);
+    if (
       reviewed &&
       (reviewed !== currentInspection.current || reviewed !== memory)
     ) {
@@ -332,6 +347,8 @@ export function useMemoryFeature({
     )
       return;
     sequence.current++;
+    densifySequence.current++;
+    setDensifyReview(null);
     changing.current = true;
     currentInspection.current = null;
     setPendingMemoryAction(action.action);
@@ -358,7 +375,7 @@ export function useMemoryFeature({
       await onChangeCommitted?.(selected.current);
       changing.current = false;
       await loadMemories(false);
-      const feedback: Record<MemoryAction["action"], string> = {
+      const feedback: Partial<Record<MemoryAction["action"], string>> = {
         "edit-summary":
           "Complete generated summary saved. A future regeneration replaces it; separate preferences are unchanged.",
         edit:
@@ -390,7 +407,7 @@ export function useMemoryFeature({
       };
       setMemoryMessage(
         currentInspection.current
-          ? feedback[action.action]
+          ? (feedback[action.action] ?? "Memory change checked.")
           : "Change committed, but saved state could not be inspected. Check again before another action.",
       );
     } catch {
@@ -405,6 +422,73 @@ export function useMemoryFeature({
       changing.current = false;
       setIsMemoryLoading(false);
       setPendingMemoryAction(null);
+    }
+  }
+  async function densifyMemory(
+    action:
+      | "densify-request"
+      | "densify-accept"
+      | "densify-discard"
+      | "densify-cancel",
+    existingId?: string,
+  ) {
+    const before = currentInspection.current;
+    if (!before || isMemoryReadUnavailable || changing.current) return;
+    if (
+      action === "densify-request" &&
+      (densifyPending.current || editingMemoryId || !before.densify?.available)
+    )
+      return;
+    if (
+      action === "densify-accept" &&
+      (editingMemoryId || !densifyReview?.shorter)
+    )
+      return;
+    const id = existingId ?? crypto.randomUUID();
+    const request = ++densifySequence.current;
+    if (action === "densify-request") {
+      densifyPending.current = true;
+      setDensifyReview({
+        id,
+        state: "running",
+        text: null,
+        before: before.characters,
+        after: null,
+        target: before.cap,
+        shorter: false,
+      });
+      setMemoryMessage("");
+    }
+    try {
+      const result = await readJsonResponse<{ densify: DensifyReview }>(
+        await fetch("/api/cross-chat-summary", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            version: 2,
+            expected: before.expected,
+            action,
+            id,
+          }),
+        }),
+      );
+      if (!mounted.current || request !== densifySequence.current) return;
+      setDensifyReview(result.densify);
+      if (action === "densify-accept") {
+        await loadMemories(false);
+        setMemoryMessage(
+          "Shorter generated summary saved. Separate preferences and existing chat snapshots are unchanged.",
+        );
+      }
+    } catch {
+      if (request !== densifySequence.current) return;
+      setDensifyReview(null);
+      setMemoryMessage(
+        "Densify failed or its outcome is unknown. Refresh to inspect; no request is automatically repeated and previous costs remain.",
+      );
+      setIsMemoryReadUnavailable(true);
+    } finally {
+      if (action === "densify-request") densifyPending.current = false;
     }
   }
   function beginMemoryEdit(id: string, text: string) {
@@ -425,6 +509,8 @@ export function useMemoryFeature({
   }
   return {
     memory,
+    densifyReview,
+    densifyMemory,
     memoryMessage,
     isMemoryLoading,
     isMemoryReadUnavailable,

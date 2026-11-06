@@ -15,6 +15,7 @@ import {
   changeCrossChatSummary,
   catchUpCrossChatSummary,
   prepareSummaryAdoption,
+  executeSummaryCommand,
 } from "@/lib/memory/summary-composition";
 import {
   stopSummaryLifetime,
@@ -85,6 +86,88 @@ function valid(_system: string, prompt: string) {
   };
 }
 describe("actual production summary composition and foreground cancellation", () => {
+  it("keeps GET and routine overshoot passive, uses captured provider once and preserves usable content until explicit acceptance", async () => {
+    await tickCrossChatSummary(boot);
+    summaryStorage.editSummary(
+      summaryStorage.version(),
+      "Current qualified saved text. ".repeat(450),
+      Date.now(),
+    );
+    const before = summaryStorage.version();
+    for (let n = 0; n < 3; n++) {
+      readCrossChatSummary(true);
+      await tickCrossChatSummary(boot);
+    }
+    expect(f.generate).not.toHaveBeenCalled();
+    f.generate.mockResolvedValue({
+      patch: { summary: "Shorter qualified text." },
+      usage: { input: 20, output: 10, cached: 0 },
+    });
+    const result = await executeSummaryCommand({
+      version: 2,
+      expected: before,
+      action: "densify-request",
+      id: "explicit",
+    });
+    expect(result).toMatchObject({
+      densify: { state: "review", shorter: true },
+    });
+    expect(f.keys).toContain("synthetic-one");
+    expect(f.generate).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(f.generate.mock.calls[0][1])).toEqual({
+      summary: "Current qualified saved text. ".repeat(450),
+      targetCharacters: 6000,
+    });
+    expect(summaryStorage.version()).toEqual(before);
+    expect(readCrossChatSummary(true)).toMatchObject({
+      densify: { review: { state: "review" } },
+    });
+    await executeSummaryCommand({
+      version: 2,
+      expected: before,
+      action: "densify-accept",
+      id: "explicit",
+    });
+    expect(summaryStorage.read().text).toBe("Shorter qualified text.");
+    expect(summaryStorage.version()).toEqual({
+      ...before,
+      revision: before.revision + 1,
+    });
+    expect(f.generate).toHaveBeenCalledTimes(1);
+  });
+  it("shares native cancellation and writer exclusion without poisoning routine work", async () => {
+    await tickCrossChatSummary(boot);
+    summaryStorage.editSummary(
+      summaryStorage.version(),
+      "Saved qualified text",
+      Date.now(),
+    );
+    f.generate.mockImplementation(() => new Promise(() => {}));
+    const expected = summaryStorage.version();
+    const pending = executeSummaryCommand({
+      version: 2,
+      expected,
+      action: "densify-request",
+      id: "native-cancel",
+    });
+    await expect(
+      executeSummaryCommand({
+        version: 2,
+        expected,
+        action: "densify-request",
+        id: "different",
+      }),
+    ).rejects.toThrow();
+    expect(summaryLifetime().running).toBe(true);
+    stopSummaryLifetime();
+    await pending;
+    expect(readCrossChatSummary(true)).toMatchObject({
+      densify: { review: { state: "cancelled", text: null } },
+    });
+    expect(summaryStorage.read().text).toBe("Saved qualified text");
+    expect(summaryStorage.status(Date.now()).reason).toBeNull();
+    expect(summaryLifetime().running).toBe(false);
+  });
   it("omits unused archive/import excerpts from ordinary content without changing preserved legacy bytes", () => {
     db.exec(`insert into trainer_memory(id,category,value,status,source_type,provenance_text,created_at,updated_at)
       values('legacy','preference','Authored preserved legacy fact','confirmed','user','Authored original',1,1);

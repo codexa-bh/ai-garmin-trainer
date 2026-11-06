@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  applySummaryCommand,
-  prepareSummaryAdoption,
+  executeSummaryCommand,
   nativeSummaryStatus,
   readCrossChatSummary,
   tickCrossChatSummary,
@@ -50,7 +49,11 @@ export async function POST(request: Request) {
           { error: "Unsupported summary control." },
           { status: 400 },
         );
-      const review = applySummaryCommand(await prepareSummaryAdoption(command));
+      const review = await executeSummaryCommand(command);
+      if (command.action.startsWith("densify-"))
+        return NextResponse.json(review, {
+          headers: { "cache-control": "no-store" },
+        });
       if (command.action === "rebuild-review")
         return NextResponse.json(
           { rebuild: review },

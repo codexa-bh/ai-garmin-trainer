@@ -626,6 +626,7 @@ body::before {
 
 .health-daily-browser {
   justify-content: space-between;
+  margin-bottom: 16px;
 }
 
 .health-daily-browser h2 {

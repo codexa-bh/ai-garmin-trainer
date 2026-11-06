@@ -796,6 +796,48 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(newerMonthly.hasAttribute("disabled")).toBe(true);
   });
 
+  it("separates the complete wrapping Daily header from its live status without changing notice or navigation", () => {
+    const onSelectRange = vi.fn();
+    const notice = "The selected range is outside loaded history.";
+    render(
+      <HealthDashboardView
+        days={[day("2026-07-21"), day("2026-07-07")]}
+        rangeEnd="2026-07-14"
+        onSelectRange={onSelectRange}
+        notice={notice}
+      />,
+    );
+    const header = screen.getByLabelText("Browse seven-day comparisons");
+    const status = screen.getByRole("status");
+    expect(header.nextElementSibling).toBe(status);
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.textContent).toBe(
+      `${notice} Showing ${screen.getByRole("heading", { level: 2 }).textContent}.`,
+    );
+    expect(status.nextElementSibling?.textContent).toContain(
+      "No imported records in this range",
+    );
+    expect(screen.getByText(/Seven daily source values/).id).toBe(
+      "health-daily-help",
+    );
+    fireEvent.click(
+      within(header).getByRole("button", { name: /Next 7 days/ }),
+    );
+    expect(onSelectRange).toHaveBeenCalledWith("2026-07-21");
+    fireEvent.click(
+      within(header).getByRole("button", { name: /Latest 7 days/ }),
+    );
+    expect(onSelectRange).toHaveBeenCalledWith("2026-07-21");
+
+    const browserRule = appStyleRule(".health-daily-browser");
+    expect(browserRule).toContain("margin-bottom: 16px;");
+    expect(appStyleRule(".health-daily-actions")).toContain("flex-wrap: wrap;");
+    fireEvent.click(screen.getByRole("tab", { name: "Weekly" }));
+    expect(screen.queryByLabelText("Browse seven-day comparisons")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText("Weekly Health rollups")).toBeTruthy();
+  });
+
   it("contains Daily chart and source-detail widths without a wide matrix", () => {
     const comparison = appStyleRule(".health-daily-comparison");
     expect(comparison).toContain("min-width: 0;");
