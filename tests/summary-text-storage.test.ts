@@ -434,14 +434,32 @@ describe("complete-text real SQLite lifecycle", () => {
     expect(storage.inspect().text).toBe("");
   });
 });
+let schema23Snapshot: Buffer | undefined;
 function schema23() {
   db.close();
-  db = new Database(":memory:");
-  for (const migration of SCHEMA_MIGRATIONS.filter((m) => m.version <= 23))
-    for (const statement of migration.statements) db.exec(statement);
-  db.prepare(
-    "insert into app_metadata(key,value,updated_at) values('schema_version','23',1) on conflict(key) do update set value='23'",
-  ).run();
+  if (!schema23Snapshot) {
+    const legacy = new Database(":memory:");
+    for (const migration of SCHEMA_MIGRATIONS.filter((m) => m.version <= 23))
+      for (const statement of migration.statements) legacy.exec(statement);
+    legacy
+      .prepare(
+        "insert into app_metadata(key,value,updated_at) values('schema_version','23',1) on conflict(key) do update set value='23'",
+      )
+      .run();
+    schema23Snapshot = legacy.serialize();
+    legacy.close();
+  }
+  // Independent byte-identical legacy input per case, not repeated historical
+  // DDL in a single5s test on a contended CI runner. Real migration24 still runs.
+  db = new Database(Buffer.from(schema23Snapshot));
+  expect(
+    db
+      .prepare("select value from app_metadata where key='schema_version'")
+      .get(),
+  ).toEqual({ value: "23" });
+  expect(
+    db.prepare("select format_version from summary_state where id=1").get(),
+  ).toEqual({ format_version: 1 });
 }
 describe("forward format admission", () => {
   it("carries standalone authored preferences losslessly, preserves legacy bytes, and refuses old readers", () => {
