@@ -156,6 +156,146 @@ function populated() {
   return value;
 }
 
+describe("manual Densify review", () => {
+  it("keeps saved memory readable, previews all candidate text/counts, and saves only on explicit acceptance", async () => {
+    const value = populated();
+    value.densify = { available: true, review: null };
+    let calls = 0;
+    const candidate = "Short weekdays; poles remain unchosen.";
+    const fetcher = await mountMemory(value, (body) => {
+      calls++;
+      expect(body).not.toHaveProperty("text");
+      expect(body.expected).toEqual(value.expected);
+      const review = {
+        id: body.id,
+        state: "review",
+        text: candidate,
+        before: value.characters,
+        after: [...candidate].length,
+        target: 6000,
+        shorter: true,
+      };
+      if (body.action === "densify-accept") {
+        value.stored.text = candidate;
+        value.characters = [...candidate].length;
+        value.expected = { ...value.expected, revision: 4 };
+        return response({
+          densify: { ...review, state: "accepted", text: null },
+        });
+      }
+      return response({ densify: review });
+    });
+    expect(calls).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "Densify summary" }));
+    await screen.findByRole("heading", { name: "Review densified summary" });
+    expect(
+      screen.getByRole("region", { name: "Complete candidate summary" })
+        .textContent,
+    ).toBe(candidate);
+    expect(screen.getByText(value.stored.text)).toBeTruthy();
+    expect(value.expected.revision).toBe(3);
+    expect(document.activeElement?.textContent).toBe(
+      "Review densified summary",
+    );
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Edit summary" })
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use shorter summary" }),
+    );
+    await screen.findByText(/Shorter generated summary saved/);
+    expect(calls).toBe(2);
+    expect(value.stored.text).toBe(candidate);
+    expect(
+      fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
+    ).toHaveLength(2);
+  });
+  it("blocks dirty-editor dispatch and cancels one busy request without replay or hiding the original", async () => {
+    const value = populated();
+    value.densify = { available: true, review: null };
+    let finish!: (result: Response) => void;
+    const fetcher = await mountMemory(value, (body) =>
+      body.action === "densify-request"
+        ? new Promise<Response>((resolve) => {
+            finish = resolve;
+          })
+        : response({
+            densify: {
+              id: body.id,
+              state: "cancelled",
+              text: null,
+              before: value.characters,
+              after: null,
+              target: 6000,
+              shorter: false,
+            },
+          }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Densify summary" })
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+    const button = screen.getByRole("button", { name: "Densify summary" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(screen.getByText(value.stored.text)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel densify" }));
+    await screen.findByText(/Densify cancelled/);
+    await act(async () =>
+      finish(
+        response({
+          densify: {
+            id: "late",
+            state: "review",
+            text: "Late unsafe preview",
+            before: 100,
+            after: 19,
+            target: 6000,
+            shorter: true,
+          },
+        }),
+      ),
+    );
+    expect(screen.queryByText("Late unsafe preview")).toBeNull();
+    expect(
+      fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
+    ).toHaveLength(2);
+  });
+  it("shows a non-reducing result with acceptance disabled and discards without publication", async () => {
+    const value = populated();
+    value.densify = { available: true, review: null };
+    const fetcher = await mountMemory(value, (body) =>
+      response({
+        densify: {
+          id: body.id,
+          state: body.action === "densify-discard" ? "discarded" : "review",
+          text: body.action === "densify-discard" ? null : value.stored.text,
+          before: value.characters,
+          after: value.characters,
+          target: 6000,
+          shorter: false,
+        },
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Densify summary" }));
+    await screen.findByText(/No reduction/);
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", {
+        name: "Use shorter summary",
+      }).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    await screen.findByText(/Candidate discarded/);
+    expect(
+      fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
+    ).toHaveLength(2);
+    expect(value.expected.revision).toBe(3);
+  });
+});
+
 describe("integrated Memory visible controls and stale-response safety", () => {
   it("edits the complete generated text with exact CAS while preferences stay separate and unchanged", async () => {
     const value = populated();
@@ -407,6 +547,8 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     render(
       <MemoryContent
         memory={value}
+        densifyReview={null}
+        densifyMemory={vi.fn()}
         memoryMessage="Summary fresh"
         isMemoryLoading={false}
         isMemoryReadUnavailable={false}

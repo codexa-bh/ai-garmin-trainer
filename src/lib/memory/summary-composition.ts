@@ -12,7 +12,12 @@ import {
   controlSummaryImport,
 } from "../db/summary-import";
 import { getOptionalEnv, liveConfigurationStatus } from "../env";
-import { summaryStorage } from "../db/summary-storage";
+import {
+  summaryStorage,
+  summaryDensifyStorage,
+  summaryDensifyAvailable,
+} from "../db/summary-storage";
+import { createSummaryDensify } from "./summary-densify";
 import { createSummaryEngine } from "./summary-application";
 import { createSummaryGeneration } from "./summary-provider";
 import {
@@ -67,6 +72,10 @@ export function readCrossChatSummary(content = false, conversationId?: string) {
         expected: summaryStorage.version(),
         stored: summaryStorage.inspect(),
         preferences: summaryStorage.preferences(),
+        densify: {
+          available: densifyAvailable(),
+          review: summaryLifetime().densify?.inspect() ?? null,
+        },
         // Empty compatible projections: ordinary Memory no longer reads or ships
         // archive excerpts or offers the obsolete selective-import workflow.
         legacy: [],
@@ -194,7 +203,78 @@ export async function prepareSummaryAdoption(
   return { ...command, expected };
 }
 
-export function applySummaryCommand(command: SummaryCommand) {
+function densifyAvailable(): boolean {
+  if (
+    summaryLifetime().stopping ||
+    summaryLifetime().running ||
+    !liveConfigurationStatus().boot ||
+    !summaryDensifyAvailable()
+  )
+    return false;
+  try {
+    return Boolean(summaryConfiguration(getOptionalEnv()));
+  } catch {
+    return false;
+  }
+}
+function densifyOwner() {
+  const lifetime = summaryLifetime();
+  return (lifetime.densify ??= createSummaryDensify({
+    storage: summaryDensifyStorage,
+    now: Date.now,
+    begin() {
+      if (!densifyAvailable()) throw new Error("summary_densify_unavailable");
+      const env = getOptionalEnv();
+      const live = liveConfigurationStatus();
+      summaryStorage.configure(
+        env.SUMMARY_ENABLED === "true",
+        env.SUMMARY_MODEL === "unselected" ? "" : env.SUMMARY_MODEL,
+        summaryCap(Number(env.SUMMARY_CHAR_LIMIT)),
+      );
+      const abort = new AbortController();
+      const current = () =>
+        !lifetime.stopping &&
+        !abort.signal.aborted &&
+        liveConfigurationStatus().boot === live.boot &&
+        liveConfigurationStatus().generation === live.generation;
+      const generation = createSummaryGeneration(
+        env,
+        fetch,
+        current,
+        "summary",
+        Number(env.SUMMARY_CHAR_LIMIT),
+      );
+      lifetime.running = true;
+      lifetime.active = abort;
+      return {
+        generation,
+        current,
+        signal: abort.signal,
+        finish() {
+          if (lifetime.active === abort) lifetime.active = undefined;
+          lifetime.running = false;
+        },
+      };
+    },
+  }));
+}
+export async function executeSummaryCommand(command: SummaryCommand) {
+  if (command.action === "densify-request") {
+    return {
+      densify: await densifyOwner().request(command.id, command.expected),
+    };
+  }
+  if (
+    command.action === "densify-accept" ||
+    command.action === "densify-discard" ||
+    command.action === "densify-cancel"
+  ) {
+    // Original server-owned candidate authority, never a refreshed client revision.
+    return { densify: densifyOwner().act(command.action, command.id) };
+  }
+  return applySummaryCommand(await prepareSummaryAdoption(command));
+}
+function applySummaryCommand(command: SummaryCommand) {
   // Synchronous compare and mutation; no await can admit a stale client action.
   if (
     JSON.stringify(summaryStorage.version()) !==
@@ -243,7 +323,14 @@ export function applySummaryCommand(command: SummaryCommand) {
           : "cancel";
     if (controlSummaryImport(command.id, action))
       summaryLifetime().active?.abort();
-  } else changeCrossChatSummary(command.action);
+  } else if (
+    command.action === "clear" ||
+    command.action === "disable" ||
+    command.action === "enable" ||
+    command.action === "retry"
+  )
+    changeCrossChatSummary(command.action);
+  else throw new Error("summary_unsupported_control");
 }
 export function changeCrossChatSummary(
   action: "clear" | "disable" | "enable" | "retry",

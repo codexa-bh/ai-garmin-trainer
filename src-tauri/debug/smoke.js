@@ -275,6 +275,34 @@
     const text = `${memoryText(true)}\n${"Short weekdays because caregiving limits time; weekends remain optional.\n".repeat(80)}`;
     return text.padEnd(6577, " ") + ".";
   };
+  const densifyText = (length) => {
+    const paragraph =
+      "Short weekdays because caregiving limits time; long weekdays failed. Current mornings replace past evenings. Cycling is not prohibited. Poles remain unchosen; the heavy bag was rejected for discomfort.\n";
+    return paragraph
+      .repeat(Math.floor(length / paragraph.length))
+      .padEnd(length, " ");
+  };
+  let memoryDensifyId = "fixture_densify";
+  const densifyFixtureReview = () => {
+    const state =
+      memoryFixture === "fixture-densify-busy"
+        ? "running"
+        : memoryFixture === "fixture-densify-accepted"
+          ? "accepted"
+          : memoryFixture === "fixture-densify-discarded"
+            ? "discarded"
+            : "review";
+    const noReduction = memoryFixture === "fixture-densify-no-reduction";
+    return {
+      id: memoryDensifyId,
+      state,
+      text: state === "review" ? densifyText(noReduction ? 13250 : 7000) : null,
+      before: 13250,
+      after: state === "running" ? null : noReduction ? 13250 : 7000,
+      target: 6000,
+      shorter: state === "review" && !noReduction,
+    };
+  };
   let memoryFixture = null;
   let memoryReviewSelection = {
     version: 1,
@@ -331,7 +359,13 @@
       frontier: 4,
       pending: 0,
       items: empty ? 0 : 1,
-      characters: empty ? 0 : [...presentationText.join("\n")].length,
+      characters: memoryFixture?.startsWith("fixture-densify-")
+        ? memoryFixture === "fixture-densify-accepted"
+          ? 7000
+          : 13250
+        : empty
+          ? 0
+          : [...presentationText.join("\n")].length,
       cap: 6000,
       publishedAt: null,
       enabled: !off,
@@ -344,7 +378,24 @@
       unknownReservedUsd: 0.01,
       priceBasis: "authored-presentation-only",
       expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
-      stored: { version: 2, text: empty ? "" : presentationText.join("\n") },
+      stored: {
+        version: 2,
+        text: memoryFixture?.startsWith("fixture-densify-")
+          ? densifyText(
+              memoryFixture === "fixture-densify-accepted" ? 7000 : 13250,
+            )
+          : empty
+            ? ""
+            : presentationText.join("\n"),
+      },
+      densify: {
+        available: memoryFixture === "fixture-densify-ready",
+        review:
+          memoryFixture?.startsWith("fixture-densify-") &&
+          memoryFixture !== "fixture-densify-ready"
+            ? densifyFixtureReview()
+            : null,
+      },
       preferences: empty ? [] : preferences,
       legacy: [],
       historical: {
@@ -480,6 +531,41 @@
           if ((init?.method ?? "GET") !== "GET") {
             try {
               const command = JSON.parse(String(init?.body));
+              if (
+                memoryFixture?.startsWith("fixture-densify-") &&
+                init?.method === "POST" &&
+                command.version === 2 &&
+                Object.keys(command).sort().join() ===
+                  "action,expected,id,version" &&
+                /^[a-zA-Z0-9_-]{1,80}$/.test(command.id) &&
+                JSON.stringify(command.expected) ===
+                  JSON.stringify(memoryFixtureValue().expected)
+              ) {
+                if (
+                  command.action === "densify-request" &&
+                  memoryFixture === "fixture-densify-ready"
+                ) {
+                  memoryDensifyId = command.id;
+                  memoryFixture = "fixture-densify-review";
+                } else if (
+                  command.id === memoryDensifyId &&
+                  command.action === "densify-accept" &&
+                  memoryFixture === "fixture-densify-review"
+                )
+                  memoryFixture = "fixture-densify-accepted";
+                else if (
+                  command.id === memoryDensifyId &&
+                  ["densify-discard", "densify-cancel"].includes(command.action)
+                )
+                  memoryFixture = "fixture-densify-discarded";
+                else throw Error("Unsupported fixed densify review");
+                return Promise.resolve(
+                  new Response(
+                    JSON.stringify({ densify: densifyFixtureReview() }),
+                    { headers: { "content-type": "application/json" } },
+                  ),
+                );
+              }
               const s = command.selection;
               if (
                 init?.method !== "POST" ||
@@ -610,7 +696,12 @@
         memoryText(),
         memoryText(true),
         ...(memoryFixture || memoryFixtureRestoring
-          ? [presentationText.join("\n")]
+          ? [
+              presentationText.join("\n"),
+              ...(memoryFixture?.startsWith("fixture-densify-")
+                ? [densifyText(13250), densifyText(7000)]
+                : []),
+            ]
           : []),
       ].includes(generated.textContent)
     )
@@ -724,6 +815,16 @@
         "confirm",
         "cancel-confirm",
         "history-effects",
+        "fixture-densify-ready",
+        "fixture-densify-busy",
+        "fixture-densify-review",
+        "fixture-densify-no-reduction",
+        "fixture-densify-accepted",
+        "fixture-densify-discarded",
+        "densify",
+        "densify-cancel",
+        "densify-accept",
+        "densify-discard",
         "fixture-populated",
         "fixture-empty",
         "fixture-error",
@@ -764,6 +865,10 @@
       } else if (
         memoryFixture &&
         ![
+          "densify",
+          "densify-cancel",
+          "densify-accept",
+          "densify-discard",
           "close",
           "back",
           "manage",
@@ -846,7 +951,27 @@
           throw Error("Unsupported confirmation");
         confirmButton.click();
       } else if (command.action === "cancel-confirm") target("Cancel").click();
-      else if (command.action === "back") target("Back to memory").click();
+      else if (
+        [
+          "densify",
+          "densify-cancel",
+          "densify-accept",
+          "densify-discard",
+        ].includes(command.action)
+      ) {
+        if (!memoryFixture?.startsWith("fixture-densify-"))
+          throw Error(
+            "Densify actions require fixed presentation; no provider authority",
+          );
+        target(
+          {
+            densify: "Densify summary",
+            "densify-cancel": "Cancel densify",
+            "densify-accept": "Use shorter summary",
+            "densify-discard": "Discard",
+          }[command.action],
+        ).click();
+      } else if (command.action === "back") target("Back to memory").click();
       else if (
         command.action === "clear" &&
         panel.getAttribute("data-memory-view") === "overview"
@@ -959,6 +1084,30 @@
     const labels = new Set([
       "What your trainer remembers",
       "Generated summary",
+      "Densify summary",
+      "Cancel densify",
+      "Review densified summary",
+      "Use shorter summary",
+      "Discard",
+      "One paid AI request using your configured memory model. Review before saving; the target is guidance.",
+      "Needs a usable saved summary, configured native memory model and no running memory update.",
+      "Save or cancel your edit first.",
+      "Densifying… Your saved summary stays in use. Cancellation cannot recall sent text or costs.",
+      "13250 → 7000 characters · target 6000",
+      "13250 → 13250 characters · target 6000",
+      "6250 fewer characters. Check meaning before saving.",
+      "No reduction. This result cannot replace your summary; no automatic retry.",
+      "The original saved summary remains below for comparison.",
+      "Shorter generated summary saved. Separate preferences and existing chat snapshots are unchanged.",
+      "Candidate discarded. Saved summary unchanged.",
+      ...(memoryFixture?.startsWith("fixture-densify-")
+        ? [
+            densifyText(13250).trim(),
+            densifyText(7000).trim(),
+            "13250 characters · target 6000 · generated text only",
+            "7000 characters · target 6000 · generated text only",
+          ]
+        : []),
       "Your preferences",
       "Add preference",
       "Edit preference",
@@ -1144,7 +1293,7 @@
       progress.setAttribute("data-smoke-reveal", "");
     }
     for (const node of panel.querySelectorAll(
-      "h2,h3,h4,p,li,button,label,legend",
+      'h2,h3,h4,p,li,button,label,legend,div[aria-label="Complete candidate summary"]',
     )) {
       if (!labels.has(node.textContent.trim()) || !visible(node)) continue;
       if (

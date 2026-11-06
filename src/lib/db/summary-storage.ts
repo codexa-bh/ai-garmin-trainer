@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDatabase } from "./connection";
+import type { DensifyStorage } from "../memory/summary-densify";
 import { readSummaryImportBatch, publishSummaryImport } from "./summary-import";
 import {
   readSummaryRebuildBatch,
@@ -189,7 +190,9 @@ function current(batch: SummaryBatch, now: number): boolean {
     s.privacy_generation === batch.privacyGeneration &&
     s.revision === batch.revision &&
     s.frontier === batch.frontier &&
-    sameSources(batch)
+    (batch.manualRewrite
+      ? currentValue(s, c.cap).text === batch.previous.text
+      : sameSources(batch))
   );
 }
 function spend(now: number) {
@@ -301,6 +304,135 @@ export function noteSummaryActivity(now: number): void {
     )
     .run(now);
 }
+
+function assertDensifyIdle(): void {
+  const db = getDatabase();
+  if (
+    control().job_id ||
+    db.prepare("select 1 from summary_rebuild where state='active'").get() ||
+    db
+      .prepare(
+        "select 1 from summary_import where state in ('active','paused','review-required')",
+      )
+      .get()
+  )
+    throw new Error("summary_densify_busy");
+}
+export function summaryDensifyAvailable(): boolean {
+  const c = control();
+  try {
+    assertDensifyIdle();
+    return (
+      c.enabled === 1 &&
+      summaryModelAvailable(c.model) &&
+      !!currentValue(state(), c.cap).text.trim()
+    );
+  } catch {
+    return false;
+  }
+}
+export const summaryDensifyStorage: DensifyStorage = {
+  admit(id, expected, now) {
+    return getDatabase().transaction(() => {
+      assertVersion(expected);
+      assertDensifyIdle();
+      if (!summaryDensifyAvailable())
+        throw new Error("summary_densify_unavailable");
+      const c = control(),
+        s = state();
+      const jobId = `densify_${id}`;
+      // Unique durable identity refuses replay even after process restart.
+      getDatabase()
+        .prepare(
+          "insert into summary_attempt(job_id,started_at,outcome,reserved,policy_identity,source_ids_json,upper_event,prior_revision,privacy_generation,control_generation) values(?,?,'admitted',0,?,'[]',?,?,?,?)",
+        )
+        .run(
+          jobId,
+          now,
+          `${summaryPolicyIdentity(c.model)}/manual-densify`,
+          s.frontier,
+          s.revision,
+          s.privacy_generation,
+          c.generation,
+        );
+      getDatabase()
+        .prepare("update summary_control set job_id=?,lease_until=? where id=1")
+        .run(jobId, now + 30000);
+      return {
+        jobId,
+        manualRewrite: true as const,
+        revision: s.revision,
+        privacyGeneration: s.privacy_generation,
+        controlGeneration: c.generation,
+        manualRevision: c.manual_revision,
+        frontier: s.frontier,
+        upper: s.frontier,
+        cap: c.cap,
+        previous: currentValue(s, c.cap),
+        sources: [],
+      };
+    })();
+  },
+  current(batch) {
+    const c = control(),
+      s = state();
+    try {
+      return (
+        c.enabled === 1 &&
+        c.generation === batch.controlGeneration &&
+        c.manual_revision === batch.manualRevision &&
+        s.privacy_generation === batch.privacyGeneration &&
+        s.revision === batch.revision &&
+        currentValue(s, c.cap).text === batch.previous.text
+      );
+    } catch {
+      return false;
+    }
+  },
+  reserve: (batch, now) => summaryStorage.reserve(batch, now),
+  heartbeat: (batch, now) => summaryStorage.heartbeat(batch, now),
+  usage: (batch, usage) => summaryStorage.usage(batch, usage),
+  settle(batch, outcome, now) {
+    getDatabase().transaction(() => {
+      getDatabase()
+        .prepare(
+          "update summary_attempt set outcome=?,finished_at=? where job_id=? and outcome in ('admitted','densify_previewed')",
+        )
+        .run(outcome, now, batch.jobId);
+      // Do not change routine failures/retry/frontier or any newer writer.
+      getDatabase()
+        .prepare(
+          "update summary_control set job_id=null,lease_until=0 where id=1 and job_id=?",
+        )
+        .run(batch.jobId);
+    })();
+  },
+  accept(batch, value, now) {
+    getDatabase().transaction(() => {
+      assertDensifyIdle();
+      if (
+        !batch.manualRewrite ||
+        !summaryDensifyStorage.current(batch) ||
+        !validSummaryValue(value) ||
+        !value.text.trim() ||
+        characters(value.text) >= characters(batch.previous.text)
+      )
+        throw new Error("summary_stale_action");
+      const attempt = getDatabase()
+        .prepare("select outcome from summary_attempt where job_id=?")
+        .get(batch.jobId) as { outcome: string } | undefined;
+      if (attempt?.outcome !== "densify_previewed")
+        throw new Error("summary_densify_unavailable");
+      preferences();
+      writeValue(value, now);
+      getDatabase()
+        .prepare(
+          "update summary_attempt set outcome='densify_accepted' where job_id=?",
+        )
+        .run(batch.jobId);
+    })();
+  },
+};
 
 export const summaryStorage: SummaryStorage = {
   inspect() {
@@ -478,6 +610,16 @@ export const summaryStorage: SummaryStorage = {
       const previous = currentValue(s, c.cap);
       if (c.job_id) {
         if (c.lease_until > now) return null;
+        // A manual request is never routine backlog or a retry candidate.
+        if (c.job_id.startsWith("densify_")) {
+          db.prepare(
+            "update summary_attempt set outcome='densify_unknown',finished_at=? where job_id=? and outcome='admitted'",
+          ).run(now, c.job_id);
+          db.prepare(
+            "update summary_control set job_id=null,lease_until=0 where id=1",
+          ).run();
+          return null;
+        }
         // An expired admitted provider effect is uncertain, never blind replay.
         const attempt = db
           .prepare("select reserved from summary_attempt where job_id=?")
@@ -616,6 +758,7 @@ export const summaryStorage: SummaryStorage = {
       if (attempt?.outcome === "committed" || attempt?.outcome === "staged")
         return true;
       if (
+        batch.manualRewrite ||
         !current(batch, now) ||
         !validSummaryValue(candidate.value) ||
         candidate.dispositions.length !== batch.sources.length ||
@@ -719,7 +862,7 @@ export const summaryStorage: SummaryStorage = {
       throw new Error("summary_invalid_usage");
     getDatabase()
       .prepare(
-        "update summary_attempt set usage_json=? where job_id=? and outcome='admitted' and usage_json is null",
+        "update summary_attempt set usage_json=? where job_id=? and (outcome='admitted' or policy_identity like '%/manual-densify') and usage_json is null",
       )
       .run(
         JSON.stringify({

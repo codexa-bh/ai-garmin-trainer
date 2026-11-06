@@ -28,6 +28,8 @@ export function MemoryContent({
   isMemoryLoading: isBusy,
   isMemoryReadUnavailable = false,
   pendingMemoryAction,
+  densifyReview,
+  densifyMemory,
   loadMemories,
   reviewHistory,
   changeMemory,
@@ -56,6 +58,21 @@ export function MemoryContent({
   const rowAfterSave = useRef<string | null>(null);
   const beforeAdd = useRef<string[] | null>(null);
   const previousEditing = useRef(editingMemoryId);
+  const densifying = densifyReview?.state === "running";
+  const reviewingDensify = densifyReview?.state === "review";
+  const densifyButton = useRef<HTMLButtonElement>(null);
+  const densifyHeading = useRef<HTMLHeadingElement>(null);
+  const previousDensify = useRef(densifyReview?.state);
+  useLayoutEffect(() => {
+    if (densifyReview?.state === previousDensify.current) return;
+    if (densifyReview?.state === "review") densifyHeading.current?.focus();
+    else if (
+      previousDensify.current === "review" ||
+      previousDensify.current === "running"
+    )
+      densifyButton.current?.focus();
+    previousDensify.current = densifyReview?.state;
+  }, [densifyReview?.state]);
   const operation = memory?.rebuild?.operation;
   const retainedResult =
     !!operation &&
@@ -277,7 +294,12 @@ export function MemoryContent({
                   <h4>Generated summary</h4>
                   <button
                     type="button"
-                    disabled={isMemoryLoading || !!editingMemoryId}
+                    disabled={
+                      isMemoryLoading ||
+                      !!editingMemoryId ||
+                      densifying ||
+                      reviewingDensify
+                    }
                     onClick={() => edit("summary", memory.stored.text)}
                   >
                     Edit summary
@@ -287,6 +309,129 @@ export function MemoryContent({
                   {memory.characters} characters · target {memory.cap} ·
                   generated text only
                 </p>
+                <div className="button-row">
+                  <button
+                    type="button"
+                    ref={densifyButton}
+                    disabled={
+                      isMemoryLoading ||
+                      !!editingMemoryId ||
+                      densifying ||
+                      reviewingDensify ||
+                      !memory.densify?.available
+                    }
+                    onClick={() =>
+                      runInBackground(densifyMemory("densify-request"))
+                    }
+                  >
+                    Densify summary
+                  </button>
+                  {densifying && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        runInBackground(
+                          densifyMemory("densify-cancel", densifyReview.id),
+                        )
+                      }
+                    >
+                      Cancel densify
+                    </button>
+                  )}
+                </div>
+                <p className="secondary-copy">
+                  One paid AI request using your configured memory model. Review
+                  before saving; the target is guidance.
+                </p>
+                {(editingMemoryId || !memory.densify?.available) &&
+                  !densifying &&
+                  !reviewingDensify && (
+                    <p className="secondary-copy">
+                      {editingMemoryId
+                        ? "Save or cancel your edit first."
+                        : "Needs a usable saved summary, configured native memory model and no running memory update."}
+                    </p>
+                  )}
+                {densifying && (
+                  <p role="status">
+                    Densifying… Your saved summary stays in use. Cancellation
+                    cannot recall sent text or costs.
+                  </p>
+                )}
+                {reviewingDensify && (
+                  <section
+                    className="memory-confirm"
+                    aria-label="Review densified summary"
+                  >
+                    <h4 tabIndex={-1} ref={densifyHeading}>
+                      Review densified summary
+                    </h4>
+                    <p>
+                      {densifyReview.before} → {densifyReview.after} characters
+                      · target {densifyReview.target}
+                    </p>
+                    <p>
+                      {densifyReview.shorter
+                        ? `${densifyReview.before - densifyReview.after!} fewer characters. Check meaning before saving.`
+                        : "No reduction. This result cannot replace your summary; no automatic retry."}
+                    </p>
+                    <div
+                      className="memory-text"
+                      role="region"
+                      aria-label="Complete candidate summary"
+                      tabIndex={0}
+                      style={{
+                        maxHeight: "20rem",
+                        overflowY: "auto",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {densifyReview.text}
+                    </div>
+                    <p>
+                      The original saved summary remains below for comparison.
+                    </p>
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        disabled={
+                          isMemoryLoading ||
+                          !!editingMemoryId ||
+                          !densifyReview.shorter
+                        }
+                        onClick={() =>
+                          runInBackground(
+                            densifyMemory("densify-accept", densifyReview.id),
+                          )
+                        }
+                      >
+                        Use shorter summary
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          runInBackground(
+                            densifyMemory("densify-discard", densifyReview.id),
+                          )
+                        }
+                      >
+                        Discard
+                      </button>
+                    </div>
+                  </section>
+                )}
+                {densifyReview &&
+                  !densifying &&
+                  !reviewingDensify &&
+                  densifyReview.state !== "accepted" && (
+                    <p role="status">
+                      {densifyReview.state === "discarded"
+                        ? "Candidate discarded. Saved summary unchanged."
+                        : densifyReview.state === "cancelled"
+                          ? "Densify cancelled. Sent requests may still incur cost; saved summary unchanged."
+                          : "Densify unavailable or expired. Saved summary unchanged; refresh before a new deliberate request."}
+                    </p>
+                  )}
                 {memory.enabled && memory.state !== "unavailable" ? (
                   <p className="memory-text">
                     {memory.stored.text ||
@@ -306,7 +451,12 @@ export function MemoryContent({
                   <h4>Your preferences</h4>
                   <button
                     type="button"
-                    disabled={isMemoryLoading || !!editingMemoryId}
+                    disabled={
+                      isMemoryLoading ||
+                      !!editingMemoryId ||
+                      densifying ||
+                      reviewingDensify
+                    }
                     onClick={() => edit("new", "")}
                   >
                     Add preference
@@ -331,7 +481,12 @@ export function MemoryContent({
                       <div className="button-row">
                         <button
                           type="button"
-                          disabled={isMemoryLoading || !!editingMemoryId}
+                          disabled={
+                            isMemoryLoading ||
+                            !!editingMemoryId ||
+                            densifying ||
+                            reviewingDensify
+                          }
                           onClick={() => edit(saved.id, saved.text)}
                         >
                           Edit preference

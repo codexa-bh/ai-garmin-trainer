@@ -45,6 +45,19 @@ Trainer **Memory** shows:
   Saving replaces the generated field under current-state comparison. It does not
   turn generated sentences into your preferences. A later history regeneration
   replaces this text, **including direct summary edits**.
+- **Densify summary**: one explicit paid request using the configured memory model,
+  available for any nonempty usable saved summary, not only above target. Only the
+  captured generated text and advisory target are sent, not history or preferences.
+  Saved memory stays readable and in use during generation and complete candidate
+  review. Compare old/new scalar counts and meaning, then **Use shorter summary**
+  or **Discard**. Only strictly shorter valid text can replace it, even if still
+  above target. Equal/longer output cannot save and never buys an automatic retry.
+  Save/cancel editor drafts first; other memory writers and missing native/model
+  configuration refuse admission. **Cancel densify** cannot recall sent text/costs.
+  Reviews expire after ten minutes or changed saved/privacy/configuration/native
+  authority. Lost requests reconcile without replay; restarting discards unaccepted
+  previews. Acceptance preserves preferences, source progress and existing chat pins.
+  A shorter result is not a guarantee of preserved meaning: review it carefully.
 - **Your preferences**: separate **Add preference**, **Edit preference**,
   **Save preference** and deliberate **Remove preference**. Regeneration preserves
   these authored notes; relevant history edits/deletions do not erase them.

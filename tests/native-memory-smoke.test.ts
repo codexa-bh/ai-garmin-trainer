@@ -451,6 +451,8 @@ it.each([
     render(
       React.createElement(MemoryContent, {
         memory: dto,
+        densifyReview: null,
+        densifyMemory: vi.fn(),
         memoryMessage: "",
         isMemoryLoading: false,
         isMemoryReadUnavailable: false,
@@ -485,6 +487,76 @@ it.each([
     ).toBe(true);
   },
 );
+it("exercises only supplied Densify presentation through the actual hook, refuses nonfixture dispatch and masks unknown candidates", async () => {
+  document.querySelector("textarea")!.remove();
+  document.querySelector('[aria-label="Rebuild from chat history"]')!.remove();
+  const fetcher = vi.fn(async () => new Response("{}"));
+  vi.stubGlobal("fetch", fetcher);
+  expect((await command({ type: "memory", action: "densify" })).ok).toBe(false);
+  expect(
+    (
+      await command({
+        type: "memory",
+        action: "fixture-densify-ready",
+        text: "private",
+      })
+    ).ok,
+  ).toBe(false);
+  await command({ type: "memory", action: "fixture-densify-ready" });
+  document.querySelector(".memory-root-card")!.remove();
+  function Harness() {
+    const [, setStatus] = React.useState<Status>({ kind: "ok", message: "" });
+    const feature = useMemoryFeature({ setStatus });
+    const { loadMemories } = feature;
+    React.useEffect(() => {
+      loadMemories(false).catch(() => {
+        throw Error("Test read failed");
+      });
+    }, [loadMemories]);
+    return React.createElement(MemoryContent, {
+      ...feature,
+      onOpenSource: vi.fn(),
+      runInBackground: (work) => {
+        work.catch(() => {
+          throw Error("Test action failed");
+        });
+      },
+    });
+  }
+  render(React.createElement(Harness), {
+    container: document.querySelector("aside")!,
+  });
+  await screen.findByRole("button", { name: "Densify summary" });
+  await act(async () => {
+    expect((await command({ type: "memory", action: "densify" })).ok).toBe(
+      true,
+    );
+  });
+  await screen.findByRole("heading", { name: "Review densified summary" });
+  const preview = screen.getByRole("region", {
+    name: "Complete candidate summary",
+  });
+  expect([...preview.textContent!]).toHaveLength(7000);
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(true);
+  expect(getComputedStyle(preview).visibility).toBe("visible");
+  window.__trainerSmokeRestore();
+  const originalCandidate = preview.textContent;
+  preview.textContent = "private injected candidate";
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(false);
+  expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+  window.__trainerSmokeRestore();
+  preview.textContent = originalCandidate;
+  await act(async () => {
+    await command({ type: "memory", action: "densify-discard" });
+  });
+  await screen.findByText(/Candidate discarded/);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
 it("restores the fixed presentation adapter on expiry and refuses caller fixture fields", async () => {
   vi.useFakeTimers();
   document.querySelector("textarea")!.remove();
