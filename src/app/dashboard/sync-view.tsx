@@ -8,6 +8,8 @@ import { numberLabel } from "./formatting";
 import {
   formatDetailCoverageSummary,
   formatHealthCoverageSummary,
+  formatSyncCounts,
+  formatSyncOutcome,
   syncFailureSummary,
 } from "./sync-presentation";
 
@@ -109,6 +111,26 @@ export function SyncView({
   refreshDetailCoverage: () => Promise<void>;
   status: Status;
 }) {
+  const latest = importSummary?.sync?.latest;
+  const history = importSummary?.sync?.historical;
+  const active = isSyncing || importSummary?.syncActive;
+  const currentMessage = active
+    ? isSyncing
+      ? syncRun.finalMessage
+      : "A sync is active. Wait for settlement, then refresh summary."
+    : syncRun.kind !== "idle"
+      ? syncRun.finalMessage
+      : summaryKnown === false
+        ? "Status unavailable. Refresh import summary before syncing."
+        : latest
+          ? formatSyncOutcome("Latest refresh", latest.outcome)
+          : "Ready to refresh recent data.";
+  const countSummary =
+    syncRun.kind === "idle"
+      ? summaryKnown !== false && latest
+        ? formatSyncCounts(latest)
+        : undefined
+      : syncRun.countSummary;
   return (
     <section className="sync-view-panel" aria-labelledby="sync-view-heading">
       <div className="sync-view-header">
@@ -141,10 +163,6 @@ export function SyncView({
             </div>
             <span className={`pill ${syncPillKind}`}>{syncPillLabel}</span>
           </div>
-          <p>
-            Uses the existing local read-only connector and normalized import
-            pipeline.
-          </p>
           <div className="button-row">
             <button
               type="button"
@@ -175,69 +193,46 @@ export function SyncView({
               </button>
             ) : null}
           </div>
-          <p className="helper-text">
-            Sync latest refreshes recent data without advancing saved history.
-            Older data is a separate explicit action; opening this view never
-            starts an import.
-          </p>
-          <p className="helper-text" role="status">
-            <span className="sync-history-status">
-              {isSyncing || importSummary?.syncActive
-                ? "A sync is active. Wait for settlement, then refresh summary."
-                : summaryKnown === false
-                  ? "Summary truth is not confirmed. Refresh import summary before starting or continuing."
-                  : (importSummary?.sync?.historical.reason ??
-                    "Historical eligibility is unknown. Refresh import summary.")}
-            </span>
-            {summaryKnown !== false && importSummary?.sync?.historical.next ? (
-              <span className="sync-next-target">
-                {" "}
-                Next: {importSummary.sync.historical.next.family} ·{" "}
-                {importSummary.sync.historical.next.date}
-                {importSummary.sync.historical.next.page !== undefined
-                  ? ` · page ${importSummary.sync.historical.next.page}`
-                  : ""}
-                .
-              </span>
-            ) : null}
-          </p>
-          {importSummary?.sync ? (
+          {history?.state === "available" && summaryKnown !== false ? (
             <p className="helper-text">
-              Exploration scope:{" "}
-              {importSummary.sync.historical.limit
-                ? `from ${importSummary.sync.historical.limit}`
-                : "automatic discovery; total history unknown"}
-              . Remote earliest history is unknown.
-            </p>
-          ) : null}
-          {syncRun.kind === "idle" && importSummary?.sync?.latest ? (
-            <p className="helper-text">
-              Last latest refresh:{" "}
-              {importSummary.sync.latest.outcome === "running" &&
-              !importSummary.syncActive
-                ? "interrupted"
-                : importSummary.sync.latest.outcome}
-              ; activity records processed:{" "}
-              {importSummary.sync.latest.activitiesProcessed}; health dates
-              refreshed: {importSummary.sync.latest.healthDaysRefreshed}.
-            </p>
-          ) : null}
-          {isSyncing ? (
-            <p className="helper-text" role="status" aria-live="polite">
-              Sync already in progress. Keep this view open or navigate
-              elsewhere; the current-run log will remain available here.
+              Older import:{" "}
+              {history.limit ? `from ${history.limit}` : "automatic discovery"};
+              up to 30 minutes. Total history unknown.
             </p>
           ) : null}
           {syncRun.failureSummary ? (
             <div className="sync-failure-summary" role="alert">
-              <h3>Sync failed</h3>
+              <h3>Sync needs attention</h3>
               <p>{syncRun.failureSummary}</p>
             </div>
           ) : (
-            <p className="helper-text" role="status" aria-live="polite">
-              {syncRun.finalMessage}
+            <p
+              className="sync-current-status"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {currentMessage}
             </p>
           )}
+          {countSummary ? (
+            <p className="helper-text sync-counts">{countSummary}</p>
+          ) : null}
+          {history?.state === "blocked" ? (
+            <p className="sync-history-status sync-history-warning">
+              Older history needs attention. See Technical details.
+            </p>
+          ) : history?.state === "complete" && summaryKnown !== false ? (
+            <p className="helper-text sync-history-status">
+              Selected older range checked; remote earliest history unknown.
+            </p>
+          ) : null}
+          {summaryKnown === false && !active && syncRun.kind !== "idle" ? (
+            <p className="helper-text">
+              Import status is unconfirmed. Refresh import summary before
+              syncing.
+            </p>
+          ) : null}
           {syncRun.recovery ? (
             <SyncLoginHelp recovery={syncRun.recovery} />
           ) : null}
@@ -246,6 +241,26 @@ export function SyncView({
             onToggle={(event) => setTechnicalOpen?.(event.currentTarget.open)}
           >
             <summary>Technical details</summary>
+            <p className="helper-text">
+              Sync latest refreshes recent data without advancing saved history.
+              Reads use the local read-only connector. Opening this view or
+              these details never starts an import.
+            </p>
+            {history ? (
+              <>
+                <p className="helper-text">{history.reason}</p>
+                <p className="helper-text">
+                  Exploration scope:{" "}
+                  {history.limit
+                    ? `from ${history.limit}`
+                    : "automatic discovery; total history unknown"}
+                  . Remote earliest history is unknown.
+                  {history.next
+                    ? ` Next: ${history.next.family} · ${history.next.date}${history.next.page !== undefined ? ` · page ${history.next.page}` : ""}.`
+                    : ""}
+                </p>
+              </>
+            ) : null}
             <p className="helper-text">
               Historical operations: up to 30 minutes / 480 remote-operation
               attempts; internal batches 96 attempts / 180 seconds; nested reads

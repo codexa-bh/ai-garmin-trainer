@@ -335,8 +335,13 @@ describe("independent dashboard feature ownership", () => {
       await act(() => result.current.syncNow());
       expect(result.current.syncRun.kind).toBe("paused");
       expect(result.current.syncRun.failureSummary).toBeNull();
-      expect(result.current.syncRun.finalMessage).toContain(
-        "continue explicitly",
+      expect(result.current.syncRun.finalMessage).toBe(
+        outcome === "cancelled"
+          ? "Latest refresh cancelled. Saved progress is retained."
+          : "Latest refresh paused at its safety limit.",
+      );
+      expect(result.current.syncRun.lines.at(-1)?.text).toContain(
+        "History remains unknown; continue explicitly.",
       );
       expect(
         result.current.syncRun.lines.every((line) => line.severity === "info"),

@@ -14,6 +14,7 @@ import {
 import {
   formatDetailCoverageSummary,
   formatHealthCoverageSummary,
+  formatSyncCounts,
   formatSyncFinalMessage,
   formatSyncProgressLine,
   formatSyncResultLine,
@@ -88,12 +89,14 @@ export function useSyncFeature({
         severity: "info",
       },
     ];
+    const runningMessage = `${intent === "latest" ? "Latest refresh" : "Historical import"} in progress…`;
+    let countSummary: string | undefined;
     let recovery: SyncRunState["recovery"] = null;
     let failureSummary: string | null = null;
     setSyncRun({
       kind: "running",
       lines: logLines,
-      finalMessage: "Sync in progress…",
+      finalMessage: runningMessage,
       failureSummary,
       recovery,
     });
@@ -134,7 +137,7 @@ export function useSyncFeature({
       let finalKind: Status["kind"] = "ok";
       let receivedResult = false;
       let paused = false;
-      let finalMessage = "Sync in progress…";
+      let finalMessage = runningMessage;
 
       const appendLine = (
         line: string,
@@ -142,12 +145,13 @@ export function useSyncFeature({
         nextFinalMessage?: string,
       ) => {
         logLines = [...logLines, { text: line, severity }].slice(-20);
-        finalMessage = nextFinalMessage ?? "Sync in progress…";
+        finalMessage = nextFinalMessage ?? runningMessage;
         const message = logLines.map((entry) => entry.text).join("\n");
         setSyncRun({
           kind: "running",
           lines: logLines,
           finalMessage,
+          countSummary,
           failureSummary,
           recovery,
         });
@@ -166,9 +170,15 @@ export function useSyncFeature({
         for (const line of lines) {
           if (!line.trim()) continue;
           const event = JSON.parse(line) as SyncProgressEvent;
+          countSummary = formatSyncCounts(event) ?? countSummary;
+          const unknownResult =
+            event.type === "result" &&
+            !["completed", "failed", "cancelled", "budget-limited"].includes(
+              event.status ?? "",
+            );
           const failed =
             event.type === "result"
-              ? event.status === "failed"
+              ? event.status === "failed" || unknownResult
               : event.stage === "failed";
           if (failed) {
             finalKind = "error";
@@ -179,7 +189,9 @@ export function useSyncFeature({
             else if (event.dependency === "startup-unknown")
               recovery = "startup";
             else if (detail) recovery = syncFailureRecovery(detail);
-            failureSummary = syncFailureSummary(recovery);
+            failureSummary = unknownResult
+              ? "Sync outcome unknown. Refresh import summary before continuing."
+              : syncFailureSummary(recovery);
           }
           if (event.type === "result") {
             receivedResult = true;
@@ -193,13 +205,16 @@ export function useSyncFeature({
             appendLine(
               formatSyncResultLine(event),
               failed ? "error" : "info",
-              formatSyncFinalMessage(event),
+              formatSyncFinalMessage({
+                ...event,
+                intent: event.intent ?? intent,
+              }),
             );
           } else {
             appendLine(
               formatSyncProgressLine(event),
               failed ? "error" : "info",
-              `${intent === "latest" ? "Latest refresh" : "Historical import"}: ${event.stage ?? "working"}${event.date ? ` · ${event.date}` : ""}. Activity records processed: ${event.activitiesProcessed ?? event.activitiesImported ?? 0}; health dates refreshed: ${event.healthDaysRefreshed ?? event.healthDaysImported ?? 0}.`,
+              runningMessage,
             );
           }
         }
@@ -212,6 +227,7 @@ export function useSyncFeature({
         kind: finalKind === "ok" ? (paused ? "paused" : "completed") : "failed",
         lines: logLines,
         finalMessage,
+        countSummary,
         failureSummary,
         recovery,
       });
@@ -226,7 +242,9 @@ export function useSyncFeature({
         setSyncRun({
           kind: "paused",
           lines: logLines,
-          finalMessage: message,
+          finalMessage:
+            "Cancellation requested. Refresh import summary to confirm settlement.",
+          countSummary,
           failureSummary: null,
           recovery: null,
         });
@@ -243,7 +261,8 @@ export function useSyncFeature({
         kind: "failed",
         lines: nextLines,
         finalMessage: message,
-        failureSummary: syncFailureSummary(null),
+        failureSummary:
+          "Sync response lost; effect is unknown. Refresh import summary before continuing.",
         recovery: null,
       });
       setStatus({ kind: "error", message });

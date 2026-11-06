@@ -95,7 +95,7 @@ export function formatSyncProgressLine(event: SyncProgressEvent): string {
 }
 
 export function formatSyncResultLine(event: SyncProgressEvent): string {
-  const status = event.status ?? "completed";
+  const status = event.status ?? "unknown";
   const activityCount =
     event.activitiesProcessed ?? event.activitiesImported ?? 0;
   const healthCount =
@@ -122,40 +122,60 @@ export function formatSyncResultLine(event: SyncProgressEvent): string {
       `${status === "failed" ? "failure detail" : "history status"} ${event.detail}`,
     );
   }
+  if (event.sync?.historical.reason) parts.push(event.sync.historical.reason);
+  const athlete =
+    event.athleteBaseline?.availability ?? event.athleteAvailability;
+  const body = event.bodyMetrics?.availability ?? event.bodyMetricsAvailability;
+  if (athlete) parts.push(`athlete baseline ${athlete}`);
+  if (body) parts.push(`body metrics ${body}`);
   return `Result: ${status} — ${parts.join("; ")}.`;
 }
 
+export function formatSyncOutcome(
+  label: string,
+  outcome: string | undefined,
+): string {
+  switch (outcome) {
+    case "completed":
+    case "settled":
+      return `${label} finished.`;
+    case "failed":
+      return `${label} failed. See Technical details.`;
+    case "cancelled":
+      return `${label} cancelled. Saved progress is retained.`;
+    case "budget-limited":
+      return `${label} paused at its safety limit.`;
+    case "running":
+      return `${label} interrupted. Refresh import summary before continuing.`;
+    default:
+      return `${label} outcome unknown. Refresh import summary.`;
+  }
+}
+
+export function formatSyncCounts(event: SyncProgressEvent): string | undefined {
+  const activities = event.activitiesProcessed ?? event.activitiesImported;
+  const health = event.healthDaysRefreshed ?? event.healthDaysImported;
+  return (
+    [
+      activities === undefined
+        ? null
+        : `${activities} activity records processed`,
+      health === undefined ? null : `${health} health dates refreshed`,
+    ]
+      .filter(Boolean)
+      .join(" · ") || undefined
+  );
+}
+
 export function formatSyncFinalMessage(event: SyncProgressEvent): string {
-  if (event.intent) {
-    const label =
-      event.intent === "latest" ? "Latest refresh" : "Historical import";
-    const outcome =
-      event.status === "completed"
-        ? "finished"
-        : event.status === "failed"
-          ? "failed"
-          : "paused";
-    return `${label} ${outcome}. Activity records processed: ${event.activitiesProcessed ?? 0}; health dates refreshed: ${event.healthDaysRefreshed ?? 0}. ${event.sync?.historical.reason ?? "Refresh summary to confirm saved work."}`;
-  }
-  if (event.status === "cancelled" || event.status === "budget-limited")
-    return `Sync paused. ${event.detail ?? "Continue explicitly; history remains incomplete."}`;
-  if (event.status !== "completed") {
-    return `Sync failed. ${event.detail ?? "See the current-run log for details."}`;
-  }
-  const healthCoverage = event.healthCoverage
-    ? ` Health coverage: ${event.healthCoverage.completeDays} complete, ${event.healthCoverage.partialDays} partial, ${event.healthCoverage.missingDays} source-unavailable; not estimated.`
-    : "";
-  const athleteAvailability =
-    event.athleteBaseline?.availability ?? event.athleteAvailability;
-  const bodyAvailability =
-    event.bodyMetrics?.availability ?? event.bodyMetricsAvailability;
-  const profileStatus = [
-    athleteAvailability ? `athlete baseline ${athleteAvailability}` : null,
-    bodyAvailability ? `body metrics ${bodyAvailability}` : null,
-  ]
-    .filter(Boolean)
-    .join("; ");
-  return `Sync complete. Summary refreshed for ${event.storedActivities ?? "unknown"} stored activities and ${event.storedHealthRows ?? "unknown"} health rows.${healthCoverage}${profileStatus ? ` ${profileStatus}.` : ""}${event.continuationAvailable ? " History remains incomplete; continue explicitly. Remote earliest history is unknown." : ""}`;
+  return formatSyncOutcome(
+    event.intent === "latest"
+      ? "Latest refresh"
+      : event.intent === "history"
+        ? "Historical import"
+        : "Sync",
+    event.status,
+  );
 }
 
 export function formatHealthCoverageSummary(
