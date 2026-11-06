@@ -166,7 +166,7 @@ describe("complete-text real SQLite lifecycle", () => {
     const before = db.serialize();
     expect(storage.status(now).reason).toBe("summary_corrupt");
     expect(() => storage.inspect()).toThrow("summary_corrupt");
-    expect(db.serialize()).toEqual(before);
+    expect(db.serialize().equals(before)).toBe(true);
     expect(JSON.stringify(storage.status(now))).not.toContain(
       "private unparseable",
     );
@@ -496,7 +496,7 @@ describe("forward format admission", () => {
     ).toBe(2);
     const before = db.serialize();
     migrateDatabase(db);
-    expect(db.serialize()).toEqual(before);
+    expect(db.serialize().equals(before)).toBe(true);
   });
   it("refuses ambiguous source-linked edits transactionally without choosing a D2 conversion", () => {
     schema23();
@@ -511,7 +511,7 @@ describe("forward format admission", () => {
     expect(() => migrateDatabase(db)).toThrow(
       "summary_legacy_authored_decision_required",
     );
-    expect(db.serialize()).toEqual(before);
+    expect(db.serialize().equals(before)).toBe(true);
   });
   it.each([
     { stance: "discussed-not-endorsed" },
@@ -542,7 +542,7 @@ describe("forward format admission", () => {
       expect(() => migrateDatabase(db)).toThrow(
         "summary_legacy_corrupt_or_unsupported",
       );
-      expect(db.serialize()).toEqual(before);
+      expect(db.serialize().equals(before)).toBe(true);
     },
   );
   it("refuses corrupt and unsupported legacy state without resetting originals", () => {
@@ -550,7 +550,7 @@ describe("forward format admission", () => {
     db.prepare("update summary_state set format_version=99").run();
     const before = db.serialize();
     expect(() => migrateDatabase(db)).toThrow();
-    expect(db.serialize()).toEqual(before);
+    expect(db.serialize().equals(before)).toBe(true);
     schema23();
     const payload = JSON.stringify({
       version: 1,
@@ -563,7 +563,7 @@ describe("forward format admission", () => {
     );
     const corrupt = db.serialize();
     expect(() => migrateDatabase(db)).toThrow();
-    expect(db.serialize()).toEqual(corrupt);
+    expect(db.serialize().equals(corrupt)).toBe(true);
     schema23();
     db.prepare(
       "insert into conversation(id,title,created_at,updated_at) values('authored','Authored',1,1)",
@@ -575,6 +575,6 @@ describe("forward format admission", () => {
     expect(() => migrateDatabase(db)).toThrow(
       "summary_legacy_corrupt_or_unsupported",
     );
-    expect(db.serialize()).toEqual(corruptPin);
+    expect(db.serialize().equals(corruptPin)).toBe(true);
   });
 });
