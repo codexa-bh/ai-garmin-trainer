@@ -541,6 +541,25 @@ it("reveals only exact authored memory text, refusing other content without leak
     (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
   ).toBe(false);
 });
+it("reveals only the exact conditional purpose hint and restores its mask without admitting appended private text", async () => {
+  const hint = document.createElement("p");
+  hint.textContent =
+    "When enabled, memory helps your trainer carry important details from previous conversations into new chats.";
+  document.querySelector(".memory-root-card")!.append(hint);
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(true);
+  expect(getComputedStyle(hint).visibility).toBe("visible");
+  window.__trainerSmokeRestore();
+  expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+  hint.textContent += " private unknown details";
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(true);
+  expect(getComputedStyle(hint).visibility).toBe("hidden");
+  window.__trainerSmokeRestore();
+  expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+});
 it("masks content and preserves geometry for only verified static controls; restores masks and refuses direct ancestor text", async () => {
   expect(
     (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,

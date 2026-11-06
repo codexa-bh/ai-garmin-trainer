@@ -156,7 +156,9 @@ forgotten sources, explicit legacy confirmation and fixed running/complete/
 interrupted or unavailable-read states. Internal older-pin/accounting metadata is
 not rendered. Final confirmation names uncertain clearing without presenting raw
 codes, price formulas, counters or technical dashboards. Only exact independently enumerated authored/static
-text and canonical draft values can be captured under unchanged geometry-preserving
+text (including the conditional overview purpose sentence, “When enabled, memory
+helps your trainer carry important details from previous conversations into new
+chats.”) and canonical draft values can be captured under unchanged geometry-preserving
 hide-by-default masks. Unknown values stay masked or refuse. Fixture mode blocks
 mutation/confirmation actions; Forget/Clear may only open then cancel review.
 Reset, close and 120-second expiry restore the original fetch. Per-capture mask
