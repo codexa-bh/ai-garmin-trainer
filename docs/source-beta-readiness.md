@@ -36,6 +36,14 @@ Desktop settings reference an explicit DB/token store with provider keys in the 
 | Backup                  | Copy SQLite only after stopping the app and remember it may contain redacted local Garmin raw-payload records. Do not bundle model-provider keys, Garmin token contents, prompts, raw connector dumps, unredacted raw payloads, or precise GPS streams into support artifacts.                                                                                                                                                 |
 | Uninstall               | Quit the native app. Removing the local app bundle does not remove external DB/backups/config/tokens or independently managed tools. Preserve durable state, private versioned settings and Keychain entries for recovery unless the operator separately chooses reviewed removal; do not delete source worktrees, external credentials or ambiguous data as automatic cleanup. No background service/login item is installed. |
 
+Future task-owned rehearsal/restore/run-backup copies follow the
+[finite placement recipe](smoke-inputs.md#task-owned-rehearsal-restore-and-run-backup-placement):
+explicit owning task and source/use authority, verified allocator-returned disposable
+storage, exclusive private WAL-consistent online copies and compact evidence.
+This does not reclassify genuine operator/pre-upgrade backups or borrowed inputs,
+change the migration CLI's sibling-backup behavior, or authorize production
+migration, existing-data disposition or cleanup.
+
 Weekly plans/reviews (schema 16) are independent user documents: migration creates empty additive storage and does not fabricate commitments or alter the General Plan. Confirmed artifacts survive both chat/Profile clearing and Garmin deletion; pending proposal authority is cleared with its conversation. No new artifact deletion scope is provided. Back up before adopting the new schema; automatic downgrade is unsupported and a pre-upgrade backup remains the rollback boundary. No Garmin re-sync/backfill is required for this document-only migration.
 
 ## Memory and coaching reliability
