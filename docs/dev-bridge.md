@@ -64,14 +64,15 @@ scheduler/larger allowances; requalify exact cumulative worst-case costs before 
 
 ### Integrated keyless Memory controls
 
-The content-first sheet uses Add memory / Save memory / Turn Off / Turn On labels;
-old control names below describe the retained semantic actions, not the current
-button labels. Ordinary observations use the explicit settled inspection marker,
+The content-first sheet has one Generated summary with Edit summary / Save summary,
+and separate Your preferences with Add preference / Edit preference / Save preference /
+Remove preference. Turn Off / Turn On preserves stored content without using it.
+Legacy finite action names below describe adapter compatibility, not generated cards. Ordinary observations use the explicit settled inspection marker,
 including secondary views, rather than inferring readiness from Add visibility.
 
 The `--summary-engine` scenario also exercises the actual Trainer Memory sheet
 through an ordinary-only finite `memory` command. Actions are exactly `observe`,
-`open`, `close`, `reload`, `add`, `edit`, `draft`, `draft-update`, `save`, `forget`,
+`open`, `close`, `reload`, `add`, `edit`, `summary-edit`, `draft`, `draft-update`, `save`, `forget`,
 `clear`, `disable`, `enable`, and `retry`. No caller text, source ID,
 selector, script, import selection or private readback is accepted. Drafts are
 fixed run-attributed T0272 synthetic preferences, extended by T0283 with the fake
@@ -86,9 +87,15 @@ confirmation prose.
 Results contain only action/visibility/loaded/manual-state/Off/editor booleans.
 Native ordinary/run/boot/origin/request/deadline and unknown-effect guards remain.
 
-The keyless runner saves and edits one manual preference, observes owned-restart
-persistence, Forgets it, disables/enables and Clears derivatives while verifying
-original conversation/message hashes. Bounded reads observe settlement; mutations
+The keyless runner saves a manual preference and edits/saves the complete generated
+summary independently through fixed `summary-edit` and editor-context `save` actions.
+The same run-bound canonical synthetic drafts are the only permitted input; no caller
+text/selector/API proxy or default-launch capability is added. It checks exact generated
+character count plus canonical DOM and separate-preference retention, captures wide/narrow,
+then edits the preference, observes both through owned restart, removes only the preference,
+disables/enables and Clears derivatives while verifying original conversation/message hashes.
+Commands use the current version2 CAS envelope. Native/DOM/Python positive, negative,
+unknown-result and capture-restoration contracts must pass before this changed route is used. Bounded reads observe settlement; mutations
 are never repeated to obtain green. `captureView:memory` at existing wide/narrow
 sizes reveals only verified static headings/buttons at their actual geometry.
 Only exact run-attributed canonical manual content, verified concise static copy,
@@ -137,7 +144,8 @@ all or first fixed fixture chat, version1 and boolean legacy intent; extra/forei
 stale fields refuse. This answers presentation metadata only, never backend authority. Native keyless scheduling is unchanged.
 No caller text, IDs, paths, fixtures, selectors, scripts or DTOs are accepted.
 
-Fixtures include three fully authored qualified/negative/past items, empty/error/
+Fixtures include one complete generated summary of three authored qualified/negative/past
+paragraphs plus a separately authored concise preference, empty/error/
 Off states, all/selected-chat review with180 uncertain old messages and4 known
 forgotten sources, explicit legacy confirmation and fixed running/complete/
 interrupted or unavailable-read states. Internal older-pin/accounting metadata is
@@ -171,6 +179,53 @@ This supplements representative real keyless manual lifecycle
 and adjacent isolation/Goals/restart smoke; it proves no paid provider quality,
 qualified actual chat use or installed/primary state. All images stay local and
 must be inspected.
+
+## Task-scoped actual-history whole-summary proof (T0284)
+
+`npm run smoke:t0284:summary -- --scratch <canonical-T0284-root> --bundle
+<current-ordinary-app>` checks the existing task-owned actual-derived copy/admission
+without paid effects. `--execute` is only an execution switch, **not consent**: the
+caller must already hold T0284's genuine actual-DB/direct-Luna/cumulative-USD20 contract.
+The helper refuses another task, missing/changed contract, Stop/Pause/custom controls,
+noncanonical/foreign inputs, changed full counts, nonzero routine backlog or an
+unqualified artifact. It does not widen generic numeric fixture grants, discover private
+files, seed/delete originals, change primary settings, start chat/titles or retry.
+
+This is a finite task helper, not a general fixture/grant/provider-budget service.
+It reuses native-selected metadata, SQLite online copies, ordinary artifact/run/boot/
+origin/opaque-provider owners and existing private pipes. The historical native
+`t0272-integrated-memory-luna-200` spelling is transport compatibility only, never
+T0284 consent or a budget. New managed DB/runtime copies use disposable scratch;
+compact provenance/receipts remain private evidence. No credential readback, generated
+secret env file, primary control or production automation endpoint is added.
+
+Current official Luna context/output maxima and documented long/cache/Fast/regional
+premiums give a conservative roundedUSD1.37 per effect, independent of a guessed
+character/token ratio or old `summaryLimits`. Before the one provider boot, an exclusive
+fsynced task-cumulative claim reserves every possible fixed20-source batch. Zero
+routine backlog/no chat/title calls and one inference per captured chunk bound effects;
+interruption cannot restart a rebuild. One separately claimed private Luna-only
+categorical quality assessment is the only additional effect. Each changed-hypothesis run has a new immutable UUID namespace under the same task
+ledger, never anotherUSD20 allowance. An exclusive aggregate lock prevents competing
+claims. Preserve legacy claims byte-for-byte. A verified append-only settlement can
+account returned known usage at worst documented rates after authenticated native
+closure, original/title preservation and exact attempt accounting. This settles a
+prospective reservation, not an invoice or refund: failed calls still count. Unknown
+usage/unsettled effects stay against the full reservation; partial/altered/foreign
+records refuse. Per-scope dispatch seals/results are exclusive. No automatic repeats,
+resets or other-task allowances. Actual counts, source/artifact/helper/reference hashes and observed usage
+remain separate from conservative reservations and invoices.
+
+Raw actual history/summary never goes to the coding model or public evidence. A
+minimal task-local native-owner adapter privately passes the captured OpenAI slot to
+one direct-Luna assessment child; only admitted user prose/bounded assistant context
+and final summary enter that request. Closed rubric booleans/usage leave it, not source
+excerpts or arbitrary rationale. Record the same-model-judge limitation: this is not
+human inspection or remote next-turn chat inference. Local composition/adoption remains
+independent evidence. All before-use native/DOM/Python admission, budget, negative,
+unknown/late-result, restoration and original-preservation contracts bind. Required
+visual evidence uses authored state/current ordinary Memory captures, never raw private
+captures or uploads. Missing real whole success stays unfinished even after source merge.
 
 ## Finite authored rebuild integration
 
@@ -1045,9 +1100,9 @@ actual full-build/reuse times; unit counters are not end-to-end savings.
 
 ## Preparation reuse and owned disposal
 
-Managed Pivan sessions use the same app-owned scratch contract as every epic, including E0005. When explicit `--scratch` exactly matches the canonical task root named by `PIVAN_TASK_PATH`, the existing invocation owner asks compatible `pivan-harness task-scratch path --category evidence|disposable --create` tooling for paths; incompatible/foreign results refuse before launch. Generic standalone scratch remains independent of ambient task routing. Native run roots (DB/settings/WebView/temp/app copies), execution binaries and observers use disposable; compact scenario/build/disposition logs/receipts, preparation inputs and copied native-confined PNGs use evidence. The existing owner persists compact run evidence before owned bulk disposal; no parallel disposer or native admission relaxation is added. Saved legacy screenshot records remain valid.
+Managed Pivan sessions use the same app-owned scratch contract as every epic, including E0005. When explicit `--scratch` exactly matches the canonical task root named by `PIVAN_TASK_PATH`, the existing invocation owner asks compatible `pivan-harness task-scratch path --category evidence|disposable --create` tooling for paths; incompatible/foreign results refuse before launch. Generic standalone scratch remains independent of ambient task routing. Native run roots (DB/settings/WebView/temp/app copies), mutable preparation DBs, execution binaries and observers use disposable; compact scenario/build/disposition logs/receipts, preparation provenance and copied native-confined PNGs use evidence. New managed preparation routes translate through the existing category owner before allocating either synthetic or authorized numeric-copy DBs; standalone/borrowed/prepare-only promises remain unchanged. The existing owner persists compact run evidence before owned bulk disposal; no parallel disposer or native admission relaxation is added. Saved legacy screenshot records remain valid.
 
-Failed/unknown, preparation-only, preservation/settlement/evidence/disposal-failed invocations call the compatible `task-scratch preserve <task> --category disposable` safeguard: retain the original exact allocation as unclassified seven-day recovery, never duplicate a whole bulky failed run or renew closure. Later use never silently restores six-hour classification. Report recovery-hold/tooling failure truthfully and keep the task open for reconciliation if preservation cannot be established. On successful runs, ordinary six-hour scheduler expiry is only an eventual backstop; early owned disposal keeps all existing settlement/original/evidence checks.
+Failed/unknown, preparation-only and preservation/settlement/evidence/disposal-failed invocations retain truthful diagnostics and skip immediate disposal. They do not invoke a recovery-hold writer, reclassify an allocation, duplicate a whole runtime into evidence or extend configured retention. Select only necessary non-reconstructable reproduction evidence before closure. Successful immediate runner disposal still needs every existing settlement/original/evidence check; scheduler expiry is independent.
 
 Build/resource toolchain exceptions are concrete: Next standalone/resource assembly, ordinary Tauri packaging and verified preparation stamps bind checkout-relative `.next`, `dist`, `src-tauri/resources` and `src-tauri/target`; Node resolution requires checkout-local `node_modules`. Relocating those changes build/resource/admission contracts and is not this minimal adapter. These caches remain isolated by source worktree, subject to its six-hour disposal lifetime and full existing input/toolchain/mode/inventory verification; no mutable cross-worktree sharing, duplicate relocated cache or existence-only reuse. New run/staging/runtime bulk is not covered by this exception. Common policy/procedure belongs to Pivan's app-owned rh-task and source `docs/task-scratch.md`, not a separate E0007 policy.
 

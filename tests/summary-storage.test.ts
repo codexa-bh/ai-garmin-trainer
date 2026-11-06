@@ -13,7 +13,7 @@ import {
 } from "@/lib/memory/summary-application";
 import {
   minimizeSummarySource,
-  validateSummaryPatch,
+  validateSummaryReplacement,
   type SummaryBatch,
 } from "@/lib/memory/summary-policy";
 import { replayMessages } from "@/lib/chat/conversation-replay";
@@ -54,61 +54,23 @@ function candidate(batch: SummaryBatch) {
     const input = minimizeSummarySource(source);
     return input ? [input] : [];
   });
-  return validateSummaryPatch(
+  return validateSummaryReplacement(
     {
-      version: 1,
-      keep: batch.previous.items.map((item) => item.id),
-      upsert: inputs.map((source, index) => ({
-        id: `item_${batch.revision}_${index}`,
-        text: source.user,
-        category: source.user.includes("not chosen")
-          ? "discussion"
-          : "decision",
-        stance: source.user.includes("not chosen")
-          ? "discussed-not-endorsed"
-          : "user-stated",
-        sourceIds: [source.sourceId],
-        priority: 4,
-        expiresAt: null,
-        replaces: [],
-      })),
-      remove: [],
-      coverage: inputs.map((input) => ({
-        sourceId: input.sourceId,
-        reason: "represented",
-      })),
+      summary: [batch.previous.text, ...inputs.map((input) => input.user)]
+        .filter(Boolean)
+        .join("\n"),
     },
     batch,
     inputs,
-    now,
   )!;
 }
 function fakeGeneration(): SummaryGeneration {
   return {
     generate: vi.fn(async (_system, prompt) => {
-      const value = JSON.parse(prompt) as {
-        previous: { id: string }[];
-        newSources: { sourceId: string }[];
-      };
+      expect(typeof JSON.parse(prompt).previous).toBe("string");
       return {
         patch: {
-          version: 1,
-          keep: value.previous.map((item) => item.id),
-          upsert: value.newSources.map((source, index) => ({
-            id: `generated_${value.previous.length}_${index}`,
-            text: "Short weekdays chosen for time; long weekdays rejected.",
-            category: "decision",
-            stance: "endorsed",
-            sourceIds: [source.sourceId],
-            priority: 4,
-            expiresAt: null,
-            replaces: [],
-          })),
-          remove: [],
-          coverage: value.newSources.map((source) => ({
-            sourceId: source.sourceId,
-            reason: "represented",
-          })),
+          summary: "Short weekdays chosen for time; long weekdays rejected.",
         },
         usage: { input: 100, output: 40, cached: null },
       };
@@ -311,7 +273,7 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
           "update summary_control set manual_revision=manual_revision+1",
         ).run();
       expect(storage.publish(batch, candidate(batch), now)).toBe(false);
-      expect(storage.read().items).toEqual([]);
+      expect(storage.read().text).toBe("");
       expect(storage.status(now).frontier).toBe(0);
     },
   );
@@ -410,8 +372,8 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
     const second = ready();
     storage.publish(second, candidate(second), now);
     expect(storage.isGenerationCurrent(snapshot.stamp)).toBe(true);
-    expect(snapshot.value.items).toHaveLength(1);
-    expect(storage.read().items).toHaveLength(2);
+    expect(snapshot.value.text.split("\n")).toHaveLength(1);
+    expect(storage.read().text.split("\n")).toHaveLength(2);
     db.prepare(
       "update summary_control set manual_revision=manual_revision+1",
     ).run();
@@ -421,28 +383,22 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
     expect(storage.isGenerationCurrent(current.stamp)).toBe(false);
     expect(storage.revision()).toBeNull();
   });
-  it("expires temporary content at use and locally publishes expiry without new source/provider work", async () => {
+  it("does not invent item-expiry maintenance or provider work on passive reads of complete text", async () => {
     complete();
-    const first = ready(),
-      value = candidate(first);
-    value.value.items[0]!.expiresAt = now + 1000;
-    storage.publish(first, value, now);
-    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const first = ready();
+    storage.publish(first, candidate(first), now);
     const snapshot = storage.revision()!;
     now += 31000;
-    expect(storage.read().items).toEqual([]);
-    expect(storage.isGenerationCurrent(snapshot.stamp)).toBe(false);
-    const generation = fakeGeneration(),
-      app = engine(generation);
-    await app.tick(new AbortController().signal);
-    now += 10001;
-    await app.tick(new AbortController().signal);
+    const generation = fakeGeneration();
+    storage.read();
+    storage.status(now);
+    await engine(generation).tick(new AbortController().signal);
     expect(generation.generate).not.toHaveBeenCalled();
-    expect(storage.read().items).toEqual([]);
+    expect(storage.read()).toEqual(snapshot.value);
     expect(storage.status(now).frontier).toBe(1);
     expect(
-      db.prepare("select reason from summary_item_disposition").get(),
-    ).toEqual({ reason: "expired" });
+      db.prepare("select count(*) n from summary_item_disposition").get(),
+    ).toEqual({ n: 0 });
   });
   it("does not reset corrupted/unknown state and cannot overwrite it with configure/control", () => {
     db.prepare(
@@ -576,7 +532,7 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
 });
 
 describe("supplied generation with real SQLite application", () => {
-  it("bounds large backlog to20 and shrinks only an unconsumed suffix after exact token admission", async () => {
+  it("bounds backlog to20 and refuses capacity without automatic shrinking, retry or frontier advancement", async () => {
     for (let i = 0; i < 25; i++) complete(`batch${i}`);
     const normal = fakeGeneration();
     const generate = vi.fn(
@@ -592,14 +548,16 @@ describe("supplied generation with real SQLite application", () => {
     now += 120001;
     await app.tick(new AbortController().signal);
     expect(JSON.parse(generate.mock.calls[0]![1]).newSources).toHaveLength(20);
+    expect(generate).toHaveBeenCalledOnce();
     expect(storage.status(now)).toMatchObject({
-      frontier: 2,
-      pending: 23,
+      frontier: 0,
+      pending: 25,
       attemptsToday: 1,
+      reason: "summary_input_capacity",
     });
     expect(
       db.prepare("select count(*) as n from summary_disposition").get(),
-    ).toEqual({ n: 2 });
+    ).toEqual({ n: 0 });
   });
   it("single oversized event never advances frontier or infers a partial summary", async () => {
     complete();
@@ -675,8 +633,8 @@ describe("supplied generation with real SQLite application", () => {
       generate: vi.fn(
         async (...args: Parameters<SummaryGeneration["generate"]>) => {
           const result = await normal.generate(...args);
-          const patch = result.patch as { upsert: { text: string }[] };
-          patch.upsert[0].text = text;
+          const patch = result.patch as { summary: string };
+          patch.summary = text;
           return result;
         },
       ),
@@ -691,14 +649,8 @@ describe("supplied generation with real SQLite application", () => {
         .user,
     ).toBe(text);
     expect(storage.status(now).frontier).toBe(1);
-    expect(storage.read().items).toHaveLength(1);
-    expect(storage.read().text).toContain(text);
-    storage.edit(
-      storage.version(),
-      storage.read().items[0].id,
-      `${text}; edited`,
-      now,
-    );
+    expect(storage.read().text).toBe(text);
+    storage.editSummary(storage.version(), `${text}; edited`, now);
     const saved = storage.inspect();
     const bytes = db.serialize();
     db.close();
@@ -706,7 +658,7 @@ describe("supplied generation with real SQLite application", () => {
     expect(storage.read()).toEqual(saved);
     expect(storage.read().text).toContain(text);
     expect(db.prepare("select reason from summary_disposition").get()).toEqual({
-      reason: "represented",
+      reason: "processed",
     });
   });
   it("rejects cancellation after inference and retains unknown cost without late writes", async () => {

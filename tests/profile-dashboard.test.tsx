@@ -5008,7 +5008,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
 });
 
 describe("TrainerDashboard memory and new chat", () => {
-  it("renders integrated summary and preserved legacy review with versioned edit/forget controls and focus return", async () => {
+  it("renders one whole summary and separate preferences without generated Source/Forget claims, with versioned edit and focus return", async () => {
     let patchedBody: unknown;
     const memories = [
       {
@@ -5045,8 +5045,8 @@ describe("TrainerDashboard memory and new chat", () => {
       revision: 3,
       frontier: 4,
       pending: 0,
-      items: 4,
-      characters: 200,
+      items: 1,
+      characters: memories.map((item) => item.text).join("\n").length,
       cap: 6000,
       publishedAt: 1,
       enabled: true,
@@ -5059,21 +5059,12 @@ describe("TrainerDashboard memory and new chat", () => {
       priceBasis: "synthetic-review-basis",
       expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
       stored: {
-        version: 1,
-        text: "Synthetic summary",
-        items: memories.map((item) => ({
-          id: item.id,
-          text: item.text,
-          category: "decision",
-          stance: "user-stated",
-          sourceIds: ["turn:1"],
-          priority: 4,
-          expiresAt: null,
-          reviewAt: 1,
-        })),
+        version: 2,
+        text: memories.map((item) => item.text).join("\n"),
       },
-      manualIds: [],
-      sources: [],
+      preferences: [
+        { id: "authored-note", text: "Keep explanations concise." },
+      ],
       legacy: [
         {
           id: "legacy-only",
@@ -5133,27 +5124,36 @@ describe("TrainerDashboard memory and new chat", () => {
     expect(screen.queryByRole("dialog", { name: "Profile & data" })).toBeNull();
     expect(screen.queryByText(/Latest revision 3/)).toBeNull();
     expect(screen.queryByText("Preserved inactive record")).toBeNull();
-    expect(screen.getByText("Prefers morning hikes")).toBeTruthy();
-    expect(screen.getByText("Temporary plan for taper week")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(4);
-    expect(screen.getAllByRole("button", { name: "Forget" })).toHaveLength(4);
+    expect(
+      screen.getByText(memoryPayload.stored.text, {
+        normalizer: (text) => text,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText("Keep explanations concise.")).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: "Edit summary" }),
+    ).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: "Edit preference" }),
+    ).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Forget" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Source" })).toBeNull();
     expect(screen.queryByLabelText("Search memory text")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Update this chat" }),
     ).toBeNull();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
     const editBox = screen.getByRole("textbox", {
-      name: "Memory",
+      name: "Complete generated summary",
     }) as HTMLTextAreaElement;
     fireEvent.change(editBox, { target: { value: "Prefers sunrise hikes" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save summary" }));
     await waitFor(() =>
       expect(patchedBody).toMatchObject({
-        version: 1,
+        version: 2,
         expected: memoryPayload.expected,
-        id: "memory-old",
-        action: "edit",
+        action: "edit-summary",
         text: "Prefers sunrise hikes",
       }),
     );

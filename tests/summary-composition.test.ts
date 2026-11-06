@@ -78,27 +78,9 @@ async function due() {
   vi.setSystemTime(Date.now() + 10001);
 }
 function valid(_system: string, prompt: string) {
-  const input = JSON.parse(prompt) as { newSources: { sourceId: string }[] };
+  expect(JSON.parse(prompt)).toHaveProperty("previous");
   return {
-    patch: {
-      version: 1,
-      keep: [],
-      upsert: input.newSources.map((source, i) => ({
-        id: `item${i}`,
-        text: "Short weekdays for time.",
-        category: "constraint",
-        stance: "user-stated",
-        sourceIds: [source.sourceId],
-        priority: 4,
-        expiresAt: null,
-        replaces: [],
-      })),
-      remove: [],
-      coverage: input.newSources.map((source) => ({
-        sourceId: source.sourceId,
-        reason: "represented",
-      })),
-    },
+    patch: { summary: "Short weekdays for time." },
     usage: { input: 100, output: 40, cached: null },
   };
 }
@@ -166,7 +148,7 @@ describe("actual production summary composition and foreground cancellation", ()
     ensureConversation("refresh-target");
     f.generate.mockImplementation(() => new Promise(() => {}));
     const prepared = prepareSummaryAdoption({
-      version: 1,
+      version: 2,
       action: "refresh",
       expected: summaryStorage.version(),
       conversationId: "refresh-target",

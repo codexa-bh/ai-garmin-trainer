@@ -1,23 +1,8 @@
-import type { SummaryItem } from "@/lib/memory/summary-policy";
 import type { SummaryInspection } from "./use-memory";
 
-export function memoryQualification(item: SummaryItem) {
-  const category = {
-    decision: "Decision",
-    constraint: "Constraint",
-    goal: "Goal",
-    rejected: "Rejected",
-    question: "Open question",
-    temporary: "Temporary",
-    discussion: "Discussion",
-  }[item.category];
-  return item.stance === "discussed-not-endorsed"
-    ? `${category} · Discussed · not decided`
-    : `${category} · ${item.stance === "endorsed" ? "Endorsed" : "User-stated"}`;
-}
-
 export function memoryStatus(memory: SummaryInspection) {
-  if (!memory.enabled) return "Saved items retained";
+  if (!memory.enabled)
+    return "Saved summary and preferences retained, not in use";
   if (
     memory.state === "unselected" ||
     memory.reason === "summary_unsupported_model"
@@ -49,7 +34,7 @@ export function memoryStatus(memory: SummaryInspection) {
   return memory.state === "never-produced"
     ? "No automatic memory saved yet"
     : memory.state === "fresh"
-      ? memory.stored.items.length
+      ? memory.stored.text || memory.preferences.length
         ? "Saved memory available"
         : "No saved memories"
       : "Saved memory unavailable · check again";
@@ -178,8 +163,10 @@ export function HistoryReview({
             ) : (
               "Cost is not known in advance. "
             )}
-            Existing memory stays until the update succeeds; manual edits and
-            conversations are preserved.
+            The previous generated summary stays until the update succeeds. A
+            successful update replaces all generated text, including direct
+            summary edits. Separately authored preferences and conversations are
+            preserved.
           </p>
           <p>
             Keep the app open. Cancelling stops further work, not text already
@@ -278,8 +265,8 @@ export function HistoryProgress({
         </p>
       ) : op.state === "complete" ? (
         <p>
-          The complete replacement was saved. Manual edits and conversations
-          remain; new chat turns use available valid memory.
+          The complete replacement was saved. Separate preferences and
+          conversations remain; new chat turns use available valid memory.
         </p>
       ) : (
         <>
@@ -295,7 +282,7 @@ export function HistoryProgress({
           </p>
           <p>
             No completed replacement was saved by this update. Previous memory
-            was not replaced; independent Clear, Forget or Off changes still
+            was not replaced; independent Clear, privacy or Off changes still
             apply. Earlier request costs may be unknown. Nothing is repeated
             automatically.
           </p>

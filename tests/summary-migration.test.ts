@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,12 +49,48 @@ function snapshot(db: Database.Database) {
     return { name, columns, query, rows: db.prepare(query).all() };
   });
 }
-function preserved(db: Database.Database, before: ReturnType<typeof snapshot>) {
-  for (const table of before)
-    expect(db.prepare(table.query).all(), table.name).toEqual(table.rows);
+function preserved(
+  db: Database.Database,
+  before: ReturnType<typeof snapshot>,
+  wholeSummaryTransition = false,
+) {
+  for (const table of before) {
+    const expected = table.rows.map((raw) => {
+      const row = raw as Record<string, unknown>;
+      if (!wholeSummaryTransition) return row;
+      if (table.name === "summary_control")
+        return {
+          ...row,
+          generation: Number(row.generation) + 1,
+          manual_revision: Number(row.manual_revision) + 1,
+          job_id: null,
+          lease_until: 0,
+        };
+      if (table.name === "summary_state") {
+        const payload = JSON.stringify({
+          version: 2,
+          text: JSON.parse(String(row.payload)).text,
+        });
+        const revision = Number(row.revision) + 1;
+        const checksum = createHash("sha256")
+          .update(
+            JSON.stringify([
+              revision,
+              row.frontier,
+              row.privacy_generation,
+              payload,
+            ]),
+          )
+          .digest("hex");
+        return { ...row, format_version: 2, revision, payload, checksum };
+      }
+      return row;
+    });
+    expect(db.prepare(table.query).all(), table.name).toEqual(expected);
+  }
 }
 
-it("rehearses additive19→23 on a populated online copy and restores only a separate pre-write backup", async () => {
+it("rehearses19→24 with exact derived-format/generation changes, preserves originals and restores only a separate pre-write backup", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "summary-transition-")));
   const source = new Database(join(root, "original.sqlite"));
   let copy: Database.Database | undefined;
@@ -77,7 +114,7 @@ it("rehearses additive19→23 on a populated online copy and restores only a sep
       copy.prepare("select * from summary_original_boundary").get(),
     ).toEqual({ id: 1, floor: 2, clear_floor: 0 });
     expect(copy.pragma("integrity_check", { simple: true })).toBe("ok");
-    preserved(copy, before);
+    preserved(copy, before, true);
     expect(() => assertDesktopDatabase(path)).not.toThrow();
     for (const table of [
       "conversation_summary_pin",

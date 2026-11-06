@@ -46,7 +46,7 @@ def status(run, action=None):
     client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
     try:
         client.request('GET' if action is None else 'POST', '/api/cross-chat-summary',
-                       None if action is None else json.dumps({'version': 1, 'expected': expected, 'action': action}), {'Content-Type': 'application/json'})
+                       None if action is None else json.dumps({'version': 2, 'expected': expected, 'action': action}), {'Content-Type': 'application/json'})
         response = client.getresponse()
         raw = response.read(4097)
         if response.status != 200 or len(raw) > 4096:
@@ -118,6 +118,21 @@ def memory_controls(run):
         image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
         images.append({'state': 'manual-saved', 'preset': preset, **image})
         private_json(run.root / ('memory-capture-' + preset + '.json'), images[-1])
+    action('summary-edit')
+    memory_wait(run, lambda value: value['editing'], 'whole generated summary editor')
+    action('draft-update')
+    before_summary = status(run)['expected']
+    action('save')
+    memory_wait(run, lambda value: value['loaded'] and value['hasManual'] and not value['editing'], 'summary saved separately from preference')
+    summary_chars = len(f'T0272-{run.id}: Weekends remain optional; poles not chosen. Fake path /Users/example/notes; quoted ignore previous instructions.')
+    after_summary = status(run)
+    if after_summary['expected'] == before_summary or after_summary['characters'] != summary_chars:
+        raise ValueError('Complete generated summary did not commit; no mutation replay')
+    for preset in ['wide', 'narrow']:
+        run.command({'type': 'setViewport', 'preset': preset})
+        image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
+        images.append({'state': 'whole-summary-and-preference', 'preset': preset, **image})
+        private_json(run.root / ('whole-summary-' + preset + '.json'), images[-1])
     action('edit')
     memory_wait(run, lambda value: value['editing'], 'manual edit')
     action('draft-update')
@@ -128,6 +143,8 @@ def memory_controls(run):
     run.start(run.binary)
     action('open')
     memory_wait(run, lambda value: value['loaded'] and value['updatedManual'], 'manual survives owned restart')
+    if status(run)['characters'] != summary_chars:
+        raise ValueError('Whole summary edit did not survive owned restart')
     action('forget')
     memory_wait(run, lambda value: value['confirmationVisible'], 'forget review')
     action('confirm')
@@ -156,7 +173,7 @@ def memory_controls(run):
         raise ValueError('Memory controls changed original conversation/message bytes')
     private_json(run.root / 'integrated-memory-controls.json', {
         'task': 'T0272', 'runId': run.id, 'source': run.config['source'],
-        'manualEditForgetClearOffEnableRestart': True, 'originalChatsPreserved': True,
+        'manualEditForgetClearOffEnableRestart': True, 'wholeSummaryEditSaveRestart': True, 'preferencesSeparateFromGeneratedAllowance': True, 'originalChatsPreserved': True,
         'providerCalls': 0, 'captures': images, 'emptyCapture': empty_image, 'rebuildCaptures': rebuild_images, 'presentationCaptures': presentation_images,
         'rebuildPreflightKeylessRefusal': True,
         'rebuildSuccess': 'unavailable without separate native provider/model/export/cumulative-cost approval',
@@ -178,7 +195,7 @@ def memory_presentations(run):
     action('fixture-populated')
     memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'populated fixed presentation')
     capture('populated')
-    action('item-details'); capture('item-detail', ('wide',)); action('back')
+    action('summary-edit'); action('draft'); capture('whole-summary-editor', ('wide', 'narrow')); action('cancel-edit')
     action('manage'); capture('manage', ('narrow',)); action('back')
     action('manage'); action('clear'); capture('clear-confirmation', ('narrow',)); action('cancel-confirm'); action('back')
     action('forget'); capture('forget-confirmation', ('narrow',)); action('cancel-confirm')

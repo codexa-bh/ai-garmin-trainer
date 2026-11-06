@@ -1,21 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSummaryGeneration } from "@/lib/memory/summary-provider";
 import { getOptionalEnv } from "@/lib/env";
+import { validSummaryValue } from "@/lib/memory/summary-policy";
 import { encodeSummarySelection } from "@/lib/model-settings/summary-selection";
 import type { ChatProvider } from "@/lib/model-settings/contracts";
 
-const ids = ["original:authored-a", "turn-b:1"];
 const prompt = JSON.stringify({
-  requiredCoverageSourceIds: ids,
-  newSources: ids.map((sourceId) => ({ sourceId, user: "Authored source." })),
+  previous: "Previous complete draft",
+  characterCap: 6000,
+  newSources: [{ user: "Authored source." }],
 });
-const patch = {
-  version: 1,
-  keep: [],
-  upsert: [],
-  remove: [],
-  coverage: Object.fromEntries(ids.map((id) => [id, "low-value"])),
-};
+const patch = { summary: "Complete revised summary with rationale." };
 
 // Actual locked SDK wire serialization, supplied responses; no network/support or
 // semantic-quality claim. Arbitrary literal identities, not a qualified-model list.
@@ -139,10 +134,7 @@ describe("independent exact catalog summary/title serialization", () => {
         prompt,
         new AbortController().signal,
       );
-      expect(result.patch).toEqual({
-        ...patch,
-        coverage: ids.map((sourceId) => ({ sourceId, reason: "low-value" })),
-      });
+      expect(result.patch).toEqual(patch);
       expect(result.usage).toEqual({ input: 100, output: 20, cached: 0 });
       expect(requests).toHaveLength(1);
       const request = requests[0]!;
@@ -166,7 +158,9 @@ describe("independent exact catalog summary/title serialization", () => {
       ])
         expect(request.body).not.toHaveProperty(key);
       if (provider === "openai") expect(request.body.store).toBe(false);
-      expect(JSON.stringify(request.body)).toContain("For this transport ONLY");
+      expect(JSON.stringify(request.body)).not.toMatch(
+        /requiredCoverageSourceIds|summary_patch|replaces|sourceIds/,
+      );
     },
   );
 
@@ -198,55 +192,97 @@ describe("independent exact catalog summary/title serialization", () => {
       expect(text.format).toMatchObject({
         type: "json_schema",
         strict: true,
-        name: purpose === "title" ? "chat_title" : "summary_patch",
+        name: purpose === "title" ? "chat_title" : "summary_text",
         schema: { additionalProperties: false },
       });
       const properties = text.format.schema.properties as Record<
         string,
         Record<string, unknown>
       >;
-      if (purpose === "summary")
-        expect(properties.coverage).toMatchObject({
-          type: "object",
-          additionalProperties: false,
-          required: ids,
-        });
+      if (purpose === "summary") {
+        expect(Object.keys(properties)).toEqual(["summary"]);
+        expect(properties.summary).toMatchObject({ type: "string" });
+        expect(text.format.schema.required).toEqual(["summary"]);
+      }
     },
   );
 
+  it("preserves scalar text without decoder-side character forcing or a token limit", async () => {
+    const text = "🥾".repeat(1000);
+    const f = fixture("openai", { patch: { summary: text } });
+    const generation = createSummaryGeneration(
+      f.env,
+      f.transport,
+      () => true,
+      "summary",
+      1000,
+    );
+    const result = await generation.generate(
+      "Complete bounded summary",
+      prompt,
+      new AbortController().signal,
+    );
+    const format = (
+      f.requests[0].body.text as {
+        format: { schema: { properties: { summary: { pattern: string } } } };
+      }
+    ).format;
+    expect(format.schema.properties.summary).not.toHaveProperty("pattern");
+    expect(format.schema.properties.summary).not.toHaveProperty("maxLength");
+    expect(result.patch).toEqual({ summary: text });
+    expect(text.length).toBe(2000);
+    expect(validSummaryValue({ version: 2, text }, 1000)).toBe(true);
+    expect(validSummaryValue({ version: 2, text: text + "a" }, 1000)).toBe(
+      false,
+    );
+    expect(f.requests).toHaveLength(1);
+    expect(f.requests[0].body).not.toHaveProperty("max_output_tokens");
+  });
+  it("returns the complete oversized draft for application validation, without clipping or transport retry", async () => {
+    const f = fixture("openai", { patch: { summary: "a".repeat(1001) } });
+    const generation = createSummaryGeneration(
+      f.env,
+      f.transport,
+      () => true,
+      "summary",
+      1000,
+    );
+    const result = await generation.generate(
+      "policy",
+      prompt,
+      new AbortController().signal,
+    );
+    expect(result.patch).toEqual({ summary: "a".repeat(1001) });
+    expect(
+      validSummaryValue({ version: 2, text: "a".repeat(1001) }, 1000),
+    ).toBe(false);
+    expect(f.requests).toHaveLength(1);
+    expect(
+      validSummaryValue({ version: 2, text: "a".repeat(1000) + "\n" }, 1000),
+    ).toBe(false);
+  });
   it.each([
     {},
-    { [ids[0]!]: "low-value" },
-    { ...patch.coverage, foreign: "low-value" },
-    { [ids[0]!]: "unknown", [ids[1]!]: "low-value" },
-    ids.map((sourceId) => ({ sourceId, reason: "low-value" })),
+    { summary: 42 },
+    { summary: "text", extra: true },
+    { version: 1, keep: [], upsert: [], remove: [], coverage: [] },
   ])(
-    "rejects incomplete/extra/invalid coverage without repair: %j",
-    async (coverage) => {
-      const f = fixture("openai", { patch: { ...patch, coverage } });
+    "rejects malformed/extra/old-ledger output without repair: %j",
+    async (invalid) => {
+      const f = fixture("openai", { patch: invalid });
       await expect(
         f.generation.generate("policy", prompt, new AbortController().signal),
       ).rejects.toThrow();
       expect(f.requests).toHaveLength(1);
     },
   );
-  it.each([
-    "not JSON",
-    JSON.stringify({ requiredCoverageSourceIds: [], newSources: [] }),
-    JSON.stringify({
-      requiredCoverageSourceIds: [ids[0], ids[0]],
-      newSources: [{ sourceId: ids[0] }, { sourceId: ids[0] }],
-    }),
-    JSON.stringify({
-      requiredCoverageSourceIds: ids,
-      newSources: [{ sourceId: "other" }, { sourceId: ids[1] }],
-    }),
-  ])("refuses ambiguous source census before network: %s", async (input) => {
+  it("needs no model-managed source census and transmits the whole draft unchanged", async () => {
     const f = fixture();
-    await expect(
-      f.generation.generate("policy", input, new AbortController().signal),
-    ).rejects.toThrow("summary_invalid_generation_input");
-    expect(f.transport).not.toHaveBeenCalled();
+    await f.generation.generate("policy", prompt, new AbortController().signal);
+    expect(JSON.stringify(f.requests[0].body)).toContain(
+      "Previous complete draft",
+    );
+    expect(f.transport).toHaveBeenCalledOnce();
   });
   it.each(["openai", "deepseek", "openrouter", "ollama"] as const)(
     "keeps absent %s usage unknown",

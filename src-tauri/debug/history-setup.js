@@ -203,7 +203,7 @@
           ],
         ],
       ],
-      ["SUMMARY_CHAR_LIMIT", "Memory size (characters)", null],
+      ["SUMMARY_CHAR_LIMIT", "Generated summary size (characters)", null],
     ];
     return specs.map(([id, text, options]) => {
       const control = byId(id),
@@ -416,7 +416,7 @@
               ),
               staticCopy(
                 "memory-size-help",
-                "1,000–20,000 Unicode characters.",
+                "1,000–20,000 Unicode characters for generated text only. Your separately saved preferences do not consume this allowance.",
               ),
               staticCopy(
                 "memory-off-help",

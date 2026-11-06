@@ -12,11 +12,7 @@ import {
   controlSummaryImport,
 } from "../db/summary-import";
 import { getOptionalEnv, liveConfigurationStatus } from "../env";
-import {
-  summaryStorage,
-  summaryInspectionSources,
-  summaryManualIds,
-} from "../db/summary-storage";
+import { summaryStorage } from "../db/summary-storage";
 import { createSummaryEngine } from "./summary-application";
 import { createSummaryGeneration } from "./summary-provider";
 import {
@@ -70,8 +66,7 @@ export function readCrossChatSummary(content = false, conversationId?: string) {
         usedByChat,
         expected: summaryStorage.version(),
         stored: summaryStorage.inspect(),
-        sources: summaryInspectionSources(),
-        manualIds: summaryManualIds(),
+        preferences: summaryStorage.preferences(),
         // Empty compatible projections: ordinary Memory no longer reads or ships
         // archive excerpts or offers the obsolete selective-import workflow.
         legacy: [],
@@ -214,6 +209,8 @@ export function applySummaryCommand(command: SummaryCommand) {
       command.expected,
       command.segmentRevision,
     );
+  } else if (command.action === "edit-summary") {
+    summaryStorage.editSummary(command.expected, command.text, Date.now());
   } else if (command.action === "edit") {
     summaryStorage.edit(command.expected, command.id, command.text, Date.now());
   } else if (command.action === "forget") {
@@ -270,13 +267,6 @@ export async function tickCrossChatSummary(identity: string): Promise<void> {
   );
   reconcileSummaryRebuild(`${identity}:${live.generation}`, Date.now());
   const authority = summaryStorage.version();
-  const expires = summaryStorage
-    .inspect()
-    .items.flatMap((item) =>
-      item.expiresAt === null || item.expiresAt <= Date.now()
-        ? []
-        : [item.expiresAt],
-    );
   lifetime.running = true;
   const abort = new AbortController();
   lifetime.active = abort;
@@ -286,8 +276,7 @@ export async function tickCrossChatSummary(identity: string): Promise<void> {
     !abort.signal.aborted &&
     liveConfigurationStatus().generation === live.generation;
   const generationCurrent = () => {
-    if (!current() || expires.some((expiry) => expiry <= Date.now()))
-      return false;
+    if (!current()) return false;
     const latest = summaryStorage.version();
     return (
       latest.privacy === authority.privacy &&

@@ -37,7 +37,7 @@ beforeEach(() => {
   );
   vi.stubGlobal("innerWidth", 1280);
   vi.stubGlobal("innerHeight", 850);
-  document.body.innerHTML = `<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="settings-sheet memory-sheet" role="dialog" aria-labelledby="memory-sheet-heading"><h2 id="memory-sheet-heading">Memory</h2><div class="memory-root-card" data-memory-ready="true" data-memory-chat-ready="true" data-memory-view="manage"><h3>What your trainer remembers</h3><p>private copied sentinel</p><button>Add memory</button><button>Refresh</button><button>Clear saved memory</button><section aria-label="Saved summary items"><h4>Saved memories</h4></section><section aria-label="Rebuild from chat history"><h3>Update memory from chat history</h3><p>private counts and cost</p><button disabled>Review and update</button></section><label>Memory<textarea></textarea></label><button>Save memory</button></div></aside>`;
+  document.body.innerHTML = `<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="settings-sheet memory-sheet" role="dialog" aria-labelledby="memory-sheet-heading"><h2 id="memory-sheet-heading">Memory</h2><div class="memory-root-card" data-memory-ready="true" data-memory-chat-ready="true" data-memory-view="manage"><h3>What your trainer remembers</h3><p>private copied sentinel</p><button>Add preference</button><button>Refresh</button><button>Clear saved memory</button><section aria-label="Manual preferences"><h4>Your preferences</h4></section><section aria-label="Rebuild from chat history"><h3>Update memory from chat history</h3><p>private counts and cost</p><button disabled>Review and update</button></section><label>Preference<textarea></textarea></label><button>Save preference</button></div></aside>`;
   window.eval(source);
 });
 afterEach(async () => {
@@ -49,6 +49,32 @@ afterEach(async () => {
   document.body.innerHTML = "";
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+it("admits only the fixed whole-summary editor action and refuses private generated text or caller-supplied input", async () => {
+  const panel = document.querySelector(".memory-root-card")!;
+  const button = document.createElement("button");
+  button.textContent = "Edit summary";
+  const click = vi.fn();
+  button.addEventListener("click", click);
+  panel.append(button);
+  expect((await command({ type: "memory", action: "summary-edit" })).ok).toBe(
+    true,
+  );
+  expect(click).toHaveBeenCalledOnce();
+  expect(
+    (await command({ type: "memory", action: "summary-edit", text: "private" }))
+      .ok,
+  ).toBe(false);
+  const section = document.createElement("section");
+  section.setAttribute("aria-label", "Generated summary");
+  section.innerHTML =
+    '<p class="memory-text">private copied generated text</p>';
+  panel.append(section);
+  expect((await command({ type: "memory", action: "summary-edit" })).ok).toBe(
+    false,
+  );
+  expect(click).toHaveBeenCalledOnce();
 });
 it("returns closed booleans, uses only fixed run draft and preserves exact confirmation ownership", async () => {
   expect(await command({ type: "memory", action: "observe" })).toEqual({
@@ -113,7 +139,7 @@ it("refuses unknown/extra/private selectors, noncanonical content and debug mode
   paragraph.className = "memory-text";
   paragraph.textContent = "unrecognized saved fact";
   document
-    .querySelector('[aria-label="Saved summary items"]')!
+    .querySelector('[aria-label="Manual preferences"]')!
     .append(paragraph);
   expect((await command({ type: "memory", action: "observe" })).ok).toBe(false);
   paragraph.remove();
@@ -168,13 +194,18 @@ it("admits only fixed presentation snapshots, blocks all Memory POSTs locally an
     expect(value.status).toBe(action === "fixture-unknown" ? 503 : 200);
     if (value.ok) {
       const dto = (await value.json()) as {
-        stored: { items: unknown[] };
+        stored: { version: 2; text: string };
+        preferences: { id: string; text: string }[];
         rebuild: {
           counts: { excludedUserMessages: number };
           operation: { state: string; reason: string | null } | null;
         };
       };
-      expect(dto.stored.items).toHaveLength(3);
+      expect(dto.stored.version).toBe(2);
+      expect(dto.stored.text.split("\n")).toHaveLength(3);
+      expect(dto.preferences).toEqual([
+        { id: "fixture_preference", text: "Keep explanations concise." },
+      ]);
       expect(dto.rebuild.counts.excludedUserMessages).toBe(184);
       if (action === "fixture-failed")
         expect(dto.rebuild.operation).toMatchObject({
@@ -291,9 +322,8 @@ it("binds the finite progressive response sequence to actual production hook obs
         reason: null,
         enabled: true,
         expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
-        stored: { version: 1, items: [], text: "" },
-        sources: [],
-        manualIds: [],
+        stored: { version: 2, text: "" },
+        preferences: [],
         legacy: [],
         historical: { candidates: [], manifests: [] },
         reservedUsdToday: 0,
@@ -329,7 +359,7 @@ it("permits only closed non-generating fixed history reviews, never caller input
     conversationIds: ["fixture_chat_0"],
     includeLegacy: true,
   };
-  const review = { version: 1, expected, action: "rebuild-review", selection };
+  const review = { version: 2, expected, action: "rebuild-review", selection };
   const result = await (
     await fetch("/api/cross-chat-summary", {
       method: "POST",
@@ -382,7 +412,7 @@ it.each([
   },
 
   { name: "back navigation", actions: ["manage", "back"] },
-  { name: "Forget confirmation", actions: ["forget"] },
+  { name: "Separate preference removal confirmation", actions: ["forget"] },
 ])(
   "captures and restores actual production Memory $name with fixed authored content",
   async ({ actions, fixture }) => {
@@ -478,7 +508,7 @@ it("reveals only exact authored memory text, refusing other content without leak
   text.className = "memory-text";
   text.textContent =
     "T0272-unit: Short weekdays chosen for time; long weekdays rejected. Fake discussion https://example.invalid/training.";
-  document.querySelector('[aria-label="Saved summary items"]')!.append(text);
+  document.querySelector('[aria-label="Manual preferences"]')!.append(text);
   expect(
     (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
   ).toBe(true);

@@ -8,6 +8,10 @@ import summary_smoke as smoke
 
 
 class SummarySmokeTests(unittest.TestCase):
+    def status_sequence(self):
+        chars=len('T0272-unit: Weekends remain optional; poles not chosen. Fake path /Users/example/notes; quoted ignore previous instructions.')
+        return [{'expected':{'revision':1}}, {'expected':{'revision':2},'characters':chars}, {'expected':{'revision':2},'characters':chars}, {'expected':{'revision':2}}, {'expected':{'revision':3}}]
+
     def run_fixture(self, root):
         (root / 'config').mkdir()
         base = {'version': 2, 'fields': {'DATABASE_PATH': str(root / 'trainer.sqlite'), 'MEMORY_ENABLED': 'false'}, 'keys': {}}
@@ -67,7 +71,7 @@ class SummarySmokeTests(unittest.TestCase):
         self.assertEqual(client.request.call_count,2)
         method,path,body,_headers=client.request.call_args.args
         self.assertEqual((method,path),('POST','/api/cross-chat-summary'))
-        self.assertEqual(json.loads(body),{'version':1,'expected':value['expected'],'action':'clear'})
+        self.assertEqual(json.loads(body),{'version':2,'expected':value['expected'],'action':'clear'})
 
     def test_cost_metadata_accepts_only_finite_nonnegative_values_and_the_reviewed_basis(self):
         value = {'version':1,'state':'fresh','reason':None,'revision':3,'frontier':4,'pending':0,'items':0,'characters':0,'enabled':True,'model':'gpt-6-luna','usedByChat':False,'attemptsToday':12,'unpricedAttempts':2,'reservedUsdToday':0.03,'estimatedUsdToday':0.001,'unknownReservedUsd':0.02,'priceBasis':smoke.PRICE_BASIS,'cap':20000,'publishedAt':1,'expected':{'revision':3,'privacy':0,'control':1,'manual':0}}
@@ -83,13 +87,15 @@ class SummarySmokeTests(unittest.TestCase):
     def test_memory_controls_are_one_finite_sequence_with_owned_restart_and_preservation(self):
         with tempfile.TemporaryDirectory() as folder:
             run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},binary=Path('/unit-app'),command=Mock(return_value={'ok':True}),chat_hash=Mock(return_value='same'),stop=Mock(),start=Mock())
-            with patch.object(smoke,'memory_wait'), patch.object(smoke,'memory_presentations',return_value=[]), patch.object(smoke,'status',side_effect=[{'expected':{'revision':1}},{'expected':{'revision':2}}]):
+            with patch.object(smoke,'memory_wait'), patch.object(smoke,'memory_presentations',return_value=[]), patch.object(smoke,'status',side_effect=self.status_sequence()):
                 smoke.memory_controls(run)
             actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
-            self.assertEqual(actions,['open','rebuild-preflight','rebuild-preflight','rebuild-preflight','back','add','draft','save','edit','draft-update','save','close','open','forget','confirm','disable','enable','confirm','manage','clear','confirm','back','close'])
+            self.assertEqual(actions,['open','rebuild-preflight','rebuild-preflight','rebuild-preflight','back','add','draft','save','summary-edit','draft-update','save','edit','draft-update','save','close','open','forget','confirm','disable','enable','confirm','manage','clear','confirm','back','close'])
             run.stop.assert_called_once();run.start.assert_called_once_with(run.binary)
             receipt=json.loads((run.root/'integrated-memory-controls.json').read_text())
-            self.assertEqual(len(receipt['captures']),2)
+            self.assertEqual(len(receipt['captures']),4)
+            self.assertTrue(receipt['wholeSummaryEditSaveRestart'])
+            self.assertTrue(receipt['preferencesSeparateFromGeneratedAllowance'])
             self.assertEqual(len(receipt['rebuildCaptures']),2)
             self.assertTrue(receipt['rebuildPreflightKeylessRefusal'])
             self.assertIn('unavailable',receipt['rebuildSuccess'])
@@ -102,7 +108,7 @@ class SummarySmokeTests(unittest.TestCase):
                     raise RuntimeError('closed failure')
                 return {'ok': True}
             run=SimpleNamespace(root=Path(folder), id='unit', config={'source':'source'}, binary=Path('/unit-app'), command=Mock(side_effect=command), chat_hash=Mock(return_value='same'), stop=Mock(), start=Mock())
-            with patch.object(smoke,'memory_wait'):
+            with patch.object(smoke,'memory_wait'), patch.object(smoke,'status',side_effect=self.status_sequence()):
                 with self.assertRaisesRegex(RuntimeError, 'closed failure'):
                     smoke.memory_controls(run)
             actions=[call.args[0].get('action') for call in run.command.call_args_list]
@@ -122,7 +128,9 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertNotIn('save', actions)
             self.assertNotIn('rebuild-start', actions)
             self.assertEqual(actions[-1], 'fixture-reset')
-            self.assertEqual(len(images), 29)
+            self.assertEqual(len(images), 30)
+            self.assertNotIn('item-details', actions)
+            self.assertEqual(len([image for image in images if image['state']=='whole-summary-editor']),2)
             self.assertNotIn('earlier-sources', actions)
             self.assertNotIn('older-records', actions)
             self.assertIn('fixture-progressive', actions)

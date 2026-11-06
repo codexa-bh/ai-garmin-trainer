@@ -1,14 +1,12 @@
 import {
-  emptySummary,
   minimizeSummarySource,
   SUMMARY_SYSTEM,
-  validateSummaryPatch,
+  validateSummaryReplacement,
   type SummaryStorage,
   type SummaryCandidate,
   type MinimizedSource,
   type SummaryPatchRejection,
   type SummaryValueDiagnostic,
-  characters,
 } from "./summary-policy";
 
 export type SummaryGeneration = {
@@ -45,6 +43,20 @@ function boundedGeneration<T>(
     );
   });
 }
+const ENGINE_FAILURES = new Set([
+  "summary_interrupted",
+  "summary_configuration_changed",
+  "summary_missing_key",
+  "summary_budget_unavailable",
+  "summary_invalid_output",
+  "summary_publication_conflict",
+  "summary_input_capacity",
+  "summary_impossible_capacity",
+  "summary_invalid_unicode",
+  "summary_transport_unsupported",
+  "summary_invalid_generation_input",
+  "summary_model_unselected",
+]);
 export function createSummaryEngine(ports: {
   storage: SummaryStorage;
   generation: SummaryGeneration | null;
@@ -78,94 +90,86 @@ export function createSummaryEngine(ports: {
         let candidate: SummaryCandidate | null;
         if (!inputs.length) {
           // No-save/unresolved/Off/deleted events retain explicit dispositions.
-          const items = job.previous.items.filter(
-            (item) => item.expiresAt === null || item.expiresAt > ports.now(),
-          );
-          const previous = {
-            ...emptySummary(),
-            items,
-            text: job.previous.text,
-          };
-          candidate = validateSummaryPatch(
-            {
-              version: 1,
-              keep: items.map((item) => item.id),
-              upsert: [],
-              remove: job.previous.items
-                .filter((item) => !items.includes(item))
-                .map((item) => ({ id: item.id, reason: "expired" })),
-              coverage: [],
-            },
-            { ...job, previous: { ...job.previous, text: previous.text } },
+          candidate = validateSummaryReplacement(
+            { summary: job.previous.text },
+            job,
             [],
-            ports.now(),
           );
         } else {
           if (!ports.generation) throw new Error("summary_missing_key");
           if (!storage.reserve(job, ports.now()))
             throw new Error("summary_budget_unavailable");
-          // Exact serialized count can reject a multi-event batch before inference.
-          // Reduce only its unconsumed suffix; never skip a single oversized event.
-          for (;;) {
-            try {
-              const admitted = inputs.filter((input) =>
-                job!.sources.some(
-                  (source) => source.sourceId === input.sourceId,
-                ),
-              );
-              const prompt = JSON.stringify({
-                now: ports.now(),
-                characterCap: job.cap,
-                constraints: {
-                  renderedCharacters: characters(job.previous.text),
-                  renderFormat:
-                    "[stance; category] text, joined with one newline between items",
-                  renderedCharacterCap: job.cap,
-                  maxItems: 256,
-                  maxItemTextScalars: 1200,
-                  maxTransitiveSourcesPerItem: 32,
-                  idPattern: "^[a-zA-Z0-9_-]{1,80}$",
-                  priorityMin: 0,
-                  priorityMax: 5,
-                  budgetRule:
-                    "The cap includes ALL kept and upserted items plus stance/category framing and newlines. Repack related previous items using NEW ids and replaces, or explicitly remove lower-value items before adding. Never merge more than32 inherited/new/context sources into one item; split instead. Do not simply append until full, pad, truncate or discard important rationale. No retry is promised.",
-                },
-                previous: job.previous.items,
-                requiredCoverageSourceIds: admitted.map(
-                  (source) => source.sourceId,
-                ),
-                newSources: admitted,
-              });
-              const output = await boundedGeneration(
-                ports.generation.generate(SUMMARY_SYSTEM, prompt, signal),
+          // Capacity/refusal cannot shrink/retry a source interval. Only a
+          // fully returned size-only rejection permits ONE known-draft rewrite.
+          const admitted = inputs;
+          const prompt = JSON.stringify({
+            now: ports.now(),
+            characterCap: job.cap,
+            // Headroom is drafting advice, not a second enforced limit. Real
+            // Luna overshot a6000-scalar cap at6904 without an explicit target.
+            softTargetCharacters: Math.floor(job.cap * 0.6),
+            previous: job.previous.text,
+            newSources: admitted.map((source) => ({
+              user: source.user,
+              ...(source.referent ? { assistantContext: source.referent } : {}),
+              ...(source.original
+                ? { createdAt: source.original.createdAt }
+                : {}),
+            })),
+            allowance:
+              "Generated summary only; manual preferences are composed separately. Return one complete replacement, not an appended fragment.",
+          });
+          const output = await boundedGeneration(
+            ports.generation.generate(
+              `${SUMMARY_SYSTEM}\nHard limit: ${job.cap} Unicode characters INCLUDING spaces/punctuation for the ENTIRE summary. Aim for about ${Math.floor(job.cap / 12)} words total where the language has word boundaries; this is soft drafting advice, not another hard limit. Finish every sentence and the final thought. Repack redundant detail rather than growing to the character ceiling.`,
+              prompt,
+              signal,
+            ),
+            signal,
+          );
+          const batch = job;
+          const validate = (
+            result: Awaited<ReturnType<SummaryGeneration["generate"]>>,
+            effect?: "condense",
+          ) => {
+            let rejection: SummaryPatchRejection | undefined;
+            let diagnostic: SummaryValueDiagnostic | undefined;
+            const value = validateSummaryReplacement(
+              result.patch,
+              batch,
+              admitted,
+              (code, detail) => {
+                rejection = code;
+                diagnostic = detail;
+              },
+            );
+            // Each actual request has its own durable admission and counters.
+            // Never persist the private draft or arbitrary provider error.
+            storage.usage(batch, result.usage, rejection, diagnostic, effect);
+            return { value, diagnostic };
+          };
+          const first = validate(output);
+          candidate = first.value;
+          if (!candidate && first.diagnostic?.invariant === "character-cap") {
+            signal.throwIfAborted();
+            if (!ports.current())
+              throw new Error("summary_configuration_changed");
+            if (!storage.reserve(batch, ports.now(), "condense"))
+              throw new Error("summary_budget_unavailable");
+            const condensed = await boundedGeneration(
+              ports.generation.generate(
+                `${SUMMARY_SYSTEM}\nThis request ONLY condenses the supplied fully returned oversized draft. No new sources or facts. Rewrite it MUCH more concisely, aiming for about ${Math.floor(batch.cap / 18)} words where applicable, comfortably below ${batch.cap} Unicode characters INCLUDING spaces. Preserve important meaning, rationale, negation, uncertainty and temporal scope. Finish every word and thought naturally; NEVER fill the ceiling, slice a prefix or emit an unfinished fragment. Return strict JSON with only summary.`,
+                JSON.stringify({
+                  characterCap: batch.cap,
+                  softTargetCharacters: Math.floor(batch.cap * 0.5),
+                  actualCharacters: first.diagnostic.actual,
+                  draft: (output.patch as { summary: string }).summary,
+                }),
                 signal,
-              );
-              let rejection: SummaryPatchRejection | undefined;
-              let diagnostic: SummaryValueDiagnostic | undefined;
-              candidate = validateSummaryPatch(
-                output.patch,
-                job,
-                admitted,
-                ports.now(),
-                (code, detail) => {
-                  rejection = code;
-                  diagnostic = detail;
-                },
-              );
-              // Record actual counters once and only a closed rejection category;
-              // never retain the provider patch, source text or arbitrary errors.
-              storage.usage(job, output.usage, rejection, diagnostic);
-              break;
-            } catch (error) {
-              if (
-                !(error instanceof Error) ||
-                error.message !== "summary_input_capacity" ||
-                job.sources.length === 1
-              )
-                throw error;
-              job.sources = job.sources.slice(0, -1);
-              job.upper = job.sources.at(-1)!.eventSeq;
-            }
+              ),
+              signal,
+            );
+            candidate = validate(condensed, "condense").value;
           }
         }
         if (!candidate) throw new Error("summary_invalid_output");
@@ -177,7 +181,7 @@ export function createSummaryEngine(ports: {
         if (job) {
           const reason = signal.aborted
             ? "summary_interrupted"
-            : error instanceof Error && /^summary_[a-z_]+$/.test(error.message)
+            : error instanceof Error && ENGINE_FAILURES.has(error.message)
               ? error.message
               : "summary_provider_failure";
           // Only evidence-backed transient transport failures receive a later attempt.

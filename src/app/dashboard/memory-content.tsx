@@ -9,11 +9,10 @@ import {
   historyBlockers,
   HistoryProgress,
   HistoryReview,
-  memoryQualification,
   memoryStatus,
 } from "./memory-presentation";
 
-type View = "overview" | "item" | "history" | "manage";
+type View = "overview" | "history" | "manage";
 type Confirmation = {
   action: MemoryAction;
   inspection: SummaryInspection;
@@ -38,7 +37,6 @@ export function MemoryContent({
   beginMemoryEdit,
   canDiscardMemoryEdit,
   cancelMemoryEdit,
-  onOpenSource,
   runInBackground,
 }: ReturnType<typeof useMemoryFeature> & {
   onOpenSource: (conversationId: string) => void;
@@ -46,7 +44,6 @@ export function MemoryContent({
 }) {
   const isMemoryLoading = isBusy || isMemoryReadUnavailable;
   const [view, setView] = useState<View>("overview");
-  const [itemId, setItemId] = useState<string | null>(null);
   const [reviewedOperationId, setReviewedOperationId] = useState<string | null>(
     null,
   );
@@ -59,7 +56,6 @@ export function MemoryContent({
   const rowAfterSave = useRef<string | null>(null);
   const beforeAdd = useRef<string[] | null>(null);
   const previousEditing = useRef(editingMemoryId);
-  const item = memory?.stored.items.find((i) => i.id === itemId);
   const operation = memory?.rebuild?.operation;
   const retainedResult =
     !!operation &&
@@ -74,7 +70,6 @@ export function MemoryContent({
     JSON.stringify(selection) === JSON.stringify(memory?.rebuild?.selection);
   const titles: Record<View, string> = {
     overview: "What your trainer remembers",
-    item: "Memory details",
     history: "Update memory from chat history",
     manage: "Manage memory",
   };
@@ -273,35 +268,65 @@ export function MemoryContent({
                   {memory.enabled ? "Turn Off" : "Turn On"}
                 </button>
               </div>
-              <section aria-label="Saved summary items">
+              <section
+                aria-label="Generated summary"
+                data-memory-id="summary"
+                tabIndex={-1}
+              >
                 <div className="memory-section-heading">
-                  <h4>Saved memories</h4>
+                  <h4>Generated summary</h4>
+                  <button
+                    type="button"
+                    disabled={isMemoryLoading || !!editingMemoryId}
+                    onClick={() => edit("summary", memory.stored.text)}
+                  >
+                    Edit summary
+                  </button>
+                </div>
+                <p>
+                  {memory.characters} / {memory.cap} characters · generated text
+                  only
+                </p>
+                {memory.enabled && memory.state !== "unavailable" ? (
+                  <p className="memory-text">
+                    {memory.stored.text ||
+                      "No generated summary yet. Update from chat history to build one."}
+                  </p>
+                ) : (
+                  <p>
+                    Saved summary is not in use.{" "}
+                    {memory.enabled
+                      ? "Check memory status before continuing."
+                      : "Turn memory On to use it again."}
+                  </p>
+                )}
+              </section>
+              <section aria-label="Manual preferences">
+                <div className="memory-section-heading">
+                  <h4>Your preferences</h4>
                   <button
                     type="button"
                     disabled={isMemoryLoading || !!editingMemoryId}
                     onClick={() => edit("new", "")}
                   >
-                    Add memory
+                    Add preference
                   </button>
                 </div>
-                {!memory.stored.items.length && !editingMemoryId && (
+                {!memory.preferences.length && !editingMemoryId && (
                   <p className="memory-empty">
-                    Nothing saved here yet. Add something you want your trainer
-                    to remember, or update from past conversations below.
+                    Add your own preferences or restrictions here. History
+                    updates do not rewrite them.
                   </p>
                 )}
-                {memory.stored.items.map((saved) => (
+                {memory.preferences.map((saved) => (
                   <article
                     className="memory-row"
                     key={saved.id}
                     tabIndex={-1}
                     data-memory-id={saved.id}
-                    aria-label="Saved memory"
+                    aria-label="Manual preference"
                   >
                     <div className="memory-row-main">
-                      <p className="memory-qualifier">
-                        {memoryQualification(saved)}
-                      </p>
                       <p className="memory-text">{saved.text}</p>
                       <div className="button-row">
                         <button
@@ -309,7 +334,7 @@ export function MemoryContent({
                           disabled={isMemoryLoading || !!editingMemoryId}
                           onClick={() => edit(saved.id, saved.text)}
                         >
-                          Edit
+                          Edit preference
                         </button>
                         <button
                           type="button"
@@ -317,96 +342,106 @@ export function MemoryContent({
                           onClick={() =>
                             confirm(
                               { action: "forget", id: saved.id },
-                              "Forget this memory?",
-                              "Forget memory",
-                              `“${saved.text}”\n\nRemove this memory and keep its sources from recreating it. The original conversation remains. New statements can still become new memories.`,
+                              "Remove this preference?",
+                              "Remove preference",
+                              `“${saved.text}”\n\nRemove only this separately authored preference. This does not delete conversations or surgically remove related meaning from the generated summary.`,
                               true,
                             )
                           }
                         >
-                          Forget
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          disabled={isMemoryLoading || !!editingMemoryId}
-                          onClick={() => {
-                            setItemId(saved.id);
-                            go("item");
-                          }}
-                        >
-                          Source & details
+                          Remove preference
                         </button>
                       </div>
                     </div>
                   </article>
                 ))}
-                {editingMemoryId && (
-                  <section
-                    className="memory-editor"
-                    aria-label={
-                      editingMemoryId === "new" ? "Add memory" : "Edit memory"
-                    }
-                  >
-                    <h4>
-                      {editingMemoryId === "new" ? "Add memory" : "Edit memory"}
-                    </h4>
-                    <label>
-                      Memory
-                      <textarea
-                        value={editingMemoryText}
-                        maxLength={2400}
-                        disabled={isMemoryLoading}
-                        onChange={(event) =>
-                          setEditingMemoryText(event.target.value)
-                        }
-                      />
-                    </label>
-                    <p>
-                      {editingMemoryId === "new"
-                        ? "Saved as your own memory."
-                        : "Keeps its existing sources and expiry."}{" "}
-                      Keep it concise; this text may be sent to your AI
-                      provider.
-                    </p>
-                    <div className="button-row">
-                      <button
-                        type="button"
-                        disabled={isMemoryLoading || !editingMemoryText.trim()}
-                        onClick={() => {
-                          rowAfterSave.current =
-                            editingMemoryId === "new" ? null : editingMemoryId;
-                          beforeAdd.current =
-                            editingMemoryId === "new"
-                              ? memory.stored.items.map((i) => i.id)
-                              : null;
-                          runInBackground(
-                            changeMemory({
-                              action: "edit",
-                              id:
-                                editingMemoryId === "new"
-                                  ? null
-                                  : editingMemoryId,
-                              text: editingMemoryText,
-                            }),
-                          );
-                        }}
-                      >
-                        Save memory
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isMemoryLoading}
-                        onClick={() => {
-                          if (canDiscardMemoryEdit()) cancelMemoryEdit();
-                        }}
-                      >
-                        Cancel edit
-                      </button>
-                    </div>
-                  </section>
-                )}
               </section>
+              {editingMemoryId && (
+                <section
+                  className="memory-editor"
+                  aria-label={
+                    editingMemoryId === "summary"
+                      ? "Edit generated summary"
+                      : editingMemoryId === "new"
+                        ? "Add preference"
+                        : "Edit preference"
+                  }
+                >
+                  <h4>
+                    {editingMemoryId === "summary"
+                      ? "Edit generated summary"
+                      : editingMemoryId === "new"
+                        ? "Add preference"
+                        : "Edit preference"}
+                  </h4>
+                  <label>
+                    {editingMemoryId === "summary"
+                      ? "Complete generated summary"
+                      : "Preference"}
+                    <textarea
+                      value={editingMemoryText}
+                      disabled={isMemoryLoading}
+                      onChange={(event) =>
+                        setEditingMemoryText(event.target.value)
+                      }
+                    />
+                  </label>
+                  <p>
+                    {editingMemoryId === "summary"
+                      ? `This replaces the complete generated text, within ${memory.cap} characters. Regeneration replaces direct summary edits too.`
+                      : "Saved separately as your own preference; history regeneration preserves it and it does not consume the generated allowance."}{" "}
+                    This text may be sent to your AI provider.
+                  </p>
+                  <div className="button-row">
+                    <button
+                      type="button"
+                      disabled={
+                        isMemoryLoading ||
+                        (editingMemoryId !== "summary" &&
+                          !editingMemoryText.trim())
+                      }
+                      onClick={() => {
+                        rowAfterSave.current =
+                          editingMemoryId === "new" ? null : editingMemoryId;
+                        beforeAdd.current =
+                          editingMemoryId === "new"
+                            ? memory.preferences.map((i) => i.id)
+                            : null;
+                        runInBackground(
+                          changeMemory(
+                            editingMemoryId === "summary"
+                              ? {
+                                  action: "edit-summary",
+                                  text: editingMemoryText,
+                                }
+                              : {
+                                  action: "edit",
+                                  id:
+                                    editingMemoryId === "new"
+                                      ? null
+                                      : editingMemoryId,
+                                  text: editingMemoryText,
+                                },
+                          ),
+                        );
+                      }}
+                    >
+                      {editingMemoryId === "summary"
+                        ? "Save summary"
+                        : "Save preference"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isMemoryLoading}
+                      onClick={() => {
+                        if (canDiscardMemoryEdit()) cancelMemoryEdit();
+                      }}
+                    >
+                      Cancel edit
+                    </button>
+                  </div>
+                </section>
+              )}
               <nav className="memory-routes" aria-label="Memory options">
                 <button
                   type="button"
@@ -447,60 +482,6 @@ export function MemoryContent({
               )}
             </>
           )}
-          {view === "item" &&
-            (item ? (
-              <>
-                <p className="memory-qualifier">{memoryQualification(item)}</p>
-                <p className="memory-text">{item.text}</p>
-                <p>
-                  {memory.manualIds.includes(item.id)
-                    ? "Manually saved"
-                    : "Saved from conversations"}
-                  {item.expiresAt !== null
-                    ? ` · Expires ${new Date(item.expiresAt).toLocaleDateString()}`
-                    : ""}
-                </p>
-                {!item.sourceIds.length && (
-                  <p>
-                    Source unavailable; the conversation cannot be
-                    reconstructed.
-                  </p>
-                )}
-                {[
-                  ...new Set(
-                    item.sourceIds
-                      .map(
-                        (id) =>
-                          memory.sources.find((s) => s.sourceId === id)
-                            ?.conversationId,
-                      )
-                      .filter((id): id is string => !!id),
-                  ),
-                ].map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    disabled={isMemoryLoading}
-                    onClick={() => onOpenSource(id)}
-                  >
-                    Open source conversation
-                  </button>
-                ))}
-                {item.sourceIds.some(
-                  (id) =>
-                    !memory.sources.find((s) => s.sourceId === id)
-                      ?.conversationId,
-                ) && (
-                  <p>
-                    {memory.manualIds.includes(item.id)
-                      ? "Includes your own saved text."
-                      : "Some source conversations are unavailable."}
-                  </p>
-                )}
-              </>
-            ) : (
-              <p>This item is no longer available. Return to saved memory.</p>
-            ))}
           {view === "history" && (
             <section aria-label="Rebuild from chat history">
               <HistoryProgress

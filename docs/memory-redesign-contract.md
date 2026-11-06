@@ -19,6 +19,18 @@ the separate purpose reserves USD0.001 per attempt,100 attempts/USD0.10 per loca
 Unselected/unsupported/missing-key routes retain excerpts. This amendment supersedes
 only the earlier title-selector clauses; it grants no provider/private/primary effect.
 
+**T0284 prospective replacement — one generated summary:** current generation/storage/
+pin/UI uses a complete bounded text replacement, not the supporting item ledger,
+model IDs/source-fate patches, transitive provenance or generated Source/Forget controls
+proposed below. The configured character limit applies only to generated text;
+separate authored preferences survive regeneration/history invalidation. Relevant
+source edits/deletions revoke the whole generated summary; direct whole-summary edits
+are replaceable by regeneration. Schema24's preservation-aware forward transition and
+operator decision for ambiguous legacy authored content are described in [current
+summary contract](cross-chat-summary.md). Historical material below remains design/
+evidence context, not permission to reinstate the superseded architecture or claim
+installed/real-provider success.
+
 ## 1. Baseline, authority and decisions
 
 Baseline inspected: source `a76e826b4d3dcf93c11c9a1482dc9d2863e30702` (2026-11-03).

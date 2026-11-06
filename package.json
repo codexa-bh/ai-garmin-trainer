@@ -18,6 +18,7 @@
     "smoke:summary:seed": "tsx scripts/desktop/summary_seed.ts",
     "smoke:summary:live": "python3 scripts/desktop/summary_live.py",
     "smoke:rebuild:live": "python3 scripts/desktop/rebuild_live.py",
+    "smoke:t0284:summary": "python3 scripts/desktop/t0284_summary_live.py",
     "smoke:memory:live": "python3 scripts/desktop/integrated_memory_live.py",
     "smoke:memory:capacity": "python3 scripts/desktop/capacity_memory_live.py",
     "smoke:summary:settings": "python3 scripts/desktop/summary_settings.py",

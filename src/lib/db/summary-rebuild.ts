@@ -579,7 +579,17 @@ export function startSummaryRebuild(
       boot,
       snapshot,
       selection_json: JSON.stringify(inventory.selected),
-      authority_json: JSON.stringify({ ...inventory.authority, selection }),
+      authority_json: JSON.stringify({
+        ...inventory.authority,
+        selection,
+        upperCompletion: (
+          db
+            .prepare(
+              "select coalesce(max(event_seq),0) n from conversation_completion",
+            )
+            .get() as { n: number }
+        ).n,
+      }),
       candidate_json: JSON.stringify(emptySummary()),
       candidate_checksum: digest(JSON.stringify(emptySummary())),
       dispositions_json: "[]",
@@ -632,7 +642,7 @@ export function interruptSummaryRebuild(reason: string, id?: string): void {
   checked(row); // Preserve unsupported/corrupt bytes, never scrub them as recovery.
   getDatabase()
     .prepare(
-      `update summary_rebuild set state='interrupted',reason=?,candidate_json='{"version":1,"items":[],"text":""}',candidate_checksum='' where state='active' and (? is null or id=?)`,
+      `update summary_rebuild set state='interrupted',reason=?,candidate_json='{"version":2,"text":""}',candidate_checksum='' where state='active' and (? is null or id=?)`,
     )
     .run(reason, id ?? null, id ?? null);
 }
@@ -657,10 +667,10 @@ export function cancelSummaryRebuild(id: string): boolean {
     checked(row);
     if (row.state !== "active") return false;
     db.prepare(
-      `update summary_rebuild set state='cancelled',reason='summary_rebuild_cancelled',candidate_json='{"version":1,"items":[],"text":""}',candidate_checksum='' where id=?`,
+      `update summary_rebuild set state='cancelled',reason='summary_rebuild_cancelled',candidate_json='{"version":2,"text":""}',candidate_checksum='' where id=?`,
     ).run(id);
     db.prepare(
-      "update summary_attempt set outcome='interrupted' where job_id=(select job_id from summary_control where id=1) and outcome='admitted'",
+      "update summary_attempt set outcome='interrupted' where job_id in ((select job_id from summary_control where id=1),(select job_id||':condense' from summary_control where id=1)) and outcome='admitted'",
     ).run();
     db.prepare(
       "update summary_control set job_id=null,lease_until=0 where id=1",
@@ -671,6 +681,7 @@ export function cancelSummaryRebuild(id: string): boolean {
 export function readSummaryRebuildBatch(expected?: {
   id: string;
   position: number;
+  upperCompletion?: number;
 }) {
   const row = live();
   if (!row) {
@@ -685,15 +696,48 @@ export function readSummaryRebuildBatch(expected?: {
     throw new Error("summary_rebuild_conflict");
   const saved = JSON.parse(row.authority_json) as Authority & {
     selection?: SummaryRebuildSelection;
+    upperCompletion: number;
   };
-  const { selection: consent = DEFAULT_REBUILD_SELECTION, ...savedAuthority } =
-    saved;
+  const {
+    selection: consent = DEFAULT_REBUILD_SELECTION,
+    upperCompletion,
+    ...savedAuthority
+  } = saved;
   if (
-    JSON.stringify(authority()) !== JSON.stringify(savedAuthority) ||
-    summaryRebuildInventory(row.boot, consent).snapshot !== row.snapshot
+    !Number.isSafeInteger(upperCompletion) ||
+    upperCompletion < 0 ||
+    (expected?.upperCompletion !== undefined &&
+      expected.upperCompletion !== upperCompletion)
   )
+    throw new Error("summary_rebuild_conflict");
+  if (JSON.stringify(authority()) !== JSON.stringify(savedAuthority))
     throw new Error("summary_rebuild_source_changed");
-  const batch = selected.slice(row.position, row.position + 20);
+  // Revalidate the reviewed pool, not arrivals outside its immutable boundary.
+  // This is operation freshness, never a generated-summary citation graph.
+  for (const entry of selected) {
+    const current = original(entry.messageId),
+      preceding = entry.contextId ? original(entry.contextId) : null;
+    if (
+      !current ||
+      originalHash(current) !== entry.hash ||
+      restricted(current, savedAuthority, consent) ||
+      suppressedOriginal(entry.messageId, entry.sourceId) ||
+      (entry.contextId &&
+        (!preceding ||
+          originalHash(preceding) !== entry.contextHash ||
+          suppressedOriginal(
+            entry.contextId,
+            `original-assistant:${entry.contextHash}`,
+          ))) ||
+      (entry.contextUserMessageId &&
+        suppressedOriginal(
+          entry.contextUserMessageId,
+          entry.contextUserSourceId!,
+        ))
+    )
+      throw new Error("summary_rebuild_source_changed");
+  }
+  const batch = selected.slice(row.position, row.position + 40);
   const sources = batch.map((entry) => {
     const current = original(entry.messageId),
       preceding = entry.contextId ? original(entry.contextId) : null;
@@ -708,6 +752,7 @@ export function readSummaryRebuildBatch(expected?: {
   });
   return {
     identity: { id: row.id, position: row.position },
+    upperCompletion,
     sources,
     previous: candidate,
   };
@@ -765,16 +810,4 @@ export function stageSummaryRebuild(
     row.id,
   );
   return complete;
-}
-export function rebuildSourceLink(sourceId: string) {
-  return getDatabase()
-    .prepare(
-      `select json_extract(j.value,'$.conversationId') as conversationId,
-      case when json_extract(j.value,'$.sourceId')=? then json_extract(j.value,'$.messageId') else json_extract(j.value,'$.contextId') end as messageId
-    from summary_rebuild r,json_each(r.selection_json) j where r.state='complete'
-      and (json_extract(j.value,'$.sourceId')=? or 'original-assistant:'||json_extract(j.value,'$.contextHash')=?)
-    order by r.rowid desc limit 1`,
-    )
-    .get(sourceId, sourceId, sourceId) as
-    { conversationId: string; messageId: string } | undefined;
 }

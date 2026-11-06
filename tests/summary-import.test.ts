@@ -12,7 +12,7 @@ import {
 } from "@/lib/db/summary-import";
 import {
   minimizeSummarySource,
-  validateSummaryPatch,
+  validateSummaryReplacement,
   type SummaryBatch,
 } from "@/lib/memory/summary-policy";
 import { parseSummaryCommand } from "@/lib/memory/summary-controls";
@@ -51,29 +51,14 @@ function candidate(batch: SummaryBatch) {
     const input = minimizeSummarySource(source);
     return input ? [input] : [];
   });
-  return validateSummaryPatch(
+  return validateSummaryReplacement(
     {
-      version: 1,
-      keep: batch.previous.items.map((item) => item.id),
-      upsert: inputs.map((source, index) => ({
-        id: `import_${batch.revision}_${index}`,
-        text: source.user,
-        category: "decision",
-        stance: "user-stated",
-        sourceIds: [source.sourceId],
-        priority: 4,
-        expiresAt: null,
-        replaces: [],
-      })),
-      remove: [],
-      coverage: inputs.map((source) => ({
-        sourceId: source.sourceId,
-        reason: "represented",
-      })),
+      summary: [batch.previous.text, ...inputs.map((source) => source.user)]
+        .filter(Boolean)
+        .join("\n"),
     },
     batch,
     inputs,
-    now,
   )!;
 }
 describe("explicit bounded historical transition sharing S", () => {
@@ -178,7 +163,14 @@ describe("explicit bounded historical transition sharing S", () => {
     expect(storage.publish(job, proposal, now)).toBe(true);
     expect(storage.publish(job, proposal, now)).toBe(true);
     expect(storage.status(now).frontier).toBe(0);
-    expect(storage.read().items[0].sourceIds).toEqual([sourceId]);
+    expect(storage.read().text).toContain(
+      "Short weekday sessions because of time",
+    );
+    expect(
+      db
+        .prepare("select source_id,reason from summary_import_disposition")
+        .get(),
+    ).toEqual({ source_id: sourceId, reason: "processed" });
     expect(summaryImportInspection().manifests[0]).toMatchObject({
       state: "complete",
       position: 1,
@@ -255,7 +247,7 @@ describe("explicit bounded historical transition sharing S", () => {
     const expected = storage.version();
     expect(
       parseSummaryCommand({
-        version: 1,
+        version: 2,
         expected,
         action: "import-create",
         sourceIds: [good],

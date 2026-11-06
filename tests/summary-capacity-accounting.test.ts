@@ -79,7 +79,7 @@ it("admits one small completed activity after two seconds and separates observed
   expect(storage.admit(now + 100000, "no-blind-retry")).toBeNull();
 });
 
-it("rehearses schema20→21 on a populated online copy without rewriting old attempts, pin bytes, spend or unknown effects", async () => {
+it("rehearses20→24 preserving old attempts/spend/unknown effects while explicitly invalidating incompatible derived pins", async () => {
   removeSizeAwareSummaryFixtureSchema(db);
   db.exec("update app_metadata set value='20' where key='schema_version'");
   db.exec(`insert into summary_attempt(job_id,started_at,outcome,reserved,source_ids_json,upper_event,prior_revision,privacy_generation,control_generation)
@@ -113,7 +113,13 @@ it("rehearses schema20→21 on a populated online copy without rewriting old att
     );
     expect(
       copy.prepare("select * from conversation_summary_pin").get(),
-    ).toEqual(pin);
+    ).toEqual({
+      ...(pin as object),
+      format_version: 2,
+      payload: "null",
+      seal: "",
+      reason: "format-transition",
+    });
     expect(copy.prepare("select * from summary_spend").get()).toEqual(spend);
     const after = copy.serialize();
     migrateDatabase(copy);
