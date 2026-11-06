@@ -576,6 +576,7 @@ describe("native-installed rendered smoke boundary", () => {
       { type: "debugKey", key: "Enter" },
       { type: "captureDebug" },
       { type: "health", action: "daily" },
+      { type: "health", action: "calories" },
       { type: "health", action: "remember-range" },
       { type: "health", action: "capture-wide" },
       { type: "settings", action: "open" },
@@ -944,17 +945,35 @@ describe("native-installed rendered smoke boundary", () => {
         bodyBatteryEvening: null,
         availability: "complete",
       }) as HealthDashboardDay;
-    function Health() {
+    function Health({ calories = false }: { calories?: boolean }) {
       const [end, setEnd] = useState<string | null>(null);
       return (
         <>
           <p data-testid="outside">private outside transcript</p>
           <section className="health-dashboard-panel">
             <HealthDashboardView
-              days={[
-                { ...record("2026-07-21"), availability: "partial" },
-                record("2026-06-01"),
-              ]}
+              days={
+                calories
+                  ? [
+                      [1700, 400, 2100],
+                      [1700, 400, null],
+                      [null, null, 1800],
+                      [null, null, null],
+                      [1700, null, 1900],
+                      [0, 0, 0],
+                      [1700, 400, 2150],
+                    ].map(([resting, active, total], index) => ({
+                      ...record(`2026-07-${15 + index}`),
+                      restingCalories: resting,
+                      activeCalories: active,
+                      totalCalories: total,
+                      calories: null,
+                    }))
+                  : [
+                      { ...record("2026-07-21"), availability: "partial" },
+                      record("2026-06-01"),
+                    ]
+              }
               rangeEnd={end}
               onSelectRange={setEnd}
               notice=""
@@ -1006,6 +1025,48 @@ describe("native-installed rendered smoke boundary", () => {
         expect((await command(unknown)).result.ok).toBe(false);
     });
 
+    it("reveals only canonical authored Calories after exact shared readout assertions", async () => {
+      render(<Health calories />);
+      const card = document.querySelector(".health-calories-chart")!;
+      const unexpected = document.createElement("b");
+      unexpected.textContent = "unexpected private descendant";
+      card.append(unexpected);
+      expect(
+        (await command({ type: "health", action: "calories" })).result.ok,
+      ).toBe(true);
+      expect(
+        (await command({ type: "health", action: "capture-wide" })).result.ok,
+      ).toBe(true);
+      expect(
+        getComputedStyle(card.querySelector(".health-calories-breakdown dd")!)
+          .visibility,
+      ).toBe("visible");
+      expect(
+        getComputedStyle(card.querySelector(".recharts-bar-rectangle path")!)
+          .visibility,
+      ).toBe("visible");
+      expect(getComputedStyle(card.querySelector("svg")!).visibility).toBe(
+        "visible",
+      );
+      expect(getComputedStyle(card.querySelector("svg text")!).visibility).toBe(
+        "hidden",
+      );
+      expect(getComputedStyle(unexpected).visibility).toBe("hidden");
+      expect(getComputedStyle(screen.getByTestId("outside")).visibility).toBe(
+        "hidden",
+      );
+      smoke.__trainerSmokeRestore();
+      card
+        .querySelector("button")!
+        .setAttribute("aria-label", "noncanonical private value");
+      expect(
+        (await command({ type: "health", action: "capture-narrow" })).result.ok,
+      ).toBe(false);
+      expect(
+        (await command({ type: "health", action: "calories" })).result.ok,
+      ).toBe(false);
+    });
+
     // Keep each real rendered capture/privacy contract independent of navigation
     // and the other viewport's CSS work within the normal per-test deadline.
     it.each(["capture-narrow", "capture-wide"])(
@@ -1019,7 +1080,7 @@ describe("native-installed rendered smoke boundary", () => {
         );
         expect(comparison.textContent).toBe(before);
         for (const privateNode of comparison.querySelectorAll(
-          "time, .health-rollup-value span, .health-rollup-value strong, .health-rollup-readout, svg text, .recharts-line-curve, .recharts-dot, .recharts-bar-rectangle, .health-daily-coverage li span",
+          "time, .health-rollup-value span, .health-rollup-value strong, .health-rollup-readout, .health-calories-breakdown dt, .health-calories-breakdown dd, .health-calories-legend span, svg text, .recharts-line-curve, .recharts-dot, .recharts-bar-rectangle, .health-daily-coverage li span",
         )) {
           expect(getComputedStyle(privateNode).visibility).toBe("hidden");
         }

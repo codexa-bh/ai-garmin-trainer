@@ -290,7 +290,7 @@ class Run:
                 raise ValueError('Bounded Health copy preparation failed')
         private_json(self.root / 'health-preparation.json', {'copyOnly': True, 'removedDailyRowCount': changed, 'existingInputGap': existing_gap, 'sourcePartialCoverageRetained': True, 'inputUnmodified': True, 'limit': 'Existing input gaps stay unchanged; any extra omission is copy-only, never an original-source missing-date claim. No values fabricated or copied back.'})
 
-    def health_scenario(self):
+    def health_scenario(self, synthetic_calories=False):
         self.wait(lambda o: o['healthReady'], 'Daily seven-date chart readiness')
         # Fail honestly if the selected input cannot exercise real range browsing.
         if not self.command({'type': 'observe'})['healthPreviousEnabled']:
@@ -311,10 +311,12 @@ class Run:
         self.command({'type': 'click', 'target': 'Health'})
         self.wait(lambda o: o['healthReady'], 'Health return')
         self.command({'type': 'health', 'action': 'assert-range'})
+        if synthetic_calories:
+            self.command({'type': 'health', 'action': 'calories'})
         images = {size: self.command({'type': 'health', 'action': 'capture-' + size}) for size in ['narrow', 'wide']}
         self.command({'type': 'health', 'action': 'latest'})
         self.wait(lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Explicit Latest reset')
-        private_json(self.root / 'health-scenario.json', {'passed': True, 'rangeTabsAwayBack': True, 'missingDateAndPartialObserved': True, 'captures': images, 'limit': 'Masked actual chart geometry only; dates, values and data marks hidden. Exact values proven with deterministic DOM tests. Missing-date provenance is in health-preparation.json; image inspection remains required.'})
+        private_json(self.root / 'health-scenario.json', {'passed': True, 'rangeTabsAwayBack': True, 'missingDateAndPartialObserved': True, 'captures': images, 'syntheticCalories': synthetic_calories, 'limit': 'Only explicitly checked canonical authored Calories can reveal components/legend/shared readout/date controls; axes and other source content remain masked. Synthetic DOM selection is not trusted input. Missing-date provenance is in health-preparation.json; image inspection remains required.'})
 
     def scenario(self, health_comparison=False):
         other_fields = self.other_profile_fields()
@@ -323,7 +325,7 @@ class Run:
             self.command({'type': 'click', 'target': view})
             self.wait(lambda o: o['view'] == view, view)
             if view == 'Health' and health_comparison:
-                self.health_scenario()
+                self.health_scenario(synthetic_calories=getattr(self, 'synthetic_health_calories', False))
             self.command({'type': 'click', 'target': 'Back to chat'})
             self.wait(lambda o: o['view'] == 'Trainer', 'Trainer return')
         return self.profile_scenario(capture=True, other_fields=other_fields)
@@ -441,6 +443,7 @@ def main():
             run = Run(scratch, database, source)
             runs.append(run)
             run.before_start = prepared.verify_current
+            run.synthetic_health_calories = prepared.provenance.get('route') == 'authored-synthetic'
             if args.health_comparison:
                 run.prepare_health_comparison()
         if args.prepare_only:

@@ -93,6 +93,7 @@ pub enum HealthAction {
     Latest,
     RememberRange,
     AssertRange,
+    Calories,
     CaptureWide,
     CaptureNarrow,
 }
@@ -1193,6 +1194,7 @@ mod tests {
             "latest",
             "remember-range",
             "assert-range",
+            "calories",
             "capture-wide",
             "capture-narrow",
         ] {

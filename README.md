@@ -167,6 +167,9 @@ tabs, away/back and overlapping post-sync refreshes. Missing records/fields and
 outside-loaded history are explicit, and today is marked in progress on the UTC
 sync calendar. Responsive metric charts retain all seven date slots, with exact
 source values available by pointing to, focusing or tapping the date buttons.
+Calories combines resting (below) and active in one stack with a shared exact
+breakdown and independent recorded total. Incomplete breakdowns omit the stack;
+known values remain available, and differing component sums are explicit.
 Collapsed per-date details preserve source coverage and categorical HRV context;
 gaps are not interpolated or filled with zero. Weekly/Monthly calculations and their bounded imported input remain unchanged.
 
