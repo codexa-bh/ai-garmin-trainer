@@ -37,7 +37,7 @@ export function adoptSummaryPin(conversationId: string, replace = false): void {
   // Adoption is not authority to repair unsupported/corrupt saved bytes.
   if (
     existing &&
-    (existing.format_version !== 1 ||
+    (existing.format_version !== 2 ||
       (existing.payload !== "null" && seal(existing.payload) !== existing.seal))
   )
     return;
@@ -57,7 +57,7 @@ export function adoptSummaryPin(conversationId: string, replace = false): void {
   let reason: string | null = null;
   try {
     const revision = summaryStorage.revision();
-    if (revision) pin = { version: 1, ...revision, omitted: 0, tokens: null };
+    if (revision) pin = { version: 2, ...revision, omitted: 0, tokens: null };
   } catch {
     reason = "summary_unavailable";
   }
@@ -67,12 +67,13 @@ export function adoptSummaryPin(conversationId: string, replace = false): void {
     pin &&
     previous.omitted === 0 &&
     JSON.stringify(previous.stamp) === JSON.stringify(pin.stamp) &&
-    JSON.stringify(previous.value) === JSON.stringify(pin.value)
+    JSON.stringify(previous.value) === JSON.stringify(pin.value) &&
+    JSON.stringify(previous.preferences) === JSON.stringify(pin.preferences)
   )
     return;
   const payload = JSON.stringify(pin);
   db.prepare(
-    `insert into conversation_summary_pin(conversation_id,payload,seal,reason) values(?,?,?,?)
+    `insert into conversation_summary_pin(conversation_id,format_version,payload,seal,reason) values(?,2,?,?,?)
     on conflict(conversation_id) do update set payload=excluded.payload,seal=excluded.seal,reason=excluded.reason`,
   ).run(conversationId, payload, seal(payload), reason);
 }
@@ -85,7 +86,7 @@ export function readSummaryPin(conversationId: string): SummaryPin | null {
     )
     .get(conversationId) as
     { version: number; payload: string; seal: string } | undefined;
-  if (!row || row.version !== 1 || row.payload.length > 1024 * 1024)
+  if (!row || row.version !== 2 || row.payload.length > 1024 * 1024)
     return null;
   if (row.payload === "null") return null;
   // Corruption preserves bytes and refuses consumption; it is not reset authority.
@@ -93,8 +94,18 @@ export function readSummaryPin(conversationId: string): SummaryPin | null {
   try {
     const pin = JSON.parse(row.payload) as SummaryPin;
     if (
-      pin.version !== 1 ||
+      pin.version !== 2 ||
       !validSummaryValue(pin.value, 20000) ||
+      !Array.isArray(pin.preferences) ||
+      pin.preferences.some(
+        (preference) =>
+          !preference ||
+          Object.keys(preference).sort().join() !== "id,text" ||
+          typeof preference.id !== "string" ||
+          typeof preference.text !== "string" ||
+          !preference.text.trim() ||
+          /[\uD800-\uDFFF]/u.test(preference.text),
+      ) ||
       !Number.isSafeInteger(pin.omitted) ||
       pin.omitted < 0 ||
       (pin.tokens !== null &&
@@ -159,7 +170,7 @@ export function conversationSummaryStatus(conversationId: string) {
     segmentRevision: segment?.revision ?? 0,
     pin,
     reason:
-      row?.format_version !== undefined && row.format_version !== 1
+      row?.format_version !== undefined && row.format_version !== 2
         ? "unsupported_pin_format"
         : !pin && row?.payload !== undefined && row.payload !== "null"
           ? "pin_corrupt"
@@ -183,16 +194,9 @@ export function publishSummaryProjection(
     projected.tokens > SUMMARY_MODEL_CONTEXT ||
     JSON.stringify(projected.stamp) !== JSON.stringify(before.stamp) ||
     !validSummaryValue(projected.value, 20000) ||
-    projected.omitted !==
-      before.omitted +
-        before.value.items.length -
-        projected.value.items.length ||
-    projected.value.items.some(
-      (item) =>
-        !before.value.items.some(
-          (original) => JSON.stringify(item) === JSON.stringify(original),
-        ),
-    )
+    projected.omitted !== before.omitted ||
+    JSON.stringify(projected.value) !== JSON.stringify(before.value) ||
+    JSON.stringify(projected.preferences) !== JSON.stringify(before.preferences)
   )
     return false;
   const payload = JSON.stringify(projected);

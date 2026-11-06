@@ -5,6 +5,7 @@ import type {
   SummaryStatus,
   SummaryValue,
   SummaryVersion,
+  ManualPreference,
 } from "@/lib/memory/summary-policy";
 import type {
   SummaryCommand,
@@ -19,13 +20,7 @@ export type SummaryInspection = Omit<SummaryStatus, "usedByChat"> & {
   usedByChat: boolean;
   expected: SummaryVersion;
   stored: SummaryValue;
-  manualIds: string[];
-  sources: {
-    sourceId: string;
-    conversationId: string | null;
-    messageId: string | null;
-    manual: boolean;
-  }[];
+  preferences: ManualPreference[];
   legacy: {
     id: string;
     kind: string;
@@ -164,10 +159,14 @@ export function useMemoryFeature({
           (result.reason !== null && typeof result.reason !== "string") ||
           !result.expected ||
           !result.stored ||
-          result.stored.version !== 1 ||
-          !Array.isArray(result.stored.items) ||
-          !Array.isArray(result.sources) ||
-          !Array.isArray(result.manualIds) ||
+          result.stored.version !== 2 ||
+          typeof result.stored.text !== "string" ||
+          !Array.isArray(result.preferences) ||
+          result.preferences.some(
+            (preference) =>
+              typeof preference.id !== "string" ||
+              typeof preference.text !== "string",
+          ) ||
           ![
             result.reservedUsdToday,
             result.estimatedUsdToday,
@@ -248,7 +247,7 @@ export function useMemoryFeature({
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            version: 1,
+            version: 2,
             expected: before.expected,
             action: "rebuild-review",
             selection,
@@ -311,7 +310,7 @@ export function useMemoryFeature({
       !reviewed &&
       action.action === "forget" &&
       !window.confirm(
-        "Forget this item and suppress its exact source versions? Original transcripts and other stores remain.",
+        "Remove this separately authored preference? Conversations and generated summary remain. This does not surgically erase meaning from history.",
       )
     )
       return;
@@ -328,7 +327,7 @@ export function useMemoryFeature({
       !reviewed &&
       action.action === "rebuild-start" &&
       !window.confirm(
-        "Rebuild generated memory from the reviewed original-message inventory with the configured cloud model? Minimized originals and screened assistant context may leave this device and incur the displayed cost. Old memory stays active until one complete validated replacement. Manual overlays, suppressed sources and originals remain; next chat turns use available valid memory. Unknown prior costs remain reserved. Keep the app open; cancellation or interruption does not replay unknown effects.",
+        "Rebuild generated memory from the reviewed original-message inventory with the configured cloud model? Minimized originals and screened assistant context may leave this device and incur the displayed cost. Old generated text stays active until one complete validated replacement, including direct summary edits. Separate preferences, suppressed sources and originals remain; next chat turns use available valid memory. Unknown prior costs remain reserved. Keep the app open; cancellation or interruption does not replay unknown effects.",
       )
     )
       return;
@@ -347,7 +346,7 @@ export function useMemoryFeature({
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            version: 1,
+            version: 2,
             expected: memory.expected,
             ...action,
           }),
@@ -360,11 +359,14 @@ export function useMemoryFeature({
       changing.current = false;
       await loadMemories(false);
       const feedback: Record<MemoryAction["action"], string> = {
+        "edit-summary":
+          "Complete generated summary saved. A future regeneration replaces it; separate preferences are unchanged.",
         edit:
           action.action === "edit" && action.id === null
-            ? "Memory added."
-            : "Memory edited.",
-        forget: "Item forgotten. Original transcripts remain.",
+            ? "Preference added."
+            : "Preference edited.",
+        forget:
+          "Preference removed. Conversations and generated summary remain.",
         clear:
           "Saved memory and chat snapshots cleared. Original transcripts remain; future new turns may create memory.",
         disable:

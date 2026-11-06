@@ -1698,7 +1698,7 @@ describe("trusted local desktop settings UI", () => {
     expect(screen.getByLabelText("Remember across chats")).toBe(
       input("SUMMARY_ENABLED"),
     );
-    expect(screen.getByLabelText("Memory size (characters)")).toBe(
+    expect(screen.getByLabelText("Generated summary size (characters)")).toBe(
       input("SUMMARY_CHAR_LIMIT"),
     );
     expect(input("SUMMARY_MODEL").getAttribute("aria-describedby")).toBe(

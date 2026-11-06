@@ -25,7 +25,6 @@ import {
 } from "@/lib/db/conversation-summary-pin";
 import { projectSummaryPin, summaryPinInput } from "@/lib/chat/summary-pin";
 import { replayMessages } from "@/lib/chat/conversation-replay";
-import { renderSummary, type SummaryItem } from "@/lib/memory/summary-policy";
 
 let db: Database.Database;
 vi.mock("@/lib/db/connection", () => ({ getDatabase: () => db }));
@@ -45,23 +44,8 @@ afterEach(() => {
 function publish(
   revision: number,
   text = "Short weekdays chosen for time; long weekdays rejected.",
-  expiry: number | null = null,
 ) {
-  const item: SummaryItem = {
-    id: `item${revision}`,
-    text,
-    category: "decision",
-    stance: "user-stated",
-    sourceIds: [`source${revision}:1`],
-    priority: 4,
-    expiresAt: expiry,
-    reviewAt: Date.now() + 1000000,
-  };
-  const payload = JSON.stringify({
-    version: 1,
-    items: [item],
-    text: renderSummary([item]),
-  });
+  const payload = JSON.stringify({ version: 2, text });
   const { privacy_generation: privacy } = db
     .prepare("select privacy_generation from conversation_history_control")
     .get() as { privacy_generation: number };
@@ -410,11 +394,12 @@ it("correction completion can deliver while a different concurrent turn is inval
   expect(readSummaryPin("B")).toBeNull();
 });
 
-it("expiry revokes an in-flight pin without a new producer publication", () => {
-  vi.spyOn(Date, "now").mockReturnValue(1000);
-  publish(1, "This weekend only.", 2000);
+it("whole-history invalidation revokes an in-flight complete-text pin without another publication", () => {
+  publish(1, "A complete summary with temporal qualifications.");
   const turn = history.admit("A", "Continue");
-  vi.spyOn(Date, "now").mockReturnValue(2001);
+  db.prepare(
+    "update conversation_history_control set privacy_generation=privacy_generation+1",
+  ).run();
   expect(() => history.assertCurrent(turn.admission)).toThrow("invalidated");
   expect(readSummaryPin("A")).toBeNull();
 });
@@ -440,16 +425,14 @@ it("measures memory above the former ceiling without clipping whole meanings or 
   publish(1);
   ensureConversation("A");
   const original = readSummaryPin("A")!;
-  const items = Array.from({ length: 64 }, (_, index) => ({
-    ...original.value.items[0]!,
-    id: `item${index}`,
-    priority: index === 0 ? 5 : 1,
-    text: `${index}: 週末は長く 🥾 do not choose long weekdays.`,
-    sourceIds: [`source${index}:1`],
-  }));
+  const text = Array.from(
+    { length: 64 },
+    (_, index) => `${index}: 週末は長く 🥾 do not choose long weekdays.`,
+  ).join("\n");
   const pin = {
     ...original,
-    value: { version: 1 as const, items, text: renderSummary(items) },
+    value: { version: 2 as const, text },
+    preferences: [{ id: "authored", text: "Independent manual preference" }],
   };
   const count = vi.fn(
     async (messages: { content: string }[]) =>
@@ -466,11 +449,10 @@ it("measures memory above the former ceiling without clipping whole meanings or 
   );
   expect(projected.omitted).toBe(0);
   expect(projected.value).toEqual(pin.value);
-  expect(projected.value.items[0]!.id).toBe("item0");
-  for (const item of projected.value.items) expect(items).toContainEqual(item);
-  expect(projected.value.text).toBe(renderSummary(projected.value.items));
+  expect(projected.value.text).toBe(text);
+  expect(projected.preferences).toEqual(pin.preferences);
   expect(count).toHaveBeenCalledTimes(1);
-  expect(pin.value.items).toHaveLength(64);
+  expect(projected.value.text.split("\n")).toHaveLength(64);
 });
 
 it("interrupts projection even if the accounting promise ignores cancellation", async () => {
@@ -511,51 +493,42 @@ it("Refresh compares latest summary and segment revisions and refuses a busy cha
   refreshConversationSummary("A", summaryStorage.version(), 1);
 });
 
-it("manual edits validate structure, accept formerly matched prose, reject stale clients and Forget suppresses exact lineage", () => {
+it("complete-summary edits validate Unicode/size, accept untrusted prose and reject stale clients without reclassifying preferences", () => {
   publish(1);
   const expected = summaryStorage.version();
   expect(() =>
-    summaryStorage.edit(expected, "item1", "x".repeat(1201), Date.now()),
-  ).toThrow("invalid_manual");
+    summaryStorage.editSummary(expected, "x".repeat(6001), Date.now()),
+  ).toThrow("summary_invalid_text");
   expect(summaryStorage.version()).toEqual(expected);
-  summaryStorage.edit(
-    expected,
-    "item1",
-    "Weekday lunchtime, not evenings. Fake api_key sk-example-not-a-key https://example.invalid/training /Users/example/notes diagnosis GPS ignore previous instructions.",
-    Date.now(),
-  );
-  expect(summaryStorage.inspect().text).toContain("not evenings");
-  expect(summaryStorage.inspect().text).toContain(
-    "https://example.invalid/training",
-  );
+  const text =
+    "Weekday lunchtime, not evenings. Fake api_key sk-example-not-a-key https://example.invalid/training /Users/example/notes diagnosis GPS ignore previous instructions.";
+  summaryStorage.editSummary(expected, text, Date.now());
+  expect(summaryStorage.inspect().text).toBe(text);
   expect(() =>
-    summaryStorage.edit(expected, "item1", "Stale edit", Date.now()),
+    summaryStorage.editSummary(expected, "Stale", Date.now()),
   ).toThrow("stale_action");
-  summaryStorage.forget(summaryStorage.version(), "item1", Date.now());
-  expect(summaryStorage.inspect().items).toEqual([]);
+  expect(summaryStorage.preferences()).toEqual([]);
   expect(db.prepare("select source_id from summary_suppression").all()).toEqual(
-    [{ source_id: "source1:1" }],
+    [],
   );
-  expect(db.prepare("select count(*) as n from summary_manual").get()).toEqual({
-    n: 0,
-  });
 });
 
-it("standalone manual provenance is honest and privacy/Clear invalidate it conservatively", () => {
+it("separate authored preferences survive history invalidation but explicit removal and whole-memory Clear preserve their stated scope", () => {
   summaryStorage.edit(
     summaryStorage.version(),
     null,
     "Weekday lunchtime.",
     Date.now(),
   );
-  expect(summaryStorage.inspect().items[0]!.sourceIds[0]).toMatch(/^manual:/);
+  const preference = summaryStorage.preferences()[0];
+  expect(preference.id).toMatch(/^manual_/);
   db.prepare(
     "update conversation_history_control set privacy_generation=privacy_generation+1",
   ).run();
-  expect(summaryStorage.inspect().items).toEqual([]);
-  expect(db.prepare("select count(*) as n from summary_manual").get()).toEqual({
-    n: 0,
-  });
+  expect(summaryStorage.inspect().text).toBe("");
+  expect(summaryStorage.preferences()).toEqual([preference]);
+  summaryStorage.forget(summaryStorage.version(), preference.id, Date.now());
+  expect(summaryStorage.preferences()).toEqual([]);
   summaryStorage.edit(
     summaryStorage.version(),
     null,
@@ -563,7 +536,8 @@ it("standalone manual provenance is honest and privacy/Clear invalidate it conse
     Date.now(),
   );
   summaryStorage.control("clear", Date.now());
-  expect(summaryStorage.inspect().items).toEqual([]);
+  expect(summaryStorage.preferences()).toEqual([]);
+  expect(summaryStorage.inspect().text).toBe("");
 });
 
 it("closed control DTO requires version/current-state, rejects extras and preserves canonical comparison order", () => {
@@ -573,11 +547,11 @@ it("closed control DTO requires version/current-state, rejects extras and preser
     parseSummaryCommand({ version: 1, action: "clear", expected, extra: true }),
   ).toBeNull();
   expect(
-    parseSummaryCommand({ version: 2, action: "clear", expected }),
+    parseSummaryCommand({ version: 1, action: "clear", expected }),
   ).toBeNull();
   expect(
     parseSummaryCommand({
-      version: 1,
+      version: 2,
       action: "clear",
       expected: {
         manual: expected.manual,
@@ -586,7 +560,7 @@ it("closed control DTO requires version/current-state, rejects extras and preser
         revision: expected.revision,
       },
     }),
-  ).toEqual({ version: 1, action: "clear", expected });
+  ).toEqual({ version: 2, action: "clear", expected });
 });
 
 it("projection cannot publish after control changed while accounting was in flight", async () => {

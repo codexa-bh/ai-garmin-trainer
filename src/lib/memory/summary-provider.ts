@@ -3,91 +3,19 @@ import { z } from "zod";
 import { selectedModel } from "../ai/providers";
 import { getOptionalEnv, type AppEnv } from "../env";
 import { summaryConfiguration } from "./summary-configuration";
+import { summaryCap } from "./summary-policy";
 import type { SummaryGeneration } from "./summary-application";
 
-const coverageReason = z.enum(["represented", "duplicate", "low-value"]);
-
-function requiredCoverage(prompt: string): string[] {
-  try {
-    const value = JSON.parse(prompt) as {
-      requiredCoverageSourceIds?: unknown;
-      newSources?: unknown;
-    };
-    const ids = value.requiredCoverageSourceIds;
-    const sources = value.newSources;
-    if (
-      !Array.isArray(ids) ||
-      !ids.length ||
-      ids.length > 20 ||
-      ids.some(
-        (id) => typeof id !== "string" || !id.length || id.length > 160,
-      ) ||
-      new Set(ids).size !== ids.length ||
-      !Array.isArray(sources) ||
-      sources.length !== ids.length ||
-      sources.some(
-        (source, index) =>
-          !source ||
-          typeof source !== "object" ||
-          source.sourceId !== ids[index],
-      )
-    )
-      throw new Error("summary_invalid_generation_input");
-    return ids as string[];
-  } catch {
-    throw new Error("summary_invalid_generation_input");
-  }
-}
-const COVERAGE_WIRE_POLICY =
-  "Transport serialization: use the supplied strict output schema. For this transport ONLY, coverage is a REQUIRED closed object keyed by EVERY exact requiredCoverageSourceId, each value being its explicit represented, duplicate or low-value reason; NOT the domain array shown in policy examples. Do not omit irrelevant sources or add context IDs. The adapter restores the domain array in source order only after validating all keys/values. All item/lineage/stance/expiry rules remain unchanged; represented still requires that source in a resulting item.";
-
-// Provider shape enforcement complements, never replaces, the domain validator's
-// source lineage, coverage, authority, expiry and character-budget checks.
-const summaryPatchSchema = z.strictObject({
-  version: z.literal(1),
-  keep: z.array(z.string()),
-  upsert: z.array(
-    z.strictObject({
-      id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
-      text: z.string().min(1),
-      category: z.enum([
-        "decision",
-        "constraint",
-        "goal",
-        "rejected",
-        "question",
-        "temporary",
-        "discussion",
-      ]),
-      stance: z.enum(["user-stated", "endorsed", "discussed-not-endorsed"]),
-      sourceIds: z.array(z.string().max(160)).min(1).max(32),
-      priority: z.number().int().min(0).max(5),
-      expiresAt: z.number().int().nullable(),
-      replaces: z.array(z.string()),
-    }),
-  ),
-  remove: z.array(
-    z.strictObject({
-      id: z.string(),
-      reason: z.enum(["expired", "superseded", "duplicate", "low-value"]),
-    }),
-  ),
-  coverage: z.array(
-    z.strictObject({
-      sourceId: z.string(),
-      reason: coverageReason,
-    }),
-  ),
-});
+const summarySchema = z.strictObject({ summary: z.string() });
 const titleSchema = z.strictObject({ title: z.string() });
 
-/** Exact independent route; no chat/extraction/title selector or embedding import. */
+/** Exact independent route; no fallback, source-fate schema or generated IDs. */
 export function createSummaryGeneration(
   configuration: string | AppEnv,
   transport: typeof fetch = fetch,
   current: () => boolean = () => true,
   purpose: "summary" | "title" = "summary",
-  _cap = 6000,
+  cap?: number,
 ): SummaryGeneration {
   const env =
     typeof configuration === "string"
@@ -98,6 +26,10 @@ export function createSummaryGeneration(
       : configuration;
   const selected = summaryConfiguration(env);
   if (!selected) throw new Error("summary_model_unselected");
+  // Validate configuration, but never force decoder termination at the cap:
+  // real output then ended mid-word. The application validates complete text
+  // and may make one explicitly accounted known-oversize condensation.
+  summaryCap(cap ?? Number(env.SUMMARY_CHAR_LIMIT));
   const guardedFetch: typeof fetch = async (url, init) => {
     if (!current() || init?.signal?.aborted)
       throw new Error("summary_configuration_changed");
@@ -120,26 +52,16 @@ export function createSummaryGeneration(
     .model as Parameters<typeof generateText>[0]["model"];
   return {
     async generate(system, prompt, signal) {
-      const coverageIds = purpose === "summary" ? requiredCoverage(prompt) : [];
-      // A required-key object cannot logically duplicate, omit or invent source
-      // dispositions. Do not ask the model to copy opaque IDs into a loose list.
-      // This is transport-only: the domain patch/validator stays unchanged.
-      const wireSchema = summaryPatchSchema.extend({
-        coverage: z.strictObject(
-          Object.fromEntries(coverageIds.map((id) => [id, coverageReason])),
-        ),
-      });
       const result = await generateText({
         model,
-        system:
-          purpose === "summary" ? `${system}\n${COVERAGE_WIRE_POLICY}` : system,
+        system,
         prompt,
         output:
           purpose === "title"
             ? Output.object({ schema: titleSchema, name: "chat_title" })
             : Output.object({
-                schema: wireSchema,
-                name: "summary_patch",
+                schema: summarySchema,
+                name: "summary_text",
               }),
         maxRetries: 0,
         abortSignal: signal,
@@ -162,8 +84,6 @@ export function createSummaryGeneration(
       });
       signal.throwIfAborted();
       if (!current()) throw new Error("summary_configuration_changed");
-      // Aggregate usage deliberately drops raw presence. This is exactly one
-      // inference step, so normalize that step once, never aggregate + step.
       const raw = result.steps[0]?.usage.raw;
       const counter = (value: unknown): number | null =>
         typeof value === "number" && Number.isSafeInteger(value) && value >= 0
@@ -188,22 +108,11 @@ export function createSummaryGeneration(
         return { patch: null, usage };
       try {
         const raw: unknown = JSON.parse(result.text);
-        if (purpose === "title") {
-          const parsed = titleSchema.safeParse(raw);
-          return { patch: parsed.success ? parsed.data : null, usage };
-        }
-        const parsed = wireSchema.safeParse(raw);
-        if (!parsed.success) return { patch: null, usage };
-        return {
-          patch: {
-            ...parsed.data,
-            coverage: coverageIds.map((sourceId) => ({
-              sourceId,
-              reason: parsed.data.coverage[sourceId],
-            })),
-          },
-          usage,
-        };
+        const parsed =
+          purpose === "title"
+            ? titleSchema.safeParse(raw)
+            : summarySchema.safeParse(raw);
+        return { patch: parsed.success ? parsed.data : null, usage };
       } catch {
         return { patch: null, usage };
       }

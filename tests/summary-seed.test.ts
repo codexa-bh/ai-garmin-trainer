@@ -148,13 +148,13 @@ it.each([
         manualItems: 18,
         configuredCharacters: 20000,
       });
-      expect(result.renderedCharacters).toBeGreaterThan(12000);
-      expect(result.renderedCharacters).toBeLessThanOrEqual(20000);
+      expect(result.manualCharacters).toBeGreaterThan(12000);
+      expect(result.renderedCharacters).toBe(0); // Preferences do not consume generated allowance.
       expect(seeded.prepare("select cap from summary_control").get()).toEqual({
         cap: 20000,
       });
       expect(
-        seeded.prepare("select count(*) as n from summary_manual").get(),
+        seeded.prepare("select count(*) as n from summary_preference").get(),
       ).toEqual({ n: 18 });
       expect(
         seeded.prepare("select count(*) as n from summary_attempt").get(),

@@ -291,16 +291,9 @@
     "Last winter only: evening sessions were convenient. That past arrangement does not describe my current schedule. Keep the historical scope and do not turn it into an ongoing preference.",
   ];
   function memoryFixtureValue() {
-    const items = presentationText.map((text, index) => ({
-      id: `fixture_${index}`,
-      text,
-      category: ["constraint", "question", "temporary"][index],
-      stance: index === 1 ? "discussed-not-endorsed" : "user-stated",
-      sourceIds: [],
-      priority: 3,
-      expiresAt: null,
-      reviewAt: 0,
-    }));
+    const preferences = [
+      { id: "fixture_preference", text: "Keep explanations concise." },
+    ];
     const progressive = memoryFixture === "fixture-progressive";
     const running =
       memoryFixture === "fixture-running" ||
@@ -332,7 +325,7 @@
       revision: 3,
       frontier: 4,
       pending: 0,
-      items: empty ? 0 : items.length,
+      items: empty ? 0 : 1,
       characters: empty ? 0 : [...presentationText.join("\n")].length,
       cap: 6000,
       publishedAt: null,
@@ -346,13 +339,8 @@
       unknownReservedUsd: 0.01,
       priceBasis: "authored-presentation-only",
       expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
-      stored: {
-        version: 1,
-        text: empty ? "" : presentationText.join("\n"),
-        items: empty ? [] : items,
-      },
-      manualIds: [],
-      sources: [],
+      stored: { version: 2, text: empty ? "" : presentationText.join("\n") },
+      preferences: empty ? [] : preferences,
       legacy: [],
       historical: {
         candidates: [],
@@ -364,12 +352,12 @@
         segmentRevision: 1,
         reason: null,
         pin: {
-          version: 1,
+          version: 2,
           value: {
-            version: 1,
-            items: [],
+            version: 2,
             text: "Earlier chat snapshot: weekends were still undecided.",
           },
+          preferences: [],
           stamp: {
             version: 1,
             revision: 2,
@@ -496,7 +484,7 @@
                 Object.keys(command).sort().join() !==
                   "action,expected,selection,version" ||
                 command.action !== "rebuild-review" ||
-                command.version !== 1 ||
+                command.version !== 2 ||
                 JSON.stringify(command.expected) !==
                   JSON.stringify(memoryFixtureValue().expected) ||
                 !s ||
@@ -585,12 +573,12 @@
       throw Error("Removed Memory controls remain");
     const rows = [
       ...(panel?.querySelectorAll(
-        '[aria-label="Saved summary items"] .memory-text',
+        '[aria-label="Manual preferences"] .memory-text',
       ) ?? []),
     ];
     if (
       memoryFixtureRestoring &&
-      !rows.some((row) => presentationText.includes(row.textContent))
+      !rows.some((row) => row.textContent === "Keep explanations concise.")
     )
       memoryFixtureRestoring = false;
     if (
@@ -600,12 +588,27 @@
             memoryText(),
             memoryText(true),
             ...(memoryFixture || memoryFixtureRestoring
-              ? presentationText
+              ? ["Keep explanations concise."]
               : []),
           ].includes(row.textContent),
       )
     )
       throw Error("Noncanonical Memory source refused");
+    const generated = panel?.querySelector(
+      '[aria-label="Generated summary"] .memory-text',
+    );
+    if (
+      generated &&
+      ![
+        "No generated summary yet. Update from chat history to build one.",
+        memoryText(),
+        memoryText(true),
+        ...(memoryFixture || memoryFixtureRestoring
+          ? [presentationText.join("\n")]
+          : []),
+      ].includes(generated.textContent)
+    )
+      throw Error("Noncanonical generated summary refused");
     const buttons = [...(panel?.querySelectorAll("button") ?? [])];
     const state = panel
       ?.querySelector("[data-history-state]")
@@ -694,6 +697,7 @@
         "reload",
         "add",
         "edit",
+        "summary-edit",
         "draft",
         "draft-update",
         "save",
@@ -769,6 +773,7 @@
           "reload",
           "add",
           "edit",
+          "summary-edit",
           "draft",
           "draft-update",
           "forget",
@@ -825,9 +830,11 @@
         );
         if (
           !confirmButton ||
-          !["Forget memory", "Clear saved memory", "Turn memory On"].includes(
-            name(confirmButton),
-          ) ||
+          ![
+            "Remove preference",
+            "Clear saved memory",
+            "Turn memory On",
+          ].includes(name(confirmButton)) ||
           confirmButton.disabled
         )
           throw Error("Unsupported confirmation");
@@ -846,7 +853,11 @@
           !visible(input) ||
           input.disabled ||
           (input.value &&
-            ![memoryText(), memoryText(true)].includes(input.value))
+            ![
+              memoryText(),
+              memoryText(true),
+              ...(memoryFixture ? [presentationText.join("\n")] : []),
+            ].includes(input.value))
         )
           throw Error("Noncanonical Memory draft refused");
         Object.getOwnPropertyDescriptor(
@@ -866,10 +877,13 @@
           "older-records": "Older saved records",
           "item-details": "Source & details",
           "cancel-edit": "Cancel edit",
-          add: "Add memory",
-          edit: "Edit",
-          save: "Save memory",
-          forget: "Forget",
+          add: "Add preference",
+          edit: "Edit preference",
+          "summary-edit": "Edit summary",
+          save: panel.querySelector('[aria-label="Edit generated summary"]')
+            ? "Save summary"
+            : "Save preference",
+          forget: "Remove preference",
           clear: "Clear saved memory",
           disable: "Turn Off",
           enable: "Turn On",
@@ -895,7 +909,7 @@
           window.confirm = (message) => {
             const exact =
               command.action === "forget"
-                ? "Forget this item and suppress its exact source versions? Original transcripts and other stores remain."
+                ? "Remove this separately authored preference? Conversations and generated summary remain. This does not surgically erase meaning from history."
                 : command.action === "clear"
                   ? "Clear summary, manual items and chat pins? Transcripts, Profile, Garmin, plans and preserved legacy records remain. Future new turns may create memory; backups/provider logs are not erased."
                   : command.action === "cancel-edit"
@@ -931,7 +945,49 @@
     anchor?.scrollIntoView({ block: "start", behavior: "instant" });
     const labels = new Set([
       "What your trainer remembers",
-      "Saved memories",
+      "Generated summary",
+      "Your preferences",
+      "Add preference",
+      "Edit preference",
+      "Remove preference",
+      "Remove this preference?",
+      "Edit summary",
+      "Edit generated summary",
+      "Add preference",
+      "Edit preference",
+      "Save preference",
+      "Save summary",
+      "Complete generated summary",
+      "Preference",
+      "No generated summary yet. Update from chat history to build one.",
+      "Add your own preferences or restrictions here. History updates do not rewrite them.",
+      "Saved summary is not in use. Turn memory On to use it again.",
+      "Off · Saved summary and preferences retained, not in use",
+      "Preference added.",
+      "Preference edited.",
+      "Preference removed. Conversations and generated summary remain.",
+      "Complete generated summary saved. A future regeneration replaces it; separate preferences are unchanged.",
+      "Saved separately as your own preference; history regeneration preserves it and it does not consume the generated allowance. This text may be sent to your AI provider.",
+      "This replaces the complete generated text, within 6000 characters. Regeneration replaces direct summary edits too. This text may be sent to your AI provider.",
+      ...[
+        "",
+        memoryText(),
+        memoryText(true),
+        ...(memoryFixture ? [presentationText.join("\n")] : []),
+      ].map(
+        (text) => `${[...text].length} / 6000 characters · generated text only`,
+      ),
+      `Preference${memoryText()}`,
+      `Preference${memoryText(true)}`,
+      `Complete generated summary${memoryText()}`,
+      `Complete generated summary${memoryText(true)}`,
+      ...(memoryFixture
+        ? [`Complete generated summary${presentationText.join("\n")}`]
+        : []),
+      `“${memoryText(true)}”\n\nRemove only this separately authored preference. This does not delete conversations or surgically remove related meaning from the generated summary.`,
+      `“Keep explanations concise.”\n\nRemove only this separately authored preference. This does not delete conversations or surgically remove related meaning from the generated summary.`,
+      "Keep explanations concise.",
+      presentationText.join("\n"),
       "Update memory from chat history",
       "Manage memory",
       "Memory details",
@@ -1027,7 +1083,7 @@
             "4 — Sources you asked memory to forget",
             "1 — Sources you asked memory to forget",
             "Older conversations may include things once cleared. You allowed their reuse. Known forgotten sources and recorded clears stay excluded.",
-            "Updates send selected usable text to your selected AI provider (openai) and may incur charges. Cost is not known in advance. Existing memory stays until the update succeeds; manual edits and conversations are preserved.",
+            "Updates send selected usable text to your selected AI provider (openai) and may incur charges. Cost is not known in advance. The previous generated summary stays until the update succeeds. A successful update replaces all generated text, including direct summary edits. Separately authored preferences and conversations are preserved.",
             "8 of 16 included messages processed.",
             "16 of 16 included messages processed.",
             ...[20, 40, 60, 80, 184].map(
@@ -1035,9 +1091,9 @@
             ),
             "Last known: 60 of 184 included messages processed.",
             "Previous memory stays available. Keep the app open; progress updates automatically.",
-            "The complete replacement was saved. Manual edits and conversations remain; new chat turns use available valid memory.",
+            "The complete replacement was saved. Separate preferences and conversations remain; new chat turns use available valid memory.",
             "The app or request stopped before the update finished.",
-            "No completed replacement was saved by this update. Previous memory was not replaced; independent Clear, Forget or Off changes still apply. Earlier request costs may be unknown. Nothing is repeated automatically.",
+            "No completed replacement was saved by this update. Previous memory was not replaced; independent Clear, privacy or Off changes still apply. Earlier request costs may be unknown. Nothing is repeated automatically.",
             "Off · Saved items retained",
             "Connection lost. Shown memory and progress are last known, not current. Reconnecting automatically; no update is repeated.",
             "Connection lost. Reconnecting automatically to the same operation; no work is repeated. Its current outcome is unknown.",

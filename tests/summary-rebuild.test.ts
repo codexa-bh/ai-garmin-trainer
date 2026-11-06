@@ -3,7 +3,6 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { migrateDatabase } from "@/lib/db/migrations";
 import {
   summaryStorage as storage,
-  summaryInspectionSources,
   noteSummaryActivity,
 } from "@/lib/db/summary-storage";
 import { conversationHistory as history } from "@/lib/db/conversation-history";
@@ -18,7 +17,7 @@ import {
 import {
   minimizeSummarySource,
   SUMMARY_SYSTEM,
-  validateSummaryPatch,
+  validateSummaryReplacement,
   type SummaryBatch,
   type SummaryCandidate,
 } from "@/lib/memory/summary-policy";
@@ -59,34 +58,16 @@ function proposal(batch: SummaryBatch, keep = true): SummaryCandidate {
     const input = minimizeSummarySource(s);
     return input ? [input] : [];
   });
-  const patch = {
-    version: 1,
-    keep: keep ? batch.previous.items.map((i) => i.id) : [],
-    upsert:
-      batch.previous.items.length && keep
-        ? []
-        : [
-            {
-              id: `choice_${batch.jobId.replace(/[^a-z0-9]/gi, "")}`,
-              text: "Short weekday sessions suit caregiving; repeatedly overlong weekday plans failed.",
-              category: "constraint",
-              stance: "user-stated",
-              sourceIds: [inputs[0].sourceId],
-              priority: 5,
-              expiresAt: null,
-              replaces: [],
-            },
-          ],
-    remove: keep
-      ? []
-      : batch.previous.items.map((i) => ({ id: i.id, reason: "low-value" })),
-    coverage: inputs.map((s, i) => ({
-      sourceId: s.sourceId,
-      reason:
-        !batch.previous.items.length && i === 0 ? "represented" : "low-value",
-    })),
-  };
-  return validateSummaryPatch(patch, batch, inputs, now)!;
+  return validateSummaryReplacement(
+    {
+      summary:
+        keep && batch.previous.text
+          ? batch.previous.text
+          : "Short weekday sessions suit caregiving; repeatedly overlong weekday plans failed.",
+    },
+    batch,
+    inputs,
+  )!;
 }
 function begin(id = "operation") {
   const i = inventory();
@@ -129,7 +110,7 @@ describe("explicit selected legacy recovery", () => {
     expect(reviewed.counts.includedUserMessages).toBe(259);
     expect(reviewed.preflight.selection).toEqual(selection);
     start("legacy", reviewed.snapshot, "boot", now, selection);
-    expect(readSummaryRebuildBatch()!.sources).toHaveLength(20);
+    expect(readSummaryRebuildBatch()!.sources).toHaveLength(40);
     cancelSummaryRebuild("legacy");
     storage.control("clear", now);
     expect(
@@ -178,7 +159,7 @@ describe("explicit selected legacy recovery", () => {
       includeLegacy: true,
     };
     const base = {
-      version: 1,
+      version: 2,
       expected: storage.version(),
       action: "rebuild-review",
       selection,
@@ -299,7 +280,7 @@ describe("growing authored184-source multi-chat repair", () => {
       "Use gradual practice that fits the current schedule because abrupt long sessions previously failed to fit family life. This is a practical planning lesson, not a universal performance rule or permission to save new plans without direction.",
     ],
   ];
-  it("reproduces staged20 then rendered-cap rejection and completes a new reviewed repacked184-source operation atomically", async () => {
+  it("reproduces staged40 then bounded-condensation rejection and completes a new reviewed repacked184-source operation atomically", async () => {
     oldMemory();
     storage.edit(storage.version(), null, "Keep coaching concise.", now);
     for (let n = 0; n < 184; n++)
@@ -319,63 +300,33 @@ describe("growing authored184-source multi-chat repair", () => {
       repack = false;
     const generate = vi.fn(async (_system: string, prompt: string) => {
       const input = JSON.parse(prompt) as {
-        constraints: { renderedCharacters: number; renderFormat: string };
-        previous: { id: string; text: string; sourceIds: string[] }[];
-        newSources: { sourceId: string; user: string }[];
+        previous: string;
+        characterCap: number;
+        newSources: { user: string }[];
+        draft?: string;
       };
-      expect(input.constraints.renderFormat).toContain("[stance; category]");
-      if (input.previous.length)
-        expect(input.constraints.renderedCharacters).toBeGreaterThan(0);
-      const upsert = repack
-        ? meanings.flatMap(([category, stance, text], theme) => {
-            const current = input.newSources.filter((s) =>
-              s.user.includes(text),
-            );
-            const previous = input.previous.filter((i) => i.text === text);
-            return current.length || previous.length
-              ? [
-                  {
-                    id: `theme_${calls}_${theme}`,
-                    text,
-                    category,
-                    stance,
-                    sourceIds: current.map((s) => s.sourceId),
-                    replaces: previous.map((i) => i.id),
-                    priority: 5,
-                    expiresAt: null,
-                  },
-                ]
-              : [];
-          })
-        : input.newSources.map((s, n) => {
-            const [category, stance, text] =
-              meanings.find(([, , text]) => s.user.includes(text)) ??
-              meanings[0];
-            return {
-              id: `item_${calls}_${n}`,
-              text,
-              category,
-              stance,
-              sourceIds: [s.sourceId],
-              priority: 5,
-              expiresAt: null,
-              replaces: [],
-            };
-          });
-      if (calls === 0)
-        expect(upsert[3].text).toContain("https://example.invalid");
+      expect(input.characterCap).toBe(6000);
+      if (input.draft !== undefined) {
+        expect(input.draft).toBe("x".repeat(6001));
+        calls++;
+        return {
+          patch: { summary: input.draft },
+          usage: { input: 200, output: 200, cached: 0 },
+        };
+      }
+      expect(typeof input.previous).toBe("string");
+      expect(JSON.stringify(input)).not.toMatch(
+        /requiredCoverageSourceIds|replaces|sourceIds/,
+      );
+      // Deliberately exercise complete-output overflow, then a distinct reviewed compact replacement.
+      const summary = repack
+        ? meanings.map(([, , text]) => text).join("\n")
+        : calls === 0
+          ? "First complete temporary draft"
+          : "x".repeat(6001);
       calls++;
       return {
-        patch: {
-          version: 1,
-          keep: repack ? [] : input.previous.map((i) => i.id),
-          upsert,
-          remove: [],
-          coverage: input.newSources.map((s) => ({
-            sourceId: s.sourceId,
-            reason: "represented",
-          })),
-        },
+        patch: { summary },
         usage: { input: 200, output: 200, cached: 0 },
       };
     });
@@ -405,7 +356,7 @@ describe("growing authored184-source multi-chat repair", () => {
     }
     expect(status()).toMatchObject({
       state: "interrupted",
-      processed: 20,
+      processed: 40,
       total: 184,
       reason: "summary_invalid_output",
     });
@@ -421,29 +372,29 @@ describe("growing authored184-source multi-chat repair", () => {
     });
     now += 3000;
     await engine.tick(new AbortController().signal);
-    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenCalledTimes(3);
     // New explicit review/identity, never replay or blind retry of failed work.
     repack = true;
     beginRich("growing-repacked");
-    for (let n = 0; n < 10; n++) {
+    for (let n = 0; n < 5; n++) {
       now += 3000;
       await engine.tick(new AbortController().signal);
-      if (n < 9) expect(storage.inspect()).toEqual(before);
+      if (n < 4) expect(storage.inspect()).toEqual(before);
     }
     expect(status()).toMatchObject({ state: "complete", processed: 184 });
     expect(storage.version().revision).toBe(revision + 1);
     for (const [, , text] of meanings)
       expect(storage.inspect().text).toContain(text);
-    expect(storage.inspect().text).toContain("Keep coaching concise.");
-    expect(storage.inspect().items.every((i) => i.sourceIds.length <= 32)).toBe(
-      true,
-    );
+    expect(
+      storage.preferences().map((preference) => preference.text),
+    ).toContain("Keep coaching concise.");
+    expect(storage.inspect().text).not.toContain("Keep coaching concise.");
     expect(
       db.prepare("select id,content from message order by id").all(),
     ).toEqual(originals);
-    expect(generate).toHaveBeenCalledTimes(12);
+    expect(generate).toHaveBeenCalledTimes(8);
     expect([...storage.inspect().text].length).toBeLessThanOrEqual(6000);
-    expect(status()?.dispositions).toEqual({ represented: 184 });
+    expect(status()?.dispositions).toEqual({ processed: 184 });
     const next = history.admit("after-rich184", "What remains unresolved?");
     expect(
       JSON.stringify(replayMessages(history.read(next.admission))),
@@ -481,7 +432,7 @@ describe("full-pool original admission and local preflight", () => {
     expect(inspected.preflight.ready).toBe(true);
     begin();
     const first = readSummaryRebuildBatch()!;
-    expect(first.sources).toHaveLength(20);
+    expect(first.sources).toHaveLength(40);
     const input = minimizeSummarySource(
       first.sources.find((s) => s.original?.messageId === "user-0")!,
     )!;
@@ -528,57 +479,16 @@ describe("full-pool original admission and local preflight", () => {
       speaker: "assistant",
       createdAt: 1700000001,
     });
-    const candidate = validateSummaryPatch(
-      {
-        version: 1,
-        keep: [],
-        remove: [],
-        upsert: [
-          {
-            id: "choice",
-            text: "The bag was rejected as awkward; poles remain unresolved.",
-            category: "rejected",
-            stance: "user-stated",
-            sourceIds: [input.sourceId],
-            priority: 4,
-            expiresAt: null,
-            replaces: [],
-          },
-        ],
-        coverage: batch.sources.map((s) => ({
-          sourceId: s.sourceId,
-          reason: s.sourceId === input.sourceId ? "represented" : "low-value",
-        })),
-      },
-      {
-        ...batch,
-        jobId: "x",
-        cap: 6000,
-        revision: 0,
-        privacyGeneration: 0,
-        controlGeneration: 0,
-        manualRevision: 0,
-        frontier: 0,
-        upper: 0,
-      },
-      batch.sources.map((s) => minimizeSummarySource(s)!),
-      now,
-    )!;
-    expect(candidate.value.items[0].sourceIds).toContain(
-      input.original!.context!.sourceId,
-    );
-    expect(candidate.value.items[0].sourceIds).toContain(
-      input.original!.context!.userSourceId,
-    );
     now += 3000;
     const job = storage.admit(now, "context-link")!;
+    const candidate = validateSummaryReplacement(
+      { summary: "The bag was rejected as awkward; poles remain unresolved." },
+      job,
+      batch.sources.map((source) => minimizeSummarySource(source)!),
+    )!;
+    expect(Object.keys(candidate.value)).toEqual(["version", "text"]);
     expect(storage.publish(job, candidate, now)).toBe(true);
-    expect(summaryInspectionSources()).toContainEqual({
-      sourceId: input.original!.context!.sourceId,
-      conversationId: "A",
-      messageId: "a1",
-      manual: false,
-    });
+    expect(storage.inspect().text).toContain("poles remain unresolved");
     db.prepare("insert into summary_suppression(source_id) values(?)").run(
       input.original!.context!.userSourceId,
     );
@@ -667,7 +577,7 @@ describe("full-pool original admission and local preflight", () => {
   });
   it("refuses extra/stale/unknown command fields", () => {
     const base = {
-      version: 1,
+      version: 2,
       expected: storage.version(),
       action: "rebuild-start",
       id: "op",
@@ -682,7 +592,7 @@ describe("full-pool original admission and local preflight", () => {
       expect(parseSummaryCommand(changed)).toBeNull();
     expect(
       parseSummaryCommand({
-        version: 1,
+        version: 2,
         expected: storage.version(),
         action: "rebuild-cancel",
         id: "op",
@@ -751,7 +661,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
         1700000000 + index,
       ),
     );
-    for (let n = 0; n < 23; n++)
+    for (let n = 0; n < 63; n++)
       message(
         `incidental-${n}`,
         "One-off weather and route chatter, not a future preference.",
@@ -771,7 +681,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     };
     const review = summaryRebuildInventory("boot", selection);
     expect(review.counts).toMatchObject({
-      includedUserMessages: 29,
+      includedUserMessages: 69,
       excludedUserMessages: 1,
       assistantContext: 1,
     });
@@ -779,9 +689,8 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     const before = storage.inspect();
     const seen: {
       user: string;
-      referent?: string;
-      sourceId: string;
-      original: { messageId: string };
+      assistantContext?: string;
+      createdAt?: number;
     }[] = [];
     let jobs = 0;
     const engine = createSummaryEngine({
@@ -792,44 +701,22 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
       jitter: () => 0,
       generation: {
         generate: async (system, prompt) => {
-          expect(system).toContain("A question is not commitment");
+          expect(system).toContain("A question is not a commitment");
           const request = JSON.parse(prompt) as {
-            previous: { id: string }[];
+            previous: string;
             newSources: typeof seen;
           };
           seen.push(...request.newSources);
-          const upsert = request.newSources.flatMap((source) => {
-            const index = rubric.findIndex(
-              (entry) => entry.user === source.user,
-            );
-            if (index < 0) return [];
-            const entry = rubric[index];
-            return [
-              {
-                id: `meaning_${index}`,
-                text: entry.text,
-                category: entry.category,
-                stance: entry.stance,
-                sourceIds: [source.sourceId],
-                priority: 5,
-                expiresAt: null,
-                replaces: [],
-              },
-            ];
-          });
+          const summary = rubric
+            .filter(
+              (entry) =>
+                request.previous.includes(entry.text) ||
+                request.newSources.some((source) => source.user === entry.user),
+            )
+            .map((entry) => entry.text)
+            .join("\n");
           return {
-            patch: {
-              version: 1,
-              keep: request.previous.map((item) => item.id),
-              upsert,
-              remove: [],
-              coverage: request.newSources.map((source) => ({
-                sourceId: source.sourceId,
-                reason: rubric.some((entry) => entry.user === source.user)
-                  ? "represented"
-                  : "low-value",
-              })),
-            },
+            patch: { summary },
             usage: { input: 100, output: 100, cached: 0 },
           };
         },
@@ -841,24 +728,24 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     expect(storage.inspect()).toEqual(before);
     now += 2100;
     await engine.tick(new AbortController().signal);
-    expect(status()).toMatchObject({ state: "complete", processed: 29 });
+    expect(status()).toMatchObject({ state: "complete", processed: 69 });
     expect(
-      seen.find((source) => source.original.messageId === "meaning-2")
-        ?.referent,
+      seen.find((source) => source.user === rubric[2].user)?.assistantContext,
     ).toContain("neither is chosen");
     expect(seen.some((source) => /Do not save/.test(source.user))).toBe(false);
     expect(seen.some((source) => source.user.includes("password"))).toBe(true);
     const saved = storage.inspect();
     for (const entry of rubric) expect(saved.text).toContain(entry.text);
-    expect(saved.text).toContain("Current manual instruction");
+    expect(storage.preferences()[0].text).toContain(
+      "Current manual instruction",
+    );
+    expect(saved.text).not.toContain("Current manual instruction");
     expect(saved.text).not.toMatch(
       /never cycle|poles chosen|must train evenings|weather/,
     );
     expect([...saved.text].length).toBeLessThan(6000);
-    expect(saved.items.every((item) => item.sourceIds.length <= 32)).toBe(true);
-    expect(
-      saved.items.find((item) => item.id === "meaning_2")!.sourceIds.length,
-    ).toBe(3);
+    expect(status()?.dispositions).toEqual({ processed: 69 });
+    expect(Object.keys(saved)).toEqual(["version", "text"]);
     const next = history.admit(
       "existing-null-chat",
       "What should guide us next?",
@@ -879,7 +766,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
         "select payload,seal from conversation_summary_pin where conversation_id='pinned-chat'",
       )
       .get();
-    for (let n = 0; n < 221; n++)
+    for (let n = 0; n < 441; n++)
       message(`u-${n}`, undefined, "user", `A${n % 3}`, 1700000000 + n);
     const admitted = begin();
     let iterations = 0;
@@ -887,8 +774,9 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
       now += 2100;
       const job = storage.admit(now, `batch-${iterations}`)!;
       expect(job).not.toBeNull();
-      expect(job.sources.length).toBeLessThanOrEqual(20);
-      if (iterations === 0) expect(job.previous.items).toEqual([]);
+      expect(job.sources.length).toBeLessThanOrEqual(40);
+      if (iterations === 0)
+        expect(job.previous).toEqual({ version: 2, text: "" });
       expect(storage.reserve(job, now)).toBe(true);
       const candidate = proposal(job);
       expect(candidate).not.toBeNull();
@@ -913,17 +801,21 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
       total: admitted.counts.includedUserMessages,
     });
     expect(storage.version().revision).toBe(revision + 1);
-    expect(storage.inspect().items.some((i) => i.id === old.items[0].id)).toBe(
-      false,
+    expect(storage.inspect()).toEqual({
+      version: 2,
+      text: "Short weekday sessions suit caregiving; repeatedly overlong weekday plans failed.",
+    });
+    expect(
+      storage
+        .preferences()
+        .some((preference) => preference.text === "Keep concise coaching."),
+    ).toBe(true);
+    expect(old.version).toBe(2);
+    expect(status()?.dispositions.processed).toBe(
+      admitted.counts.includedUserMessages,
     );
-    expect(
-      storage.inspect().items.some((i) => i.text === "Keep concise coaching."),
-    ).toBe(true);
-    expect(
-      summaryInspectionSources().some((s) => s.messageId?.startsWith("u-")),
-    ).toBe(true);
     expect(db.prepare("select count(*) as n from message").get()).toEqual({
-      n: 224,
+      n: 444,
     });
     expect(db.prepare("pragma integrity_check").get()).toEqual({
       integrity_check: "ok",
@@ -992,12 +884,25 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
         db = new Database(bytes);
         reconcileSummaryRebuild("new-boot", now);
       }
-      expect(storage.publish(job, candidate, now)).toBe(false);
-      if (
-        ["cancel", "failure", "new-source", "timestamp", "reopen"].includes(
-          action,
-        )
-      )
+      const published = storage.publish(job, candidate, now);
+      if (action === "new-source") {
+        expect(published).toBe(true);
+        expect(status()).toMatchObject({
+          state: "complete",
+          processed: 2,
+          total: 2,
+        });
+        const selected = JSON.parse(
+          (
+            db.prepare("select selection_json from summary_rebuild").get() as {
+              selection_json: string;
+            }
+          ).selection_json,
+        ) as { messageId: string }[];
+        expect(selected.some((entry) => entry.messageId === "u2")).toBe(false);
+        expect(inventory().counts.includedUserMessages).toBe(3);
+      } else expect(published).toBe(false);
+      if (["cancel", "failure", "timestamp", "reopen"].includes(action))
         expect(storage.inspect()).toEqual(before);
       expect(storage.status(now).unpricedAttempts).toBeGreaterThan(0);
       expect(storage.status(now).reservedUsdToday).toBe(0);
@@ -1006,23 +911,23 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
       });
     },
   );
-  it("respects linked suppression/manual overlays and rejects final manual-capacity overflow", () => {
+  it("honors recorded linked suppression while preferences do not consume D1 generated allowance", () => {
     oldMemory();
-    const item = storage.inspect().items[0];
-    storage.forget(storage.version(), item.id, now);
+    const source = inventory().selected[0].sourceId;
+    db.prepare("insert into summary_suppression(source_id) values(?)").run(
+      source,
+    );
     message("u1");
     expect(inventory().reasons.suppressed).toBe(1);
     storage.edit(storage.version(), null, "q".repeat(1200), now);
-    storage.configure(true, "gpt-6-luna", 1000); // Existing active text too large is independently revoked.
-    // Use an admitted candidate that fits alone, but cannot discard the overlay.
+    storage.configure(true, "gpt-6-luna", 1000);
     begin();
     now += 3000;
     const job = storage.admit(now, "capacity")!;
-    const before = storage.inspect();
-    expect(storage.publish(job, proposal(job), now)).toBe(false);
-    expect(storage.inspect()).toEqual(before);
-    storage.fail(job, "summary_publication_conflict", now);
-    expect(status()?.state).toBe("interrupted");
+    expect(storage.publish(job, proposal(job), now)).toBe(true);
+    expect(storage.preferences()[0].text).toBe("q".repeat(1200));
+    expect(storage.inspect().text.length).toBeLessThan(1000);
+    expect(status()?.state).toBe("complete");
   });
   it("records invalid generation/unknown cost without partial publication or automatic retry", async () => {
     const before = oldMemory();
@@ -1043,14 +948,20 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     });
     await engine.tick(new AbortController().signal);
     expect(generate).toHaveBeenCalledTimes(1);
-    expect(generate.mock.calls[0][0]).toBe(SUMMARY_SYSTEM);
+    const cap = JSON.parse(generate.mock.calls[0][1]).characterCap;
+    expect(generate.mock.calls[0][0]).toBe(
+      `${SUMMARY_SYSTEM}\nHard limit: ${cap} Unicode characters INCLUDING spaces/punctuation for the ENTIRE summary. Aim for about ${Math.floor(cap / 12)} words total where the language has word boundaries; this is soft drafting advice, not another hard limit. Finish every sentence and the final thought. Repack redundant detail rather than growing to the character ceiling.`,
+    );
     expect(SUMMARY_SYSTEM).toContain("FUTURE COACHING");
-    expect(SUMMARY_SYSTEM).toContain("one incident is not a universal rule");
-    expect(SUMMARY_SYSTEM).toContain("latest explicit correction");
-    expect(SUMMARY_SYSTEM).toContain("A question is not commitment");
+    expect(SUMMARY_SYSTEM).toContain("One incident is not a universal rule");
+    expect(SUMMARY_SYSTEM).toContain("Latest explicit corrections");
+    expect(SUMMARY_SYSTEM).toContain("A question is not a commitment");
+    expect(JSON.parse(generate.mock.calls[0][1]).newSources[0]).toHaveProperty(
+      "user",
+    );
     expect(
-      JSON.parse(generate.mock.calls[0][1]).newSources[0].original.speaker,
-    ).toBe("user");
+      JSON.parse(generate.mock.calls[0][1]).newSources[0],
+    ).not.toHaveProperty("sourceId");
     expect(storage.inspect()).toEqual(before);
     expect(status()?.state).toBe("interrupted");
     expect(storage.status(now).unpricedAttempts).toBeGreaterThan(0);
@@ -1059,11 +970,11 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     expect(generate).toHaveBeenCalledTimes(1);
   });
   it.each([false, true])(
-    "supplies the exact noise-only coverage census and keeps strict incomplete rejection (%s)",
+    "owns noise-only batch processing and rejects extra reconciliation output (%s)",
     async (incomplete) => {
       storage.edit(storage.version(), null, "Keep concise coaching.", now);
       const old = storage.inspect();
-      for (let n = 0; n < 25; n++)
+      for (let n = 0; n < 45; n++)
         message(
           `noise-${n}`,
           "One-off picnic bench chatter, not future coaching context.",
@@ -1072,25 +983,17 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
       now += 3000;
       const generate = vi.fn(async (_system: string, prompt: string) => {
         const request = JSON.parse(prompt);
-        expect(request.requiredCoverageSourceIds).toEqual(
-          request.newSources.map(
-            (source: { sourceId: string }) => source.sourceId,
+        expect(request).not.toHaveProperty("requiredCoverageSourceIds");
+        expect(
+          request.newSources.every(
+            (source: Record<string, unknown>) =>
+              !Object.hasOwn(source, "sourceId"),
           ),
-        );
-        expect(_system).toContain(
-          "coverage.length MUST equal requiredCoverageSourceIds.length",
-        );
+        ).toBe(true);
+        expect(_system).toContain('ONLY strict JSON {"summary"');
+        expect(request.previous).toBe("");
         return {
-          patch: {
-            version: 1,
-            keep: request.previous.map((item: { id: string }) => item.id),
-            upsert: [],
-            remove: [],
-            coverage: (incomplete
-              ? request.requiredCoverageSourceIds.slice(0, -1)
-              : request.requiredCoverageSourceIds
-            ).map((sourceId: string) => ({ sourceId, reason: "low-value" })),
-          },
+          patch: incomplete ? { summary: "", coverage: [] } : { summary: "" },
           usage: { input: 100, output: 50, cached: 0 },
         };
       });
@@ -1118,14 +1021,14 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
             input: 100,
             output: 50,
             cached: 0,
-            rejection: "coverage_incomplete",
+            rejection: "shape",
           }),
         });
       } else {
-        expect(status()).toMatchObject({ state: "active", processed: 20 });
+        expect(status()).toMatchObject({ state: "active", processed: 40 });
         now += 2100;
         await engine.tick(new AbortController().signal);
-        expect(status()).toMatchObject({ state: "complete", processed: 25 });
+        expect(status()).toMatchObject({ state: "complete", processed: 45 });
         expect(storage.inspect()).toEqual(old);
       }
       expect(generate).toHaveBeenCalledTimes(incomplete ? 1 : 2);
@@ -1133,12 +1036,12 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
   );
   it("scrubs staged text on authority/privacy invalidation without losing operation progress or original bytes", () => {
     oldMemory();
-    for (let n = 0; n < 25; n++) message(`privacy-${n}`);
+    for (let n = 0; n < 45; n++) message(`privacy-${n}`);
     begin();
     now += 3000;
     const job = storage.admit(now, "stage-privacy")!;
     expect(storage.publish(job, proposal(job), now)).toBe(true);
-    expect(status()?.processed).toBe(20);
+    expect(status()?.processed).toBe(40);
     expect(
       (
         db.prepare("select candidate_json from summary_rebuild").get() as {
@@ -1147,7 +1050,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
       ).candidate_json,
     ).toContain("caregiving");
     storage.control("clear", now);
-    expect(status()).toMatchObject({ state: "invalidated", processed: 20 });
+    expect(status()).toMatchObject({ state: "invalidated", processed: 40 });
     expect(
       db
         .prepare(
@@ -1155,20 +1058,24 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
         )
         .get(),
     ).toEqual({
-      candidate_json: '{"version":1,"items":[],"text":""}',
+      candidate_json: '{"version":2,"text":""}',
       candidate_checksum: "",
     });
     expect(db.prepare("select count(*) as n from message").get()).toEqual({
-      n: 27,
+      n: 47,
     });
   });
-  it("keeps Forget effective for the same original after content/timestamp edits", () => {
+  it("keeps historical Forget restrictions effective for the same original after content/timestamp edits without generated cards", () => {
     message("forgotten");
+    const source = inventory().selected[0].sourceId;
     begin();
     now += 3000;
     const job = storage.admit(now, "publish-forget")!;
     expect(storage.publish(job, proposal(job), now)).toBe(true);
-    storage.forget(storage.version(), storage.inspect().items[0].id, now);
+    // Historical suppression is retained, not a new granular UI promise.
+    db.prepare("insert into summary_suppression(source_id) values(?)").run(
+      source,
+    );
     db.prepare(
       "update message set content='I now prefer long weekdays.',created_at=created_at+1 where id='forgotten'",
     ).run();
@@ -1202,16 +1109,16 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     message("legacy-unlinked");
     storage.edit(storage.version(), null, "Keep manual coaching.", now);
     const originals = db.prepare("select * from message order by id").all(),
-      manual = db.prepare("select * from summary_manual").all(),
       spend = db.prepare("select * from summary_spend").all();
     removeRebuildFixtureSchema(db);
+    const manual = db.prepare("select * from summary_manual").all();
     db.prepare(
       "update app_metadata set value='21' where key='schema_version'",
     ).run();
     const result = migrateDatabase(db);
     expect(result).toMatchObject({
       fromVersion: 21,
-      toVersion: 23,
+      toVersion: 24,
       integrity: "ok",
     });
     const bytes = db.serialize();

@@ -53,6 +53,28 @@ class InputTests(unittest.TestCase):
         private_json(staged, grant)
         staged.replace(path)
 
+    def test_managed_synthetic_database_uses_disposable_and_compact_provenance_stays_evidence(self):
+        evidence=self.root/'evidence';evidence.mkdir(mode=0o700)
+        disposable=self.root/'disposable';disposable.mkdir(mode=0o700)
+        with patch('smoke_input.resources.runtime_path',side_effect=lambda path:disposable/path.relative_to(evidence)), patch('native_smoke.Run.start') as launch:
+            prepared=prepare(evidence,self.args,'ordinary');prepared.verify_current()
+        self.assertTrue(prepared.database.is_relative_to(disposable))
+        self.assertEqual(len(list(evidence.glob('preparation-*.json'))),1)
+        self.assertEqual(list(evidence.rglob('*.sqlite')),[])
+        self.assertFalse(prepared.provenance['personalInputRead']);launch.assert_not_called()
+
+    def test_managed_authorized_numeric_copy_keeps_original_and_unchanged_grant_scope(self):
+        grant_path,grant,database,original=self.standin()
+        evidence=self.root/'evidence';evidence.mkdir(mode=0o700)
+        disposable=self.root/'disposable';disposable.mkdir(mode=0o700)
+        with patch('smoke_input.resources.runtime_path',side_effect=lambda path:disposable/path.relative_to(evidence)), patch('native_smoke.Run.start') as launch:
+            prepared=prepare(evidence,self.args,'ordinary');prepared.verify_current()
+        self.assertTrue(prepared.database.is_relative_to(disposable))
+        self.assertEqual(prepared.original,original)
+        self.assertEqual(json.loads(grant_path.read_text()),grant)
+        with contextlib.closing(readonly(database)) as source:self.assertEqual(fingerprint(source),original)
+        self.assertEqual(len(list(evidence.glob('preparation-*.json'))),1);launch.assert_not_called()
+
     def test_synthetic_default_is_private_deterministic_preparation_with_no_launch(self):
         with patch('native_smoke.Run.start') as launch, patch('smoke_input.authorize', side_effect=AssertionError('no private route')):
             a = prepare(self.root, self.args, 'native')

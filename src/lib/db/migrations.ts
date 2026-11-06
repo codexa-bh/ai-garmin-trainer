@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 
-export const LATEST_SCHEMA_VERSION = 23;
+export const LATEST_SCHEMA_VERSION = 24;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -101,7 +102,7 @@ type SchemaMigration = {
   statements: string[];
 };
 
-const SCHEMA_MIGRATIONS: SchemaMigration[] = [
+export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 1,
     name: "source_beta_foundation",
@@ -361,7 +362,400 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       `alter table summary_original_boundary add column clear_floor integer not null default 0`,
     ],
   },
+  {
+    version: 24,
+    name: "whole_generated_summary",
+    statements: [
+      `create table summary_preference(id text primary key,text text not null)`,
+      `drop trigger summary_manual_privacy`,
+      `drop trigger summary_privacy`,
+      `drop trigger summary_explicit_correction`,
+      `drop trigger summary_rebuild_invalidation`,
+      `create trigger summary_privacy after update of privacy_generation on conversation_history_control begin
+        update summary_state set payload='{"version":2,"text":""}',checksum='',published_at=null,revision=revision+1,privacy_generation=new.privacy_generation where id=1;
+        update summary_control set generation=generation+1,job_id=null,lease_until=0,reason='summary_invalidated' where id=1;
+        update summary_attempt set outcome='invalidated' where outcome='admitted';
+       end`,
+      `create trigger summary_explicit_correction after insert on conversation_completion when exists(select 1 from conversation_turn t join message m on m.id=t.user_id where t.turn_id=new.turn_id and (lower(m.content) like 'actually %' or lower(m.content) like 'correction:%')) begin
+        update summary_state set payload='{"version":2,"text":""}',checksum='',published_at=null,revision=revision+1 where id=1;
+        update summary_control set generation=generation+1,job_id=null,lease_until=0,reason='summary_correction_pending' where id=1;
+        update summary_attempt set outcome='superseded' where outcome='admitted';
+       end`,
+      `create trigger summary_rebuild_invalidation after update of generation,manual_revision on summary_control when old.generation<>new.generation or old.manual_revision<>new.manual_revision begin update summary_rebuild set state=case when state='active' then 'invalidated' else state end,reason=case when state='active' then 'summary_authority_changed' else reason end,candidate_json='{"version":2,"text":""}',candidate_checksum=''; end`,
+    ],
+  },
 ];
+
+// Compatibility admission only: never used by current generation or consumption.
+function legacySummary(db: Database.Database) {
+  const row = db.prepare("select * from summary_state where id=1").get() as {
+    format_version: number;
+    revision: number;
+    frontier: number;
+    privacy_generation: number;
+    payload: string;
+    checksum: string;
+  };
+  const value = JSON.parse(row.payload) as {
+    version: number;
+    text: string;
+    items: {
+      id: string;
+      text: string;
+      stance: string;
+      category: string;
+      sourceIds: string[];
+      expiresAt: number | null;
+      priority: number;
+      reviewAt: number;
+    }[];
+  };
+  return { row, value };
+}
+function validateLegacySummary(db: Database.Database): void {
+  try {
+    validateLegacySummaryState(db);
+    validateLegacyDerivatives(db);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "summary_legacy_authored_decision_required"
+    )
+      throw error;
+    throw new Error("summary_legacy_corrupt_or_unsupported");
+  }
+}
+function validateLegacySummaryState(db: Database.Database): void {
+  const { row, value } = legacySummary(db);
+  const fail = () => {
+    throw new Error("summary_legacy_corrupt_or_unsupported");
+  };
+  const checkpoint = (
+    db
+      .prepare("select coalesce(max(event_seq),0) n from summary_disposition")
+      .get() as { n: number }
+  ).n;
+  const privacy = (
+    db
+      .prepare(
+        "select privacy_generation n from conversation_history_control where id=1",
+      )
+      .get() as { n: number }
+  ).n;
+  if (
+    !Number.isSafeInteger(row.revision) ||
+    row.revision < 0 ||
+    !Number.isSafeInteger(row.frontier) ||
+    row.frontier !== checkpoint ||
+    row.privacy_generation !== privacy ||
+    row.format_version !== 1 ||
+    value.version !== 1 ||
+    typeof value.text !== "string" ||
+    !Array.isArray(value.items) ||
+    value.items.length > 256 ||
+    Object.keys(value).sort().join() !== "items,text,version"
+  )
+    fail();
+  const ids = new Set<string>();
+  for (const item of value.items) {
+    if (
+      !item ||
+      Object.keys(item).sort().join() !==
+        "category,expiresAt,id,priority,reviewAt,sourceIds,stance,text" ||
+      typeof item.id !== "string" ||
+      !/^[a-zA-Z0-9_-]{1,80}$/.test(item.id) ||
+      ids.has(item.id) ||
+      typeof item.text !== "string" ||
+      !item.text.trim() ||
+      /[\uD800-\uDFFF]/u.test(item.text) ||
+      [...item.text].length > 1200 ||
+      ![
+        "decision",
+        "constraint",
+        "goal",
+        "rejected",
+        "question",
+        "temporary",
+        "discussion",
+      ].includes(item.category) ||
+      !["user-stated", "endorsed", "discussed-not-endorsed"].includes(
+        item.stance,
+      ) ||
+      !Array.isArray(item.sourceIds) ||
+      !item.sourceIds.length ||
+      item.sourceIds.length > 32 ||
+      new Set(item.sourceIds).size !== item.sourceIds.length ||
+      item.sourceIds.some((s) => typeof s !== "string" || s.length > 160) ||
+      !Number.isInteger(item.priority) ||
+      item.priority < 0 ||
+      item.priority > 5 ||
+      !Number.isSafeInteger(item.reviewAt) ||
+      (item.expiresAt !== null && !Number.isSafeInteger(item.expiresAt))
+    )
+      fail();
+    ids.add(item.id);
+  }
+  const cap = (
+    db.prepare("select cap from summary_control where id=1").get() as {
+      cap: number;
+    }
+  ).cap;
+  if (
+    value.text !==
+      value.items
+        .map((i) => `[${i.stance}; ${i.category}] ${i.text}`)
+        .join("\n") ||
+    [...value.text].length > cap
+  )
+    fail();
+  const expected = createHash("sha256")
+    .update(
+      JSON.stringify([
+        row.revision,
+        row.frontier,
+        row.privacy_generation,
+        row.payload,
+      ]),
+    )
+    .digest("hex");
+  if (
+    row.checksum !== expected &&
+    !(
+      row.checksum === "" &&
+      row.payload === '{"version":1,"items":[],"text":""}'
+    )
+  )
+    fail();
+  for (const manual of db
+    .prepare("select item_id,payload from summary_manual")
+    .all() as { item_id: string; payload: string }[]) {
+    const item = JSON.parse(manual.payload) as {
+      id: string;
+      text: string;
+      sourceIds: string[];
+      expiresAt: unknown;
+      stance: unknown;
+      category: unknown;
+      priority: unknown;
+      reviewAt: unknown;
+    };
+    if (
+      !item ||
+      item.id !== manual.item_id ||
+      typeof item.text !== "string" ||
+      !item.text.trim() ||
+      /[\uD800-\uDFFF]/u.test(item.text) ||
+      !Array.isArray(item.sourceIds) ||
+      !item.sourceIds.length ||
+      item.sourceIds.some((s) => typeof s !== "string")
+    )
+      fail();
+    if (
+      item.sourceIds.some((s) => !s.startsWith("manual:")) ||
+      item.expiresAt !== null
+    )
+      throw new Error("summary_legacy_authored_decision_required");
+    // A manual-looking source prefix alone does not prove a valid authored row.
+    // Preserve unsupported/corrupt metadata transactionally, never launder it
+    // into an asserted preference by ignoring the rest of the old contract.
+    if (
+      Object.keys(item).sort().join() !==
+        "category,expiresAt,id,priority,reviewAt,sourceIds,stance,text" ||
+      !/^[a-zA-Z0-9_-]{1,80}$/.test(item.id) ||
+      item.stance !== "user-stated" ||
+      item.priority !== 5 ||
+      ![
+        "decision",
+        "constraint",
+        "goal",
+        "rejected",
+        "question",
+        "temporary",
+        "discussion",
+      ].includes(String(item.category)) ||
+      !Number.isSafeInteger(item.reviewAt) ||
+      item.sourceIds.length > 32 ||
+      new Set(item.sourceIds).size !== item.sourceIds.length ||
+      item.sourceIds.some((source) => source.length > 160)
+    )
+      fail();
+  }
+}
+function validateLegacyDerivatives(db: Database.Database): void {
+  const digest = (value: unknown) =>
+    createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const refuse = () => {
+    throw new Error("summary_legacy_corrupt_or_unsupported");
+  };
+  for (const row of db.prepare("select * from summary_rebuild").all() as Record<
+    string,
+    unknown
+  >[]) {
+    const seal = digest([
+      row.format_version,
+      row.id,
+      row.boot,
+      row.snapshot,
+      row.selection_json,
+      row.authority_json,
+      row.dispositions_json,
+      row.position,
+      row.created_at,
+      row.deadline,
+    ]);
+    if (
+      ![1, 2].includes(Number(row.format_version)) ||
+      ![
+        "active",
+        "complete",
+        "cancelled",
+        "interrupted",
+        "invalidated",
+      ].includes(String(row.state)) ||
+      row.checksum !== seal ||
+      String(row.selection_json).length > 5_000_000 ||
+      String(row.candidate_json).length > 1048576
+    )
+      refuse();
+    const selected = JSON.parse(String(row.selection_json)) as {
+      sourceId: string;
+    }[];
+    const dispositions = JSON.parse(String(row.dispositions_json)) as {
+      sourceId: string;
+    }[];
+    const candidate = JSON.parse(String(row.candidate_json)) as {
+      version: number;
+      text: string;
+      items: unknown[];
+    };
+    if (
+      !Array.isArray(selected) ||
+      !selected.length ||
+      selected.length > 10000 ||
+      !Number.isSafeInteger(row.position) ||
+      Number(row.position) < 0 ||
+      Number(row.position) > selected.length ||
+      !Array.isArray(dispositions) ||
+      dispositions.length !== row.position ||
+      dispositions.some((d, i) => d.sourceId !== selected[i]?.sourceId) ||
+      candidate.version !== 1 ||
+      typeof candidate.text !== "string" ||
+      !Array.isArray(candidate.items) ||
+      Object.keys(candidate).sort().join() !== "items,text,version"
+    )
+      refuse();
+    if (
+      row.candidate_checksum !== digest(row.candidate_json) &&
+      !(
+        row.state !== "active" &&
+        row.candidate_checksum === "" &&
+        row.candidate_json === '{"version":1,"items":[],"text":""}'
+      )
+    )
+      refuse();
+    const authority = JSON.parse(String(row.authority_json)) as {
+      cap: number;
+      selection?: unknown;
+    };
+    if (
+      !Number.isSafeInteger(authority.cap) ||
+      authority.cap < 1000 ||
+      authority.cap > 20000 ||
+      [...candidate.text].length > authority.cap ||
+      /[\uD800-\uDFFF]/u.test(candidate.text)
+    )
+      refuse();
+  }
+  for (const row of db
+    .prepare("select * from conversation_summary_pin")
+    .all() as { format_version: number; payload: string; seal: string }[]) {
+    if (row.format_version !== 1 || row.payload.length > 1048576) refuse();
+    if (row.payload === "null") continue;
+    if (createHash("sha256").update(row.payload).digest("hex") !== row.seal)
+      refuse();
+    const pin = JSON.parse(row.payload) as {
+      version: number;
+      value: { version: number; text: string; items: unknown[] };
+    };
+    if (
+      pin.version !== 1 ||
+      pin.value?.version !== 1 ||
+      typeof pin.value.text !== "string" ||
+      !Array.isArray(pin.value.items) ||
+      Object.keys(pin).sort().join() !== "omitted,stamp,tokens,value,version"
+    )
+      refuse();
+  }
+  for (const row of db.prepare("select * from summary_import").all() as Record<
+    string,
+    unknown
+  >[]) {
+    const ids = JSON.parse(String(row.selection_json)) as string[];
+    const done = db
+      .prepare(
+        "select source_id from summary_import_disposition where manifest_id=? order by rowid",
+      )
+      .all(row.id) as { source_id: string }[];
+    if (
+      row.format_version !== 1 ||
+      row.checksum !==
+        digest([
+          row.format_version,
+          row.id,
+          row.selection_json,
+          row.privacy_generation,
+          row.control_generation,
+          row.manual_revision,
+          row.cutoff,
+        ]) ||
+      !Array.isArray(ids) ||
+      !ids.length ||
+      ids.length > 200 ||
+      new Set(ids).size !== ids.length ||
+      ids.some((id) => typeof id !== "string" || id.length > 160) ||
+      !Number.isSafeInteger(row.position) ||
+      row.position !== done.length ||
+      done.some((entry, index) => entry.source_id !== ids[index])
+    )
+      refuse();
+  }
+}
+function transitionWholeSummary(db: Database.Database): void {
+  const { row, value } = legacySummary(db);
+  const manual = db
+    .prepare("select item_id,payload from summary_manual")
+    .all() as { item_id: string; payload: string }[];
+  for (const entry of manual)
+    db.prepare("insert into summary_preference(id,text) values(?,?)").run(
+      entry.item_id,
+      (JSON.parse(entry.payload) as { text: string }).text,
+    );
+  const authored = new Set(manual.map((m) => m.item_id));
+  const text = value.items
+    .filter((item) => !authored.has(item.id))
+    .map((item) => `[${item.stance}; ${item.category}] ${item.text}`)
+    .join("\n");
+  const payload = JSON.stringify({ version: 2, text });
+  const revision = row.revision + 1;
+  const checksum = createHash("sha256")
+    .update(
+      JSON.stringify([revision, row.frontier, row.privacy_generation, payload]),
+    )
+    .digest("hex");
+  db.prepare(
+    "update summary_state set format_version=2,revision=?,payload=?,checksum=? where id=1",
+  ).run(revision, payload, checksum);
+  db.prepare(
+    "update summary_attempt set outcome='interrupted' where outcome='admitted'",
+  ).run();
+  db.prepare(
+    "update summary_control set generation=generation+1,manual_revision=manual_revision+1,job_id=null,lease_until=0 where id=1",
+  ).run();
+  // New invalidation trigger scrubs old staged derivatives, not original sources/receipts/costs.
+  db.prepare(
+    "update conversation_summary_pin set format_version=2,payload='null',seal='',reason='format-transition'",
+  ).run();
+}
 
 function hasTable(db: Database.Database, table: string): boolean {
   const row = db
@@ -398,6 +792,7 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "summary_attempt",
     "summary_spend",
     "summary_manual",
+    "summary_preference",
     "conversation_summary_pin",
     "conversation_title_spend",
     "summary_import",
@@ -471,7 +866,9 @@ export function migrateDatabase(db: Database.Database): MigrationResult {
   db.transaction(() => {
     for (const migration of SCHEMA_MIGRATIONS) {
       if (migration.version <= fromVersion) continue;
+      if (migration.version === 24) validateLegacySummary(db);
       for (const statement of migration.statements) db.exec(statement);
+      if (migration.version === 24) transitionWholeSummary(db);
       setSchemaVersion(db, migration.version);
       applied.push(`${migration.version}:${migration.name}`);
     }

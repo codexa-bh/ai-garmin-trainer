@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -259,11 +260,22 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
   if (
     summary.length !== 1 ||
     summary[0]!.id !== 1 ||
-    summary[0]!.format_version !== 1 ||
-    summary[0]!.revision !== controls[0]!.generation ||
+    summary[0]!.format_version !== 2 ||
+    summary[0]!.revision !== controls[0]!.generation + 1 ||
     summary[0]!.frontier !== 0 ||
-    summary[0]!.payload !== '{"version":1,"items":[],"text":""}' ||
-    summary[0]!.checksum !== "" ||
+    summary[0]!.payload !== '{"version":2,"text":""}' ||
+    (summary[0]!.checksum !== "" &&
+      summary[0]!.checksum !==
+        createHash("sha256")
+          .update(
+            JSON.stringify([
+              summary[0]!.revision,
+              0,
+              controls[0]!.generation,
+              summary[0]!.payload,
+            ]),
+          )
+          .digest("hex")) ||
     summary[0]!.published_at !== null ||
     summary[0]!.privacy_generation !== controls[0]!.generation ||
     summaryControl.length !== 1 ||
@@ -277,8 +289,8 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
             configured_enabled: 0,
             model: "",
             cap: 6000,
-            generation: controls[0]!.generation,
-            manual_revision: 0,
+            generation: controls[0]!.generation + 1,
+            manual_revision: 1,
             cutoff: 0,
             job_id: null,
             lease_until: 0,

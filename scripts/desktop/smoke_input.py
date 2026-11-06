@@ -195,7 +195,7 @@ def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
                     raise ValueError('Authorized original changed; no reuse')
         grant_check = recheck_private
         grant_check()
-        resources.directory(root)
+        root = resources.directory(resources.runtime_path(root))
         prepared = root / 'input.sqlite'
         fd = os.open(prepared, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         os.close(fd)
@@ -215,7 +215,7 @@ def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
         if args.grant_file or args.provenance_file:
             raise ValueError('Private options without explicit selection refused')
         anchor = args.anchor or datetime.now(timezone.utc).date().isoformat()
-        allocation = resources.directory(scratch / ('input-allocation-' + str(uuid.uuid4())))
+        allocation = resources.directory(resources.runtime_path(scratch / ('input-allocation-' + str(uuid.uuid4()))))
         result = recipe_command(['create-empty-chat' if synthetic_empty_chat else 'create', str(allocation), 'smoke-input-' + str(uuid.uuid4()), anchor])
         prepared = Path(result.pop('path'))
         root = prepared.parent
@@ -230,6 +230,10 @@ def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
             details['syntheticVariant'] = 'empty-chat'
     private_json(root / 'selection.json', {'database': str(prepared)})
     provenance = {'schemaVersion': 1, 'task': args.task_id, 'preparationRun': root.name, 'scenario': scenario, **details, 'checks': checks, 'original': original, 'publication': 'exclusive 0700/0600', 'cleanup': 'Standalone/prepare-only outputs retained; actual owning invocation disposition records copy removal or retention; no primary copy-back'}
+    # Managed input DBs are disposable; retain compact preparation facts separately.
+    # Standalone/borrowed/prepare-only ownership and immediate-disposal promises stay unchanged.
+    if not root.is_relative_to(scratch):
+        private_json(scratch / ('preparation-' + root.name + '.json'), provenance)
     return PreparedInput(prepared, root, original, grant_check or (lambda: None), provenance)
 
 

@@ -222,7 +222,10 @@ console.log(
     incomplete: 1,
     ...(capacity
       ? {
-          manualItems: summaryStorage.inspect().items.length,
+          manualItems: summaryStorage.preferences().length,
+          manualCharacters: summaryStorage
+            .preferences()
+            .reduce((sum, preference) => sum + [...preference.text].length, 0),
           renderedCharacters: [...summaryStorage.inspect().text].length,
           configuredCharacters: 20000,
           budgetPolicy: {

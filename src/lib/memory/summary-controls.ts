@@ -40,10 +40,11 @@ export function parseRebuildSelection(
 }
 
 export type SummaryCommand = {
-  version: 1;
+  version: 2;
   expected: SummaryVersion;
 } & (
   | { action: "clear" | "disable" | "enable" | "retry" }
+  | { action: "edit-summary"; text: string }
   | { action: "edit"; id: string | null; text: string }
   | { action: "forget"; id: string }
   | { action: "refresh"; conversationId: string; segmentRevision: number }
@@ -109,7 +110,7 @@ function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 export function parseSummaryCommand(value: unknown): SummaryCommand | null {
-  if (!object(value) || value.version !== 1 || !object(value.expected))
+  if (!object(value) || value.version !== 2 || !object(value.expected))
     return null;
   const expected = value.expected;
   if (
@@ -125,12 +126,17 @@ export function parseSummaryCommand(value: unknown): SummaryCommand | null {
     typeof input === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(input);
   if (["clear", "disable", "enable", "retry"].includes(String(value.action))) {
     if (fields !== common) return null;
+  } else if (value.action === "edit-summary") {
+    if (
+      fields !== "action,expected,text,version" ||
+      typeof value.text !== "string"
+    )
+      return null;
   } else if (value.action === "edit") {
     if (
       fields !== "action,expected,id,text,version" ||
       (value.id !== null && !id(value.id)) ||
-      typeof value.text !== "string" ||
-      value.text.length > 2400
+      typeof value.text !== "string"
     )
       return null;
   } else if (value.action === "forget") {

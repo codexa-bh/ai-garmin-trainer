@@ -243,6 +243,7 @@ impl Command {
             ]
             .contains(&action.as_str()),
             Self::Memory { action } => [
+                "summary-edit",
                 "observe",
                 "open",
                 "close",
@@ -1420,6 +1421,7 @@ mod tests {
     #[test]
     fn memory_controls_are_finite_ordinary_only_and_never_accept_or_return_content() {
         for action in [
+            "summary-edit",
             "observe",
             "open",
             "close",

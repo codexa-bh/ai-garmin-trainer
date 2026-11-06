@@ -36,9 +36,8 @@ function snapshot(conversationId = "A"): SummaryInspection {
     unknownReservedUsd: 0,
     priceBasis: "synthetic-review-basis",
     expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
-    stored: { version: 1, text: "", items: [] },
-    manualIds: [],
-    sources: [],
+    stored: { version: 2, text: "" },
+    preferences: [],
     legacy: [],
     historical: {
       candidates: [],
@@ -138,47 +137,66 @@ async function mountMemory(
   );
   vi.stubGlobal("fetch", fetcher);
   render(<MemoryHarness />);
-  await screen.findByRole("button", { name: "Add memory" });
+  await screen.findByRole("button", { name: "Add preference" });
   return fetcher;
 }
 function populated() {
   const value = snapshot();
-  value.stored.items = [
-    {
-      id: "one",
-      text: "I have not chosen poles. Could they help?",
-      category: "question",
-      stance: "discussed-not-endorsed",
-      sourceIds: ["turn:1"],
-      priority: 3,
-      expiresAt: null,
-      reviewAt: 1,
-    },
+  value.stored.text =
+    "I have not chosen poles. Could they help? Last winter only: short weekdays, not long sessions.";
+  value.preferences = [
     {
       id: "two",
-      text: "Last winter only: short weekdays, not long sessions. ".repeat(14),
-      category: "temporary",
-      stance: "user-stated",
-      sourceIds: ["manual:1"],
-      priority: 2,
-      expiresAt: 1893456000000,
-      reviewAt: 1,
+      text: "Separately authored preference, not a generated record. ".repeat(
+        14,
+      ),
     },
   ];
-  value.stored.text = value.stored.items.map((i) => i.text).join("\n");
-  value.manualIds = ["two"];
-  value.sources = [
-    {
-      sourceId: "manual:1",
-      manual: true,
-      conversationId: null,
-      messageId: null,
-    },
-  ];
+  value.characters = [...value.stored.text].length;
   return value;
 }
 
 describe("integrated Memory visible controls and stale-response safety", () => {
+  it("edits the complete generated text with exact CAS while preferences stay separate and unchanged", async () => {
+    const value = populated();
+    const preferences = structuredClone(value.preferences);
+    const fetcher = await mountMemory(value, (body) => {
+      expect(body).toEqual({
+        version: 2,
+        expected: value.expected,
+        action: "edit-summary",
+        text: "Current mornings, not evenings. Short weekdays because caregiving limits time.",
+      });
+      value.stored.text = String(body.text);
+      return response({ ok: true });
+    });
+    expect(
+      screen.queryByRole("button", { name: "Source & details" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
+    const editor = screen.getByRole("textbox", {
+      name: "Complete generated summary",
+    });
+    expect(editor).toBe(document.activeElement);
+    expect((editor as HTMLTextAreaElement).value).toBe(value.stored.text);
+    expect(editor.hasAttribute("maxlength")).toBe(false);
+    expect(
+      screen.getByText(/Regeneration replaces direct summary edits too/),
+    ).toBeTruthy();
+    fireEvent.change(editor, {
+      target: {
+        value:
+          "Current mornings, not evenings. Short weekdays because caregiving limits time.",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save summary" }));
+    await screen.findByText(/Complete generated summary saved/);
+    expect(value.preferences).toEqual(preferences);
+    expect(
+      fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
+    ).toHaveLength(1);
+    expect(screen.getByText(value.stored.text)).toBeTruthy();
+  });
   it("never lets an old selected-chat response replace the current projection", async () => {
     const waiting: ((response: Response) => void)[] = [];
     vi.stubGlobal(
@@ -222,7 +240,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       }),
     );
     expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
-      version: 1,
+      version: 2,
       expected: snapshot().expected,
       action: "refresh",
       conversationId: "A",
@@ -565,7 +583,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(window.confirm).toHaveBeenCalledOnce();
     expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
-      version: 1,
+      version: 2,
       expected: snapshot().expected,
       ...action,
     });
@@ -618,22 +636,18 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     value.enabled = false;
     value.state = "disabled";
     await mountMemory(value);
+    expect(screen.getByText(value.preferences[0].text.trim()).textContent).toBe(
+      value.preferences[0].text,
+    );
     expect(
-      screen.getByText(value.stored.items[1].text.trim()).textContent,
-    ).toBe(value.stored.items[1].text);
-    expect(
-      screen.getByText("Open question · Discussed · not decided"),
+      screen.getByText(/Saved summary and preferences retained, not in use/),
     ).toBeTruthy();
-    expect(screen.getByText(/Saved items retained/)).toBeTruthy();
+    expect(screen.queryByText(value.stored.text)).toBeNull();
     expect(screen.queryByText(/Price basis/)).toBeNull();
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "Source & details" })[1],
-    );
-    expect(screen.getByRole("heading", { name: "Memory details" })).toBe(
-      document.activeElement,
-    );
-    expect(screen.getByText("Includes your own saved text.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Back to memory" }));
+    expect(
+      screen.queryByRole("button", { name: "Source & details" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Forget" })).toBeNull();
     for (const name of [
       "How memory works & costs",
       "Technical details",
@@ -649,33 +663,36 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     await mountMemory(snapshot());
     expect(screen.getByText(/No saved memories/)).toBeTruthy();
     expect(screen.queryByText(/Saved memory available|up to date/)).toBeNull();
-    expect(screen.getByText(/Nothing saved here yet/)).toBeTruthy();
+    expect(screen.getByText(/No generated summary yet/)).toBeTruthy();
   });
   it("guards dirty cancel, adds with exact authority, and gives action-specific feedback", async () => {
     const value = snapshot();
     const fetcher = await mountMemory(value);
-    fireEvent.click(screen.getByRole("button", { name: "Add memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add preference" }));
     expect(
-      screen.getByText(/this text may be sent to your AI provider/),
+      screen.getByText(/This text may be sent to your AI provider/),
     ).toBeTruthy();
     expect(screen.queryByText(/sensitive details cannot be saved/)).toBeNull();
-    const editor = screen.getByRole("textbox", { name: "Memory" });
+    const editor = screen.getByRole("textbox", { name: "Preference" });
     expect(document.activeElement).toBe(editor);
     expect(
-      (screen.getByRole("button", { name: "Save memory" }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: "Save preference",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     fireEvent.change(editor, {
       target: { value: "Weekends are optional, not mandatory." },
     });
     vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
-    expect(screen.getByRole("textbox", { name: "Memory" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Preference" })).toBeTruthy();
     expect(
       fetcher.mock.calls.filter((c) => c[1]?.method === "POST"),
     ).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Save memory" }));
-    await screen.findByText("Memory added.");
+    fireEvent.click(screen.getByRole("button", { name: "Save preference" }));
+    await screen.findByText("Preference added.");
     expect(
       JSON.parse(
         String(
@@ -683,7 +700,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
         ),
       ),
     ).toEqual({
-      version: 1,
+      version: 2,
       expected: value.expected,
       action: "edit",
       id: null,
@@ -694,17 +711,18 @@ describe("integrated Memory visible controls and stale-response safety", () => {
   it("names the exact forgotten item, defaults to cancel, and clears only after deliberate confirmation", async () => {
     const value = populated();
     const fetcher = await mountMemory(value);
-    fireEvent.click(screen.getAllByRole("button", { name: "Forget" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Remove preference" }));
     expect(
-      screen.getByText(
-        /Remove this memory and keep its sources from recreating it/,
-      ).textContent,
-    ).toContain(value.stored.items[0].text);
+      screen.getByText(/Remove only this separately authored preference/)
+        .textContent,
+    ).toContain(value.preferences[0].text);
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Cancel" }),
     );
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
-    expect(screen.queryByRole("button", { name: "Forget memory" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Remove preference" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Manage memory" }));
     fireEvent.click(screen.getByRole("button", { name: "Clear saved memory" }));
     expect(
@@ -757,7 +775,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       ),
     ) as Record<string, unknown>;
     expect(body).toMatchObject({
-      version: 1,
+      version: 2,
       expected: value.expected,
       action: "rebuild-start",
       snapshot: value.rebuild!.snapshot,
@@ -807,12 +825,12 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     async (state) => {
       const value = populated();
       value.selectedChat!.pin = {
-        version: 1,
+        version: 2,
         value: {
-          version: 1,
-          items: [],
+          version: 2,
           text: "Only earlier chat memory, not latest saved content.",
         },
+        preferences: [],
         stamp: {
           version: 1,
           revision: state === "older" ? 2 : 3,
@@ -837,7 +855,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
           "Only earlier chat memory, not latest saved content.",
         ),
       ).toBeNull();
-      expect(screen.getByText(value.stored.items[0].text)).toBeTruthy();
+      expect(screen.getByText(value.stored.text)).toBeTruthy();
       expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(
         true,
       );
@@ -921,7 +939,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect(screen.queryByText(/private vendor text/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Turn On" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Retry loading" }));
-    await screen.findByRole("button", { name: "Add memory" });
+    await screen.findByRole("button", { name: "Add preference" });
     expect(
       fetcher.mock.calls.filter((c) => c[1]?.method === "POST"),
     ).toHaveLength(1);
@@ -1078,7 +1096,7 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     act(() => {
       pending = result.current.loadMemories(false, "B");
     });
-    expect(result.current.memory?.stored.items[0].id).toBe("one");
+    expect(result.current.memory?.stored.text).toBe(populated().stored.text);
     expect(result.current.memory?.selectedChat).toBeNull();
     expect(result.current.editingMemoryText).toBe("Unsaved global manual note");
     expect(result.current.isMemoryLoading).toBe(false);
