@@ -129,7 +129,7 @@ provider spending, installation or historical cleanup.
 ### Schema24 whole-summary activation (separately authorized)
 
 Generated memory now uses one version2 complete text and separate preferences; the
-character allowance bounds generated text only. Schema24 preserves historical
+character target guides generated text only; it is not an output ceiling. Schema24 preserves historical
 migration bytes, originals, restrictions and accounting. Proven standalone legacy
 authored notes map losslessly; source-linked/ambiguous manual edits or corrupt/
 unsupported state refuse the transition unchanged. Old active pins/staged drafts

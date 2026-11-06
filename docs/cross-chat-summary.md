@@ -108,6 +108,33 @@ incomplete pre-clear admissions. Off retains records but stops use/admission. En
 requires already-active native On/model configuration and never imports Off history.
 Retry preserves all costs and does not synchronously infer. Old version1 writers refuse.
 
+## Explicit manual densification
+
+Closed version2 `densify-request`, `densify-accept`, `densify-discard` and
+`densify-cancel` carry an opaque request ID; the renderer never supplies candidate
+text or trusted counts. One deliberate request captures exact generated text,
+advisory target, expected revision/privacy/control/manual and native boot/live
+configuration. It uses the exact existing provider route, strict complete output,
+no tools/fallback/SDK retries and no preferences/history/new source admission.
+Passive reads and ordinary overshoot never request this work.
+
+The process-owned single candidate is ephemeral and lasts at most ten minutes;
+privacy/currentness/configuration loss revokes it. The paid call shares the existing
+writer lease/heartbeat/native cancellation and durable attempt/usage owners with
+an empty source list and distinct manual purpose. Its unique durable identity
+refuses restart replay. A preview is not publication or source processing. After
+settlement review holds no writer lease; routine work may win and stale the review.
+Cancellation/unknown effects retain accounting, never a refund or automatic retry.
+Manual failure/restart recovery does not poison routine backlog retry controls.
+
+Acceptance independently revalidates the server-owned candidate and original
+currentness and reacquires writer/import/rebuild exclusion transactionally. Only
+valid nonblank strictly shorter text publishes. It changes revision/checksum/time,
+not manual authority, preferences, frontier, dispositions or source completion.
+Existing admitted pins remain frozen; the next admission adopts latest. Supplied
+provider tests and native renderer-only review fixtures are mechanical evidence,
+not live rewrite quality, billing or private-data/installed activation proof.
+
 ## Explicit historical transition
 
 The retained completed-Off-turn import freezes at most200 exact source versions /

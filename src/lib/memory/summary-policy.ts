@@ -85,6 +85,8 @@ export const SUMMARY_PATCH_REJECTIONS = [
 export type SummaryPatchRejection = (typeof SUMMARY_PATCH_REJECTIONS)[number];
 export type SummaryBatch = {
   jobId: string;
+  /** Explicit summary-only rewrite; never a history-source admission. */
+  manualRewrite?: true;
   import?: { id: string; position: number };
   rebuild?: { id: string; position: number; upperCompletion: number };
   revision: number;

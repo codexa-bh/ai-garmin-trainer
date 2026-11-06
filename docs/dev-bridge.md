@@ -135,6 +135,30 @@ claims still need separately approved exact native route/model/export/cumulative
 cost. No fake provider, inherited paid preset or normal-app key lookup is added.
 Validate native/DOM/Python positive/negative contracts before artifact use.
 
+### Manual Densify presentation evidence (T0287)
+
+The existing ordinary Memory controller additionally admits exactly
+`fixture-densify-ready|fixture-densify-busy|fixture-densify-review|fixture-densify-no-reduction|fixture-densify-accepted|fixture-densify-discarded`.
+Only inside these renderer-only fixed authored fixtures, `densify`,
+`densify-cancel`, `densify-accept`, `densify-discard` click the corresponding
+production controls. They refuse outside fixture mode: this is no provider grant.
+The adapter accepts only exact version2 expected counters and opaque request ID,
+with no caller text/selector/provider/credential input. It returns the fixed
+13250-at6000 original and7000-scalar shorter candidate (or equal-count refusal),
+never calls backend/provider or pretends to persist a mutation. Wide/narrow captures
+exercise actual persistent hook/components and labelled busy/review/count/result
+states under exact canonical-content masks. Unknown/private candidates refuse;
+reset/close/120-second expiry restore fetch, and default launches install nothing.
+Existing booleans/result schema and wrong-run/origin/late/unknown/default denials
+remain unchanged. Native/DOM/Python contracts must pass before use.
+
+This is supplied-candidate synthetic-DOM presentation, not paid inference,
+semantic fidelity, real acceptance persistence or trusted OS input. Real SQLite
+supplied-generation integration separately proves atomic shorter-only publication,
+source/preference/pin preservation and reopen/next admission. Existing actual native
+manual save/restart remains persistence/lifecycle evidence, not a claimed native
+provider rewrite. No private data, credentials or historical paid allowance is used.
+
 ### Fixed Memory presentation evidence (T0279)
 
 The admitted ordinary synthetic controller additionally accepts exactly

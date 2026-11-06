@@ -1,9 +1,11 @@
 import { SUMMARY_DEBOUNCE_MS } from "./summary-policy";
+import type { createSummaryDensify } from "./summary-densify";
 
 // Process-owned cancellation crosses the launcher/compiled Next bundle boundary.
 // The launcher alone owns polling; passive status reads never create timers.
 type SummaryLifetime = {
   stopping: boolean;
+  densify?: ReturnType<typeof createSummaryDensify>;
   active?: AbortController;
   running: boolean;
   inFlight?: Promise<void>;
