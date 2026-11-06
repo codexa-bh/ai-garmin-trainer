@@ -296,7 +296,92 @@ describe("manual Densify review", () => {
   });
 });
 
+const purposeHint =
+  "When enabled, memory helps your trainer carry important details from previous conversations into new chats.";
+
 describe("integrated Memory visible controls and stale-response safety", () => {
+  it.each(["populated", "empty", "off", "unavailable"])(
+    "explains conditional cross-chat purpose once before the %s overview details without mutations",
+    async (state) => {
+      const value = state === "empty" ? snapshot() : populated();
+      if (state === "off") value.enabled = false;
+      if (state === "unavailable") value.state = "unavailable";
+      const fetcher = await mountMemory(value);
+      const hint = screen.getByText(purposeHint);
+      const heading = screen.getByRole("heading", {
+        name: "What your trainer remembers",
+      });
+      expect(screen.getAllByText(purposeHint)).toHaveLength(1);
+      expect(heading.nextElementSibling).toBe(hint);
+      expect(hint.tagName).toBe("P");
+      expect(hint.hasAttribute("role")).toBe(false);
+      expect(hint.hasAttribute("tabindex")).toBe(false);
+      expect(hint.hasAttribute("aria-live")).toBe(false);
+      const summary = screen.getByRole("region", { name: "Generated summary" });
+      expect(
+        hint.compareDocumentPosition(summary) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Edit summary" })).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Add preference" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByText(
+          `${value.characters} characters · target 6000 · generated text only`,
+        ),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", {
+          name: state === "off" ? "Turn On" : "Turn Off",
+        }),
+      ).toBeTruthy();
+      if (state === "off" || state === "unavailable") {
+        expect(screen.getByText(/Saved summary is not in use/)).toBeTruthy();
+        expect(screen.queryByText(value.stored.text)).toBeNull();
+      }
+      expect(fetcher.mock.calls.every((call) => !call[1]?.method)).toBe(true);
+    },
+  );
+  it("keeps general purpose visible while loading or after a failed inspection", async () => {
+    let resolveRead!: (value: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => (resolveRead = resolve))),
+    );
+    render(<MemoryHarness />);
+    expect(screen.getByText(purposeHint)).toBeTruthy();
+    expect(screen.getByText("Checking saved memory…")).toBeTruthy();
+    await act(async () => resolveRead(response({ error: "unavailable" }, 503)));
+    expect(screen.getByText(purposeHint)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry loading" })).toBeTruthy();
+  });
+  it("omits the overview hint in secondary views and restores it with navigation focus", async () => {
+    await mountMemory(populated());
+    const history = screen.getByRole("button", {
+      name: "Update from chat history",
+    });
+    history.focus();
+    fireEvent.click(history);
+    expect(screen.queryByText(purposeHint)).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Update memory from chat history" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back to memory" }));
+    await act(async () => {});
+    expect(screen.getByText(purposeHint)).toBeTruthy();
+    // Overview actions unmount in secondary views; Back uses the existing
+    // heading fallback when the original invoker is no longer connected.
+    expect(history.isConnected).toBe(false);
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "What your trainer remembers" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Manage memory" }));
+    expect(screen.queryByText(purposeHint)).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Manage memory" }),
+    );
+  });
   it("edits the complete generated text with exact CAS while preferences stay separate and unchanged", async () => {
     const value = populated();
     const preferences = structuredClone(value.preferences);
