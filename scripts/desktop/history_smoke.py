@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import sqlite3
 import stat
 import smoke_resources as resources
 import sys
@@ -108,6 +109,40 @@ def prepare_synthetic_history(run):
     staged = root / 'config/synthetic-history-settings.json'
     private_json(staged, saved)
     os.replace(staged, path)
+
+
+def prepare_mixed_sync_presentation(run, outcome):
+    """Fixed authored 6/14 + no-progress history, after real scenario settlement.
+
+    This is stopped synthetic presentation seeding, not a recovery operation or
+    proof that the engine naturally produced the mixed checkpoint.
+    """
+    if outcome not in ('settled', 'failed'):
+        raise ValueError('Closed mixed presentation outcome required')
+    run.verify_settled()
+    root = private_directory(run.root)
+    database = canonical(run.database)
+    info = database.stat()
+    if database != root / 'trainer.sqlite' or info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or info.st_nlink != 1:
+        raise ValueError('Exact private owned run database required')
+    saved = json.loads((root / 'config/settings-v3.json').read_text())
+    from history_connector import SENTINEL
+    if saved['keys'] or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens') or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL:
+        raise ValueError('Synthetic-only mixed presentation required')
+    with contextlib.closing(sqlite3.connect(database)) as db:
+        row = db.execute("select value from sync_checkpoint where key='garmin_history_v1'").fetchone()
+        if row is None:
+            raise ValueError('Settled authored history required')
+        history = json.loads(row[0])
+        if history['outcome'] not in ('settled', 'failed') or history['remoteLowerBound'] is not None:
+            raise ValueError('Settled unknown-boundary authored history required')
+        history.update(outcome='failed', recoveryReason='no-progress')
+        latest = {'version':1, 'outcome':outcome, 'updatedAt':datetime.now(timezone.utc).isoformat(), 'activitiesProcessed':6, 'healthDaysRefreshed':14}
+        with db:
+            db.execute("update sync_checkpoint set value=? where key='garmin_history_v1'", (json.dumps(history),))
+            db.execute("insert or replace into sync_checkpoint(key,value,updated_at) values ('garmin_latest_v1',?,?)", (json.dumps(latest), int(time.time())))
+        if db.execute('pragma integrity_check').fetchone() != ('ok',) or db.execute('pragma foreign_key_check').fetchall():
+            raise ValueError('Authored mixed fixture integrity failed')
 
 
 def prepare_dependency_scenario(run, scenario):
@@ -393,7 +428,25 @@ class HistoryRun(OrdinaryRun):
         for preset in ('wide', 'narrow'):
             self.command({'type':'setViewport', 'preset':preset})
             images.append({'scenario':f'technical-details-expanded-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'latest':latest, 'maxInvocations':5, 'maxObservationSecondsPerOperation':150, 'realGarminCertified':False})
+        for outcome in ('settled', 'failed'):
+            self.stop()
+            prepare_mixed_sync_presentation(self, outcome)
+            self.start(self.binary)
+            self.command({'type':'setViewport', 'preset':'wide'})
+            self.command({'type':'click', 'target':'Sync'})
+            self.wait(lambda value: value['view'] == 'Sync', 'authored mixed Sync presentation')
+            mixed = self.summary()
+            if mixed['active'] or mixed['historicalState'] != 'blocked' or mixed['latestOutcome'] != outcome or mixed['remoteLowerBound'] is not None:
+                raise ValueError('Mixed authored presentation state not observed')
+            for preset in ('wide', 'narrow'):
+                self.command({'type':'setViewport', 'preset':preset})
+                images.append({'scenario':f'mixed-latest-{outcome}-history-blocked-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            if outcome == 'settled':
+                self.command({'type':'sync', 'action':'details'})
+                for preset in ('wide', 'narrow'):
+                    self.command({'type':'setViewport', 'preset':preset})
+                    images.append({'scenario':f'mixed-technical-details-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'latest':latest, 'maxInvocations':5, 'maxObservationSecondsPerOperation':150, 'mixedPresentation':'stopped authored 6/14 latest settled/failed with no-progress blocked history; not engine progression', 'realGarminCertified':False})
 
     def dependency_guidance(self):
         images = self.sync_captures = []

@@ -9,6 +9,7 @@ export type SyncRunState = {
   kind: "idle" | "running" | "completed" | "failed" | "paused";
   lines: Array<{ text: string; severity: "info" | "error" }>;
   finalMessage: string;
+  countSummary?: string;
   failureSummary: string | null;
   recovery:
     | "connector"
