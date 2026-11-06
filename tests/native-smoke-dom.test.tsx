@@ -692,9 +692,13 @@ describe("native-installed rendered smoke boundary", () => {
             <section aria-labelledby="sync-action-heading">
               <p>
                 <span className="sync-history-status">
-                  Older work is available within the selected exploration scope.
+                  Older history needs attention. See Technical details.
                 </span>
                 <span className="sync-next-target">Private cursor canary</span>
+              </p>
+              <p className="sync-current-status">Latest refresh finished.</p>
+              <p className="sync-counts">
+                6 activity records processed · 14 health dates refreshed
               </p>
               <details>
                 <summary>Technical details</summary>
@@ -711,6 +715,11 @@ describe("native-installed rendered smoke boundary", () => {
     ).toBe(true);
     const status = document.querySelector(".sync-history-status")!;
     expect(getComputedStyle(status).visibility).toBe("visible");
+    const current = document.querySelector(".sync-current-status")!;
+    expect(getComputedStyle(current).visibility).toBe("visible");
+    expect(
+      getComputedStyle(document.querySelector(".sync-counts")!).visibility,
+    ).toBe("hidden");
     expect(
       getComputedStyle(screen.getByText("Private cursor canary")).visibility,
     ).toBe("hidden");
@@ -718,6 +727,13 @@ describe("native-installed rendered smoke boundary", () => {
       getComputedStyle(screen.getByText("Private log canary")).visibility,
     ).toBe("hidden");
     smoke.__trainerSmokeRestore();
+    current.textContent = "private-path-canary";
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+    current.textContent = "Latest refresh finished.";
     status.textContent = "Private substituted diagnostic";
     expect(
       (await command({ type: "captureView", view: "sync", preset: "wide" }))

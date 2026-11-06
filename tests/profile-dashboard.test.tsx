@@ -4539,7 +4539,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
     for (let i = 0; i < 25; i++)
       stream.push({ stage: "starting", message: `Normal progress ${i}` });
     stream.push({ stage: "failed", message: detail, activitiesProcessed: 0 });
-    await screen.findByRole("heading", { name: "Sync failed" });
+    await screen.findByRole("heading", { name: "Sync needs attention" });
     const log = screen.getByLabelText("Current sync progress log");
     expect(log.querySelectorAll(".sync-log-entry")).toHaveLength(20);
     expect(log.querySelectorAll(".error")).toHaveLength(1);
@@ -4577,7 +4577,9 @@ describe("TrainerDashboard dedicated Sync view", () => {
       screen.queryByRole("button", { name: "Copy login command" }),
     ).toBeNull();
     expect(screen.queryByText("npm run garmin:auth")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Sync failed" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Sync needs attention" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     fireEvent.click(screen.getByRole("button", { name: "Sync" }));
     expect(
@@ -4595,7 +4597,9 @@ describe("TrainerDashboard dedicated Sync view", () => {
     expect(
       screen.queryByRole("region", { name: "Garmin connection help" }),
     ).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Sync failed" })).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Sync needs attention" }),
+    ).toBeNull();
     expect(screen.queryByText("Login command copied.")).toBeNull();
     stream.push({
       type: "result",
@@ -4604,7 +4608,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
       healthCoverage: importSummary().healthCoverage,
     });
     stream.close();
-    await screen.findByText(/Sync complete\. Summary refreshed/);
+    await screen.findByText("Latest refresh finished.");
     expect(
       screen.queryByRole("region", { name: "Garmin connection help" }),
     ).toBeNull();
@@ -4671,7 +4675,9 @@ describe("TrainerDashboard dedicated Sync view", () => {
       ).toBeNull();
       expect(screen.queryByText("npm run garmin:auth")).toBeNull();
       expect(writeText).not.toHaveBeenCalled();
-      expect(screen.getByRole("heading", { name: "Sync failed" })).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { name: "Sync needs attention" }),
+      ).toBeTruthy();
       expect(
         screen.getByLabelText("Current sync progress log").textContent,
       ).toContain("ERROR: Sync now: failed (409)");
@@ -4878,9 +4884,10 @@ describe("TrainerDashboard dedicated Sync view", () => {
       ) as HTMLPreElement;
       expect(syncLog.scrollTop).toBe(syncLog.scrollHeight);
     });
+    expect(screen.getByText("Latest refresh finished.")).toBeTruthy();
     expect(
-      screen.getByText(/Sync complete\. Summary refreshed/).textContent,
-    ).toContain("247 stored activities");
+      screen.getByLabelText("Current sync progress log").textContent,
+    ).toContain("stored totals 247 activities");
     expect(
       fetchMock.mock.calls.filter(([input]) => String(input) === "/api/summary")
         .length,
@@ -4957,7 +4964,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
       expect(log).not.toContain(longDetail);
     });
     expect(
-      screen.getByText(/Sync complete\. Summary refreshed/).textContent,
+      screen.getByText("Latest refresh finished.").textContent,
     ).not.toContain(longDetail);
   });
 

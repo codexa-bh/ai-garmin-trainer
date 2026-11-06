@@ -502,6 +502,16 @@ body::before {
   grid-column: 1 / -1;
 }
 
+.sync-current-status {
+  font-weight: 600;
+}
+
+.sync-history-warning {
+  padding: 10px 12px;
+  border-left: 3px solid var(--danger);
+  background: var(--danger-bg);
+}
+
 .sync-log {
   min-height: 180px;
   max-height: min(42vh, 360px);

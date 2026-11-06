@@ -97,6 +97,10 @@ class SyntheticHistoryContracts(unittest.TestCase):
 
     def test_separate_latest_cancel_continue_and_completed_range_without_passive_replay(self):
         active, checks, history_runs, observations = False, 0, 0, 0
+        mixed_outcome = None
+        def seed_mixed(run, outcome):
+            nonlocal mixed_outcome
+            mixed_outcome = outcome
         commands = []
         preset = 'wide'
         def command(value):
@@ -116,6 +120,8 @@ class SyntheticHistoryContracts(unittest.TestCase):
             return {'ok':True, 'capture':'unit-only.png'}
         def summary():
             nonlocal active, checks, observations
+            if mixed_outcome:
+                return {'active':False, 'historicalState':'blocked', 'latestOutcome':mixed_outcome, 'remoteLowerBound':None}
             if active:
                 observations += 1
                 if history_runs == 2 and observations >= 2:
@@ -129,16 +135,18 @@ class SyntheticHistoryContracts(unittest.TestCase):
         run = SimpleNamespace(root=self.root, config={'source':'unit'}, boot='unit', binary=Path('/unit'), command=command,
                               latest_only=Mock(side_effect=latest_only), wait=Mock(), wait_sync=Mock(), summary=summary,
                               settle_claim=Mock(), stop=Mock(), start=Mock())
-        HistoryRun.synthetic_sync(run)
+        with patch('history_smoke.prepare_mixed_sync_presentation', side_effect=seed_mixed) as seed:
+            HistoryRun.synthetic_sync(run)
+        self.assertEqual([call.args[1] for call in seed.call_args_list], ['settled', 'failed'])
         self.assertEqual(run.latest_only.call_count, 3)
         self.assertEqual(sum(value.get('action') == 'continue' for value in commands), 2)
         self.assertEqual(sum(value.get('action') == 'cancel' for value in commands), 1)
-        self.assertEqual(sum(value.get('action') == 'details' for value in commands), 1)
-        self.assertEqual(run.stop.call_count, 2)
+        self.assertEqual(sum(value.get('action') == 'details' for value in commands), 2)
+        self.assertEqual(run.stop.call_count, 4)
         evidence = json.loads((self.root / 'synthetic-sync.json').read_text())
         self.assertFalse(evidence['realGarminCertified'])
         self.assertEqual(evidence['maxInvocations'], 5)
-        self.assertEqual(len(evidence['captures']), 12)
+        self.assertEqual(len(evidence['captures']), 18)
         self.assertEqual(evidence['settled'][-1]['after']['healthChecks'], 24)
 
 

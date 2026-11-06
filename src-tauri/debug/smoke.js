@@ -2130,8 +2130,22 @@
         pill.setAttribute("data-smoke-reveal", "");
     }
     if (command.view === "sync") {
-      const status = document.querySelector(".sync-history-status");
       const safeStates = new Set([
+        "Ready to refresh recent data.",
+        "Status unavailable. Refresh import summary before syncing.",
+        "Older history needs attention. See Technical details.",
+        "Selected older range checked; remote earliest history unknown.",
+        "Latest refresh in progress…",
+        "Historical import in progress…",
+        "Cancellation requested. Refresh import summary to confirm settlement.",
+        ...["Latest refresh", "Historical import", "Sync"].flatMap((label) => [
+          `${label} finished.`,
+          `${label} failed. See Technical details.`,
+          `${label} cancelled. Saved progress is retained.`,
+          `${label} paused at its safety limit.`,
+          `${label} interrupted. Refresh import summary before continuing.`,
+          `${label} outcome unknown. Refresh import summary.`,
+        ]),
         "A sync is active. Wait for settlement, then refresh summary.",
         "Summary truth is not confirmed. Refresh import summary before starting or continuing.",
         "Historical eligibility is unknown. Refresh import summary.",
@@ -2142,12 +2156,16 @@
         "Historical import made no progress. Saved work is retained for recovery, not automatic retry.",
         "Historical import stopped after a failure. Resolve the connection or storage failure before recovering saved work.",
       ]);
-      if (status && visible(status)) {
-        if (status.childElementCount || !safeStates.has(status.textContent)) {
-          restore();
-          throw Error("Unrecognized Sync status");
+      for (const status of document.querySelectorAll(
+        ".sync-history-status, .sync-current-status",
+      )) {
+        if (visible(status)) {
+          if (status.childElementCount || !safeStates.has(status.textContent)) {
+            restore();
+            throw Error("Unrecognized Sync status");
+          }
+          status.setAttribute("data-smoke-reveal", "");
         }
-        status.setAttribute("data-smoke-reveal", "");
       }
       const help = document.querySelector(
         '[aria-labelledby="sync-dependency-heading"]',

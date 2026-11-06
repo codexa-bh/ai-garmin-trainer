@@ -68,6 +68,59 @@ class HistoryTokenContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'synthetic-only'):
                 prepare_dependency_scenario(run, 'healthy')
 
+    def test_mixed_presentation_seeds_only_stopped_owned_synthetic_closed_state(self):
+        import sqlite3
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from history_connector import SENTINEL
+        from history_smoke import prepare_mixed_sync_presentation
+        (self.destination / 'config').mkdir(mode=0o700)
+        (self.destination / 'tokens').mkdir(mode=0o700)
+        token = self.destination / 'tokens/garmin_tokens.json'
+        token.write_bytes(SENTINEL)
+        token.chmod(0o600)
+        settings = self.destination / 'config/settings-v3.json'
+        private_json(settings, {'keys':{}, 'fields':{'GARMIN_MCP_TOKEN_DIR':str(token.parent)}})
+        database = self.destination / 'trainer.sqlite'
+        with sqlite3.connect(database) as db:
+            db.execute('create table sync_checkpoint(key text primary key,value text,updated_at integer)')
+            db.execute('create table untouched(value text)')
+            db.execute("insert into untouched values ('authored canary')")
+            db.execute('insert into sync_checkpoint values (?,?,0)', ('garmin_history_v1', json.dumps({'outcome':'settled','remoteLowerBound':None})))
+        database.chmod(0o600)
+        run = SimpleNamespace(root=self.destination, database=database, verify_settled=Mock())
+        for outcome in ('settled', 'failed'):
+            prepare_mixed_sync_presentation(run, outcome)
+            with sqlite3.connect(database) as db:
+                rows = dict(db.execute('select key,value from sync_checkpoint'))
+                self.assertEqual(db.execute('select value from untouched').fetchall(), [('authored canary',)])
+            self.assertEqual(json.loads(rows['garmin_latest_v1'])['outcome'], outcome)
+            self.assertEqual(json.loads(rows['garmin_latest_v1'])['activitiesProcessed'], 6)
+            self.assertEqual(json.loads(rows['garmin_latest_v1'])['healthDaysRefreshed'], 14)
+            self.assertEqual(json.loads(rows['garmin_history_v1'])['recoveryReason'], 'no-progress')
+        before = database.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'Closed'):
+            prepare_mixed_sync_presentation(run, 'arbitrary')
+        run.verify_settled.side_effect = RuntimeError('active owner')
+        with self.assertRaisesRegex(RuntimeError, 'active owner'):
+            prepare_mixed_sync_presentation(run, 'settled')
+        run.verify_settled.side_effect = None
+        settings.write_text(json.dumps({'keys':{'OPENAI_API_KEY':'private-canary'}, 'fields':{'GARMIN_MCP_TOKEN_DIR':str(token.parent)}}))
+        with self.assertRaisesRegex(ValueError, 'Synthetic-only'):
+            prepare_mixed_sync_presentation(run, 'settled')
+        self.assertEqual(database.read_bytes(), before)
+        settings.write_text(json.dumps({'keys':{}, 'fields':{'GARMIN_MCP_TOKEN_DIR':str(token.parent)}}))
+        database.chmod(0o644)
+        with self.assertRaisesRegex(ValueError, 'private owned'):
+            prepare_mixed_sync_presentation(run, 'settled')
+        database.chmod(0o600)
+        alias = self.destination / 'alias.sqlite'
+        alias.symlink_to(database)
+        run.database = alias
+        with self.assertRaises(ValueError):
+            prepare_mixed_sync_presentation(run, 'settled')
+        self.assertEqual(database.read_bytes(), before)
+
     def test_sync_scope_uses_populated_existing_setup_without_changing_default_wizard_coverage(self):
         from types import SimpleNamespace
         from history_smoke import setup_modes
