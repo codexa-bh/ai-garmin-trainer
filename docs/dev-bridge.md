@@ -942,6 +942,10 @@ Health captures hide everything by default and reveal only fixed static Health
 controls/card chrome and chart grid lines. Source dates, values, plot marks/ticks,
 coverage, HRV context and unexpected descendants stay hidden in place, retaining
 actual geometry and scroll layout; placeholders mark hidden readouts/date buttons.
+Daily status/helper boxes retain their actual borders/backgrounds and dimensions;
+original text is transparent with text shadows disabled, unexpected descendants
+stay hidden, and fixed “Masked” overlays mark the concealed copy. This permits
+header-to-status and adjacent-helper spacing inspection, including wrapped actions.
 They do not reposition/reconstruct the comparison or prove masked exact values;
 synthetic DOM associations cover those. Inspect actual PNGs and record privacy,
 layout/overflow, source/hash and these limits. `health-scenario.json` records real

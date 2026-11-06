@@ -1013,11 +1013,43 @@ describe("native-installed rendered smoke boundary", () => {
       async (action) => {
         render(<Health />);
         const comparison = document.querySelector(".health-daily-comparison")!;
+        const status = screen.getByRole("status");
+        const help = document.getElementById("health-daily-help")!;
+        const unexpected = document.createElement("span");
+        unexpected.textContent = "unexpected private notice";
+        status.append(unexpected);
+        const statusBefore = status.textContent;
+        const helpBefore = help.textContent;
         const before = comparison.textContent;
         expect((await command({ type: "health", action })).result.ok).toBe(
           true,
         );
         expect(comparison.textContent).toBe(before);
+        expect(status.textContent).toBe(statusBefore);
+        expect(help.textContent).toBe(helpBefore);
+        for (const box of [status, help]) {
+          expect(getComputedStyle(box).visibility).toBe("visible");
+          expect(getComputedStyle(box).color).toBe("rgba(0, 0, 0, 0)");
+          // jsdom miscomputes text-shadow:none as the transparent currentColor;
+          // assert the actual applied declaration rather than that serialization.
+          const sanitizer = document.getElementById(
+            "trainer-smoke-sanitizer",
+          ) as HTMLStyleElement;
+          const rule = [...sanitizer.sheet!.cssRules].find(
+            (rule): rule is CSSStyleRule =>
+              rule instanceof CSSStyleRule &&
+              rule.selectorText.includes(box.id || '[role="status"]'),
+          );
+          expect(rule?.style.getPropertyValue("text-shadow")).toBe("none");
+          expect(rule?.style.getPropertyPriority("text-shadow")).toBe(
+            "important",
+          );
+        }
+        expect(getComputedStyle(unexpected).visibility).toBe("hidden");
+        expect(
+          getComputedStyle(document.getElementById("health-daily-range")!)
+            .visibility,
+        ).toBe("hidden");
         for (const privateNode of comparison.querySelectorAll(
           "time, .health-rollup-value span, .health-rollup-value strong, .health-rollup-readout, svg text, .recharts-line-curve, .recharts-dot, .recharts-bar-rectangle, .health-daily-coverage li span",
         )) {
@@ -1032,6 +1064,10 @@ describe("native-installed rendered smoke boundary", () => {
           "hidden",
         );
         smoke.__trainerSmokeRestore();
+        expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+        expect(status.textContent).toBe(statusBefore);
+        expect(help.textContent).toBe(helpBefore);
+        expect(getComputedStyle(status).color).not.toBe("rgba(0, 0, 0, 0)");
       },
     );
   });
