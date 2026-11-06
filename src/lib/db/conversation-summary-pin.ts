@@ -72,6 +72,8 @@ export function adoptSummaryPin(conversationId: string, replace = false): void {
   )
     return;
   const payload = JSON.stringify(pin);
+  // Preserve the existing sealed-envelope reader bound, not a text target.
+  if (payload.length > 1024 * 1024) throw new Error("summary_input_capacity");
   db.prepare(
     `insert into conversation_summary_pin(conversation_id,format_version,payload,seal,reason) values(?,2,?,?,?)
     on conflict(conversation_id) do update set payload=excluded.payload,seal=excluded.seal,reason=excluded.reason`,
@@ -95,7 +97,7 @@ export function readSummaryPin(conversationId: string): SummaryPin | null {
     const pin = JSON.parse(row.payload) as SummaryPin;
     if (
       pin.version !== 2 ||
-      !validSummaryValue(pin.value, 20000) ||
+      !validSummaryValue(pin.value) ||
       !Array.isArray(pin.preferences) ||
       pin.preferences.some(
         (preference) =>
@@ -193,13 +195,14 @@ export function publishSummaryProjection(
     projected.tokens < 0 ||
     projected.tokens > SUMMARY_MODEL_CONTEXT ||
     JSON.stringify(projected.stamp) !== JSON.stringify(before.stamp) ||
-    !validSummaryValue(projected.value, 20000) ||
+    !validSummaryValue(projected.value) ||
     projected.omitted !== before.omitted ||
     JSON.stringify(projected.value) !== JSON.stringify(before.value) ||
     JSON.stringify(projected.preferences) !== JSON.stringify(before.preferences)
   )
     return false;
   const payload = JSON.stringify(projected);
+  if (payload.length > 1024 * 1024) return false;
   return (
     getDatabase()
       .prepare(

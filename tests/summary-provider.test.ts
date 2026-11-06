@@ -7,7 +7,7 @@ import type { ChatProvider } from "@/lib/model-settings/contracts";
 
 const prompt = JSON.stringify({
   previous: "Previous complete draft",
-  characterCap: 6000,
+  targetCharacters: 6000,
   newSources: [{ user: "Authored source." }],
 });
 const patch = { summary: "Complete revised summary with rationale." };
@@ -231,10 +231,8 @@ describe("independent exact catalog summary/title serialization", () => {
     expect(format.schema.properties.summary).not.toHaveProperty("maxLength");
     expect(result.patch).toEqual({ summary: text });
     expect(text.length).toBe(2000);
-    expect(validSummaryValue({ version: 2, text }, 1000)).toBe(true);
-    expect(validSummaryValue({ version: 2, text: text + "a" }, 1000)).toBe(
-      false,
-    );
+    expect(validSummaryValue({ version: 2, text })).toBe(true);
+    expect(validSummaryValue({ version: 2, text: text + "a" })).toBe(true);
     expect(f.requests).toHaveLength(1);
     expect(f.requests[0].body).not.toHaveProperty("max_output_tokens");
   });
@@ -253,13 +251,13 @@ describe("independent exact catalog summary/title serialization", () => {
       new AbortController().signal,
     );
     expect(result.patch).toEqual({ summary: "a".repeat(1001) });
-    expect(
-      validSummaryValue({ version: 2, text: "a".repeat(1001) }, 1000),
-    ).toBe(false);
+    expect(validSummaryValue({ version: 2, text: "a".repeat(1001) })).toBe(
+      true,
+    );
     expect(f.requests).toHaveLength(1);
     expect(
-      validSummaryValue({ version: 2, text: "a".repeat(1000) + "\n" }, 1000),
-    ).toBe(false);
+      validSummaryValue({ version: 2, text: "a".repeat(1000) + "\n" }),
+    ).toBe(true);
   });
   it.each([
     {},

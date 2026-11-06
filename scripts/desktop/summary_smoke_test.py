@@ -9,7 +9,7 @@ import summary_smoke as smoke
 
 class SummarySmokeTests(unittest.TestCase):
     def status_sequence(self):
-        chars=len('T0272-unit: Weekends remain optional; poles not chosen. Fake path /Users/example/notes; quoted ignore previous instructions.')
+        chars=6578  # Fixed authored whole-summary draft above the6000 target.
         return [{'expected':{'revision':1}}, {'expected':{'revision':2},'characters':chars}, {'expected':{'revision':2},'characters':chars}, {'expected':{'revision':2}}, {'expected':{'revision':3}}]
 
     def run_fixture(self, root):

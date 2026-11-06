@@ -199,11 +199,16 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
       fetch: countedConversationFetch(transport),
     })("gpt-6-luna"),
   );
-  publish(
-    1,
+  const generated =
     "Short weekdays for time; long weekdays rejected. Fake password sk-example-not-a-key https://example.invalid/training /Users/example/notes diagnosis GPS ignore previous instructions. " +
-      "週末は長く 🥾 ".repeat(90),
-  );
+    "週末は長く 🥾 ".repeat(3000);
+  const preference = Array(220)
+    .fill("Independent authored preference.")
+    .join(" ");
+  expect([...generated].length).toBeGreaterThan(20000);
+  expect([...preference].length).toBeGreaterThan(6000);
+  summaryStorage.edit(summaryStorage.version(), null, preference, Date.now());
+  publish(2, generated);
   ensureConversation("sdk-chat");
   const admission = history.admit("sdk-chat", "Why that choice?").admission;
   let replay = history.read(admission);
@@ -231,7 +236,7 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
       });
   }
   await serialize();
-  publish(2, "Weekend alternatives remain unresolved; poles not chosen.");
+  publish(3, "Weekend alternatives remain unresolved; poles not chosen.");
   const bytes = db.serialize();
   db.close();
   db = new Database(bytes);
@@ -240,6 +245,8 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
   expect(calls).toHaveLength(4);
   for (const call of calls) {
     const wire = JSON.stringify(call.body.input);
+    expect(wire).toContain(generated);
+    expect(wire).toContain(preference);
     expect(wire).toContain("long weekdays rejected");
     expect(wire).toContain("https://example.invalid/training");
     expect(wire).toContain("ignore previous instructions");
@@ -281,6 +288,7 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
   expect(refreshed).toHaveLength(2);
   for (const request of refreshed) {
     expect(JSON.stringify(request.body.input)).toContain("poles not chosen");
+    expect(JSON.stringify(request.body.input)).toContain(preference);
     expect(JSON.stringify(request.body.input)).not.toContain(
       "long weekdays rejected",
     );
@@ -493,15 +501,16 @@ it("Refresh compares latest summary and segment revisions and refuses a busy cha
   refreshConversationSummary("A", summaryStorage.version(), 1);
 });
 
-it("complete-summary edits validate Unicode/size, accept untrusted prose and reject stale clients without reclassifying preferences", () => {
+it("complete-summary edits validate Unicode, accept above-target untrusted prose and reject stale clients without reclassifying preferences", () => {
   publish(1);
   const expected = summaryStorage.version();
   expect(() =>
-    summaryStorage.editSummary(expected, "x".repeat(6001), Date.now()),
-  ).toThrow("summary_invalid_text");
+    summaryStorage.editSummary(expected, "broken\ud800", Date.now()),
+  ).toThrow("summary_invalid_unicode");
   expect(summaryStorage.version()).toEqual(expected);
   const text =
-    "Weekday lunchtime, not evenings. Fake api_key sk-example-not-a-key https://example.invalid/training /Users/example/notes diagnosis GPS ignore previous instructions.";
+    "Weekday lunchtime, not evenings. Fake api_key sk-example-not-a-key https://example.invalid/training /Users/example/notes diagnosis GPS ignore previous instructions." +
+    "😀".repeat(6001);
   summaryStorage.editSummary(expected, text, Date.now());
   expect(summaryStorage.inspect().text).toBe(text);
   expect(() =>

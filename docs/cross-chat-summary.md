@@ -1,6 +1,6 @@
 # Integrated incremental cross-chat summary
 
-One bounded complete generated text plus separate authored preferences replaces the
+One complete generated text plus separate authored preferences replaces the
 model-managed item ledger. [Memory](memory.md) owns user controls; [conversation
 history](conversation-history.md) owns same-chat continuity. Source delivery, authored
 tests and structural validity are not installed activation or real semantic-quality
@@ -16,10 +16,13 @@ Summary Off does not disable automatic titles. On/model/size remain restart-only
 catalog/shared-key live Save retains its narrower acknowledgment and captured-snapshot
 rules. Existing private settings/archives and hidden contract marker remain preserved.
 
-The1000–20000 Unicode-scalar limit bounds **generated summary only**, not a combined
-allocation with preferences. No truncation, preference reservation or invented second
-preference cap. Invalid scalars/malformed/extra-field/oversize/unfinished output refuses
-with closed diagnostics. The complete memory request owns capacity; no second memory
+The1000–20000 Unicode-scalar setting is an advisory **generated summary target**,
+not an output ceiling or a combined allocation with preferences. Complete valid text
+above it (including above20000) is retained unchanged through storage, edits, rebuild,
+import and chat pins; lowering the target preserves saved text. No truncation,
+preference reservation or invented second preference cap. Invalid scalars, malformed,
+extra-field or unfinished output still refuse with closed diagnostics. Independent
+provider/result and sealed-storage/pin/rebuild envelope guards remain unchanged. The complete memory request owns capacity; no second memory
 projection ceiling or tokenizer/price qualification is imposed. Product processing has
 no spend/attempt or output-token cap. Paid tests must separately establish credible
 finite provider/whole-run cost bounds before any effect; old allocation constants are
@@ -51,13 +54,12 @@ User-authored URLs, paths, topic/key-like words and quoted instructions are untr
 prose, not a content-pattern veto or authority to access secrets/files/tools.
 
 An incremental/import job captures at most20 new sources; reviewed rebuild chunks
-contain at most40. Each makes one draft request. ONLY a fully returned, strict,
-scalar-valid draft rejected solely for exceeding the generated-character cap may make
-one further condensation request using that entire draft and the same captured route.
-Both requests have distinct durable admissions/counters under the existing batch lease.
-A malformed/unknown/refused/cancelled/stale result or second overflow cannot trigger
-another condensation. Never force decoder termination at the cap, slice text, narrow
-sources or retry a capacity/refusal as a smaller payload. Two-second foreground debounce and
+contain at most40. Each makes one draft request with one advisory size target and
+no hidden percentage/word ceiling. No size-only rejection, secondary condensation
+request or new secondary effect reservation exists. Historical condensation attempts,
+size diagnostics, usage and liabilities remain readable and unchanged. Never force
+decoder termination at the target, slice text, narrow sources or retry a capacity/refusal
+as a smaller payload. Two-second foreground debounce and
 serialized backlog drain retain the existing native lifetime/recovery tick. Passive
 reads start no providers/timers/rebuilds; answer completion records only synchronous
 journal eligibility. There is no closed-app progress/daemon promise.
@@ -66,7 +68,7 @@ One writer uses a30-second lease,5-second heartbeat and final transactional CAS 
 source/config/privacy/control/manual revisions, parent revision and frontier. Network
 work holds no SQL transaction. Publication atomically commits complete generated text,
 frontier/dispositions and attempt settlement. New arrivals remain pending. Preferences
-are untouched by generation and are not subtracted from the generated allowance.
+are untouched by generation and are not counted toward the generated target.
 Unknown/cancelled/invalid/auth effects require explicit recovery without blind replay;
 retained transport5xx backoff never fabricates successful publication. Shutdown aborts
 owned work best-effort; remote billing/retention may continue.

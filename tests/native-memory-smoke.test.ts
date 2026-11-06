@@ -109,6 +109,28 @@ it("returns closed booleans, uses only fixed run draft and preserves exact confi
   expect(clicked).toHaveBeenCalledOnce();
   expect(window.confirm).toBe(confirm);
 });
+it("uses only the finite6578-scalar summary draft above target and refuses altered editor values", async () => {
+  const panel = document.querySelector(".memory-root-card")!;
+  panel.setAttribute("aria-label", "Edit generated summary");
+  // The real editor's accessible section is inside the Memory root.
+  const section = document.createElement("section");
+  section.setAttribute("aria-label", "Edit generated summary");
+  panel.append(section);
+  const input = document.querySelector("textarea")!;
+  expect((await command({ type: "memory", action: "draft-update" })).ok).toBe(
+    true,
+  );
+  expect([...input.value].length).toBe(6578);
+  expect(input.value).toContain("T0272-unit");
+  expect(
+    (await command({ type: "memory", action: "draft-update", text: "private" }))
+      .ok,
+  ).toBe(false);
+  input.value += "altered";
+  expect((await command({ type: "memory", action: "draft-update" })).ok).toBe(
+    false,
+  );
+});
 it("waits for retained-chat startup inspection before fixed native mutations, without hiding global content", async () => {
   const panel = document.querySelector<HTMLElement>(".memory-root-card")!;
   panel.dataset.memoryChatReady = "false";

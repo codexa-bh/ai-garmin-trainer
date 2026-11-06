@@ -56,29 +56,26 @@ describe("one complete bounded generated summary", () => {
     expect(b.value.text).not.toContain("overlong");
     expect(Object.keys(b).sort()).toEqual(["dispositions", "value"]);
   });
-  it("rejects ledger shapes, extra fields, malformed text, oversize and broken scalars without clipping", () => {
+  it("rejects ledger shapes, extra fields, malformed text and broken scalars without clipping", () => {
     for (const value of [
       { version: 1, keep: [], upsert: [], remove: [], coverage: [] },
       { summary: "ok", extra: 1 },
       { summary: 42 },
-      { summary: "x".repeat(1001) },
       { summary: "bad\ud800" },
     ])
       expect(validateSummaryReplacement(value, batch(), [])).toBeNull();
-    expect(validSummaryValue({ version: 1, items: [], text: "" }, 1000)).toBe(
-      false,
-    );
-    expect(validSummaryValue({ version: 2, text: "ok", items: [] }, 1000)).toBe(
+    expect(validSummaryValue({ version: 1, items: [], text: "" })).toBe(false);
+    expect(validSummaryValue({ version: 2, text: "ok", items: [] })).toBe(
       false,
     );
   });
   it("counts Unicode scalars, permits underfull/empty output and never pads or cuts negation", () => {
-    expect(
-      validSummaryValue({ version: 2, text: "😀".repeat(1000) }, 1000),
-    ).toBe(true);
-    expect(
-      validSummaryValue({ version: 2, text: "😀".repeat(1001) }, 1000),
-    ).toBe(false);
+    expect(validSummaryValue({ version: 2, text: "😀".repeat(1000) })).toBe(
+      true,
+    );
+    expect(validSummaryValue({ version: 2, text: "😀".repeat(1001) })).toBe(
+      true,
+    );
     expect(
       validateSummaryReplacement({ summary: "" }, batch(), [])!.value,
     ).toEqual(emptySummary());

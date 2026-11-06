@@ -160,14 +160,16 @@ describe("integrated Memory visible controls and stale-response safety", () => {
   it("edits the complete generated text with exact CAS while preferences stay separate and unchanged", async () => {
     const value = populated();
     const preferences = structuredClone(value.preferences);
+    const text = "😀".repeat(6577) + ".";
     const fetcher = await mountMemory(value, (body) => {
       expect(body).toEqual({
         version: 2,
         expected: value.expected,
         action: "edit-summary",
-        text: "Current mornings, not evenings. Short weekdays because caregiving limits time.",
+        text,
       });
       value.stored.text = String(body.text);
+      value.characters = [...value.stored.text].length;
       return response({ ok: true });
     });
     expect(
@@ -183,12 +185,15 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect(
       screen.getByText(/Regeneration replaces direct summary edits too/),
     ).toBeTruthy();
-    fireEvent.change(editor, {
-      target: {
-        value:
-          "Current mornings, not evenings. Short weekdays because caregiving limits time.",
-      },
-    });
+    expect(screen.getByText(/target is guidance, not a maximum/)).toBeTruthy();
+    fireEvent.change(editor, { target: { value: text } });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Save summary",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Save summary" }));
     await screen.findByText(/Complete generated summary saved/);
     expect(value.preferences).toEqual(preferences);
@@ -196,6 +201,9 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
     ).toHaveLength(1);
     expect(screen.getByText(value.stored.text)).toBeTruthy();
+    expect(
+      screen.getByText("6578 characters · target 6000 · generated text only"),
+    ).toBeTruthy();
   });
   it("never lets an old selected-chat response replace the current projection", async () => {
     const waiting: ((response: Response) => void)[] = [];
