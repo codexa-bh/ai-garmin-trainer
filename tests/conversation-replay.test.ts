@@ -9,14 +9,7 @@ import {
   type ConversationTurnSource,
 } from "@/lib/chat/conversation-replay";
 
-const terminal = {
-  completion: {
-    kind: "coaching",
-    answer: "Short weekdays, longer weekends.",
-    claims: [],
-    missingEvidence: [],
-  },
-};
+const answer = "Short weekdays, longer weekends.";
 function fixture(
   count: (body: Record<string, unknown>) => number = () => 100,
   assertCurrent?: () => void,
@@ -45,11 +38,12 @@ function fixture(
               model: "gpt-6-luna",
               output: [
                 {
-                  type: "function_call",
-                  id: "fc-1",
-                  call_id: "call-1",
-                  name: "completeTrainerTurn",
-                  arguments: JSON.stringify(terminal),
+                  type: "message",
+                  id: "msg-1",
+                  role: "assistant",
+                  content: [
+                    { type: "output_text", text: answer, annotations: [] },
+                  ],
                   status: "completed",
                 },
               ],
@@ -141,12 +135,8 @@ describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
   it("preserves actual serialized input/tools, roles and ordinary append prefix without a count prerequisite", async () => {
     const { requests, generate } = fixture();
     const result = await generate(request);
-    expect(result.toolCalls).toEqual([
-      expect.objectContaining({
-        toolCallId: "call-1",
-        toolName: "completeTrainerTurn",
-      }),
-    ]);
+    expect(result.text).toBe(answer);
+    expect(result.toolCalls ?? []).toEqual([]);
     const first = requests.find((r) => r.url.endsWith("/responses"))!;
     const firstCount = requests[0]!;
     for (const key of [
@@ -197,7 +187,7 @@ describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
     expect(last.body.input).not.toEqual(first.body.input);
   });
 
-  it("serializes only actual paired current-turn native exchanges and final response tools", async () => {
+  it("serializes actual paired current-turn native exchanges with action-disabled final synthesis", async () => {
     const { requests, generate } = fixture();
     await generate({
       ...request,
@@ -216,9 +206,7 @@ describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
       ],
     });
     const body = requests.find((r) => r.url.endsWith("/responses"))!.body;
-    expect((body.tools as { name: string }[]).map((tool) => tool.name)).toEqual(
-      ["completeTrainerTurn"],
-    );
+    expect(body.tools ?? []).toEqual([]);
     const input = body.input as Record<string, unknown>[];
     expect(input).toContainEqual(
       expect.objectContaining({
@@ -272,9 +260,7 @@ describe("actual locked SDK Responses serialization (M01/M06/M07/M27)", () => {
     );
     expect(final[0]).not.toEqual(initial[0]);
     expect(bodies[1]!.tools).toEqual(bodies[0]!.tools);
-    expect(
-      (bodies[2]!.tools as { name: string }[]).map((item) => item.name),
-    ).toEqual(["completeTrainerTurn"]);
+    expect(bodies[2]!.tools ?? []).toEqual([]);
     expect(
       final
         .filter((item) => item.type === "function_call")
@@ -396,21 +382,8 @@ describe("actual locked SDK legacy transports remain explicitly unqualified", ()
             choices: [
               {
                 index: 0,
-                finish_reason: "tool_calls",
-                message: {
-                  role: "assistant",
-                  content: null,
-                  tool_calls: [
-                    {
-                      id: "legacy-call-1",
-                      type: "function",
-                      function: {
-                        name: "completeTrainerTurn",
-                        arguments: JSON.stringify(terminal),
-                      },
-                    },
-                  ],
-                },
+                finish_reason: "stop",
+                message: { role: "assistant", content: answer },
               },
             ],
             usage: {
@@ -443,9 +416,8 @@ describe("actual locked SDK legacy transports remain explicitly unqualified", ()
           system: request.system,
           prompt: request.prompt,
         });
-        expect(result.toolCalls).toEqual([
-          expect.objectContaining({ toolName: "completeTrainerTurn" }),
-        ]);
+        expect(result.text).toBe(answer);
+        expect(result.toolCalls ?? []).toEqual([]);
       }
       expect(requests).toHaveLength(2);
       for (const item of requests) {
@@ -463,11 +435,7 @@ describe("actual locked SDK legacy transports remain explicitly unqualified", ()
           "Option one: long weekdays",
         );
       }
-      expect(
-        (requests[1]!.body.tools as { function: { name: string } }[]).map(
-          (item) => item.function.name,
-        ),
-      ).toEqual(["completeTrainerTurn"]);
+      expect(requests[1]!.body.tools ?? []).toEqual([]);
       const before = requests.length;
       await expect(generate(request)).rejects.toThrow(
         "conversation_model_capability_unavailable",

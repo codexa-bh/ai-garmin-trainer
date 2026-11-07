@@ -12,8 +12,8 @@ NEW = 'Synthetic/Local:two'
 ANSWER = 'Synthetic local snapshot retained.'
 
 
-def terminal_arguments():
-    return {'completion': {'kind': 'coaching', 'answer': ANSWER, 'claims': [], 'missingEvidence': []}}
+def response_message():
+    return {'role': 'assistant', 'content': ANSWER}
 
 
 class LiveProvider:
@@ -55,7 +55,7 @@ class LiveProvider:
                         self.send_error(504)
                         return
                 value = {'id': 'synthetic-completion', 'object': 'chat.completion', 'created': 1, 'model': model,
-                         'choices': [{'index': 0, 'finish_reason': 'tool_calls', 'message': {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'synthetic-terminal', 'type': 'function', 'function': {'name': 'completeTrainerTurn', 'arguments': json.dumps(terminal_arguments())}}]}}],
+                         'choices': [{'index': 0, 'finish_reason': 'stop', 'message': response_message()}],
                          'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}}
                 raw = json.dumps(value).encode()
                 self.send_response(200)

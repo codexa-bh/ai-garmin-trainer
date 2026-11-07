@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { coaching } from "./completion-fixtures";
+
 import { TrainerToolExecutionContext } from "../src/lib/ai/tool-execution-context";
 
 const { generateText, runReadOnlySql } = vi.hoisted(() => ({
@@ -177,7 +177,7 @@ describe("terminal context cleanup", () => {
         vi.useFakeTimers();
         generateText.mockImplementationOnce(() => new Promise(() => {}));
       }
-      generateText.mockResolvedValue(coaching("Completed."));
+      generateText.mockResolvedValue({ text: "Completed." });
       const pending = orchestrateTrainerChat({
         model: "mock",
         system: "system",
@@ -226,7 +226,7 @@ describe("terminal context cleanup", () => {
 
   it("allocates and disposes even a direct answer's context", async () => {
     const dispose = vi.spyOn(TrainerToolExecutionContext.prototype, "dispose");
-    generateText.mockResolvedValue(coaching("Hello."));
+    generateText.mockResolvedValue({ text: "Hello." });
     await turn("A");
     await turn("B");
     expect(dispose).toHaveBeenCalledTimes(2);
@@ -240,7 +240,7 @@ describe("real orchestration turn ownership", () => {
     const resume = barrier();
     let aCalls = 0;
     generateText.mockImplementation(async ({ prompt }: { prompt: string }) => {
-      if (prompt === "B") return coaching("Ready.");
+      if (prompt === "B") return { text: "Ready." };
       aCalls += 1;
       if (aCalls === 1) return sql("shared", 11);
       if (aCalls === 2) {
@@ -248,7 +248,7 @@ describe("real orchestration turn ownership", () => {
         await resume.promise;
         return math("shared");
       }
-      return coaching("The calculated value is 11.");
+      return { text: "The calculated value is 11." };
     });
     const a = turn("A");
     await paused.promise;

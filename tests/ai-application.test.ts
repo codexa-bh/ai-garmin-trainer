@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  coaching,
-  completion,
-  grounded,
-  incomplete,
-  metric,
-} from "./completion-fixtures";
+
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import { executeTrainerTool } from "../src/lib/ai/tool-execution";
 import type { TrainerToolPorts } from "../src/lib/ai/tool-ports";
@@ -106,9 +100,9 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
       [
         call("describeGarminDatabase"),
         new Error("synthetic failure after schema read"),
-        incomplete(
-          "No personal records were retrieved; section availability is not established.",
-        ),
+        {
+          text: "No personal records were retrieved; section availability is not established.",
+        },
       ],
       ports,
     );
@@ -145,11 +139,9 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
                 pointLimit: 3,
               }),
             );
-          return Promise.resolve(
-            incomplete(
-              "Only a bounded slice is available; it is not whole-route evidence.",
-            ),
-          );
+          return Promise.resolve({
+            text: "Only a bounded slice is available; it is not whole-route evidence.",
+          });
         },
         executeTool: (input) =>
           Promise.resolve({
@@ -295,22 +287,9 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
         call("runReadOnlySql", {
           sql: "select grade_method, target_window_sec, count(calculated_grade_pct) as valid_sections, count(*) as total_sections, max(calculated_grade_pct) as max_section_grade_pct from activity_calculated_grade('synthetic-target') group by grade_method, target_window_sec",
         }),
-        completion({
-          kind: "incomplete",
-          answer:
-            "The target and two preceding outings were checked across sports. Sleep is partial; estimated sections are not terrain or a measured fatigue/nutrition explanation. Enrichment is unavailable; pacing and recovery remain useful coaching options.",
-          claims: [
-            metric(2, "outings", "duration_sec", 7200),
-            metric(3, "recovery", "sleep_minutes", 410),
-            metric(4, "sections", "valid_sections", 4),
-          ],
-          missingEvidence: [
-            "pre-event HRV",
-            "complete section support",
-            "terrain enrichment",
-            "causation",
-          ],
-        }),
+        {
+          text: "The target and two preceding outings were checked across sports. Sleep is partial; estimated sections are not terrain or a measured fatigue/nutrition explanation. Enrichment is unavailable; pacing and recovery remain useful coaching options.",
+        },
       ];
       const requests: TrainerGenerationRequest[] = [];
       const result = await orchestrateTrainerChat(
@@ -375,9 +354,9 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
           suppliedName: "Unrelated preview",
         }),
         call("verifyActivityReference", { garminId: activity.garminId }),
-        incomplete(
-          "The ID is imported; unsupported extra filters caused the first no-match. Detail/recovery analysis remains incomplete.",
-        ),
+        {
+          text: "The ID is imported; unsupported extra filters caused the first no-match. Detail/recovery analysis remains incomplete.",
+        },
       ],
       ports,
     );
@@ -422,20 +401,6 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
       );
       ports.analytics.analyzeActivityTerrain = () => analysis;
       const lastIndex = analysis.sections.length - 1;
-      const claims =
-        support === "unavailable"
-          ? []
-          : [
-              {
-                ...metric(
-                  1,
-                  "terrain_sections",
-                  "meanGradePct",
-                  analysis.sections[lastIndex].meanGradePct!,
-                ),
-                rowIndex: lastIndex,
-              },
-            ];
       const test = scripted(
         [
           call("analyzeActivityTerrain", {
@@ -445,16 +410,9 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
           ...(support === "unavailable"
             ? []
             : [new Error("synthetic planner failure after terrain evidence")]),
-          completion({
-            kind: "incomplete",
-            answer:
-              "Supported elevation sections are estimates, not surface or technicality; missing support remains unavailable.",
-            claims,
-            missingEvidence: [
-              "surface and technicality",
-              ...(support === "partial" ? ["timing"] : []),
-            ],
-          }),
+          {
+            text: "Supported elevation sections are estimates, not surface or technicality; missing support remains unavailable.",
+          },
         ],
         ports,
       );
@@ -481,7 +439,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
   );
 
   it("answers directly with a plain request and never asks for tools", async () => {
-    const test = scripted([coaching("A conversational answer.")]);
+    const test = scripted([{ text: "A conversational answer." }]);
     expect(await test.run()).toMatchObject({
       text: "A conversational answer.",
       providerCalls: 1,
@@ -529,9 +487,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
             },
           ],
         },
-        grounded("The transformed value is fourteen.", [
-          metric(2, "scores", "score", 14),
-        ]),
+        { text: "The transformed value is fourteen." },
       ],
       ports,
     );
@@ -584,10 +540,9 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
           formula: "value * 2",
           outputName: "scores",
         }),
-        grounded(
-          "The transformed value is fourteen; stops are reported, not measured.",
-          [metric(3, "scores", "score", 14)],
-        ),
+        {
+          text: "The transformed value is fourteen; stops are reported, not measured.",
+        },
       ],
       ports,
     );
@@ -671,16 +626,10 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
               })
             : new Error("synthetic planner failure"),
           corrected
-            ? grounded("The calculated value is fourteen.", [
-                metric(4, "scores", "score", 14),
-              ])
-            : completion({
-                kind: "incomplete",
-                answer:
-                  "The recorded value is seven; moving-time analysis is unavailable.",
-                claims: [metric(1, "facts", "value", 7)],
-                missingEvidence: ["moving time"],
-              }),
+            ? { text: "The calculated value is fourteen." }
+            : {
+                text: "The recorded value is seven; moving-time analysis is unavailable.",
+              },
         ],
         ports,
         "2026-10-22",
@@ -723,17 +672,10 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
 
   it.each([
     new Error("synthetic completion timeout"),
-    { text: "unvalidated plain prose" },
+    { text: " " },
     {
       toolCalls: [{ toolName: "runReadOnlySql", input: { sql: "select 99" } }],
     },
-    grounded("Must not certify failed math", [metric(1, "facts", "value", 7)]),
-    completion({
-      kind: "incomplete",
-      answer: "Wrong cell",
-      claims: [metric(1, "facts", "value", 99)],
-      missingEvidence: ["moving time"],
-    }),
   ])(
     "keeps planner-error synthesis fail closed and never retries: %j",
     async (final) => {
@@ -775,7 +717,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
           call("runReadOnlySql", { sql: "select 7 as value" }),
         ),
         new Error("synthetic last planner failure"),
-        grounded("The value is seven.", [metric(14, "facts", "value", 7)]),
+        { text: "The value is seven." },
       ],
       ports,
     );
@@ -806,13 +748,9 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
         call("runReadOnlySql", { sql: "select 7 as value" }),
         bad,
         bad,
-        completion({
-          kind: "incomplete",
-          answer:
-            "The observed value is seven; adjusted moving time remains unavailable.",
-          claims: [metric(1, "facts", "value", 7)],
-          missingEvidence: ["moving time"],
-        }),
+        {
+          text: "The observed value is seven; adjusted moving time remains unavailable.",
+        },
       ],
       ports,
     );
@@ -844,7 +782,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
           formula: `missing_${i}`,
         }),
       ),
-      incomplete("Missing fields prevent the calculation."),
+      { text: "Missing fields prevent the calculation." },
     ];
     const test = scripted(results, ports);
     const result = await test.run();
@@ -924,8 +862,6 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
   it("preserves successful handles on math rejection and never publishes failed or foreign-turn handles", async () => {
     const { TrainerToolExecutionContext } =
       await import("../src/lib/ai/tool-execution-context");
-    const { validatedCompletion } =
-      await import("../src/lib/ai/turn-completion");
     const ports = capabilities();
     const context = new TrainerToolExecutionContext();
     context.analysisResults.set("facts", [{ value: 7 }]);
@@ -945,7 +881,10 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
         },
         ports,
       );
-    const failed = await reject("failed_output");
+    expect(await reject("failed_output")).toMatchObject({
+      status: "rejected",
+      reason: "unknown_column",
+    });
     await reject("facts");
     expect(context.analysisResults.get("facts")).toEqual([{ value: 7 }]);
     expect(context.analysisResults.has("failed_output")).toBe(false);
@@ -954,19 +893,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
       reason: "unknown_result",
       correctionAllowed: undefined,
     });
-    expect(
-      validatedCompletion(
-        {
-          completion: {
-            kind: "grounded",
-            answer: "Not evidence",
-            claims: [metric(1, "failed_output", "score", 7)],
-            missingEvidence: [],
-          },
-        },
-        [failed],
-      ),
-    ).toBeNull();
+    expect(otherTurn.analysisResults.size).toBe(0);
     context.dispose();
     otherTurn.dispose();
   });
@@ -1040,7 +967,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
           return Promise.resolve(
             request.purpose === "planner"
               ? call("runReadOnlySql", { sql: "select missing" })
-              : incomplete("Evidence remains incomplete."),
+              : { text: "Evidence remains incomplete." },
           );
         },
         executeTool: (input) => {
@@ -1056,11 +983,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
     expect(result.text).toBe("Evidence remains incomplete.");
   });
 
-  it.each([
-    { text: "" },
-    { text: "Tool step 1: private" },
-    { text: "Answer", toolCalls: [{}] },
-  ])(
+  it.each([{ text: "" }, { text: "Answer", toolCalls: [{}] }])(
     "rejects invalid final synthesis without another provider call: %j",
     async (final) => {
       const ports = capabilities();
@@ -1105,7 +1028,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
       );
     }
     const read = scripted(
-      [call("getActivityDetailAvailability"), coaching("No available detail.")],
+      [call("getActivityDetailAvailability"), { text: "No available detail." }],
       ports,
     );
     expect((await read.run()).toolSteps[0]).toMatchObject({
@@ -1211,7 +1134,7 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
     const second = scripted(
       [
         call("runReadOnlySql", { sql: "select 2" }),
-        coaching("Second completed."),
+        { text: "Second completed." },
       ],
       ports,
     );

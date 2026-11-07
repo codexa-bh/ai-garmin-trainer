@@ -215,6 +215,7 @@ impl Command {
                     "profile",
                     "composer",
                     "conversation",
+                    "ordinary-chat",
                     "memory",
                     "tables",
                 ]
@@ -1487,6 +1488,26 @@ mod tests {
         }
         .valid());
     }
+    #[test]
+    fn authored_chat_capture_is_finite_and_ordinary_only() {
+        let command = Command::CaptureView {
+            view: "ordinary-chat".into(),
+            preset: "wide".into(),
+        };
+        assert!(command.valid());
+        for value in [
+            json!({"type":"captureView","view":"ordinary-chat","preset":"wide","selector":"body"}),
+            json!({"type":"captureView","view":"ordinary-chat","preset":"wide","answer":"private"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
+        }
+        assert!(!Command::CaptureView {
+            view: "ordinary-chat-private".into(),
+            preset: "wide".into()
+        }
+        .valid());
+    }
+
     #[test]
     fn composer_is_finite_ordinary_only_and_results_never_return_values() {
         for action in ["observe", "draft", "choose", "keys"] {

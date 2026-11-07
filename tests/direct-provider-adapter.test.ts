@@ -1,23 +1,14 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { selectedModel } from "../src/lib/ai/providers";
 import { createTrainerGeneration } from "../src/lib/ai/provider-generation";
-
-const terminalInput = {
-  completion: {
-    kind: "coaching",
-    answer: "Build intensity gradually and allow recovery.",
-    claims: [],
-    missingEvidence: [],
-  },
-};
-
+const answer = "Build intensity gradually and allow recovery.";
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
 it.each(["planner", "final_synthesis"] as const)(
-  "serializes exact Luna Responses trainer %s tools and decodes native completion",
+  "serializes exact Luna Responses %s options and decodes ordinary text",
   async (purpose) => {
     vi.stubEnv("AI_PROVIDER", "openai");
     vi.stubEnv("AI_MODEL", "gpt-6-luna");
@@ -28,11 +19,10 @@ it.each(["planner", "final_synthesis"] as const)(
         model: "gpt-6-luna",
         output: [
           {
-            type: "function_call",
-            id: "fc-test",
-            call_id: "call-test",
-            name: "completeTrainerTurn",
-            arguments: JSON.stringify(terminalInput),
+            type: "message",
+            id: "msg-test",
+            role: "assistant",
+            content: [{ type: "output_text", text: answer, annotations: [] }],
           },
         ],
         usage: {
@@ -43,33 +33,33 @@ it.each(["planner", "final_synthesis"] as const)(
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const selection = selectedModel();
-    const result = await createTrainerGeneration(selection.model)({
+    const generation = createTrainerGeneration(selectedModel().model);
+    const result = await generation({
       purpose,
       system: {
-        policy: "Use the structured trainer completion contract.",
+        policy: "Ordinary coach policy.",
         context: "Fresh date A; memory A; budget A",
       },
-      prompt: "Give general recovery advice without personal measurements.",
+      prompt: "Give general recovery advice.",
     });
-    await createTrainerGeneration(selection.model)({
+    await generation({
       purpose,
       system: {
-        policy: "Use the structured trainer completion contract.",
+        policy: "Ordinary coach policy.",
         context: "Fresh date B; memory deleted; budget B",
       },
       prompt: "Follow-up",
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url, options] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     const second = JSON.parse(
       String(
         (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body,
       ),
     );
-    const [url, options] = fetchMock.mock.calls[0] as unknown as [
-      string,
-      RequestInit,
-    ];
     expect(String(url)).toBe("https://api.openai.com/v1/responses");
     expect(new Headers(options.headers).get("authorization")).toBe(
       "Bearer sentinel-openai-key",
@@ -96,38 +86,25 @@ it.each(["planner", "final_synthesis"] as const)(
       cacheWriteTokens: 30,
       uncachedInputTokens: 30,
     });
-    expect(body.tool_choice).toBe("auto");
     expect(body.reasoning).toBeUndefined();
-    const terminal = body.tools.find(
-      (entry: { name: string }) => entry.name === "completeTrainerTurn",
+    expect(JSON.stringify(body.tools ?? [])).not.toContain(
+      "completeTrainerTurn",
     );
-    expect(terminal).toMatchObject({
-      type: "function",
-      parameters: {
-        type: "object",
-        required: ["completion"],
-        properties: { completion: { type: "object" } },
-      },
-    });
     if (purpose === "planner") {
+      expect(body.tool_choice).toBe("auto");
       expect(body.parallel_tool_calls).toBe(false);
-      expect(body.tools).toContainEqual(
-        expect.objectContaining({ name: "runReadOnlySql" }),
-      );
-      expect(body.tools).toContainEqual(
-        expect.objectContaining({ name: "runMathAnalysis" }),
-      );
+      for (const name of ["runReadOnlySql", "runMathAnalysis"])
+        expect(body.tools).toContainEqual(expect.objectContaining({ name }));
     } else {
-      expect(body.tools).toHaveLength(1);
+      expect(body.tools ?? []).toHaveLength(0);
+      expect(body.tool_choice).toBeUndefined();
     }
-    expect(result.toolCalls?.[0]).toMatchObject({
-      toolName: "completeTrainerTurn",
-      input: terminalInput,
-    });
+    expect(result.text).toBe(answer);
+    expect(result.toolCalls ?? []).toEqual([]);
   },
 );
 
-it("forwards exact Flash through the direct DeepSeek trainer adapter", async () => {
+it("forwards exact Flash and ordinary text through the direct DeepSeek adapter", async () => {
   vi.stubEnv("AI_PROVIDER", "deepseek");
   vi.stubEnv("DEEPSEEK_MODEL", "deepseek-flash");
   vi.stubEnv("DEEPSEEK_API_KEY", "sentinel-deepseek-key");
@@ -140,21 +117,8 @@ it("forwards exact Flash through the direct DeepSeek trainer adapter", async () 
       choices: [
         {
           index: 0,
-          finish_reason: "tool_calls",
-          message: {
-            role: "assistant",
-            content: null,
-            tool_calls: [
-              {
-                id: "call-test",
-                type: "function",
-                function: {
-                  name: "completeTrainerTurn",
-                  arguments: JSON.stringify(terminalInput),
-                },
-              },
-            ],
-          },
+          finish_reason: "stop",
+          message: { role: "assistant", content: answer },
         },
       ],
       usage: {
@@ -170,7 +134,7 @@ it("forwards exact Flash through the direct DeepSeek trainer adapter", async () 
   const result = await createTrainerGeneration(selectedModel().model)({
     purpose: "planner",
     system: {
-      policy: "Use structured completion.",
+      policy: "Ordinary coaching.",
       context: "Fresh date and evidence",
     },
     prompt: "Give general recovery advice.",
@@ -188,7 +152,7 @@ it("forwards exact Flash through the direct DeepSeek trainer adapter", async () 
   expect(body.model).toBe("deepseek-flash");
   expect(body.messages[0]).toEqual({
     role: "system",
-    content: "Use structured completion.\n\nFresh date and evidence",
+    content: "Ordinary coaching.\n\nFresh date and evidence",
   });
   expect(body.prompt_cache_options).toBeUndefined();
   expect(JSON.stringify(body)).not.toContain("prompt_cache_breakpoint");
@@ -201,11 +165,10 @@ it("forwards exact Flash through the direct DeepSeek trainer adapter", async () 
   expect(body.tool_choice).toBe("auto");
   expect(body.tools).toContainEqual(
     expect.objectContaining({
-      function: expect.objectContaining({ name: "completeTrainerTurn" }),
+      function: expect.objectContaining({ name: "runReadOnlySql" }),
     }),
   );
-  expect(result.toolCalls?.[0]).toMatchObject({
-    toolName: "completeTrainerTurn",
-    input: terminalInput,
-  });
+  expect(JSON.stringify(body.tools)).not.toContain("completeTrainerTurn");
+  expect(result.text).toBe(answer);
+  expect(result.toolCalls ?? []).toEqual([]);
 });

@@ -338,23 +338,7 @@ it("direct first-turn orchestration saves complete Markdown without a proposal a
               },
             ],
           };
-        return {
-          toolCalls: [
-            {
-              toolName: "completeTrainerTurn",
-              input: {
-                completion: {
-                  kind: "grounded",
-                  answer: "Weekly plan saved directly.",
-                  claims: [
-                    { kind: "tool", stepIndex: 2, tool: "saveWeeklyDocuments" },
-                  ],
-                  missingEvidence: [],
-                },
-              },
-            },
-          ],
-        };
+        return { text: "Weekly plan saved directly." };
       },
       executeTool: async (input) => executeWeeklyTool(input, app),
     },
@@ -546,30 +530,7 @@ it.each([
               ],
             };
           }
-          return {
-            toolCalls: [
-              {
-                toolName: "completeTrainerTurn",
-                input: {
-                  completion: {
-                    kind: "grounded",
-                    answer: "Review saved against the original commitment.",
-                    claims: [
-                      {
-                        kind: "metric",
-                        stepIndex: 3,
-                        resultName: "completion_points",
-                        rowIndex: 0,
-                        column: "score",
-                        value: calculated,
-                      },
-                    ],
-                    missingEvidence: [],
-                  },
-                },
-              },
-            ],
-          };
+          return { text: "Review saved against the original commitment." };
         },
         executeTool: async (input) => {
           if (
@@ -766,28 +727,7 @@ it.each([false, true])(
                 },
               ],
             };
-          return {
-            toolCalls: [
-              {
-                toolName: "completeTrainerTurn",
-                input: {
-                  completion: {
-                    kind: "grounded",
-                    answer: "Both General Plan and weekly plan saved.",
-                    claims: [
-                      { kind: "tool", stepIndex: 3, tool: "saveTrainingPlan" },
-                      {
-                        kind: "tool",
-                        stepIndex: 4,
-                        tool: "saveWeeklyDocuments",
-                      },
-                    ],
-                    missingEvidence: [],
-                  },
-                },
-              },
-            ],
-          };
+          return { text: "Both General Plan and weekly plan saved." };
         },
         executeTool: async (input) =>
           input.toolName === "getTrainingPlan" ||

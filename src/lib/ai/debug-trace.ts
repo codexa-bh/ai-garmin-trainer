@@ -1,9 +1,4 @@
-import { trainerCompletionSchema } from "./tool-contracts";
-import type {
-  CompletionRejection,
-  TrainerToolCall,
-  TrainerToolStep,
-} from "@/lib/ai/tool-types";
+import type { TrainerToolCall, TrainerToolStep } from "@/lib/ai/tool-types";
 
 import type {
   LlmDebugProviderCallPurpose,
@@ -92,7 +87,6 @@ export function debugProviderCall(input: {
   toolCalls?: TrainerToolCall[];
   text?: string;
   error?: string;
-  completionRejection?: CompletionRejection;
 }): LlmDebugProviderCall {
   let truncated = false;
   const text = input.text
@@ -102,47 +96,10 @@ export function debugProviderCall(input: {
     ? compactString(input.error, LLM_DEBUG_TRACE_CAPS.string)
     : null;
   const toolCalls = input.toolCalls?.map((call) => {
-    const terminal =
-      call.toolName === "completeTrainerTurn" &&
-      call.input &&
-      typeof call.input === "object"
-        ? (call.input as { completion?: unknown }).completion
-        : null;
-    const declaration =
-      terminal && typeof terminal === "object"
-        ? (terminal as Record<string, unknown>)
-        : null;
-    const validation =
-      call.toolName === "completeTrainerTurn"
-        ? trainerCompletionSchema.safeParse(call.input)
-        : null;
-    const terminalMetadata = {
-      schemaValid: validation?.success === true,
-      schemaIssues:
-        validation && !validation.success
-          ? validation.error.issues
-              .slice(0, 8)
-              .map(({ code, path }) => ({ code, path }))
-          : [],
-      completionKind: ["coaching", "grounded", "incomplete"].includes(
-        String(declaration?.kind),
-      )
-        ? declaration?.kind
-        : "invalid",
-      declaredClaims: Array.isArray(declaration?.claims)
-        ? declaration.claims.length
-        : 0,
-      missingEvidenceCount: Array.isArray(declaration?.missingEvidence)
-        ? declaration.missingEvidence.length
-        : 0,
-      answerContent: "omitted",
-      ...(input.completionRejection
-        ? { rejection: input.completionRejection }
-        : {}),
-    };
     const bounded = boundedDebugValue(
+      // An obsolete or unexpected certificate must not leak answer/claim content.
       call.toolName === "completeTrainerTurn"
-        ? terminalMetadata
+        ? { historicalResponseContent: "omitted" }
         : [
               "saveTrainingPlan",
               "saveWeeklyDocuments",

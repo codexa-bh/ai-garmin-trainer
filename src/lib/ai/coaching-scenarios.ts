@@ -199,7 +199,7 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     expectedRoute: "terrain",
     requiredQualities: [
       "analyzeActivityTerrain current-turn metric cells",
-      "incomplete completion for partial/truncated coverage",
+      "explicit partial/truncated coverage in ordinary prose",
       "25m smoothing; sustained trend boundaries with minimum300m, no distance tiles",
       "signed grade distinct from climbing density",
       "estimated stops not measured; technical terrain unknown",
@@ -446,7 +446,7 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     requiredQualities: [
       "as-of and original denominator retained",
       "bounded provisional progress with unsupported portions",
-      "incomplete completion and distinct self-report attribution",
+      "explicit missing evidence and distinct self-report attribution",
       "activity versus daily calorie distinction",
     ],
     forbiddenBehavior: [

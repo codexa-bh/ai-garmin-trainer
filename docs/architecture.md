@@ -188,9 +188,9 @@ have neutral AI owners; grounding remains the chat-owned contract.
 
 `ai/composition.ts` binds the selected model to `provider-generation.ts` before
 calling policy; chat's request-time selection remains before context reads.
-The adapter preserves planner action tools/auto/parallel options and adds the
-non-executing `completeTrainerTurn` response tool. Reserved synthesis exposes only
-that response tool with auto choice (DeepSeek thinking mode rejects forced choice), never action tools. Raw results remain
+The adapter preserves planner action tools/auto/parallel options. Ordinary text
+finishes a turn when no action calls remain. Reserved synthesis exposes no tools
+or forced response protocol. Raw action results remain
 application-validated, with one 180000ms per-call AbortController timeout and timer
 cleanup. HTTP disconnect does not acquire
 provider cancellation, and memory keeps independent provider configuration.
@@ -207,51 +207,32 @@ replay at the wire boundary; its [copy rehearsal, compatibility fence and native
 evidence](conversation-history.md) replace a blanket migration no-op for that slice.
 No UI redesign or primary activation is implied.
 
-### Structured chat completion and evidence
+### Ordinary chat answers and evidence
 
-`tool-contracts.ts` defines the strict object-root terminal schema; pure
-`turn-completion.ts` validates it against current-turn execution. The `completion`
-kind is `coaching`, `grounded` (nonempty claims), or `incomplete` (nonempty gaps).
-The uniform object requires `kind`, `answer`, `claims` and `missingEvidence`;
-coaching has empty arrays, grounded has claims only, incomplete has mandatory gaps
-and optional individually validated partial claims.
-Strict cross-field validation rejects contradictions without parsing answer prose.
-This avoids real DeepSeek union-branch leakage of empty claims into coaching.
-A metric claim references an exact successful SQL/math step, result name, zero-based
-row, column and non-null scalar value. Status/schema tools cannot verify metric
-claims, and unresolved later analytical failures reject completed metric answers.
-Non-analytical or schema-availability observations require the exact successful
-tool/step; schema observations cannot establish a numeric metric claim. Relevance selection
-and faithful prose remain model responsibilities; cell validation is not proof of
-natural-language entailment. Incomplete responses disclose gaps without certifying
-verification. Native terminal calls never execute or grant save authority.
+Planner generation exposes actual action tools only. Nonempty ordinary text with
+no pending calls finishes directly; mixed text/action responses still validate and
+execute selected actions. Empty or malformed output is a provider-response failure,
+not an evidence verdict, and adds no checker-repair call. Budget termination and
+post-evidence provider/analytical failures retain one genuinely needed, budgeted,
+action-disabled synthesis; unexpected calls there never execute.
 
-Plain text, missing/malformed declarations and conflicting terminal/action batches
-cannot become completed coaching. A missing/invalid terminal result may consume
-only the existing budget-admitted final synthesis; failure uses truthful limitation
-text. Reserved synthesis receives a bounded server rejection reason and optional
-zero-based claim index, never the rejected answer, arguments or metric values.
-It must rebuild exact references from current evidence or disclose missing evidence.
-Kind/evidence conflicts receive explicit guidance to keep known gaps and use
-incomplete with validated partial claims, never erase gaps to force grounded.
-Invalid analytical tool claims receive exact metric-cell guidance. Native field
-descriptions reinforce these same kind/claims/gap rules without changing acceptance.
-Validation is unchanged and recovery adds no calls or action tools. Existing terminal
-debug metadata records those structural reasons without retaining claim content.
-There is no keyword classifier, answer-prose critic, JSON-prefix rejection,
-date-answer rewrite or prior-failure keyword bypass. General physiology quantities
-and hiking/HR/Z3/action vocabulary do not affect control flow. Tool/SQL/math safety,
-full prior-pass plan snapshots, side-effect guards and the final reserve remain.
+The model-authored `completeTrainerTurn` certificate, per-cell assessment,
+checker feedback and canned refusal are retired without replacement. Evidence
+selection, accurate numbers, faithful prose and honest gap disclosure are ordinary
+model responsibilities, not machine-certified facts. Instructions retain source
+precedence and explicit missing/ambiguous/failed/partial/truncated coverage; lookup
+metrics need no duplicate SQL merely to manufacture claim references. No prose
+classifier, second judge, renamed terminal gate or automatic repair loop is added.
+Tool schemas/admission, guarded SQL/math, same-turn handles, prior-pass plan reads,
+write/privacy/currentness boundaries and actual-call budgets/accounting remain.
+All deterministic fallbacks disclose independently successful planning writes.
 
-Chat passes typed `ChatTurnContext` with a server UTC ISO date and immediately
-preceding failed/rejected step metadata. Every follow-up uses ordinary generation;
-previous failures are context, never fresh tool evidence. The old prior-failure
-answer type remains accepted by delivery for compatibility, but generation no
-longer emits that bypass. Terminal tool arguments omit answer/document content in
-debug logs; schema diagnostics retain only validation flags and bounded issue
-codes/paths, and validated answer excerpts retain existing bounded/weekly redaction.
-No database, import, HTTP or UI shape changes; back-sync is a no-op and rollback
-is a source revert. Source delivery from the public repository does not restart/install/release.
+Chat retains typed current-date/prior-failure context, paired native exchanges,
+immutable admitted snapshots, completion journals and JSON/NDJSON/history contracts.
+Historical debug records remain readable without revalidation or rewriting failures;
+obsolete response content is omitted if unexpectedly encountered in new diagnostics.
+No database/import/UI shape migration; back-sync is a no-op and rollback is a source
+revert. Source delivery does not restart/install/release the primary application.
 
 ## Guarded analytical policy and SQLite execution
 
@@ -667,7 +648,7 @@ no stored-data backfill or migration is needed.
 
 Terrain-v2 uses 25m distance anchors, isolated >10m spike rejection when adjacent neighbors agree within 2m and triangular [1,2,1]/4 smoothing. It detects sustained trend changes, not fixed tiles: a continuously sliding 100m signed-grade window and 300m rolling-relief window supply ±3% enter / ±2% stay evidence. A changed trend must persist >=300m; climb/descent changes also need >=6m vertical support. Refine the boundary to a nearby profile extremum/plateau edge within100m. Require >=300m on both sides before committing a boundary, absorb short initial/transient/final features, and reject disconnected runs below300m rather than join gaps. Final rolling labels require a sustained detected rolling trend plus >=10m each ascent/descent and range, with |net|/gross<0.6; small flat noise or one absorbed short hill cannot turn a long flat approach into rolling terrain. Merge equal adjacent final kinds only inside a continuous run. Windows and 25m resolution do not impose output section lengths or periodic cuts. Invalid ranges, >30s time gaps and >100m distance gaps split runs. Ascent/descent integrate filtered edges once; signed grade uses net filtered elevation / recorded along-route distance. Steep up/down support counts >=10% filtered anchor-edge distance, not instantaneous maxima. Distance coverage uses all valid positive recorded changes, including unsupported gaps; timestamp coverage uses distance-split adjacent-edge counts. Consistent timezone-less Garmin timestamps establish a relative clock; stored elapsed alone never establishes seconds. Original valid adjacent time edges supply elapsed/estimated stationary (<=0.3m/s for >=30s)/moving, elapsed pace and pairwise time-weighted HR with explicit support. Missing metrics remain null.
 
-`analyzeActivityTerrain` admits one ID and 1–20 result rows, omits raw samples/GPS/paths and preserves whole-analysis coverage/totals before row caps. Successful rows register in the existing turn-owned handle map for bounded math and exact-cell metric claims. Unavailable results register nothing; partial/truncated analysis requires incomplete completion with individually grounded partial cells. Existing SQL/math semantics, budgets, source grade, hover formulas and laps remain unchanged.
+`analyzeActivityTerrain` admits one ID and 1–20 result rows, omits raw samples/GPS/paths and preserves whole-analysis coverage/totals before row caps. Successful rows register in the existing turn-owned handle map for bounded math and useful evidence-backed prose. Unavailable results register nothing; partial/truncated analysis requires explicit limitations with useful supported partial facts. Existing SQL/math semantics, budgets, source grade, hover formulas and laps remain unchanged.
 
 The additive Terrain sections grid labels the section's time-weighted mean as **Avg HR**, formats durations as h/m/s with zero units omitted (zero stays0s), and shows elapsed pace as a human duration per kilometre. Detailed timing/HR support lives in **Method and quality**; a main-grid **Data notes** column appears only for incomplete/unavailable row support, with readable global gap/partial/truncation messages. Raw API/tool values and analytical weighting remain unchanged. The grid has keyboard/pointer buttons and an elevation interval overlay independent of hover. Activity changes reset selection. Raw chart timelines use stored coordinates; timestamp-derived charts highlight only with matching source-row origins/counts, otherwise explicitly report unavailable alignment. No map highlight: route points are independently sampled and retain stored elapsed coordinates. Missing old payloads are tolerated. Numerical, API/tool equality, privacy/grounding/isolation and no-GPS UI tests live in `terrain-*` and the existing dashboard suites. Public examples are synthetic; real smoke remains private/local.
 

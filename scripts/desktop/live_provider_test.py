@@ -29,9 +29,8 @@ class LiveProviderTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 value = json.loads(raw)
                 self.assertEqual(value['model'], model)
-                terminal = value['choices'][0]['message']['tool_calls'][0]['function']
-                self.assertEqual(terminal['name'], 'completeTrainerTurn')
-                self.assertEqual(json.loads(terminal['arguments'])['completion']['answer'], ANSWER)
+                self.assertEqual(value['choices'][0]['finish_reason'], 'stop')
+                self.assertEqual(value['choices'][0]['message'], {'role': 'assistant', 'content': ANSWER})
             self.assertEqual(provider.models, [OLD, NEW])
             self.assertEqual(send({'model': NEW, 'messages': []})[0], 409)
         finally:

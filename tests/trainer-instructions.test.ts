@@ -7,12 +7,9 @@ import {
   TRAINER_SYSTEM_PROMPT,
 } from "../src/lib/ai/trainer-instructions";
 import { minimizeSummarySource } from "../src/lib/memory/summary-policy";
-import {
-  trainerToolInputSchemas,
-  trainerCompletionSchema,
-} from "../src/lib/ai/tool-contracts";
+import { trainerToolInputSchemas } from "../src/lib/ai/tool-contracts";
 
-it("keeps structured stable policy ahead of changing date, memory, budget, evidence and repair feedback", () => {
+it("keeps stable policy ahead of changing date, memory, budget and evidence", () => {
   const before = {
     policy: TRAINER_SYSTEM_PROMPT,
     context: "date A; memory present; plan A; history A",
@@ -25,7 +22,7 @@ it("keeps structured stable policy ahead of changing date, memory, budget, evide
   const second = buildPlannerInstructions(after, "evidence B");
   expect(first).toHaveProperty(
     "policy",
-    expect.stringContaining("Structured turn completion"),
+    expect.stringContaining("Ordinary coaching answers"),
   );
   if (typeof first === "string" || typeof second === "string")
     throw new Error("structured policy lost");
@@ -36,50 +33,26 @@ it("keeps structured stable policy ahead of changing date, memory, budget, evide
   expect(first.policy).not.toContain("evidence A");
   expect(second.context).toContain("evidence B");
   const cold = buildFinalSynthesisInstructions(before, "evidence A");
-  const repair = buildFinalSynthesisInstructions(after, "evidence B", true, {
-    reason: "invalid_tool_claim",
-  });
+  const repair = buildFinalSynthesisInstructions(after, "evidence B", true);
   if (typeof cold === "string" || typeof repair === "string")
     throw new Error("structured policy lost");
   expect(cold.policy).toBe(repair.policy);
-  expect(repair.context).toContain("invalid_tool_claim");
+  expect(repair.context).toContain("evidence B");
   expect(repair.context).toContain("Evidence gathering has stopped");
   expect(repair.policy).not.toContain("invalid_tool_claim");
 });
 
-it("routes null cells to missing evidence without discarding supported partial metrics", () => {
-  const completion = {
-    kind: "incomplete",
-    answer: "60 minutes; distance and streams unavailable.",
-    claims: [
-      {
-        kind: "metric",
-        stepIndex: 1,
-        resultName: "activitycheck",
-        rowIndex: 0,
-        column: "duration_minutes",
-        value: 60,
-      },
-    ],
-    missingEvidence: ["Distance and stream cells are unavailable."],
-  };
-  expect(trainerCompletionSchema.safeParse({ completion }).success).toBe(true);
-  expect(
-    trainerCompletionSchema.safeParse({
-      completion: {
-        ...completion,
-        claims: [{ ...completion.claims[0], value: null }],
-      },
-    }).success,
-  ).toBe(false);
+it("keeps partial-data guidance without a model-authored certificate or repair", () => {
   for (const instructions of [
     buildPlannerInstructions("base", "evidence"),
     buildFinalSynthesisInstructions("base", "evidence", true),
   ]) {
     expect(instructions).toContain(
-      "Null or missing cells are not metric claims",
+      "unavailable is not zero or complete coverage",
     );
-    expect(instructions).toContain("put those gaps in missingEvidence");
+    expect(instructions).not.toMatch(
+      /completeTrainerTurn|missingEvidence|kind=grounded|claimIndex|previous completion declaration/,
+    );
   }
 });
 
@@ -133,11 +106,11 @@ describe("canonical trainer instruction package", () => {
     expect(planner).toContain("A failed result publishes no output handle");
     expect(planner).toContain("do not replay an unchanged failed request");
     for (const instructions of [planner, synthesis]) {
-      expect(instructions).toContain("at most 64 claims");
-      expect(instructions).toContain("server Evidence step number");
-      expect(instructions).toContain("displayed row 1 means rowIndex 0");
       expect(instructions).toContain(
-        "never a rounded or display-converted value",
+        "No separate claim certificate is required",
+      );
+      expect(instructions).toContain(
+        "Keep observations, calculations, user reports, general guidance and unknowns distinct",
       );
     }
     expect(planner).toContain(
@@ -199,7 +172,7 @@ describe("canonical trainer instruction package", () => {
       "Finish reachable summary/recovery",
       "calculated grade despite absent source grade",
       "without inventing a tool",
-      "no Garmin lookup",
+      "no forced Garmin lookup",
     ])
       expect(planner).toContain(rule);
     for (const instructions of [
@@ -212,7 +185,9 @@ describe("canonical trainer instruction package", () => {
     ]) {
       expect(instructions).toContain("causal percentages");
       expect(instructions).toContain("not full-route analysis");
-      expect(instructions).toContain("kind=incomplete");
+      expect(instructions).toContain(
+        "Disclose missing, ambiguous, failed, partial or truncated support",
+      );
       expect(instructions).toContain("body mass");
     }
     expect(
