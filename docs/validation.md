@@ -86,7 +86,12 @@ On macOS ARM64, run `npm run desktop:build` then `npm run desktop:test:native` (
 
 Ordinary provenance/admission v2 separates the original whole-source build snapshot from conservative build/context identity and fresh current-driver/fixture evidence. See the [exact reuse/invalidation contract](dev-bridge.md#ordinary-build-identity-and-current-driver-reuse); existing full validation/build commands, debug/probe semantics and private/provider gates are unchanged. `smoke:test` includes cheap real classifier/context/producer/consumer mutation, fresh-failure and concurrency contracts; these do not substitute for actual current-artifact smoke.
 
-Ordinary smoke supports explicit [risk-selected feature scope](dev-bridge.md#risk-selected-ordinary-feature-smoke).
+Ordinary smoke supports explicit [risk-selected feature scope](dev-bridge.md#risk-selected-ordinary-feature-smoke)
+and [source-attributed Python compositions](dev-bridge.md#importable-guarded-compositions).
+The callable entry point uses the same admission, observer, preservation and final
+settlement owner as CLI execution; composition assertions and whole-run success
+remain distinct. Shared execution changes still require current full two-instance
+regression plus affected compositions, not a narrow-example pass alone.
 Default/full and legacy feature flags keep broad simultaneous two-instance regression.
 Reviewed local feature changes may select their named scenario and useful captures;
 summary actual lifecycle/control proof and fixed presentation families are separately

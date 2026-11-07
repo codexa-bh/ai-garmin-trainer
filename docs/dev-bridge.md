@@ -99,6 +99,102 @@ logical bytes and allocated blocks; APFS blocks are not proven reclaimable savin
 Images stay temporary/local, never uploaded or committed. Missing private/provider,
 trusted-input/default-window or integration proof remains unavailable, not passed.
 
+## Importable guarded compositions
+
+A separately authored Python function can compose existing ordinary semantic actions
+without adding a central scenario flag or copying launch/finalization code. The
+runnable navigation example has its own source and expected assertions:
+
+```bash
+npm run env -- python3 scripts/desktop/ordinary_composition_example.py \
+  --scratch <canonical-task-root> --bundle <canonical-physical-ordinary-app>
+```
+
+This asserts Trainer → Sync → Trainer, **not connector execution**. For the two
+migrated consumers, run from the source checkout with its desktop scripts on the
+Python import path (export `SCRATCH` and `BUNDLE` as the canonical paths above).
+Use `npm run env --` to retain the same npm/tool environment as `desktop:build`;
+adding `PYTHONPATH` or launching directly with a different PATH changes the existing
+build-context identity and correctly refuses reuse:
+
+```bash
+npm run env -- python3 - <<'PY'
+import os
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path('scripts/desktop').resolve()))
+from ordinary_smoke import run_scenarios, composer_scenario, densify_scenario
+
+run_scenarios(scratch=os.environ['SCRATCH'], bundle=os.environ['BUNDLE'],
+              scenarios=(composer_scenario(),), impact='local-feature',
+              impact_basis='Reviewed composer choice/draft/geometry and genuine restart persistence')
+run_scenarios(scratch=os.environ['SCRATCH'], bundle=os.environ['BUNDLE'],
+              scenarios=(densify_scenario(),), impact='summary-presentation',
+              impact_basis='Reviewed independently entered/restored fixed Densify family')
+PY
+```
+
+Author a normal source-backed `def scenario(run)` using `run.command` and bounded
+read-only `run.wait`, then pass `Scenario(label, scenario, configuration, expected,
+evidence, dependencies=())` to `run_scenarios`. Labels are unique lowercase
+letters/digits/hyphens/underscores, not broad-regression/full labels. `expected` is a
+nonempty tuple of actual assertion descriptions, not a list of transport successes;
+`evidence` states captures/limits or why no image is needed. Authors own these
+assertions and reviewed impact, not lifecycle infrastructure. Configuration must be
+exactly `keyless`, `composer` or `summary`; one invocation requires compatible
+configuration for every scenario. No implicit fixture changes, private inputs,
+paid-envelope inheritance, arbitrary script loader or new native permission exists.
+A callable cannot certify its own impact classification or full coverage.
+
+The execution owner configures existing resources once, prepares the existing
+synthetic recipe, holds ordinary preparation verification, enrolls partial runs,
+starts the observer and owns all launches/restarts/final settlement and receipts.
+Per-boot artifact/context/fixture/source admission, original preservation,
+noninterference and shutdown are mandatory; security/Goals/navigation/capture/
+parent-death exercises are optional **coverage**, not optional infrastructure.
+Shared/unknown impact requires `full=True` plus affected compositions. Default CLI
+still runs simultaneous two-instance broad regression; existing flags/direct
+imports/subclasses and stricter private/paid callers retain their contracts.
+
+Composer reuses its existing assertions, genuinely stops/restarts and requires exact
+choice plus fresh origin/boot and stale-capability rejection. Full CLI keeps its
+Goals sentinel/Profile restart sequence. Densify reuses summary preparation and
+family-local wide/closed-sheet entry, fixed fixtures, reset to actual inspection
+and failure-preserving close. It proves fixed presentation, not successful inference
+or real acceptance persistence; actual summary lifecycle remains separate.
+
+`run_scenarios` is a synchronous main-thread POSIX entry point with a 600-second
+whole-invocation deadline (`timeout` may explicitly select >0 through1800 seconds).
+It owns SIGTERM cancellation and its timer, refuses competing active timers and
+restores handlers/umask afterward. Do not nest invocations or mutate the source,
+dependencies or build cache while one runs. Assertion/unknown timeout/cancellation
+unwinds once, never retries mutations; later scenarios remain not-run. Shutdown,
+observer and input/finalization errors retain the original failure plus secondary
+attribution. `assertionsPassed` describes selected assertions only;
+`scenarioPassed` can become true only after preservation and settlement checks.
+Receipt-write failure is a failed invocation, not a pass certificate. Resource
+archive/disposition remains a separate existing owner and can independently fail.
+
+Declarations bind actual current source bytes, origin/inode/mode, expected assertions
+and explicit dependency files. Loaded function code must match a fresh compilation
+of its current file; opaque closures/defaults/lambdas are refused. Declare external
+helper/data dependencies explicitly; ordinary repository source/context hashing
+still covers repository dependencies. Bindings are checked before allocation,
+every boot/scenario and finalization; changed/unavailable/aliased/hardlinked source
+refuses. This is reproducibility, **not an adversarial Python sandbox**. The build
+classifier is unchanged: the new example and summary changes require a current
+ordinary build; moving code to a new file never makes it external-only.
+
+Receipts attribute each scenario source/expected assertions, per-run groups and
+not-run outcomes, selected/omitted proof, actual starts/restarts and capture boot/
+state references. Inspect and register each visually relied-on image separately;
+a capture path or passed assertion is not image inspection. Navigation can use
+textual actual-state assertions without a screenshot. All examples are keyless
+synthetic DOM/native isolated evidence, not trusted input, real services, normal
+singleton, installed-app or default-window certification. `prepare_only=True`
+launches zero and claims no smoke pass; standalone/borrowed/prepare-only outputs
+and normal resource disposition/expiry promises remain unchanged.
+
 ## Keyless summary producer lifecycle
 
 `npm run smoke:ordinary -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app> --summary-engine`

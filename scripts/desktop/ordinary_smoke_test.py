@@ -169,7 +169,12 @@ class OrdinaryContracts(unittest.TestCase):
         args = SimpleNamespace(summary_engine=False, conversation_selection=False, composer_footer=False,
                                model_eligibility=False, prepare_only=False)
         observer = SimpleNamespace(stop=lambda pids: {'ownedNativeFrontmost': False})
-        with patch('ordinary_smoke.OrdinaryRun', side_effect=runs), patch('ordinary_smoke.Observer', return_value=observer), \
+        allocations = iter(runs)
+        def construct(*_args, enroll, **_kwargs):
+            run = next(allocations)
+            enroll(run)
+            return run
+        with patch('ordinary_smoke.OrdinaryRun', side_effect=construct), patch('ordinary_smoke.Observer', return_value=observer), \
              patch('ordinary_smoke.verify_ordinary', return_value=verified), patch('ordinary_smoke.source_snapshot', return_value=verified['current']), \
              patch('ordinary_smoke.security'), patch('ordinary_identity.run_build') as build:
             with self.assertRaisesRegex(AssertionError, 'fresh scenario oracle'):
@@ -417,7 +422,8 @@ class OrdinaryContracts(unittest.TestCase):
                 main.__wrapped__()
             configure.assert_not_called(); prepare.assert_not_called()
 
-    def orchestration(self, args, failure=None, construction_failure=False):
+    def orchestration(self, args, failure=None, construction_failure=False, *, scenarios=(), plan=None,
+                      configure=None, expected_failure=False, partial_failure_at=None):
         from ordinary_smoke import execute_ordinary
         from native_smoke import fingerprint, readonly
         from unittest.mock import Mock
@@ -442,8 +448,24 @@ class OrdinaryContracts(unittest.TestCase):
                                    provenance={'route': 'unit-authored'}, verify_current=Mock())
         verified = {'current': {'source': 'a' * 64}, 'provenance': {'sourceFingerprint': 'b' * 64,
                     'buildSourceFingerprint': 'd' * 64}, 'context': 'e' * 64}
+        if configure:
+            configure(runs, prepared)
         constructors = [runs[0], RuntimeError('partial construction')] if construction_failure else runs
-        with patch('ordinary_smoke.OrdinaryRun', side_effect=constructors) as constructor, \
+        allocations = iter(constructors)
+        allocated_count = 0
+        def construct(*_args, enroll, **_kwargs):
+            nonlocal allocated_count
+            run = next(allocations)
+            if isinstance(run, BaseException):
+                raise run
+            enroll(run)
+            allocated_count += 1
+            if allocated_count == partial_failure_at:
+                run.prepared = False
+                raise RuntimeError('enrolled partial constructor')
+            return run
+        previous_receipts = set(self.root.glob('ordinary-receipt-*.json'))
+        with patch('ordinary_smoke.OrdinaryRun', side_effect=construct) as constructor, \
              patch('ordinary_smoke.Observer', return_value=SimpleNamespace(stop=Mock(return_value={}))) as observer, \
              patch('ordinary_smoke.verify_ordinary', return_value=verified), \
              patch('ordinary_smoke.source_snapshot', return_value=verified['current']), \
@@ -451,11 +473,15 @@ class OrdinaryContracts(unittest.TestCase):
              patch('summary_smoke.prepare_summary') as summary_prepare, patch('summary_smoke.scenario') as summary, \
              patch('summary_smoke.presentation_scenario') as presentations:
             try:
-                execute_ordinary(args, self.root, prepared, self.bundle, 'a' * 64, verified, self.inventory)
-            except BaseException:
-                if not failure and not construction_failure:
+                execute_ordinary(args, self.root, prepared, self.bundle, 'a' * 64, verified, self.inventory,
+                                 scenarios=scenarios, plan=plan)
+                self.execution_error = None
+            except BaseException as error:
+                self.execution_error = error
+                if not failure and not construction_failure and not expected_failure:
                     raise
-            receipt = json.loads(next(self.root.glob('ordinary-receipt-*.json')).read_text())
+            receipts = list(set(self.root.glob('ordinary-receipt-*.json')) - previous_receipts)
+            receipt = json.loads(receipts[0].read_text()) if receipts else None
             return runs, receipt, constructor, observer, security, summary, presentations
 
     def test_default_full_keeps_both_simultaneous_runs_and_every_broad_group(self):
@@ -540,6 +566,232 @@ class OrdinaryContracts(unittest.TestCase):
         observer.assert_not_called(); runs[0].start.assert_not_called(); runs[0].stop.assert_called_once()
         self.assertFalse(receipt['scenarioPassed']); self.assertEqual(len(receipt['runs']), 1)
         self.assertIn('RuntimeError', receipt['scenarioFailure'])
+
+    def test_independent_composition_uses_guard_owner_and_observable_navigation(self):
+        from ordinary_composition_example import navigation_scenario
+        from ordinary_smoke import composition_plan
+        scenario = navigation_scenario()
+        args, plan = composition_plan((scenario,), 'local-feature', 'reviewed navigation', False)
+        events = []
+        def configure(runs, prepared):
+            state = {'view': 'Trainer'}
+            def command(value):
+                events.append(value)
+                if value['type'] == 'click':
+                    state['view'] = 'Sync' if value['target'] == 'Sync' else 'Trainer'
+            runs[0].command.side_effect = command
+            runs[0].wait.side_effect = lambda predicate, label: self.assertTrue(predicate(state), label)
+        runs, receipt, constructor, observer, security, *_ = self.orchestration(args, scenarios=(scenario,), plan=plan, configure=configure)
+        self.assertTrue(receipt['scenarioPassed'])
+        self.assertEqual(receipt['groupOutcomes'][0]['groups'], {'sync-return': 'passed'})
+        constructor.assert_called_once(); security.assert_not_called()
+        runs[0].stop.assert_called_once(); observer.return_value.stop.assert_called_once()
+        self.assertEqual([e['target'] for e in events if e['type'] == 'click'], ['Sync', 'Back to chat'])
+        self.assertEqual(receipt['selection']['compositions'][0]['expected'], list(scenario.expected))
+        self.assertEqual(len(receipt['selection']['compositions'][0]['sources'][0]['sha256']), 64)
+        self.assertIn('security', receipt['selection']['omitted'])
+
+    def test_public_api_refuses_declarations_before_resources_or_preparation(self):
+        from dataclasses import replace
+        from ordinary_composition_example import navigation_scenario
+        from ordinary_smoke import composition_plan, run_scenarios
+        scenario = navigation_scenario()
+        for invalid in (replace(scenario, expected=()), replace(scenario, configuration='unknown'),
+                        replace(scenario, action=lambda run: None), replace(scenario, evidence=''),
+                        replace(scenario, label='full'), replace(scenario, dependencies=('/missing-source',))):
+            with self.subTest(invalid=invalid), patch('ordinary_smoke.resources.configure') as configure, patch('smoke_input.prepare') as prepare:
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    run_scenarios(scratch=self.root, bundle=self.bundle, scenarios=(invalid,),
+                                  impact='local-feature', impact_basis='reviewed')
+                configure.assert_not_called(); prepare.assert_not_called()
+        from ordinary_smoke import densify_scenario
+        for scenarios, impact, full in (((), 'local-feature', False), ((scenario, scenario), 'local-feature', False),
+                                       ((scenario, densify_scenario()), 'local-feature', False),
+                                       ((scenario,), 'shared', False), ((scenario,), 'unknown', False)):
+            with self.assertRaises(ValueError):
+                composition_plan(scenarios, impact, 'reviewed', full)
+
+    def test_external_source_binding_rejects_stale_loaded_or_changed_code(self):
+        import importlib.util
+        from ordinary_smoke import Scenario, scenario_identity
+        path = self.root / 'independently_authored.py'
+        path.write_text('def action(run):\n    run.command({"type": "observe"})\n')
+        spec = importlib.util.spec_from_file_location('independent', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        scenario = Scenario('external', module.action, 'keyless', ('observed',), 'no visual claim')
+        binding = scenario_identity(scenario)
+        self.assertEqual(binding['sources'][0]['path'], str(path))
+        path.write_text('def action(run):\n    raise AssertionError("changed")\n')
+        with self.assertRaisesRegex(ValueError, 'current source'):
+            scenario_identity(scenario)
+
+    def test_finalization_failure_after_assertions_never_writes_success(self):
+        def configure(runs, prepared):
+            runs[0].stop.side_effect = RuntimeError('shutdown failed')
+            runs[1].stop.side_effect = KeyboardInterrupt('shutdown cancellation')
+        _, receipt, *_ = self.orchestration(self.selection_args(), configure=configure, expected_failure=True)
+        self.assertTrue(receipt['assertionsPassed']); self.assertFalse(receipt['scenarioPassed'])
+        self.assertEqual(len(receipt['shutdownErrors']), 2)
+        self.assertIsInstance(self.execution_error, RuntimeError)
+
+    def test_primary_unknown_effect_survives_shutdown_observer_and_input_failures(self):
+        def configure(runs, prepared):
+            runs[0].composer_scenario.side_effect = TimeoutError('effect unknown; never replay')
+            runs[0].stop.side_effect = RuntimeError('secondary shutdown')
+            prepared.verify_current.side_effect = lambda: (_ for _ in ()).throw(ValueError('changed input')) if runs[0].composer_scenario.call_count else None
+        args = self.selection_args(composer_footer=True, smoke_scope='feature', impact='local-feature', impact_basis='reviewed')
+        _, receipt, _, observer, *_ = self.orchestration(args, configure=configure, expected_failure=True)
+        self.assertIsInstance(self.execution_error, TimeoutError)
+        self.assertFalse(receipt['scenarioPassed'])
+        self.assertEqual(len(receipt['shutdownErrors']), 2)
+        observer.return_value.stop.assert_called_once()
+
+    def test_observer_failure_is_aggregate_failure_after_passed_assertions(self):
+        # Configure the shared observer through the run after attachment.
+        def configure(runs, prepared):
+            def start(_binary):
+                runs[0].previous_token = 'old-token'
+                runs[0].origin, runs[0].boot = 'http://127.0.0.1:11111', str(uuid.uuid4())
+                runs[0].observer.stop.side_effect = RuntimeError('observer failed')
+            runs[0].start.side_effect = start
+        _, receipt, *_ = self.orchestration(self.selection_args(), configure=configure, expected_failure=True)
+        self.assertTrue(receipt['assertionsPassed']); self.assertFalse(receipt['scenarioPassed'])
+        self.assertTrue(any('observer' in value for value in receipt['shutdownErrors']))
+
+    def test_receipt_write_failure_retains_primary_and_never_emits_pass(self):
+        from native_smoke import private_json
+        def writer(path, value):
+            if path.name.startswith('ordinary-receipt-'):
+                raise OSError('receipt unavailable')
+            return private_json(path, value)
+        args = self.selection_args(composer_footer=True, smoke_scope='feature', impact='local-feature', impact_basis='reviewed')
+        with patch('ordinary_smoke.private_json', side_effect=writer):
+            _, receipt, *_ = self.orchestration(args, failure=AssertionError('primary assertion'))
+        self.assertIsNone(receipt)
+        self.assertIsInstance(self.execution_error, AssertionError)
+
+    def test_first_and_later_partial_real_constructor_are_enrolled_before_effects(self):
+        enrolled = []
+        with patch.object(OrdinaryRun, 'prepare_ordinary', side_effect=ValueError('partial setup')):
+            with self.assertRaisesRegex(ValueError, 'partial setup'):
+                OrdinaryRun(self.root, self.source, 'a' * 64, self.bundle, self.inventory,
+                            verified={'current': {'source': 'a' * 64}}, enroll=enrolled.append)
+        self.assertEqual(len(enrolled), 1)
+        self.assertFalse(enrolled[0].prepared)
+        with patch('native_smoke.os.killpg') as kill:
+            enrolled[0].stop()
+            kill.assert_not_called()
+
+    def test_callable_factories_share_migrated_helpers_without_lifecycle_duplication(self):
+        from ordinary_smoke import composer_scenario, densify_scenario, scenario_identity
+        for factory in (composer_scenario, densify_scenario):
+            scenario_identity(factory())
+        args = self.selection_args(composer_footer=True, smoke_scope='feature', impact='local-feature', impact_basis='reviewed')
+        from ordinary_smoke import composition_plan
+        scenarios = (composer_scenario(),)
+        args, plan = composition_plan(scenarios, 'local-feature', 'reviewed composer', False)
+        runs, receipt, *_ = self.orchestration(args, scenarios=scenarios, plan=plan)
+        self.assertEqual(runs[0].start.call_count, 2)
+        runs[0].composer_scenario.assert_called_once()
+        self.assertTrue(receipt['scenarioPassed'])
+
+    def test_public_callable_owns_single_preparation_and_resource_context(self):
+        from ordinary_composition_example import navigation_scenario
+        from ordinary_smoke import run_scenarios
+        with patch('ordinary_smoke.resources.configure', return_value=self.root) as configure, \
+             patch('smoke_input.prepare', return_value=object()) as prepare, \
+             patch('ordinary_smoke.ordinary_preparation', return_value=contextlib.nullcontext(('verified', 'inventory'))) as admission, \
+             patch('ordinary_smoke.execute_ordinary', return_value={'scenarioPassed': True}) as execute:
+            receipt = run_scenarios(scratch=self.root, bundle=self.bundle, scenarios=(navigation_scenario(),),
+                                    impact='local-feature', impact_basis='reviewed')
+        self.assertTrue(receipt['scenarioPassed'])
+        configure.assert_called_once(); prepare.assert_called_once(); admission.assert_called_once(); execute.assert_called_once()
+        self.assertEqual(prepare.call_args.args[1].task_id, Path(os.environ.get('PIVAN_TASK_PATH', 'local')).name.split('-')[0])
+
+    def test_source_change_during_composition_refuses_remaining_work_and_aggregate(self):
+        import importlib.util
+        from dataclasses import replace
+        from ordinary_smoke import Scenario, composition_plan
+        path = self.root / 'external.py'
+        path.write_text('def action(run):\n    run.command({"type": "observe"})\n')
+        spec = importlib.util.spec_from_file_location('external', path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        first = Scenario('first', module.action, 'keyless', ('observed',), 'no visual claim')
+        scenarios = (first, replace(first, label='later'))
+        args, plan = composition_plan(scenarios, 'local-feature', 'reviewed external navigation', False)
+        def configure(runs, prepared):
+            runs[0].command.side_effect = lambda command: path.write_text('def action(run):\n    raise AssertionError("new")\n')
+        runs, receipt, *_ = self.orchestration(args, scenarios=scenarios, plan=plan, configure=configure, expected_failure=True)
+        self.assertEqual(receipt['groupOutcomes'][0]['groups'], {'first': 'passed', 'later': 'not-run'})
+        self.assertFalse(receipt['scenarioPassed']); runs[0].stop.assert_called_once()
+        self.assertIsInstance(self.execution_error, ValueError)
+
+    def test_api_assertion_timeout_and_cancellation_preserve_not_run_without_replay(self):
+        from dataclasses import replace
+        from ordinary_composition_example import navigation_scenario
+        from ordinary_smoke import composition_plan
+        first = navigation_scenario()
+        scenarios = (first, replace(first, label='later'))
+        args, plan = composition_plan(scenarios, 'local-feature', 'reviewed navigation', False)
+        for failure in (AssertionError('oracle'), TimeoutError('effect unknown'), KeyboardInterrupt('cancelled')):
+            with self.subTest(failure=type(failure).__name__):
+                def configure(runs, prepared):
+                    runs[0].wait.side_effect = failure
+                runs, receipt, *_ = self.orchestration(args, scenarios=scenarios, plan=plan, configure=configure, expected_failure=True)
+                self.assertIs(self.execution_error, failure)
+                self.assertEqual(receipt['groupOutcomes'][0]['groups'], {'sync-return': 'failed', 'later': 'not-run'})
+                runs[0].command.assert_called_once_with({'type': 'setViewport', 'preset': 'wide'})
+                runs[0].stop.assert_called_once(); self.assertFalse(receipt['scenarioPassed'])
+
+    def test_composition_deadline_and_term_use_owned_unwinding_and_restore_handlers(self):
+        import signal
+        from ordinary_smoke import composition_lifetime
+        term, alarm = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGALRM)
+        mask = os.umask(0o077); os.umask(mask)
+        for trigger, exception in ((signal.SIGALRM, TimeoutError), (signal.SIGTERM, KeyboardInterrupt)):
+            with self.assertRaises(exception):
+                with composition_lifetime(2):
+                    signal.raise_signal(trigger)
+            self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0.0, 0.0))
+            self.assertEqual(signal.getsignal(signal.SIGTERM), term)
+            self.assertEqual(signal.getsignal(signal.SIGALRM), alarm)
+            observed_mask = os.umask(mask)
+            self.assertEqual(observed_mask, mask)
+        for timeout in (0, -1, 1801, float('inf'), float('nan'), True):
+            with self.assertRaises(ValueError), composition_lifetime(timeout):
+                self.fail('invalid timeout admitted')
+
+    def test_enrolled_first_and_later_partial_allocations_keep_all_groups_not_run(self):
+        for position in (1, 2):
+            with self.subTest(position=position):
+                runs, receipt, _, observer, *_ = self.orchestration(self.selection_args(), expected_failure=True, partial_failure_at=position)
+                self.assertIsInstance(self.execution_error, RuntimeError)
+                self.assertEqual(len(receipt['groupOutcomes']), position)
+                self.assertFalse(receipt['scenarioPassed'])
+                observer.assert_not_called()
+                for run in runs[:position]:
+                    run.stop.assert_called_once(); run.start.assert_not_called()
+                self.assertTrue(all(value == 'not-run' for outcome in receipt['groupOutcomes'] for value in outcome['groups'].values()))
+
+    def test_full_plus_independent_composition_keeps_broad_simultaneous_contract(self):
+        from ordinary_composition_example import navigation_scenario
+        from ordinary_smoke import composition_plan
+        scenarios = (navigation_scenario(),)
+        args, plan = composition_plan(scenarios, 'shared', 'reviewed execution owner extraction', True)
+        events = []
+        def configure(runs, prepared):
+            for run in runs:
+                original_start = run.start.side_effect
+                def start(binary, original_start=original_start):
+                    events.append('start'); original_start(binary)
+                run.start.side_effect = start
+                run.scenario.side_effect = lambda: events.append('broad') or 'sentinel'
+        _, receipt, constructor, *_ = self.orchestration(args, scenarios=scenarios, plan=plan, configure=configure)
+        self.assertEqual(constructor.call_count, 2)
+        self.assertEqual(events[:2], ['start', 'start'])
+        self.assertTrue(receipt['scenarioPassed'])
+        self.assertTrue(all(value == 'passed' for outcome in receipt['groupOutcomes'] for value in outcome['groups'].values()))
 
 
 if __name__ == '__main__':
