@@ -17,19 +17,81 @@ import {
   migrateDatabase,
   runIntegrityCheck,
 } from "../../src/lib/db/migrations";
-import { conversation, message, trainerProfile } from "../../src/lib/db/schema";
+import {
+  activity,
+  activityDetailAvailability,
+  activityStreamPoint,
+  conversation,
+  message,
+  trainerProfile,
+} from "../../src/lib/db/schema";
 import { validateSettings } from "../desktop/settings";
 import { weeklyCalendar } from "../../src/lib/weekly/calendar";
 import { simpleTableFixture, tableFixture } from "./table-fixture";
 import type { WeeklyRecord } from "../../src/lib/weekly/contracts";
+
+// Finite Terrain evidence only: actual normalized rows, no personal streams/GPS.
+export function seedTerrain(db: Database.Database) {
+  const store = drizzle(db);
+  for (const [index, variant] of ["supported", "partial", "capped"].entries()) {
+    const id = `T0293-${variant}`;
+    const points = Array.from(
+      { length: variant === "capped" ? 525 : 101 },
+      (_, i) => {
+        const distance =
+          variant === "capped"
+            ? Math.floor(i / 5) * 600 + (i % 5) * 100
+            : i * 10;
+        return {
+          garminId: id,
+          elapsedSec: i * 10,
+          timestamp: new Date(
+            Date.UTC(2026, 0, 1) +
+              (i * 10 + (variant === "partial" && i >= 50 ? 60 : 0)) * 1000,
+          ).toISOString(),
+          distanceMeters: distance,
+          altitudeMeters: variant === "capped" ? (i % 5) * 10 : i,
+          heartRate: variant === "partial" ? null : 125,
+        };
+      },
+    );
+    store
+      .insert(activity)
+      .values({
+        id,
+        garminId: id,
+        name: `T0293 synthetic ${variant}`,
+        sport: "hiking",
+        startedAt: new Date(Date.UTC(2026, 0, 3 - index)),
+        durationSec: points.at(-1)!.elapsedSec,
+        distanceMeters: points.at(-1)!.distanceMeters,
+      })
+      .run();
+    store.insert(activityStreamPoint).values(points).run();
+    store
+      .insert(activityDetailAvailability)
+      .values({
+        garminId: id,
+        source: "T0293-authored",
+        status: "available",
+        hasStreams: true,
+        hasElevation: true,
+        hasHeartRate: variant !== "partial",
+        recordCount: points.length,
+      })
+      .run();
+  }
+}
 
 export function seed(
   scratch: string,
   name: string,
   llmDebug = false,
   tables = false,
+  terrain = false,
 ): string {
-  if (llmDebug && tables) throw new Error("Synthetic scenarios are exclusive.");
+  if ([llmDebug, tables, terrain].filter(Boolean).length > 1)
+    throw new Error("Synthetic scenarios are exclusive.");
   const stat = lstatSync(scratch);
   if (
     !isAbsolute(scratch) ||
@@ -147,6 +209,7 @@ export function seed(
         "insert into weekly_artifact (week_start, document_json) values (?, ?)",
       ).run(weekStart, JSON.stringify(record));
     }
+    if (terrain) seedTerrain(db);
     if (
       currentSchemaVersion(db) !== LATEST_SCHEMA_VERSION ||
       runIntegrityCheck(db) !== "ok"
@@ -171,17 +234,20 @@ if (
     process.argv.length !== 4 &&
     !(
       process.argv.length === 5 &&
-      ["--llm-debug", "--markdown-tables"].includes(process.argv[4])
+      ["--llm-debug", "--markdown-tables", "--terrain"].includes(
+        process.argv[4],
+      )
     )
   )
     throw new Error(
-      "Usage: ci:seed <canonical-private-scratch> <ci-seed-UUID> [--llm-debug|--markdown-tables]",
+      "Usage: ci:seed <canonical-private-scratch> <ci-seed-UUID> [--llm-debug|--markdown-tables|--terrain]",
     );
   seed(
     process.argv[2],
     process.argv[3],
     process.argv[4] === "--llm-debug",
     process.argv[4] === "--markdown-tables",
+    process.argv[4] === "--terrain",
   );
   console.log(
     "Fresh synthetic current-schema Profile seed ready; no private inputs or credentials.",

@@ -2501,12 +2501,10 @@ describe("strength activity detail visibility", () => {
       expect(
         screen.queryByLabelText("Selected terrain section elevation interval"),
       ).toBeNull();
-      const disclosure = screen
-        .getByText("Method and quality")
-        .closest("details")!;
-      expect(disclosure.open).toBe(false);
-      fireEvent.click(screen.getByText("Method and quality"));
-      expect(disclosure.open).toBe(true);
+      expect(screen.queryByText("Method and quality")).toBeNull();
+      const terrain = screen.getByRole("region", { name: "Terrain sections" });
+      expect(terrain.querySelectorAll("p")).toHaveLength(1);
+      expect(terrain.querySelector("details")).toBeNull();
       fireEvent.click(restored);
       expect(restored.getAttribute("aria-pressed")).toBe("true");
       expect(

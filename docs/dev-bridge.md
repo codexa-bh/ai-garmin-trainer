@@ -1046,6 +1046,45 @@ Seed/copy/Goals/trace data expire with task scratch and are never copied back.
 Ordinary-artifact launch, private data/integrations and hardware-input evidence
 remain independent; this path grants no settings, secret or general eval controls.
 
+## Finite authored Terrain presentation
+
+`npm run smoke:terrain -- --scratch <canonical-task-root> --bundle <ordinary-app>`
+uses the existing `ci:seed --terrain` finite exception, ordinary provenance/preparation
+lock and outside-checkout `OrdinaryRun` ownership. Three fictional hikes contain
+727 normalized points: a supported climb, a timestamp-gap/HR-missing partial hike,
+and 105 disconnected supported runs exercising the existing 100-row cap. No
+personal data, GPS, private configuration, provider or Garmin operation is read.
+The real storage, dashboard API, analyzer and ActivityView render the results;
+no response/state injection or fixture service is used. Quick/nightly/default
+representative inputs and workloads are unchanged.
+
+The ordinary-only closed `terrain` action accepts exactly `observe`, `supported`,
+`partial`, `capped`, `toggle`, `start`, `end`, with no IDs/values/selectors. Known
+synthetic activity buttons select through existing UI handlers; row toggle uses
+the first real accessible section button. Results are fixed booleans for authored
+choices/readiness, selection/elevation, compactness, quality/cap and viewport
+containment. All existing run/boot/request/origin/deadline/default-mode denials
+apply. Actions are single-dispatch; only read-only readiness polls for eight
+seconds. Unknown effects/failures stop without action replay. Native validates
+exact keys/types and matching action; no row values or private DOM are returned.
+
+Nine native captures cover wide/narrow paragraph plus table headers, selected
+row controls, and narrow horizontal start/end for each case. `captureView terrain`
+requires the exact authored heading and current canonical paragraph, no disclosure
+or list, and visible paragraph/header. Hide-by-default masks reveal only reviewed
+static copy/headers/controls/data notes; numeric cells and adjacent activity facts,
+charts, paths and private text stay hidden at unchanged geometry. This proves
+paragraph/table layout and DOM-observed elevation selection, not hidden numeric
+values, visible chart-highlight appearance, trusted input or default-window/real
+service behavior. Inspect each PNG independently. Masks restore on every native
+capture/error and expire after ten seconds; no layout replacement is used.
+
+Before use: focused Terrain seed/component/controller/runner tests and native
+closed-contract tests must pass. The runner retains source/artifact/boot identity,
+original synthetic-input integrity and owned process/endpoint/lease settlement;
+existing evidence-first invocation disposal and scheduler retention remain
+independent. No primary data back-sync, normal-app control or cleanup authority.
+
 ## Task-needed bridge and runner extensions
 
 Safe, bounded task-needed smoke-bridge/runner evolution is **expected and wanted** as part of ordinary authorized implementation and validation. A missing command or supported input alone is not a reason for a separate ticket, an operator stop or a categorical Settings/Sync/token ban. A closed allowlist describes today's implementation contract, not an immutable feature ceiling. This policy grants no Start, credential access or other task's ownership/permissions; explicit task exclusions and independent safety/human gates still bind. Material scope or intended-behavior ambiguity needs resolution, not a permissive controller.
