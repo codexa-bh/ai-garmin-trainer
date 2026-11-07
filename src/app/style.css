@@ -502,8 +502,39 @@ body::before {
   grid-column: 1 / -1;
 }
 
+/* Keep closed diagnostics out of layout even on WebKit details implementations. */
+.sync-action-card details:not([open]) > :not(summary) {
+  display: none;
+}
+
 .sync-current-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 600;
+}
+
+.sync-busy-cue {
+  width: 1em;
+  height: 1em;
+  flex: 0 0 1em;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: sync-busy-turn 0.9s linear infinite;
+}
+
+@keyframes sync-busy-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-busy-cue {
+    animation: none;
+    border-color: var(--accent);
+  }
 }
 
 .sync-history-warning {

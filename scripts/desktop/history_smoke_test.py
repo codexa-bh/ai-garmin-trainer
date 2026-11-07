@@ -143,6 +143,38 @@ class HistoryTokenContracts(unittest.TestCase):
             self.assertEqual(run.command.call_args_list[0].args[0], {'type':'sync','action':'start'})
             self.assertEqual(run.command.call_count, 1)
 
+    def test_backend_latest_uses_one_actual_owned_post_and_requires_settlement(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch, MagicMock
+        before = {'active':False, 'historicalState':'complete'}
+        after = {**before, 'latestOutcome':'settled'}
+        for payload, digest, succeeds in [(b'{"type":"result","status":"completed"}\n', 'same', True),
+                (b'{"type":"result","status":"failed"}\n', 'same', False),
+                (b'{"type":"result","status":"completed"}\n', 'changed', False)]:
+            run = SimpleNamespace(origin='http://127.0.0.1:12345', summary=Mock(side_effect=[before, after]),
+                history_digest=Mock(side_effect=['same', digest]), command=Mock(return_value={'ok':True}),
+                wait_sync=Mock(), settle_claim=Mock(), sync_captures=[])
+            reply = MagicMock()
+            reply.__enter__.return_value.read.return_value = payload
+            with patch('history_smoke.urllib.request.urlopen', return_value=reply) as post:
+                if succeeds:
+                    self.assertTrue(HistoryRun.backend_latest(run)['backendOnly'])
+                else:
+                    with self.assertRaises(ValueError):
+                        HistoryRun.backend_latest(run)
+                self.assertEqual(post.call_count, 1)
+                request = post.call_args.args[0]
+                self.assertEqual(request.full_url, run.origin + '/api/sync')
+                self.assertEqual(request.data, b'{"intent":"latest"}')
+                self.assertEqual(request.method, 'POST')
+                self.assertEqual(len(run.sync_captures), 2)
+                self.assertTrue(all(item.args[0].get('action') not in ('start', 'cancel', 'continue') for item in run.command.call_args_list))
+        run.summary = Mock(return_value={'active':True})
+        with patch('history_smoke.urllib.request.urlopen') as post:
+            with self.assertRaisesRegex(ValueError, 'no overlap'):
+                HistoryRun.backend_latest(run)
+            post.assert_not_called()
+
     def test_data_capture_follows_the_actual_existing_selection(self):
         from types import SimpleNamespace
         from unittest.mock import Mock, call

@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
+import { readFileSync } from "node:fs";
 import {
   act,
   cleanup,
@@ -138,13 +139,10 @@ describe("concise Sync presentation", () => {
     expect(details.open).toBe(false);
     expect(
       within(card)
-        .getByText("Older history needs attention. See Technical details.")
+        .getByText("Older history needs attention.")
         .closest("details"),
     ).toBeNull();
-    expect(within(card).getAllByText(recoveryReason)).toHaveLength(1);
-    expect(within(card).getByText(recoveryReason).closest("details")).toBe(
-      details,
-    );
+    expect(within(card).queryByText(recoveryReason)).toBeNull();
     expect(
       within(card).getByText(
         "6 activity records processed · 14 health dates refreshed",
@@ -167,16 +165,15 @@ describe("concise Sync presentation", () => {
       ).toContain("Result: completed"),
     );
     expect(
-      within(card).getAllByText(
-        "Older history needs attention. See Technical details.",
-      ),
+      within(card).getAllByText("Older history needs attention."),
     ).toHaveLength(1);
     expect(within(card).getByRole("status").textContent).toBe(
       "Latest refresh finished.",
     );
     expect(
       within(card).getByLabelText("Current sync progress log").textContent,
-    ).toContain(recoveryReason);
+    ).toContain("older history needs attention");
+    expect(card.textContent).not.toContain(recoveryReason);
     expect(details.open).toBe(false);
     // Native details semantics stay intact; hook state survives updates and view remounts.
     details.open = true;
@@ -184,6 +181,9 @@ describe("concise Sync presentation", () => {
     fireEvent.click(screen.getByText("Test refresh"));
     await act(async () => {});
     expect(details.open).toBe(true);
+    expect(card.textContent).not.toMatch(
+      /Preserve checkpoints|Historical operations:|Exploration scope:|Reads use the local read-only connector/,
+    );
     view.rerender(<SyncHarness visible={false} />);
     view.rerender(<SyncHarness />);
     const restored = screen.getByText("Technical details")
@@ -221,7 +221,10 @@ describe("concise Sync presentation", () => {
       };
       expect(formatSyncFinalMessage(event)).toContain(expected);
       expect(formatSyncFinalMessage(event)).not.toContain(recoveryReason);
-      expect(formatSyncResultLine(event)).toContain(recoveryReason);
+      expect(formatSyncResultLine(event)).toContain(
+        "older history needs attention",
+      );
+      expect(formatSyncResultLine(event)).not.toContain(recoveryReason);
       expect(formatSyncCounts(event)).toBeUndefined();
     },
   );
@@ -240,11 +243,7 @@ describe("concise Sync presentation", () => {
           `Latest refresh ${outcome === "budget-limited" ? "paused" : outcome === "running" ? "interrupted" : outcome}`,
         ),
       );
-      expect(
-        screen.getByText(
-          "Older history needs attention. See Technical details.",
-        ),
-      ).toBeTruthy();
+      expect(screen.getByText("Older history needs attention.")).toBeTruthy();
       expect(screen.queryByText("Latest refresh finished.")).toBeNull();
     },
   );
@@ -288,6 +287,202 @@ describe("concise Sync presentation", () => {
         "Status unavailable. Refresh import summary before syncing.",
       ),
     ).toBeTruthy();
+  });
+});
+
+function syncElement(
+  overrides: Partial<React.ComponentProps<typeof SyncView>> = {},
+) {
+  return (
+    <SyncView
+      closeSyncView={vi.fn()}
+      syncCloseRef={{ current: null }}
+      syncPillKind="ok"
+      syncPillLabel="Complete"
+      runInBackground={vi.fn()}
+      syncNow={vi.fn()}
+      isSyncing={false}
+      syncRun={emptySyncRun}
+      syncLogRef={{ current: null }}
+      importSummary={mixedSummary()}
+      summaryKnown
+      runAction={vi.fn()}
+      refreshSummary={vi.fn()}
+      detailGarminId=""
+      setDetailGarminId={vi.fn()}
+      backfillDetail={vi.fn()}
+      refreshDetailCoverage={vi.fn()}
+      status={{ kind: "idle", message: "Ready" }}
+      {...overrides}
+    />
+  );
+}
+
+describe("live Sync feedback", () => {
+  it("keeps busy text independent of motion with a scoped static reduced-motion cue", () => {
+    const css = readFileSync("src/app/style.css", "utf8");
+    expect(css).toContain(
+      ".sync-action-card details:not([open]) > :not(summary)",
+    );
+    expect(css).toMatch(
+      /details:not\(\[open\]\) > :not\(summary\)\s*\{\s*display: none;/,
+    );
+    expect(css).toMatch(/\.sync-busy-cue\s*\{[^}]*animation: sync-busy-turn/);
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.sync-busy-cue\s*\{\s*animation: none;\s*border-color: var\(--accent\)/,
+    );
+  });
+  it.each(["local latest", "local history", "backend-only"])(
+    "prioritizes %s over old success and removes busy on settlement",
+    (scenario) => {
+      const backend = scenario === "backend-only";
+      const value = mixedSummary();
+      value.syncActive = backend;
+      const run = {
+        ...emptySyncRun,
+        kind: "completed" as const,
+        finalMessage: "Latest refresh finished.",
+        countSummary: "Old counts",
+      };
+      const view = render(
+        syncElement({
+          isSyncing: !backend,
+          summaryKnown: backend,
+          importSummary: value,
+          syncRun: run,
+          cancelSync: vi.fn(),
+        }),
+      );
+      const card = screen.getByRole("region", { name: "Run Garmin sync" });
+      const status = within(card).getByRole("status");
+      expect(status.textContent).toBe("Syncing…");
+      expect(status.closest("details")).toBeNull();
+      expect(
+        status.querySelector(".sync-busy-cue")?.getAttribute("aria-hidden"),
+      ).toBe("true");
+      expect(within(card).getAllByRole("status")).toHaveLength(1);
+      expect(within(card).queryByText("Latest refresh finished.")).toBeNull();
+      expect(
+        within(card).getByText("Sync in progress").hasAttribute("disabled"),
+      ).toBe(true);
+      expect(within(card).queryByText("Cancel sync") !== null).toBe(!backend);
+      if (backend) expect(within(card).queryByText("Old counts")).toBeNull();
+      view.rerender(syncElement());
+      expect(card.querySelector(".sync-busy-cue")).toBeNull();
+      expect(within(card).getByRole("status").textContent).toBe(
+        "Latest refresh finished.",
+      );
+    },
+  );
+  it("does not animate stale server claims, loading, persisted running or maintenance", () => {
+    const value = mixedSummary();
+    value.syncActive = true;
+    const view = render(
+      syncElement({ importSummary: value, summaryKnown: false }),
+    );
+    expect(document.querySelector(".sync-busy-cue")).toBeNull();
+    expect(
+      screen.getByText(
+        "Status unavailable. Refresh import summary before syncing.",
+      ),
+    ).toBeTruthy();
+    value.syncActive = false;
+    value.sync!.latest!.outcome = "running";
+    view.rerender(
+      syncElement({
+        importSummary: value,
+        status: { kind: "busy", message: "Verify connector: working" },
+      }),
+    );
+    expect(document.querySelector(".sync-busy-cue")).toBeNull();
+    expect(screen.getByText(/Latest refresh interrupted/)).toBeTruthy();
+  });
+  it.each(["failed", "paused", "running", "completed"] as const)(
+    "does not interpolate verbose raw %s final messages with details closed or open",
+    (kind) => {
+      const props = {
+        syncRun: { ...emptySyncRun, kind, finalMessage: recoveryReason },
+      };
+      const view = render(syncElement(props));
+      expect(document.body.textContent).not.toContain(recoveryReason);
+      view.rerender(syncElement({ ...props, technicalOpen: true }));
+      expect(document.body.textContent).not.toContain(recoveryReason);
+      expect(document.querySelector(".sync-busy-cue")).toBeNull();
+    },
+  );
+  it("supersedes old local success with later backend settlement without discarding diagnostics", async () => {
+    let value = mixedSummary();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url === "/api/sync"
+          ? new Response(
+              '{"type":"result","status":"completed","intent":"latest"}\n',
+            )
+          : response(value),
+      ),
+    );
+    const { result } = renderHook(() => useSyncFeature(ports()));
+    await act(() => result.current.loadImportSummary("startup", false));
+    await act(() => result.current.syncNow());
+    expect(result.current.syncRun.kind).toBe("completed");
+    value = { ...mixedSummary(), syncActive: true };
+    await act(() => result.current.refreshSummary());
+    expect(result.current.syncPillLabel).toBe("Syncing");
+    value = mixedSummary();
+    value.sync!.latest!.outcome = "failed";
+    await act(() => result.current.refreshSummary());
+    expect(result.current.syncRun.kind).toBe("idle");
+    expect(result.current.syncRun.lines.at(-1)?.text).toContain(
+      "Result: completed",
+    );
+    const view = render(syncElement({ ...result.current }));
+    expect(
+      screen.getByText(
+        "Latest refresh failed. Refresh import summary for status.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Latest refresh finished.")).toBeNull();
+    expect(view.container.querySelector(".sync-busy-cue")).toBeNull();
+  });
+  it("reconciles backend-only activity through existing summary refresh without polling or Cancel", async () => {
+    let complete!: (response: Response) => void;
+    const value = mixedSummary();
+    value.syncActive = true;
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response(value))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            complete = resolve;
+          }),
+      )
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockResolvedValue(response(mixedSummary()));
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() => useSyncFeature(ports()));
+    await act(() => result.current.loadImportSummary("startup", false));
+    expect(result.current.isSyncing).toBe(false);
+    expect(result.current.syncPillLabel).toBe("Syncing");
+    await act(() => result.current.syncNow());
+    expect(fetch).toHaveBeenCalledTimes(1);
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.refreshSummary();
+    });
+    expect(result.current.summaryKnown).toBe(false);
+    expect(result.current.syncPillKind).not.toBe("busy");
+    await act(async () => {
+      complete(response(value));
+      await pending;
+    });
+    expect(result.current.syncPillKind).toBe("busy");
+    await act(() => result.current.refreshSummary());
+    expect(result.current.syncPillKind).not.toBe("busy");
+    await act(() => result.current.refreshSummary());
+    expect(result.current.syncPillLabel).not.toBe("Syncing");
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 });
 

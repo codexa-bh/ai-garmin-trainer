@@ -350,6 +350,37 @@ class HistoryRun(OrdinaryRun):
             raise ValueError('Latest refresh changed saved history or failed settlement')
         return {'before':before, 'after':after, 'historyBytesPreserved':True}
 
+    def backend_latest(self):
+        """One of the five synthetic operations, outside the local UI request owner.
+
+        Same actual owned backend/connector; no response or state is injected.
+        Keep the response open while summary refresh projects server activity.
+        """
+        before = self.summary()
+        if before['active']:
+            raise ValueError('Settled synthetic backend required; no overlap')
+        digest = self.history_digest()
+        request = urllib.request.Request(self.origin + '/api/sync',
+            data=b'{"intent":"latest"}', headers={'Content-Type':'application/json'}, method='POST')
+        with urllib.request.urlopen(request, timeout=90) as response:
+            self.command({'type':'sync', 'action':'refresh'})
+            self.wait_sync(lambda value: value['running'] and not value['cancelEnabled'] and not value['startEnabled'], 15)
+            for preset in ('wide', 'narrow'):
+                self.command({'type':'setViewport', 'preset':preset})
+                self.sync_captures.append({'scenario':f'backend-only-busy-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            data = response.read(1024 * 1024 + 1)
+            if len(data) > 1024 * 1024:
+                raise ValueError('Synthetic backend response bound; no retry')
+            events = [json.loads(line) for line in data.splitlines() if line.strip()]
+            if not events or events[-1].get('type') != 'result' or events[-1].get('status') != 'completed':
+                raise ValueError('Backend-only latest did not complete; no retry')
+        self.settle_claim()
+        self.wait_sync(lambda value: not value['running'] and value['startEnabled'], 15)
+        after = self.summary()
+        if after['active'] or after['latestOutcome'] != 'settled' or self.history_digest() != digest or after['historicalState'] != before['historicalState']:
+            raise ValueError('Backend-only latest changed history or failed settlement')
+        return {'before':before, 'after':after, 'historyBytesPreserved':True, 'backendOnly':True}
+
     def synthetic_sync(self):
         """Three latest refreshes and two explicit historical operations.
 
@@ -377,11 +408,19 @@ class HistoryRun(OrdinaryRun):
             self.wait_sync(lambda value: value['startEnabled'], 10)
             self.command({'type':'sync', 'action':'continue'})
             self.wait_sync(lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'], 15)
+            self.command({'type':'sync', 'action':'details'})
+            for preset in ('wide', 'narrow'):
+                self.command({'type':'setViewport', 'preset':preset})
+                images.append({'scenario':f'busy-expanded-{index}-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            self.command({'type':'setViewport', 'preset':'wide'})
             self.command({'type':'click', 'target':'Back to chat'})
             if not self.summary()['active']:
                 raise ValueError('Navigation lost operation ownership')
             self.command({'type':'click', 'target':'Sync'})
             self.wait(lambda value: value['view'] == 'Sync', 'return to active Sync')
+            self.command({'type':'setViewport', 'preset':'wide'})
+            images.append({'scenario':f'busy-disclosure-retained-{index}', **self.command({'type':'captureView', 'view':'sync', 'preset':'wide'})})
+            self.command({'type':'sync', 'action':'details'})
             deadline = time.monotonic() + 150
             while time.monotonic() < deadline:
                 current = self.summary()
@@ -397,10 +436,14 @@ class HistoryRun(OrdinaryRun):
                 images.append({'scenario':f'synthetic-{index}-history-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
             if index == 0:
                 self.command({'type':'sync', 'action':'cancel'})
+                # Cancellation can read the still-active server claim before it
+                # settles. Reconcile through the existing explicit summary refresh,
+                # not a local-only busy flag or new application polling.
+                self.settle_claim()
                 self.wait_sync(lambda value: not value['running'] and value['paused'], 40)
             else:
                 self.wait_sync(lambda value: not value['running'] and value['completed'], 20)
-            self.settle_claim()
+                self.settle_claim()
             after = self.summary()
             expected = 'cancelled' if index == 0 else 'settled'
             if after['active'] or after['outcome'] != expected or after['healthChecks'] <= (before['healthChecks'] or 0):
@@ -417,8 +460,8 @@ class HistoryRun(OrdinaryRun):
             restored = self.summary()
             if restored['active'] or restored['healthChecks'] != after['healthChecks'] or restored['historicalState'] != after['historicalState']:
                 raise ValueError('Restart replayed or lost durable history')
-        for _ in range(2):
-            latest.append(self.latest_only())
+        latest.append(self.latest_only())
+        latest.append(self.backend_latest())
         if latest[-1]['after']['activities'] != latest[-2]['after']['activities'] or latest[-1]['after']['healthDays'] != latest[-2]['after']['healthDays']:
             raise ValueError('Identical latest refresh was not idempotent')
         for preset in ('wide', 'narrow'):

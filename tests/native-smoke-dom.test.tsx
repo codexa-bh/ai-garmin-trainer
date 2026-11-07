@@ -48,7 +48,14 @@ beforeEach(() => {
     configurable: true,
   });
   vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(
-    () => [{ width: 10 }] as unknown as DOMRectList,
+    function (this: HTMLElement) {
+      const closed = this.closest("details:not([open])");
+      return (closed &&
+      this !== closed &&
+      this.closest("summary")?.parentElement !== closed
+        ? []
+        : [{ width: 10 }]) as unknown as DOMRectList;
+    },
   );
   const marker = document.createElement("section");
   marker.setAttribute("aria-label", "AI trainer dashboard");
@@ -693,7 +700,7 @@ describe("native-installed rendered smoke boundary", () => {
             <section aria-labelledby="sync-action-heading">
               <p>
                 <span className="sync-history-status">
-                  Older history needs attention. See Technical details.
+                  Older history needs attention.
                 </span>
                 <span className="sync-next-target">Private cursor canary</span>
               </p>
@@ -728,6 +735,23 @@ describe("native-installed rendered smoke boundary", () => {
       getComputedStyle(screen.getByText("Private log canary")).visibility,
     ).toBe("hidden");
     smoke.__trainerSmokeRestore();
+    current.textContent = "Syncing…";
+    const cue = document.createElement("span");
+    cue.className = "sync-busy-cue";
+    cue.setAttribute("aria-hidden", "true");
+    current.prepend(cue);
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(true);
+    expect(getComputedStyle(cue).visibility).toBe("visible");
+    smoke.__trainerSmokeRestore();
+    cue.textContent = "private-cue-canary";
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
     current.textContent = "private-path-canary";
     expect(
       (await command({ type: "captureView", view: "sync", preset: "wide" }))
@@ -736,6 +760,35 @@ describe("native-installed rendered smoke boundary", () => {
     expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
     current.textContent = "Latest refresh finished.";
     status.textContent = "Private substituted diagnostic";
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  });
+  it("refuses a rendered child leaking from collapsed Sync details and restores masks", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 850);
+    render(
+      <div className="sync-view-active">
+        <section className="sync-view-panel">
+          <div className="sync-view-header">
+            <h1>Sync</h1>
+          </div>
+          <section className="sync-action-card">
+            <details>
+              <summary>Technical details</summary>
+              <p>Private diagnostic</p>
+            </details>
+          </section>
+        </section>
+      </div>,
+    );
+    const child = screen.getByText("Private diagnostic");
+    vi.spyOn(child, "getClientRects").mockReturnValue([
+      {},
+    ] as unknown as DOMRectList);
     expect(
       (await command({ type: "captureView", view: "sync", preset: "wide" }))
         .result.ok,
