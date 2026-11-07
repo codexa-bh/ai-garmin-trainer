@@ -391,6 +391,138 @@ class OrdinaryContracts(unittest.TestCase):
             os.close(fd)
         run.stop()
 
+    def selection_args(self, **options):
+        return SimpleNamespace(**{**dict(summary_engine=False, conversation_selection=False,
+            composer_footer=False, model_eligibility=False, prepare_only=False,
+            smoke_scope='full', impact='unknown', impact_basis='', summary_part='all', summary_family=None), **options})
+
+    def test_finite_selection_refuses_empty_shared_unknown_and_incompatible_before_preparation(self):
+        from ordinary_smoke import selection_plan, main
+        cases = [dict(smoke_scope='feature'), dict(smoke_scope='feature', composer_footer=True),
+                 dict(smoke_scope='feature', composer_footer=True, impact='shared', impact_basis='shared owner'),
+                 dict(smoke_scope='feature', composer_footer=True, impact='unknown', impact_basis='uncertain'),
+                 dict(summary_engine=True, composer_footer=True), dict(summary_part='lifecycle'),
+                 dict(summary_engine=True, summary_part='lifecycle', summary_family=['densify']),
+                 dict(summary_engine=True, summary_family=['unknown']),
+                 dict(summary_engine=True, summary_family=['history', 'history']),
+                 dict(summary_engine=True, smoke_scope='feature', impact='local-feature', impact_basis='wrong'),
+                 dict(summary_engine=True, summary_part='presentation', smoke_scope='feature', impact='summary-lifecycle', impact_basis='wrong')]
+        for options in cases:
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                selection_plan(self.selection_args(**options))
+        with patch('sys.argv', ['ordinary', '--scratch', '/unavailable', '--bundle', '/unavailable',
+                               '--smoke-scope', 'feature', '--composer-footer']), \
+             patch('ordinary_smoke.resources.configure') as configure, patch('smoke_input.prepare') as prepare:
+            with self.assertRaises(SystemExit):
+                main.__wrapped__()
+            configure.assert_not_called(); prepare.assert_not_called()
+
+    def orchestration(self, args, failure=None, construction_failure=False):
+        from ordinary_smoke import execute_ordinary
+        from native_smoke import fingerprint, readonly
+        from unittest.mock import Mock
+        runs = [self.run_fixture(), self.run_fixture()]
+        for index, run in enumerate(runs):
+            def start(_binary, run=run, index=index):
+                run.previous_boot, run.previous_token = run.boot, 'old-token'
+                run.origin, run.boot = 'http://127.0.0.1:' + str(10000 + index + run.launches * 2), str(uuid.uuid4())
+                run.launches += 1
+            run.start = Mock(side_effect=start)
+            for method in ('stop', 'http', 'wait', 'command', 'verify_admission_denials', 'verify_restart',
+                           'verify_parent_death', 'captures', 'prepare_composer', 'conversation_scenario'):
+                setattr(run, method, Mock())
+            run.scenario = Mock(return_value='sentinel')
+            run.composer_scenario = Mock(side_effect=failure)
+            run.model_choice = Mock(return_value=('fixed', 'selected'))
+        with contextlib.closing(readonly(self.source)) as database:
+            original = fingerprint(database)
+        (self.root / 'preparation.json').write_text('{}')
+        (self.root / 'selection.json').write_text('{}')
+        prepared = SimpleNamespace(database=self.source, original=original, root=self.root,
+                                   provenance={'route': 'unit-authored'}, verify_current=Mock())
+        verified = {'current': {'source': 'a' * 64}, 'provenance': {'sourceFingerprint': 'b' * 64,
+                    'buildSourceFingerprint': 'd' * 64}, 'context': 'e' * 64}
+        constructors = [runs[0], RuntimeError('partial construction')] if construction_failure else runs
+        with patch('ordinary_smoke.OrdinaryRun', side_effect=constructors) as constructor, \
+             patch('ordinary_smoke.Observer', return_value=SimpleNamespace(stop=Mock(return_value={}))) as observer, \
+             patch('ordinary_smoke.verify_ordinary', return_value=verified), \
+             patch('ordinary_smoke.source_snapshot', return_value=verified['current']), \
+             patch('ordinary_smoke.source_identity', return_value='a' * 64), patch('ordinary_smoke.security') as security, \
+             patch('summary_smoke.prepare_summary') as summary_prepare, patch('summary_smoke.scenario') as summary, \
+             patch('summary_smoke.presentation_scenario') as presentations:
+            try:
+                execute_ordinary(args, self.root, prepared, self.bundle, 'a' * 64, verified, self.inventory)
+            except BaseException:
+                if not failure and not construction_failure:
+                    raise
+            receipt = json.loads(next(self.root.glob('ordinary-receipt-*.json')).read_text())
+            return runs, receipt, constructor, observer, security, summary, presentations
+
+    def test_default_full_keeps_both_simultaneous_runs_and_every_broad_group(self):
+        runs, receipt, constructor, observer, security, _, _ = self.orchestration(self.selection_args())
+        self.assertEqual(constructor.call_count, 2)
+        self.assertEqual(security.call_count, 2)
+        self.assertTrue(receipt['scenarioPassed'])
+        for run in runs:
+            run.scenario.assert_called_once(); run.captures.assert_called_once()
+            run.verify_admission_denials.assert_called_once(); run.verify_parent_death.assert_called_once_with('sentinel')
+            run.stop.assert_called_once()
+        self.assertTrue(all(value == 'passed' for outcome in receipt['groupOutcomes'] for value in outcome['groups'].values()))
+
+    def test_feature_composer_executes_real_orchestration_prerequisite_persistence_and_omits_broad_groups(self):
+        args = self.selection_args(smoke_scope='feature', composer_footer=True, impact='local-feature', impact_basis='reviewed composer only')
+        runs, receipt, constructor, _, security, _, _ = self.orchestration(args)
+        self.assertEqual(constructor.call_count, 1); security.assert_not_called()
+        run = runs[0]
+        run.composer_scenario.assert_called_once()
+        run.command.assert_any_call({'type': 'click', 'target': 'Profile & data'})
+        self.assertEqual(run.start.call_count, 2)
+        run.http.assert_any_call('/identity', extra={'Authorization': 'Bearer old-token'}, expected=403)
+        for method in ('scenario', 'captures', 'verify_parent_death', 'verify_admission_denials'):
+            getattr(run, method).assert_not_called()
+        self.assertEqual(receipt['execution'][0]['starts'], 2)
+        self.assertEqual(receipt['groupOutcomes'][0]['groups'], {'composer': 'passed'})
+        self.assertIn('security', receipt['selection']['omitted'])
+
+    def test_eligibility_keeps_two_distinct_catalogs_and_feature_failures_are_fresh(self):
+        args = self.selection_args(smoke_scope='feature', composer_footer=True, model_eligibility=True, impact='local-feature', impact_basis='reviewed eligibility')
+        runs, receipt, constructor, _, security, _, _ = self.orchestration(args)
+        self.assertEqual(constructor.call_count, 2); security.assert_not_called()
+        runs[0].prepare_composer.assert_called_once_with('mixed')
+        runs[1].prepare_composer.assert_called_once_with('empty')
+        self.assertEqual([outcome['groups'] for outcome in receipt['groupOutcomes']], [{'model-eligibility': 'passed'}] * 2)
+
+    def test_feature_failure_does_not_borrow_hit_success_and_keeps_other_groups_not_run(self):
+        args = self.selection_args(smoke_scope='feature', composer_footer=True, conversation_selection=True,
+                                   impact='local-feature', impact_basis='reviewed both features')
+        runs, receipt, *_ = self.orchestration(args, failure=AssertionError('fresh feature failed'))
+        self.assertFalse(receipt['scenarioPassed'])
+        self.assertEqual(receipt['groupOutcomes'][0]['groups'], {'composer': 'failed', 'conversation': 'not-run'})
+        runs[0].conversation_scenario.assert_not_called(); runs[0].stop.assert_called_once()
+        self.assertIn('AssertionError', receipt['scenarioFailure'])
+
+    def test_summary_parts_dispatch_actual_lifecycle_and_only_named_presentations(self):
+        args = self.selection_args(summary_engine=True, summary_part='presentation', summary_family=['densify'])
+        _, receipt, _, _, _, lifecycle, presentations = self.orchestration(args)
+        lifecycle.assert_not_called()
+        self.assertEqual(presentations.call_count, 2)
+        self.assertTrue(all(call.args[1] == ('densify',) for call in presentations.call_args_list))
+        self.assertNotIn('summary-lifecycle', receipt['selection']['selected'])
+
+    def test_prepare_only_and_partial_construction_have_no_launch_or_smoke_claim(self):
+        runs, receipt, _, observer, *_ = self.orchestration(self.selection_args(prepare_only=True))
+        self.assertTrue(receipt['preparedOnly']); self.assertFalse(receipt['scenarioPassed'])
+        observer.assert_not_called()
+        for run in runs:
+            run.start.assert_not_called(); run.stop.assert_called_once()
+        self.assertTrue(all(value == 'not-run' for outcome in receipt['groupOutcomes'] for value in outcome['groups'].values()))
+
+    def test_partial_construction_settles_created_run_and_preserves_failure(self):
+        runs, receipt, _, observer, *_ = self.orchestration(self.selection_args(), construction_failure=True)
+        observer.assert_not_called(); runs[0].start.assert_not_called(); runs[0].stop.assert_called_once()
+        self.assertFalse(receipt['scenarioPassed']); self.assertEqual(len(receipt['runs']), 1)
+        self.assertIn('RuntimeError', receipt['scenarioFailure'])
+
 
 if __name__ == '__main__':
     unittest.main()

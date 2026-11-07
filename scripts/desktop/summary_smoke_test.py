@@ -153,6 +153,70 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertTrue(all('not engine progression' in image['evidenceClass'] for image in images))
             run.command.assert_any_call({'type':'memory','action':'fixture-unknown'})
 
+    def test_lifecycle_only_keeps_real_controls_without_fixed_presentations(self):
+        with tempfile.TemporaryDirectory() as folder:
+            run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},binary=Path('/unit-app'),command=Mock(return_value={'ok':True}),chat_hash=Mock(return_value='same'),stop=Mock(),start=Mock())
+            with patch.object(smoke,'memory_wait'), patch.object(smoke,'memory_presentations') as presentations, patch.object(smoke,'status',side_effect=self.status_sequence()):
+                smoke.memory_controls(run, presentation_families=())
+            presentations.assert_not_called()
+            actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
+            for action in ('summary-edit', 'save', 'forget', 'clear', 'enable', 'disable'):
+                self.assertIn(action, actions)
+            self.assertFalse(any(action.startswith('fixture-') for action in actions))
+            receipt=json.loads((run.root/'integrated-memory-controls.json').read_text())
+            self.assertEqual(receipt['presentationCaptures'], [])
+            run.start.assert_called_once()
+
+    def test_selected_families_have_local_prerequisites_and_reset_before_next_family(self):
+        expected = {'densify': (10, 'fixture-densify-ready'), 'overview': (11, 'fixture-populated'), 'history': (19, 'fixture-history')}
+        for family, (count, first) in expected.items():
+            with self.subTest(family=family), tempfile.TemporaryDirectory() as folder:
+                run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},command=Mock(return_value={'ok':True}))
+                with patch.object(smoke,'memory_wait') as waits:
+                    images=smoke.presentation_scenario(run, (family,))
+                close_waits = [call.args[1] for call in waits.call_args_list if call.args[2].startswith('closed sheet')]
+                self.assertEqual(len(close_waits), 2)
+                for predicate in close_waits:
+                    self.assertFalse(predicate({'visible': True}))
+                    self.assertTrue(predicate({'visible': False}))
+                actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
+                self.assertEqual(actions[:2], ['open', first])
+                self.assertEqual(actions[-2:], ['fixture-reset', 'close'])
+                self.assertEqual(len(images), count)
+                self.assertNotIn('confirm', actions); self.assertNotIn('save', actions)
+                other_firsts = {value[1] for name, value in expected.items() if name != family}
+                self.assertFalse(other_firsts.intersection(actions))
+                receipt=json.loads(next(run.root.glob('summary-presentation-*.json')).read_text())
+                self.assertIn('not engine progression', receipt['evidenceClass'])
+        with tempfile.TemporaryDirectory() as folder:
+            run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},command=Mock(return_value={'ok':True}))
+            with patch.object(smoke,'memory_wait'):
+                smoke.memory_presentations(run)
+            actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
+            self.assertEqual(actions.count('fixture-reset'), 3)
+            self.assertLess(actions.index('fixture-reset'), actions.index('fixture-populated'))
+
+    def test_presentation_failure_resets_and_closes_without_mutation_retry_or_false_receipt(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def command(value):
+                if value.get('action') == 'densify':
+                    raise RuntimeError('unknown effect retained')
+                return {'ok':True}
+            run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},command=Mock(side_effect=command))
+            with patch.object(smoke,'memory_wait'), self.assertRaisesRegex(RuntimeError,'unknown effect retained'):
+                smoke.presentation_scenario(run, ('densify',))
+            actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
+            self.assertEqual(actions.count('densify'),1)
+            self.assertEqual(actions[-2:], ['fixture-reset', 'close'])
+            self.assertEqual(list(run.root.glob('summary-presentation-*.json')), [])
+
+    def test_unknown_or_duplicate_family_refuses_before_any_fixture(self):
+        run=SimpleNamespace(command=Mock())
+        for families in [('unknown',), ('densify','densify')]:
+            with self.assertRaises(ValueError):
+                smoke.memory_presentations(run, families)
+        run.command.assert_not_called()
+
     def test_scenario_proves_restart_no_replay_clear_cutoff_and_preservation_without_generation_claim(self):
         with tempfile.TemporaryDirectory() as folder:
             run=SimpleNamespace(root=Path(folder), id='run', config={'source':'source'}, binary=Path('/synthetic-app'), database=Path('/unit-copy'), stop=Mock(), start=Mock())
