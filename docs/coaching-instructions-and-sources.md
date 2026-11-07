@@ -74,4 +74,8 @@ During normal replies only, offer a brief relevant suggestion when this week's p
 
 ## Maintenance and evaluation
 
+Canonical source precedence, available-data/unknown limits, privacy and direct planning-write/no-save rules live in `TRAINER_SYSTEM_PROMPT` sections in `trainer-instructions.ts`. `ANSWER_POLICY` owns shared answer/gap/effect disclosure and output-log rules; planner and final-synthesis sections keep only their call-specific obligations. Chat context adds transcript selection/reset and unavailable-memory semantics rather than duplicating canonical evidence/privacy rules. Detailed terrain interpretation stays in its current instruction/evidence owners; no coaching-method cuts or dynamic policy routing are introduced.
+
+Native full-replay and memory-only requests carry each executed step's bounded details once, in its paired result; fresh context is a compact status/handle index, not measurement, completeness or authorization proof. Legacy requests retain textual evidence. Unpaired budget/selection diagnostics remain visible and are not tool attempts. Combined actual-attempt budgets replace redundant successful per-tool quota maps, without changing tool schemas, ordering or safety rules. `trainer-request-evidence.test.ts` verifies actual serialized carriers across adapters; instruction, orchestration, plan/weekly and tool suites retain rule coverage.
+
 Change evidence principles in this document first, then update the smallest relevant section in `trainer-instructions.ts` and add or revise a typed case in `coaching-scenarios.ts`. Tests should prove section composition, source precedence, available-data limits, tool routing, criteria disclosure, and rejected behavior without snapshotting provider prose or hardcoding one coaching answer.

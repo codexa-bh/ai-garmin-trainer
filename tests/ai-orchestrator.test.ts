@@ -1511,7 +1511,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(final.prompt).toContain("600 m ascent");
   });
 
-  it("counts failed SQL correction attempts but not successful quotas, reserving synthesis at the boundary", async () => {
+  it("counts failed SQL correction attempts in combined capacity, reserving synthesis at the boundary", async () => {
     runReadOnlySql.mockReturnValue({
       status: "failed",
       resultName: "bad",
@@ -1551,10 +1551,13 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.providerCalls + runReadOnlySql.mock.calls.length).toBe(30);
     expect(result.text).toContain("remain unverified");
     expect(generateText.mock.calls[14][0].system).toContain(
-      '"analyticalSuccessCounts":{}',
+      '"providerAttempts":15',
     );
     expect(generateText.mock.calls[14][0].system).toContain(
-      '"runReadOnlySql":30',
+      '"toolAttempts":14',
+    );
+    expect(generateText.mock.calls[14][0].system).not.toContain(
+      "analyticalSuccess",
     );
   });
 
@@ -1787,9 +1790,6 @@ describe("trainer orchestrator fail-closed policy", async () => {
       maxPlannerCalls: 30,
       maxToolCalls: 30,
       maxGeneralToolCalls: 30,
-      maxSchemaCalls: 30,
-      maxSqlCalls: 30,
-      maxMathCalls: 30,
       providerCallTimeoutMs: 180000,
     });
   });

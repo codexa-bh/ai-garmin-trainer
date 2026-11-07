@@ -242,14 +242,14 @@ independent memory provider configuration are unchanged. See the
 Responsibilities:
 
 - let the model select needed tools, executed sequentially;
-- delegate deterministic batch selection and live successful-quota rechecks to `tool-selection.ts` before sequential execution; planner guidance avoids forbidden SQL tokens even as aliases (for example use `total_training_load`, not `load`), without relaxing validation or making terminal safety rejections retryable;
+- delegate deterministic whole-batch validation, stable ordering and combined-capacity selection to `tool-selection.ts` before sequential execution; planner guidance avoids forbidden SQL tokens even as aliases (for example use `total_training_load`, not `load`), without relaxing validation or making terminal safety rejections retryable;
 - enforce the shared execution policy: 30 combined admitted provider/tool attempts per turn, including failed attempts and explicit final synthesis; guide the model to finish within 20 without enforcing that soft target;
-- send a live budget snapshot on every planning call, counting that call before rendering remaining capacity; successful schema/SQL/math quotas are separate, and failed queries do not consume those successful quotas;
+- send a live actual-attempt budget snapshot on every planning call, counting that call before rendering remaining capacity; successful per-tool quotas/maps are retired, not replaced by another limiter;
 - reserve one provider execution for action-disabled final synthesis (no tools are exposed), stopping exploration/batches before they consume it; reuse current-turn evidence and distinguish verified facts, user statements, general coaching and missing evidence;
 - count actual admitted tool attempts separately from synthetic skipped-selection/budget diagnostics; diagnostics remain visible in grounding but do not represent executed tools;
 - on a planner exception after executed evidence, use the existing admitted action-disabled final-answer reserve once to explain supported facts and gaps; first-call failures without evidence still return immediately;
 - route missing/malformed/failed/timed-out terminal synthesis to bounded truthful prose without another call or a mandatory narrower follow-up; wrap-up never replays side effects;
-- pass only server-authored bounded evidence into follow-up planning/synthesis;
+- pass only server-authored bounded evidence into follow-up planning/synthesis: detailed paired native results with a compact fresh status/handle index on envelope routes, textual evidence on legacy routes, and unpaired non-execution diagnostics in context;
 - accept ordinary nonempty text when no action calls remain, without claim certification, prose classification or checker repair; accurate evidence use and limitations remain model responsibilities;
 - instruct the model to keep logs out of display prose; do not reject legitimate explanations by matching evidence labels or JSON-looking prefixes;
 - return fail-closed user-facing text when provider/tool synthesis fails.
@@ -264,11 +264,11 @@ Non-responsibilities:
 
 Synchronous, side-effect-free selection over already extracted provider calls and
 readonly turn snapshots. It validates the whole batch in provider order before
-filtering, stable priority sorting or truncation: the first invalid call rejects
+stable priority sorting or truncation: the first invalid call rejects
 all calls, even beyond remaining capacity. Only successful prior steps influence
-priority; selection neither invents prerequisites nor reserves successful quotas.
+priority; selection does not invent prerequisites or filter by successful-tool counts.
 Repeated valid calls remain separate. Metadata describes the original batch,
-while skipped counts include only eligible calls truncated by turn capacity.
+while skipped counts include valid calls truncated by turn capacity.
 
 Dependencies are the neutral tool contracts/descriptions, shared
 `TRAINER_EXECUTION_POLICY`, erased tool types and `tool-step-diagnostics.ts` for
@@ -276,18 +276,19 @@ unchanged rejected-step construction shared with orchestration. SDK wrapping now
 lives exclusively in the outer `provider-tool-definitions.ts` adapter. No execution context, tool handlers,
 provider calls, database, connector or orchestrator back-import belongs here.
 
-The turn loop retains raw-call parsing, provider I/O, mutable counts, actual-attempt
-accounting, synthesis reserve, sequential execution, prior-planner-pass Training
-Plan snapshots and non-replay/side-effect guards. It calls the same quota predicate
-immediately before each execution, so an earlier same-batch success can exhaust a
-quota; failed executions never consume successful-result quotas. Public limits,
-diagnostic text/privacy, grounding and progress remain compatible.
+The turn loop retains raw-call parsing, provider I/O, actual-attempt accounting,
+independent successful/unsuccessful progress, synthesis reserve, sequential
+execution, prior-planner-pass Training Plan snapshots and non-replay/side-effect
+guards. It rechecks combined capacity before dispatch. Failed admitted attempts
+consume the same combined allowance as successes; skipped calls and diagnostics
+are not attempts. Obsolete analytical quota exports are removed; actual combined
+limits, historical diagnostics, grounding and progress remain compatible.
 
-`tests/tool-selection.test.ts` directly covers validation precedence, defaults,
-ordering, repeated calls, quota/capacity edges, metadata and input preservation
-without execution/provider mocks. `tests/tool-selection-orchestration.test.ts`
-lowers only the test success quota to exercise real-loop live rechecks after
-success/failure; existing orchestrator, plan and route tests protect integration.
+`tests/tool-selection.test.ts` directly covers whole-batch validation precedence,
+defaults, stable ordering, repeated calls, capacity edges, metadata and immutable
+inputs without execution/provider mocks. `tests/tool-selection-orchestration.test.ts`
+proves actual success/failure accounting and final synthesis in production and
+three-execution modes; existing orchestrator, plan and route tests protect integration.
 
 ### `src/lib/ai/sql-analysis.ts`
 

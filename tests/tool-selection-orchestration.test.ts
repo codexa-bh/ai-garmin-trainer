@@ -8,33 +8,26 @@ vi.mock("ai", async (importOriginal) => ({
   ...(await importOriginal<typeof import("ai")>()),
   generateText,
 }));
-vi.mock("../src/lib/ai/execution-budget", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/lib/ai/execution-budget")>();
-  return {
-    ...actual,
-    TRAINER_EXECUTION_POLICY: {
-      ...actual.TRAINER_EXECUTION_POLICY,
-      analyticalSuccessLimit: 1,
-    },
-  };
-});
 vi.mock("../src/lib/ai/tool-composition", () => ({ executeTrainerTool }));
 import { orchestrateTrainerChat } from "../src/lib/ai/composition";
 
-// Lower only the success quota to expose the real loop's live recheck without
-// exhausting the independent 30-execution allowance first.
-describe("selection snapshot versus turn-owned successful quota", () => {
+describe("selection and turn-owned combined admission", () => {
   beforeEach(() => {
     generateText.mockReset();
     executeTrainerTool.mockReset();
   });
 
   it.each([false, true])(
-    "rechecks after an earlier execution (first failure: %s)",
+    "counts repeated actual attempts and reserves synthesis (first failure: %s)",
     async (firstFails) => {
       const call = { toolName: "runReadOnlySql", input: { sql: "SELECT 1" } };
-      generateText.mockResolvedValueOnce({ toolCalls: [call, call, call] });
+      generateText
+        .mockResolvedValueOnce({
+          toolCalls: Array.from({ length: 40 }, () => call),
+        })
+        .mockResolvedValueOnce({
+          text: "Supported partial evidence; remaining work was not run.",
+        });
       executeTrainerTool.mockImplementation(async ({ index, toolName }) => ({
         index,
         tool: toolName,
@@ -46,32 +39,60 @@ describe("selection snapshot versus turn-owned successful quota", () => {
       const result = await orchestrateTrainerChat({
         model: "mock",
         system: "system",
-        userRequest: "check local status",
+        userRequest: "check local evidence",
       });
-      const attempts = firstFails ? 2 : 1;
-      expect(executeTrainerTool).toHaveBeenCalledTimes(attempts);
-      expect(result.toolSteps.at(-1)).toEqual({
-        index: attempts + 1,
-        tool: "runReadOnlySql",
+      expect(executeTrainerTool).toHaveBeenCalledTimes(28);
+      expect(result.toolSteps.at(-1)).toMatchObject({
+        index: 29,
+        tool: "providerToolSelection",
         status: "rejected",
         reason: "tool_budget_exceeded",
-        summary:
-          "runReadOnlySql was rejected because its per-turn budget was already exhausted.",
-        privacy:
-          "No Garmin connector action or local analytics tool was executed for the rejected provider response.",
+        summary: expect.stringContaining("12 selected tool calls skipped"),
       });
       expect(result.toolSteps[0].selection).toEqual({
         reason: "multiple_tool_calls",
-        count: 3,
+        count: 40,
         toolNames: ["runReadOnlySql"],
         selectedTool: "runReadOnlySql",
       });
       expect(result.progressCounters).toEqual({
-        modelCalls: 1,
-        toolsSucceeded: 1,
+        modelCalls: 2,
+        toolsSucceeded: firstFails ? 27 : 28,
         toolsUnsuccessful: firstFails ? 1 : 0,
       });
-      expect(generateText).toHaveBeenCalledTimes(1);
+      expect(generateText).toHaveBeenCalledTimes(2);
+      expect(generateText.mock.calls[1][0].tools).toBeUndefined();
     },
   );
+
+  it("preserves supported three-execution mode without executing the skipped batch tail", async () => {
+    generateText
+      .mockResolvedValueOnce({
+        toolCalls: Array.from({ length: 4 }, () => ({
+          toolName: "getSyncStatus",
+          input: {},
+        })),
+      })
+      .mockResolvedValueOnce({ text: "One status check completed." });
+    executeTrainerTool.mockImplementation(async ({ index, toolName }) => ({
+      index,
+      tool: toolName,
+      status: "succeeded",
+      summary: "Authored status",
+      privacy: "authored",
+    }));
+    const result = await orchestrateTrainerChat({
+      model: "mock",
+      system: "system",
+      userRequest: "status",
+      executionLimit: 3,
+    });
+    expect(executeTrainerTool).toHaveBeenCalledOnce();
+    expect(result.providerCalls).toBe(2);
+    expect(result.toolSteps).toHaveLength(2);
+    expect(generateText.mock.calls[0][0].system).toContain(
+      '"exploratoryRemaining":1',
+    );
+    expect(generateText.mock.calls[1][0].tools).toBeUndefined();
+  });
 });

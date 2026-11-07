@@ -172,7 +172,7 @@ docs carry the deeper contract rather than duplicating it here.
 planner/final-synthesis generation and admitted tool execution. It has no SDK,
 model, storage, environment, connector or outer composition dependency, including
 erased types. The loop still owns raw-call aliases/malformed parsing, sequential
-admission, counters/quotas, synthesis reserve, prior-pass plan snapshots and one
+admission, actual-attempt counters, synthesis reserve, prior-pass plan snapshots and one
 explicit context disposed in `finally`. No scheduling, coaching or retry policy
 changes are hidden in this seam.
 
@@ -226,6 +226,16 @@ classifier, second judge, renamed terminal gate or automatic repair loop is adde
 Tool schemas/admission, guarded SQL/math, same-turn handles, prior-pass plan reads,
 write/privacy/currentness boundaries and actual-call budgets/accounting remain.
 All deterministic fallbacks disclose independently successful planning writes.
+
+On conversation-envelope routes (full replay and memory-only), paired native
+results are the sole detailed carrier of each executed step. Fresh context keeps
+only its step/status/successful-handle index plus unpaired selection/budget
+diagnostics. Complete General Plan and weekly documents remain in bounded native
+results, including their untrusted-document boundary; earlier pairs remain
+historical rather than being rewritten. The latest General Plan read and last two
+successful weekly reads retain their existing applicability. Legacy no-envelope
+requests keep textual evidence. This index alone proves no measurement, coverage
+or write authorization. Display/debug grounding is independent and unchanged.
 
 Chat retains typed current-date/prior-failure context, paired native exchanges,
 immutable admitted snapshots, completion journals and JSON/NDJSON/history contracts.
@@ -550,14 +560,18 @@ intentional concurrency correction, independently tested with provider barriers.
 
 `tool-contracts.ts` validates provider inputs into a discriminated union;
 `tool-types.ts` owns dependency-free metadata. `tool-selection.ts` owns synchronous
-batch validation, stable priority ordering, successful-quota eligibility,
-truncation and selection metadata. It observes readonly turn snapshots and imports
-only contracts, shared execution policy and the rejected-step constructor
-in `tool-step-diagnostics.ts` (whose imports are erased types); it cannot execute tools or import orchestration.
-The loop delegates selection and live quota rechecks while retaining all mutations.
+batch validation, stable priority ordering, combined-capacity truncation and
+selection metadata. It observes readonly prior steps and imports only contracts,
+shared execution policy and the rejected-step constructor in
+`tool-step-diagnostics.ts` (whose imports are erased types); it cannot execute tools
+or import orchestration. Successful per-tool quotas are retired; only actual
+combined provider/tool attempts consume the 30-execution allowance, preserving
+one action-disabled synthesis reserve and the soft target of 20.
 Direct tests in `tests/tool-selection.test.ts` need no execution/provider mocks;
-`tests/tool-selection-orchestration.test.ts` exercises live rechecks at a controlled
-quota edge, alongside the existing integrated orchestration/plan regressions.
+`tests/tool-selection-orchestration.test.ts` exercises repeated successful/failed
+attempts, truncation, reserve and supported three-execution mode, alongside the
+existing integrated orchestration/plan regressions. Actual serialized native and
+legacy evidence is covered by `tests/trainer-request-evidence.test.ts`.
 The dispatcher receives explicit feature capabilities from outer
 `tool-composition.ts` and calls analytics, local-data and Training Plan handlers. `tool-evidence.ts` only formats,
 redacts and grounds evidence, with erased result-type imports and no execution
