@@ -631,8 +631,10 @@ def feature_scenarios(run, args, plan, perform):
     if args.summary_engine:
         from summary_smoke import scenario, presentation_scenario
         if plan['summaryPart'] != 'presentation':
-            perform('summary-lifecycle', lambda: scenario(run, presentation_families=()))
-            deny_previous_boot(run)
+            def lifecycle():
+                scenario(run, presentation_families=())
+                deny_previous_boot(run)
+            perform('summary-lifecycle', lifecycle)
         for family in plan['summaryFamilies']:
             perform('summary-' + family, lambda family=family: presentation_scenario(run, (family,)))
     if args.composer_footer or args.model_eligibility:

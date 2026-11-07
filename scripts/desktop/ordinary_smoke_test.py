@@ -509,6 +509,24 @@ class OrdinaryContracts(unittest.TestCase):
         self.assertTrue(all(call.args[1] == ('densify',) for call in presentations.call_args_list))
         self.assertNotIn('summary-lifecycle', receipt['selection']['selected'])
 
+    def test_feature_interruption_settles_without_replay_or_success_claim(self):
+        args = self.selection_args(composer_footer=True, smoke_scope='feature', impact='local-feature', impact_basis='reviewed composer')
+        runs, receipt, *_ = self.orchestration(args, failure=KeyboardInterrupt('owned interruption'))
+        self.assertFalse(receipt['scenarioPassed'])
+        self.assertIn('KeyboardInterrupt', receipt['scenarioFailure'])
+        self.assertEqual(receipt['groupOutcomes'][0]['groups'], {'composer': 'failed'})
+        runs[0].composer_scenario.assert_called_once(); runs[0].stop.assert_called_once()
+        self.assertEqual(runs[0].start.call_count, 1)
+
+    def test_failed_summary_stale_capability_assertion_keeps_the_group_failed(self):
+        args = self.selection_args(summary_engine=True, summary_part='lifecycle', smoke_scope='feature',
+                                   impact='summary-lifecycle', impact_basis='actual controls and stale capability')
+        with patch('ordinary_smoke.deny_previous_boot', side_effect=ValueError('stale gate failed')):
+            runs, receipt, *_ = self.orchestration(args, failure=ValueError('expected failure'))
+        self.assertFalse(receipt['scenarioPassed'])
+        self.assertEqual(receipt['groupOutcomes'][0]['groups'], {'summary-lifecycle': 'failed'})
+        runs[0].stop.assert_called_once()
+
     def test_prepare_only_and_partial_construction_have_no_launch_or_smoke_claim(self):
         runs, receipt, _, observer, *_ = self.orchestration(self.selection_args(prepare_only=True))
         self.assertTrue(receipt['preparedOnly']); self.assertFalse(receipt['scenarioPassed'])
