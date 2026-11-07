@@ -2,6 +2,7 @@
 import contextlib
 import http.client
 import json
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -50,6 +51,7 @@ class ChatSmokeTests(unittest.TestCase):
         self.assertFalse(provider.thread.is_alive())
 
     def test_runner_binds_existing_preparation_signature_before_native_use(self):
+        self.addCleanup(os.umask, os.umask(0o077))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             observed = []
