@@ -6,11 +6,7 @@ vi.mock("ai", async (original) => ({
 }));
 import { createTrainerGeneration } from "../src/lib/ai/provider-generation";
 import { trainerToolDefinitions } from "../src/lib/ai/provider-tool-definitions";
-import { finalToolChoice } from "./completion-fixtures";
-import {
-  trainerCompletionSchema,
-  trainerToolContracts,
-} from "../src/lib/ai/tool-contracts";
+import { trainerToolContracts } from "../src/lib/ai/tool-contracts";
 import { TRAINER_PROVIDER_CALL_TIMEOUT_MS } from "../src/lib/ai/orchestration-ports";
 
 beforeEach(() => {
@@ -40,12 +36,7 @@ it("maps exact planner and synthesis options while retaining selected model and 
     model,
     system: "system",
     prompt: "prompt",
-    tools: {
-      ...trainerToolDefinitions,
-      completeTrainerTurn: expect.objectContaining({
-        inputSchema: expect.anything(),
-      }),
-    },
+    tools: trainerToolDefinitions,
     toolChoice: "auto",
     parallelToolCalls: false,
     providerOptions: {
@@ -65,12 +56,6 @@ it("maps exact planner and synthesis options while retaining selected model and 
     model,
     system: "final",
     prompt: "prompt",
-    tools: {
-      completeTrainerTurn: expect.objectContaining({
-        inputSchema: expect.anything(),
-      }),
-    },
-    toolChoice: finalToolChoice,
     abortSignal: expect.any(AbortSignal),
   });
   expect(generateText.mock.calls[0][0].abortSignal).not.toBe(
@@ -79,25 +64,15 @@ it("maps exact planner and synthesis options while retaining selected model and 
   expect(vi.getTimerCount()).toBe(0);
 });
 
-it("exposes native completion field guidance without changing the terminal tool or enabling actions", async () => {
+it("exposes no tools or forced response protocol during final synthesis", async () => {
   generateText.mockResolvedValue({});
   await createTrainerGeneration("model")({
     purpose: "final_synthesis",
     system: "system",
     prompt: "prompt",
   });
-  const tools = generateText.mock.calls[0][0].tools;
-  expect(Object.keys(tools)).toEqual(["completeTrainerTurn"]);
-  expect(tools.completeTrainerTurn.inputSchema).toBe(trainerCompletionSchema);
-  const fields = trainerCompletionSchema.shape.completion.shape;
-  expect(fields.kind.description).toContain(
-    "incomplete whenever missingEvidence is nonempty",
-  );
-  expect(fields.claims.description).toContain(
-    "never use runReadOnlySql, runMathAnalysis or analyzeActivityTerrain as a tool claim",
-  );
-  expect(fields.missingEvidence.description).toContain("Preserve genuine gaps");
-  expect(tools.completeTrainerTurn).not.toHaveProperty("execute");
+  expect(generateText.mock.calls[0][0]).not.toHaveProperty("tools");
+  expect(generateText.mock.calls[0][0]).not.toHaveProperty("toolChoice");
 });
 
 it.each([
@@ -118,9 +93,7 @@ it.each([
       "stable policy\n\nfresh context",
     );
     expect(generateText.mock.calls[0][0].providerOptions).toBeUndefined();
-    expect(Object.keys(generateText.mock.calls[0][0].tools)).toEqual([
-      "completeTrainerTurn",
-    ]);
+    expect(generateText.mock.calls[0][0].tools).toBeUndefined();
   },
 );
 

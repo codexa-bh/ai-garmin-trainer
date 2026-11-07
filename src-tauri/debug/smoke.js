@@ -2111,6 +2111,53 @@
     for (const el of [selectedTable, ...selectedTable.querySelectorAll("*")])
       el.setAttribute("data-smoke-reveal", "");
   }
+  // Finite authored chat proof only: never reveal arbitrary model/user prose.
+  const ordinaryChatAnswer =
+    "Authored weekday hike: 6543 m in 4321 s, 321 m ascent, mean HR 123. The elevation section averages 10% across 1000 m. Keep weekday climbing practice manageable; surface and technicality remain unknown.";
+  function revealOrdinaryChat() {
+    const matches = [
+      ...document.querySelectorAll(
+        ".chat-message.assistant .assistant-content",
+      ),
+    ].filter(
+      (node) =>
+        node.childElementCount === 1 &&
+        node.firstElementChild.tagName === "P" &&
+        node.firstElementChild.childElementCount === 0 &&
+        node.textContent === ordinaryChatAnswer,
+    );
+    if (matches.length !== 1)
+      throw Error("Canonical authored chat answer required");
+    const content = matches[0];
+    for (
+      let node = content.parentElement;
+      node && node !== document.body;
+      node = node.parentElement
+    ) {
+      if (
+        [...node.childNodes].some(
+          (child) =>
+            child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+        )
+      )
+        throw Error("Chat capture refuses private ancestor text");
+    }
+    for (
+      let node = content;
+      node && node !== document.body;
+      node = node.parentElement
+    ) {
+      if (["auto", "scroll"].includes(getComputedStyle(node).overflowY)) {
+        maskScroll.push([node, node.scrollLeft, node.scrollTop]);
+        node.scrollTop +=
+          content.getBoundingClientRect().top -
+          node.getBoundingClientRect().top -
+          12;
+      }
+      node.setAttribute("data-smoke-reveal", "");
+    }
+    content.firstElementChild.setAttribute("data-smoke-reveal", "");
+  }
   // Finite authored Terrain seed only. No caller IDs/selectors/values or raw observations.
   let terrainVariant = null;
   const terrainCopy =
@@ -2477,12 +2524,20 @@
     return width && innerWidth === width && innerHeight === 850;
   };
   async function maskedView(command) {
-    if (!globalThis.__trainerOrdinaryIsolated || !viewport(command.preset))
-      throw Error("Unsupported viewport/mode");
+    if (
+      !globalThis.__trainerOrdinaryIsolated ||
+      !viewport(command.preset) ||
+      Object.keys(command).length !== 3 ||
+      !Object.keys(command).every((key) =>
+        ["type", "view", "preset"].includes(key),
+      )
+    )
+      throw Error("Unsupported viewport/mode or capture fields");
     const expected = {
       trainer: "Trainer",
       composer: "Trainer",
       conversation: "Trainer",
+      "ordinary-chat": "Trainer",
       memory: "Memory",
       sync: "Sync",
       profile: "Profile & data",
@@ -2686,6 +2741,7 @@
     if (command.view === "composer") revealComposer();
     if (command.view === "conversation") revealConversations();
     if (command.view === "tables") revealTables();
+    if (command.view === "ordinary-chat") revealOrdinaryChat();
     if (command.view === "terrain") revealTerrain();
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";

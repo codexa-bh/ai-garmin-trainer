@@ -1,14 +1,6 @@
-import { generateText, tool, type LanguageModelUsage } from "ai";
+import { generateText, type LanguageModelUsage } from "ai";
 import { ConversationCapacityError } from "../chat/conversation-replay";
-import { trainerCompletionSchema } from "./tool-contracts";
 import type { ConversationCompactionGeneration } from "../chat/conversation-replay";
-import { COMPLETION_TOOL } from "./turn-completion";
-
-const completionTool = tool({
-  description:
-    "Declare the final coaching, evidence-grounded or incomplete answer. This is a response, not an action. Personal measurements require exact current-turn evidence references. Never declare unfinished tool work as completed coaching.",
-  inputSchema: trainerCompletionSchema,
-});
 import { trainerToolDefinitions } from "./provider-tool-definitions";
 import {
   TRAINER_PROVIDER_CALL_TIMEOUT_MS,
@@ -244,10 +236,7 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
           : { prompt: request.prompt }),
         ...(request.purpose === "planner"
           ? {
-              tools: {
-                ...trainerToolDefinitions,
-                [COMPLETION_TOOL]: completionTool,
-              },
+              tools: trainerToolDefinitions,
               toolChoice: "auto",
               parallelToolCalls: false,
               providerOptions: {
@@ -261,10 +250,7 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
               },
             }
           : {
-              tools: { [COMPLETION_TOOL]: completionTool },
-              // DeepSeek thinking mode supports auto but rejects forced tool choice.
-              // Only the terminal schema is exposed; no action can execute here.
-              toolChoice: "auto",
+              // Plain text only: no action tools or response certificate.
               ...(cachePolicy
                 ? {
                     providerOptions: {

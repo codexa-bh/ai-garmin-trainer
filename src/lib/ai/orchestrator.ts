@@ -1,8 +1,3 @@
-import {
-  COMPLETION_TOOL,
-  COMPLETION_LIMITATION,
-  assessCompletion,
-} from "./turn-completion";
 import type { WeeklyRead, WeeklyTurn } from "../weekly/contracts";
 import {
   ConversationCapacityError,
@@ -25,7 +20,6 @@ import { groundingForSteps, renderToolSteps } from "./tool-evidence";
 import { canToolRunWithinBudget, selectSafeToolCalls } from "./tool-selection";
 import { failedStep } from "./tool-step-diagnostics";
 import type {
-  CompletionRejection,
   TrainerToolCall,
   TrainerToolName,
   TrainerToolStep,
@@ -49,6 +43,9 @@ import {
   trainerExecutionBudget,
   type TrainerExecutionBudget,
 } from "@/lib/ai/execution-budget";
+
+const INVALID_PROVIDER_RESPONSE =
+  "I could not get a valid response from the configured model. The response was empty or malformed.";
 
 const MAX_TOTAL_TURN_EXECUTIONS = TRAINER_EXECUTION_POLICY.hardLimit;
 const MAX_PLANNER_CALLS = MAX_TOTAL_TURN_EXECUTIONS;
@@ -229,13 +226,11 @@ function finalAnswerSystem(
   baseSystem: TrainerSystemPrompt,
   steps: TrainerToolStep[],
   budgetStopped: boolean,
-  rejection?: CompletionRejection,
 ): TrainerSystemPrompt {
   return buildFinalSynthesisInstructions(
     baseSystem,
     synthesisEvidenceForSteps(steps),
     budgetStopped,
-    rejection,
   );
 }
 
@@ -341,7 +336,7 @@ function toolFailureLimitationText(steps: TrainerToolStep[]): string {
     sqlLimitationText(steps) ??
     genericToolLimitationText(steps) ??
     "I couldn't complete that local Garmin tool request within the safety guardrails. Please try a narrower request.";
-  return limitation + savedPlanningResultText(steps);
+  return limitation;
 }
 
 function savedPlanningResultText(steps: TrainerToolStep[]): string {
@@ -361,7 +356,6 @@ async function synthesizeFinalAnswer(
   recordProviderCall: (call: LlmDebugProviderCall) => void,
   generate: TrainerOrchestrationPorts["generate"],
   budgetStopped = false,
-  rejection?: CompletionRejection,
   exchanges: TrainerNativeExchange[] = [],
 ): Promise<string | null> {
   let result: TrainerGenerationResult;
@@ -376,7 +370,6 @@ async function synthesizeFinalAnswer(
         systemWithTurnContext(input),
         steps,
         budgetStopped,
-        rejection,
       ),
       prompt: input.userRequest,
     });
@@ -401,31 +394,23 @@ async function synthesizeFinalAnswer(
   )
     return null;
 
-  const text = result.text?.trim() ?? "";
+  assertConversationCurrent(input, steps);
+  const text = typeof result.text === "string" ? result.text.trim() : "";
   const toolCalls = (result.toolCalls ?? [])
     .map(extractToolCall)
     .filter((call) => call !== null);
-  const assessment = assessCompletion(
-    toolCalls.find((call) => call.toolName === COMPLETION_TOOL)?.input,
-    steps,
-  );
   recordProviderCall?.(
     debugProviderCall({
       index: 0,
       purpose: "final_synthesis",
       toolCalls,
-      text: assessment.answer ?? text,
+      text,
       tokenUsage: result.tokenUsage,
-      completionRejection: assessment.rejection,
     }),
   );
-  if (
-    (result.toolCalls?.length ?? 0) !== 1 ||
-    toolCalls.length !== 1 ||
-    toolCalls[0].toolName !== COMPLETION_TOOL
-  )
-    return null;
-  return assessment.answer;
+  // Synthesis is action-disabled. Never dispatch even an unexpected raw call.
+  if ((result.toolCalls?.length ?? 0) !== 0) return null;
+  return text || null;
 }
 
 export async function orchestrateTrainerChat(
@@ -475,7 +460,7 @@ async function orchestrateTurn(
   ) => {
     const completed = {
       ...result,
-      ...(result.text === COMPLETION_LIMITATION
+      ...(finalAnswerSource === "deterministic_fallback"
         ? { text: result.text + savedPlanningResultText(result.toolSteps) }
         : {}),
       progressCounters: {
@@ -493,7 +478,7 @@ async function orchestrateTurn(
         userRequest: input.userRequest,
         providerCalls: debugProviderCalls,
         toolSteps: result.toolSteps,
-        finalAnswer: result.text,
+        finalAnswer: completed.text,
         finalAnswerSource:
           finalAnswerSource ??
           (result.toolSteps.length ? "provider" : "direct"),
@@ -501,12 +486,8 @@ async function orchestrateTurn(
     };
   };
 
-  // Every explicit synthesis attempt uses this admission boundary, including
-  // invalid-prose repair and analytical failure paths, not just budget wrap-up.
-  const synthesize = async (
-    budgetStopped = false,
-    rejection?: CompletionRejection,
-  ) => {
+  // Only genuine budget wrap-up and post-evidence failures use the reserve.
+  const synthesize = async (budgetStopped = false) => {
     if (budget().remaining <= 0) return null;
     providerCalls += 1;
     progress(answerPreparationMessage(budgetStopped || toolsUnsuccessful > 0));
@@ -516,7 +497,6 @@ async function orchestrateTurn(
       recordProviderCall,
       ports.generate,
       budgetStopped,
-      rejection,
       exchanges,
     );
   };
@@ -626,7 +606,7 @@ async function orchestrateTurn(
     if (result.toolCalls !== undefined && !Array.isArray(result.toolCalls)) {
       return finish(
         {
-          text: COMPLETION_LIMITATION,
+          text: INVALID_PROVIDER_RESPONSE,
           grounding: groundingForSteps(steps),
           toolSteps: steps,
           providerCalls,
@@ -637,29 +617,25 @@ async function orchestrateTurn(
     const toolCalls = (result.toolCalls ?? [])
       .map(extractToolCall)
       .filter((call) => call !== null);
-    const terminal = toolCalls.find(
-      (call) => call.toolName === COMPLETION_TOOL,
-    );
-    const assessment = assessCompletion(terminal?.input, steps);
+    const text = typeof result.text === "string" ? result.text.trim() : "";
     recordProviderCall(
       debugProviderCall({
         index: 0,
-        purpose: toolCalls.some((call) => call.toolName !== COMPLETION_TOOL)
+        purpose: toolCalls.length
           ? "planner"
           : steps.length
             ? "final_synthesis"
             : "direct_answer",
         toolCalls,
-        text: assessment.answer ?? result.text?.trim() ?? "",
+        text,
         tokenUsage: result.tokenUsage,
-        completionRejection: assessment.rejection,
       }),
     );
     const malformedCalls = toolCalls.length !== (result.toolCalls?.length ?? 0);
-    if (malformedCalls || (terminal && toolCalls.length !== 1)) {
+    if (malformedCalls) {
       return finish(
         {
-          text: COMPLETION_LIMITATION,
+          text: INVALID_PROVIDER_RESPONSE,
           grounding: groundingForSteps(steps),
           toolSteps: steps,
           providerCalls,
@@ -667,23 +643,16 @@ async function orchestrateTurn(
         "deterministic_fallback",
       );
     }
-    if (terminal || toolCalls.length === 0) {
-      const completed = assessment.answer;
-      if (completed) progress("Formatting the completed answer…");
-      const answer =
-        completed ?? (await synthesize(false, assessment.rejection));
+    if (toolCalls.length === 0) {
+      if (text) progress("Formatting the completed answer…");
       return finish(
         {
-          text:
-            answer ??
-            (steps.some((step) => step.status !== "succeeded")
-              ? toolFailureLimitationText(steps)
-              : COMPLETION_LIMITATION),
+          text: text || INVALID_PROVIDER_RESPONSE,
           grounding: groundingForSteps(steps),
           toolSteps: steps,
           providerCalls,
         },
-        answer
+        text
           ? steps.length
             ? "provider"
             : "direct"
