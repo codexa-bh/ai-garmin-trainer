@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { useState, createRef } from "react";
 import { SyncView } from "../src/app/dashboard/sync-view";
+import { TerrainTable } from "../src/app/dashboard/terrain-table";
+import { analyzeTerrainSections } from "../src/lib/analytics/terrain-sections";
 import { emptySyncRun } from "../src/app/dashboard/contracts";
 import { AssistantContent } from "../src/app/dashboard/markdown";
 import {
@@ -1594,3 +1603,116 @@ describe("finite ordinary synthetic table smoke", () => {
     ).toBe(false);
   });
 });
+
+it.each(["supported", "partial", "capped"])(
+  "admits only finite authored Terrain %s, masks numeric/private values and restores after capture/failure",
+  async (variant) => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      left: 0,
+      bottom: 10,
+      right: 10,
+      width: 10,
+      height: 10,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 850);
+    const analysis = analyzeTerrainSections(
+      "T0293-supported",
+      "hiking",
+      Array.from({ length: 101 }, (_, i) => ({
+        elapsedSec: i * 10,
+        timestamp: new Date(Date.UTC(2026, 0, 1) + i * 10000).toISOString(),
+        distanceMeters: i * 10,
+        altitudeMeters: i,
+        heartRate: 125,
+      })),
+    );
+    if (variant !== "supported") analysis.status = "partial";
+    if (variant === "capped") {
+      analysis.truncated = true;
+      analysis.returnedSections = 100;
+      analysis.sectionCount = 105;
+    }
+    function Fixture() {
+      const [selected, select] = useState<string | null>(null);
+      return (
+        <>
+          <div className="selected-activity-heading">
+            <h2>{`T0293 synthetic ${variant}`}</h2>
+          </div>
+          <button className="activity-list-item">
+            <strong>{`T0293 synthetic ${variant}`}</strong>
+          </button>
+          <p>Private unrelated facts</p>
+          <TerrainTable
+            analysis={analysis}
+            selectedId={selected}
+            onSelect={(id) => select(selected ? null : id)}
+          />
+          {selected ? (
+            <span aria-label="Selected terrain section elevation interval" />
+          ) : null}
+        </>
+      );
+    }
+    render(<Fixture />);
+    expect(
+      (await command({ type: "captureView", view: "terrain", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(
+      (await command({ type: "terrain", action: variant })).result.ready,
+    ).toBe(true);
+    await command({ type: "terrain", action: "toggle" });
+    expect(
+      (await command({ type: "terrain", action: "observe" })).result,
+    ).toMatchObject({ selected: true, highlighted: true, compact: true });
+    await command({ type: "terrain", action: "toggle" });
+    expect(
+      (await command({ type: "terrain", action: "observe" })).result.selected,
+    ).toBe(false);
+    await command({ type: "terrain", action: "start" });
+    expect(
+      (await command({ type: "captureView", view: "terrain", preset: "wide" }))
+        .result.ok,
+    ).toBe(true);
+    const region = screen.getByRole("region", { name: "Terrain sections" });
+    expect(region.querySelector("p")!.hasAttribute("data-smoke-reveal")).toBe(
+      true,
+    );
+    expect(
+      screen
+        .getByText("Private unrelated facts")
+        .hasAttribute("data-smoke-reveal"),
+    ).toBe(false);
+    expect(
+      within(region)
+        .getByText("125", { selector: "td" })
+        .hasAttribute("data-smoke-reveal"),
+    ).toBe(false);
+    smoke.__trainerSmokeRestore();
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+    await command({ type: "captureView", view: "terrain", preset: "wide" });
+    region.querySelector("p")!.textContent = "Private replaced copy";
+    expect(
+      (await command({ type: "captureView", view: "terrain", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("#trainer-smoke-sanitizer")).toBeNull();
+    for (const value of [
+      { type: "terrain", action: "settings" },
+      { type: "terrain", action: "observe", selector: "body" },
+      { type: "terrain", action: "supported", id: "private" },
+    ])
+      expect((await command(value)).result.ok).toBe(false);
+    delete smoke.__trainerOrdinaryIsolated;
+    expect(
+      (await command({ type: "terrain", action: "observe" })).result.ok,
+    ).toBe(false);
+  },
+);
