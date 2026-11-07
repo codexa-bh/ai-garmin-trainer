@@ -208,6 +208,9 @@ def memory_presentations(run, families=None):
 def presentation_scenario(run, families):
     """Standalone fixed proof: no lifecycle/control success claim."""
     memory_wait(run, lambda value: not value['visible'], 'closed sheet before selected presentation')
+    # A previous family's narrow capture leaves desktop navigation hidden.
+    # Re-enter through its real visible wide control, never click hidden mobile UI.
+    run.command({'type': 'setViewport', 'preset': 'wide'})
     run.command({'type': 'memory', 'action': 'open'})
     memory_wait(run, lambda value: value['loaded'] and not value['presentationFixture'], 'actual inspection before presentation')
     try:

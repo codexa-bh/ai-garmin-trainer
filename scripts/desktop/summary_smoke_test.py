@@ -181,6 +181,10 @@ class SummarySmokeTests(unittest.TestCase):
                     self.assertTrue(predicate({'visible': False}))
                 actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
                 self.assertEqual(actions[:2], ['open', first])
+                # Family entry must restore wide geometry before the real desktop
+                # Memory button; narrow has only the separately closed mobile menu.
+                self.assertEqual(run.command.call_args_list[0].args[0], {'type':'setViewport', 'preset':'wide'})
+                self.assertEqual(run.command.call_args_list[1].args[0], {'type':'memory', 'action':'open'})
                 self.assertEqual(actions[-2:], ['fixture-reset', 'close'])
                 self.assertEqual(len(images), count)
                 self.assertNotIn('confirm', actions); self.assertNotIn('save', actions)
