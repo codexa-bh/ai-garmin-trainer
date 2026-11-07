@@ -2,7 +2,6 @@ import type {
   TerrainAnalysis,
   TerrainSection,
 } from "@/lib/analytics/terrain-sections";
-import { finiteNumberLabel } from "./formatting";
 
 function humanDuration(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
@@ -20,6 +19,37 @@ function humanDuration(value: number | null | undefined): string {
       .filter(Boolean)
       .join(" ") || "0s"
   );
+}
+
+function measurement(
+  value: number | null | undefined,
+  unit: string,
+  fractionDigits = 1,
+): string {
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return "Unavailable";
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: fractionDigits })}${unit}`;
+}
+
+function distance(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "Unavailable";
+  return value >= 1000
+    ? measurement(value / 1000, " km", 3)
+    : measurement(value, " m", 0);
+}
+
+function distanceRange(start: number, end: number): string {
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start < 0 ||
+    end < start
+  )
+    return "Unavailable";
+  const km = end >= 1000;
+  const scale = km ? 1000 : 1;
+  const options = { maximumFractionDigits: km ? 3 : 0 };
+  return `${(start / scale).toLocaleString(undefined, options)}–${(end / scale).toLocaleString(undefined, options)} ${km ? "km" : "m"}`;
 }
 
 function dataNotes(row: TerrainSection): string[] {
@@ -76,7 +106,7 @@ export function TerrainTable({
     analysis.returnedSections < analysis.sectionCount ||
     codes.has("section_rows_truncated");
   return (
-    <section aria-label="Terrain sections">
+    <section className="terrain-sections" aria-label="Terrain sections">
       <h3>Terrain sections</h3>
       <p className="activity-dashboard-status">
         Approximate elevation, not surface or technical difficulty: smoothing
@@ -90,23 +120,27 @@ export function TerrainTable({
           ? ` Showing ${analysis.returnedSections} of ${analysis.sectionCount} sections; not all sections are shown.`
           : ""}
       </p>
-      <div className="lap-table-wrap">
+      <div
+        className="lap-table-wrap terrain-table-wrap"
+        tabIndex={0}
+        role="region"
+        aria-label="Terrain measurements"
+      >
         <table className="lap-table terrain-table">
-          <caption>Estimated elevation-profile sections</caption>
+          <caption>Section details</caption>
           <thead>
             <tr>
               {[
-                "Select",
-                "Kind",
-                "Distance interval (m)",
-                "Distance (m)",
-                "Ascent / descent (m)",
-                "Signed grade (%)",
-                "≥10% up / down (m)",
-                "Elapsed",
-                "Est. moving / stationary",
-                "Elapsed pace",
-                "Avg HR (bpm)",
+                "Section",
+                "Type",
+                "Range",
+                "Distance",
+                "Ascent",
+                "Descent",
+                "Grade",
+                "Duration",
+                "Pace",
+                "Avg HR",
                 ...(showNotes ? ["Data notes"] : []),
               ].map((label) => (
                 <th scope="col" key={label}>
@@ -121,32 +155,26 @@ export function TerrainTable({
                 <td>
                   <button
                     type="button"
+                    className="terrain-section-select"
+                    aria-label={`Select section ${i + 1}`}
                     aria-pressed={selectedId === row.id}
                     onClick={() => onSelect(row.id)}
                   >
-                    Section {i + 1}
+                    {i + 1}
                   </button>
                 </td>
                 <td>{row.kind}</td>
                 <td>
-                  {finiteNumberLabel(row.startDistanceMeters, 0)}–
-                  {finiteNumberLabel(row.endDistanceMeters, 0)}
+                  {distanceRange(
+                    row.startDistanceMeters,
+                    row.endDistanceMeters,
+                  )}
                 </td>
-                <td>{finiteNumberLabel(row.distanceMeters, 0)}</td>
-                <td>
-                  {finiteNumberLabel(row.ascentMeters, 1)} /{" "}
-                  {finiteNumberLabel(row.descentMeters, 1)}
-                </td>
-                <td>≈{finiteNumberLabel(row.meanGradePct, 1)}</td>
-                <td>
-                  {finiteNumberLabel(row.steepUpMeters, 0)} /{" "}
-                  {finiteNumberLabel(row.steepDownMeters, 0)}
-                </td>
+                <td>{distance(row.distanceMeters)}</td>
+                <td>{measurement(row.ascentMeters, " m")}</td>
+                <td>{measurement(row.descentMeters, " m")}</td>
+                <td>{measurement(row.meanGradePct, "%")}</td>
                 <td>{humanDuration(row.elapsedSec)}</td>
-                <td>
-                  {humanDuration(row.estimatedMovingSec)} /{" "}
-                  {humanDuration(row.estimatedStationarySec)}
-                </td>
                 <td>
                   {row.elapsedPaceSecPerKm !== null &&
                   Number.isFinite(row.elapsedPaceSecPerKm) &&
@@ -154,8 +182,12 @@ export function TerrainTable({
                     ? `${humanDuration(row.elapsedPaceSecPerKm)}/km`
                     : "Unavailable"}
                 </td>
-                <td>{finiteNumberLabel(row.averageHeartRate, 0)}</td>
-                {showNotes ? <td>{notes[i].join("; ") || "—"}</td> : null}
+                <td>{measurement(row.averageHeartRate, " bpm", 0)}</td>
+                {showNotes ? (
+                  <td className="terrain-data-notes">
+                    {notes[i].join("; ") || "—"}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

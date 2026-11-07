@@ -45,17 +45,21 @@ def scenario(run):
         # Leave selected for the next activity reset proof.
         run.command({'type': 'terrain', 'action': 'toggle'})
         terrain_wait(run, lambda value: value['selected'] and value['highlighted'], 'selected before reset')
-        for preset, edge in [('wide', 'start'), ('narrow', 'start'), ('narrow', 'end')]:
+        run.command({'type': 'terrain', 'action': 'collapse'})
+        for preset, edge in [('wide', 'start'), ('medium', 'start'), ('narrow', 'start'), ('narrow', 'end')]:
             run.command({'type': 'setViewport', 'preset': preset})
             observed = run.command({'type': 'terrain', 'action': edge})
             image = run.command({'type': 'captureView', 'view': 'terrain', 'preset': preset})
             entry = {'variant': variant, 'preset': preset, 'edge': edge, 'observation': observed, **image}
             captures.append(entry)
             private_json(run.root / ('terrain-' + variant + '-' + preset + '-' + edge + '.json'), entry)
-            if not all(observed[key] for key in ['ready', 'compact', 'contained', 'paragraphVisible', 'headerVisible']):
+            if not all(observed[key] for key in ['ready', 'compact', 'contained', 'paragraphVisible', 'headerVisible', 'gridValues', 'singleLine', 'gapVisible', 'edgeReached']):
                 raise ValueError('Terrain geometry gate failed; original capture retained')
+            if preset != 'narrow' and observed['tableWidth'] > observed['contentWidth'] + 1:
+                raise ValueError('Terrain desktop fit failed; original capture retained')
             if observed['partial'] != (variant != 'supported') or observed['capped'] != (variant == 'capped'):
                 raise ValueError('Terrain quality/cap presentation failed')
+        run.command({'type': 'terrain', 'action': 'expand'})
     return captures
 
 
@@ -78,7 +82,7 @@ def main():
         run = OrdinaryRun(scratch, database, source, bundle, inventory, verified=verified)
         observer = None
         errors = []
-        receipt = {'source': source, 'scenario': 'T0293-authored-terrain', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; three authored hikes, 727 normalized points, no GPS', 'providerAndGarmin': 'not invoked', 'limits': 'Actual unmodified ordinary isolated WebView; paragraph/headers/controls/data-note masks at actual geometry; numeric cells/private adjacent UI hidden. Synthetic DOM actions, not trusted input/default-window or real-service proof.', 'resourceDisposition': resources.disposition()}
+        receipt = {'source': source, 'scenario': 'T0294-authored-terrain-grid', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; three authored hikes, 1227 normalized points, no GPS', 'providerAndGarmin': 'not invoked', 'limits': 'Actual unmodified ordinary isolated WebView; exact synthetic projected grid/paragraph/headers/controls/notes revealed only after full matrix validation, unrelated adjacent UI hidden at unchanged geometry. Real selector collapsed for 1280/1024/420 fit captures. Synthetic DOM actions, not trusted input/default-window or real-service proof.', 'resourceDisposition': resources.disposition()}
         try:
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer
