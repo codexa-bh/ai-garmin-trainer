@@ -2832,6 +2832,64 @@ label {
   }
 }
 
+.terrain-sections {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.terrain-sections > .activity-dashboard-status {
+  margin-bottom: 12px;
+}
+
+.terrain-sections > details {
+  margin-bottom: 12px;
+}
+
+.terrain-table-wrap {
+  min-width: 0;
+}
+
+.terrain-table-wrap:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.terrain-table {
+  min-width: 0;
+  width: 100%;
+}
+
+.terrain-table caption {
+  padding: 8px;
+  font-size: 13px;
+}
+
+.terrain-table th,
+.terrain-table td {
+  padding: 6px 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.terrain-table .terrain-data-notes {
+  min-width: 140px;
+  max-width: 240px;
+  white-space: normal;
+}
+
+/* Override the shared button padding without shrinking other activity controls. */
+.terrain-table
+  button.terrain-section-select:not(.conversation-select):not(
+    .drawer-backdrop
+  ):not(.settings-backdrop):not(.conversation-menu-trigger):not(
+    .health-rollup-value
+  ) {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px 8px;
+}
+
 .terrain-table tr[data-selected="true"] {
   background: color-mix(in srgb, #80bfff 18%, transparent);
 }
