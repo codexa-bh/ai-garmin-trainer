@@ -135,8 +135,8 @@ describe("canonical trainer instruction package", () => {
     expect(planner).toContain(
       "Try to finish within 20 executions (a soft target, not a hard stop)",
     );
-    expect(planner).toContain(
-      "Per-tool successful schema, SQL, and math caps are 30",
+    expect(planner).not.toMatch(
+      /Per-tool successful|analyticalSuccess|successful per-tool quota/,
     );
     expect(planner).toContain("Reuse sufficient current-turn evidence");
     expect(planner).toContain("Reserve 1 provider attempt");

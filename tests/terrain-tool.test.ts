@@ -6,8 +6,6 @@ import {
 import { executeAnalyticsTool } from "../src/lib/ai/tool-analytics";
 import { TrainerToolExecutionContext } from "../src/lib/ai/tool-execution-context";
 import { renderToolSteps } from "../src/lib/ai/tool-evidence";
-import { TRAINER_EXECUTION_POLICY } from "../src/lib/ai/execution-budget";
-import { canToolRunWithinBudget } from "../src/lib/ai/tool-selection";
 import { validateTrainerToolCall } from "../src/lib/ai/tool-contracts";
 const points: TerrainPoint[] = Array.from({ length: 101 }, (_, i) => ({
   timestamp: new Date(Date.UTC(2026, 0, 1) + i * 10000).toISOString(),
@@ -100,7 +98,7 @@ describe("terrain analytical tool", () => {
     expect(step.status).toBe("rejected");
     expect(context.analysisResults.size).toBe(0);
   });
-  it("strictly validates bounded single activity input and preserves success budgets", () => {
+  it("strictly validates bounded single activity input", () => {
     for (const input of [
       { garminId: "id", maxRows: 21 },
       { garminId: "../db" },
@@ -110,16 +108,5 @@ describe("terrain analytical tool", () => {
         validateTrainerToolCall({ toolName: "analyzeActivityTerrain", input })
           .ok,
       ).toBe(false);
-    expect(
-      canToolRunWithinBudget(
-        "analyzeActivityTerrain",
-        new Map([
-          [
-            "analyzeActivityTerrain",
-            TRAINER_EXECUTION_POLICY.analyticalSuccessLimit,
-          ],
-        ]),
-      ),
-    ).toBe(false);
   });
 });

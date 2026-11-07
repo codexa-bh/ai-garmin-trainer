@@ -10,7 +10,7 @@ import type { RetrievedMemory } from "@/lib/memory/types";
 import type { TrainerSystemPrompt } from "@/lib/ai/trainer-instructions";
 
 const GROUNDING_POLICY =
-  "Active conversation context is selected from the current chat up to a safe transcript budget; New chat is the reset boundary for this short-term context. Use only selected recent facts and explicit tool/local analytics results for detailed claims. Deleted, expired, disabled, unavailable, or unrelated memories are not included and must not affect the answer. Never describe summary-only analytics as FIT/stream analysis; only claim detailed FIT/stream evidence when an activity has available or partial detail with records/laps. Never request or expose Garmin credentials, raw FIT bytes, raw connector payloads, or unbounded full-history/stream dumps.";
+  "Active conversation context is selected from the current chat up to a safe transcript budget; New chat is the reset boundary for this short-term context. Deleted, expired, disabled, unavailable, or unrelated memories are not included and must not affect the answer. Apply the canonical source hierarchy, available-evidence and privacy rules to this selected context.";
 
 const ACTIVE_TRANSCRIPT_CHAR_BUDGET = 6000;
 

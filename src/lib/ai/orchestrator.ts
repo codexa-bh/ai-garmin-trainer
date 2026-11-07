@@ -16,14 +16,14 @@ import {
   completeTrainingPlanSchema,
   renderCompleteTrainingPlan,
 } from "./training-plan-evidence";
-import { groundingForSteps, renderToolSteps } from "./tool-evidence";
-import { canToolRunWithinBudget, selectSafeToolCalls } from "./tool-selection";
+import {
+  boundedText,
+  groundingForSteps,
+  renderToolSteps,
+} from "./tool-evidence";
+import { selectSafeToolCalls } from "./tool-selection";
 import { failedStep } from "./tool-step-diagnostics";
-import type {
-  TrainerToolCall,
-  TrainerToolName,
-  TrainerToolStep,
-} from "./tool-types";
+import type { TrainerToolCall, TrainerToolStep } from "./tool-types";
 import {
   buildLlmDebugTrace,
   debugProviderCall,
@@ -51,9 +51,6 @@ const MAX_TOTAL_TURN_EXECUTIONS = TRAINER_EXECUTION_POLICY.hardLimit;
 const MAX_PLANNER_CALLS = MAX_TOTAL_TURN_EXECUTIONS;
 const MAX_TOOL_CALLS = MAX_TOTAL_TURN_EXECUTIONS;
 const MAX_GENERAL_TOOL_CALLS = MAX_TOTAL_TURN_EXECUTIONS;
-const MAX_SCHEMA_CALLS = TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
-const MAX_SQL_CALLS = TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
-const MAX_MATH_CALLS = TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
 
 import {
   answerPreparationMessage,
@@ -149,17 +146,12 @@ function plannerSystem(
   baseSystem: TrainerSystemPrompt,
   priorSteps: TrainerToolStep[],
   budget: TrainerExecutionBudget,
-  analysisToolCounts: Map<TrainerToolName, number>,
+  nativeResults: boolean,
 ): TrainerSystemPrompt {
   const prior = priorSteps.length
-    ? synthesisEvidenceForSteps(priorSteps)
+    ? requestEvidence(priorSteps, nativeResults)
     : "No prior tool step in this user turn.";
-  return buildPlannerInstructions(
-    baseSystem,
-    prior,
-    budget,
-    Object.fromEntries(analysisToolCounts),
-  );
+  return buildPlannerInstructions(baseSystem, prior, budget);
 }
 
 function providerSelectionFailureText(step: TrainerToolStep): string {
@@ -222,14 +214,37 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
     .join("\n\n");
 }
 
+// Every dispatched step on an envelope route has a paired native result.
+// Selection diagnostics are not dispatched and must remain in fresh context.
+function requestEvidence(
+  steps: TrainerToolStep[],
+  nativeResults: boolean,
+): string {
+  if (!nativeResults) return synthesisEvidenceForSteps(steps);
+  return [
+    "Executed-step details are in paired native tool results, not this index. The latest General Plan read and last two successful weekly reads are the applicable document evidence; earlier reads remain historical. A failed read does not establish completeness. This index alone proves neither measurements, complete coverage nor write authorization.",
+    ...steps.map((step) => {
+      if (step.tool === "providerToolSelection")
+        return synthesisEvidenceForSteps([step]);
+      const result = step.result as { resultName?: unknown } | undefined;
+      const handle =
+        step.status === "succeeded" && typeof result?.resultName === "string"
+          ? ` Result handle: ${boundedText(result.resultName, 80)}.`
+          : "";
+      return `Evidence step ${step.index}: ${step.tool} ${step.status}.${handle}`;
+    }),
+  ].join("\n");
+}
+
 function finalAnswerSystem(
   baseSystem: TrainerSystemPrompt,
   steps: TrainerToolStep[],
   budgetStopped: boolean,
+  nativeResults: boolean,
 ): TrainerSystemPrompt {
   return buildFinalSynthesisInstructions(
     baseSystem,
-    synthesisEvidenceForSteps(steps),
+    requestEvidence(steps, nativeResults),
     budgetStopped,
   );
 }
@@ -370,6 +385,7 @@ async function synthesizeFinalAnswer(
         systemWithTurnContext(input),
         steps,
         budgetStopped,
+        Boolean(input.conversation),
       ),
       prompt: input.userRequest,
     });
@@ -432,7 +448,6 @@ async function orchestrateTurn(
 ): Promise<OrchestrateTrainerChatResult> {
   const steps: TrainerToolStep[] = [];
   const exchanges: TrainerNativeExchange[] = [];
-  const analysisToolCounts = new Map<TrainerToolName, number>();
   let providerCalls = 0;
   let toolAttempts = 0;
   let toolsSucceeded = 0;
@@ -554,7 +569,7 @@ async function orchestrateTurn(
           systemWithTurnContext(input),
           steps,
           budget(),
-          analysisToolCounts,
+          Boolean(input.conversation),
         ),
         prompt: input.userRequest,
       });
@@ -663,7 +678,6 @@ async function orchestrateTurn(
     const selection = selectSafeToolCalls({
       toolCalls,
       priorSteps: steps,
-      analysisToolCounts,
       exploratoryRemaining: budget().exploratoryRemaining,
     });
     if (!selection.ok) {
@@ -702,24 +716,6 @@ async function orchestrateTurn(
       if (budget().exploratoryRemaining <= 0) {
         skippedForTurnBudget += 1;
         break;
-      }
-      if (!canToolRunWithinBudget(accepted.toolName, analysisToolCounts)) {
-        const step = failedStep(
-          stepIndex,
-          "tool_budget_exceeded",
-          accepted.toolName,
-          `${accepted.toolName} was rejected because its per-turn budget was already exhausted.`,
-        );
-        const allSteps = [...steps, step];
-        return finish(
-          {
-            text: toolFailureLimitationText(allSteps),
-            grounding: groundingForSteps(allSteps),
-            toolSteps: allSteps,
-            providerCalls,
-          },
-          "deterministic_fallback",
-        );
       }
       if (
         ["saveTrainingPlan", "saveWeeklyDocuments"].includes(
@@ -782,18 +778,6 @@ async function orchestrateTurn(
           }),
         });
       if (selected.metadata) step.selection = selected.metadata;
-      if (
-        step.status === "succeeded" &&
-        (accepted.toolName === "describeGarminDatabase" ||
-          accepted.toolName === "runReadOnlySql" ||
-          accepted.toolName === "runMathAnalysis" ||
-          accepted.toolName === "analyzeActivityTerrain")
-      ) {
-        analysisToolCounts.set(
-          accepted.toolName,
-          (analysisToolCounts.get(accepted.toolName) ?? 0) + 1,
-        );
-      }
       steps.push(step);
       if (step.status === "succeeded") toolsSucceeded += 1;
       else toolsUnsuccessful += 1;
@@ -865,8 +849,5 @@ export const trainerOrchestrationLimits = {
   maxPlannerCalls: MAX_PLANNER_CALLS,
   maxToolCalls: MAX_TOOL_CALLS,
   maxGeneralToolCalls: MAX_GENERAL_TOOL_CALLS,
-  maxSchemaCalls: MAX_SCHEMA_CALLS,
-  maxSqlCalls: MAX_SQL_CALLS,
-  maxMathCalls: MAX_MATH_CALLS,
   providerCallTimeoutMs: TRAINER_PROVIDER_CALL_TIMEOUT_MS,
 };

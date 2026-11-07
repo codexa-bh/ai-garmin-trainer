@@ -13,22 +13,6 @@ import type {
   TrainerToolStepName,
 } from "./tool-types";
 
-// Selection observes successful counts; the turn loop rechecks and updates them.
-export function canToolRunWithinBudget(
-  toolName: TrainerToolName,
-  analysisToolCounts: ReadonlyMap<TrainerToolName, number>,
-): boolean {
-  const currentCount = analysisToolCounts.get(toolName) ?? 0;
-  if (
-    toolName === "analyzeActivityTerrain" ||
-    toolName === "describeGarminDatabase" ||
-    toolName === "runReadOnlySql" ||
-    toolName === "runMathAnalysis"
-  )
-    return currentCount < TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
-  return true;
-}
-
 function selectedToolPriority(
   toolName: TrainerToolName,
   priorSteps: readonly TrainerToolStep[],
@@ -71,7 +55,6 @@ type SelectedTrainerToolCall = {
 export function selectSafeToolCalls(input: {
   toolCalls: readonly TrainerToolCall[];
   priorSteps: readonly TrainerToolStep[];
-  analysisToolCounts: ReadonlyMap<TrainerToolName, number>;
   exploratoryRemaining: number;
 }):
   | {
@@ -107,16 +90,12 @@ export function selectSafeToolCalls(input: {
     evaluated.push({ call, order, accepted });
   }
 
-  const candidates = evaluated
-    .filter((item) =>
-      canToolRunWithinBudget(item.accepted.toolName, input.analysisToolCounts),
-    )
-    .sort((left, right) => {
-      const priority =
-        selectedToolPriority(left.accepted.toolName, input.priorSteps) -
-        selectedToolPriority(right.accepted.toolName, input.priorSteps);
-      return priority || left.order - right.order;
-    });
+  const candidates = evaluated.sort((left, right) => {
+    const priority =
+      selectedToolPriority(left.accepted.toolName, input.priorSteps) -
+      selectedToolPriority(right.accepted.toolName, input.priorSteps);
+    return priority || left.order - right.order;
+  });
   if (!candidates.length) {
     return {
       ok: false,
@@ -124,7 +103,7 @@ export function selectSafeToolCalls(input: {
         stepIndex,
         "multiple_tool_calls_no_safe_tool",
         "providerToolSelection",
-        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}); none was a safe valid next tool within the remaining per-tool budgets.`,
+        `Provider selected ${input.toolCalls.length} tools (${toolNames.join(", ") || "none recognized"}); no valid tool calls were supplied.`,
       ),
     };
   }

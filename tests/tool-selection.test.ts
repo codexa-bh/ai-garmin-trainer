@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  canToolRunWithinBudget,
-  selectSafeToolCalls,
-} from "../src/lib/ai/tool-selection";
+import { selectSafeToolCalls } from "../src/lib/ai/tool-selection";
 import { TRAINER_EXECUTION_POLICY } from "../src/lib/ai/execution-budget";
 import type {
   TrainerToolCall,
@@ -23,7 +20,6 @@ const math: TrainerToolCall = {
   input: { inputResult: "rows", operation: "summarize" },
 };
 const status: TrainerToolCall = { toolName: "getSyncStatus", input: {} };
-const limit = TRAINER_EXECUTION_POLICY.analyticalSuccessLimit;
 const privacy =
   "No Garmin connector action or local analytics tool was executed for the rejected provider response.";
 
@@ -40,7 +36,6 @@ function select(
   return selectSafeToolCalls({
     toolCalls,
     priorSteps: [],
-    analysisToolCounts: new Map(),
     exploratoryRemaining: 30,
     ...overrides,
   });
@@ -85,14 +80,13 @@ describe("deterministic trainer tool selection", () => {
   );
 
   it.each([0, 1])(
-    "validates malformed quota-filtered input before capacity %s or later unknown calls",
+    "validates malformed input before capacity %s or later unknown calls",
     (exploratoryRemaining) => {
       expect(
         select(
           [status, { ...sql, input: {} }, { toolName: "unknown", input: {} }],
           {
             exploratoryRemaining,
-            analysisToolCounts: new Map([["runReadOnlySql", limit]]),
           },
         ),
       ).toEqual({
@@ -187,47 +181,21 @@ describe("deterministic trainer tool selection", () => {
     ).toEqual([status, plan, secondStatus, status]);
   });
 
-  it.each([
-    "describeGarminDatabase",
-    "runReadOnlySql",
-    "runMathAnalysis",
-  ] as const)(
-    "uses successful quota edges for %s without reserving a batch",
-    (toolName) => {
-      expect(canToolRunWithinBudget(toolName, new Map())).toBe(true);
-      const call = [schema, sql, math].find(
-        (item) => item.toolName === toolName,
-      )!;
-      const counts = new Map<TrainerToolName, number>([[toolName, limit - 1]]);
-      expect(
-        selected([call, call], { analysisToolCounts: counts }).calls,
-      ).toHaveLength(2);
-      expect(counts.get(toolName)).toBe(limit - 1);
-      for (const count of [limit, limit + 1]) {
-        counts.set(toolName, count);
-        expect(canToolRunWithinBudget(toolName, counts)).toBe(false);
-        expect(
-          select([call], {
-            analysisToolCounts: counts,
-            exploratoryRemaining: 0,
-          }),
-        ).toEqual({
-          ok: false,
-          step: {
-            index: 1,
-            tool: "providerToolSelection",
-            status: "rejected",
-            reason: "multiple_tool_calls_no_safe_tool",
-            privacy,
-            summary: `Provider selected 1 tools (${toolName}); none was a safe valid next tool within the remaining per-tool budgets.`,
-          },
-        });
-      }
+  it.each([schema, sql, math])(
+    "admits repeated $toolName calls solely by combined capacity",
+    (call) => {
+      const result = selected(
+        Array.from({ length: 40 }, () => call),
+        { exploratoryRemaining: 28 },
+      );
+      expect(result.calls).toHaveLength(28);
+      expect(result.skippedForTurnBudget).toBe(12);
+      expect(result.calls.every((item) => item.call === call)).toBe(true);
     },
   );
 
   it.each([0, -1])(
-    "reports capacity %s only after validation and candidate eligibility",
+    "reports capacity %s only after whole-batch validation",
     (exploratoryRemaining) => {
       expect(select([status], { exploratoryRemaining })).toEqual({
         ok: false,
@@ -253,30 +221,26 @@ describe("deterministic trainer tool selection", () => {
         reason: "multiple_tool_calls_no_safe_tool",
         privacy,
         summary:
-          "Provider selected 0 tools (none recognized); none was a safe valid next tool within the remaining per-tool budgets.",
+          "Provider selected 0 tools (none recognized); no valid tool calls were supplied.",
       },
     });
   });
 
   it.each([1, 2, 3, 4])(
-    "truncates eligible calls to %s, excluding quota-filtered tools from skipped counts",
+    "sorts then truncates valid calls to %s with truthful skipped counts",
     (exploratoryRemaining) => {
       const result = selected([status, schema, status, status], {
         exploratoryRemaining,
-        analysisToolCounts: new Map([
-          ["describeGarminDatabase", limit],
-          ["getSyncStatus", limit + 1],
-        ]),
       });
-      expect(result.calls).toHaveLength(Math.min(exploratoryRemaining, 3));
+      expect(result.calls).toHaveLength(exploratoryRemaining);
       expect(result.skippedForTurnBudget).toBe(
-        Math.max(0, 3 - exploratoryRemaining),
+        Math.max(0, 4 - exploratoryRemaining),
       );
       expect(result.calls[0].metadata).toEqual({
         reason: "multiple_tool_calls",
         count: 4,
         toolNames: ["getSyncStatus", "describeGarminDatabase"],
-        selectedTool: "getSyncStatus",
+        selectedTool: "describeGarminDatabase",
       });
     },
   );
@@ -294,10 +258,7 @@ describe("deterministic trainer tool selection", () => {
       { toolName: "getActivityDetailSlice", input: { garminId: "synthetic" } },
       { toolName: "verifyActivityReference", input: { garminId: "synthetic" } },
     ];
-    const counts = new Map<TrainerToolName, number>([
-      ["runReadOnlySql", limit],
-    ]);
-    const result = selected(calls, { analysisToolCounts: counts });
+    const result = selected(calls);
     for (const item of result.calls)
       expect(item.metadata).toEqual({
         reason: "multiple_tool_calls",
@@ -320,24 +281,7 @@ describe("deterministic trainer tool selection", () => {
     ).toBeUndefined();
   });
 
-  it("does not apply analytical counts to any non-analytical tool", () => {
-    const names: TrainerToolName[] = [
-      "runGarminSync",
-      "getSyncStatus",
-      "verifyActivityReference",
-      "forceRefreshActivityDetail",
-      "getActivityDetailAvailability",
-      "getActivityDetailSlice",
-      "getTrainingPlan",
-      "saveTrainingPlan",
-    ];
-    for (const name of names)
-      expect(canToolRunWithinBudget(name, new Map([[name, limit + 1]]))).toBe(
-        true,
-      );
-  });
-
-  it("preserves arrays, nested inputs, prior steps and map entries on success and rejection", () => {
+  it("preserves arrays, nested inputs and prior steps on success and rejection", () => {
     const nestedCall = {
       toolName: "runMathAnalysis",
       input: {
@@ -354,19 +298,9 @@ describe("deterministic trainer tool selection", () => {
     const priorSteps = Object.freeze([
       Object.freeze(step("describeGarminDatabase")),
     ]);
-    const analysisToolCounts = new Map<TrainerToolName, number>([
-      ["runReadOnlySql", 1],
-    ]);
-    const before = structuredClone({
-      toolCalls,
-      priorSteps,
-      analysisToolCounts,
-    });
-    selected(toolCalls, { priorSteps, analysisToolCounts });
-    select([...toolCalls, { toolName: "unknown", input: {} }], {
-      priorSteps,
-      analysisToolCounts,
-    });
-    expect({ toolCalls, priorSteps, analysisToolCounts }).toEqual(before);
+    const before = structuredClone({ toolCalls, priorSteps });
+    selected(toolCalls, { priorSteps });
+    select([...toolCalls, { toolName: "unknown", input: {} }], { priorSteps });
+    expect({ toolCalls, priorSteps }).toEqual(before);
   });
 });

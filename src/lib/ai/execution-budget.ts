@@ -3,7 +3,6 @@ export const TRAINER_EXECUTION_POLICY = {
   hardLimit: 30,
   softTarget: 20,
   finalAnswerReserve: 1,
-  analyticalSuccessLimit: 30,
 } as const;
 
 export function trainerExecutionBudget(
