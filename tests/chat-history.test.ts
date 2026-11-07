@@ -113,6 +113,67 @@ describe("local chat history repository", () => {
     expect(row.groundingJson.length).toBeLessThanOrEqual(24000);
   });
 
+  it("reads historical checker failure diagnostics without changing their answer, reasons or saved bytes", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const refusal =
+      "I could not validate the model's completion or its declared evidence.";
+    const saved = repository.appendChatMessage({
+      conversationId: "historical-checker",
+      role: "assistant",
+      content: refusal,
+      grounding: {
+        tool: "runReadOnlySql",
+        privacy: "historical",
+        debugTrace: {
+          schemaVersion: 1,
+          capturedAt: "2026-10-01T00:00:00.000Z",
+          providerCalls: [
+            {
+              index: 1,
+              purpose: "final_synthesis",
+              toolCalls: [
+                {
+                  toolName: "completeTrainerTurn",
+                  input: {
+                    schemaValid: true,
+                    declaredClaims: 12,
+                    rejection: {
+                      reason: "metric_step_required",
+                      claimIndex: 0,
+                    },
+                    answerContent: "omitted",
+                  },
+                },
+              ],
+            },
+          ],
+          toolSteps: [],
+          finalAnswer: refusal,
+          finalAnswerSource: "deterministic_fallback",
+          caps: { string: 1200 },
+        },
+      },
+    });
+    const bytes = () =>
+      repository
+        .getDatabase()
+        .prepare("select grounding_json from message where id=?")
+        .get(saved.id);
+    const before = bytes();
+    const history = repository.listRecentChatMessages("historical-checker");
+    expect(history[0].content).toBe(refusal);
+    expect(
+      history[0].grounding?.debugTrace?.providerCalls[0].toolCalls?.[0].input,
+    ).toMatchObject({
+      declaredClaims: 12,
+      rejection: { reason: "metric_step_required", claimIndex: 0 },
+    });
+    expect(history[0].grounding?.debugTrace?.finalAnswerSource).toBe(
+      "deterministic_fallback",
+    );
+    expect(bytes()).toEqual(before);
+  });
+
   it("keeps manual new-chat conversations separate without deleting existing transcript", async () => {
     const repository = await import("../src/lib/db/repository");
 

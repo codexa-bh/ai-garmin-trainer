@@ -2111,6 +2111,53 @@
     for (const el of [selectedTable, ...selectedTable.querySelectorAll("*")])
       el.setAttribute("data-smoke-reveal", "");
   }
+  // Finite authored chat proof only: never reveal arbitrary model/user prose.
+  const ordinaryChatAnswer =
+    "Authored weekday hike: 6543 m in 4321 s, 321 m ascent, mean HR 123. The elevation section averages 10% across 1000 m. Keep weekday climbing practice manageable; surface and technicality remain unknown.";
+  function revealOrdinaryChat() {
+    const matches = [
+      ...document.querySelectorAll(
+        ".chat-message.assistant .assistant-content",
+      ),
+    ].filter(
+      (node) =>
+        node.childElementCount === 1 &&
+        node.firstElementChild.tagName === "P" &&
+        node.firstElementChild.childElementCount === 0 &&
+        node.textContent === ordinaryChatAnswer,
+    );
+    if (matches.length !== 1)
+      throw Error("Canonical authored chat answer required");
+    const content = matches[0];
+    for (
+      let node = content.parentElement;
+      node && node !== document.body;
+      node = node.parentElement
+    ) {
+      if (
+        [...node.childNodes].some(
+          (child) =>
+            child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+        )
+      )
+        throw Error("Chat capture refuses private ancestor text");
+    }
+    for (
+      let node = content;
+      node && node !== document.body;
+      node = node.parentElement
+    ) {
+      if (["auto", "scroll"].includes(getComputedStyle(node).overflowY)) {
+        maskScroll.push([node, node.scrollLeft, node.scrollTop]);
+        node.scrollTop +=
+          content.getBoundingClientRect().top -
+          node.getBoundingClientRect().top -
+          12;
+      }
+      node.setAttribute("data-smoke-reveal", "");
+    }
+    content.firstElementChild.setAttribute("data-smoke-reveal", "");
+  }
   // Finite authored Terrain seed only. No caller IDs/selectors/values or raw observations.
   let terrainVariant = null;
   const terrainCopy =
@@ -2140,16 +2187,155 @@
       throw Error("Noncanonical Terrain copy refused");
     return region;
   }
+  function terrainGridRows() {
+    if (terrainVariant === "supported")
+      return [
+        [
+          "1",
+          "climb",
+          "0–2 km",
+          "2 km",
+          "198.8 m",
+          "0 m",
+          "9.9%",
+          "1h 6m 40s",
+          "33m 20s/km",
+          "125 bpm",
+        ],
+        [
+          "2",
+          "descent",
+          "2–4.025 km",
+          "2.025 km",
+          "0 m",
+          "198.8 m",
+          "-9.8%",
+          "1h 7m 30s",
+          "33m 20s/km",
+          "125 bpm",
+        ],
+        [
+          "3",
+          "flat",
+          "4.025–6 km",
+          "1.975 km",
+          "0 m",
+          "0 m",
+          "0%",
+          "1h 5m 50s",
+          "33m 20s/km",
+          "125 bpm",
+        ],
+      ];
+    if (terrainVariant === "partial")
+      return [
+        [
+          "1",
+          "climb",
+          "0–490 m",
+          "490 m",
+          "49 m",
+          "0 m",
+          "10%",
+          "8m 10s",
+          "16m 40s/km",
+          "Unavailable",
+          "Avg HR unavailable",
+        ],
+        [
+          "2",
+          "climb",
+          "0.5–1 km",
+          "500 m",
+          "50 m",
+          "0 m",
+          "10%",
+          "8m 20s",
+          "16m 40s/km",
+          "Unavailable",
+          "Avg HR unavailable",
+        ],
+      ];
+    const km = (value) =>
+      value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+    return Array.from({ length: 100 }, (_, i) => [
+      String(i + 1),
+      "climb",
+      i === 0 ? "0–400 m" : `${km(i * 0.6)}–${km(i * 0.6 + 0.4)} km`,
+      "400 m",
+      "40 m",
+      "0 m",
+      "10%",
+      "40s",
+      "1m 40s/km",
+      "125 bpm",
+    ]);
+  }
+  function terrainGridMatches(region) {
+    const table = region?.querySelector("table");
+    if (!table || table.caption?.textContent !== "Section details")
+      return false;
+    const headers = [
+      "Section",
+      "Type",
+      "Range",
+      "Distance",
+      "Ascent",
+      "Descent",
+      "Grade",
+      "Duration",
+      "Pace",
+      "Avg HR",
+      ...(terrainVariant === "partial" ? ["Data notes"] : []),
+    ];
+    if (
+      JSON.stringify(
+        [...table.querySelectorAll("th")].map((el) => el.textContent),
+      ) !== JSON.stringify(headers)
+    )
+      return false;
+    const rows = [...table.tBodies[0].rows];
+    return (
+      JSON.stringify(
+        rows.map((row) => [...row.cells].map((el) => el.textContent)),
+      ) === JSON.stringify(terrainGridRows()) &&
+      rows.every(
+        (row, i) =>
+          row.cells[0].querySelector("button")?.getAttribute("aria-label") ===
+          `Select section ${i + 1}`,
+      )
+    );
+  }
   function terrainObservation(action) {
     const region = terrainRegion();
     const paragraph = region?.querySelector("p");
     const rect = paragraph?.getBoundingClientRect();
     const wrapper = region?.querySelector(".lap-table-wrap");
     const bounds = wrapper?.getBoundingClientRect();
+    const table = region?.querySelector("table");
+    const gap = rect && bounds ? bounds.top - rect.bottom : 0;
     return {
       ok: true,
       action,
       trustedInput: false,
+      gridValues: terrainGridMatches(region),
+      singleLine:
+        !!table &&
+        [...table.querySelectorAll("th, td:not(.terrain-data-notes)")].every(
+          (el) => lineCount(el) === 1,
+        ),
+      gapVisible: gap >= 8,
+      edgeReached:
+        !!wrapper &&
+        (action !== "end" ||
+          Math.abs(
+            wrapper.scrollWidth - wrapper.clientWidth - wrapper.scrollLeft,
+          ) <= 1) &&
+        (action !== "start" || wrapper.scrollLeft === 0),
+      viewportWidth: innerWidth,
+      contentWidth: wrapper?.clientWidth ?? 0,
+      tableWidth: Math.ceil(table?.getBoundingClientRect().width ?? 0),
+      gapPixels: Math.max(0, Math.round(gap)),
       choicesReady: ["supported", "partial", "capped"].every((variant) =>
         [...document.querySelectorAll(".activity-list-item strong")].some(
           (el) =>
@@ -2191,6 +2377,8 @@
         "toggle",
         "start",
         "end",
+        "collapse",
+        "expand",
       ].includes(command.action)
     )
       throw Error("Unsupported Terrain action/mode");
@@ -2211,7 +2399,16 @@
     } else if (command.action !== "observe") {
       const region = terrainRegion();
       if (!region) throw Error("Authored Terrain required");
-      if (command.action === "toggle") {
+      if (["collapse", "expand"].includes(command.action)) {
+        const name =
+          command.action === "collapse"
+            ? "Collapse activity selector"
+            : "Expand activity selector";
+        const button = document.querySelector(`button[aria-label="${name}"]`);
+        if (!visible(button) || button.disabled)
+          throw Error("Authored selector control unavailable");
+        button.click();
+      } else if (command.action === "toggle") {
         const button = region.querySelector("button");
         if (!visible(button) || button.disabled)
           throw Error("Terrain selection unavailable");
@@ -2238,8 +2435,13 @@
   function revealTerrain() {
     const region = terrainRegion();
     const observation = terrainObservation("observe");
-    if (!region || !observation.paragraphVisible || !observation.headerVisible)
-      throw Error("Visible canonical Terrain required");
+    if (
+      !region ||
+      !observation.paragraphVisible ||
+      !observation.headerVisible ||
+      !observation.gridValues
+    )
+      throw Error("Visible canonical Terrain grid required");
     const safe = new Set([
       "Terrain sections",
       terrainCopy +
@@ -2249,18 +2451,18 @@
           capped:
             " Partial coverage. Showing 100 of 105 sections; not all sections are shown.",
         }[terrainVariant],
-      "Estimated elevation-profile sections",
-      "Select",
-      "Kind",
-      "Distance interval (m)",
-      "Distance (m)",
-      "Ascent / descent (m)",
-      "Signed grade (%)",
-      "≥10% up / down (m)",
-      "Elapsed",
-      "Est. moving / stationary",
-      "Elapsed pace",
-      "Avg HR (bpm)",
+      "Section details",
+      "Section",
+      "Type",
+      "Range",
+      "Distance",
+      "Ascent",
+      "Descent",
+      "Grade",
+      "Duration",
+      "Pace",
+      "Avg HR",
+      ...terrainGridRows().flat(),
       "Data notes",
       "climb",
       "descent",
@@ -2278,10 +2480,7 @@
         ![...el.childNodes].some(
           (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim(),
         ) ||
-        (!el.children.length &&
-          (safe.has(el.textContent) ||
-            (el.tagName === "BUTTON" &&
-              /^Section (?:[1-9]\d?|100)$/.test(el.textContent))))
+        (!el.children.length && safe.has(el.textContent))
       )
         el.setAttribute("data-smoke-reveal", "");
     }
@@ -2314,16 +2513,31 @@
       el.removeAttribute("data-smoke-reveal");
   }
   const viewport = (preset) => {
-    const width = preset === "wide" ? 1280 : preset === "narrow" ? 420 : 0;
+    const width =
+      preset === "wide"
+        ? 1280
+        : preset === "medium"
+          ? 1024
+          : preset === "narrow"
+            ? 420
+            : 0;
     return width && innerWidth === width && innerHeight === 850;
   };
   async function maskedView(command) {
-    if (!globalThis.__trainerOrdinaryIsolated || !viewport(command.preset))
-      throw Error("Unsupported viewport/mode");
+    if (
+      !globalThis.__trainerOrdinaryIsolated ||
+      !viewport(command.preset) ||
+      Object.keys(command).length !== 3 ||
+      !Object.keys(command).every((key) =>
+        ["type", "view", "preset"].includes(key),
+      )
+    )
+      throw Error("Unsupported viewport/mode or capture fields");
     const expected = {
       trainer: "Trainer",
       composer: "Trainer",
       conversation: "Trainer",
+      "ordinary-chat": "Trainer",
       memory: "Memory",
       sync: "Sync",
       profile: "Profile & data",
@@ -2527,6 +2741,7 @@
     if (command.view === "composer") revealComposer();
     if (command.view === "conversation") revealConversations();
     if (command.view === "tables") revealTables();
+    if (command.view === "ordinary-chat") revealOrdinaryChat();
     if (command.view === "terrain") revealTerrain();
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";

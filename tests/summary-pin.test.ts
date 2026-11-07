@@ -165,19 +165,16 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
               model: "gpt-6-luna",
               output: [
                 {
-                  type: "function_call",
-                  id: "fc-pin",
-                  call_id: "call-pin",
-                  name: "completeTrainerTurn",
-                  arguments: JSON.stringify({
-                    completion: {
-                      kind: "coaching",
-                      answer:
-                        "Short weekdays for time; long weekdays rejected.",
-                      claims: [],
-                      missingEvidence: [],
+                  type: "message",
+                  id: "msg-pin",
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "output_text",
+                      text: "Short weekdays for time; long weekdays rejected.",
+                      annotations: [],
                     },
-                  }),
+                  ],
                   status: "completed",
                 },
               ],

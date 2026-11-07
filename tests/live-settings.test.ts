@@ -1,6 +1,5 @@
 import { createServer, request as httpRequest } from "node:http";
 import { execFileSync } from "node:child_process";
-import { trainerCompletionSchema } from "../src/lib/ai/tool-contracts";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   applyLiveConfiguration,
@@ -12,18 +11,19 @@ import {
 import { memoryExtractionSelection } from "../src/lib/ai/providers";
 import { serveLiveSettings } from "../scripts/desktop/live-settings";
 
-it("keeps the finite Python provider completion aligned with the actual production tool contract", () => {
+it("keeps the finite Python provider aligned with ordinary text semantics", () => {
   const raw = execFileSync(
     "python3",
     [
       "-c",
-      "import sys,json; sys.path.insert(0,'scripts/desktop'); from live_provider import terminal_arguments; print(json.dumps(terminal_arguments()))",
+      "import sys,json; sys.path.insert(0,'scripts/desktop'); from live_provider import response_message; print(json.dumps(response_message()))",
     ],
     { encoding: "utf8" },
   );
-  expect(trainerCompletionSchema.parse(JSON.parse(raw)).completion.answer).toBe(
-    "Synthetic local snapshot retained.",
-  );
+  expect(JSON.parse(raw)).toEqual({
+    role: "assistant",
+    content: "Synthetic local snapshot retained.",
+  });
 });
 
 const boot = "12345678-1234-1234-1234-123456789abc";

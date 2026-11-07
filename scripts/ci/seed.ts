@@ -36,7 +36,10 @@ export function seedTerrain(db: Database.Database) {
   for (const [index, variant] of ["supported", "partial", "capped"].entries()) {
     const id = `T0293-${variant}`;
     const points = Array.from(
-      { length: variant === "capped" ? 525 : 101 },
+      {
+        length:
+          variant === "capped" ? 525 : variant === "supported" ? 601 : 101,
+      },
       (_, i) => {
         const distance =
           variant === "capped"
@@ -44,13 +47,24 @@ export function seedTerrain(db: Database.Database) {
             : i * 10;
         return {
           garminId: id,
-          elapsedSec: i * 10,
+          elapsedSec: i * (variant === "supported" ? 20 : 10),
           timestamp: new Date(
             Date.UTC(2026, 0, 1) +
-              (i * 10 + (variant === "partial" && i >= 50 ? 60 : 0)) * 1000,
+              (i * (variant === "supported" ? 20 : 10) +
+                (variant === "partial" && i >= 50 ? 60 : 0)) *
+                1000,
           ).toISOString(),
           distanceMeters: distance,
-          altitudeMeters: variant === "capped" ? (i % 5) * 10 : i,
+          altitudeMeters:
+            variant === "capped"
+              ? (i % 5) * 10
+              : variant === "supported"
+                ? i <= 200
+                  ? i
+                  : i <= 400
+                    ? 400 - i
+                    : 0
+                : i,
           heartRate: variant === "partial" ? null : 125,
         };
       },

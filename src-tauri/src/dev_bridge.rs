@@ -211,7 +211,7 @@ impl Command {
             | Self::Capture {}
             | Self::Sync { .. }
             | Self::HistorySettings { .. } => true,
-            Self::SetViewport { preset } => ["wide", "narrow"].contains(&preset.as_str()),
+            Self::SetViewport { preset } => ["wide", "medium", "narrow"].contains(&preset.as_str()),
             Self::CaptureView { view, preset } => {
                 [
                     "trainer",
@@ -219,12 +219,14 @@ impl Command {
                     "profile",
                     "composer",
                     "conversation",
+                    "ordinary-chat",
                     "memory",
                     "tables",
                     "terrain",
                 ]
                 .contains(&view.as_str())
-                    && ["wide", "narrow"].contains(&preset.as_str())
+                    && (["wide", "narrow"].contains(&preset.as_str())
+                        || (view == "terrain" && preset == "medium"))
             }
             Self::Terrain { action } => [
                 "observe",
@@ -234,6 +236,8 @@ impl Command {
                 "toggle",
                 "start",
                 "end",
+                "collapse",
+                "expand",
             ]
             .contains(&action.as_str()),
             Self::Composer { action } => {
@@ -580,6 +584,7 @@ fn renderer_diagnostic(_app: &tauri::AppHandle) -> Value {
 fn viewport_size(diagnostic: &Value, preset: &str) -> Option<tauri::LogicalSize<f64>> {
     let width = match preset {
         "wide" => 1280.0,
+        "medium" => 1024.0,
         "narrow" => 420.0,
         _ => return None,
     };
@@ -927,7 +932,12 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 && booleans.iter().all(|key| value[*key].is_boolean())
         }
         Command::Terrain { action } => {
+            let geometry = ["viewportWidth", "contentWidth", "tableWidth", "gapPixels"];
             let booleans = [
+                "gridValues",
+                "singleLine",
+                "gapVisible",
+                "edgeReached",
                 "choicesReady",
                 "ready",
                 "selected",
@@ -941,11 +951,15 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
             ];
             let mut keys = vec!["ok", "action", "trustedInput"];
             keys.extend(booleans);
+            keys.extend(geometry);
             ordinary
                 && exact_keys(value, &keys)
                 && value["action"].as_str() == Some(action)
                 && value["trustedInput"] == false
                 && booleans.iter().all(|key| value[*key].is_boolean())
+                && geometry
+                    .iter()
+                    .all(|key| value[*key].as_u64().is_some_and(|n| n <= 100_000))
         }
         Command::SetViewport { preset } => {
             exact_keys(value, &["ok", "preset"]) && value["preset"].as_str() == Some(preset)
@@ -1366,6 +1380,8 @@ mod tests {
         let current = json!({"width":1280,"height":818,"nativeWidth":1280.0,"nativeHeight":850.0});
         let wide = viewport_size(&current, "wide").unwrap();
         assert_eq!((wide.width, wide.height), (1280.0, 882.0));
+        let medium = viewport_size(&current, "medium").unwrap();
+        assert_eq!((medium.width, medium.height), (1024.0, 882.0));
         let narrow = viewport_size(&current, "narrow").unwrap();
         assert_eq!((narrow.width, narrow.height), (420.0, 882.0));
         assert!(viewport_size(&current, "arbitrary").is_none());
@@ -1524,6 +1540,26 @@ mod tests {
         .valid());
     }
     #[test]
+    fn authored_chat_capture_is_finite_and_ordinary_only() {
+        let command = Command::CaptureView {
+            view: "ordinary-chat".into(),
+            preset: "wide".into(),
+        };
+        assert!(command.valid());
+        for value in [
+            json!({"type":"captureView","view":"ordinary-chat","preset":"wide","selector":"body"}),
+            json!({"type":"captureView","view":"ordinary-chat","preset":"wide","answer":"private"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
+        }
+        assert!(!Command::CaptureView {
+            view: "ordinary-chat-private".into(),
+            preset: "wide".into()
+        }
+        .valid());
+    }
+
+    #[test]
     fn composer_is_finite_ordinary_only_and_results_never_return_values() {
         for action in ["observe", "draft", "choose", "keys"] {
             let command = Command::Composer {
@@ -1581,18 +1617,25 @@ mod tests {
             "toggle",
             "start",
             "end",
+            "collapse",
+            "expand",
         ] {
             let command = Command::Terrain {
                 action: action.into(),
             };
             assert!(command.valid());
             assert!(!config().permits(&command));
-            let value = json!({"ok":true,"action":action,"trustedInput":false,"choicesReady":true,"ready":true,"selected":false,"highlighted":false,"compact":true,"partial":false,"capped":false,"contained":true,"paragraphVisible":true,"headerVisible":true});
+            let value = json!({"ok":true,"action":action,"trustedInput":false,"choicesReady":true,"ready":true,"selected":false,"highlighted":false,"compact":true,"partial":false,"capped":false,"contained":true,"paragraphVisible":true,"headerVisible":true,"gridValues":true,"singleLine":true,"gapVisible":true,"edgeReached":true,"viewportWidth":1024,"contentWidth":900,"tableWidth":900,"gapPixels":12});
             assert!(super::safe_result(&command, &value, true));
             assert!(!safe_result(&command, &value));
             for (key, changed) in [
                 ("private", json!("raw")),
                 ("ready", json!("private")),
+                ("contentWidth", json!("private")),
+                ("viewportWidth", json!(100001)),
+                ("tableWidth", json!(-1)),
+                ("gapPixels", json!(1.5)),
+                ("gridValues", json!("private")),
                 ("action", json!("settings")),
                 ("trustedInput", json!(true)),
             ] {
@@ -1609,9 +1652,16 @@ mod tests {
             json!({"type":"terrain","action":"supported","id":"private"})
         )
         .is_err());
-        assert!(Command::CaptureView {
-            view: "terrain".into(),
-            preset: "narrow".into()
+        for preset in ["wide", "medium", "narrow"] {
+            assert!(Command::CaptureView {
+                view: "terrain".into(),
+                preset: preset.into()
+            }
+            .valid());
+        }
+        assert!(!Command::CaptureView {
+            view: "trainer".into(),
+            preset: "medium".into()
         }
         .valid());
     }

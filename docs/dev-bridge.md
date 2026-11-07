@@ -1123,12 +1123,46 @@ Seed/copy/Goals/trace data expire with task scratch and are never copied back.
 Ordinary-artifact launch, private data/integrations and hardware-input evidence
 remain independent; this path grants no settings, secret or general eval controls.
 
+## Finite authored ordinary chat proof
+
+`npm run smoke:chat -- --scratch <canonical-task-root> --bundle <canonical-current-ordinary-app> --task-id T0296`
+uses the same npm build environment (direct Python lacks that context), a physical
+canonical bundle path (not the source alias), and existing synthetic preparation,
+OrdinaryRun, source/artifact lock, native
+admission, observer and owned settlement. It selects no private input and calls no
+real service. A task-owned ephemeral loopback Ollama-compatible fixture emits only
+`verifyActivityReference(weekdayHike)`, `analyzeActivityTerrain(weekdayHike)` and
+ordinary authored coaching text: twice for JSON/NDJSON, then one continued turn.
+Seven calls total; no certificate, extra SQL or repair call. Only the exclusive
+run DB gets an authored hiking summary and 101 normalized elevation samples.
+Original prepared input, primary DB/settings and motivating conversations stay untouched.
+
+Assertions cover actual native-owned chat API/tool statuses, exact ordinary answer,
+exactly-once assistant persistence, continued conversation and history after a
+fresh native boot. Existing conversation-selection API selects only this task's
+new conversation. Fixed wide/narrow `captureView` view `ordinary-chat` reveals
+only the single exact authored assistant paragraph; unknown/changed/duplicate
+text, caller fields, private direct ancestors and debug/default mode refuse.
+All siblings and user prose stay masked, geometry stays unchanged and native
+capture/expiry restores masks and scroller state. No arbitrary text/selector,
+provider proxy, new production route or credential control is exposed.
+
+Before use, run the focused `chat_smoke_test.py`, native ordinary-chat/adjacent DOM
+contracts and native controller tests; build the current ARM64 ordinary artifact.
+Inspect both actual PNGs. This proves authored-provider app wiring/rendering,
+not real-provider semantics, model truthfulness, Garmin, trusted input or normal
+singleton behavior. Compact receipts record source/run/conversation provenance,
+call counts, input preservation, captures and shutdown. Existing invocation-owned
+resource disposition and scratch expiry apply independently; no copy-back or
+primary install/restart/cleanup is authorized. Baseline `smoke:ordinary` retains
+its separate parallel/lifecycle/security and Trainer/Sync/Profile evidence.
+
 ## Finite authored Terrain presentation
 
 `npm run smoke:terrain -- --scratch <canonical-task-root> --bundle <ordinary-app>`
 uses the existing `ci:seed --terrain` finite exception, ordinary provenance/preparation
 lock and outside-checkout `OrdinaryRun` ownership. Three fictional hikes contain
-727 normalized points: a supported climb, a timestamp-gap/HR-missing partial hike,
+1,227 normalized points: supported climb/descent/flat with hour-long sections, a timestamp-gap/HR-missing partial hike,
 and 105 disconnected supported runs exercising the existing 100-row cap. No
 personal data, GPS, private configuration, provider or Garmin operation is read.
 The real storage, dashboard API, analyzer and ActivityView render the results;
@@ -1136,24 +1170,18 @@ no response/state injection or fixture service is used. Quick/nightly/default
 representative inputs and workloads are unchanged.
 
 The ordinary-only closed `terrain` action accepts exactly `observe`, `supported`,
-`partial`, `capped`, `toggle`, `start`, `end`, with no IDs/values/selectors. Known
+`partial`, `capped`, `toggle`, `start`, `end`, `collapse`, `expand`, with no IDs/values/selectors. Known
 synthetic activity buttons select through existing UI handlers; row toggle uses
 the first real accessible section button. Results are fixed booleans for authored
 choices/readiness, selection/elevation, compactness, quality/cap and viewport
-containment. All existing run/boot/request/origin/deadline/default-mode denials
+containment, exact authored grid values, single-line measurements and a visible intro gap. Only bounded integer viewport/content/table/gap geometry (0–100,000 CSS pixels) accompanies those flags; no row values or private text are returned. Collapse/expand use only the real existing activity-selector buttons inside this authored scenario. All existing run/boot/request/origin/deadline/default-mode denials
 apply. Actions are single-dispatch; only read-only readiness polls for eight
 seconds. Unknown effects/failures stop without action replay. Native validates
-exact keys/types and matching action; no row values or private DOM are returned.
+exact keys/types/ranges and matching action; no row values or private DOM are returned.
 
-Nine native captures cover wide/narrow paragraph plus table headers, selected
-row controls, and narrow horizontal start/end for each case. `captureView terrain`
+Twelve native captures cover 1280x850 wide, 1024x850 medium and 420x850 narrow paragraph/grid, selected row controls, and narrow horizontal start/end for each case. The real selector is collapsed for fit captures and expanded again for the next activity. `captureView terrain`
 requires the exact authored heading and current canonical paragraph, no disclosure
-or list, and visible paragraph/header. Hide-by-default masks reveal only reviewed
-static copy/headers/controls/data notes; numeric cells and adjacent activity facts,
-charts, paths and private text stay hidden at unchanged geometry. This proves
-paragraph/table layout and DOM-observed elevation selection, not hidden numeric
-values, visible chart-highlight appearance, trusted input or default-window/real
-service behavior. Inspect each PNG independently. Masks restore on every native
+or list, and visible paragraph/header. Hide-by-default masks reveal reviewed static copy/headers/controls/data notes and the exact complete projected synthetic grid matrix. Caption, headers, every row/cell and numeric selector name must match the finite authored expectations before revealing measurements; any replaced/extra value refuses instead of a generic numeric allowlist. Adjacent activity facts, charts, paths and private text remain hidden at unchanged geometry. This proves the captured synthetic paragraph/grid values and DOM-observed elevation selection, not visible chart-highlight appearance, trusted input or default-window/real service behavior. Inspect each PNG independently. Masks restore on every native
 capture/error and expire after ten seconds; no layout replacement is used.
 
 Before use: focused Terrain seed/component/controller/runner tests and native

@@ -6,87 +6,6 @@ import {
 } from "@/lib/training-plan/limits";
 import type { TrainerToolName, TrainerToolCall } from "./tool-types";
 
-// One object shape avoids provider-specific union field leakage. All fields
-// are explicit; cross-field rules are validated, never inferred from answer text.
-export const trainerCompletionSchema = z
-  .object({
-    completion: z
-      .object({
-        kind: z
-          .enum(["coaching", "grounded", "incomplete"])
-          .describe(
-            "Use incomplete whenever missingEvidence is nonempty, including useful answers with validated partial claims. Grounded requires nonempty claims and empty missingEvidence. Coaching requires both arrays empty; it cannot verify personal measurements.",
-          ),
-        answer: z.string().trim().min(1).max(32000),
-        claims: z
-          .array(
-            z.discriminatedUnion("kind", [
-              z
-                .object({
-                  kind: z.literal("metric"),
-                  stepIndex: z.number().int().positive(),
-                  resultName: z.string().min(1).max(100),
-                  rowIndex: z.number().int().nonnegative(),
-                  column: z.string().min(1).max(100),
-                  value: z.union([
-                    z.string().max(2000),
-                    z.number().finite(),
-                    z.boolean(),
-                  ]),
-                })
-                .strict(),
-              z
-                .object({
-                  kind: z.literal("tool"),
-                  stepIndex: z.number().int().positive(),
-                  tool: z.enum([
-                    "runGarminSync",
-                    "getSyncStatus",
-                    "describeGarminDatabase",
-                    "verifyActivityReference",
-                    "forceRefreshActivityDetail",
-                    "getActivityDetailAvailability",
-                    "getActivityDetailSlice",
-                    "getTrainingPlan",
-                    "saveTrainingPlan",
-                    "getWeeklyPlan",
-                    "saveWeeklyDocuments",
-                  ]),
-                })
-                .strict(),
-            ]),
-          )
-          .max(64)
-          .describe(
-            "Metric claims cite exact successful current-turn SQL/math/terrain cells: server stepIndex, resultName, zero-based rowIndex, column and original scalar value (not rounded). Tool claims are ONLY for non-analytical outcomes/schema availability; never use runReadOnlySql, runMathAnalysis or analyzeActivityTerrain as a tool claim. Include only supported consequential claims; incomplete may retain validated partial claims.",
-          ),
-        missingEvidence: z
-          .array(z.string().trim().min(1).max(300))
-          .max(32)
-          .describe(
-            "Known evidence gaps. Any nonempty array requires kind=incomplete, not grounded. Preserve genuine gaps rather than deleting them to satisfy the completion kind.",
-          ),
-      })
-      .strict()
-      .superRefine((completion, ctx) => {
-        const valid =
-          completion.kind === "grounded"
-            ? completion.claims.length > 0 &&
-              completion.missingEvidence.length === 0
-            : completion.kind === "incomplete"
-              ? completion.missingEvidence.length > 0
-              : completion.claims.length === 0 &&
-                completion.missingEvidence.length === 0;
-        if (!valid)
-          ctx.addIssue({
-            code: "custom",
-            message:
-              "Completion kind conflicts with declared evidence or gaps.",
-          });
-      }),
-  })
-  .strict();
-
 const garminIdSchema = z
   .string()
   .trim()
@@ -274,7 +193,7 @@ export const trainerToolInputSchemas = {
 export const trainerToolContracts = {
   analyzeActivityTerrain: {
     description:
-      "Analyze one already-imported hike/walk elevation profile from bounded normalized local samples. Read-only, no refresh. Returns shared terrain-v2 climb/descent/flat/rolling sections, filtered signed grade, ascent/descent, distance in >=10% uphill/downhill mechanical bands, estimated stationary/moving support, time-weighted HR and coverage. Method uses 25m anchors, isolated spike rejection and triangular smoothing. Boundaries follow >=300m persistent grade/rolling trend changes refined to nearby peaks/valleys/plateau edges, never fixed distance tiles. Every section is at least300m; short fluctuations/tails are absorbed, short disconnected runs explicitly excluded; not measured slope, technical terrain or a difficulty score. Partial/truncated results require incomplete completion with exact supported row cells; successful rows register a same-turn math handle. Whole-analysis totals/coverage precede row limits; missing evidence is not zero. No GPS/raw streams/paths.",
+      "Analyze one already-imported hike/walk elevation profile from bounded normalized local samples. Read-only, no refresh. Returns shared terrain-v2 climb/descent/flat/rolling sections, filtered signed grade, ascent/descent, distance in >=10% uphill/downhill mechanical bands, estimated stationary/moving support, time-weighted HR and coverage. Method uses 25m anchors, isolated spike rejection and triangular smoothing. Boundaries follow >=300m persistent grade/rolling trend changes refined to nearby peaks/valleys/plateau edges, never fixed distance tiles. Every section is at least300m; short fluctuations/tails are absorbed, short disconnected runs explicitly excluded; not measured slope, technical terrain or a difficulty score. Disclose partial/truncated results explicitly in ordinary prose; successful rows register a same-turn math handle. Whole-analysis totals/coverage precede row limits; missing evidence is not zero. No GPS/raw streams/paths.",
     inputSchema: trainerToolInputSchemas.analyzeActivityTerrain,
   },
   getWeeklyPlan: {

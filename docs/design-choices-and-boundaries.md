@@ -234,7 +234,7 @@ Server-side application policy for trainer chat, consuming plain generation and
 execution capabilities from `orchestration-ports.ts`. `ai/composition.ts` binds
 the already-selected SDK model through `provider-generation.ts` and supplies the
 composed tool dispatcher; no SDK/model/DB/connector/outer-composition dependency
-enters policy, even through types. The provider adapter owns native tool/terminal-response options,
+enters policy, even through types. The provider adapter owns native action-tool/text-response options,
 raw results and per-call abort/timeout mechanics; HTTP disconnect behavior and
 independent memory provider configuration are unchanged. See the
 [AI boundary/test map](architecture.md#ai-application-and-providertool-adapters).
@@ -245,12 +245,12 @@ Responsibilities:
 - delegate deterministic batch selection and live successful-quota rechecks to `tool-selection.ts` before sequential execution; planner guidance avoids forbidden SQL tokens even as aliases (for example use `total_training_load`, not `load`), without relaxing validation or making terminal safety rejections retryable;
 - enforce the shared execution policy: 30 combined admitted provider/tool attempts per turn, including failed attempts and explicit final synthesis; guide the model to finish within 20 without enforcing that soft target;
 - send a live budget snapshot on every planning call, counting that call before rendering remaining capacity; successful schema/SQL/math quotas are separate, and failed queries do not consume those successful quotas;
-- reserve one provider execution for action-disabled final synthesis (only the terminal response tool remains), stopping exploration/batches before they consume it; reuse current-turn evidence and distinguish verified facts, user statements, general coaching and missing evidence;
+- reserve one provider execution for action-disabled final synthesis (no tools are exposed), stopping exploration/batches before they consume it; reuse current-turn evidence and distinguish verified facts, user statements, general coaching and missing evidence;
 - count actual admitted tool attempts separately from synthetic skipped-selection/budget diagnostics; diagnostics remain visible in grounding but do not represent executed tools;
 - on a planner exception after executed evidence, use the existing admitted action-disabled final-answer reserve once to explain supported facts and gaps; first-call failures without evidence still return immediately;
 - route missing/malformed/failed/timed-out terminal synthesis to bounded truthful prose without another call or a mandatory narrower follow-up; wrap-up never replays side effects;
 - pass only server-authored bounded evidence into follow-up planning/synthesis;
-- require a strict `completeTrainerTurn` response declaration; validate declared metric cells and non-analytical outcomes against exact successful current-turn execution, never words in user/model prose;
+- accept ordinary nonempty text when no action calls remain, without claim certification, prose classification or checker repair; accurate evidence use and limitations remain model responsibilities;
 - instruct the model to keep logs out of display prose; do not reject legitimate explanations by matching evidence labels or JSON-looking prefixes;
 - return fail-closed user-facing text when provider/tool synthesis fails.
 
