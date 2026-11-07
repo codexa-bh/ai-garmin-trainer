@@ -1113,6 +1113,10 @@ original synthetic-input integrity and owned process/endpoint/lease settlement;
 existing evidence-first invocation disposal and scheduler retention remain
 independent. No primary data back-sync, normal-app control or cleanup authority.
 
+## Finite authored Activity labels
+
+`npm run smoke:activity-labels -- --scratch <canonical-task-root> --bundle <ordinary-app>` uses the isolated ordinary owner and a fresh `ci:seed --activity-labels` database with three fictional strength_training, gravel_cycling and hiking summaries. No personal inputs or service calls are used. The closed ordinary-only `activityLabels` action admits observe/strength/gravel/hiking and list-scroll-to-selected, returns only readiness/containment booleans and never accepts IDs or selectors. Exact synthetic title, type and selected Garmin ID are validated before capture; only their list/detail text is revealed under geometry-preserving hide-by-default masks. Unknown text, extra fields, wrong mode or unmatched selection refuse. Captures are synthetic DOM action evidence, not trusted input, real integration or default-window certification. Inspect each wide/narrow image, preserve original-input and owned-settlement receipts. Validate seed, native/DOM/runner positive and negative contracts and privacy restoration before use.
+
 ## Task-needed bridge and runner extensions
 
 Safe, bounded task-needed smoke-bridge/runner evolution is **expected and wanted** as part of ordinary authorized implementation and validation. A missing command or supported input alone is not a reason for a separate ticket, an operator stop or a categorical Settings/Sync/token ban. A closed allowlist describes today's implementation contract, not an immutable feature ceiling. This policy grants no Start, credential access or other task's ownership/permissions; explicit task exclusions and independent safety/human gates still bind. Material scope or intended-behavior ambiguity needs resolution, not a permissive controller.

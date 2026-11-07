@@ -2283,6 +2283,37 @@ describe("strength activity detail visibility", () => {
     );
   }
 
+  it.each([
+    ["strength_training", "strength training"],
+    ["gravel_cycling", "gravel cycling"],
+    ["hiking", "hiking"],
+    ["future_sport", "future sport"],
+    ["  MiXeD_case Sport  ", "  MiXeD case Sport  "],
+    ["a__b", "a  b"],
+    ["<b>raw_sport</b>", "<b>raw sport</b>"],
+    ["", ""],
+  ])("formats only displayed type %j", (sport, expected) => {
+    const data = sparseStrength();
+    data.activity.sport = sport;
+    data.activity.label = "Title_with_underscores";
+    const original = structuredClone(data);
+    const { container } = render(detailView(data));
+    expect(
+      container.querySelector(".activity-list-item small")?.textContent,
+    ).toBe(`2026-10-13 · ${expected}`);
+    expect(
+      container.querySelector(".selected-activity-heading p")?.textContent,
+    ).toBe(`2026-10-13 · ${expected} · Garmin ID strength-205`);
+    expect(
+      container.querySelector(".selected-activity-heading h2")?.textContent,
+    ).toBe("Title_with_underscores");
+    expect(container.querySelector(".activity-list-item small b")).toBeNull();
+    expect(
+      container.querySelector(".selected-activity-heading p b"),
+    ).toBeNull();
+    expect(data).toEqual(original);
+  });
+
   it("links all charts with payload-scoped ownership and ignores stale chart clears", () => {
     const data = sparseStrength();
     data.activity.sport = "hiking";
@@ -2890,7 +2921,7 @@ describe("strength activity detail visibility", () => {
 });
 
 describe("TrainerDashboard activity charts", () => {
-  it("renders exact supplied sport text without icons, tooltips or Garmin IDs", async () => {
+  it("renders humanized sport text without icons, tooltips or Garmin IDs", async () => {
     const sports = [
       "hiking",
       "other",
@@ -2899,6 +2930,16 @@ describe("TrainerDashboard activity charts", () => {
       "  MiXeD_case Sport  ",
       "very_long_unrecognized_activity_sport_for_narrow_selector_layout",
       "<b>raw_sport</b>",
+      "",
+    ];
+    const labels = [
+      "hiking",
+      "other",
+      "gravel cycling",
+      "future sport",
+      "  MiXeD case Sport  ",
+      "very long unrecognized activity sport for narrow selector layout",
+      "<b>raw sport</b>",
       "",
     ];
     const activities = sports.map((sport, index) =>
@@ -2939,12 +2980,12 @@ describe("TrainerDashboard activity charts", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activities" }));
 
     await screen.findByText("Sport result 0");
-    for (const [index, sport] of sports.entries()) {
+    for (const [index, label] of labels.entries()) {
       const row = screen
         .getByText(`Sport result ${index}`)
         .closest(".activity-list-item") as HTMLElement;
       const metadata = row.querySelector("small");
-      expect(metadata?.textContent).toBe(`2026-08-12 · ${sport}`);
+      expect(metadata?.textContent).toBe(`2026-08-12 · ${label}`);
       expect(metadata?.children.length).toBe(0);
       expect(
         row.querySelector('[role="img"], [data-sport-icon], [title]'),
@@ -2956,7 +2997,7 @@ describe("TrainerDashboard activity charts", () => {
     }
   });
 
-  it("wraps long raw sport metadata without truncating it", () => {
+  it("wraps long sport metadata without truncating it", () => {
     const css = readFileSync("src/app/style.css", "utf8");
     const metadataBlock =
       css.match(/\.activity-list-item small\s*\{([\s\S]*?)\}/)?.[1] ?? "";
@@ -2964,6 +3005,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(metadataBlock).toContain("overflow-wrap: anywhere;");
     expect(metadataBlock).toContain("white-space: pre-wrap;");
     expect(metadataBlock).not.toContain("text-overflow: ellipsis;");
+    expect(css).toContain(
+      "grid-template-rows: auto minmax(240px, 42vh) minmax(0, 1fr);",
+    );
     expect(css).not.toContain(".activity-sport-icon");
   });
 
@@ -3030,7 +3074,7 @@ describe("TrainerDashboard activity charts", () => {
       /\.route-zone-grid\s*\{[\s\S]*grid-template-columns: 1fr;/,
     );
     expect(mobileMediaBlock).toMatch(
-      /\.activity-dashboard-panel\s*\{[\s\S]*grid-template-rows: auto minmax\(140px, 30vh\) minmax\(0, 1fr\);/,
+      /\.activity-dashboard-panel\s*\{[\s\S]*grid-template-rows: auto minmax\(240px, 42vh\) minmax\(0, 1fr\);/,
     );
   });
 
