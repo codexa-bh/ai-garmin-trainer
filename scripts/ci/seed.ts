@@ -83,14 +83,38 @@ export function seedTerrain(db: Database.Database) {
   }
 }
 
+export function seedActivityLabels(db: Database.Database) {
+  const store = drizzle(db);
+  for (const [index, sport] of [
+    "strength_training",
+    "gravel_cycling",
+    "hiking",
+  ].entries()) {
+    store
+      .insert(activity)
+      .values({
+        id: `T0295-${sport}`,
+        garminId: `T0295-${sport}`,
+        name: `T0295 synthetic ${sport}`,
+        sport,
+        // Repository raw SQL reads started_at as epoch milliseconds.
+        startedAt: sql`${Date.UTC(2026, 0, 3 - index)}`,
+        durationSec: 1800,
+        distanceMeters: 1000,
+      })
+      .run();
+  }
+}
+
 export function seed(
   scratch: string,
   name: string,
   llmDebug = false,
   tables = false,
   terrain = false,
+  activityLabels = false,
 ): string {
-  if ([llmDebug, tables, terrain].filter(Boolean).length > 1)
+  if ([llmDebug, tables, terrain, activityLabels].filter(Boolean).length > 1)
     throw new Error("Synthetic scenarios are exclusive.");
   const stat = lstatSync(scratch);
   if (
@@ -210,6 +234,7 @@ export function seed(
       ).run(weekStart, JSON.stringify(record));
     }
     if (terrain) seedTerrain(db);
+    if (activityLabels) seedActivityLabels(db);
     if (
       currentSchemaVersion(db) !== LATEST_SCHEMA_VERSION ||
       runIntegrityCheck(db) !== "ok"
@@ -234,13 +259,16 @@ if (
     process.argv.length !== 4 &&
     !(
       process.argv.length === 5 &&
-      ["--llm-debug", "--markdown-tables", "--terrain"].includes(
-        process.argv[4],
-      )
+      [
+        "--llm-debug",
+        "--markdown-tables",
+        "--terrain",
+        "--activity-labels",
+      ].includes(process.argv[4])
     )
   )
     throw new Error(
-      "Usage: ci:seed <canonical-private-scratch> <ci-seed-UUID> [--llm-debug|--markdown-tables|--terrain]",
+      "Usage: ci:seed <canonical-private-scratch> <ci-seed-UUID> [--llm-debug|--markdown-tables|--terrain|--activity-labels]",
     );
   seed(
     process.argv[2],
@@ -248,6 +276,7 @@ if (
     process.argv[4] === "--llm-debug",
     process.argv[4] === "--markdown-tables",
     process.argv[4] === "--terrain",
+    process.argv[4] === "--activity-labels",
   );
   console.log(
     "Fresh synthetic current-schema Profile seed ready; no private inputs or credentials.",

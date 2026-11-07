@@ -2756,7 +2756,7 @@ label {
   }
 
   .activity-dashboard-panel {
-    grid-template-rows: auto minmax(140px, 30vh) minmax(0, 1fr);
+    grid-template-rows: auto minmax(240px, 42vh) minmax(0, 1fr);
     gap: 12px;
     padding: 12px;
   }

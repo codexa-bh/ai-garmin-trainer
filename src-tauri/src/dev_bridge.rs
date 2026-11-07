@@ -59,7 +59,8 @@ impl Config {
             | Command::Conversation { .. }
             | Command::Memory { .. }
             | Command::Tables { .. }
-            | Command::Terrain { .. } => self.ordinary.is_some(),
+            | Command::Terrain { .. }
+            | Command::ActivityLabels { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
                 if self.ordinary.is_some() =>
             {
@@ -153,6 +154,9 @@ pub enum Command {
     Terrain {
         action: String,
     },
+    ActivityLabels {
+        action: String,
+    },
     #[cfg(debug_assertions)]
     Settings {
         action: crate::setup_smoke::Action,
@@ -222,10 +226,13 @@ impl Command {
                     "memory",
                     "tables",
                     "terrain",
+                    "activityLabels",
                 ]
                 .contains(&view.as_str())
                     && ["wide", "narrow"].contains(&preset.as_str())
             }
+            Self::ActivityLabels { action } => ["observe", "strength", "gravel", "hiking", "list"]
+                .contains(&action.as_str()),
             Self::Terrain { action } => [
                 "observe",
                 "supported",
@@ -926,6 +933,16 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 && value["trustedInput"] == false
                 && booleans.iter().all(|key| value[*key].is_boolean())
         }
+        Command::ActivityLabels { action } => {
+            let booleans = ["choicesReady", "ready", "contained"];
+            let mut keys = vec!["ok", "action", "trustedInput"];
+            keys.extend(booleans);
+            ordinary
+                && exact_keys(value, &keys)
+                && value["action"].as_str() == Some(action)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
+        }
         Command::Terrain { action } => {
             let booleans = [
                 "choicesReady",
@@ -1611,6 +1628,42 @@ mod tests {
         .is_err());
         assert!(Command::CaptureView {
             view: "terrain".into(),
+            preset: "narrow".into()
+        }
+        .valid());
+    }
+    #[test]
+    fn activity_labels_are_closed_ordinary_boolean_only() {
+        for action in ["observe", "strength", "gravel", "hiking", "list"] {
+            let command = Command::ActivityLabels {
+                action: action.into(),
+            };
+            assert!(command.valid());
+            assert!(!config().permits(&command));
+            let result = json!({"ok":true,"action":action,"trustedInput":false,"choicesReady":true,"ready":true,"contained":true});
+            assert!(super::safe_result(&command, &result, true));
+            assert!(!safe_result(&command, &result));
+            for (key, value) in [
+                ("private", json!("secret")),
+                ("ready", json!("secret")),
+                ("action", json!("settings")),
+                ("trustedInput", json!(true)),
+            ] {
+                let mut invalid = result.clone();
+                invalid[key] = value;
+                assert!(!super::safe_result(&command, &invalid, true));
+            }
+        }
+        assert!(!Command::ActivityLabels {
+            action: "arbitrary".into()
+        }
+        .valid());
+        assert!(serde_json::from_value::<Command>(
+            json!({"type":"activityLabels","action":"strength","selector":"body"})
+        )
+        .is_err());
+        assert!(Command::CaptureView {
+            view: "activityLabels".into(),
             preset: "narrow".into()
         }
         .valid());

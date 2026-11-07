@@ -3005,6 +3005,9 @@ describe("TrainerDashboard activity charts", () => {
     expect(metadataBlock).toContain("overflow-wrap: anywhere;");
     expect(metadataBlock).toContain("white-space: pre-wrap;");
     expect(metadataBlock).not.toContain("text-overflow: ellipsis;");
+    expect(css).toContain(
+      "grid-template-rows: auto minmax(240px, 42vh) minmax(0, 1fr);",
+    );
     expect(css).not.toContain(".activity-sport-icon");
   });
 
@@ -3071,7 +3074,7 @@ describe("TrainerDashboard activity charts", () => {
       /\.route-zone-grid\s*\{[\s\S]*grid-template-columns: 1fr;/,
     );
     expect(mobileMediaBlock).toMatch(
-      /\.activity-dashboard-panel\s*\{[\s\S]*grid-template-rows: auto minmax\(140px, 30vh\) minmax\(0, 1fr\);/,
+      /\.activity-dashboard-panel\s*\{[\s\S]*grid-template-rows: auto minmax\(240px, 42vh\) minmax\(0, 1fr\);/,
     );
   });
 
