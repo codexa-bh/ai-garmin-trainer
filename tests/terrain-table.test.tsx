@@ -271,7 +271,7 @@ describe("terrain section presentation", () => {
     ).toBeTruthy();
     expect(within(grid()).getAllByRole("row")).toHaveLength(2);
   });
-  it("labels the section time-weighted average and keeps complete diagnostics out of the grid", () => {
+  it("uses one compact paragraph without hidden exposition and preserves values and selection", () => {
     const analysis = analysisWith();
     const before = JSON.stringify(analysis);
     const onSelect = vi.fn();
@@ -290,18 +290,24 @@ describe("terrain section presentation", () => {
     ).toBeNull();
     expect(grid().textContent).not.toContain("Time 100%");
     expect(grid().textContent).not.toContain("estimated_elevation_profile");
-    const disclosure = screen
-      .getByText("Method and quality")
-      .closest("details")!;
-    expect(disclosure.open).toBe(false);
-    fireEvent.click(screen.getByText("Method and quality"));
-    expect(disclosure.open).toBe(true);
-    expect(disclosure.textContent).toContain("section's average heart rate");
-    expect(disclosure.textContent).toContain("not the whole-activity average");
-    expect(disclosure.textContent).toContain("timing coverage 100%");
-    expect(disclosure.textContent).toContain(
-      "Avg HR covers 1h 1m 48s of 1h 1m 48s timed support (100%)",
+    const region = screen.getByRole("region", { name: "Terrain sections" });
+    expect(region.querySelectorAll("p")).toHaveLength(1);
+    expect(region.querySelector("details, summary, ul")).toBeNull();
+    const explanation = region.querySelector("p")!.textContent!;
+    for (const meaning of [
+      "Approximate elevation, not surface or technical difficulty",
+      "smoothing hides short features and gaps are excluded",
+      "Movement times are estimates",
+      "pace uses elapsed time",
+      "HR is averaged per section",
+      "Missing data isn’t zero",
+      "selection highlights only aligned elevation",
+    ])
+      expect(explanation).toContain(meaning);
+    expect(explanation).not.toMatch(
+      /Supported profile|25m|100m|300m|terrain-v2/,
     );
+    expect(screen.queryByText("Method and quality")).toBeNull();
     expect(
       within(firstRow()).getByRole("cell", { name: "1h 1m 48s" }),
     ).toBeTruthy();
@@ -369,10 +375,9 @@ describe("terrain section presentation", () => {
     expect(firstRow().textContent).toContain(
       "Timing unavailable; Avg HR unavailable",
     );
+    expect(screen.getByText(/Partial coverage\./)).toBeTruthy();
     expect(
-      screen.getByText(
-        /Some gaps, invalid samples or short stretches were excluded/,
-      ),
+      screen.getByText(/Some section timing is unavailable\./),
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain(
       "excluded_gaps_invalid_or_short_support",
@@ -396,18 +401,86 @@ describe("terrain section presentation", () => {
       expect(within(row).getAllByRole("cell")).toHaveLength(11);
       expect(cell("Avg HR", row).textContent).toBe("125 bpm");
     }
-    expect(
-      screen.getByRole("list", { name: "Per-section data coverage" })
-        .textContent,
-    ).toContain("Avg HR covers 30m 54s of 1h 1m 48s timed support (50%)");
+    expect(screen.queryByRole("list")).toBeNull();
   });
-  it("does not round an incomplete timing fraction into a misleading complete percentage", () => {
+  it("keeps nearly complete timing marked incomplete without a coverage list", () => {
     renderAnalysis(analysisWith({ timeCoverage: 0.99999 }));
     expect(firstRow().textContent).toContain("Timing incomplete");
+    expect(screen.queryByRole("list")).toBeNull();
+    expect(document.body.textContent).not.toContain("100%");
+  });
+  it.each([
+    [true, [], 1, 1],
+    [true, [], 1, 4],
+    [false, [], 1, 4],
+    [false, ["section_rows_truncated"], 1, 4],
+  ])(
+    "discloses capped rows independently of quality codes (%s, %s)",
+    (truncated, quality, returnedSections, sectionCount) => {
+      const analysis = {
+        ...analysisWith(),
+        truncated,
+        quality,
+        returnedSections,
+        sectionCount,
+      };
+      const before = JSON.stringify(analysis);
+      renderAnalysis(analysis);
+      const paragraph = screen
+        .getByRole("region", { name: "Terrain sections" })
+        .querySelector("p")!;
+      expect(paragraph.textContent).toContain(
+        `Showing ${returnedSections} of ${sectionCount} sections`,
+      );
+      expect(
+        paragraph.textContent?.match(/not all sections are shown/g),
+      ).toHaveLength(1);
+      expect(within(grid()).getAllByRole("row")).toHaveLength(2);
+      expect(JSON.stringify(analysis)).toBe(before);
+    },
+  );
+  it("keeps nonempty unavailable/mixed timing honest and deduplicates reasons", () => {
+    const analysis = analysisWith({ timeCoverage: 0.5, hrSupportSec: 100 });
+    analysis.status = "unavailable";
+    analysis.reason = "mixed_timestamp_clocks";
+    analysis.quality = [
+      "mixed_timestamp_clocks",
+      "incomplete_time",
+      "future_internal_code",
+    ];
+    renderAnalysis(analysis);
+    const text = screen
+      .getByRole("region", { name: "Terrain sections" })
+      .querySelector("p")!.textContent!;
+    expect(text).toContain("Analysis unavailable.");
     expect(
-      screen.getByRole("list", { name: "Per-section data coverage" })
-        .textContent,
-    ).toContain("timing coverage >99%");
+      text.match(/Mixed timestamp clocks prevent reliable timing\./g),
+    ).toHaveLength(1);
+    expect(text).not.toContain("Some section timing");
+    expect(text).not.toMatch(
+      /future_internal_code|future internal code|Supported profile/,
+    );
+    expect(firstRow().textContent).toContain(
+      "Timing incomplete; HR coverage incomplete",
+    );
+  });
+  it("does not dump unknown codes or claim complete coverage", () => {
+    const analysis = analysisWith();
+    analysis.status = "partial";
+    analysis.reason = "new_reason";
+    analysis.quality = Array.from(
+      { length: 20 },
+      (_, i) => `unknown_code_${i}`,
+    );
+    renderAnalysis(analysis);
+    const paragraph = screen
+      .getByRole("region", { name: "Terrain sections" })
+      .querySelector("p")!;
+    expect(paragraph.textContent).toContain("Partial coverage.");
+    expect(paragraph.textContent).not.toMatch(
+      /new.reason|unknown.code|Supported profile|complete coverage/,
+    );
+    expect(within(grid()).getAllByRole("row")).toHaveLength(2);
   });
   it("distinguishes zero duration and unavailable HR, and tolerates old missing payloads", () => {
     const view = renderAnalysis(
