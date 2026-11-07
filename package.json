@@ -25,6 +25,7 @@
     "smoke:summary:settings": "python3 scripts/desktop/summary_settings.py",
     "smoke:tables": "python3 scripts/desktop/table_smoke.py",
     "smoke:terrain": "python3 scripts/desktop/terrain_smoke.py",
+    "smoke:activity-labels": "python3 scripts/desktop/activity_labels_smoke.py",
     "smoke:test": "python3 -m unittest discover -s scripts/desktop -p '*_test.py' && python3 -m unittest discover -s scripts/ci -p '*_test.py'",
     "ci:seed": "tsx scripts/ci/seed.ts",
     "desktop:test:native": "cargo test --locked --manifest-path src-tauri/Cargo.toml",

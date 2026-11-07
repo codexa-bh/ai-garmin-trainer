@@ -1,3 +1,7 @@
+export function activityTypeLabel(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
 export function finiteNumberLabel(
   value: number | null | undefined,
   fractionDigits = 0,

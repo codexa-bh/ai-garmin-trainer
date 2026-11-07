@@ -2111,6 +2111,125 @@
     for (const el of [selectedTable, ...selectedTable.querySelectorAll("*")])
       el.setAttribute("data-smoke-reveal", "");
   }
+  // Fixed authored Activity labels only; never accept caller text or selectors.
+  const labelSports = {
+    strength: "strength_training",
+    gravel: "gravel_cycling",
+    hiking: "hiking",
+  };
+  let labelVariant = null;
+  function labelElements() {
+    const entries = Object.entries(labelSports).map(([key, sport]) => {
+      const rows = [...document.querySelectorAll(".activity-list-item")].filter(
+        (el) =>
+          visible(el) &&
+          el.querySelector("strong")?.textContent ===
+            `T0295 synthetic ${sport}`,
+      );
+      const row = rows.length === 1 ? rows[0] : null;
+      const small = row?.querySelector("small");
+      const expected = sport.replaceAll("_", " ");
+      const date = {
+        strength: "2026-01-03",
+        gravel: "2026-01-02",
+        hiking: "2026-01-01",
+      }[key];
+      return {
+        key,
+        sport,
+        row,
+        title: row?.querySelector("strong"),
+        small,
+        valid:
+          !!small &&
+          !small.children.length &&
+          small.textContent === `${date} · ${expected}`,
+      };
+    });
+    const chosen = entries.find((entry) => entry.key === labelVariant);
+    const heading = document.querySelector(".selected-activity-heading");
+    const title = heading?.querySelector("h2");
+    const metadata = heading?.querySelector("p");
+    const ready =
+      !!chosen &&
+      chosen.valid &&
+      chosen.row.classList.contains("selected") &&
+      title?.textContent === `T0295 synthetic ${chosen.sport}` &&
+      metadata?.textContent ===
+        `${chosen.small.textContent} · Garmin ID T0295-${chosen.sport}` &&
+      !metadata.children.length;
+    return { entries, chosen, title, metadata, ready };
+  }
+  function labelsObservation(action) {
+    const state = labelElements();
+    return {
+      ok: true,
+      action,
+      trustedInput: false,
+      choicesReady: state.entries.every((entry) => entry.valid),
+      ready: !!state.ready,
+      contained: document.documentElement.scrollWidth <= innerWidth,
+    };
+  }
+  async function labelsAction(command) {
+    if (
+      !globalThis.__trainerOrdinaryIsolated ||
+      Object.keys(command).sort().join(",") !== "action,type" ||
+      !["observe", "list", ...Object.keys(labelSports)].includes(command.action)
+    )
+      throw Error("Unsupported Activity labels action");
+    restore();
+    if (command.action === "list") {
+      const state = labelElements();
+      const list = state.chosen?.row?.closest(".activity-list");
+      if (!state.ready || !list)
+        throw Error("Authored selected activity required");
+      list.scrollTop +=
+        state.chosen.row.getBoundingClientRect().top -
+        list.getBoundingClientRect().top;
+    } else if (command.action !== "observe") {
+      const state = labelElements();
+      const entry = state.entries.find((item) => item.key === command.action);
+      if (
+        !state.entries.every((item) => item.valid) ||
+        !entry?.row ||
+        entry.row.disabled
+      )
+        throw Error("Authored labels unavailable");
+      labelVariant = command.action;
+      entry.row.click();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    return labelsObservation(command.action);
+  }
+  function revealActivityLabels() {
+    const state = labelElements();
+    if (!state.ready || !state.entries.every((entry) => entry.valid))
+      throw Error("Canonical Activity labels required");
+    const leaves = [
+      ...state.entries.flatMap((entry) => [entry.title, entry.small]),
+      state.title,
+      state.metadata,
+    ];
+    for (const leaf of leaves) {
+      if (!leaf || leaf.children.length) throw Error("Unsafe Activity text");
+      leaf.setAttribute("data-smoke-reveal", "");
+      for (
+        let node = leaf.parentElement;
+        node && node !== document.body;
+        node = node.parentElement
+      ) {
+        if (
+          [...node.childNodes].some(
+            (child) =>
+              child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+          )
+        )
+          throw Error("Private direct Activity ancestor refused");
+        node.setAttribute("data-smoke-reveal", "");
+      }
+    }
+  }
   // Finite authored chat proof only: never reveal arbitrary model/user prose.
   const ordinaryChatAnswer =
     "Authored weekday hike: 6543 m in 4321 s, 321 m ascent, mean HR 123. The elevation section averages 10% across 1000 m. Keep weekday climbing practice manageable; surface and technicality remain unknown.";
@@ -2542,7 +2661,9 @@
       sync: "Sync",
       profile: "Profile & data",
     }[command.view];
-    if (command.view === "terrain") {
+    if (command.view === "activityLabels") {
+      if (!labelElements().ready) throw Error("Unsafe Activity capture");
+    } else if (command.view === "terrain") {
       if (!terrainRegion()) throw Error("Unsafe Terrain capture");
     } else if (command.view === "tables") {
       if (!selectedTable || syntheticTable(selectedSurface) !== selectedTable)
@@ -2743,6 +2864,7 @@
     if (command.view === "tables") revealTables();
     if (command.view === "ordinary-chat") revealOrdinaryChat();
     if (command.view === "terrain") revealTerrain();
+    if (command.view === "activityLabels") revealActivityLabels();
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";
     style.textContent =
@@ -2851,6 +2973,8 @@
         return tablesAction(command);
       case "terrain":
         return terrainAction(command);
+      case "activityLabels":
+        return labelsAction(command);
       case "click": {
         if (["LLM debug traces", "First LLM trace"].includes(command.target)) {
           debugSummary(command.target === "First LLM trace").click();

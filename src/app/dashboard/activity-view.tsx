@@ -27,7 +27,11 @@ import {
   type ActivityDashboardPayload,
   type ActivityListItem,
 } from "./contracts";
-import { numberLabel, finiteNumberLabel } from "./formatting";
+import {
+  activityTypeLabel,
+  numberLabel,
+  finiteNumberLabel,
+} from "./formatting";
 
 function isFiniteMetric(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -438,7 +442,7 @@ export function ActivityView({
                     <span>
                       <strong>{activity.label}</strong>
                       <small>
-                        {activity.date} · {activity.sport}
+                        {activity.date} · {activityTypeLabel(activity.sport)}
                       </small>
                     </span>
                     <span>
@@ -474,8 +478,8 @@ export function ActivityView({
                 <h2>{activityDashboard.activity.label}</h2>
                 <p>
                   {activityDashboard.activity.date} ·{" "}
-                  {activityDashboard.activity.sport} · Garmin ID{" "}
-                  {activityDashboard.activity.garminId}
+                  {activityTypeLabel(activityDashboard.activity.sport)} · Garmin
+                  ID {activityDashboard.activity.garminId}
                 </p>
               </div>
               <span className="detail-status-pill">

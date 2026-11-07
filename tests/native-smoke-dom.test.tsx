@@ -1604,6 +1604,98 @@ describe("finite ordinary synthetic table smoke", () => {
   });
 });
 
+it("limits Activity label selection and masks to exact authored data", async () => {
+  smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+  vi.stubGlobal("innerWidth", 1280);
+  vi.stubGlobal("innerHeight", 850);
+  const sports = ["strength_training", "gravel_cycling", "hiking"];
+  function Fixture() {
+    const [selected, select] = useState("");
+    const sport = sports.find((item) => item === selected);
+    const index = sports.indexOf(selected);
+    return (
+      <>
+        <div className="activity-list">
+          {sports.map((item, i) => (
+            <button
+              key={item}
+              className={`activity-list-item ${selected === item ? "selected" : ""}`}
+              onClick={() => select(item)}
+            >
+              <strong>{`T0295 synthetic ${item}`}</strong>
+              <small>{`2026-01-0${3 - i} · ${item.replaceAll("_", " ")}`}</small>
+            </button>
+          ))}
+        </div>
+        {sport && (
+          <div className="selected-activity-heading">
+            <h2>{`T0295 synthetic ${sport}`}</h2>
+            <p>{`2026-01-0${3 - index} · ${sport.replaceAll("_", " ")} · Garmin ID T0295-${sport}`}</p>
+          </div>
+        )}
+        <p>Private unrelated facts</p>
+      </>
+    );
+  }
+  render(<Fixture />);
+  expect(
+    (
+      await command({
+        type: "captureView",
+        view: "activityLabels",
+        preset: "wide",
+      })
+    ).result.ok,
+  ).toBe(false);
+  expect(
+    (await command({ type: "activityLabels", action: "strength" })).result
+      .ready,
+  ).toBe(true);
+  expect(
+    (await command({ type: "activityLabels", action: "list" })).result.ready,
+  ).toBe(true);
+  expect(
+    (
+      await command({
+        type: "captureView",
+        view: "activityLabels",
+        preset: "wide",
+      })
+    ).result.ok,
+  ).toBe(true);
+  expect(
+    screen
+      .getByText("Private unrelated facts")
+      .hasAttribute("data-smoke-reveal"),
+  ).toBe(false);
+  smoke.__trainerSmokeRestore();
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  expect(
+    (await command({ type: "activityLabels", action: "gravel" })).result.ready,
+  ).toBe(true);
+  const small = document.querySelector(".activity-list-item small")!;
+  small.textContent = "private activity text";
+  expect(
+    (
+      await command({
+        type: "captureView",
+        view: "activityLabels",
+        preset: "wide",
+      })
+    ).result.ok,
+  ).toBe(false);
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  for (const invalid of [
+    { type: "activityLabels", action: "hiking", selector: "body" },
+    { type: "activityLabels", action: "settings" },
+  ])
+    expect((await command(invalid)).result.ok).toBe(false);
+  delete smoke.__trainerOrdinaryIsolated;
+  expect(
+    (await command({ type: "activityLabels", action: "observe" })).result.ok,
+  ).toBe(false);
+});
+
 it.each(["supported", "partial", "capped"])(
   "reveals only the exact authored Terrain %s grid, masks unrelated values and restores after capture/failure",
   async (variant) => {
