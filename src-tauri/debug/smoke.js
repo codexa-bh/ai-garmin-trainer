@@ -2158,6 +2158,195 @@
     }
     content.firstElementChild.setAttribute("data-smoke-reveal", "");
   }
+  // Finite authored Terrain seed only. No caller IDs/selectors/values or raw observations.
+  let terrainVariant = null;
+  const terrainCopy =
+    "Approximate elevation, not surface or technical difficulty: smoothing hides short features and gaps are excluded. Movement times are estimates; pace uses elapsed time and HR is averaged per section. Missing data isn’t zero; selection highlights only aligned elevation.";
+  function terrainRegion() {
+    const heading = document.querySelector(".selected-activity-heading h2");
+    const region = document.querySelector('[aria-label="Terrain sections"]');
+    if (
+      !terrainVariant ||
+      heading?.textContent !== `T0293 synthetic ${terrainVariant}` ||
+      !region ||
+      !visible(region)
+    )
+      return null;
+    const text = region.querySelector("p")?.textContent;
+    const suffix = {
+      supported: "",
+      partial: " Partial coverage.",
+      capped:
+        " Partial coverage. Showing 100 of 105 sections; not all sections are shown.",
+    }[terrainVariant];
+    if (
+      text !== terrainCopy + suffix ||
+      region.querySelector("details, ul") ||
+      region.querySelectorAll("p").length !== 1
+    )
+      throw Error("Noncanonical Terrain copy refused");
+    return region;
+  }
+  function terrainObservation(action) {
+    const region = terrainRegion();
+    const paragraph = region?.querySelector("p");
+    const rect = paragraph?.getBoundingClientRect();
+    const wrapper = region?.querySelector(".lap-table-wrap");
+    const bounds = wrapper?.getBoundingClientRect();
+    return {
+      ok: true,
+      action,
+      trustedInput: false,
+      choicesReady: ["supported", "partial", "capped"].every((variant) =>
+        [...document.querySelectorAll(".activity-list-item strong")].some(
+          (el) =>
+            visible(el) && el.textContent === `T0293 synthetic ${variant}`,
+        ),
+      ),
+      ready: !!region,
+      selected:
+        region?.querySelector('button[aria-pressed="true"]') !== null &&
+        !!region,
+      highlighted: !!document.querySelector(
+        '[aria-label="Selected terrain section elevation interval"]',
+      ),
+      compact:
+        !!region &&
+        region.querySelectorAll("p").length === 1 &&
+        !region.querySelector("details, ul"),
+      partial: !!paragraph?.textContent.includes("Partial coverage."),
+      capped: !!paragraph?.textContent.includes("Showing 100 of 105 sections"),
+      contained:
+        !!bounds &&
+        bounds.left >= 0 &&
+        bounds.right <= innerWidth &&
+        document.documentElement.scrollWidth <= innerWidth,
+      paragraphVisible: !!rect && rect.top >= 0 && rect.bottom <= innerHeight,
+      headerVisible:
+        !!region && tableHeaderVisible(region.querySelector("table")),
+    };
+  }
+  async function terrainAction(command) {
+    if (
+      !globalThis.__trainerOrdinaryIsolated ||
+      Object.keys(command).sort().join(",") !== "action,type" ||
+      ![
+        "observe",
+        "supported",
+        "partial",
+        "capped",
+        "toggle",
+        "start",
+        "end",
+      ].includes(command.action)
+    )
+      throw Error("Unsupported Terrain action/mode");
+    restore();
+    if (["supported", "partial", "capped"].includes(command.action)) {
+      const choices = [
+        ...document.querySelectorAll(".activity-list-item"),
+      ].filter(
+        (el) =>
+          visible(el) &&
+          el.querySelector("strong")?.textContent ===
+            `T0293 synthetic ${command.action}`,
+      );
+      if (choices.length !== 1 || choices[0].disabled)
+        throw Error("Authored activity unavailable");
+      terrainVariant = command.action;
+      choices[0].click();
+    } else if (command.action !== "observe") {
+      const region = terrainRegion();
+      if (!region) throw Error("Authored Terrain required");
+      if (command.action === "toggle") {
+        const button = region.querySelector("button");
+        if (!visible(button) || button.disabled)
+          throw Error("Terrain selection unavailable");
+        button.click();
+      } else {
+        // Scroll real user-scrollable ancestors only; no layout/style substitution.
+        for (let node = region.parentElement; node; node = node.parentElement) {
+          if (
+            ["auto", "scroll"].includes(getComputedStyle(node).overflowY) &&
+            node.scrollHeight > node.clientHeight
+          )
+            node.scrollTop +=
+              region.getBoundingClientRect().top -
+              node.getBoundingClientRect().top -
+              8;
+        }
+        const wrapper = region.querySelector(".lap-table-wrap");
+        wrapper.scrollLeft = command.action === "end" ? wrapper.scrollWidth : 0;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    return terrainObservation(command.action);
+  }
+  function revealTerrain() {
+    const region = terrainRegion();
+    const observation = terrainObservation("observe");
+    if (!region || !observation.paragraphVisible || !observation.headerVisible)
+      throw Error("Visible canonical Terrain required");
+    const safe = new Set([
+      "Terrain sections",
+      terrainCopy +
+        {
+          supported: "",
+          partial: " Partial coverage.",
+          capped:
+            " Partial coverage. Showing 100 of 105 sections; not all sections are shown.",
+        }[terrainVariant],
+      "Estimated elevation-profile sections",
+      "Select",
+      "Kind",
+      "Distance interval (m)",
+      "Distance (m)",
+      "Ascent / descent (m)",
+      "Signed grade (%)",
+      "≥10% up / down (m)",
+      "Elapsed",
+      "Est. moving / stationary",
+      "Elapsed pace",
+      "Avg HR (bpm)",
+      "Data notes",
+      "climb",
+      "descent",
+      "flat",
+      "rolling",
+      "Avg HR unavailable",
+      "Timing incomplete",
+      "Timing unavailable",
+      "HR coverage incomplete",
+      "Unavailable",
+      "—",
+    ]);
+    for (const el of [region, ...region.querySelectorAll("*")]) {
+      if (
+        ![...el.childNodes].some(
+          (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim(),
+        ) ||
+        (!el.children.length &&
+          (safe.has(el.textContent) ||
+            (el.tagName === "BUTTON" &&
+              /^Section (?:[1-9]\d?|100)$/.test(el.textContent))))
+      )
+        el.setAttribute("data-smoke-reveal", "");
+    }
+    for (
+      let node = region.parentElement;
+      node && node !== document.body;
+      node = node.parentElement
+    ) {
+      if (
+        [...node.childNodes].some(
+          (child) =>
+            child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+        )
+      )
+        throw Error("Private direct Terrain ancestor refused");
+      node.setAttribute("data-smoke-reveal", "");
+    }
+  }
   let maskExpiry;
   let maskScroll = [];
   function restore() {
@@ -2194,7 +2383,9 @@
       sync: "Sync",
       profile: "Profile & data",
     }[command.view];
-    if (command.view === "tables") {
+    if (command.view === "terrain") {
+      if (!terrainRegion()) throw Error("Unsafe Terrain capture");
+    } else if (command.view === "tables") {
       if (!selectedTable || syntheticTable(selectedSurface) !== selectedTable)
         throw Error("Unsafe table capture");
     } else if (!expected || observe().view !== expected)
@@ -2392,6 +2583,7 @@
     if (command.view === "conversation") revealConversations();
     if (command.view === "tables") revealTables();
     if (command.view === "ordinary-chat") revealOrdinaryChat();
+    if (command.view === "terrain") revealTerrain();
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";
     style.textContent =
@@ -2498,6 +2690,8 @@
         return memoryAction(command);
       case "tables":
         return tablesAction(command);
+      case "terrain":
+        return terrainAction(command);
       case "click": {
         if (["LLM debug traces", "First LLM trace"].includes(command.target)) {
           debugSummary(command.target === "First LLM trace").click();

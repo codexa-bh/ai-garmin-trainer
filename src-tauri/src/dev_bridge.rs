@@ -58,7 +58,8 @@ impl Config {
             | Command::Composer { .. }
             | Command::Conversation { .. }
             | Command::Memory { .. }
-            | Command::Tables { .. } => self.ordinary.is_some(),
+            | Command::Tables { .. }
+            | Command::Terrain { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
                 if self.ordinary.is_some() =>
             {
@@ -149,6 +150,9 @@ pub enum Command {
         surface: String,
         edge: String,
     },
+    Terrain {
+        action: String,
+    },
     #[cfg(debug_assertions)]
     Settings {
         action: crate::setup_smoke::Action,
@@ -218,10 +222,21 @@ impl Command {
                     "ordinary-chat",
                     "memory",
                     "tables",
+                    "terrain",
                 ]
                 .contains(&view.as_str())
                     && ["wide", "narrow"].contains(&preset.as_str())
             }
+            Self::Terrain { action } => [
+                "observe",
+                "supported",
+                "partial",
+                "capped",
+                "toggle",
+                "start",
+                "end",
+            ]
+            .contains(&action.as_str()),
             Self::Composer { action } => {
                 ["observe", "draft", "choose", "keys"].contains(&action.as_str())
             }
@@ -912,6 +927,27 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 && value["trustedInput"] == false
                 && booleans.iter().all(|key| value[*key].is_boolean())
         }
+        Command::Terrain { action } => {
+            let booleans = [
+                "choicesReady",
+                "ready",
+                "selected",
+                "highlighted",
+                "compact",
+                "partial",
+                "capped",
+                "contained",
+                "paragraphVisible",
+                "headerVisible",
+            ];
+            let mut keys = vec!["ok", "action", "trustedInput"];
+            keys.extend(booleans);
+            ordinary
+                && exact_keys(value, &keys)
+                && value["action"].as_str() == Some(action)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
+        }
         Command::SetViewport { preset } => {
             exact_keys(value, &["ok", "preset"]) && value["preset"].as_str() == Some(preset)
         }
@@ -1552,6 +1588,50 @@ mod tests {
         }
         assert!(Command::CaptureView {
             view: "composer".into(),
+            preset: "narrow".into()
+        }
+        .valid());
+    }
+    #[test]
+    fn terrain_is_finite_ordinary_only_and_never_returns_values() {
+        for action in [
+            "observe",
+            "supported",
+            "partial",
+            "capped",
+            "toggle",
+            "start",
+            "end",
+        ] {
+            let command = Command::Terrain {
+                action: action.into(),
+            };
+            assert!(command.valid());
+            assert!(!config().permits(&command));
+            let value = json!({"ok":true,"action":action,"trustedInput":false,"choicesReady":true,"ready":true,"selected":false,"highlighted":false,"compact":true,"partial":false,"capped":false,"contained":true,"paragraphVisible":true,"headerVisible":true});
+            assert!(super::safe_result(&command, &value, true));
+            assert!(!safe_result(&command, &value));
+            for (key, changed) in [
+                ("private", json!("raw")),
+                ("ready", json!("private")),
+                ("action", json!("settings")),
+                ("trustedInput", json!(true)),
+            ] {
+                let mut invalid = value.clone();
+                invalid[key] = changed;
+                assert!(!super::safe_result(&command, &invalid, true));
+            }
+        }
+        assert!(!Command::Terrain {
+            action: "arbitrary".into()
+        }
+        .valid());
+        assert!(serde_json::from_value::<Command>(
+            json!({"type":"terrain","action":"supported","id":"private"})
+        )
+        .is_err());
+        assert!(Command::CaptureView {
+            view: "terrain".into(),
             preset: "narrow".into()
         }
         .valid());
