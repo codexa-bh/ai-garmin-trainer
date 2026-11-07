@@ -24,15 +24,27 @@ it("authors finite supported/partial/capped normalized Terrain without GPS or pr
         points,
       );
       expect(analysis.sections.length).toBe(
-        variant === "capped" ? 100 : variant === "partial" ? 2 : 1,
+        variant === "capped" ? 100 : variant === "partial" ? 2 : 3,
       );
       expect(analysis.status).toBe(
         variant === "supported" ? "available" : "partial",
       );
       expect(analysis.truncated).toBe(variant === "capped");
       expect(analysis.sectionCount).toBe(
-        variant === "capped" ? 105 : variant === "partial" ? 2 : 1,
+        variant === "capped" ? 105 : variant === "partial" ? 2 : 3,
       );
+      if (variant === "supported") {
+        expect(analysis.sections.map((row) => row.kind)).toEqual([
+          "climb",
+          "descent",
+          "flat",
+        ]);
+        expect(analysis.sections[1].meanGradePct).toBeLessThan(0);
+        expect(analysis.sections[2].meanGradePct).toBe(0);
+        expect(analysis.sections.every((row) => row.elapsedSec! > 3600)).toBe(
+          true,
+        );
+      }
       expect(analysis.sections[0].averageHeartRate).toBe(
         variant === "partial" ? null : 125,
       );

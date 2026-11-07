@@ -2842,10 +2842,6 @@ label {
   margin-bottom: 12px;
 }
 
-.terrain-sections > details {
-  margin-bottom: 12px;
-}
-
 .terrain-table-wrap {
   min-width: 0;
 }

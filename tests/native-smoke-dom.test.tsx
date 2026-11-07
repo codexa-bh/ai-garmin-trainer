@@ -1605,7 +1605,7 @@ describe("finite ordinary synthetic table smoke", () => {
 });
 
 it.each(["supported", "partial", "capped"])(
-  "admits only finite authored Terrain %s, masks numeric/private values and restores after capture/failure",
+  "reveals only the exact authored Terrain %s grid, masks unrelated values and restores after capture/failure",
   async (variant) => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       top: 0,
@@ -1621,23 +1621,44 @@ it.each(["supported", "partial", "capped"])(
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     vi.stubGlobal("innerWidth", 1280);
     vi.stubGlobal("innerHeight", 850);
+    Object.defineProperty(Range.prototype, "getClientRects", {
+      configurable: true,
+      value: () => [{ width: 10, top: 0 }],
+    });
     const analysis = analyzeTerrainSections(
-      "T0293-supported",
+      `T0293-${variant}`,
       "hiking",
-      Array.from({ length: 101 }, (_, i) => ({
-        elapsedSec: i * 10,
-        timestamp: new Date(Date.UTC(2026, 0, 1) + i * 10000).toISOString(),
-        distanceMeters: i * 10,
-        altitudeMeters: i,
-        heartRate: 125,
-      })),
+      Array.from(
+        {
+          length:
+            variant === "capped" ? 525 : variant === "supported" ? 601 : 101,
+        },
+        (_, i) => ({
+          elapsedSec: i * (variant === "supported" ? 20 : 10),
+          timestamp: new Date(
+            Date.UTC(2026, 0, 1) +
+              (i * (variant === "supported" ? 20 : 10) +
+                (variant === "partial" && i >= 50 ? 60 : 0)) *
+                1000,
+          ).toISOString(),
+          distanceMeters:
+            variant === "capped"
+              ? Math.floor(i / 5) * 600 + (i % 5) * 100
+              : i * 10,
+          altitudeMeters:
+            variant === "capped"
+              ? (i % 5) * 10
+              : variant === "supported"
+                ? i <= 200
+                  ? i
+                  : i <= 400
+                    ? 400 - i
+                    : 0
+                : i,
+          heartRate: variant === "partial" ? null : 125,
+        }),
+      ),
     );
-    if (variant !== "supported") analysis.status = "partial";
-    if (variant === "capped") {
-      analysis.truncated = true;
-      analysis.returnedSections = 100;
-      analysis.sectionCount = 105;
-    }
     function Fixture() {
       const [selected, select] = useState<string | null>(null);
       return (
@@ -1690,11 +1711,37 @@ it.each(["supported", "partial", "capped"])(
         .getByText("Private unrelated facts")
         .hasAttribute("data-smoke-reveal"),
     ).toBe(false);
+    const measured = within(region).getAllByText(
+      variant === "partial" ? "Unavailable" : "125 bpm",
+      { selector: "td" },
+    );
     expect(
-      within(region)
-        .getByText("125", { selector: "td" })
-        .hasAttribute("data-smoke-reveal"),
+      measured.every((cell) => cell.hasAttribute("data-smoke-reveal")),
+    ).toBe(true);
+    expect(
+      (await command({ type: "terrain", action: "observe" })).result,
+    ).toMatchObject({ gridValues: true, singleLine: true });
+    vi.stubGlobal("innerWidth", 1024);
+    expect(
+      (
+        await command({
+          type: "captureView",
+          view: "terrain",
+          preset: "medium",
+        })
+      ).result.ok,
+    ).toBe(true);
+    vi.stubGlobal("innerWidth", 1280);
+    smoke.__trainerSmokeRestore();
+    const distanceCell = region.querySelector("tbody tr td:nth-child(4)")!;
+    const originalDistance = distanceCell.textContent;
+    distanceCell.textContent = "991.41 km";
+    expect(
+      (await command({ type: "captureView", view: "terrain", preset: "wide" }))
+        .result.ok,
     ).toBe(false);
+    expect(document.querySelector("#trainer-smoke-sanitizer")).toBeNull();
+    distanceCell.textContent = originalDistance;
     smoke.__trainerSmokeRestore();
     expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
     await command({ type: "captureView", view: "terrain", preset: "wide" });
