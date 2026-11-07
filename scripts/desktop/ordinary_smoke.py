@@ -2,7 +2,9 @@
 """Unmodified outside-checkout ordinary bundles; closed keyless rendered/capture smoke only."""
 import argparse
 import contextlib
+from dataclasses import dataclass
 import fcntl
+import inspect
 import hashlib
 import http.client
 import json
@@ -14,6 +16,7 @@ import signal
 import stat
 import subprocess
 import time
+from types import CodeType, SimpleNamespace
 import uuid
 from native_smoke import REPO, Observer, Run, canonical, fingerprint, private_json, readonly, source_identity
 from ordinary_identity import (inventory_hash, ordinary_preparation, preparation_directory,
@@ -31,7 +34,15 @@ def private_directory(path):
 
 
 class OrdinaryRun(Run):
-    def __init__(self, scratch, database, source, bundle, inventory, *, history_setup=None, verified=None):
+    def __init__(self, scratch, database, source, bundle, inventory, *, history_setup=None, verified=None, enroll=None):
+        # Account for partial preparation before any allocation; no partial object
+        # can launch. Existing direct callers need not supply an enrollment owner.
+        self.child, self.root = None, None
+        self.pids, self.rejected_pids, self.capture_results = [], [], []
+        self.launches = 0
+        self.prepared = False
+        if enroll is not None:
+            enroll(self)
         if history_setup not in (None, 'create-new', 'use-existing'):
             raise ValueError('Finite history setup scope required')
         # The main runner retains the lock for the entire scenario. Direct callers
@@ -41,6 +52,7 @@ class OrdinaryRun(Run):
             if verified['current']['source'] != source:
                 raise ValueError('Current driver binding mismatch')
             self.prepare_ordinary(scratch, database, bundle, inventory, verified, history_setup)
+            self.prepared = True
 
     def prepare_ordinary(self, scratch, database, bundle, inventory, verified, history_setup):
         original = verified['provenance']
@@ -525,6 +537,10 @@ class OrdinaryRun(Run):
         self.verify_run_lease_settled()
 
     def stop(self):
+        if not self.prepared:
+            if self.child is not None:
+                raise RuntimeError('Partial preparation unexpectedly owns a child; preserve and reconcile')
+            return  # No start occurs before complete preparation; ledger retains partial copies.
         super().stop()
         self.verify_run_lease_settled()
 
@@ -627,6 +643,181 @@ def deny_previous_boot(run):
     run.http('/command', {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedBoot': run.previous_boot}, expected=400)
 
 
+def composer_persistence(run, sentinel=None):
+    """Shared assertions, with the existing full-mode Goals/Profile restart contract."""
+    if sentinel is None:
+        run.command({'type': 'setViewport', 'preset': 'wide'})
+        run.command({'type': 'click', 'target': 'Profile & data'})
+        run.wait(lambda value: value['profileReady'], 'feature Profile prerequisite')
+    run.composer_scenario()
+    expected, origin, boot = run.model_choice(), run.origin, run.boot
+    if sentinel is None:
+        run.stop()
+        run.start(run.binary)
+    else:
+        run.verify_restart(run.binary, sentinel, kind='model')
+    if run.origin == origin or run.boot == boot or run.model_choice() != expected:
+        raise ValueError('Exact model choice/fresh origin persistence failed')
+    deny_previous_boot(run)
+    private_json(run.root / 'choice-restart.json', {'exactChoiceRetained': True, 'freshBoot': True})
+    if sentinel is not None:
+        run.command({'type': 'setViewport', 'preset': 'wide'})
+        run.wait(lambda value: value['profileReady'], 'Profile after composer restart')
+
+
+def composer_composition(run):
+    composer_persistence(run)
+
+
+def densify_composition(run):
+    from summary_smoke import presentation_scenario
+    presentation_scenario(run, ('densify',))
+
+
+@dataclass(frozen=True)
+class Scenario:
+    """Reviewed intent, not permissions or a sandbox for hostile Python."""
+    label: str
+    action: object
+    configuration: str
+    expected: tuple
+    evidence: str
+    dependencies: tuple = ()
+
+
+def scenario_identity(scenario):
+    if (not isinstance(scenario, Scenario) or not isinstance(scenario.label, str)
+            or not scenario.label or len(scenario.label) > 80
+            or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789-_' for c in scenario.label)
+            or scenario.label in (*BROAD_GROUPS, 'full')
+            or scenario.configuration not in ('keyless', 'composer', 'summary')
+            or not isinstance(scenario.expected, tuple) or not scenario.expected
+            or any(not isinstance(value, str) or not value.strip() or len(value) > 500 for value in scenario.expected)
+            or not isinstance(scenario.evidence, str) or not scenario.evidence.strip() or len(scenario.evidence) > 1000
+            or not isinstance(scenario.dependencies, tuple)):
+        raise ValueError('Scenario requires finite configuration, stable label, expected assertions and evidence intent')
+    action = scenario.action
+    if (not inspect.isfunction(action) or action.__name__ == '<lambda>' or action.__closure__ or action.__defaults__ or action.__kwdefaults__
+            or list(inspect.signature(action).parameters) != ['run']):
+        raise ValueError('Scenario requires a source-backed function(run), without opaque closures/defaults')
+    source = inspect.getsourcefile(action)
+    if not source:
+        raise ValueError('Scenario source unavailable')
+    paths = (Path(source), *map(Path, scenario.dependencies))
+    bindings = []
+    for path in paths:
+        path = canonical(path)
+        info = path.stat()
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 1024 * 1024:
+            raise ValueError('Bounded single-link scenario source/dependency required')
+        data = path.read_bytes()
+        if path.stat() != info:
+            raise ValueError('Scenario source changed while hashing')
+        bindings.append({'path': str(path), 'sha256': hashlib.sha256(data).hexdigest(),
+                         'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode)})
+        if path == paths[0]:
+            # Compare loaded executable code with the actual current file, not just
+            # a label or a newly hashed file alongside an old imported function.
+            def codes(code):
+                yield code
+                for constant in code.co_consts:
+                    if isinstance(constant, CodeType):
+                        yield from codes(constant)
+            compiled = compile(data, str(path), 'exec', dont_inherit=True)
+            if not any(code == action.__code__ for code in codes(compiled)):
+                raise ValueError('Loaded scenario function does not match current source bytes')
+    return {'label': scenario.label, 'callable': action.__qualname__, 'sources': bindings,
+            'configuration': scenario.configuration, 'expected': list(scenario.expected), 'evidence': scenario.evidence}
+
+
+def composition_plan(scenarios, impact, basis, full):
+    scenarios = tuple(scenarios)
+    identities = [scenario_identity(scenario) for scenario in scenarios]
+    configurations = {scenario.configuration for scenario in scenarios}
+    if not scenarios or len({scenario.label for scenario in scenarios}) != len(scenarios) or len(configurations) != 1:
+        raise ValueError('Nonempty unique scenarios with one compatible preparation configuration required')
+    if impact not in ('local-feature', 'summary-presentation', 'shared', 'unknown') or not isinstance(basis, str) or not basis.strip() or len(basis) > 1000:
+        raise ValueError('Reviewed impact and bounded nonempty basis required')
+    if impact in ('shared', 'unknown') and not full:
+        raise ValueError('Shared/unknown impact requires full regression plus compositions')
+    configuration = next(iter(configurations))
+    if not full and ((configuration == 'summary') != (impact == 'summary-presentation')):
+        raise ValueError('Preparation configuration/impact mismatch')
+    args = SimpleNamespace(summary_engine=configuration == 'summary', composer_footer=configuration == 'composer',
+                           model_eligibility=False, conversation_selection=False, prepare_only=False,
+                           smoke_scope='full', impact=impact, impact_basis=basis,
+                           summary_part='presentation', summary_family=['densify'])
+    # CLI flags do not define independent compositions; only reuse its broad plan.
+    baseline = selection_plan(SimpleNamespace(**{**vars(args), 'summary_engine': False,
+                                'composer_footer': False, 'summary_part': 'all', 'summary_family': None}))
+    selected = (list(BROAD_GROUPS) if full else []) + [scenario.label for scenario in scenarios]
+    plan = {**baseline, 'scope': 'full' if full else 'composition', 'instances': 2 if full else 1,
+            'configurations': [configuration], 'selected': selected,
+            'omitted': {group: 'not selected; no pass claimed' for group in baseline['selected'] + list(baseline['omitted']) if group not in selected},
+            'compositions': identities, 'captures': {scenario.label: scenario.evidence for scenario in scenarios},
+            'summaryFamilies': [], 'restarts': 'scenario-owned persistence; full retains broad restarts'}
+    return args, plan
+
+
+@contextlib.contextmanager
+def composition_lifetime(timeout):
+    """Main-thread owned cancellation/deadline; no competing timer adoption."""
+    if type(timeout) not in (int, float) or not 0 < timeout <= 1800 or signal.getitimer(signal.ITIMER_REAL) != (0.0, 0.0):
+        raise ValueError('Finite composition timeout up to 1800s and no active timer required')
+    previous_term, previous_alarm = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGALRM)
+    def cancelled(_signal, _frame):
+        raise KeyboardInterrupt('Owned composition cancelled')
+    def expired(_signal, _frame):
+        raise TimeoutError('Composition lifetime expired; effects unknown, never replay')
+    signal.signal(signal.SIGTERM, cancelled)  # Non-main-thread callers refuse before allocation.
+    previous_mask = os.umask(0o077)
+    try:
+        signal.signal(signal.SIGALRM, expired)
+        signal.setitimer(signal.ITIMER_REAL, timeout)
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_alarm)
+        signal.signal(signal.SIGTERM, previous_term)
+        os.umask(previous_mask)
+
+
+@resources.invocation
+def run_scenarios(*, scratch, bundle, scenarios, impact, impact_basis, full=False, prepare_only=False, task_id=None, anchor=None, timeout=600):
+    """Importable guarded authored-synthetic execution; callers own only scenario intent."""
+    if type(full) is not bool or type(prepare_only) is not bool:
+        raise ValueError('Explicit boolean full/prepare_only intent required')
+    scenarios = tuple(scenarios)
+    args, plan = composition_plan(scenarios, impact, impact_basis, full)
+    args.prepare_only = prepare_only
+    print(json.dumps({'executionPlan': plan}), flush=True)
+    with composition_lifetime(timeout):
+        scratch = private_directory(resources.configure(canonical(scratch)))
+        from smoke_input import prepare
+        # Only the existing authored recipe; private/paid direct callers stay separate.
+        args.input_file = args.grant_file = args.provenance_file = None
+        args.task_id = task_id or Path(os.environ.get('PIVAN_TASK_PATH', 'local')).name.split('-')[0]
+        args.anchor = anchor
+        prepared = prepare(scratch, args, 'ordinary')
+        bundle, source = canonical(bundle), source_identity()
+        with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
+            return execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory,
+                                    scenarios=scenarios, plan=plan)
+
+
+def composer_scenario():
+    return Scenario('composer', composer_composition, 'composer',
+                    ('explicit choice, draft and geometry', 'exact choice retained across fresh origin/boot; stale capabilities denied'),
+                    'unselected/saved wide+narrow synthetic DOM; not provider or trusted input')
+
+
+def densify_scenario():
+    return Scenario('summary-densify', densify_composition, 'summary',
+                    ('independent closed/wide entry', 'Densify ready/review/accepted/no-reduction/busy', 'actual inspection restored and sheet closed'),
+                    'wide+narrow fixed presentation only; no engine progression or mutation persistence',
+                    (str(REPO / 'scripts/desktop/summary_smoke.py'),))
+
+
 def feature_scenarios(run, args, plan, perform):
     if args.summary_engine:
         from summary_smoke import scenario, presentation_scenario
@@ -638,21 +829,7 @@ def feature_scenarios(run, args, plan, perform):
         for family in plan['summaryFamilies']:
             perform('summary-' + family, lambda family=family: presentation_scenario(run, (family,)))
     if args.composer_footer or args.model_eligibility:
-        def composer():
-            # The existing scenario closes Profile first; narrow mode has no baseline
-            # captures/Goals to leave it open. Establish the real prerequisite explicitly.
-            run.command({'type': 'setViewport', 'preset': 'wide'})
-            run.command({'type': 'click', 'target': 'Profile & data'})
-            run.wait(lambda value: value['profileReady'], 'feature Profile prerequisite')
-            run.composer_scenario()
-            expected, origin, boot = run.model_choice(), run.origin, run.boot
-            run.stop()
-            run.start(run.binary)
-            if run.origin == origin or run.boot == boot or run.model_choice() != expected:
-                raise ValueError('Exact model choice/fresh origin persistence failed')
-            deny_previous_boot(run)
-            private_json(run.root / 'choice-restart.json', {'exactChoiceRetained': True, 'freshBoot': True})
-        perform('model-eligibility' if args.model_eligibility else 'composer', composer)
+        perform('model-eligibility' if args.model_eligibility else 'composer', lambda: composer_persistence(run))
     if args.conversation_selection:
         def conversation():
             run.command({'type': 'setViewport', 'preset': 'wide'})
@@ -697,12 +874,14 @@ def main():
         execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory)
 
 
-def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory):
-    plan = selection_plan(args)
+def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory, *, scenarios=(), plan=None):
+    plan = selection_plan(args) if plan is None else plan
     database = prepared.database
     def verify_current():
         prepared.verify_current()
         verify_ordinary(REPO, bundle, source, inventory)
+        if scenarios and [scenario_identity(scenario) for scenario in scenarios] != plan['compositions']:
+            raise ValueError('Scenario source/declaration changed during execution')
     runs = []
     observer = None
     receipt = {'source': source, 'currentDriver': verified['current'],
@@ -716,18 +895,21 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
                'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
                'selection': plan, 'groupOutcomes': [],
                'scenarioClaim': 'declared selected scope only, not omitted/full proof',
-               'scenarioPassed': False, 'summaryEngineKeylessRequested': args.summary_engine, 'conversationSelectionRequested': args.conversation_selection, 'composerFooterRequested': args.composer_footer, 'modelEligibilityRequested': args.model_eligibility, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
+               'assertionsPassed': False, 'scenarioPassed': False, 'summaryEngineKeylessRequested': args.summary_engine, 'conversationSelectionRequested': args.conversation_selection, 'composerFooterRequested': args.composer_footer, 'modelEligibilityRequested': args.model_eligibility, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
                'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
                'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
                'resourceDisposition': resources.disposition(),
                'cleanup': 'Final owned-disposal receipt records removed/retained copies; compact diagnostics/PNG remain; no copy-back'}
     errors = []
+    def enroll(run):
+        runs.append(run)
+        receipt['groupOutcomes'].append({'run': None, 'groups': {group: 'not-run' for group in plan['selected']}})
     try:
         for index in range(plan['instances']):
             prepared.verify_current()
             verify_current()
-            runs.append(OrdinaryRun(scratch, database, source, bundle, inventory, verified=verified))
-            receipt['groupOutcomes'].append({'run': str(runs[-1].root), 'groups': {group: 'not-run' for group in plan['selected']}})
+            OrdinaryRun(scratch, database, source, bundle, inventory, verified=verified, enroll=enroll)
+            receipt['groupOutcomes'][-1]['run'] = str(runs[-1].root)
             runs[-1].before_start = verify_current
             if args.summary_engine:
                 from summary_smoke import prepare_summary
@@ -754,11 +936,18 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
                 result = action()
                 outcomes['groups'][group] = 'passed'
                 return result
-            if plan['scope'] == 'feature':
+            if scenarios:
+                for scenario in scenarios:
+                    verify_current()
+                    perform(scenario.label, lambda scenario=scenario: scenario.action(run))
+                if plan['scope'] != 'full':
+                    continue
+                run.command({'type': 'setViewport', 'preset': 'wide'})
+            elif plan['scope'] == 'feature':
                 feature_scenarios(run, args, plan, perform)
                 continue
             other = runs[1 - index]
-            if args.summary_engine:
+            if args.summary_engine and not scenarios:
                 from summary_smoke import scenario as summary_scenario, presentation_scenario
                 if 'summary-lifecycle' in plan['selected']:
                     perform('summary-lifecycle', lambda: summary_scenario(run, presentation_families=()))
@@ -775,19 +964,8 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
             run.http('/command', {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedBoot': old_boot}, expected=400)
             outcomes['groups']['navigation-goals-restart'] = 'passed'
             perform('baseline-captures', run.captures)
-            if args.composer_footer:
-                group = 'model-eligibility' if args.model_eligibility else 'composer'
-                run.current_group = group
-                outcomes['groups'][group] = 'failed'
-                run.composer_scenario()
-                expected_choice = run.model_choice()
-                run.verify_restart(run.binary, sentinel, kind='model')
-                if run.model_choice() != expected_choice:
-                    raise ValueError('Exact model choice changed across owned restart')
-                private_json(run.root / 'choice-restart.json', {'exactChoiceRetained': True, 'freshBoot': True})
-                run.command({'type': 'setViewport', 'preset': 'wide'})
-                run.wait(lambda value: value['profileReady'], 'Profile after composer restart')
-                outcomes['groups'][group] = 'passed'
+            if args.composer_footer and not scenarios:
+                perform('model-eligibility' if args.model_eligibility else 'composer', lambda: composer_persistence(run, sentinel))
             if args.conversation_selection:
                 run.current_group = 'conversation'
                 outcomes['groups']['conversation'] = 'failed'
@@ -799,39 +977,54 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
         if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
             raise ValueError('Source/artifact changed during execution')
         verify_current()
-        receipt['scenarioPassed'] = True
+        receipt['assertionsPassed'] = True
     except BaseException as error:
         receipt['scenarioFailure'] = type(error).__name__ + ': fresh scenario did not pass; inspect retained run evidence'
         raise
     finally:
         with resources.preserve_failure():
+            def finalize(label, action):
+                try:
+                    return action()
+                except BaseException as error:
+                    errors.append(type(error).__name__ + ': ' + label + ' failed; inspect retained evidence')
+                    return None
             for run in runs:
-                try:
-                    run.stop()
-                except Exception as error:
-                    errors.append(type(error).__name__ + ': owned shutdown failed; inspect private run evidence')
+                finalize('owned shutdown', run.stop)
             if observer:
-                try:
-                    receipt['noninterference'] = observer.stop([pid for run in runs for pid in run.pids + run.rejected_pids])
-                except Exception as error:
-                    errors.append(type(error).__name__ + ': observer failed')
-            prepared.verify_current()
-            receipt['currentDriverUnchanged'] = source_snapshot(REPO) == verified['current']
-            receipt['fixtureBytesUnchanged'] = digest_file(database) == receipt['fixtureIdentity']['databaseSha256']
-            with contextlib.closing(readonly(database)) as original:
-                receipt['inputUnchanged'] = all(fingerprint(original) == run.original for run in runs)
-            receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors,
-                            'execution': [{'run': str(run.root), 'starts': run.launches,
+                receipt['noninterference'] = finalize('observer', lambda: observer.stop([pid for run in runs for pid in run.pids + run.rejected_pids]))
+            finalize('current input/artifact/scenario verification', verify_current)
+            receipt['currentDriverUnchanged'] = finalize('driver verification', lambda: source_snapshot(REPO) == verified['current'])
+            receipt['fixtureBytesUnchanged'] = finalize('fixture bytes', lambda: digest_file(database) == receipt['fixtureIdentity']['databaseSha256'])
+            def input_unchanged():
+                with contextlib.closing(readonly(database)) as original:
+                    return fingerprint(original) == prepared.original and all(fingerprint(original) == run.original for run in runs if getattr(run, 'prepared', False))
+            receipt['inputUnchanged'] = finalize('input preservation', input_unchanged)
+            def verify_copy(run):
+                if audit(run.bundle) != inventory:
+                    raise ValueError('Copied artifact changed')
+            for run in runs:
+                if getattr(run, 'prepared', False):
+                    finalize('copied artifact preservation', lambda run=run: verify_copy(run))
+            for run, outcome in zip(runs, receipt['groupOutcomes']):
+                outcome['run'] = str(run.root) if run.root else None
+            receipt.update({'runs': [str(run.root) if run.root else None for run in runs], 'shutdownErrors': errors,
+                            'execution': [{'run': str(run.root) if run.root else None, 'prepared': run.prepared, 'starts': run.launches,
                                            'restarts': max(0, run.launches - 1),
                                            'admissionDenialStarts': len(run.rejected_pids),
                                            'configuration': ('mixed' if index == 0 else 'empty') if args.model_eligibility else plan['configurations'][0],
                                            'captures': run.capture_results} for index, run in enumerate(runs)]})
+            preserved = all(receipt[key] is True for key in ('inputUnchanged', 'currentDriverUnchanged', 'fixtureBytesUnchanged'))
+            receipt['scenarioPassed'] = receipt['assertionsPassed'] and preserved and not errors
+            # No successful aggregate receipt can precede required finalization.
+            # If writing itself fails, invocation retains resources and the primary error.
             private_json(scratch / ('ordinary-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
-            if errors or not receipt['inputUnchanged'] or not receipt['currentDriverUnchanged'] or not receipt['fixtureBytesUnchanged']:
+            if errors or not preserved:
                 raise RuntimeError('Original preservation/owned shutdown gate failed; retained private evidence')
             if args.prepare_only:
                 print(json.dumps(receipt))
     print(json.dumps(receipt))
+    return receipt
 
 
 if __name__ == '__main__':

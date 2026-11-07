@@ -214,6 +214,22 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertEqual(actions[-2:], ['fixture-reset', 'close'])
             self.assertEqual(list(run.root.glob('summary-presentation-*.json')), [])
 
+    def test_partial_presentation_setup_closes_and_preserves_primary_failure(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def command(value):
+                if value.get('action') == 'close':
+                    raise RuntimeError('secondary close failed')
+                return {'ok': True}
+            run = SimpleNamespace(root=Path(folder), command=Mock(side_effect=command))
+            def wait(_run, _predicate, label):
+                if label == 'actual inspection before presentation':
+                    raise TimeoutError('initial inspection unknown')
+            with patch.object(smoke, 'memory_wait', side_effect=wait), self.assertRaisesRegex(TimeoutError, 'initial inspection unknown'):
+                smoke.presentation_scenario(run, ('densify',))
+            actions = [call.args[0].get('action') for call in run.command.call_args_list]
+            self.assertEqual(actions, [None, 'open', 'close'])
+            self.assertEqual(list(run.root.glob('summary-presentation-*.json')), [])
+
     def test_unknown_or_duplicate_family_refuses_before_any_fixture(self):
         run=SimpleNamespace(command=Mock())
         for families in [('unknown',), ('densify','densify')]:

@@ -211,9 +211,9 @@ def presentation_scenario(run, families):
     # A previous family's narrow capture leaves desktop navigation hidden.
     # Re-enter through its real visible wide control, never click hidden mobile UI.
     run.command({'type': 'setViewport', 'preset': 'wide'})
-    run.command({'type': 'memory', 'action': 'open'})
-    memory_wait(run, lambda value: value['loaded'] and not value['presentationFixture'], 'actual inspection before presentation')
     try:
+        run.command({'type': 'memory', 'action': 'open'})
+        memory_wait(run, lambda value: value['loaded'] and not value['presentationFixture'], 'actual inspection before presentation')
         images = memory_presentations(run, families)
         private_json(run.root / ('summary-presentation-' + str(uuid.uuid4()) + '.json'), {
             'families': list(families), 'captures': images, 'providerCalls': 0,
