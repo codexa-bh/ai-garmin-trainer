@@ -8,6 +8,7 @@ import subprocess
 import time
 import uuid
 from native_smoke import private_json, readonly
+from smoke_resources import preserve_failure
 
 
 PRICE_BASIS = 'luna-standard-2026-11-04/usd-per-million:0.10-input,0.50-output;reserve:0.25-input'
@@ -77,7 +78,7 @@ def memory_wait(run, predicate, label, timeout=8):
     raise TimeoutError('Memory assertion deadline: ' + label)
 
 
-def memory_controls(run):
+def memory_controls(run, presentation_families=None):
     before = run.chat_hash()
     def action(name):
         try:
@@ -95,11 +96,13 @@ def memory_controls(run):
     action('open')
     memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'empty canonical summary')
     run.command({'type': 'setViewport', 'preset': 'narrow'})
+    run.capture_state = 'empty'
     empty_image = run.command({'type': 'captureView', 'view': 'memory', 'preset': 'narrow'})
     private_json(run.root / 'memory-empty-narrow.json', empty_image)
     action('rebuild-preflight')
     memory_wait(run, lambda value: value['rebuildVisible'] and value['rebuildStartDisabled'] and value['rebuildCancelDisabled'], 'keyless rebuild is visible and refuses generation')
     rebuild_images = []
+    run.capture_state = 'rebuild-keyless-preflight'
     for preset in ['wide', 'narrow']:
         run.command({'type': 'setViewport', 'preset': preset})
         action('rebuild-preflight')
@@ -113,6 +116,7 @@ def memory_controls(run):
     action('save')
     memory_wait(run, lambda value: value['loaded'] and value['hasManual'] and not value['editing'], 'manual saved')
     images = []
+    run.capture_state = 'manual-saved'
     for preset in ['wide', 'narrow']:
         run.command({'type': 'setViewport', 'preset': preset})
         image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
@@ -128,6 +132,7 @@ def memory_controls(run):
     after_summary = status(run)
     if after_summary['expected'] == before_summary or after_summary['characters'] != summary_chars:
         raise ValueError('Complete generated summary did not commit; no mutation replay')
+    run.capture_state = 'whole-summary-and-preference'
     for preset in ['wide', 'narrow']:
         run.command({'type': 'setViewport', 'preset': preset})
         image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
@@ -167,7 +172,7 @@ def memory_controls(run):
         time.sleep(.1)
     memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'Clear committed')
     action('back')
-    presentation_images = memory_presentations(run)
+    presentation_images = memory_presentations(run) if presentation_families is None else memory_presentations(run, presentation_families) if presentation_families else []
     action('close')
     if run.chat_hash() != before:
         raise ValueError('Memory controls changed original conversation/message bytes')
@@ -182,16 +187,64 @@ def memory_controls(run):
     })
 
 
-def memory_presentations(run):
-    """Fixed renderer-only snapshots; no backend mutation or provider success."""
+def memory_presentations(run, families=None):
+    """Fixed renderer-only snapshots; each family restores actual inspection."""
+    families = ('densify', 'overview', 'history') if families is None else tuple(families)
+    if len(set(families)) != len(families) or any(family not in ('densify', 'overview', 'history') for family in families):
+        raise ValueError('Unknown/duplicate fixed presentation family')
+    images = []
+    for family in families:
+        try:
+            images.extend(presentation_family(run, family))
+        finally:
+            # Restore even on failed/unknown presentation; never replay a mutation.
+            # Preserve the primary failure if restoration also refuses.
+            with preserve_failure():
+                run.command({'type': 'memory', 'action': 'fixture-reset'})
+                memory_wait(run, lambda value: value['loaded'] and not value['presentationFixture'], 'real inspection restored')
+    return images
+
+
+def presentation_scenario(run, families):
+    """Standalone fixed proof: no lifecycle/control success claim."""
+    memory_wait(run, lambda value: not value['visible'], 'closed sheet before selected presentation')
+    # A previous family's narrow capture leaves desktop navigation hidden.
+    # Re-enter through its real visible wide control, never click hidden mobile UI.
+    run.command({'type': 'setViewport', 'preset': 'wide'})
+    run.command({'type': 'memory', 'action': 'open'})
+    memory_wait(run, lambda value: value['loaded'] and not value['presentationFixture'], 'actual inspection before presentation')
+    try:
+        images = memory_presentations(run, families)
+        private_json(run.root / ('summary-presentation-' + str(uuid.uuid4()) + '.json'), {
+            'families': list(families), 'captures': images, 'providerCalls': 0,
+            'evidenceClass': 'fixed presentation only; not engine progression or actual mutation persistence',
+        })
+        return images
+    finally:
+        with preserve_failure():
+            run.command({'type': 'memory', 'action': 'close'})
+            memory_wait(run, lambda value: not value['visible'], 'closed sheet after selected presentation')
+
+
+def presentation_family(run, family):
+    """Cohesive existing fixture sequences; prerequisite state stays within a family."""
     images = []
     action = lambda name: run.command({'type': 'memory', 'action': name})
     def capture(label, presets=('wide', 'narrow')):
+        run.capture_state = label
         for preset in presets:
             run.command({'type': 'setViewport', 'preset': preset})
             image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
             images.append({'state': label, 'preset': preset, 'evidenceClass': 'instrumented fixed presentation fixture, not engine progression', **image})
             private_json(run.root / ('presentation-' + label + '-' + preset + '.json'), images[-1])
+    if family == 'densify':
+        return densify_presentations(run, action, capture, images)
+    if family == 'overview':
+        return overview_presentations(run, action, capture, images)
+    return history_presentations(run, action, capture, images)
+
+
+def densify_presentations(run, action, capture, images):
     action('fixture-densify-ready')
     memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'authored 13250 densify button')
     capture('densify-ready')
@@ -211,6 +264,10 @@ def memory_presentations(run):
     capture('densify-busy')
     action('densify-cancel')
     memory_wait(run, lambda value: not value['confirmationVisible'], 'fixed cancellation settled')
+    return images
+
+
+def overview_presentations(run, action, capture, images):
     action('fixture-populated')
     memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'populated fixed presentation')
     capture('populated')
@@ -226,6 +283,10 @@ def memory_presentations(run):
     action('fixture-off')
     memory_wait(run, lambda value: value['loaded'] and value['off'], 'Off fixed retained presentation')
     capture('off', ('narrow',))
+    return images
+
+
+def history_presentations(run, action, capture, images):
     for fixture in ['history', 'running', 'complete', 'interrupted', 'failed', 'cancelled']:
         action('fixture-' + fixture)
         memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], fixture + ' fixed presentation')
@@ -256,12 +317,10 @@ def memory_presentations(run):
     action('fixture-unknown')
     memory_wait(run, lambda value: not value['loaded'] and value['presentationFixture'], 'unknown fixed inspection')
     capture('unknown', ('narrow',))
-    action('fixture-reset')
-    memory_wait(run, lambda value: value['loaded'] and not value['presentationFixture'], 'real inspection restored')
     return images
 
 
-def scenario(run):
+def scenario(run, presentation_families=None):
     deadline = time.monotonic() + 45
     observed = status(run)
     while observed['reason'] != 'summary_missing_key' and time.monotonic() < deadline:
@@ -280,7 +339,10 @@ def scenario(run):
             raise ValueError('Restart silently replayed deterministic failure')
     if recovered['reason'] != 'summary_missing_key' or recovered['pending'] != 4:
         raise ValueError('Durable summary backlog/failure lost across native restart')
-    memory_controls(run)
+    if presentation_families is None:
+        memory_controls(run)  # Direct legacy callers retain full behavior.
+    else:
+        memory_controls(run, presentation_families=presentation_families)
     cleared = status(run, 'clear')
     disabled = status(run, 'disable')
     if cleared['items'] != 0 or cleared['characters'] != 0 or disabled['enabled']:

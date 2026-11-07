@@ -24,6 +24,81 @@ Two authenticated release-native/source/artifact/boot/selected-copy identities a
 
 The baseline is keyless. No real provider/Garmin success is implied; separately provisioned run-native settings and explicit token copies are required for available real integration checks through the verified owned backend. Never read back keys, copy normal settings, generate env files or automate sign-in/MFA. Existing debug, quick and release-probe regressions remain independent. Focus is sampled every 10ms without activation/restoration; absence of a live operator instance must be disclosed, not manufactured. Only live child handles authorize shutdown; verify native reaping, backend/control endpoints and DB/run lease settlement. Copies/Goals are task-attributed and subject to [evidence-first owned disposal](#preparation-reuse-and-owned-disposal); no primary mutation/copy-back or worktree disposal.
 
+## Risk-selected ordinary feature smoke
+
+No-option and existing feature-flag commands retain **full** broad regression: two
+simultaneous independent instances, cross-run/security/admission denials,
+navigation/Goals/restart, Trainer/Sync/Profile wide+narrow captures and parent-death.
+For reviewed local changes, explicitly select only the adequate feature proof:
+
+```bash
+# Use the canonical physical ordinary bundle path, not a task source alias.
+npm run smoke:ordinary -- --scratch <canonical-task-root> --bundle <ordinary-app> \
+  --composer-footer --smoke-scope feature --impact local-feature \
+  --impact-basis 'Reviewed composer-only change; native/shared owners unchanged'
+npm run smoke:ordinary -- --scratch <canonical-task-root> --bundle <ordinary-app> \
+  --conversation-selection --smoke-scope feature --impact local-feature \
+  --impact-basis 'Reviewed conversation-only change; native/shared owners unchanged'
+npm run smoke:ordinary -- --scratch <canonical-task-root> --bundle <ordinary-app> \
+  --summary-engine --summary-part lifecycle --smoke-scope feature \
+  --impact summary-lifecycle --impact-basis 'Actual keyless lifecycle/control proof'
+npm run smoke:ordinary -- --scratch <canonical-task-root> --bundle <ordinary-app> \
+  --summary-engine --summary-part presentation --summary-family densify \
+  --smoke-scope feature --impact summary-presentation \
+  --impact-basis 'Reviewed Densify presentation and adjacent states only'
+```
+
+| Reviewed impact                                                                                          | Minimum selection / refusal                                                                                                                                 |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local composer or conversation                                                                           | Named feature and its state/failure/persistence assertions and useful responsive captures; one instance, not an isolation pass                              |
+| Model eligibility                                                                                        | `--model-eligibility`; always mixed **and** empty catalogs on two independent instances, even in feature scope                                              |
+| Summary engine/control                                                                                   | `--summary-engine --summary-part lifecycle`; actual keyless scheduling, controls, restart/no replay/Clear/Off and seven control captures, no fixed fixtures |
+| Summary presentation                                                                                     | `--summary-part presentation` plus repeatable `--summary-family densify\|overview\|history`; selected fixed family only, no engine progression claim        |
+| Native/controller/protocol/admission/config/DB/process/identity/mask, shared UI or uncertain integration | **Full** simultaneous two-instance regression plus applicable feature groups; `--impact shared\|unknown` refuses feature scope                              |
+| A saved task requires full/native/real integration                                                       | Preserve it until an authorized scoped update; this prospective recipe never waives historical obligations                                                  |
+
+Feature scope requires a nonempty bounded impact basis and named compatible feature;
+this assertion is review evidence, **not** an automatic diff classifier. Summary
+configuration cannot combine with composer/conversation. Summary part defaults
+`all`; presentation families default all three. Lifecycle-only refuses family
+selectors; unknown/duplicate families and empty/mismatched selections refuse before
+input preparation or native allocation. `--prepare-only` launches zero and claims no
+scenario pass. Full mode can also select summary parts/families while retaining
+all broad groups. Existing direct callers keep their full default contracts.
+
+Densify owns ready/review/accepted/no-reduction/busy states. Overview owns populated,
+whole-summary/editor/manage/confirmation and empty/error/Off states. History owns
+selection/review, running/results/failure/cancellation, progressive temporal DOM and
+unknown inspection. Each family has its own authored prerequisite and restores
+actual inspection in `finally`, including on failure; failures are never replayed
+for an image. Fixed presentation uses the existing renderer-only adapter and is not
+successful inference, actual lifecycle/mutation persistence or compositor-frame proof.
+Lifecycle/control proof remains actual keyless app behavior and preserves original
+messages. No native or product control, mask, permission or build classifier changes.
+
+Every launch still uses exact current artifact/context/fixture/native boot admission,
+run-local state, original-input verification, observer and final owned settlement.
+Feature-specific restarts require fresh origins/boots and reject prior bearer/boot
+capabilities; selection omits unrelated regression exercises, not those safeguards.
+The preallocation `executionPlan` names selected/omitted groups, configuration count,
+prerequisites, restart needs and capture recipes. Fresh ordinary receipts add the
+plan, per-run `passed|failed|not-run` group outcomes, actual main starts/restarts,
+admission-denial starts and successful capture state/view/preset/run/boot/results.
+`scenarioPassed` means the **declared selected scope**, never omitted/full proof.
+Original failures, preparation-only and settlement/disposition remain independent.
+
+Select captures **before** producing them. Inspect each relied-on original at its
+native-confined or category-archived authoritative reference and record source,
+artifact, run, state, timestamp/hash and actual visual analysis. Do not create a
+second copied-original review tree. Contact sheets are optional derived aids, not
+required evidence or a substitute for unreadable originals. Category archive still
+copies native PNGs/logs under its pinned ownership; no deduplication, image deletion,
+encoding, retention or confinement redesign is implied. Compare bounded authored
+cohorts by executed scenarios, starts/restarts, original/archive/derived counts,
+logical bytes and allocated blocks; APFS blocks are not proven reclaimable savings.
+Images stay temporary/local, never uploaded or committed. Missing private/provider,
+trusted-input/default-window or integration proof remains unavailable, not passed.
+
 ## Keyless summary producer lifecycle
 
 `npm run smoke:ordinary -- --scratch <canonical-task-scratch> --bundle <current-ordinary-app> --summary-engine`
@@ -48,8 +123,10 @@ controls then prove cutoff includes the incomplete source, original message coun
 survive and immediate Off persists across restart. Explicit configured Enable/Disable
 recovery is also checked without applying pending native topology. Only fixed bounded metadata is
 retained. These API observations run through the exact native-owned backend, not a
-new controller/proxy or standalone server. Ordinary parallel/security/Goals/captures/
-parent-death/original-integrity/settlement and evidence-first disposition remain required.
+new controller/proxy or standalone server. Default full mode retains ordinary parallel/security/Goals/captures/
+parent-death regression; explicit [risk-selected scope](#risk-selected-ordinary-feature-smoke)
+may omit unrelated broad groups. Original-integrity/settlement and evidence-first
+disposition remain required in every mode.
 Validate summary seed/recipe/runner contracts plus current aggregate/native artifact
 before use. This is keyless failure/lifecycle proof, **not successful generation,
 real-provider quality, native Settings input or full global pin/UI integration**.

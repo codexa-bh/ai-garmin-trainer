@@ -76,6 +76,7 @@ class OrdinaryRun(Run):
         self.root_identity = (root_info.st_dev, root_info.st_ino)
         self.launch_identity = (launch_info.st_dev, launch_info.st_ino)
         self.previous_token = None
+        self.capture_results = []
         private_json(self.root / 'artifact.json', {'artifactKind': 'ordinary', 'sourceFingerprint': source,
                      'artifactInventoryHash': self.artifact, 'files': len(inventory),
                      'buildSourceFingerprint': self.build_source, 'buildContext': self.build_context,
@@ -164,6 +165,7 @@ class OrdinaryRun(Run):
             observed = self.command({'type': 'composer', 'action': 'observe'})
             if not observed['unselectedChoice']:
                 raise ValueError('Unselected placeholder changed before explicit choice')
+            self.capture_state = 'unselected'
             image = self.command({'type': 'captureView', 'view': 'composer', 'preset': preset})
             images.append({'state': 'unselected', 'preset': preset, **image, 'observation': observed})
             private_json(self.root / ('composer-capture-unselected-' + preset + '.json'), images[-1])
@@ -172,6 +174,7 @@ class OrdinaryRun(Run):
         if self.model_choice() != ('entry_footer_long', 'selected'):
             raise ValueError('UI model choice did not persist')
         for state in ['saved']:
+            self.capture_state = state
             for preset in ['wide', 'narrow']:
                 self.command({'type': 'setViewport', 'preset': preset})
                 observed = self.command({'type': 'composer', 'action': 'observe'})
@@ -200,6 +203,7 @@ class OrdinaryRun(Run):
         images = []
         states = ['hidden-saved'] if empty else ['hidden-saved', 'replacement']
         for state in states:
+            self.capture_state = state
             if state == 'replacement':
                 self.command({'type': 'composer', 'action': 'keys'})
                 self.command({'type': 'composer', 'action': 'choose'})
@@ -308,6 +312,7 @@ class OrdinaryRun(Run):
             raise ValueError('Conversation restart did not use a fresh native origin/boot')
         self.conversation_wait(lambda ui, db: ui['selectionReady'] and ui['firstSelected'] and ui['secondPresent'] and db['savedFirst'], 'restored older first on new origin')
         images = []
+        self.capture_state = 'restored-first'
         for preset in ['wide', 'narrow']:
             self.command({'type': 'setViewport', 'preset': preset})
             self.conversation_open_history()
@@ -322,6 +327,7 @@ class OrdinaryRun(Run):
         self.conversation_wait(lambda ui, db: ui['firstSelected'] and db['savedFirst'], 'active delete falls back to first')
         self.conversation_delete('first')
         self.conversation_wait(lambda ui, db: ui['newSelected'] and not ui['firstPresent'] and not ui['secondPresent'] and db['savedNew'] and db['count'] == 1, 'delete-last normal replacement')
+        self.capture_state = 'delete-last-replacement'
         images.append({'state': 'delete-last-replacement', 'preset': 'wide', **self.command({'type': 'captureView', 'view': 'conversation', 'preset': 'wide'})})
         state = self.conversation_state()
         if not all(state[key] for key in ['onlySynthetic', 'messagesEmpty', 'defaultAbsent']):
@@ -407,6 +413,15 @@ class OrdinaryRun(Run):
             raise ValueError('Verified native boot required')
         return {**super().request(command, request_id), 'expectedBoot': self.boot}
 
+    def command(self, command):
+        result = super().command(command)
+        if command['type'] == 'captureView':
+            self.capture_results.append({'view': command['view'], 'preset': command['preset'],
+                                         'group': getattr(self, 'current_group', 'direct-consumer'),
+                                         'state': getattr(self, 'capture_state', command['view']),
+                                         'runId': self.id, 'boot': self.boot, **result})
+        return result
+
     def scenario(self):
         self.wait(lambda value: value['view'] == 'Trainer', 'Trainer')
         for view in ['Activities', 'Health', 'Training Plan', 'Sync']:
@@ -444,6 +459,7 @@ class OrdinaryRun(Run):
                     private_json(self.root / ('viewport-failure-' + str(uuid.uuid4()) + '.json'),
                                  {'view': view, 'preset': preset, 'rendererDiagnostic': identity.get('rendererDiagnostic')})
                     raise
+                self.capture_state = view
                 result = self.command({'type': 'captureView', 'view': view, 'preset': preset})
                 images.append({'view': view, 'preset': preset, **result, 'inspection': 'required separately; not certified by runner'})
         private_json(self.root / 'captures.json', images)
@@ -542,6 +558,111 @@ def security(run, other):
     private_json(run.root / 'security.json', {'browserCrossRunPrivateControlAndStaleBootDenied': True, 'duplicatesDenied': True})
 
 
+SUMMARY_FAMILIES = ('densify', 'overview', 'history')
+BROAD_GROUPS = ('security', 'admission-denials', 'navigation-goals-restart', 'baseline-captures', 'parent-death')
+
+
+def selection_plan(args):
+    """Finite reviewed selection, not automatic source-impact classification."""
+    scope = getattr(args, 'smoke_scope', 'full')
+    impact = getattr(args, 'impact', 'unknown')
+    basis = getattr(args, 'impact_basis', '')
+    part = getattr(args, 'summary_part', 'all')
+    families = getattr(args, 'summary_family', None)
+    if scope not in ('full', 'feature') or impact not in ('local-feature', 'summary-lifecycle', 'summary-presentation', 'shared', 'unknown'):
+        raise ValueError('Unknown smoke scope/impact')
+    if part not in ('all', 'lifecycle', 'presentation') or (families and (len(set(families)) != len(families) or any(f not in SUMMARY_FAMILIES for f in families))):
+        raise ValueError('Unknown/duplicate summary selection')
+    if args.summary_engine and (args.composer_footer or args.model_eligibility or args.conversation_selection):
+        raise ValueError('Summary scenario cannot combine with other configuration presets')
+    if not args.summary_engine and (part != 'all' or families):
+        raise ValueError('Summary selectors require --summary-engine')
+    if part == 'lifecycle' and families:
+        raise ValueError('Lifecycle-only selection cannot include presentation families')
+    if scope == 'feature':
+        if impact in ('shared', 'unknown') or not isinstance(basis, str) or not basis.strip() or len(basis) > 1000:
+            raise ValueError('Feature scope requires reviewed local impact and bounded nonempty --impact-basis; shared/unknown impact requires full')
+        expected = 'summary-presentation' if part == 'presentation' else 'summary-lifecycle'
+        if args.summary_engine and impact != expected:
+            raise ValueError('Summary scope/impact mismatch; broaden or select the matching proof')
+        if not args.summary_engine and (impact != 'local-feature' or not (args.composer_footer or args.model_eligibility or args.conversation_selection)):
+            raise ValueError('Feature scope requires a named feature and matching impact')
+    selected = list(BROAD_GROUPS) if scope == 'full' else []
+    if args.composer_footer or args.model_eligibility:
+        selected.append('model-eligibility' if args.model_eligibility else 'composer')
+    if args.conversation_selection:
+        selected.append('conversation')
+    if args.summary_engine:
+        if part != 'presentation':
+            selected.append('summary-lifecycle')
+        if part != 'lifecycle':
+            selected.extend('summary-' + family for family in (families or SUMMARY_FAMILIES))
+    universe = (*BROAD_GROUPS, 'composer', 'model-eligibility', 'conversation', 'summary-lifecycle',
+                *('summary-' + family for family in SUMMARY_FAMILIES))
+    configurations = ['mixed', 'empty'] if args.model_eligibility else ['summary' if args.summary_engine else 'composer' if args.composer_footer else 'keyless']
+    count = 2 if scope == 'full' or args.model_eligibility else 1
+    return {'scope': scope, 'impact': impact, 'impactBasis': basis, 'instances': count,
+            'configurations': configurations, 'selected': selected,
+            'omitted': {group: 'not selected; no pass claimed' for group in universe if group not in selected},
+            'summaryPart': part, 'summaryFamilies': list(families or SUMMARY_FAMILIES) if args.summary_engine and part != 'lifecycle' else [],
+            'prerequisites': ['current artifact/context/fixture admission at every boot', 'owned observer/preservation/final settlement',
+                              'explicit Profile-close setup for composer/conversation', 'fixed family reset to actual inspection'],
+            'restarts': 'full lifecycle plus feature persistence' if scope == 'full' else 'feature-owned persistence only; presentation has none',
+            'captures': {group: recipe for group, recipe in {
+                'baseline-captures': 'Trainer/Sync/Profile wide+narrow masked geometry',
+                'composer': 'unselected/saved wide+narrow synthetic DOM',
+                'model-eligibility': 'mixed unavailable/replacement and empty unavailable wide+narrow synthetic DOM',
+                'conversation': 'restored-first wide+narrow, delete-last wide synthetic DOM',
+                'summary-lifecycle': 'empty narrow, preflight/manual/whole-summary wide+narrow actual keyless controls',
+                'summary-densify': 'ready/review/accepted/no-reduction/busy wide+narrow fixed presentation',
+                'summary-overview': 'populated/editor wide+narrow; manage/confirm/editor/empty/error/Off narrow fixed presentation',
+                'summary-history': 'history/results/progressive wide+narrow, unknown narrow fixed presentation; temporal DOM not engine progression',
+            }.items() if group in selected}}
+
+
+def deny_previous_boot(run):
+    if run.previous_boot is None or run.previous_boot == run.boot:
+        raise ValueError('Feature persistence requires fresh native boot')
+    run.http('/identity', extra={'Authorization': 'Bearer ' + run.previous_token}, expected=403)
+    run.http('/command', {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedBoot': run.previous_boot}, expected=400)
+
+
+def feature_scenarios(run, args, plan, perform):
+    if args.summary_engine:
+        from summary_smoke import scenario, presentation_scenario
+        if plan['summaryPart'] != 'presentation':
+            def lifecycle():
+                scenario(run, presentation_families=())
+                deny_previous_boot(run)
+            perform('summary-lifecycle', lifecycle)
+        for family in plan['summaryFamilies']:
+            perform('summary-' + family, lambda family=family: presentation_scenario(run, (family,)))
+    if args.composer_footer or args.model_eligibility:
+        def composer():
+            # The existing scenario closes Profile first; narrow mode has no baseline
+            # captures/Goals to leave it open. Establish the real prerequisite explicitly.
+            run.command({'type': 'setViewport', 'preset': 'wide'})
+            run.command({'type': 'click', 'target': 'Profile & data'})
+            run.wait(lambda value: value['profileReady'], 'feature Profile prerequisite')
+            run.composer_scenario()
+            expected, origin, boot = run.model_choice(), run.origin, run.boot
+            run.stop()
+            run.start(run.binary)
+            if run.origin == origin or run.boot == boot or run.model_choice() != expected:
+                raise ValueError('Exact model choice/fresh origin persistence failed')
+            deny_previous_boot(run)
+            private_json(run.root / 'choice-restart.json', {'exactChoiceRetained': True, 'freshBoot': True})
+        perform('model-eligibility' if args.model_eligibility else 'composer', composer)
+    if args.conversation_selection:
+        def conversation():
+            run.command({'type': 'setViewport', 'preset': 'wide'})
+            run.command({'type': 'click', 'target': 'Profile & data'})
+            run.wait(lambda value: value['profileReady'], 'feature conversation prerequisite')
+            run.conversation_scenario()
+            deny_previous_boot(run)
+        perform('conversation', conversation)
+
+
 @resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -554,10 +675,18 @@ def main():
     parser.add_argument('--composer-footer', action='store_true', help='Finite keyless explicit choice/draft/restart and wide/narrow masked capture; no provider send')
     parser.add_argument('--model-eligibility', action='store_true', help='Opt-in fixed mixed/zero eligible catalogs with unavailable explicit choices; implies composer footer')
     parser.add_argument('--summary-engine', action='store_true', help='Finite keyless independent summary selection/scheduler/backlog/clear/Off/restart; no provider credential lookup')
+    parser.add_argument('--smoke-scope', choices=('full', 'feature'), default='full')
+    parser.add_argument('--impact', choices=('local-feature', 'summary-lifecycle', 'summary-presentation', 'shared', 'unknown'), default='unknown')
+    parser.add_argument('--impact-basis', default='', help='Reviewed task-local impact rationale, not automatic classification or permission')
+    parser.add_argument('--summary-part', choices=('all', 'lifecycle', 'presentation'), default='all')
+    parser.add_argument('--summary-family', choices=SUMMARY_FAMILIES, action='append', help='Finite presentation families; default all')
     args = parser.parse_args()
-    if args.summary_engine and (args.composer_footer or args.model_eligibility or args.conversation_selection):
-        parser.error('Summary scenario cannot combine with other configuration presets')
     args.composer_footer = args.composer_footer or args.model_eligibility
+    try:
+        plan = selection_plan(args)
+    except ValueError as error:
+        parser.error(str(error))
+    print(json.dumps({'executionPlan': plan}), flush=True)
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
     prepared = prepare(scratch, args, 'ordinary', synthetic_empty_chat=args.conversation_selection)
@@ -569,6 +698,7 @@ def main():
 
 
 def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory):
+    plan = selection_plan(args)
     database = prepared.database
     def verify_current():
         prepared.verify_current()
@@ -584,6 +714,8 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
                                    'preparationSha256': digest_file(prepared.root / 'preparation.json'),
                                    'selectionSha256': digest_file(prepared.root / 'selection.json')},
                'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
+               'selection': plan, 'groupOutcomes': [],
+               'scenarioClaim': 'declared selected scope only, not omitted/full proof',
                'scenarioPassed': False, 'summaryEngineKeylessRequested': args.summary_engine, 'conversationSelectionRequested': args.conversation_selection, 'composerFooterRequested': args.composer_footer, 'modelEligibilityRequested': args.model_eligibility, 'providerAndGarmin': 'unavailable: no separately authored run-native keys or explicit private token copy',
                'defaultMode': 'native routing/admission tests plus separately labeled release-probe regression; normal operator app not launched/targeted',
                'screenshots': 'redacted geometry only; required independent inspection; synthetic events, not trusted native input',
@@ -591,10 +723,11 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
                'cleanup': 'Final owned-disposal receipt records removed/retained copies; compact diagnostics/PNG remain; no copy-back'}
     errors = []
     try:
-        for index in range(2):
+        for index in range(plan['instances']):
             prepared.verify_current()
             verify_current()
             runs.append(OrdinaryRun(scratch, database, source, bundle, inventory, verified=verified))
+            receipt['groupOutcomes'].append({'run': str(runs[-1].root), 'groups': {group: 'not-run' for group in plan['selected']}})
             runs[-1].before_start = verify_current
             if args.summary_engine:
                 from summary_smoke import prepare_summary
@@ -610,22 +743,42 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
             prepared.verify_current()
             run.observer = observer
             run.start(run.binary)
-        if runs[0].origin == runs[1].origin or runs[0].boot == runs[1].boot:
+        if len(runs) == 2 and (runs[0].origin == runs[1].origin or runs[0].boot == runs[1].boot):
             raise ValueError('Parallel native/backend namespace collision')
-        for run, other in [(runs[0], runs[1]), (runs[1], runs[0])]:
+        for index, run in enumerate(runs):
             prepared.verify_current()
+            outcomes = receipt['groupOutcomes'][index]
+            def perform(group, action):
+                run.current_group = group
+                outcomes['groups'][group] = 'failed'
+                result = action()
+                outcomes['groups'][group] = 'passed'
+                return result
+            if plan['scope'] == 'feature':
+                feature_scenarios(run, args, plan, perform)
+                continue
+            other = runs[1 - index]
             if args.summary_engine:
-                from summary_smoke import scenario as summary_scenario
-                summary_scenario(run)
-            security(run, other)
-            run.verify_admission_denials()
+                from summary_smoke import scenario as summary_scenario, presentation_scenario
+                if 'summary-lifecycle' in plan['selected']:
+                    perform('summary-lifecycle', lambda: summary_scenario(run, presentation_families=()))
+                for family in plan['summaryFamilies']:
+                    perform('summary-' + family, lambda family=family: presentation_scenario(run, (family,)))
+            perform('security', lambda: security(run, other))
+            perform('admission-denials', run.verify_admission_denials)
+            run.current_group = 'navigation-goals-restart'
+            outcomes['groups']['navigation-goals-restart'] = 'failed'
             sentinel = run.scenario()
             old_boot = run.boot
             run.verify_restart(run.binary, sentinel)
             run.http('/identity', extra={'Authorization': 'Bearer ' + run.previous_token}, expected=403)
             run.http('/command', {**run.request({'type': 'observe'}, str(uuid.uuid4())), 'expectedBoot': old_boot}, expected=400)
-            run.captures()
+            outcomes['groups']['navigation-goals-restart'] = 'passed'
+            perform('baseline-captures', run.captures)
             if args.composer_footer:
+                group = 'model-eligibility' if args.model_eligibility else 'composer'
+                run.current_group = group
+                outcomes['groups'][group] = 'failed'
                 run.composer_scenario()
                 expected_choice = run.model_choice()
                 run.verify_restart(run.binary, sentinel, kind='model')
@@ -634,11 +787,15 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
                 private_json(run.root / 'choice-restart.json', {'exactChoiceRetained': True, 'freshBoot': True})
                 run.command({'type': 'setViewport', 'preset': 'wide'})
                 run.wait(lambda value: value['profileReady'], 'Profile after composer restart')
+                outcomes['groups'][group] = 'passed'
             if args.conversation_selection:
+                run.current_group = 'conversation'
+                outcomes['groups']['conversation'] = 'failed'
                 run.conversation_scenario()
                 run.command({'type': 'click', 'target': 'Profile & data'})
                 run.wait(lambda value: value['profileReady'], 'Profile after conversations')
-            run.verify_parent_death(sentinel)
+                outcomes['groups']['conversation'] = 'passed'
+            perform('parent-death', lambda: run.verify_parent_death(sentinel))
         if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
             raise ValueError('Source/artifact changed during execution')
         verify_current()
@@ -663,7 +820,12 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
             receipt['fixtureBytesUnchanged'] = digest_file(database) == receipt['fixtureIdentity']['databaseSha256']
             with contextlib.closing(readonly(database)) as original:
                 receipt['inputUnchanged'] = all(fingerprint(original) == run.original for run in runs)
-            receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors})
+            receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors,
+                            'execution': [{'run': str(run.root), 'starts': run.launches,
+                                           'restarts': max(0, run.launches - 1),
+                                           'admissionDenialStarts': len(run.rejected_pids),
+                                           'configuration': ('mixed' if index == 0 else 'empty') if args.model_eligibility else plan['configurations'][0],
+                                           'captures': run.capture_results} for index, run in enumerate(runs)]})
             private_json(scratch / ('ordinary-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
             if errors or not receipt['inputUnchanged'] or not receipt['currentDriverUnchanged'] or not receipt['fixtureBytesUnchanged']:
                 raise RuntimeError('Original preservation/owned shutdown gate failed; retained private evidence')
