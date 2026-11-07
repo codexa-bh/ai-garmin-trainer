@@ -2439,7 +2439,7 @@ describe("strength activity detail visibility", () => {
       lap({ lapNumber: 2, durationSec: 300 }),
     ];
     const view = render(detailView(data));
-    const button = screen.getByRole("button", { name: "Section 1" });
+    const button = screen.getByRole("button", { name: "Select section 1" });
     button.focus();
     fireEvent.click(button);
     expect(button.getAttribute("aria-pressed")).toBe("true");
@@ -2457,13 +2457,13 @@ describe("strength activity detail visibility", () => {
     );
     expect(
       screen
-        .getByRole("button", { name: "Section 1" })
+        .getByRole("button", { name: "Select section 1" })
         .getAttribute("aria-pressed"),
     ).toBe("false");
     expect(
       screen.queryByLabelText("Selected terrain section elevation interval"),
     ).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Section 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select section 1" }));
     expect(
       screen.getByLabelText("Selected terrain section elevation interval"),
     ).toBeTruthy();
@@ -2496,7 +2496,7 @@ describe("strength activity detail visibility", () => {
       ).toBeTruthy();
       expect(screen.getByRole("table", { name: "Lap details" })).toBeTruthy();
       view.rerender(detailView(data));
-      const restored = screen.getByRole("button", { name: "Section 1" });
+      const restored = screen.getByRole("button", { name: "Select section 1" });
       expect(restored.getAttribute("aria-pressed")).toBe("false");
       expect(
         screen.queryByLabelText("Selected terrain section elevation interval"),
