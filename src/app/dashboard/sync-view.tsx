@@ -10,6 +10,7 @@ import {
   formatHealthCoverageSummary,
   formatSyncCounts,
   formatSyncOutcome,
+  formatSyncRunStatus,
   syncFailureSummary,
 } from "./sync-presentation";
 
@@ -113,13 +114,12 @@ export function SyncView({
 }) {
   const latest = importSummary?.sync?.latest;
   const history = importSummary?.sync?.historical;
-  const active = isSyncing || importSummary?.syncActive;
+  const active =
+    isSyncing || (summaryKnown !== false && importSummary?.syncActive === true);
   const currentMessage = active
-    ? isSyncing
-      ? syncRun.finalMessage
-      : "A sync is active. Wait for settlement, then refresh summary."
+    ? "Syncing…"
     : syncRun.kind !== "idle"
-      ? syncRun.finalMessage
+      ? formatSyncRunStatus(syncRun)
       : summaryKnown === false
         ? "Status unavailable. Refresh import summary before syncing."
         : latest
@@ -153,7 +153,7 @@ export function SyncView({
         <section
           className="sync-action-card"
           data-sync-kind={syncRun.kind}
-          data-sync-running={isSyncing}
+          data-sync-running={active}
           aria-labelledby="sync-action-heading"
         >
           <div className="card-title-row">
@@ -161,7 +161,9 @@ export function SyncView({
               <p className="section-kicker">Current run</p>
               <h2 id="sync-action-heading">Run Garmin sync</h2>
             </div>
-            <span className={`pill ${syncPillKind}`}>{syncPillLabel}</span>
+            <span className={`pill ${active ? "busy" : syncPillKind}`}>
+              {active ? "Syncing" : syncPillLabel}
+            </span>
           </div>
           <div className="button-row">
             <button
@@ -173,7 +175,7 @@ export function SyncView({
               }
               aria-label="Sync now — import latest Garmin data"
             >
-              {isSyncing ? "Sync already in progress" : "Sync latest"}
+              {active ? "Sync in progress" : "Sync latest"}
             </button>
             {summaryKnown !== false &&
             importSummary?.sync?.historical.state === "available" ? (
@@ -195,6 +197,9 @@ export function SyncView({
           </div>
           {history?.state === "available" && summaryKnown !== false ? (
             <p className="helper-text">
+              {history.interrupted
+                ? "Older import interrupted; saved progress retained. "
+                : ""}
               Older import:{" "}
               {history.limit ? `from ${history.limit}` : "automatic discovery"};
               up to 30 minutes. Total history unknown.
@@ -205,22 +210,26 @@ export function SyncView({
               <h3>Sync needs attention</h3>
               <p>{syncRun.failureSummary}</p>
             </div>
-          ) : (
+          ) : null}
+          {active || !syncRun.failureSummary ? (
             <p
               className="sync-current-status"
               role="status"
               aria-live="polite"
               aria-atomic="true"
             >
+              {active ? (
+                <span className="sync-busy-cue" aria-hidden="true" />
+              ) : null}
               {currentMessage}
             </p>
-          )}
-          {countSummary ? (
+          ) : null}
+          {countSummary && (!active || isSyncing) ? (
             <p className="helper-text sync-counts">{countSummary}</p>
           ) : null}
           {history?.state === "blocked" ? (
             <p className="sync-history-status sync-history-warning">
-              Older history needs attention. See Technical details.
+              Older history needs attention.
             </p>
           ) : history?.state === "complete" && summaryKnown !== false ? (
             <p className="helper-text sync-history-status">
@@ -233,7 +242,7 @@ export function SyncView({
               syncing.
             </p>
           ) : null}
-          {syncRun.recovery ? (
+          {!active && syncRun.recovery ? (
             <SyncLoginHelp recovery={syncRun.recovery} />
           ) : null}
           <details
@@ -241,33 +250,14 @@ export function SyncView({
             onToggle={(event) => setTechnicalOpen?.(event.currentTarget.open)}
           >
             <summary>Technical details</summary>
-            <p className="helper-text">
-              Sync latest refreshes recent data without advancing saved history.
-              Reads use the local read-only connector. Opening this view or
-              these details never starts an import.
-            </p>
-            {history ? (
-              <>
-                <p className="helper-text">{history.reason}</p>
-                <p className="helper-text">
-                  Exploration scope:{" "}
-                  {history.limit
-                    ? `from ${history.limit}`
-                    : "automatic discovery; total history unknown"}
-                  . Remote earliest history is unknown.
-                  {history.next
-                    ? ` Next: ${history.next.family} · ${history.next.date}${history.next.page !== undefined ? ` · page ${history.next.page}` : ""}.`
-                    : ""}
-                </p>
-              </>
+            {history?.next ? (
+              <p className="helper-text">
+                Next saved work: {history.next.family} · {history.next.date}
+                {history.next.page !== undefined
+                  ? ` · page ${history.next.page}`
+                  : ""}
+              </p>
             ) : null}
-            <p className="helper-text">
-              Historical operations: up to 30 minutes / 480 remote-operation
-              attempts; internal batches 96 attempts / 180 seconds; nested reads
-              30 seconds, serial pacing at least one second. Attempts are not
-              exact HTTP counts. Processed/refreshed records are not proven new
-              imports.
-            </p>
             {importSummary?.history ? (
               <p className="helper-text">
                 Health dates checked: {importSummary.history.health.checks};
@@ -309,13 +299,7 @@ export function SyncView({
           aria-labelledby="sync-maintenance-heading"
         >
           <h2 id="sync-maintenance-heading">Garmin maintenance</h2>
-          <p>
-            Verification checks connector file presence, not authentication
-            validity. Reads use the pinned local stdio connector. Configure
-            connection in native Settings using Connect or Reconnect, then
-            explicitly quit/reopen; this trainer page and AI have no credential
-            access.
-          </p>
+          <p>Verify connector checks file presence, not sign-in validity.</p>
           <div className="button-row">
             <button
               type="button"

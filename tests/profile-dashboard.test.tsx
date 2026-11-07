@@ -4484,7 +4484,9 @@ describe("TrainerDashboard dedicated Sync view", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(React.createElement(TrainerDashboard));
     fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
-    await screen.findByText(/Previous historical import was interrupted/);
+    await screen.findByText(
+      /Older import interrupted; saved progress retained/,
+    );
     expect(
       screen.getByRole("button", {
         name: "Sync now — import latest Garmin data",
@@ -4841,9 +4843,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
     await waitFor(() =>
       expect(syncNowButton.hasAttribute("disabled")).toBe(true),
     );
-    expect(
-      screen.getAllByText(/Sync already in progress/).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Sync in progress/).length).toBeGreaterThan(0);
 
     stream.push({
       stage: "health",

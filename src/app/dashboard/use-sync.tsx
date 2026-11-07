@@ -58,6 +58,9 @@ export function useSyncFeature({
   const [detailGarminId, setDetailGarminId] = useState("");
 
   const [summaryKnown, setSummaryKnown] = useState(false);
+  // Once a separate server operation is observed, its current summary owns
+  // presentation; a previous local success/failure is only a retained log.
+  const [backendObserved, setBackendObserved] = useState(false);
   const [technicalOpen, setTechnicalOpen] = useState(false);
   const summaryKnownRef = useRef(false);
   const summaryGeneration = useRef(0);
@@ -78,6 +81,7 @@ export function useSyncFeature({
         importSummary?.sync?.historical.state !== "available")
     )
       return;
+    setBackendObserved(false);
     summaryGeneration.current += 1;
     summaryKnownRef.current = false;
     setSummaryKnown(false);
@@ -298,6 +302,7 @@ export function useSyncFeature({
         athleteBaseline: nextBaseline,
         bodyMetrics: nextBodyMetrics,
       };
+      if (payload.syncActive && !isSyncingRef.current) setBackendObserved(true);
       setImportSummary(nextSummary);
       setAthleteBaseline(nextBaseline);
       setBodyMetrics(nextBodyMetrics);
@@ -358,26 +363,31 @@ export function useSyncFeature({
     );
   }
 
-  const syncPillKind: Status["kind"] = isSyncing
+  const displayedRun = backendObserved
+    ? { ...emptySyncRun, lines: syncRun.lines }
+    : syncRun;
+  const syncActive =
+    isSyncing || (summaryKnown && importSummary?.syncActive === true);
+  const syncPillKind: Status["kind"] = syncActive
     ? "busy"
-    : syncRun.kind === "completed"
+    : displayedRun.kind === "completed"
       ? "ok"
-      : syncRun.kind === "failed"
+      : displayedRun.kind === "failed"
         ? "error"
         : "idle";
 
-  const syncPillLabel = isSyncing
+  const syncPillLabel = syncActive
     ? "Syncing"
-    : syncRun.kind === "completed"
+    : displayedRun.kind === "completed"
       ? "Complete"
-      : syncRun.kind === "failed"
+      : displayedRun.kind === "failed"
         ? "Failed"
-        : syncRun.kind === "paused"
+        : displayedRun.kind === "paused"
           ? "Paused"
           : "Ready";
   return {
     loadImportSummary,
-    syncRun,
+    syncRun: displayedRun,
     isSyncing,
     syncPillKind,
     syncPillLabel,

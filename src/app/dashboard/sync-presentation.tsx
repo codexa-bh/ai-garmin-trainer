@@ -122,7 +122,8 @@ export function formatSyncResultLine(event: SyncProgressEvent): string {
       `${status === "failed" ? "failure detail" : "history status"} ${event.detail}`,
     );
   }
-  if (event.sync?.historical.reason) parts.push(event.sync.historical.reason);
+  if (event.sync?.historical.state === "blocked")
+    parts.push("older history needs attention");
   const athlete =
     event.athleteBaseline?.availability ?? event.athleteAvailability;
   const body = event.bodyMetrics?.availability ?? event.bodyMetricsAvailability;
@@ -140,7 +141,7 @@ export function formatSyncOutcome(
     case "settled":
       return `${label} finished.`;
     case "failed":
-      return `${label} failed. See Technical details.`;
+      return `${label} failed. Refresh import summary for status.`;
     case "cancelled":
       return `${label} cancelled. Saved progress is retained.`;
     case "budget-limited":
@@ -150,6 +151,35 @@ export function formatSyncOutcome(
     default:
       return `${label} outcome unknown. Refresh import summary.`;
   }
+}
+
+// Final messages can also contain raw HTTP/transport diagnostics. Only the
+// application-owned outcome vocabulary belongs in the primary status line.
+export function formatSyncRunStatus(run: SyncRunState): string {
+  const outcomes =
+    run.kind === "completed"
+      ? ["completed"]
+      : run.kind === "paused"
+        ? ["cancelled", "budget-limited"]
+        : run.kind === "failed"
+          ? ["failed"]
+          : ["running"];
+  for (const label of ["Latest refresh", "Historical import", "Sync"]) {
+    for (const outcome of outcomes) {
+      const message = formatSyncOutcome(label, outcome);
+      if (run.finalMessage === message) return message;
+    }
+  }
+  if (run.kind === "paused")
+    return "Sync paused. Refresh import summary to confirm settlement.";
+  return formatSyncOutcome(
+    "Sync",
+    run.kind === "completed"
+      ? "completed"
+      : run.kind === "failed"
+        ? "failed"
+        : "running",
+  );
 }
 
 export function formatSyncCounts(event: SyncProgressEvent): string | undefined {

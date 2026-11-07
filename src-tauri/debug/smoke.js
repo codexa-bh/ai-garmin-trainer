@@ -2170,7 +2170,7 @@
       "Import older data",
       "Continue historical import",
       "Technical details",
-      "Sync already in progress",
+      "Sync in progress",
       "Cancel sync",
       "Ready",
       "Syncing",
@@ -2198,17 +2198,32 @@
         pill.setAttribute("data-smoke-reveal", "");
     }
     if (command.view === "sync") {
+      for (const details of document.querySelectorAll(
+        ".sync-action-card details:not([open])",
+      )) {
+        if (
+          [...details.children].some(
+            (child) =>
+              child.tagName !== "SUMMARY" && child.getClientRects().length,
+          )
+        ) {
+          restore();
+          throw Error("Collapsed Sync details leaked rendered content");
+        }
+      }
       const safeStates = new Set([
         "Ready to refresh recent data.",
         "Status unavailable. Refresh import summary before syncing.",
-        "Older history needs attention. See Technical details.",
+        "Older history needs attention.",
+        "Syncing…",
+        "Sync paused. Refresh import summary to confirm settlement.",
         "Selected older range checked; remote earliest history unknown.",
         "Latest refresh in progress…",
         "Historical import in progress…",
         "Cancellation requested. Refresh import summary to confirm settlement.",
         ...["Latest refresh", "Historical import", "Sync"].flatMap((label) => [
           `${label} finished.`,
-          `${label} failed. See Technical details.`,
+          `${label} failed. Refresh import summary for status.`,
           `${label} cancelled. Saved progress is retained.`,
           `${label} paused at its safety limit.`,
           `${label} interrupted. Refresh import summary before continuing.`,
@@ -2220,19 +2235,28 @@
         "Older work is available within the selected exploration scope.",
         "Previous historical import was interrupted; committed progress is retained.",
         "Selected exploration range checked. Remote earliest history remains unknown.",
-        "Saved history or its selected limit needs recovery. Preserve checkpoints; do not reset or replay.",
-        "Historical import made no progress. Saved work is retained for recovery, not automatic retry.",
-        "Historical import stopped after a failure. Resolve the connection or storage failure before recovering saved work.",
       ]);
       for (const status of document.querySelectorAll(
         ".sync-history-status, .sync-current-status",
       )) {
         if (visible(status)) {
-          if (status.childElementCount || !safeStates.has(status.textContent)) {
+          const cue = status.firstElementChild;
+          const busyCue =
+            status.textContent === "Syncing…" &&
+            status.childElementCount === 1 &&
+            cue.tagName === "SPAN" &&
+            cue.className === "sync-busy-cue" &&
+            cue.getAttribute("aria-hidden") === "true" &&
+            !cue.childNodes.length;
+          if (
+            !safeStates.has(status.textContent) ||
+            (status.childElementCount && !busyCue)
+          ) {
             restore();
             throw Error("Unrecognized Sync status");
           }
           status.setAttribute("data-smoke-reveal", "");
+          if (busyCue) cue.setAttribute("data-smoke-reveal", "");
         }
       }
       const help = document.querySelector(
@@ -2293,6 +2317,10 @@
             [...node.childNodes].some(
               (child) =>
                 child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+            ) &&
+            !(
+              node.matches(".sync-current-status[data-smoke-reveal]") &&
+              node.textContent === "Syncing…"
             )
           ) {
             restore();

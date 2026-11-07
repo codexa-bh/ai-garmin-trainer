@@ -102,6 +102,7 @@ class SyntheticHistoryContracts(unittest.TestCase):
             nonlocal mixed_outcome
             mixed_outcome = outcome
         commands = []
+        settlement_order = []
         preset = 'wide'
         def command(value):
             nonlocal active, checks, history_runs, observations, preset
@@ -115,6 +116,7 @@ class SyntheticHistoryContracts(unittest.TestCase):
                 active, observations = True, 0
                 history_runs += 1
             elif value.get('action') == 'cancel':
+                settlement_order.append('cancel')
                 active = False
                 checks += 12
             return {'ok':True, 'capture':'unit-only.png'}
@@ -132,21 +134,29 @@ class SyntheticHistoryContracts(unittest.TestCase):
         def latest_only():
             self.assertFalse(active)
             return {'before':summary(), 'after':summary(), 'historyBytesPreserved':True}
+        def backend_latest():
+            result = latest_only()
+            for preset in ('wide', 'narrow'):
+                run.sync_captures.append({'scenario':f'backend-only-busy-{preset}', 'ok':True, 'capture':'unit-only.png'})
+            return result
         run = SimpleNamespace(root=self.root, config={'source':'unit'}, boot='unit', binary=Path('/unit'), command=command,
-                              latest_only=Mock(side_effect=latest_only), wait=Mock(), wait_sync=Mock(), summary=summary,
-                              settle_claim=Mock(), stop=Mock(), start=Mock())
+                              latest_only=Mock(side_effect=latest_only), backend_latest=Mock(side_effect=backend_latest), wait=Mock(), wait_sync=Mock(side_effect=lambda *args: settlement_order.append('observe')), summary=summary,
+                              settle_claim=Mock(side_effect=lambda: settlement_order.append('settle')), stop=Mock(), start=Mock())
         with patch('history_smoke.prepare_mixed_sync_presentation', side_effect=seed_mixed) as seed:
             HistoryRun.synthetic_sync(run)
         self.assertEqual([call.args[1] for call in seed.call_args_list], ['settled', 'failed'])
-        self.assertEqual(run.latest_only.call_count, 3)
+        self.assertEqual(run.latest_only.call_count, 2)
+        self.assertEqual(run.backend_latest.call_count, 1)
+        cancelled = settlement_order.index('cancel')
+        self.assertEqual(settlement_order[cancelled:cancelled+3], ['cancel', 'settle', 'observe'])
         self.assertEqual(sum(value.get('action') == 'continue' for value in commands), 2)
         self.assertEqual(sum(value.get('action') == 'cancel' for value in commands), 1)
-        self.assertEqual(sum(value.get('action') == 'details' for value in commands), 2)
+        self.assertEqual(sum(value.get('action') == 'details' for value in commands), 6)
         self.assertEqual(run.stop.call_count, 4)
         evidence = json.loads((self.root / 'synthetic-sync.json').read_text())
         self.assertFalse(evidence['realGarminCertified'])
         self.assertEqual(evidence['maxInvocations'], 5)
-        self.assertEqual(len(evidence['captures']), 18)
+        self.assertEqual(len(evidence['captures']), 26)
         self.assertEqual(evidence['settled'][-1]['after']['healthChecks'], 24)
 
 
