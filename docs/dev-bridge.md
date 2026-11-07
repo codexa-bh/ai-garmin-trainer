@@ -1046,6 +1046,40 @@ Seed/copy/Goals/trace data expire with task scratch and are never copied back.
 Ordinary-artifact launch, private data/integrations and hardware-input evidence
 remain independent; this path grants no settings, secret or general eval controls.
 
+## Finite authored ordinary chat proof
+
+`npm run smoke:chat -- --scratch <canonical-task-root> --bundle <canonical-current-ordinary-app> --task-id T0296`
+uses the same npm build environment (direct Python lacks that context), a physical
+canonical bundle path (not the source alias), and existing synthetic preparation,
+OrdinaryRun, source/artifact lock, native
+admission, observer and owned settlement. It selects no private input and calls no
+real service. A task-owned ephemeral loopback Ollama-compatible fixture emits only
+`verifyActivityReference(weekdayHike)`, `analyzeActivityTerrain(weekdayHike)` and
+ordinary authored coaching text: twice for JSON/NDJSON, then one continued turn.
+Seven calls total; no certificate, extra SQL or repair call. Only the exclusive
+run DB gets an authored hiking summary and 101 normalized elevation samples.
+Original prepared input, primary DB/settings and motivating conversations stay untouched.
+
+Assertions cover actual native-owned chat API/tool statuses, exact ordinary answer,
+exactly-once assistant persistence, continued conversation and history after a
+fresh native boot. Existing conversation-selection API selects only this task's
+new conversation. Fixed wide/narrow `captureView` view `ordinary-chat` reveals
+only the single exact authored assistant paragraph; unknown/changed/duplicate
+text, caller fields, private direct ancestors and debug/default mode refuse.
+All siblings and user prose stay masked, geometry stays unchanged and native
+capture/expiry restores masks and scroller state. No arbitrary text/selector,
+provider proxy, new production route or credential control is exposed.
+
+Before use, run the focused `chat_smoke_test.py`, native ordinary-chat/adjacent DOM
+contracts and native controller tests; build the current ARM64 ordinary artifact.
+Inspect both actual PNGs. This proves authored-provider app wiring/rendering,
+not real-provider semantics, model truthfulness, Garmin, trusted input or normal
+singleton behavior. Compact receipts record source/run/conversation provenance,
+call counts, input preservation, captures and shutdown. Existing invocation-owned
+resource disposition and scratch expiry apply independently; no copy-back or
+primary install/restart/cleanup is authorized. Baseline `smoke:ordinary` retains
+its separate parallel/lifecycle/security and Trainer/Sync/Profile evidence.
+
 ## Finite authored Terrain presentation
 
 `npm run smoke:terrain -- --scratch <canonical-task-root> --bundle <ordinary-app>`

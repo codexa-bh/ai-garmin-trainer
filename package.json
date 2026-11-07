@@ -11,6 +11,7 @@
     "smoke:settings": "python3 scripts/desktop/settings_smoke.py",
     "smoke:release": "python3 scripts/desktop/release_smoke.py",
     "smoke:ordinary": "python3 scripts/desktop/ordinary_smoke.py",
+    "smoke:chat": "python3 scripts/desktop/chat_smoke.py",
     "smoke:history": "python3 scripts/desktop/history_smoke.py",
     "smoke:history:live": "python3 scripts/desktop/history_live.py",
     "smoke:conversation:live": "python3 scripts/desktop/conversation_live.py",

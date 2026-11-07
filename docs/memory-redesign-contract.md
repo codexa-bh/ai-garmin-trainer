@@ -92,10 +92,12 @@ Inspection of their installed `src` converters establishes these mechanical path
   transport. SDK chat converter defaults to system, uses assistant `tool_calls`
   and matching tool messages, and JSON-encodes structured outputs. A route's
   actual role/tool support is not established by that converter.
-- Current planner exposes action tools plus `completeTrainerTurn`, auto choice,
-  parallel calls disabled; final synthesis exposes only `completeTrainerTurn`.
-  Current tool evidence is rendered into system text, **not** replayed native tool
-  messages. Existing adapter-option tests do not prove final HTTP serialization.
+- T0296 removes the former `completeTrainerTurn` certificate: planner exposes
+  actual action tools with auto choice/parallel disabled; final synthesis exposes
+  no tools and returns ordinary text. This supersedes the certificate requirement
+  in the original accepted baseline, without changing replay/journal/privacy
+  ownership. Current qualified replay uses paired native exchanges; locked-SDK
+  transport tests cover serialization independently of adapter-option assertions.
 
 Sources: `node_modules/@ai-sdk/openai/src/{openai-provider.ts,openai-language-model-capabilities.ts,
 responses/convert-to-openai-responses-input.ts,chat/convert-to-openai-chat-messages.ts}`
@@ -142,8 +144,8 @@ Do not persist unrestricted tool results. Keep deterministic safe result/status
 summaries, IDs and provenance; re-read current measurements in a new turn.
 Omit old native tool call/result pairs together if they cannot be safely persisted;
 retain the visible assistant response as unverified prose. Never leave an orphan
-call/result or fabricate success. `completeTrainerTurn` remains a non-executing
-terminal declaration, not replayable save permission.
+call/result or fabricate success. Historical terminal declarations are readable
+metadata only, never replayable save permission; new answers use ordinary text.
 
 Fresh context includes current Profile, health/activity coverage, current date and
 plan calendar; historical snapshots retain their as-of/version. Profile corrections,

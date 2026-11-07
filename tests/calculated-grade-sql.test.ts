@@ -150,12 +150,11 @@ it("accepts natural hidden-id WHERE/join constraints and safe numeric function l
   }
 });
 
-it("registers successful grade cells as same-turn evidence and validates exact claims", async () => {
+it("registers successful grade values as isolated same-turn evidence", async () => {
   const ports = await import("../src/lib/ai/sql-analysis");
   const { executeAnalyticsTool } = await import("../src/lib/ai/tool-analytics");
   const { TrainerToolExecutionContext } =
     await import("../src/lib/ai/tool-execution-context");
-  const { validatedCompletion } = await import("../src/lib/ai/turn-completion");
   const context = new TrainerToolExecutionContext();
   const step = executeAnalyticsTool(
     {
@@ -181,41 +180,9 @@ it("registers successful grade cells as same-turn evidence and validates exact c
     grade_method: "altitude_distance_sections_v1",
     quality_status: "available",
   });
-  const claim = {
-    kind: "metric",
-    stepIndex: 1,
-    resultName: "grade",
-    rowIndex: 0,
-    column: "calculated_grade_pct",
-    value: 10,
-  };
-  const completion = {
-    completion: {
-      kind: "grounded",
-      answer:
-        "Estimated signed section grade is 10%; terrain/technicality unknown.",
-      claims: [claim],
-      missingEvidence: [],
-    },
-  };
-  expect(validatedCompletion(completion, [step])).toBe(
-    completion.completion.answer,
-  );
-  expect(
-    validatedCompletion(
-      {
-        ...completion,
-        completion: {
-          ...completion.completion,
-          claims: [{ ...claim, value: 11 }],
-        },
-      },
-      [step],
-    ),
-  ).toBeNull();
-  expect(
-    validatedCompletion(completion, [{ ...step, status: "failed" }]),
-  ).toBeNull();
+  const other = new TrainerToolExecutionContext();
+  expect(other.analysisResults.has("grade")).toBe(false);
+  other.dispose();
   context.dispose();
 });
 
