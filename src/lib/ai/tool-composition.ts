@@ -2,6 +2,7 @@ import { weekly } from "../weekly/composition";
 import { describeGarminDatabase, runReadOnlySql } from "./sql-analysis";
 import {
   analyzeActivityTerrain,
+  getActivityDashboard,
   getActivityByGarminId,
   getActivityDetailForAnalytics,
   listActivityDetailAvailability,
@@ -23,6 +24,7 @@ const ports: TrainerToolPorts = {
   weekly,
   analytics: { describeGarminDatabase, runReadOnlySql, analyzeActivityTerrain },
   localData: {
+    getActivityDashboard,
     getActivityByGarminId,
     getActivityDetailForAnalytics,
     listActivityDetailAvailability,

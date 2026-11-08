@@ -16,6 +16,8 @@ const options = ts.parseJsonConfigFileContent(
 const allowed = new Set([
   "local-data/contracts.ts",
   "local-data/dashboard-policy.ts",
+  "local-data/dashboard-projection.ts",
+  "local-data/dashboard-overview.ts",
   "local-data/application.ts",
   "local-data/heart-rate-policy.ts",
   "local-data/activity-policy.ts",

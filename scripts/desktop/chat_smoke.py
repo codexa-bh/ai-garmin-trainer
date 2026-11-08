@@ -1,4 +1,4 @@
-"""Finite authored ordinary-chat lookup/terrain/text proof; no private inputs or real services."""
+"""Finite authored ordinary-chat lookup/terrain/dashboard/text proof; no private inputs or real services."""
 import argparse
 import contextlib
 import http.client
@@ -19,21 +19,21 @@ from smoke_input import prepare
 
 ANSWER = 'Authored weekday hike: 6543 m in 4321 s, 321 m ascent, mean HR 123. The elevation section averages 10% across 1000 m. Keep weekday climbing practice manageable; surface and technicality remain unknown.'
 FOLLOWUP = 'Continue with short weekday practice and adjust to recovery; this is authored coaching, not live-provider validation.'
-PROMPT = 'T0296 authored weekday hike feedback.'
+PROMPT = 'Authored weekday hike numerical dashboard feedback.'
 MODEL = 'qwen3.5:4b'
 
 
-def response(index, body):
+def response(index, body, expected_zones=None):
     if body.get('model') != MODEL or body.get('stream') is True or not isinstance(body.get('messages'), list):
         raise ValueError('Fixed authored model/protocol required')
     names = [tool.get('function', {}).get('name') for tool in body.get('tools', [])]
-    if 'completeTrainerTurn' in names or index >= 7:
+    if 'completeTrainerTurn' in names or index >= 9:
         raise ValueError('Unexpected certificate or extra provider call')
-    if index == 6:
+    if index == 8:
         return {'role': 'assistant', 'content': FOLLOWUP}
-    phase = index % 3
-    if phase < 2:
-        name = ['verifyActivityReference', 'analyzeActivityTerrain'][phase]
+    phase = index % 4
+    if phase < 3:
+        name = ['verifyActivityReference', 'analyzeActivityTerrain', 'getActivityDashboard'][phase]
         if name not in names:
             raise ValueError('Actual action schema missing')
         args = {'garminId': 'weekdayHike'}
@@ -42,14 +42,30 @@ def response(index, body):
         return {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'authored-' + str(index), 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
     # Observe production-rendered evidence, not a synthetic completion ledger.
     evidence = json.dumps(body['messages'])
-    if not all(value in evidence for value in ['6543', '4321', '321', '123', 'weekdayHike', 'analyzeActivityTerrain succeeded', 'available']):
-        raise ValueError('Successful actual lookup/terrain evidence missing')
+    if not all(value in evidence for value in ['6543', '4321', '321', '123', 'weekdayHike', 'analyzeActivityTerrain succeeded', 'getActivityDashboard succeeded', 'available']):
+        raise ValueError('Successful actual lookup/terrain/dashboard evidence missing')
+    # Keyless summary-Off ordinary chat uses legacy context; configured-memory
+    # routes use paired native outputs. Both must carry exactly one full result.
+    carriers = [json.loads(message['content']).get('evidence', '') if message.get('role') == 'tool' else message.get('content', '') for message in body['messages']]
+    marker = 'Dashboard values and explicit limits: '
+    dashboards = [json.JSONDecoder().raw_decode(carrier.split(marker, 1)[1].lstrip())[0] for carrier in carriers if isinstance(carrier, str) and marker in carrier]
+    if len(dashboards) != 1:
+        raise ValueError('Exactly one actual numerical dashboard result required')
+    dashboard = dashboards[0]
+    zones = dashboard['heartRateZones']
+    if zones['status'] != 'available' or zones['timeSource'] != 'garmin_activity' or zones['sourceTotalSeconds'] != 999 or zones['activityDurationSec'] != 4321 or zones['classifiedSeconds'] != 900 or [bucket['seconds'] for bucket in zones['buckets']] != [0, 90, 180, 270, 360]:
+        raise ValueError('Actual HR-zone numerical evidence mismatch')
+    if expected_zones is not None and zones != expected_zones:
+        raise ValueError('Dashboard API/model HR-zone parity mismatch')
+    if dashboard['terrain']['status'] != 'available' or dashboard['terrain']['sections'][0]['meanGradePct'] != 10 or any(field in dashboard for field in ['route', 'charts', 'stream']):
+        raise ValueError('Numerical projection terrain/privacy mismatch')
     return {'role': 'assistant', 'content': ANSWER}
 
 
 class AuthoredProvider:
     def __init__(self):
         self.calls = []
+        self.expected_zones = None
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -63,7 +79,7 @@ class AuthoredProvider:
                     self.send_error(400)
                     return
                 try:
-                    message = response(len(owner.calls), json.loads(self.rfile.read(int(length))))
+                    message = response(len(owner.calls), json.loads(self.rfile.read(int(length))), owner.expected_zones)
                 except (ValueError, TypeError, AttributeError, KeyError):
                     self.send_error(400)
                     return
@@ -95,6 +111,7 @@ def seed_run(run, provider):
     with contextlib.closing(sqlite3.connect(run.database)) as db:
         db.execute("insert into activity(id,garmin_id,name,sport,started_at,duration_sec,distance_meters,elevation_gain_meters,avg_heart_rate) values (?,?,?,?,?,?,?,?,?)", ('t0296-authored', 'weekdayHike', 'Authored weekday hike', 'hiking', 1793520000, 4321, 6543, 321, 123))
         db.executemany('insert into activity_stream_point(garmin_id,elapsed_sec,timestamp,distance_meters,altitude_meters,heart_rate) values (?,?,?,?,?,?)', [('weekdayHike', i * 10, '2026-11-01T00:%02d:%02dZ' % ((i * 10) // 60, (i * 10) % 60), i * 10, 100 + i, 123) for i in range(101)])
+        db.executemany('insert into activity_hr_zone_time(garmin_id,zone,fetched_at,source,status,seconds,source_lower_bpm,source_total_seconds) values (?,?,?,?,?,?,?,?)', [('weekdayHike', zone, 1793520000, 'garmin_mcp', 'available', (zone - 1) * 90, 70 + zone * 20, 999) for zone in range(1, 6)])
         db.commit()
         if db.execute('pragma integrity_check').fetchone()[0] != 'ok' or db.execute('pragma foreign_key_check').fetchone():
             raise ValueError('Authored copy integrity failed')
@@ -120,6 +137,8 @@ def api(run, method, path, body=None):
 
 
 def exercise(run, provider):
+    dashboard = json.loads(api(run, 'GET', '/api/activities/weekdayHike/dashboard'))
+    provider.expected_zones = dashboard['heartRateZones']
     ids = []
     for stream in [False, True]:
         conversation = 't0296-authored-' + str(uuid.uuid4())
@@ -131,14 +150,14 @@ def exercise(run, provider):
                 raise ValueError('NDJSON authored answer mismatch')
         else:
             value = json.loads(raw)
-            if value['assistant']['content'] != ANSWER or [(s['tool'], s['status']) for s in value['toolSteps']] != [('verifyActivityReference', 'succeeded'), ('analyzeActivityTerrain', 'succeeded')]:
+            if value['assistant']['content'] != ANSWER or [(s['tool'], s['status']) for s in value['toolSteps']] != [('verifyActivityReference', 'succeeded'), ('analyzeActivityTerrain', 'succeeded'), ('getActivityDashboard', 'succeeded')]:
                 raise ValueError('JSON authored answer/tool sequence mismatch')
         with contextlib.closing(readonly(run.database)) as db:
             rows = db.execute("select content from message where conversation_id=? and role='assistant'", (conversation,)).fetchall()
             if rows != [(ANSWER,)]:
                 raise ValueError('Exactly-one assistant persistence failed')
     continued = json.loads(api(run, 'POST', '/api/chat', {'conversationId': ids[0], 'message': 'Continue that weekday advice.'}))
-    if continued['assistant']['content'] != FOLLOWUP or len(provider.calls) != 7:
+    if continued['assistant']['content'] != FOLLOWUP or len(provider.calls) != 9:
         raise ValueError('Continued conversation/call accounting mismatch')
     api(run, 'PUT', '/api/conversations/selection', {'conversationId': ids[0]})
     return ids
@@ -157,7 +176,7 @@ def main():
     prepared = prepare(scratch, args, 'ordinary')
     bundle = canonical(args.bundle)
     run = observer = provider = None
-    receipt = {'scenario': 'authored ordinary lookup-terrain-text', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised', 'cleanup': 'Run-copy chats/summary/streams only; preserve compact evidence and defer any retained bulk to normal scratch expiry; no copy-back.'}
+    receipt = {'scenario': 'authored ordinary lookup-terrain-dashboard-text', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised', 'cleanup': 'Run-copy chats/summary/streams only; preserve compact evidence and defer any retained bulk to normal scratch expiry; no copy-back.'}
     source = source_identity()
     with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
         try:

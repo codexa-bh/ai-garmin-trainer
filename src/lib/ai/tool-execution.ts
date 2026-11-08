@@ -26,6 +26,7 @@ export async function executeTrainerTool(
       case "verifyActivityReference":
       case "forceRefreshActivityDetail":
       case "getActivityDetailAvailability":
+      case "getActivityDashboard":
       case "getActivityDetailSlice":
         return await executeLocalDataTool(input, ports.localData);
       case "getTrainingPlan":

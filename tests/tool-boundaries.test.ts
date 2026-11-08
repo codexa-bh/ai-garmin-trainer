@@ -39,8 +39,9 @@ import { renderCompleteTrainingPlan } from "../src/lib/ai/training-plan-evidence
 import type { TrainerToolStep } from "../src/lib/ai/tool-types";
 
 describe("dependency-light contracts and evidence", () => {
-  it("parses all thirteen tools with compatible defaults and strict rejection", () => {
+  it("parses all tools with compatible defaults and strict rejection", () => {
     const inputs = {
+      getActivityDashboard: { garminId: "123" },
       analyzeActivityTerrain: { garminId: "123" },
       getWeeklyPlan: { weekStart: "2026-09-21" },
       saveWeeklyDocuments: {

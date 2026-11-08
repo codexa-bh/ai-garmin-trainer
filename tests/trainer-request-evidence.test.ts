@@ -9,6 +9,58 @@ import type { TrainerToolStep } from "@/lib/ai/tool-types";
 
 const document = (marker: string) =>
   `${"Authored untrusted plan.\n".repeat(1300).slice(0, 32000 - marker.length - 4)}${marker}週末🥾`;
+const overviewResult = {
+  activity: {
+    garminId: "authored-overview",
+    durationSec: 3600,
+    trainingLoad: 0,
+  },
+  heartRateZones: {
+    status: "available",
+    timeSource: "local_stream",
+    zoneSource: "derived",
+    zoneStatus: "derived_from_garmin_max_hr",
+    formula: "Authored boundaries",
+    classifiedSeconds: 900,
+    unclassifiedSeconds: 50,
+    noHeartRateSeconds: 70,
+    activityDurationSec: 3600,
+    sourceTotalSeconds: 1020,
+    buckets: Array.from({ length: 5 }, (_, i) => ({
+      zone: i + 1,
+      label: `Zone ${i + 1}`,
+      lowerBpm: 90 + i * 20,
+      upperBpm: i === 4 ? null : 109 + i * 20,
+      seconds: i * 90,
+      percent: i * 10,
+    })),
+    message: "Authored partial local timing, not complete activity coverage.",
+  },
+  limits: { optionalRowsPerSection: 20 },
+  laps: {
+    returnedCount: 20,
+    availableCount: null,
+    sourceLimit: 100,
+    sourceMayBeTruncated: true,
+    omittedAtLeast: 80,
+    rows: Array.from({ length: 20 }, (_, i) => ({
+      lapNumber: i + 1,
+      distanceMeters: 100 + i,
+      avgSpeedMps: 0,
+    })),
+  },
+  terrain: {
+    sectionCount: 100,
+    returnedSections: 20,
+    truncated: true,
+    sections: Array.from({ length: 20 }, (_, i) => ({
+      id: `section-${i}`,
+      quality: i === 19 ? "OVERVIEW_TAIL" : "authored-support ".repeat(20),
+      averageHeartRate: 123,
+      hrSupportSec: 60,
+    })),
+  },
+};
 const fixtures: {
   tool: string;
   input: unknown;
@@ -54,6 +106,12 @@ const fixtures: {
       rowCount: 30,
       truncated: true,
     },
+  },
+  {
+    tool: "getActivityDashboard",
+    input: { garminId: "authored-overview" },
+    marker: "OVERVIEW_TAIL",
+    result: overviewResult,
   },
   {
     tool: "runReadOnlySql",
@@ -211,10 +269,10 @@ describe("one detailed executed-step carrier in actual requests", () => {
         },
       );
       expect(requests).toHaveLength(fixtures.length + 1);
-      expect(result.providerCalls).toBe(7);
+      expect(result.providerCalls).toBe(8);
       expect(result.progressCounters).toEqual({
-        modelCalls: 7,
-        toolsSucceeded: 5,
+        modelCalls: 8,
+        toolsSucceeded: 6,
         toolsUnsuccessful: 1,
       });
       expect(result.text).toContain("measurement unavailable");
@@ -274,6 +332,22 @@ describe("one detailed executed-step carrier in actual requests", () => {
       expect(finalWire).toContain("Row text truncated");
       expect(finalWire).toContain("週末🥾");
       expect(finalWire).toContain("Document data ends");
+      const messages = (final.input ?? final.messages) as Record<
+        string,
+        unknown
+      >[];
+      const native = messages.find(
+        (m) =>
+          (m.call_id === "native-call-6" &&
+            m.type === "function_call_output") ||
+          (m.role === "tool" && m.tool_call_id === "native-call-6"),
+      )!;
+      const evidence = JSON.parse((native.output ?? native.content) as string)
+        .evidence as string;
+      expect(
+        JSON.parse(evidence.split("Dashboard values and explicit limits: ")[1]),
+      ).toEqual(overviewResult);
+      expect(evidence.length).toBeGreaterThan(1800);
     },
   );
 
@@ -307,6 +381,53 @@ describe("one detailed executed-step carrier in actual requests", () => {
       );
       expect(calls[1]).toContain("FIRST_PLAN_TAIL");
       expect(calls[1]).toContain("Document data ends");
+    },
+  );
+
+  it.each([false, true])(
+    "preserves every overview value on legacy routes (structured: %s)",
+    async (structured) => {
+      let calls = 0;
+      let evidence = "";
+      await orchestrateTrainerChat(
+        {
+          system: structured
+            ? { policy: TRAINER_SYSTEM_PROMPT, context: "legacy" }
+            : TRAINER_SYSTEM_PROMPT,
+          userRequest: "Read overview",
+        },
+        {
+          generate: async (request) => {
+            if (calls++ === 0)
+              return {
+                toolCalls: [
+                  {
+                    toolName: "getActivityDashboard",
+                    input: { garminId: "authored-overview" },
+                  },
+                ],
+              };
+            evidence =
+              typeof request.system === "string"
+                ? request.system
+                : `${request.system.policy}\n${request.system.context}`;
+            return { text: "Supported partial numerical feedback." };
+          },
+          executeTool: async ({ index, toolName }) => ({
+            index,
+            tool: toolName,
+            status: "succeeded",
+            summary: "Read overview",
+            privacy: "authored",
+            result: overviewResult,
+          }),
+        },
+      );
+      // Exact complete objects must survive, not a successful receipt or prefix.
+      const serialized = evidence
+        .split("Dashboard values and explicit limits: ")[1]
+        .split("\n")[0];
+      expect(JSON.parse(serialized)).toEqual(overviewResult);
     },
   );
 

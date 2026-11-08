@@ -91,6 +91,228 @@ async function seedActivities() {
   return repo;
 }
 
+async function overviewParity(id = "111111") {
+  const { getActivityDashboard } =
+    await import("../src/lib/local-data/composition");
+  const route =
+    await import("../src/app/api/activities/[garminId]/dashboard/route");
+  const response = await route.GET(new Request("http://local.test/dashboard"), {
+    params: { garminId: id },
+  });
+  const dashboard = await response.json();
+  const overview = getActivityDashboard(id)!;
+  expect(overview.activity).toEqual(dashboard.activity);
+  expect(overview.heartRateZones).toEqual(dashboard.heartRateZones);
+  expect(overview.detail).toEqual(dashboard.detail);
+  expect(overview.laps.rows).toEqual(dashboard.laps.slice(0, 20));
+  expect(overview.terrain).toMatchObject({
+    ...dashboard.terrainSections,
+    sections: dashboard.terrainSections.sections.slice(0, 20),
+  });
+  const { executeTrainerTool } = await import("../src/lib/ai/tool-composition");
+  const { TrainerToolExecutionContext } =
+    await import("../src/lib/ai/tool-execution-context");
+  const context = new TrainerToolExecutionContext();
+  const step = await executeTrainerTool({
+    toolName: "getActivityDashboard",
+    input: { garminId: id },
+    index: 1,
+    context,
+  });
+  expect(step.status).toBe("succeeded");
+  expect(step.result).toEqual(overview);
+  expect(context.analysisResults.size).toBe(0); // no new analytical-handle semantics
+  context.dispose();
+  const text = JSON.stringify(overview);
+  for (const field of [
+    '"lat"',
+    '"lon"',
+    '"route"',
+    '"charts"',
+    '"stream"',
+    "payloadJson",
+    "DATABASE_PATH",
+  ])
+    expect(text).not.toContain(field);
+  return overview;
+}
+
+describe("numerical Trainer dashboard overview", () => {
+  it("caps real terrain rows without changing whole-analysis coverage or stored inputs", async () => {
+    const repo = await seedActivities();
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const db = getDatabase();
+    db.prepare("update activity set sport='hiking' where garmin_id=?").run(
+      "111111",
+    );
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: Array.from({ length: 120 }, (_, i) => {
+          const run = Math.floor(i / 4),
+            point = i % 4,
+            elapsed = run * 100 + point * 10;
+          return {
+            elapsed_time_s: elapsed,
+            timestamp: new Date(
+              Date.UTC(2026, 7, 1) + elapsed * 1000,
+            ).toISOString(),
+            distance: run * 500 + point * 100,
+            altitude: 100 + point * 10,
+            heart_rate_bpm: 123,
+          };
+        }),
+      }),
+    );
+    const before = db
+      .prepare(
+        "select * from activity_stream_point where garmin_id=? order by elapsed_sec",
+      )
+      .all("111111");
+    const { getActivityDashboard, getActivityDashboardDetail } =
+      await import("../src/lib/local-data/composition");
+    const dashboard = getActivityDashboardDetail("111111")!;
+    const overview = getActivityDashboard("111111")!;
+    expect(dashboard.terrainSections.sectionCount).toBe(30);
+    expect(overview.terrain).toMatchObject({
+      sectionCount: 30,
+      returnedSections: 20,
+      rowLimit: 20,
+      truncated: true,
+      supportedDistanceMeters:
+        dashboard.terrainSections.supportedDistanceMeters,
+      timeSupportSec: dashboard.terrainSections.timeSupportSec,
+    });
+    expect(overview.terrain.sections).toEqual(
+      dashboard.terrainSections.sections.slice(0, 20),
+    );
+    expect(
+      db
+        .prepare(
+          "select * from activity_stream_point where garmin_id=? order by elapsed_sec",
+        )
+        .all("111111"),
+    ).toEqual(before);
+    expect(db.prepare("pragma integrity_check").get()).toEqual({
+      integrity_check: "ok",
+    });
+    expect(db.prepare("pragma foreign_key_check").all()).toEqual([]);
+  });
+
+  it.each([
+    "stored",
+    "stored-no-baseline",
+    "fallback",
+    "partial-stored",
+    "missing-zones",
+    "missing-hr",
+    "insufficient",
+  ])("matches actual dashboard HR semantics: %s", async (scenario) => {
+    const repo = await seedActivities();
+    if (!["missing-zones", "stored-no-baseline"].includes(scenario))
+      repo.writeGarminAthleteBaselineRefresh({
+        snapshot: baselineSnapshot(),
+        status: "complete",
+        attemptedAt: new Date(),
+        completedAt: new Date(),
+      });
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        records: (scenario === "insufficient"
+          ? [0]
+          : [0, 60, 120, 180, 240]
+        ).map((elapsed, i) => ({
+          elapsed_time_s: elapsed,
+          heart_rate_bpm:
+            scenario === "missing-hr" || i === 1 ? null : i === 2 ? 50 : 130,
+          lat_deg: 46,
+          lon_deg: 13,
+        })),
+      }),
+    );
+    if (["stored", "stored-no-baseline", "partial-stored"].includes(scenario))
+      repo.upsertActivityHrZoneTime({
+        garminId: "111111",
+        fetchedAt: new Date(),
+        source: "garmin_mcp",
+        status: "available",
+        sourceTotalSeconds: 999,
+        buckets: ([1, 2, 3, 4, 5] as const)
+          .slice(0, scenario === "partial-stored" ? 4 : 5)
+          .map((zone) => ({
+            zone,
+            seconds: zone === 1 ? 0 : zone * 10,
+            sourceLowerBpm: zone * 20 + 70,
+          })),
+      });
+    const result = await overviewParity();
+    expect(result.terrain.status).toBe("unavailable"); // running still retains numerical facts
+    if (scenario.startsWith("stored"))
+      expect(result.heartRateZones).toMatchObject({
+        status: "available",
+        timeSource: "garmin_activity",
+        sourceTotalSeconds: 999,
+        activityDurationSec: 3600,
+        classifiedSeconds: 140,
+        buckets: expect.arrayContaining([
+          expect.objectContaining({ zone: 1, seconds: 0 }),
+        ]),
+      });
+    else if (["fallback", "partial-stored"].includes(scenario))
+      expect(result.heartRateZones).toMatchObject({
+        status: "available",
+        timeSource: "local_stream",
+        classifiedSeconds: 120,
+        unclassifiedSeconds: 60,
+        noHeartRateSeconds: 60,
+        sourceTotalSeconds: 240,
+      });
+    else
+      expect(result.heartRateZones.status).toBe(
+        {
+          "missing-zones": "missing_zones",
+          "missing-hr": "missing_heart_rate",
+          insufficient: "insufficient_stream",
+        }[scenario],
+      );
+  });
+
+  it("preserves null duration, zero lap speed, fallback and honest source cap", async () => {
+    const repo = await seedActivities();
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const db = getDatabase();
+    db.prepare("update activity set duration_sec=null where garmin_id=?").run(
+      "111111",
+    );
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        laps: Array.from({ length: 105 }, (_, i) => ({
+          lap_number: i + 1,
+          total_elapsed_time_s: 100,
+          total_distance_m: 200,
+          avg_speed_mps: i === 0 ? 0 : null,
+        })),
+      }),
+    );
+    const result = await overviewParity();
+    expect(result.activity.durationSec).toBeNull();
+    expect(result.heartRateZones.activityDurationSec).toBeNull();
+    expect(result.laps).toMatchObject({
+      returnedCount: 20,
+      sourceReturnedCount: 100,
+      sourceLimit: 100,
+      availableCount: null,
+      sourceMayBeTruncated: true,
+      omittedAtLeast: 80,
+      truncated: true,
+    });
+    expect(result.laps.rows[0].avgSpeedMps).toBe(0);
+    expect(result.laps.rows[1].avgSpeedMps).toBe(2);
+    const { getActivityDashboard } =
+      await import("../src/lib/local-data/composition");
+    expect(getActivityDashboard("unknown")).toBeNull();
+  });
+});
+
 describe("activity dashboard repository and routes", () => {
   it("searches all synced activities with dashboard-bounded results", async () => {
     const repo = await seedActivities();

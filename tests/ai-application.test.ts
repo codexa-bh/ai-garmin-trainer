@@ -29,6 +29,7 @@ function capabilities(): TrainerToolPorts {
       analyzeActivityTerrain: unused,
     },
     localData: {
+      getActivityDashboard: unused,
       getActivityByGarminId: unused,
       getActivityDetailForAnalytics: unused,
       listActivityDetailAvailability: unused,

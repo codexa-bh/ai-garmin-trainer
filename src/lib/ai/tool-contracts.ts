@@ -70,6 +70,7 @@ const mathOperationSchema = z.enum([
 ]);
 
 export const trainerToolInputSchemas = {
+  getActivityDashboard: z.object({ garminId: garminIdSchema }).strict(),
   analyzeActivityTerrain: z
     .object({
       garminId: garminIdSchema,
@@ -191,6 +192,11 @@ export const trainerToolInputSchemas = {
 } satisfies Record<TrainerToolName, z.ZodTypeAny>;
 
 export const trainerToolContracts = {
+  getActivityDashboard: {
+    description:
+      "Read the numerical Activity dashboard for one known imported Garmin ID in one call: summary/effort, complete critical HR-zone seconds/percentages/source/availability and coverage, detail availability, up to20 laps and terrain sections with explicit source limits/counts. Uses the dashboard's stored-zone precedence and complete-stream fallback, not just stored SQL zones. Read-only local data; no refresh, GPS or raw streams. Unsupported terrain does not invalidate other facts; missing is not zero and capped rows are not the whole route. Use reference lookup first only when identity is unknown/ambiguous. Keep runReadOnlySql for bespoke filters, comparisons and analytics; math/terrain/detail tools remain available.",
+    inputSchema: trainerToolInputSchemas.getActivityDashboard,
+  },
   analyzeActivityTerrain: {
     description:
       "Analyze one already-imported hike/walk elevation profile from bounded normalized local samples. Read-only, no refresh. Returns shared terrain-v2 climb/descent/flat/rolling sections, filtered signed grade, ascent/descent, distance in >=10% uphill/downhill mechanical bands, estimated stationary/moving support, time-weighted HR and coverage. Method uses 25m anchors, isolated spike rejection and triangular smoothing. Boundaries follow >=300m persistent grade/rolling trend changes refined to nearby peaks/valleys/plateau edges, never fixed distance tiles. Every section is at least300m; short fluctuations/tails are absorbed, short disconnected runs explicitly excluded; not measured slope, technical terrain or a difficulty score. Disclose partial/truncated results explicitly in ordinary prose; successful rows register a same-turn math handle. Whole-analysis totals/coverage precede row limits; missing evidence is not zero. No GPS/raw streams/paths.",

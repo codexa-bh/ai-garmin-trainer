@@ -183,6 +183,8 @@ const groups = [
       "contracts",
       "coverage-policy",
       "dashboard-policy",
+      "dashboard-projection",
+      "dashboard-overview",
       "health-policy",
       "heart-rate-policy",
     ],

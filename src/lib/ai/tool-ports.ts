@@ -4,7 +4,10 @@ import type {
   GarminDatabaseDescription,
   SqlAnalysisInput,
 } from "./analytics/contracts";
-import type { createLocalData } from "../local-data/application";
+import type {
+  createActivityDashboard,
+  createLocalData,
+} from "../local-data/application";
 import type { createTrainingPlan } from "../training-plan/application";
 import type {
   DetailedBackfillResult,
@@ -29,6 +32,7 @@ export type LocalDataToolPorts = Pick<
   | "verifyActivityReference"
   | "summarizeSyncStatus"
 > & {
+  getActivityDashboard: ReturnType<typeof createActivityDashboard>;
   runGarminSync(): Promise<GarminSyncResult>;
   backfillActivityDetail(
     garminId: string,

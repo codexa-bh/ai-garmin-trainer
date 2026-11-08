@@ -15,22 +15,58 @@ from chat_smoke import ANSWER, FOLLOWUP, MODEL, AuthoredProvider, response, seed
 
 class ChatSmokeTests(unittest.TestCase):
     def body(self, evidence=''):
-        return {'model': MODEL, 'messages': [{'role': 'user', 'content': evidence}], 'tools': [{'function': {'name': name}} for name in ['verifyActivityReference', 'analyzeActivityTerrain']]}
+        return {'model': MODEL, 'messages': [{'role': 'user', 'content': evidence}], 'tools': [{'function': {'name': name}} for name in ['verifyActivityReference', 'analyzeActivityTerrain', 'getActivityDashboard']]}
 
     def test_fixed_order_plain_text_and_extra_call_refusal(self):
-        for index in [0, 3]:
+        for index in [0, 4]:
             call = response(index, self.body())['tool_calls'][0]['function']
             self.assertEqual(call['name'], 'verifyActivityReference')
             self.assertEqual(json.loads(call['arguments']), {'garminId': 'weekdayHike'})
-        for index in [1, 4]:
+        for index in [1, 5]:
             self.assertEqual(response(index, self.body())['tool_calls'][0]['function']['name'], 'analyzeActivityTerrain')
-        evidence = '6543 4321 321 123 weekdayHike analyzeActivityTerrain succeeded available'
-        for index in [2, 5]:
-            self.assertEqual(response(index, self.body(evidence)), {'role': 'assistant', 'content': ANSWER})
-        self.assertEqual(response(6, self.body()), {'role': 'assistant', 'content': FOLLOWUP})
-        for index, body in [(7, self.body()), (2, self.body()), (0, {**self.body(), 'model': 'private'}), (0, {**self.body(), 'stream': True}), (0, {**self.body(), 'tools': [{'function': {'name': 'completeTrainerTurn'}}]})]:
+        for index in [2, 6]:
+            self.assertEqual(response(index, self.body())['tool_calls'][0]['function']['name'], 'getActivityDashboard')
+        for index in [3, 7]:
+            self.assertEqual(response(index, self.valid_body()), {'role': 'assistant', 'content': ANSWER})
+        self.assertEqual(response(8, self.body()), {'role': 'assistant', 'content': FOLLOWUP})
+        for index, body in [(9, self.body()), (3, self.body()), (0, {**self.body(), 'model': 'private'}), (0, {**self.body(), 'stream': True}), (0, {**self.body(), 'tools': [{'function': {'name': 'completeTrainerTurn'}}]})]:
             with self.assertRaises(ValueError):
                 response(index, body)
+
+    def valid_body(self):
+        body = self.body('6543 4321 321 123 weekdayHike analyzeActivityTerrain succeeded getActivityDashboard succeeded available')
+        dashboard = {'heartRateZones': {'status': 'available', 'timeSource': 'garmin_activity', 'sourceTotalSeconds': 999, 'activityDurationSec': 4321, 'classifiedSeconds': 900, 'buckets': [{'seconds': n} for n in [0, 90, 180, 270, 360]]}, 'terrain': {'status': 'available', 'sections': [{'meanGradePct': 10}]}}
+        body['messages'].append({'role': 'tool', 'content': json.dumps({'evidence': 'Dashboard values and explicit limits: ' + json.dumps(dashboard)})})
+        return body
+
+    def test_legacy_text_and_native_single_carrier_both_preserve_values(self):
+        body = self.valid_body()
+        evidence = json.loads(body['messages'].pop()['content'])['evidence']
+        body['messages'].append({'role': 'system', 'content': evidence + '\nTrailing ordinary policy remains independent.'})
+        self.assertEqual(response(3, body)['content'], ANSWER)
+        body['messages'].append({'role': 'tool', 'content': json.dumps({'evidence': evidence})})
+        with self.assertRaisesRegex(ValueError, 'Exactly one'):
+            response(3, body)
+
+    def test_requires_actual_zone_values_complete_parity_and_no_route(self):
+        body = self.valid_body()
+        self.assertEqual(response(3, body)['content'], ANSWER)
+        with self.assertRaisesRegex(ValueError, 'parity mismatch'):
+            response(3, body, {'status': 'available'})
+        for change in ['missing-zone', 'bad-value', 'route']:
+            body = self.valid_body()
+            output = json.loads(body['messages'][-1]['content'])
+            dashboard = json.loads(output['evidence'].split('Dashboard values and explicit limits: ')[1])
+            if change == 'missing-zone':
+                dashboard['heartRateZones']['buckets'].pop()
+            elif change == 'bad-value':
+                dashboard['heartRateZones']['sourceTotalSeconds'] = 4321
+            else:
+                dashboard['route'] = {}
+            output['evidence'] = 'Dashboard values and explicit limits: ' + json.dumps(dashboard)
+            body['messages'][-1]['content'] = json.dumps(output)
+            with self.assertRaises(ValueError):
+                response(3, body)
 
     def test_actual_loopback_protocol_and_owned_shutdown(self):
         provider = AuthoredProvider()
@@ -77,6 +113,7 @@ class ChatSmokeTests(unittest.TestCase):
             with contextlib.closing(sqlite3.connect(database)) as db:
                 db.execute('create table activity(id,garmin_id,name,sport,started_at,duration_sec,distance_meters,elevation_gain_meters,avg_heart_rate)')
                 db.execute('create table activity_stream_point(garmin_id,elapsed_sec,timestamp,distance_meters,altitude_meters,heart_rate)')
+                db.execute('create table activity_hr_zone_time(garmin_id,zone,fetched_at,source,status,seconds,source_lower_bpm,source_total_seconds)')
             run = SimpleNamespace(root=root, database=database, child=None)
             provider = SimpleNamespace(server=SimpleNamespace(server_address=('127.0.0.1', 12345)))
             seed_run(run, provider)
@@ -85,6 +122,7 @@ class ChatSmokeTests(unittest.TestCase):
             with contextlib.closing(sqlite3.connect(database)) as db:
                 self.assertEqual(db.execute('select count(*) from activity_stream_point').fetchone()[0], 101)
                 self.assertEqual(db.execute('select duration_sec,distance_meters from activity').fetchone(), (4321, 6543))
+                self.assertEqual(db.execute('select seconds from activity_hr_zone_time order by zone').fetchall(), [(0,), (90,), (180,), (270,), (360,)])
             run.child = object()
             with self.assertRaises(ValueError):
                 seed_run(run, provider)
