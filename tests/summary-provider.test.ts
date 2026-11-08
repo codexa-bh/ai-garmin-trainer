@@ -20,6 +20,7 @@ function fixture(
     patch?: unknown;
     usage?: boolean;
     status?: number;
+    finishReason?: "stop" | "length";
     legacy?: boolean;
     current?: () => boolean;
   } = {},
@@ -89,7 +90,7 @@ function fixture(
                 {
                   index: 0,
                   message: { role: "assistant", content: text },
-                  finish_reason: "stop",
+                  finish_reason: options.finishReason ?? "stop",
                 },
               ],
               ...(options.usage === false
@@ -274,6 +275,96 @@ describe("independent exact catalog summary/title serialization", () => {
       expect(f.requests).toHaveLength(1);
     },
   );
+  it.each(["openai", "deepseek", "openrouter", "ollama"] as const)(
+    "serializes the independent incremental contract on %s without additional effects",
+    async (provider) => {
+      const increment = {
+        action: "update",
+        edits: [{ before: "old", after: "new" }],
+        addition: "Durable addition",
+      };
+      const f = fixture(provider, { patch: increment });
+      const result = await f.generation.generate(
+        "incremental policy",
+        prompt,
+        new AbortController().signal,
+        "incremental",
+      );
+      expect(result.patch).toEqual(increment);
+      expect(f.requests).toHaveLength(1);
+      const body = f.requests[0].body;
+      const schema = {
+        additionalProperties: false,
+        required: ["action", "edits", "addition"],
+      };
+      if (provider === "deepseek") {
+        // Locked adapter's existing compatibility route: JSON mode plus schema
+        // in a system message, followed by the same strict local validation.
+        expect(body.response_format).toEqual({ type: "json_object" });
+        const message = (
+          body.messages as { role: string; content: string }[]
+        )[0];
+        expect(message.role).toBe("system");
+        const prefix = "Return JSON that conforms to the following schema: ";
+        expect(message.content.startsWith(prefix)).toBe(true);
+        expect(JSON.parse(message.content.slice(prefix.length))).toMatchObject(
+          schema,
+        );
+      } else {
+        const format =
+          provider === "openai"
+            ? (body.text as { format: unknown }).format
+            : (body.response_format as { json_schema: unknown }).json_schema;
+        expect(format).toMatchObject({
+          name: "summary_increment",
+          strict: true,
+          schema,
+        });
+      }
+      expect(body).not.toHaveProperty("tools");
+      expect(body).not.toHaveProperty("max_output_tokens");
+      if (provider === "openai") expect(body.store).toBe(false);
+    },
+  );
+  it.each([
+    { summary: "Lossy complete replacement" },
+    { action: "update", edits: [], addition: "New", extra: true },
+    {
+      action: "update",
+      edits: [{ before: "old", after: "new", id: "invented" }],
+      addition: "",
+    },
+    { action: "invented", edits: [], addition: "" },
+  ])(
+    "rejects invalid incremental output without transport repair: %#",
+    async (invalid) => {
+      const f = fixture("openai", { patch: invalid });
+      await expect(
+        f.generation.generate(
+          "policy",
+          prompt,
+          new AbortController().signal,
+          "incremental",
+        ),
+      ).rejects.toThrow();
+      expect(f.requests).toHaveLength(1);
+    },
+  );
+  it("refuses unfinished incremental output without a second request and retains observed usage", async () => {
+    const f = fixture("openrouter", {
+      patch: { action: "update", edits: [], addition: "Unfinished text" },
+      finishReason: "length",
+    });
+    const result = await f.generation.generate(
+      "policy",
+      prompt,
+      new AbortController().signal,
+      "incremental",
+    );
+    expect(result.patch).toBeNull();
+    expect(result.usage).toEqual({ input: 100, output: 20, cached: 0 });
+    expect(f.requests).toHaveLength(1);
+  });
   it("needs no model-managed source census and transmits the whole draft unchanged", async () => {
     const f = fixture();
     await f.generation.generate("policy", prompt, new AbortController().signal);

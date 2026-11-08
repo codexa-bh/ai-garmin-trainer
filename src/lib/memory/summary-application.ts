@@ -1,6 +1,8 @@
 import {
   minimizeSummarySource,
   SUMMARY_SYSTEM,
+  SUMMARY_INCREMENTAL_SYSTEM,
+  validateSummaryIncrement,
   validateSummaryReplacement,
   type SummaryStorage,
   type SummaryCandidate,
@@ -14,6 +16,7 @@ export type SummaryGeneration = {
     system: string,
     prompt: string,
     signal: AbortSignal,
+    format?: "replacement" | "incremental",
   ): Promise<{
     patch: unknown;
     usage: {
@@ -102,6 +105,10 @@ export function createSummaryEngine(ports: {
           // Capacity/refusal cannot shrink/retry a source interval. The size
           // target guides this single draft, never another inference effect.
           const admitted = inputs;
+          // Explicit historical producers keep their whole-replacement contract.
+          const incremental = Boolean(
+            job.previous.text && !job.import && !job.rebuild,
+          );
           const prompt = JSON.stringify({
             now: ports.now(),
             targetCharacters: job.cap,
@@ -113,24 +120,27 @@ export function createSummaryEngine(ports: {
                 ? { createdAt: source.original.createdAt }
                 : {}),
             })),
-            allowance:
-              "Generated summary only; manual preferences are composed separately. Return one complete replacement, not an appended fragment.",
+            allowance: incremental
+              ? "Generated summary only; manual preferences are composed separately. Return exact edits plus only new durable additions, or unchanged/uncertain."
+              : "Generated summary only; manual preferences are composed separately. Return one complete replacement, not an appended fragment.",
           });
           const output = await boundedGeneration(
-            ports.generation.generate(SUMMARY_SYSTEM, prompt, signal),
+            ports.generation.generate(
+              incremental ? SUMMARY_INCREMENTAL_SYSTEM : SUMMARY_SYSTEM,
+              prompt,
+              signal,
+              incremental ? "incremental" : "replacement",
+            ),
             signal,
           );
           let rejection: SummaryPatchRejection | undefined;
           let diagnostic: SummaryValueDiagnostic | undefined;
-          candidate = validateSummaryReplacement(
-            output.patch,
-            job,
-            admitted,
-            (code, detail) => {
-              rejection = code;
-              diagnostic = detail;
-            },
-          );
+          candidate = (
+            incremental ? validateSummaryIncrement : validateSummaryReplacement
+          )(output.patch, job, admitted, (code, detail) => {
+            rejection = code;
+            diagnostic = detail;
+          });
           // Account only for the actual request. Never persist the private draft
           // or arbitrary provider error, or manufacture a secondary effect.
           storage.usage(job, output.usage, rejection, diagnostic);

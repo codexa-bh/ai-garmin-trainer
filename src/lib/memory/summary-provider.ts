@@ -8,6 +8,11 @@ import type { SummaryGeneration } from "./summary-application";
 
 const summarySchema = z.strictObject({ summary: z.string() });
 const titleSchema = z.strictObject({ title: z.string() });
+const incrementSchema = z.strictObject({
+  action: z.enum(["update", "unchanged", "uncertain"]),
+  edits: z.array(z.strictObject({ before: z.string(), after: z.string() })),
+  addition: z.string(),
+});
 
 /** Exact independent route; no fallback, source-fate schema or generated IDs. */
 export function createSummaryGeneration(
@@ -50,7 +55,13 @@ export function createSummaryGeneration(
   const model = selectedModel(selected.env, undefined, guardedFetch)
     .model as Parameters<typeof generateText>[0]["model"];
   return {
-    async generate(system, prompt, signal) {
+    async generate(system, prompt, signal, format = "replacement") {
+      const schema =
+        purpose === "title"
+          ? titleSchema
+          : format === "incremental"
+            ? incrementSchema
+            : summarySchema;
       const result = await generateText({
         model,
         system,
@@ -58,10 +69,12 @@ export function createSummaryGeneration(
         output:
           purpose === "title"
             ? Output.object({ schema: titleSchema, name: "chat_title" })
-            : Output.object({
-                schema: summarySchema,
-                name: "summary_text",
-              }),
+            : format === "incremental"
+              ? Output.object({
+                  schema: incrementSchema,
+                  name: "summary_increment",
+                })
+              : Output.object({ schema: summarySchema, name: "summary_text" }),
         maxRetries: 0,
         abortSignal: signal,
         ...(selected.entry.provider === "openai"
@@ -107,10 +120,7 @@ export function createSummaryGeneration(
         return { patch: null, usage };
       try {
         const raw: unknown = JSON.parse(result.text);
-        const parsed =
-          purpose === "title"
-            ? titleSchema.safeParse(raw)
-            : summarySchema.safeParse(raw);
+        const parsed = schema.safeParse(raw);
         return { patch: parsed.success ? parsed.data : null, usage };
       } catch {
         return { patch: null, usage };

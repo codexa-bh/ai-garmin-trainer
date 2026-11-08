@@ -66,12 +66,16 @@ function candidate(batch: SummaryBatch) {
 }
 function fakeGeneration(): SummaryGeneration {
   return {
-    generate: vi.fn(async (_system, prompt) => {
+    generate: vi.fn(async (_system, prompt, _signal, format) => {
       expect(typeof JSON.parse(prompt).previous).toBe("string");
       return {
-        patch: {
-          summary: "Short weekdays chosen for time; long weekdays rejected.",
-        },
+        patch:
+          format === "incremental"
+            ? { action: "unchanged", edits: [], addition: "" }
+            : {
+                summary:
+                  "Short weekdays chosen for time; long weekdays rejected.",
+              },
         usage: { input: 100, output: 40, cached: null },
       };
     }),
@@ -536,11 +540,11 @@ describe("supplied generation with real SQLite application", () => {
     for (let i = 0; i < 25; i++) complete(`batch${i}`);
     const normal = fakeGeneration();
     const generate = vi.fn(
-      async (system: string, prompt: string, signal: AbortSignal) => {
-        const input = JSON.parse(prompt) as { newSources: unknown[] };
+      async (...args: Parameters<SummaryGeneration["generate"]>) => {
+        const input = JSON.parse(args[1]) as { newSources: unknown[] };
         if (input.newSources.length > 2)
           throw new Error("summary_input_capacity");
-        return normal.generate(system, prompt, signal);
+        return normal.generate(...args);
       },
     );
     const app = engine({ generate });
@@ -582,10 +586,10 @@ describe("supplied generation with real SQLite application", () => {
     });
     const normal = fakeGeneration();
     const generate = vi.fn(
-      async (system: string, prompt: string, signal: AbortSignal) => {
+      async (...args: Parameters<SummaryGeneration["generate"]>) => {
         expect(db.inTransaction).toBe(false);
         await barrier;
-        return normal.generate(system, prompt, signal);
+        return normal.generate(...args);
       },
     );
     const app = engine({ generate });
