@@ -198,6 +198,9 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
           /^Tool step \d+: [^(]+ \([^)]*\)\.\s*/,
           `Evidence step ${step.index}: ${step.tool} ${step.status}. `,
         );
+      // The overview is already a finite numerical projection (20 optional rows
+      // per section). Never clip critical zone values or silently cut row metadata.
+      if (step.tool === "getActivityDashboard") return evidence;
       // Schema is bounded public capability metadata, not activity data. Its
       // complete current contract is ~8k characters; the ordinary 1800 cap hid
       // grade binding/quality fields and later tables from every fresh call.

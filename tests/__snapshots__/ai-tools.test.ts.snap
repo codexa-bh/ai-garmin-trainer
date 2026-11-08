@@ -64,6 +64,26 @@ exports[`trainer tool registry schemas > preserves every provider description an
       "type": "object",
     },
   },
+  "getActivityDashboard": {
+    "description": "Read the numerical Activity dashboard for one known imported Garmin ID in one call: summary/effort, complete critical HR-zone seconds/percentages/source/availability and coverage, detail availability, up to20 laps and terrain sections with explicit source limits/counts. Uses the dashboard's stored-zone precedence and complete-stream fallback, not just stored SQL zones. Read-only local data; no refresh, GPS or raw streams. Unsupported terrain does not invalidate other facts; missing is not zero and capped rows are not the whole route. Use reference lookup first only when identity is unknown/ambiguous. Keep runReadOnlySql for bespoke filters, comparisons and analytics; math/terrain/detail tools remain available.",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "garminId": {
+          "description": "Garmin activity ID already imported into the local SQLite store.",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "garminId",
+      ],
+      "type": "object",
+    },
+  },
   "getActivityDetailAvailability": {
     "description": "Return bounded local activity detail availability metadata. Use before claiming stream/FIT availability or when asked what detailed data exists.",
     "schema": {

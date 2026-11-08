@@ -1,5 +1,6 @@
 import * as storage from "../db/repository";
 import {
+  createActivityDashboard,
   createLocalData,
   createLocalDataDeletion,
   createTerrainAnalysis,
@@ -33,4 +34,8 @@ export function getActivityDashboardDetail(id: string) {
     ? { ...dashboard, terrainSections: analyzeActivityTerrain(id) }
     : null;
 }
+export const getActivityDashboard = createActivityDashboard(
+  (id) => storage.getActivityDashboardDetail(id),
+  analyzeActivityTerrain,
+);
 export const deleteLocalData = createLocalDataDeletion(storage);

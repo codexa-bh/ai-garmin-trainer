@@ -5,6 +5,7 @@ export type TrainerToolName =
   | "forceRefreshActivityDetail"
   | "getActivityDetailAvailability"
   | "getActivityDetailSlice"
+  | "getActivityDashboard"
   | "describeGarminDatabase"
   | "runReadOnlySql"
   | "runMathAnalysis"

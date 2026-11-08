@@ -1227,10 +1227,16 @@ canonical bundle path (not the source alias), and existing synthetic preparation
 OrdinaryRun, source/artifact lock, native
 admission, observer and owned settlement. It selects no private input and calls no
 real service. A task-owned ephemeral loopback Ollama-compatible fixture emits only
-`verifyActivityReference(weekdayHike)`, `analyzeActivityTerrain(weekdayHike)` and
-ordinary authored coaching text: twice for JSON/NDJSON, then one continued turn.
-Seven calls total; no certificate, extra SQL or repair call. Only the exclusive
-run DB gets an authored hiking summary and 101 normalized elevation samples.
+`verifyActivityReference(weekdayHike)`, `analyzeActivityTerrain(weekdayHike)`,
+`getActivityDashboard(weekdayHike)` and ordinary authored coaching text: twice for
+JSON/NDJSON, then one continued turn. Nine calls total; no certificate, extra SQL
+or repair call. The overview is one admitted read for the known ID; the preceding
+lookup/terrain calls retain adjacent compatibility proof, not a claimed necessity.
+Only the exclusive run DB gets an authored hiking summary, five stored HR-zone
+rows (including true zero and a differing source/activity duration), and 101
+normalized elevation samples. The fixture checks actual serialized tool evidence
+for every zone duration, complete HR metadata parity with the real dashboard API,
+terrain values and no route/chart/stream projection; a success receipt is insufficient.
 Original prepared input, primary DB/settings and motivating conversations stay untouched.
 
 Assertions cover actual native-owned chat API/tool statuses, exact ordinary answer,

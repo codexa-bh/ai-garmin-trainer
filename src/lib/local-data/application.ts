@@ -19,6 +19,10 @@ import type {
 } from "../garmin/detail-types";
 import { interpretActivityReference } from "./activity-policy";
 import {
+  DASHBOARD_OVERVIEW_ROW_LIMIT,
+  projectDashboardOverview,
+} from "./dashboard-overview";
+import {
   analyzeTerrainSections,
   type TerrainPoint,
 } from "../analytics/terrain-sections";
@@ -34,6 +38,21 @@ export function createTerrainAnalysis(
       return analyzeTerrainSections(id, null, [], rowLimit);
     const input = read(id);
     return analyzeTerrainSections(id, input.sport, input.points, rowLimit);
+  };
+}
+
+export function createActivityDashboard(
+  read: LocalDataReads["getActivityDashboardDetail"],
+  terrain: ReturnType<typeof createTerrainAnalysis>,
+) {
+  return (id: string) => {
+    const dashboard = read(id);
+    return dashboard
+      ? projectDashboardOverview(
+          dashboard,
+          terrain(id, DASHBOARD_OVERVIEW_ROW_LIMIT),
+        )
+      : null;
   };
 }
 

@@ -33,6 +33,7 @@ export function validProgressCounters(
 }
 
 const activity: Record<TrainerToolName, string> = {
+  getActivityDashboard: "Reading the activity overview and heart-rate zones…",
   describeGarminDatabase:
     "Checking which local activity and health fields are available…",
   analyzeActivityTerrain: "Analyzing the recorded elevation profile…",
@@ -53,6 +54,7 @@ const activity: Record<TrainerToolName, string> = {
 };
 
 const evidence: Record<TrainerToolName, string> = {
+  getActivityDashboard: "the numerical activity overview",
   describeGarminDatabase: "the available local data fields",
   analyzeActivityTerrain: "the elevation-profile section evidence",
   runReadOnlySql: "the local query result",

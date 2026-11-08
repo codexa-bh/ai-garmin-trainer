@@ -223,6 +223,18 @@ model responsibilities, not machine-certified facts. Instructions retain source
 precedence and explicit missing/ambiguous/failed/partial/truncated coverage; lookup
 metrics need no duplicate SQL merely to manufacture claim references. No prose
 classifier, second judge, renamed terminal gate or automatic repair loop is added.
+`getActivityDashboard` adds one read-only numerical overview for a known imported
+ID through local-data application/composition. Shared inward summary/lap projections
+preserve the dashboard API's units, nulls and speed fallback. Complete owned HR-zone
+status/timing/boundary provenance precedes optional20-row lap/terrain sections;
+lap source totals are explicitly unknown at the100-row dashboard source cap.
+Terrain keeps its whole-analysis coverage/counts, including unsupported/partial
+states independently of valid summary/HR facts. No GPS, charts/raw streams,
+connector refresh, storage migration or focused-UI selection is exposed. This
+finite result uses a dedicated complete native/legacy evidence path rather than
+the generic1800-character preview; native fresh context remains an index only.
+SQL/math, specialised terrain/detail tools and ordinary final prose remain available.
+
 Tool schemas/admission, guarded SQL/math, same-turn handles, prior-pass plan reads,
 write/privacy/currentness boundaries and actual-call budgets/accounting remain.
 All deterministic fallbacks disclose independently successful planning writes.
