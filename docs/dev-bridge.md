@@ -1259,6 +1259,27 @@ resource disposition and scratch expiry apply independently; no copy-back or
 primary install/restart/cleanup is authorized. Baseline `smoke:ordinary` retains
 its separate parallel/lifecycle/security and Trainer/Sync/Profile evidence.
 
+### Selected activity images (T0303)
+
+Add `--activity-images` to `smoke:chat` to select four optional panels on the same
+`getActivityDashboard` call. This finite variant uses exact loopback `llava`
+configuration and the existing authored provider, not a downloaded/live model.
+Only the exclusive run copy gets fictional GPS values on its existing 101 points.
+The real native-owned backend renders the shared dashboard chart/route inputs;
+the fixture validates four actual SDK `image_url` PNG data parts, 960×540 and at
+most 1 MiB each, panel/activity/call binding and unchanged numerical HR evidence.
+It decodes the first four actual images into task evidence `screenshots/`, without
+retaining raw requests. Those PNGs prove the server SVG rasterizer and image wire,
+not native-compositor rendering or vision interpretation. Inspect each image.
+The continued turn must contain no image; SQLite chat/debug state must contain
+neither image data URLs nor PNG base64. Existing JSON/NDJSON/persistence/restart,
+ordinary wide/narrow chat captures, source admission, original preservation and
+owned settlement still bind. The provider accepts at most 6 MiB only for this
+finite image variant; baseline numerical-only mode retains its 256 KiB limit.
+No new native/DOM commands, selectors, capture masks, private grants or remote
+services are introduced. Validate `chat_smoke_test.py`, activity-image SDK/render/
+lifetime tests and affected native/DOM/controller contracts before use.
+
 ## Finite authored Terrain presentation
 
 `npm run smoke:terrain -- --scratch <canonical-task-root> --bundle <ordinary-app>`

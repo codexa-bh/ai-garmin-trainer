@@ -1,6 +1,8 @@
 """Finite authored ordinary-chat lookup/terrain/dashboard/text proof; no private inputs or real services."""
 import argparse
+import base64
 import contextlib
+import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -21,14 +23,42 @@ ANSWER = 'Authored weekday hike: 6543 m in 4321 s, 321 m ascent, mean HR 123. Th
 FOLLOWUP = 'Continue with short weekday practice and adjust to recovery; this is authored coaching, not live-provider validation.'
 PROMPT = 'Authored weekday hike numerical dashboard feedback.'
 MODEL = 'qwen3.5:4b'
+VISION_MODEL = 'llava'
+PANELS = ['heartRate', 'elevation', 'speed', 'route']
 
 
-def response(index, body, expected_zones=None):
-    if body.get('model') != MODEL or body.get('stream') is True or not isinstance(body.get('messages'), list):
+def image_parts(body):
+    parts = []
+    for message in body.get('messages', []):
+        content = message.get('content')
+        if isinstance(content, list):
+            for index, part in enumerate(content):
+                if part.get('type') == 'image_url':
+                    label = content[index - 1].get('text', '') if index else ''
+                    url = part.get('image_url', {}).get('url', '')
+                    if not url.startswith('data:image/png;base64,'):
+                        raise ValueError('Real PNG image part required')
+                    raw = base64.b64decode(url.split(',', 1)[1], validate=True)
+                    if not 33 <= len(raw) <= 1024 * 1024 or raw[:8] != b'\x89PNG\r\n\x1a\n' or int.from_bytes(raw[16:20], 'big') != 960 or int.from_bytes(raw[20:24], 'big') != 540:
+                        raise ValueError('Bounded rendered image required')
+                    panel = PANELS[len(parts)] if len(parts) < 4 else ''
+                    if not panel or ('Current-turn ' + panel + ' image for activity weekdayHike, call ') not in label:
+                        raise ValueError('Selected panel/activity/native-call binding required')
+                    parts.append((panel, raw))
+    return parts
+
+
+def response(index, body, expected_zones=None, activity_images=False):
+    if body.get('model') != (VISION_MODEL if activity_images else MODEL) or body.get('stream') is True or not isinstance(body.get('messages'), list):
         raise ValueError('Fixed authored model/protocol required')
     names = [tool.get('function', {}).get('name') for tool in body.get('tools', [])]
     if 'completeTrainerTurn' in names or index >= 9:
         raise ValueError('Unexpected certificate or extra provider call')
+    images = image_parts(body)
+    if images and (not activity_images or index not in (3, 7)):
+        raise ValueError('Images outside admitted selected current turn')
+    if activity_images and index in (3, 7) and len(images) != 4:
+        raise ValueError('All four genuinely rendered selected images required')
     if index == 8:
         return {'role': 'assistant', 'content': FOLLOWUP}
     phase = index % 4
@@ -39,6 +69,8 @@ def response(index, body, expected_zones=None):
         args = {'garminId': 'weekdayHike'}
         if phase == 1:
             args['resultName'] = 'weekdayHike'
+        if phase == 2 and activity_images:
+            args['panels'] = PANELS
         return {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'authored-' + str(index), 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
     # Observe production-rendered evidence, not a synthetic completion ledger.
     evidence = json.dumps(body['messages'])
@@ -63,9 +95,18 @@ def response(index, body, expected_zones=None):
 
 
 class AuthoredProvider:
-    def __init__(self):
+    def __init__(self, *, activity_images=False, scratch=None):
         self.calls = []
         self.expected_zones = None
+        self.activity_images = activity_images
+        self.captures = []
+        self.screenshots = None
+        if activity_images and scratch:
+            screenshots = scratch / 'screenshots'
+            if not screenshots.exists():
+                resources.directory(screenshots)
+            private_directory(screenshots)
+            self.screenshots = resources.directory(screenshots / ('activity-images-' + str(uuid.uuid4())))
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -75,16 +116,24 @@ class AuthoredProvider:
             def do_POST(self):
                 self.connection.settimeout(5)
                 length = self.headers.get('Content-Length', '')
-                if self.path != '/v1/chat/completions' or not length.isdigit() or not 0 < int(length) <= 256 * 1024 or self.headers.get('Transfer-Encoding'):
+                if self.path != '/v1/chat/completions' or not length.isdigit() or not 0 < int(length) <= (6 * 1024 * 1024 if owner.activity_images else 256 * 1024) or self.headers.get('Transfer-Encoding'):
                     self.send_error(400)
                     return
                 try:
-                    message = response(len(owner.calls), json.loads(self.rfile.read(int(length))), owner.expected_zones)
+                    body = json.loads(self.rfile.read(int(length)))
+                    message = response(len(owner.calls), body, owner.expected_zones, owner.activity_images)
+                    if owner.screenshots and len(owner.calls) == 3:
+                        for panel, raw_image in image_parts(body):
+                            path = owner.screenshots / (panel + '.png')
+                            with path.open('xb') as output:
+                                output.write(raw_image)
+                            resources.file_created(path)
+                            owner.captures.append({'panel': panel, 'path': str(path), 'sha256': hashlib.sha256(raw_image).hexdigest(), 'captureMethod': 'actual native-owned backend rasterizer; bytes decoded from SDK chat wire, not native compositor'})
                 except (ValueError, TypeError, AttributeError, KeyError):
                     self.send_error(400)
                     return
                 owner.calls.append({'tool': message.get('tool_calls', [{}])[0].get('function', {}).get('name'), 'ordinaryText': isinstance(message.get('content'), str)})
-                raw = json.dumps({'id': 'authored-response', 'object': 'chat.completion', 'created': 1, 'model': MODEL, 'choices': [{'index': 0, 'finish_reason': 'tool_calls' if 'tool_calls' in message else 'stop', 'message': message}], 'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}}).encode()
+                raw = json.dumps({'id': 'authored-response', 'object': 'chat.completion', 'created': 1, 'model': VISION_MODEL if owner.activity_images else MODEL, 'choices': [{'index': 0, 'finish_reason': 'tool_calls' if 'tool_calls' in message else 'stop', 'message': message}], 'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}}).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(raw)))
@@ -116,6 +165,11 @@ def seed_run(run, provider):
         if db.execute('pragma integrity_check').fetchone()[0] != 'ok' or db.execute('pragma foreign_key_check').fetchone():
             raise ValueError('Authored copy integrity failed')
     config = json.loads((run.root / 'config/settings-v2.json').read_text())
+    if getattr(provider, 'activity_images', False):
+        with contextlib.closing(sqlite3.connect(run.database)) as db:
+            db.execute('update activity_stream_point set lat=45+elapsed_sec/100000.0,lon=8+elapsed_sec/200000.0 where garmin_id=?', ('weekdayHike',))
+            db.commit()
+        config['fields']['OLLAMA_MODEL'] = VISION_MODEL
     config['fields']['OLLAMA_BASE_URL'] = 'http://127.0.0.1:%d/v1' % provider.server.server_address[1]
     (run.root / 'config/settings-v2.json').rename(run.root / 'prepared-keyless-settings.json')
     private_json(run.root / 'config/settings-v2.json', config)
@@ -159,6 +213,10 @@ def exercise(run, provider):
     continued = json.loads(api(run, 'POST', '/api/chat', {'conversationId': ids[0], 'message': 'Continue that weekday advice.'}))
     if continued['assistant']['content'] != FOLLOWUP or len(provider.calls) != 9:
         raise ValueError('Continued conversation/call accounting mismatch')
+    with contextlib.closing(readonly(run.database)) as db:
+        dump = '\n'.join(db.iterdump())
+        if 'data:image/' in dump or 'iVBORw0KGgo' in dump or '"bytes":' in dump:
+            raise ValueError('Transient images leaked into durable chat/debug state')
     api(run, 'PUT', '/api/conversations/selection', {'conversationId': ids[0]})
     return ids
 
@@ -169,6 +227,7 @@ def main():
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--task-id', default='T0296')
+    parser.add_argument('--activity-images', action='store_true', help='Four finite authored panels through the exact loopback llava image adapter; no live model')
     parser.set_defaults(input_file=None, grant_file=None, provenance_file=None, anchor=None)
     args = parser.parse_args()
     os.umask(0o077)
@@ -182,7 +241,7 @@ def main():
         try:
             run = OrdinaryRun(scratch, prepared.database, source, bundle, inventory, verified=verified)
             run.before_start = prepared.verify_current
-            provider = AuthoredProvider()
+            provider = AuthoredProvider(activity_images=args.activity_images, scratch=scratch)
             seed_run(run, provider)
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer
@@ -205,7 +264,7 @@ def main():
                     raise ValueError('Restart history mismatch')
             if source_identity() != source or audit(bundle) != inventory or audit(run.bundle) != inventory:
                 raise ValueError('Source/artifact changed')
-            receipt.update({'source': source, 'runId': run.id, 'conversations': ids, 'calls': provider.calls, 'captures': captures, 'jsonNdjsonPersistenceContinuationRestart': True, 'passed': True})
+            receipt.update({'source': source, 'runId': run.id, 'conversations': ids, 'calls': provider.calls, 'captures': captures, 'jsonNdjsonPersistenceContinuationRestart': True, 'activityImageCaptures': provider.captures, 'selectedPanels': PANELS if args.activity_images else [], 'backSync': 'no-op: read/render-only, original authored input unchanged', 'passed': True})
         finally:
             with resources.preserve_failure():
                 errors = []

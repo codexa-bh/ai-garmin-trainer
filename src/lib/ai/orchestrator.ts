@@ -382,7 +382,9 @@ async function synthesizeFinalAnswer(
     result = await generate({
       ...(input.conversation
         ? { conversation: input.conversation, exchanges }
-        : {}),
+        : exchanges.length
+          ? { exchanges }
+          : {}),
       purpose: "final_synthesis",
       system: finalAnswerSystem(
         systemWithTurnContext(input),
@@ -566,7 +568,9 @@ async function orchestrateTurn(
       result = await ports.generate({
         ...(input.conversation
           ? { conversation: input.conversation, exchanges }
-          : {}),
+          : exchanges.length
+            ? { exchanges }
+            : {}),
         purpose: "planner",
         system: plannerSystem(
           systemWithTurnContext(input),
@@ -746,16 +750,20 @@ async function orchestrateTurn(
         );
       }
       assertConversationCurrent(input, steps);
-      const native = input.conversation
-        ? toolCalls.find(
-            (call) =>
-              call.toolName === accepted.toolName &&
-              call.toolCallId &&
-              !exchanges.some(
-                (exchange) => exchange.callId === call.toolCallId,
-              ),
-          )
-        : undefined;
+      const wantsImages =
+        accepted.toolName === "getActivityDashboard" &&
+        Boolean(accepted.input.panels?.length);
+      const native =
+        input.conversation || (wantsImages && ports.activityImagesSupported)
+          ? toolCalls.find(
+              (call) =>
+                call.toolName === accepted.toolName &&
+                call.toolCallId &&
+                !exchanges.some(
+                  (exchange) => exchange.callId === call.toolCallId,
+                ),
+            )
+          : undefined;
       if (input.conversation && !native?.toolCallId)
         throw new Error("conversation_native_call_identity_missing");
       progress(toolProgressMessage(accepted.toolName));
@@ -767,6 +775,8 @@ async function orchestrateTurn(
         trainingPlanSnapshot: snapshot?.success ? snapshot.data : undefined,
         weeklyTurn: input.weeklyTurn,
         weeklySnapshots: weeklySnapshots,
+        activityImagesSupported:
+          ports.activityImagesSupported === true && Boolean(native?.toolCallId),
       });
       assertConversationCurrent(input, [...steps, step]);
       if (native?.toolCallId)
@@ -777,8 +787,11 @@ async function orchestrateTurn(
           output: JSON.stringify({
             status: step.status,
             stepIndex: step.index,
-            evidence: synthesisEvidenceForSteps([step]),
+            evidence: input.conversation
+              ? synthesisEvidenceForSteps([step])
+              : "Numerical result is in current server grounding; images follow for this call only.",
           }),
+          images: context.activityImages.get(stepIndex),
         });
       if (selected.metadata) step.selection = selected.metadata;
       steps.push(step);

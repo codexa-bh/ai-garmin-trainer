@@ -3,6 +3,7 @@ import { describeGarminDatabase, runReadOnlySql } from "./sql-analysis";
 import {
   analyzeActivityTerrain,
   getActivityDashboard,
+  getActivityDashboardEvidence,
   getActivityByGarminId,
   getActivityDetailForAnalytics,
   listActivityDetailAvailability,
@@ -10,6 +11,7 @@ import {
   summarizeSyncStatus,
 } from "../local-data/composition";
 import { backfillActivityDetail, runGarminSync } from "../garmin/composition";
+import { renderActivityImages } from "../local-data/activity-image-renderer";
 import {
   readCompleteTrainingPlan,
   saveGuardedTrainingPlan,
@@ -25,6 +27,8 @@ const ports: TrainerToolPorts = {
   analytics: { describeGarminDatabase, runReadOnlySql, analyzeActivityTerrain },
   localData: {
     getActivityDashboard,
+    getActivityDashboardEvidence,
+    renderActivityImages,
     getActivityByGarminId,
     getActivityDetailForAnalytics,
     listActivityDetailAvailability,

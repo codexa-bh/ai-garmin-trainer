@@ -9,6 +9,7 @@ import {
 } from "./orchestration-ports";
 
 import type { TrainerTokenUsage } from "./debug-types";
+import { activityExchangeMessages } from "./provider-activity-images";
 
 const count = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0
@@ -143,6 +144,8 @@ export function createConversationCompactionGeneration(
 /** Bind the already-selected model; no selection, retries or disconnect signal. */
 export function createTrainerGeneration(model: unknown): TrainerGeneration {
   return async (request) => {
+    const hasImages =
+      request.exchanges?.some((exchange) => exchange.images?.length) ?? false;
     if (
       request.conversation &&
       !request.conversation.memoryOnly &&
@@ -206,34 +209,23 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
                   content: `Fresh current-turn server grounding (historical prose never verifies this turn):\n${structured.context}`,
                 },
                 { role: "user", content: request.prompt },
-                ...(request.exchanges ?? []).flatMap((exchange) => [
-                  {
-                    role: "assistant",
-                    content: [
-                      {
-                        type: "tool-call",
-                        toolCallId: exchange.callId,
-                        toolName: exchange.toolName,
-                        input: exchange.input,
-                      },
-                    ],
-                  },
-                  {
-                    role: "tool",
-                    content: [
-                      {
-                        type: "tool-result",
-                        toolCallId: exchange.callId,
-                        toolName: exchange.toolName,
-                        output: { type: "text", value: exchange.output },
-                      },
-                    ],
-                  },
-                ]),
+                ...(request.exchanges ?? []).flatMap((exchange) =>
+                  activityExchangeMessages(model, exchange),
+                ),
               ],
               maxRetries: 0,
             }
-          : { prompt: request.prompt }),
+          : hasImages
+            ? {
+                messages: [
+                  { role: "user", content: request.prompt },
+                  ...(request.exchanges ?? []).flatMap((exchange) =>
+                    activityExchangeMessages(model, exchange),
+                  ),
+                ],
+                maxRetries: 0,
+              }
+            : { prompt: request.prompt }),
         ...(request.purpose === "planner"
           ? {
               tools: trainerToolDefinitions,
@@ -242,6 +234,7 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
               providerOptions: {
                 openai: {
                   parallelToolCalls: false,
+                  ...(hasImages ? { store: false } : {}),
                   ...(cachePolicy
                     ? { promptCacheOptions: { mode: "explicit", ttl: "30m" } }
                     : {}),
@@ -251,11 +244,19 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
             }
           : {
               // Plain text only: no action tools or response certificate.
-              ...(cachePolicy
+              ...(cachePolicy || hasImages
                 ? {
                     providerOptions: {
                       openai: {
-                        promptCacheOptions: { mode: "explicit", ttl: "30m" },
+                        ...(hasImages ? { store: false } : {}),
+                        ...(cachePolicy
+                          ? {
+                              promptCacheOptions: {
+                                mode: "explicit",
+                                ttl: "30m",
+                              },
+                            }
+                          : {}),
                       },
                     },
                   }
@@ -296,6 +297,17 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
         tokenUsage: tokenUsage(generated.usage),
       };
     } catch (error) {
+      // A rejection may echo the request. Never retain image-bearing diagnostics.
+      if (hasImages && !request.conversation) {
+        if (
+          error instanceof Error &&
+          ["activity_image_transport_unsupported", "provider_timeout"].includes(
+            error.message,
+          )
+        )
+          throw error;
+        throw new Error("activity_image_provider_unavailable");
+      }
       if (
         !request.conversation ||
         error instanceof ConversationCapacityError ||
@@ -306,6 +318,7 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
             "conversation_token_accounting_unavailable",
             "conversation_transport_unsupported",
             "conversation_serialization_unsupported",
+            "activity_image_transport_unsupported",
             "provider_timeout",
           ].includes(error.message))
       )
