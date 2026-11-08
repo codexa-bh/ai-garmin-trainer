@@ -4,6 +4,7 @@ import {
 } from "./orchestrator";
 import { createTrainerGeneration } from "./provider-generation";
 import { executeTrainerTool } from "./tool-composition";
+import { supportsActivityImages } from "./provider-activity-images";
 
 export type ComposedTrainerChatInput = OrchestrateTrainerChatInput & {
   model: unknown;
@@ -13,6 +14,7 @@ export type ComposedTrainerChatInput = OrchestrateTrainerChatInput & {
 export function orchestrateTrainerChat(input: ComposedTrainerChatInput) {
   const { model, ...turn } = input;
   return orchestrate(turn, {
+    activityImagesSupported: supportsActivityImages(model),
     generate: createTrainerGeneration(model),
     executeTool: executeTrainerTool,
   });

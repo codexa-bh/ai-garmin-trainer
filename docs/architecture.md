@@ -229,11 +229,43 @@ preserve the dashboard API's units, nulls and speed fallback. Complete owned HR-
 status/timing/boundary provenance precedes optional20-row lap/terrain sections;
 lap source totals are explicitly unknown at the100-row dashboard source cap.
 Terrain keeps its whole-analysis coverage/counts, including unsupported/partial
-states independently of valid summary/HR facts. No GPS, charts/raw streams,
-connector refresh, storage migration or focused-UI selection is exposed. This
+states independently of valid summary/HR facts. Numerical-only default exposes no GPS, charts/raw streams,
+connector refresh, storage migration or focused-UI selection. Optional unique
+`panels` selects heartRate/elevation/speed/route images from the same synchronously
+captured dashboard input; route geometry is never implicit. The finite sharp PNG
+adapter reuses shared chart calculations and the interactive map's unchanged
+offline projection. Route images visibly disclose offline geometry/no topographic
+background/no tiles, sampling and attribution; no remote tile fetch is added.
+Images are 960×540, at most 1 MiB each/four panels. Above100,000 chart
+samples a panel explicitly reports render_input_limit instead of silently
+clipping/downsampling. A separate monospace identity line fits full64-character IDs. Missing data/render/unsupported
+selected model leaves usable numbers and per-panel unavailability. This
 finite result uses a dedicated complete native/legacy evidence path rather than
 the generic1800-character preview; native fresh context remains an index only.
 SQL/math, specialised terrain/detail tools and ordinary final prose remain available.
+
+Per-turn `TrainerToolExecutionContext` owns image bytes separately from returned
+steps, debug, grounding and stored history. Finally zeroes bytes/releases references
+on success/error/currentness invalidation; already exported SDK/provider copies
+cannot be recalled. Later turns/history have prose/numerical context only and
+must explicitly request new images. Capture metadata binds activity, source hash,
+UTC instant and selected panel, independent of the focused UI. Existing currentness
+checks bracket asynchronous work. There is no durable media store or migration.
+
+`provider-activity-images.ts` owns conservative exact support: direct OpenAI
+Responses gpt-4o/gpt-4o-mini/gpt-4.1 family entries listed there, and loopback Ollama
+llava/llama3.2-vision base or :latest identities. This is adapter/model-family
+support, not remote readiness/installation certification. Unreviewed identities
+(including gpt-6), custom tags, DeepSeek and OpenRouter remain explicit unsupported;
+no probing, routing fallback or catalog redesign. Image-bearing direct Responses
+requests explicitly use store:false, including legacy routes; SDK/provider error
+echoes become fixed safe errors. This cannot recall already exported input or
+guarantee external provider retention. Locked ai7 Responses receives
+native tool content file/data PNG parts. Chat Completions keeps native call/result
+pairing plus one labelled current-turn user image message, since image tool
+results are unsupported there. Numerical evidence has one detailed carrier on
+both native-envelope and legacy routes. Tests inspect real serialized requests;
+keyless native proof is not live model interpretation.
 
 Tool schemas/admission, guarded SQL/math, same-turn handles, prior-pass plan reads,
 write/privacy/currentness boundaries and actual-call budgets/accounting remain.

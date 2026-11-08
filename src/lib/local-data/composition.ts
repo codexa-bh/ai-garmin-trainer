@@ -1,6 +1,8 @@
 import * as storage from "../db/repository";
+import { activityImageSource } from "./activity-image-renderer";
 import {
   createActivityDashboard,
+  createActivityDashboardEvidence,
   createLocalData,
   createLocalDataDeletion,
   createTerrainAnalysis,
@@ -38,4 +40,14 @@ export const getActivityDashboard = createActivityDashboard(
   (id) => storage.getActivityDashboardDetail(id),
   analyzeActivityTerrain,
 );
+const captureActivityDashboard = createActivityDashboardEvidence(
+  (id) => storage.getActivityDashboardDetail(id),
+  analyzeActivityTerrain,
+);
+export function getActivityDashboardEvidence(id: string) {
+  const captured = captureActivityDashboard(id);
+  return captured
+    ? { ...captured, source: activityImageSource(captured.visualInput) }
+    : null;
+}
 export const deleteLocalData = createLocalDataDeletion(storage);

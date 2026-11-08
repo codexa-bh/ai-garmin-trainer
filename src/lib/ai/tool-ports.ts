@@ -1,5 +1,11 @@
 import type { createWeekly } from "../weekly/application";
 import type {
+  ActivityDashboardEvidence,
+  ActivityVisualInput,
+  ActivityPanel,
+  ActivityVisualResult,
+} from "../local-data/activity-visuals";
+import type {
   AnalysisResult,
   GarminDatabaseDescription,
   SqlAnalysisInput,
@@ -33,6 +39,11 @@ export type LocalDataToolPorts = Pick<
   | "summarizeSyncStatus"
 > & {
   getActivityDashboard: ReturnType<typeof createActivityDashboard>;
+  getActivityDashboardEvidence?(id: string): ActivityDashboardEvidence | null;
+  renderActivityImages?(
+    input: ActivityVisualInput,
+    panels: readonly ActivityPanel[],
+  ): Promise<ActivityVisualResult>;
   runGarminSync(): Promise<GarminSyncResult>;
   backfillActivityDetail(
     garminId: string,

@@ -70,7 +70,19 @@ const mathOperationSchema = z.enum([
 ]);
 
 export const trainerToolInputSchemas = {
-  getActivityDashboard: z.object({ garminId: garminIdSchema }).strict(),
+  getActivityDashboard: z
+    .object({
+      garminId: garminIdSchema,
+      panels: z
+        .array(z.enum(["heartRate", "elevation", "speed", "route"]))
+        .max(4)
+        .refine(
+          (panels) => new Set(panels).size === panels.length,
+          "Duplicate panels are not allowed",
+        )
+        .optional(),
+    })
+    .strict(),
   analyzeActivityTerrain: z
     .object({
       garminId: garminIdSchema,
@@ -194,7 +206,7 @@ export const trainerToolInputSchemas = {
 export const trainerToolContracts = {
   getActivityDashboard: {
     description:
-      "Read the numerical Activity dashboard for one known imported Garmin ID in one call: summary/effort, complete critical HR-zone seconds/percentages/source/availability and coverage, detail availability, up to20 laps and terrain sections with explicit source limits/counts. Uses the dashboard's stored-zone precedence and complete-stream fallback, not just stored SQL zones. Read-only local data; no refresh, GPS or raw streams. Unsupported terrain does not invalidate other facts; missing is not zero and capped rows are not the whole route. Use reference lookup first only when identity is unknown/ambiguous. Keep runReadOnlySql for bespoke filters, comparisons and analytics; math/terrain/detail tools remain available.",
+      "Read the numerical Activity dashboard for one known imported Garmin ID in one call: summary/effort, complete critical HR-zone seconds/percentages/source/availability and coverage, detail availability, up to20 laps and terrain sections with explicit source limits/counts. Uses the dashboard's stored-zone precedence and complete-stream fallback, not just stored SQL zones. Read-only local data; no refresh or raw streams. Optional unique panels heartRate/elevation/speed/route supplement numbers with transient current-turn images on locally reviewed vision models; omitted/empty panels are numeric-only. Select route explicitly only when location geometry is relevant; its image is clearly labelled offline geometry, not a topographic background, with no tile requests. No implicit GPS image. Unknown/text-only routes return explicit visual unavailability, never model fallback. Images are not stored or replayed; request fresh visuals on a later turn. Unsupported terrain does not invalidate other facts; missing is not zero and capped rows are not the whole route. Use reference lookup first only when identity is unknown/ambiguous. Keep runReadOnlySql for bespoke filters, comparisons and analytics; math/terrain/detail tools remain available.",
     inputSchema: trainerToolInputSchemas.getActivityDashboard,
   },
   analyzeActivityTerrain: {

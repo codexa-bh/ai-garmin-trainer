@@ -9,6 +9,7 @@ export type TrainerNativeExchange = {
   toolName: string;
   input: unknown;
   output: string;
+  images?: import("../local-data/activity-visuals").ActivityPanelImage[];
 };
 export type TrainerGenerationRequest = {
   purpose: "planner" | "final_synthesis";
@@ -30,6 +31,7 @@ export type TrainerGeneration = (
 ) => Promise<TrainerGenerationResult>;
 
 export type TrainerOrchestrationPorts = {
+  activityImagesSupported?: boolean;
   generate: TrainerGeneration;
   executeTool(input: TrainerToolExecutionInput): Promise<TrainerToolStep>;
 };

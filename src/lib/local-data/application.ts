@@ -41,19 +41,34 @@ export function createTerrainAnalysis(
   };
 }
 
-export function createActivityDashboard(
+export function createActivityDashboardEvidence(
   read: LocalDataReads["getActivityDashboardDetail"],
   terrain: ReturnType<typeof createTerrainAnalysis>,
 ) {
   return (id: string) => {
     const dashboard = read(id);
     return dashboard
-      ? projectDashboardOverview(
-          dashboard,
-          terrain(id, DASHBOARD_OVERVIEW_ROW_LIMIT),
-        )
+      ? {
+          overview: projectDashboardOverview(
+            dashboard,
+            terrain(id, DASHBOARD_OVERVIEW_ROW_LIMIT),
+          ),
+          visualInput: {
+            garminId: id,
+            charts: dashboard.charts,
+            route: dashboard.route,
+          },
+        }
       : null;
   };
+}
+
+export function createActivityDashboard(
+  read: LocalDataReads["getActivityDashboardDetail"],
+  terrain: ReturnType<typeof createTerrainAnalysis>,
+) {
+  const capture = createActivityDashboardEvidence(read, terrain);
+  return (id: string) => capture(id)?.overview ?? null;
 }
 
 /** Consumer-owned synchronous reads and complete atomic lifecycle capabilities. */

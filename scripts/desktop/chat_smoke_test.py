@@ -1,4 +1,5 @@
 """Before-use finite authored chat provider/seed/serialization contracts, no native launch."""
+import base64
 import contextlib
 import http.client
 import json
@@ -67,6 +68,28 @@ class ChatSmokeTests(unittest.TestCase):
             body['messages'][-1]['content'] = json.dumps(output)
             with self.assertRaises(ValueError):
                 response(3, body)
+
+    def test_finite_selected_image_wire_and_no_later_replay(self):
+        body = self.valid_body()
+        body['model'] = chat_smoke.VISION_MODEL
+        call = response(2, self.body() | {'model': chat_smoke.VISION_MODEL}, activity_images=True)['tool_calls'][0]['function']
+        self.assertEqual(json.loads(call['arguments'])['panels'], chat_smoke.PANELS)
+        # Header-only unit fixture is serialization validation, never renderer proof.
+        raw = b'\x89PNG\r\n\x1a\n' + bytes(8) + (960).to_bytes(4, 'big') + (540).to_bytes(4, 'big') + bytes(9)
+        parts = []
+        for panel in chat_smoke.PANELS:
+            parts += [{'type': 'text', 'text': 'Current-turn ' + panel + ' image for activity weekdayHike, call authored-2'}, {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + base64.b64encode(raw).decode()}}]
+        body['messages'].append({'role': 'user', 'content': parts})
+        self.assertEqual(response(3, body, activity_images=True)['content'], ANSWER)
+        for index in [0, 2, 8]:
+            with self.assertRaisesRegex(ValueError, 'outside admitted'):
+                response(index, body, activity_images=True)
+        body['messages'][-1]['content'][0]['text'] = 'Current-turn route image for activity other, call authored-2'
+        with self.assertRaisesRegex(ValueError, 'binding'):
+            response(3, body, activity_images=True)
+        body['messages'].pop()
+        with self.assertRaisesRegex(ValueError, 'four'):
+            response(3, body, activity_images=True)
 
     def test_actual_loopback_protocol_and_owned_shutdown(self):
         provider = AuthoredProvider()

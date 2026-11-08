@@ -10,6 +10,7 @@ import {
 } from "react";
 import { type ActivityDashboardPayload } from "./contracts";
 import { finiteNumberLabel } from "./formatting";
+import { offlineRouteCoordinates as routeMapCoordinates } from "../../lib/analytics/activity-route-layout";
 
 export function primaryBenefitLabel(value: string | null | undefined): string {
   const words = (value ?? "").split(/[_\s]+/).filter(Boolean);
@@ -679,36 +680,6 @@ const OPEN_TOPO_MAP_TILE_HOSTS = ["a", "b", "c"] as const;
 
 function routeMapPanIsCentered(panOffset: RouteMapPanOffset) {
   return Math.round(panOffset.x) === 0 && Math.round(panOffset.y) === 0;
-}
-
-function routeMapCoordinates(
-  route: ActivityDashboardPayload["route"],
-  width: number,
-  height: number,
-  zoomOffset: number,
-  panOffset: RouteMapPanOffset,
-): RouteMapSvgPoint[] {
-  if (!route.bounds) return [];
-  const lonSpan = route.bounds.maxLon - route.bounds.minLon || 0.000001;
-  const latSpan = route.bounds.maxLat - route.bounds.minLat || 0.000001;
-  const usableWidth = width - ROUTE_MAP_PADDING * 2;
-  const usableHeight = height - ROUTE_MAP_PADDING * 2;
-  const scale = 2 ** zoomOffset;
-  const centerX = width / 2;
-  const centerY = height / 2;
-  return route.points.map((point) => {
-    const fittedX =
-      ROUTE_MAP_PADDING +
-      ((point.lon - route.bounds!.minLon) / lonSpan) * usableWidth;
-    const fittedY =
-      ROUTE_MAP_PADDING +
-      (1 - (point.lat - route.bounds!.minLat) / latSpan) * usableHeight;
-    return {
-      ...point,
-      x: centerX + (fittedX - centerX) * scale + panOffset.x,
-      y: centerY + (fittedY - centerY) * scale + panOffset.y,
-    };
-  });
 }
 
 function clampLatitude(lat: number) {

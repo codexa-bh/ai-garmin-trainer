@@ -37,6 +37,7 @@ const groups = [
       "tool-analytics",
       "tool-execution",
       "tool-local-data",
+      "tool-activity-images",
       "tool-ports",
       "tool-training-plan",
       "tool-weekly",
@@ -48,6 +49,7 @@ const groups = [
     "lib/ai",
     [
       "provider-generation",
+      "provider-activity-images",
       "provider-tool-definitions",
       "providers",
       "conversation-transport",
@@ -71,7 +73,12 @@ const groups = [
     "local-data",
     "domain",
     "lib/analytics",
-    ["activity-dashboard-calculations", "activity-label", "terrain-sections"],
+    [
+      "activity-dashboard-calculations",
+      "activity-route-layout",
+      "activity-label",
+      "terrain-sections",
+    ],
   ],
   [
     "chat",
@@ -180,6 +187,7 @@ const groups = [
     "lib/local-data",
     [
       "activity-policy",
+      "activity-visuals",
       "contracts",
       "coverage-policy",
       "dashboard-policy",
@@ -190,6 +198,7 @@ const groups = [
     ],
   ],
   ["local-data", "application", "lib/local-data", ["application"]],
+  ["local-data", "adapter", "lib/local-data", ["activity-image-renderer"]],
   ["local-data", "composition", "lib/local-data", ["composition"]],
   [
     "memory",
