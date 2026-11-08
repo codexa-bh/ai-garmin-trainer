@@ -27,8 +27,15 @@ beforeEach(() => {
 afterEach(() => db.close());
 // Exact Unicode-scalar regressions of the attributed 6578 / 6399 at6000 failure.
 const authored = (n: number) => "😀".repeat(n - 1) + ".";
-const response = (summary: string) => ({
-  patch: { summary },
+const response = (summary: string, incremental = true) => ({
+  // Supplied exact whole-span edit tests size mechanics, not semantic quality.
+  patch: incremental
+    ? {
+        action: "update",
+        edits: [{ before: "Previous valid publication.", after: summary }],
+        addition: "",
+      }
+    : { summary },
   usage: { input: 30, output: 20, cached: 0 },
 });
 function source() {
@@ -63,7 +70,7 @@ function attempts() {
   }[];
 }
 it.each([5999, 6000, 6578, 6399, 20001])(
-  "accepts complete %i-scalar first drafts unchanged with one actual request and no secondary accounting",
+  "accepts complete %i-scalar incremental results unchanged with one actual request and no secondary accounting",
   async (n) => {
     source();
     const text = authored(n),
@@ -262,7 +269,7 @@ it("carries whole6578/6399 drafts through all184 sources and atomically publishe
     expect(input.newSources).toHaveLength(batches < 4 ? 40 : 24);
     expect(input.previous).toBe(batches ? texts[batches - 1] : "");
     expect(storage.version().revision).toBe(revision);
-    return response(texts[batches++]);
+    return response(texts[batches++], false);
   });
   const worker = createSummaryEngine({
     storage,

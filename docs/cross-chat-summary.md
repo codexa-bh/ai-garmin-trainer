@@ -36,10 +36,30 @@ own stateless construction and honest privacy limits, not claimed OpenAI retenti
 
 ## Incremental state and bounded foreground work
 
-Generated value is exactly `{version:2,text:string}`. Provider output is strict
-`{summary:string}`: **one complete replacement**. Ordinary generation consumes previous
-valid generated text plus new eligible minimized user/context prose. Preferences are
-not generated-source records or model reconciliation input. No model-managed item IDs,
+Generated value remains exactly `{version:2,text:string}`: **one complete summary**.
+Ordinary generation consumes previous valid generated text plus new eligible minimized
+user/context prose. With nonempty prior text, provider output is strict
+`{action:"update"|"unchanged"|"uncertain",edits:[{before:string,after:string}],addition:string}`.
+Every nonempty `before` must occur exactly once in the captured original; edits cannot
+overlap or target another edit's output. Code applies them simultaneously, preserves
+all untouched text verbatim and appends `addition` with a paragraph separator. Unrelated
+new durable meaning needs only an addition, not a whole-summary rewrite. Supported
+corrections, obsolete details and necessary local consolidation can replace/remove
+specific spans; this is not append-only or frozen wording.
+
+`unchanged` requires empty edits/addition: sources are processed, not certified as newly
+learned. `uncertain` refuses publication and processing, retaining prior, pending sources
+and actual usage without automatic replay. Malformed, ambiguous, overlapping, no-op
+update and invalid-scalar output refuse. A supplied complete `{summary}` replacement
+cannot accidentally overwrite nonempty ordinary state. This mechanically preserves
+**untouched** context, not arbitrary meaning: an overbroad edit, missed addition or
+incorrect unchanged decision remains model-dependent. Supplied fixtures prove these
+mechanics, not what a real model would choose.
+
+Initial empty-prior generation, reviewed import, whole-history rebuild and manual
+Densify retain strict `{summary:string}` complete replacement. Title stays separate.
+Preferences are not generated-source records or model reconciliation input. Text edits
+are output-only and never persisted as a ledger. No model-managed item IDs,
 keep/remove/upsert/replaces, required coverage schema, citation graph or transitive
 summary-item ancestry is requested, stored or repaired by the active engine.
 

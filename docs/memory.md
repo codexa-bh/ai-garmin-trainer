@@ -85,6 +85,16 @@ interrupted, failed and unknown results. Off content is not presented as usable 
 memory. Destructive confirmations default to Cancel. Lost connections reconcile the
 same operation; no mutation is automatically replayed.
 
+Ordinary updates with saved generated text use exact local edits plus new durable
+additions, preserving untouched earlier text rather than asking for a complete rewrite
+every time. Corrections and obsolete details can still change. No-useful updates can
+leave text unchanged; an uncertain edit fails without marking sources processed or
+retrying automatically. This reduces accidental loss, but does not guarantee model
+judgment or semantic completeness. Source/privacy invalidation and the existing narrow
+explicit-correction signal can still empty generated text before an update; they never
+restore revoked text as a fallback. Initial generation, reviewed import, history rebuild
+and explicit Densify retain their complete-replacement contracts.
+
 At each atomic turn admission, after busy exclusion, the chat adopts latest usable
 summary plus separate preferences, or null. Ordinary publication does not replace
 that admitted snapshot during planner/tools/synthesis/delivery. The next admission
