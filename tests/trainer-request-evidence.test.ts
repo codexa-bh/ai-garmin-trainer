@@ -410,7 +410,7 @@ describe("one detailed executed-step carrier in actual requests", () => {
             evidence =
               typeof request.system === "string"
                 ? request.system
-                : JSON.stringify(request.system);
+                : `${request.system.policy}\n${request.system.context}`;
             return { text: "Supported partial numerical feedback." };
           },
           executeTool: async ({ index, toolName }) => ({
@@ -423,16 +423,11 @@ describe("one detailed executed-step carrier in actual requests", () => {
           }),
         },
       );
-      // JSON escaping differs by system representation; all exact numerical objects
-      // must survive, not just a successful receipt or a prefix before the optional tail.
-      const unescaped = structured
-        ? JSON.stringify(JSON.parse(evidence), null, 0).replace(/\\\\"/g, '"')
-        : evidence;
-      expect(unescaped).toContain("OVERVIEW_TAIL");
-      for (const value of Object.values(overviewResult.heartRateZones)) {
-        if (typeof value === "string" || typeof value === "number")
-          expect(unescaped).toContain(String(value));
-      }
+      // Exact complete objects must survive, not a successful receipt or prefix.
+      const serialized = evidence
+        .split("Dashboard values and explicit limits: ")[1]
+        .split("\n")[0];
+      expect(JSON.parse(serialized)).toEqual(overviewResult);
     },
   );
 

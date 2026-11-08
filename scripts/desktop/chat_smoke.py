@@ -44,8 +44,11 @@ def response(index, body, expected_zones=None):
     evidence = json.dumps(body['messages'])
     if not all(value in evidence for value in ['6543', '4321', '321', '123', 'weekdayHike', 'analyzeActivityTerrain succeeded', 'getActivityDashboard succeeded', 'available']):
         raise ValueError('Successful actual lookup/terrain/dashboard evidence missing')
-    outputs = [json.loads(message['content']) for message in body['messages'] if message.get('role') == 'tool']
-    dashboards = [json.loads(output['evidence'].split('Dashboard values and explicit limits: ')[1]) for output in outputs if 'Dashboard values and explicit limits: ' in output.get('evidence', '')]
+    # Keyless summary-Off ordinary chat uses legacy context; configured-memory
+    # routes use paired native outputs. Both must carry exactly one full result.
+    carriers = [json.loads(message['content']).get('evidence', '') if message.get('role') == 'tool' else message.get('content', '') for message in body['messages']]
+    marker = 'Dashboard values and explicit limits: '
+    dashboards = [json.JSONDecoder().raw_decode(carrier.split(marker, 1)[1].lstrip())[0] for carrier in carriers if isinstance(carrier, str) and marker in carrier]
     if len(dashboards) != 1:
         raise ValueError('Exactly one actual numerical dashboard result required')
     dashboard = dashboards[0]

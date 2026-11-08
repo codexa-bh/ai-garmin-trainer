@@ -39,6 +39,15 @@ class ChatSmokeTests(unittest.TestCase):
         body['messages'].append({'role': 'tool', 'content': json.dumps({'evidence': 'Dashboard values and explicit limits: ' + json.dumps(dashboard)})})
         return body
 
+    def test_legacy_text_and_native_single_carrier_both_preserve_values(self):
+        body = self.valid_body()
+        evidence = json.loads(body['messages'].pop()['content'])['evidence']
+        body['messages'].append({'role': 'system', 'content': evidence + '\nTrailing ordinary policy remains independent.'})
+        self.assertEqual(response(3, body)['content'], ANSWER)
+        body['messages'].append({'role': 'tool', 'content': json.dumps({'evidence': evidence})})
+        with self.assertRaisesRegex(ValueError, 'Exactly one'):
+            response(3, body)
+
     def test_requires_actual_zone_values_complete_parity_and_no_route(self):
         body = self.valid_body()
         self.assertEqual(response(3, body)['content'], ANSWER)
