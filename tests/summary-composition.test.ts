@@ -245,6 +245,75 @@ describe("actual production summary composition and foreground cancellation", ()
     expect(readSummaryPin("refresh-target")).toBeNull();
     expect(summaryStorage.status(Date.now()).frontier).toBe(0);
   });
+  it("renews the real lease past the old deadline and publishes a single completed generation", async () => {
+    let release!: (value: ReturnType<typeof valid>) => void;
+    let prompt = "";
+    f.generate.mockImplementation((_system: string, p: string) => {
+      prompt = p;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+    await due();
+    const running = tickCrossChatSummary(boot);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(summaryLifetime().running).toBe(true);
+    expect(readCrossChatSummary()).toMatchObject({ frontier: 0, pending: 4 });
+    release(valid("", prompt));
+    await running;
+    expect(readCrossChatSummary()).toMatchObject({
+      frontier: 4,
+      pending: 0,
+      attemptsToday: 1,
+    });
+    expect(summaryStorage.read().text).toBe("Short weekdays for time.");
+    expect(f.generate).toHaveBeenCalledTimes(1);
+    expect(summaryLifetime().running).toBe(false);
+  });
+  it("interrupts at exactly 300 seconds and rejects a late provider result without replay", async () => {
+    let release!: (value: ReturnType<typeof valid>) => void;
+    let prompt = "";
+    f.generate.mockImplementation((_system: string, p: string) => {
+      prompt = p;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+    await due();
+    summaryStorage.editSummary(
+      summaryStorage.version(),
+      "Prior saved text",
+      Date.now(),
+    );
+    const before = summaryStorage.version();
+    const running = tickCrossChatSummary(boot);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(299_999);
+    expect(summaryLifetime().running).toBe(true);
+    expect(readCrossChatSummary()).toMatchObject({ frontier: 0, pending: 4 });
+    await vi.advanceTimersByTimeAsync(1);
+    await running;
+    expect(readCrossChatSummary()).toMatchObject({
+      frontier: 0,
+      pending: 4,
+      reason: "summary_interrupted",
+      attemptsToday: 1,
+    });
+    expect(summaryStorage.read().text).toBe("Prior saved text");
+    expect(summaryStorage.version()).toEqual(before);
+    expect(summaryLifetime().running).toBe(false);
+    release(valid("", prompt));
+    await Promise.resolve();
+    await tickCrossChatSummary(boot);
+    expect(summaryStorage.read().text).toBe("Prior saved text");
+    expect(readCrossChatSummary()).toMatchObject({
+      frontier: 0,
+      pending: 4,
+      attemptsToday: 1,
+    });
+    expect(f.generate).toHaveBeenCalledTimes(1);
+  });
   it("passive status never generates; a never-settling provider is bounded by the whole-operation deadline, shutdown stops further work", async () => {
     f.generate.mockImplementation(() => new Promise(() => {}));
     await due();

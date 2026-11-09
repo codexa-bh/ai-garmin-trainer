@@ -7,11 +7,12 @@ from unittest.mock import Mock, patch
 import rebuild_live as paid
 
 class Contracts(unittest.TestCase):
-    def test_current_allowance_and_monotonic_dispatch_envelope_fit_fresh_authority(self):
-        limits=paid.qualify()
-        self.assertEqual(limits['perAttemptUsd'],.06496)
-        self.assertEqual(limits['maximumAttempts'],133)
-        self.assertLess(limits['maximumUsd'],limits['reservedUsd'])
+    def test_changed_deadline_refuses_historical_paid_authority_and_preserves_budget(self):
+        with self.assertRaisesRegex(ValueError,'qualification changed'):
+            paid.qualify()
+        self.assertEqual(paid.PER_ATTEMPT_USD,.06496)
+        self.assertEqual(paid.MAX_ATTEMPTS,133)
+        self.assertLess(paid.MAX_ATTEMPTS * paid.PER_ATTEMPT_USD * 1000,paid.BOOT_RESERVE)
         self.assertLess(paid.BOOT_RESERVE,paid.CAP)
         self.assertEqual(paid.CAP,20000)
         self.assertEqual(paid.APPROVAL['model'],'gpt-6-luna')
@@ -92,9 +93,10 @@ class Contracts(unittest.TestCase):
             with self.assertRaises(ValueError):paid.api(run,'GET')
             connect.assert_not_called()
     def test_focused_profile_is_a_narrower_fixed_subset_with_strict_remaining_budget(self):
-        bounds=paid.qualify(True)
-        self.assertEqual(bounds['maximumGenerations'],30)
-        self.assertLess(bounds['maximumUsd'],2)
+        with self.assertRaisesRegex(ValueError,'qualification changed'):
+            paid.qualify(True)
+        self.assertEqual(paid.FOCUSED_MAX_SOURCES,30)
+        self.assertLess(paid.FOCUSED_MAX_SOURCES * paid.PER_ATTEMPT_USD,2)
         self.assertEqual(paid.authored_history(True),paid.HISTORY[:20])
         self.assertTrue(all(item in paid.HISTORY for item in paid.authored_history(True)))
         with tempfile.TemporaryDirectory() as folder:

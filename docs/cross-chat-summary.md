@@ -101,6 +101,8 @@ serialized backlog drain retain the existing native lifetime/recovery tick. Pass
 reads start no providers/timers/rebuilds; answer completion records only synchronous
 journal eligibility. There is no closed-app progress/daemon promise.
 
+Ordinary generation has a 300-second whole-operation deadline; the desktop launcher
+allows an additional two seconds for its request. Manual Densify has its own deadline.
 One writer uses a30-second lease,5-second heartbeat and final transactional CAS over
 source/config/privacy/control/manual revisions, parent revision and frontier. Network
 work holds no SQL transaction. Publication atomically commits complete generated text,
