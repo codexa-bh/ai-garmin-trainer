@@ -84,6 +84,26 @@ describe("first title provider adapter", () => {
   });
 
   it.each([
+    "Do not save my training plan yet; I prefer short weekdays because caregiving limits time.",
+    "Do not save my weekly plan yet; I prefer short weekdays.",
+    "Don't save this week's plan yet; I prefer short weekdays.",
+  ])(
+    "admits document refusal for independent Off-title processing: %s",
+    async (user) => {
+      const { generateConversationTitle } =
+        await import("@/lib/chat/title-adapter");
+      expect(await generateConversationTitle(user)).toBe("Načrt teka");
+      expect(f.generate).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(f.generate.mock.calls[0][0].prompt).firstPrompt).toBe(
+        user,
+      );
+      expect(
+        await generateConversationTitle("Do not remember this private note."),
+      ).toBeNull();
+      expect(f.generate).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each([
     "",
     "prose",
     '```json\n{"title":"name"}\n```',

@@ -68,8 +68,10 @@ assistant passages are lower-authority context, bounded at16000 scalars; missing
 oversized context is disclosed without dropping independent user meaning. Routine/import
 context excludes suppressed or no-save origins. Narrow anchored direct commands such as
 “Do not remember this”, “Do not save this discussion” and “Do not save my …” retain
-privacy exclusion; plan/document/draft no-save is document direction, not a blanket memory
-veto. Quoted commands are data. This parser is intentionally limited, not a general
+privacy exclusion; explicit document objects, including “my training plan”, “my weekly
+plan” and “this week's plan”, are document direction, not a blanket memory veto.
+Modifiers/possessives do not change that boundary. Explicit in-memory no-save still
+excludes those sources. Quoted commands are data, including quoted clause punctuation. This parser is intentionally limited, not a general
 language-consent classifier; explicit controls remain authoritative. Fresh assistant answers/tool/debug/compaction/old generated text are
 not new global sources. Rebuild alone admits separately bounded authentic context.
 User-authored URLs, paths, topic/key-like words and quoted instructions are untrusted
@@ -167,7 +169,14 @@ not live rewrite quality, billing or private-data/installed activation proof.
 The retained completed-Off-turn import freezes at most200 exact source versions /
 100000 source scalars. It shares the current complete-text writer in20-source batches,
 keeps its independent routine frontier and sealed application-owned dispositions, and
-retains original sources. Pause/cancel/changed authority/unknown effects require honest
+retains original sources. Incidental today/until/week/month words do not exclude whole
+sources. Original user and available preceding-assistant message timestamps (Unix
+milliseconds) accompany the actual generation input, independently of the generation
+clock. Relative claims remain historical; obsolete temporary detail is omitted without
+discarding independent durable meaning. Unavailable dates remain unknown, never guessed;
+reviewed import requires an authoritative user date. New availability is not selection,
+consent or automatic replay of formerly filtered sources.
+Pause/cancel/changed authority/unknown effects require honest
 inspection/review, not auto-resume or inferred historical completion. Legacy semantic
 facts/vectors/settings/markers stay inactive; no automatic archive export/re-embedding.
 

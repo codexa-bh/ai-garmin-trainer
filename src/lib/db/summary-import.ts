@@ -88,7 +88,8 @@ function current(row: Manifest): boolean {
 function source(sourceId: string): SummarySource | null {
   const row = getDatabase()
     .prepare(
-      `select e.event_seq as eventSeq,t.admission_seq as admissionSeq,t.source_version as version,m.content as user,
+      `select e.event_seq as eventSeq,t.admission_seq as admissionSeq,t.source_version as version,m.content as user,m.created_at as createdAt,
+    (select a.created_at from conversation_turn p join message a on a.id=p.assistant_id where p.conversation_id=t.conversation_id and p.admission_seq<t.admission_seq and p.status='completed' order by p.admission_seq desc limit 1) as referentCreatedAt,
     (select case when p.admission_seq>(select cutoff from summary_control where id=1) and not exists(select 1 from summary_suppression x where x.source_id=p.turn_id||':'||p.source_version) then a.content else null end from conversation_turn p join message a on a.id=p.assistant_id where p.conversation_id=t.conversation_id and p.admission_seq<t.admission_seq and p.status='completed' order by p.admission_seq desc limit 1) as referent,
     (select u.content from conversation_turn p join message u on u.id=p.user_id where p.conversation_id=t.conversation_id and p.admission_seq<t.admission_seq and p.status='completed' order by p.admission_seq desc limit 1) as referentUser
     from conversation_turn t join conversation_completion e on e.turn_id=t.turn_id join message m on m.id=t.user_id
@@ -102,21 +103,22 @@ function source(sourceId: string): SummarySource | null {
         referentUser: string | null;
       })
     | undefined;
-  // Relative-time historical claims cannot be safely rebased onto today's
-  // generation clock. Keep them in original storage for manual review.
+  // Export authoritative original message time, not an admission/review clock.
   if (
-    row?.user &&
-    /\b(today|tomorrow|yesterday|tonight|this\s+(week|weekend|month)|next\s+(week|weekend|month)|until|expires?)\b/i.test(
-      row.user,
-    )
+    !row ||
+    !Number.isSafeInteger(row.createdAt) ||
+    Math.abs(row.createdAt!) > 8_640_000_000_000_000
   )
     return null;
-  if (!row) return null;
-  const { referentUser, ...selected } = row;
+  const { referentUser, referentCreatedAt, ...selected } = row;
+  const referent =
+    referentUser && !explicitMemoryNoSave(referentUser) ? row.referent : null;
   return {
     ...selected,
-    referent:
-      referentUser && !explicitMemoryNoSave(referentUser) ? row.referent : null,
+    referent,
+    ...(referent && referentCreatedAt !== undefined
+      ? { referentCreatedAt }
+      : {}),
     sourceId,
     eligible: true,
   };
@@ -158,7 +160,7 @@ export function summaryImportInspection(includeCandidates = true) {
         : [];
     }),
     exclusions:
-      "Only explicitly linked completed Off turns after the current cutoff are eligible. Unsafe, relative-time/expiry-bearing, suppressed, previously imported, expired/unproven legacy and unlinked historical records are excluded; no role-pair inference or migration timestamp grants export.",
+      "Only explicitly linked completed Off turns after the current cutoff are eligible. Memory-private, suppressed, previously imported, unavailable-date, unproven legacy and unlinked historical records are excluded; no role-pair inference or migration timestamp grants export. Relative-time prose is anchored to original message dates, not the import date; availability does not select or import it.",
   };
 }
 export function createSummaryImport(ids: string[]): string {

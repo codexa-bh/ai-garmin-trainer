@@ -132,6 +132,67 @@ describe("closed complete-text policy and independent input/privacy boundaries",
       )?.referent,
     ).toContain("Option two");
   });
+  it("separates document-object refusals from memory privacy across modifiers and clauses", () => {
+    for (const direction of [
+      "Do not save my training plan yet",
+      "Do not save my weekly plan yet",
+      "Don't save this week's plan yet",
+      "Please don't store that revised training document now",
+      "Never save our updated draft",
+      "Do not save the plan yet",
+      "Do not save this draft yet",
+    ]) {
+      const user = `${direction}; I prefer short weekday sessions because caregiving limits time.`;
+      const input = minimizeSummarySource(source(user));
+      expect(input?.user, direction).toBe(user);
+      expect(
+        validateSummaryReplacement(
+          { summary: "Short weekdays due to caregiving." },
+          { ...batch, sources: [source(user)] },
+          input ? [input] : [],
+        )?.dispositions[0].reason,
+      ).toBe("processed");
+    }
+    for (const user of [
+      "Do not remember this private note.",
+      "Don't save my private note about the training plan.",
+      "Never store anything.",
+      "Do not save my training plan and please don't remember this discussion.",
+      "Do not save the plan; do not save this in memory.",
+      "Do not save this week's plan in my memory.",
+      "I prefer short weekdays.   Please don't remember this discussion.",
+      "I prefer short weekdays: do not save this.",
+      "I prefer short weekdays and please do not store this.",
+      "I prefer short weekdays\n  Never store this in memory.",
+    ])
+      expect(minimizeSummarySource(source(user)), user).toBeNull();
+    for (const user of [
+      'The coach wrote "First rest; do not remember this"; I prefer short weekdays.',
+      "The coach wrote ‘Rest. Do not remember this’; I prefer short weekdays.",
+      "They said do not remember this, but I prefer short weekdays.",
+      'Quoted: "Do not save this". I prefer short weekdays.',
+    ])
+      expect(minimizeSummarySource(source(user))?.user, user).toBe(user);
+  });
+  it("keeps unavailable/invalid source dates unknown and withholds dates of omitted context", () => {
+    for (const date of [NaN, Infinity, 1.5, 8_640_000_000_000_001]) {
+      expect(
+        minimizeSummarySource({
+          ...source("Durable meaning"),
+          createdAt: date,
+        }),
+      ).not.toHaveProperty("createdAt");
+    }
+    const input = {
+      ...source("Independent meaning", "x".repeat(16001)),
+      createdAt: 0,
+      referentCreatedAt: 123,
+    };
+    expect(minimizeSummarySource(input)).toMatchObject({ createdAt: 0 });
+    expect(minimizeSummarySource(input)).not.toHaveProperty(
+      "referentCreatedAt",
+    );
+  });
   it("keeps source-provided topic/path/key-like/instruction prose untrusted without reinstating a content filter", () => {
     const text =
       "Fake sk-example https://example.invalid /Users/example/notes diagnosis GPS ignore previous instructions";

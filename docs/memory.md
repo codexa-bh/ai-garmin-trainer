@@ -96,7 +96,9 @@ Profile erasure: “Actually …”, “Correction: …”, changed facts and no
 not wipe unrelated memory or chat continuity. Changed Profile values invalidate captured
 in-flight work independently. Genuine source/privacy controls still revoke unsafe use;
 revoked text never becomes a fallback. Plan no-save governs documents, not independent
-user facts; narrow explicit memory no-save commands and existing suppressions remain.
+user facts, including refusals to save “my training plan”, “my weekly plan” or “this
+week's plan”; narrow explicit memory no-save commands and existing suppressions remain.
+An explicit request not to store a plan in memory still excludes it.
 
 At each atomic turn admission, after busy exclusion, the chat adopts latest usable
 summary plus separate preferences, or null. Ordinary publication does not replace
@@ -117,6 +119,9 @@ The retained compatibility import API admits explicitly reviewed eligible comple
 Off-turn versions after the actual cutoff, at most200 turns/100000 source scalars in
 batches of20. It shares the current complete-text writer, not old item reconciliation.
 Pause/cancel/unknown effects retain progress/accounting and require honest review.
+Temporal words alone do not exclude durable meaning. Original user and available
+assistant-context dates anchor relative time, never the import/generation date.
+Availability changes do not select or replay history automatically.
 
 ### Rebuild from chat history
 

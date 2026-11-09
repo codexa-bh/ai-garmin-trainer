@@ -383,6 +383,59 @@ describe("complete-text real SQLite lifecycle", () => {
     ).toBe(false);
     expect(storage.inspect().text).toBe("Old valid summary");
   });
+  it("carries routine original user/context milliseconds and rejects changed captured dates", async () => {
+    complete(
+      "dates",
+      "Do not save my training plan yet; I prefer short weekdays.",
+    );
+    complete(
+      "dates",
+      "Today I want you to know caregiving limits time until my child is older.",
+    );
+    const old = Date.UTC(2020, 0, 2);
+    db.prepare("update message set created_at=? where role='user'").run(old);
+    db.prepare("update message set created_at=? where role='assistant'").run(
+      old + 1000,
+    );
+    let calls = 0;
+    noteSummaryActivity(now);
+    now += 3000;
+    await createSummaryEngine({
+      storage,
+      now: () => now,
+      identity: () => "routine-dates",
+      current: () => true,
+      jitter: () => 0,
+      generation: {
+        generate: async (_system, prompt) => {
+          calls++;
+          const input = JSON.parse(prompt);
+          expect(input.newSources).toHaveLength(2);
+          expect(input.newSources[0]).toMatchObject({ createdAt: old });
+          expect(input.newSources[1]).toMatchObject({
+            createdAt: old,
+            assistantContextCreatedAt: old + 1000,
+            assistantContext: "Acknowledged",
+          });
+          return {
+            patch: { summary: "Short weekdays due to caregiving." },
+            usage: { input: 10, output: 10, cached: 0 },
+          };
+        },
+      },
+    }).tick(new AbortController().signal);
+    expect(calls).toBe(1);
+    expect(storage.read().text).toContain("caregiving");
+    complete("dates", "Independent new meaning.");
+    const job = ready("changed-date");
+    db.prepare(
+      "update message set created_at=created_at+1 where role='assistant'",
+    ).run();
+    expect(storage.publish(job, candidate(job, "Must not publish"), now)).toBe(
+      false,
+    );
+    expect(storage.read().text).not.toBe("Must not publish");
+  });
   it("automatically revises complete prior without sending preferences or reconciliation fields", async () => {
     storage.editSummary(storage.version(), "Previous useful summary", now);
     storage.edit(

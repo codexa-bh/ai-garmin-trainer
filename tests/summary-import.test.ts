@@ -15,6 +15,7 @@ import {
   validateSummaryReplacement,
   type SummaryBatch,
 } from "@/lib/memory/summary-policy";
+import { createSummaryEngine } from "@/lib/memory/summary-application";
 import { parseSummaryCommand } from "@/lib/memory/summary-controls";
 let db: Database.Database;
 let now: number;
@@ -62,6 +63,94 @@ function candidate(batch: SummaryBatch) {
   )!;
 }
 describe("explicit bounded historical transition sharing S", () => {
+  it("reviews temporal durable meaning without auto-import and exports original user/context dates to the real engine", async () => {
+    const contextId = offTurn("dated", "Earlier ordinary discussion.");
+    const texts = [
+      "I prefer short weekdays because caregiving limits time.",
+      "Today I want you to know I prefer short weekdays because caregiving limits time.",
+      "Caregiving limits time until my child is older; I prefer short weekdays.",
+      "Tomorrow and next week I need rest; I generally prefer short weekdays.",
+      "This weekend and next month I am away; weekday caregiving remains.",
+      "Don't save this week's plan yet; I prefer short weekdays because caregiving limits time.",
+    ];
+    const ids = texts.map((text) => offTurn("dated", text));
+    const old = Date.UTC(2020, 0, 2);
+    db.prepare("update message set created_at=? where role='user'").run(old);
+    db.prepare("update message set created_at=? where role='assistant'").run(
+      old + 1000,
+    );
+    const before = db
+      .prepare("select id,content,created_at from message order by id")
+      .all();
+    expect(
+      summaryImportInspection()
+        .candidates.map((item) => item.id)
+        .sort(),
+    ).toEqual([contextId, ...ids].sort());
+    expect(readSummaryImportBatch()).toBeNull();
+    storage.configure(true, "gpt-6-luna", 6000);
+    const manifest = createSummaryImport(ids);
+    const selected = readSummaryImportBatch()!;
+    expect(selected.sources).toHaveLength(texts.length);
+    expect(selected.sources[0]).toMatchObject({
+      createdAt: old,
+      referentCreatedAt: old + 1000,
+    });
+    let calls = 0;
+    const engine = createSummaryEngine({
+      storage,
+      now: () => now + 130000,
+      identity: () => "dated-import",
+      current: () => true,
+      jitter: () => 0,
+      generation: {
+        generate: async (system, prompt) => {
+          calls++;
+          const input = JSON.parse(prompt);
+          expect(input.now).not.toBe(old);
+          expect(
+            input.newSources.map((item: { user: string }) => item.user),
+          ).toEqual(texts);
+          for (const item of input.newSources)
+            expect(item).toMatchObject({
+              createdAt: old,
+              assistantContextCreatedAt: old + 1000,
+            });
+          expect(system).toContain("Unix milliseconds");
+          expect(system).toContain("never today");
+          return {
+            patch: {
+              summary: "Short weekdays because caregiving limits time.",
+            },
+            usage: { input: 80, output: 10, cached: 0 },
+          };
+        },
+      },
+    });
+    await engine.tick(new AbortController().signal);
+    expect(calls).toBe(1);
+    expect(
+      summaryImportInspection().manifests.find((item) => item.id === manifest),
+    ).toMatchObject({ state: "complete", position: texts.length });
+    expect(
+      db.prepare("select reason from summary_import_disposition").all(),
+    ).toEqual(texts.map(() => ({ reason: "processed" })));
+    expect(summaryImportInspection().candidates.map((item) => item.id)).toEqual(
+      [contextId],
+    );
+    expect(
+      db.prepare("select id,content,created_at from message order by id").all(),
+    ).toEqual(before);
+    expect(
+      db
+        .prepare(
+          "select usage_json from summary_attempt where job_id='dated-import'",
+        )
+        .get(),
+    ).toMatchObject({
+      usage_json: JSON.stringify({ input: 80, output: 10, cached: 0 }),
+    });
+  });
   it.each(["suppressed", "memory-private"])(
     "does not replace the latest %s assistant context with an older unrelated referent",
     (restriction) => {
@@ -250,19 +339,19 @@ describe("explicit bounded historical transition sharing S", () => {
         expect(summaryImportInspection().candidates).toEqual([]);
     },
   );
-  it("accepts formerly matched prose but rejects unproven, duplicate and relative-time source selection without synthesizing role pairs", () => {
+  it("admits temporal prose but rejects unproven and duplicate selection without synthesizing role pairs", () => {
     const good = offTurn();
     const formerlyFiltered = offTurn(
       "B",
       "My password is synthetic-secret, remember it.",
     );
-    offTurn("C", "This weekend I prefer short sessions.");
+    const temporal = offTurn("C", "This weekend I prefer short sessions.");
     storage.configure(true, "gpt-6-luna", 6000);
     expect(
       summaryImportInspection()
         .candidates.map((item) => item.id)
         .sort(),
-    ).toEqual([good, formerlyFiltered].sort());
+    ).toEqual([good, formerlyFiltered, temporal].sort());
     expect(() => createSummaryImport([good, good])).toThrow(
       "selection_invalid",
     );

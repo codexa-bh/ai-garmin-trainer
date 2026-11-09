@@ -114,8 +114,11 @@ export function createSummaryEngine(ports: {
               ...(source.contextLimitation
                 ? { contextLimitation: source.contextLimitation }
                 : {}),
-              ...(source.original
-                ? { createdAt: source.original.createdAt }
+              createdAt: source.createdAt ?? null,
+              ...(source.referent
+                ? {
+                    assistantContextCreatedAt: source.referentCreatedAt ?? null,
+                  }
                 : {}),
             })),
             allowance:

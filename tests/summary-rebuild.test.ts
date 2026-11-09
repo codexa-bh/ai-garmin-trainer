@@ -88,6 +88,23 @@ function oldMemory() {
   return storage.inspect();
 }
 describe("explicit selected legacy recovery", () => {
+  it.each([
+    "Do not save my training plan yet; I prefer short weekdays because caregiving limits time.",
+    "Do not save my weekly plan yet; I prefer short weekdays because caregiving limits time.",
+    "Don't save this week's plan yet; I prefer short weekdays because caregiving limits time.",
+  ])(
+    "retains document refusal and independent meaning through reviewed rebuild: %s",
+    (user) => {
+      message("document", user);
+      message("private", "Do not remember this private note.");
+      const review = inventory();
+      expect(review.counts.includedUserMessages).toBe(1);
+      begin();
+      expect(
+        readSummaryRebuildBatch()?.sources.map((source) => source.user),
+      ).toEqual([user]);
+    },
+  );
   const selection = {
     version: 1 as const,
     conversationIds: null,
@@ -686,6 +703,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
       user: string;
       assistantContext?: string;
       createdAt?: number;
+      assistantContextCreatedAt?: number;
     }[] = [];
     let jobs = 0;
     const engine = createSummaryEngine({
@@ -727,6 +745,9 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     expect(
       seen.find((source) => source.user === rubric[2].user)?.assistantContext,
     ).toContain("neither is chosen");
+    expect(seen.find((source) => source.user === rubric[2].user)).toMatchObject(
+      { createdAt: 1700000002, assistantContextCreatedAt: 1699999999 },
+    );
     expect(seen.some((source) => /Do not save/.test(source.user))).toBe(false);
     expect(seen.some((source) => source.user.includes("password"))).toBe(true);
     const saved = storage.inspect();
