@@ -87,7 +87,10 @@ progress/metadata reads preserve mounted content, drafts, focus and scroll. Stat
 honestly distinguishes Off, empty, invalidated, running, complete, cancelled,
 interrupted, failed and unknown results. Off content is not presented as usable current
 memory. Destructive confirmations default to Cancel. Lost connections reconcile the
-same operation; no mutation is automatically replayed.
+same operation; no mutation is automatically replayed. Ordinary pending updates,
+including work scheduled by an explicit Retry, are also observed automatically
+until saved results or a reason needing attention arrives. Pending does not mean
+an update is running; observation only reads status and never starts or retries work.
 
 Ordinary updates automatically learn, correct and consolidate through one complete-summary
 request with full prior meaning and new eligible input. No routine manual Densify, fixed

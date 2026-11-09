@@ -295,6 +295,20 @@ def overview_presentations(run, action, capture, images):
         action('fixture-' + fixture)
         memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], fixture + ' fixed presentation')
         capture(fixture, ('narrow',))
+    for fixture in ('ordinary', 'ordinary-failed', 'ordinary-interrupted'):
+        run.command({'type': 'setViewport', 'preset': 'wide'})
+        action('fixture-' + fixture)
+        memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'ordinary pending authored inspection')
+        # No refresh, caller stepping, resize or capture during temporal proof.
+        memory_wait(run, lambda value: value['progressiveComplete'], 'ordinary automatic partial drain, lost-read recovery and truthful terminal DOM with stable focus/scroll', timeout=25)
+        private_json(run.root / ('memory-' + fixture + '.json'), {
+            'task': 'T0312', 'runId': run.id, 'source': run.config['source'],
+            'pending': [41, 41, 21, 21, 'unavailable', 1, 0 if fixture == 'ordinary' else 1],
+            'terminal': fixture, 'automaticObservation': True, 'stableDOMFocusScroll': True,
+            'providerCalls': 0, 'mutations': 0,
+            'evidenceClass': 'actual native WebView temporal DOM with supplied ordinary snapshots; not real inference, Retry mutation or compositor-frame proof',
+        })
+        capture(fixture)
     action('fixture-off')
     memory_wait(run, lambda value: value['loaded'] and value['off'], 'Off fixed retained presentation')
     capture('off', ('narrow',))
