@@ -5196,7 +5196,39 @@ describe("TrainerDashboard memory and new chat", () => {
     const editBox = screen.getByRole("textbox", {
       name: "Complete generated summary",
     }) as HTMLTextAreaElement;
+    expect(screen.getByRole("dialog", { name: "Edit generated summary" })).toBe(
+      memoryDialog,
+    );
+    expect(memoryDialog.classList.contains("memory-summary-sheet")).toBe(true);
+    expect(document.activeElement).toBe(editBox);
+    expect(
+      within(memoryDialog).queryByRole("button", { name: "Add preference" }),
+    ).toBeNull();
+    const cancelEdit = within(memoryDialog).getByRole("button", {
+      name: "Cancel edit",
+    });
+    expect(
+      Array.from(memoryDialog.querySelectorAll("*"))
+        .filter((node) =>
+          node.matches(
+            "button:not(:disabled), textarea:not(:disabled), input:not(:disabled), summary, [tabindex='0']",
+          ),
+        )
+        .map((node) =>
+          node.tagName === "TEXTAREA" ? "editor" : node.textContent,
+        ),
+    ).toEqual(["Close", "editor", "Save summary", "Cancel edit"]);
+    cancelEdit.focus();
+    fireEvent.keyDown(cancelEdit, { key: "Tab" });
+    expect(document.activeElement).toBe(closeButton);
+    fireEvent.keyDown(closeButton, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(cancelEdit);
     fireEvent.change(editBox, { target: { value: "Prefers sunrise hikes" } });
+    const discard = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(closeButton);
+    expect(discard).toHaveBeenCalledOnce();
+    expect(editBox.isConnected).toBe(true);
+    expect(editBox.value).toBe("Prefers sunrise hikes");
     fireEvent.click(screen.getByRole("button", { name: "Save summary" }));
     await waitFor(() =>
       expect(patchedBody).toMatchObject({

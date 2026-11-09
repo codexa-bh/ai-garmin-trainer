@@ -396,6 +396,24 @@ class OrdinaryContracts(unittest.TestCase):
             os.close(fd)
         run.stop()
 
+    def test_broad_navigation_restores_wide_after_narrow_feature_capture(self):
+        from unittest.mock import Mock
+        run = self.run_fixture()
+        run.command = Mock(return_value={'ok': True})
+        run.wait = Mock()
+        run.profile_scenario = Mock(return_value='sentinel')
+        self.assertEqual(run.scenario(), 'sentinel')
+        self.assertEqual(run.command.call_args_list[0].args[0], {'type':'setViewport', 'preset':'wide'})
+        self.assertEqual(run.command.call_args_list[1].args[0], {'type':'click', 'target':'Activities'})
+
+    def test_native_copy_is_explicit_and_only_available_with_summary_lifecycle(self):
+        from ordinary_smoke import selection_plan
+        self.assertFalse(selection_plan(self.selection_args(summary_engine=True))['summaryNativeCopy'])
+        self.assertTrue(selection_plan(self.selection_args(summary_engine=True, summary_native_copy=True))['summaryNativeCopy'])
+        for options in ({'summary_native_copy': True}, {'summary_engine': True, 'summary_native_copy': True, 'summary_part': 'presentation'}, {'summary_engine': True, 'summary_native_copy': 'private'}):
+            with self.assertRaises(ValueError):
+                selection_plan(self.selection_args(**options))
+
     def selection_args(self, **options):
         return SimpleNamespace(**{**dict(summary_engine=False, conversation_selection=False,
             composer_footer=False, model_eligibility=False, prepare_only=False,
@@ -526,6 +544,22 @@ class OrdinaryContracts(unittest.TestCase):
         self.assertEqual(receipt['groupOutcomes'][0]['groups'], {'composer': 'failed', 'conversation': 'not-run'})
         runs[0].conversation_scenario.assert_not_called(); runs[0].stop.assert_called_once()
         self.assertIn('AssertionError', receipt['scenarioFailure'])
+
+    def test_native_copy_opt_in_reaches_both_full_and_feature_lifecycle_dispatch(self):
+        for scope in ('full', 'feature'):
+            for enabled in (False, True):
+                args = self.selection_args(summary_engine=True, summary_part='lifecycle', smoke_scope=scope,
+                                           impact='summary-lifecycle', impact_basis='reviewed', summary_native_copy=enabled)
+                # Isolate option forwarding; the mocked lifecycle does not boot.
+                # Real fresh-boot denial remains independently covered above.
+                with patch('ordinary_smoke.deny_previous_boot') as deny:
+                    runs, receipt, _, _, _, lifecycle, _ = self.orchestration(args)
+                count = 2 if scope == 'full' else 1
+                self.assertEqual(deny.call_count, 1 if scope == 'feature' else 0)
+                self.assertTrue(receipt['scenarioPassed'])
+                self.assertEqual(lifecycle.call_count, count)
+                for run in runs[:count]:
+                    lifecycle.assert_any_call(run, presentation_families=(), native_copy=enabled)
 
     def test_summary_parts_dispatch_actual_lifecycle_and_only_named_presentations(self):
         args = self.selection_args(summary_engine=True, summary_part='presentation', summary_family=['densify'])

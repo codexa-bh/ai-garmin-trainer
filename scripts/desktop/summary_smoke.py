@@ -78,7 +78,7 @@ def memory_wait(run, predicate, label, timeout=8):
     raise TimeoutError('Memory assertion deadline: ' + label)
 
 
-def memory_controls(run, presentation_families=None):
+def memory_controls(run, presentation_families=None, *, native_copy=False):
     before = run.chat_hash()
     def action(name):
         try:
@@ -125,6 +125,21 @@ def memory_controls(run, presentation_families=None):
     action('summary-edit')
     memory_wait(run, lambda value: value['editing'], 'whole generated summary editor')
     action('draft-update')
+    # This invokes only the real owned WKWebView selectAll:/copy: responders.
+    # It deliberately replaces the clipboard with fixed authored text, never
+    # reads/returns prior clipboard values and never posts global keyboard input.
+    if native_copy:
+        copied = run.command({'type': 'memory', 'action': 'native-copy'})
+        if copied != {'ok': True, 'nativeResponder': True, 'exactAuthoredCopy': True, 'hardwareInput': False}:
+            raise ValueError('Native authored summary copy equality missing; no retry')
+        private_json(run.root / 'summary-native-copy.json', copied)
+    run.capture_state = 'long-summary-editor'
+    for preset in ['wide', 'narrow']:
+        run.command({'type': 'setViewport', 'preset': preset})
+        action('editor-check')
+        image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
+        images.append({'state': 'long-summary-editor', 'preset': preset, **image})
+        private_json(run.root / ('long-summary-editor-' + preset + '.json'), images[-1])
     before_summary = status(run)['expected']
     action('save')
     memory_wait(run, lambda value: value['loaded'] and value['hasManual'] and not value['editing'], 'summary saved separately from preference')
@@ -320,7 +335,7 @@ def history_presentations(run, action, capture, images):
     return images
 
 
-def scenario(run, presentation_families=None):
+def scenario(run, presentation_families=None, *, native_copy=False):
     deadline = time.monotonic() + 45
     observed = status(run)
     while observed['reason'] != 'summary_missing_key' and time.monotonic() < deadline:
@@ -340,9 +355,9 @@ def scenario(run, presentation_families=None):
     if recovered['reason'] != 'summary_missing_key' or recovered['pending'] != 4:
         raise ValueError('Durable summary backlog/failure lost across native restart')
     if presentation_families is None:
-        memory_controls(run)  # Direct legacy callers retain full behavior.
+        memory_controls(run, native_copy=native_copy)  # Direct callers retain full UI coverage, no clipboard effect by default.
     else:
-        memory_controls(run, presentation_families=presentation_families)
+        memory_controls(run, presentation_families=presentation_families, native_copy=native_copy)
     cleared = status(run, 'clear')
     disabled = status(run, 'disable')
     if cleared['items'] != 0 or cleared['characters'] != 0 or disabled['enabled']:

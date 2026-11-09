@@ -874,6 +874,8 @@
         "add",
         "edit",
         "summary-edit",
+        "native-copy",
+        "editor-check",
         "draft",
         "draft-update",
         "save",
@@ -964,6 +966,7 @@
           "add",
           "edit",
           "summary-edit",
+          "editor-check",
           "draft",
           "draft-update",
           "forget",
@@ -1056,7 +1059,47 @@
         panel.getAttribute("data-memory-view") === "overview"
       )
         target("Manage memory").click();
-      else if (["draft", "draft-update"].includes(command.action)) {
+      else if (["native-copy", "editor-check"].includes(command.action)) {
+        const input = panel.querySelector(
+          '[aria-label="Edit generated summary"] textarea',
+        );
+        if (
+          !before.loaded ||
+          !input ||
+          input.disabled ||
+          !visible(input) ||
+          input.value !== summaryText() ||
+          document.activeElement !== input
+        )
+          throw Error("Canonical focused summary editor required");
+        if (command.action === "editor-check") {
+          const rect = input.getBoundingClientRect();
+          const buttons = [...panel.querySelectorAll("button")];
+          if (
+            !panel.classList.contains("memory-summary-editing") ||
+            buttons.map(name).join(",") !== "Save summary,Cancel edit" ||
+            rect.width < innerWidth - 100 ||
+            rect.height < innerHeight * 0.3 ||
+            input.scrollHeight <= input.clientHeight
+          )
+            throw Error("Full-window long editor geometry refused");
+          for (const button of buttons) {
+            const bounds = button.getBoundingClientRect();
+            if (
+              bounds.top < 0 ||
+              bounds.bottom > innerHeight ||
+              bounds.left < 0 ||
+              bounds.right > innerWidth
+            )
+              throw Error("Summary actions outside viewport");
+          }
+          input.scrollTop = input.scrollHeight;
+          if (input.scrollTop <= 0)
+            throw Error("Long summary did not scroll internally");
+        }
+        // native-copy only admits the owned exact authored draft. Rust invokes
+        // real selectAll:/copy: responders and returns fixed equality, never text.
+      } else if (["draft", "draft-update"].includes(command.action)) {
         const input = panel.querySelector("textarea");
         if (
           !input ||
@@ -1352,7 +1395,9 @@
       ?.querySelector(".sheet-header");
     if (
       header &&
-      header.textContent.replace(/\s+/g, "") === "MemoryClose" &&
+      ["MemoryClose", "EditgeneratedsummaryClose"].includes(
+        header.textContent.replace(/\s+/g, ""),
+      ) &&
       [...header.querySelectorAll("*")].every((node) =>
         ["DIV", "H2", "BUTTON"].includes(node.tagName),
       )
