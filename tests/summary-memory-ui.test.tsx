@@ -7,6 +7,7 @@ import {
   render,
   renderHook,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -156,6 +157,78 @@ function populated() {
   return value;
 }
 
+describe("generated summary disclosure", () => {
+  it("starts collapsed and toggles the complete text without a request", async () => {
+    const value = populated();
+    value.stored.text = "Long Unicode summary 🚴\n".repeat(100);
+    value.characters = [...value.stored.text].length;
+    const fetcher = await mountMemory(value);
+    const toggle = screen.getByRole("button", { name: "Show summary" });
+    const summary = document.getElementById(
+      toggle.getAttribute("aria-controls")!,
+    );
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(summary?.hidden).toBe(true);
+    expect(summary?.textContent).toBe(value.stored.text);
+    expect(screen.getByRole("button", { name: "Edit summary" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Densify summary" }),
+    ).toBeTruthy();
+    const requests = fetcher.mock.calls.length;
+    toggle.focus();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(summary?.hidden).toBe(false);
+    expect(document.activeElement).toBe(toggle);
+    fireEvent.click(toggle);
+    expect(summary?.hidden).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(requests);
+  });
+
+  it("retains both choices through passive refresh", async () => {
+    const fetcher = await mountMemory(populated());
+    fireEvent.click(screen.getByRole("button", { name: "Show summary" }));
+    let count = fetcher.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() =>
+      expect(fetcher.mock.calls.length).toBeGreaterThan(count),
+    );
+    expect(screen.getByRole("button", { name: "Hide summary" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hide summary" }));
+    count = fetcher.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() =>
+      expect(fetcher.mock.calls.length).toBeGreaterThan(count),
+    );
+    expect(screen.getByRole("button", { name: "Show summary" })).toBeTruthy();
+  });
+
+  it("resets the choice for a fresh feature owner", async () => {
+    await mountMemory(populated());
+    fireEvent.click(screen.getByRole("button", { name: "Show summary" }));
+    expect(screen.getByRole("button", { name: "Hide summary" })).toBeTruthy();
+    cleanup();
+    render(<MemoryHarness />);
+    expect(
+      await screen.findByRole("button", { name: "Show summary" }),
+    ).toBeTruthy();
+  });
+
+  it("does not expose saved text when memory is Off or unavailable", async () => {
+    const value = populated();
+    value.enabled = false;
+    await mountMemory(value);
+    expect(screen.queryByRole("button", { name: "Show summary" })).toBeNull();
+    expect(screen.queryByText(value.stored.text)).toBeNull();
+    cleanup();
+    value.enabled = true;
+    value.state = "unavailable";
+    await mountMemory(value);
+    expect(screen.queryByRole("button", { name: "Show summary" })).toBeNull();
+    expect(screen.queryByText(value.stored.text)).toBeNull();
+  });
+});
+
 describe("manual Densify review", () => {
   it("keeps saved memory readable, previews all candidate text/counts, and saves only on explicit acceptance", async () => {
     const value = populated();
@@ -192,7 +265,13 @@ describe("manual Densify review", () => {
       screen.getByRole("region", { name: "Complete candidate summary" })
         .textContent,
     ).toBe(candidate);
-    expect(screen.getByText(value.stored.text)).toBeTruthy();
+    expect(screen.getByText(value.stored.text).hasAttribute("hidden")).toBe(
+      true,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Show summary" }));
+    expect(screen.getByText(value.stored.text).hasAttribute("hidden")).toBe(
+      false,
+    );
     expect(value.expected.revision).toBe(3);
     expect(document.activeElement?.textContent).toBe(
       "Review densified summary",
@@ -241,7 +320,9 @@ describe("manual Densify review", () => {
     const button = screen.getByRole("button", { name: "Densify summary" });
     fireEvent.click(button);
     fireEvent.click(button);
-    expect(screen.getByText(value.stored.text)).toBeTruthy();
+    expect(screen.getByText(value.stored.text).hasAttribute("hidden")).toBe(
+      true,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Cancel densify" }));
     await screen.findByText(/Densify cancelled/);
     await act(async () =>
@@ -756,6 +837,8 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     render(
       <MemoryContent
         memory={value}
+        summaryExpanded={false}
+        setSummaryExpanded={vi.fn()}
         densifyReview={null}
         densifyMemory={vi.fn()}
         memoryMessage="Summary fresh"

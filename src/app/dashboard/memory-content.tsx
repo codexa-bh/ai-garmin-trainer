@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type {
   MemoryAction,
   SummaryInspection,
@@ -24,6 +24,8 @@ type Confirmation = {
 
 export function MemoryContent({
   memory,
+  summaryExpanded,
+  setSummaryExpanded,
   memoryMessage,
   isMemoryLoading: isBusy,
   isMemoryReadUnavailable = false,
@@ -53,6 +55,7 @@ export function MemoryContent({
   const [chatIds, setChatIds] = useState<string[] | null>(null);
   const [includeLegacy, setIncludeLegacy] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const summaryId = useId();
   const root = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const invoker = useRef<HTMLElement | null>(null);
@@ -411,8 +414,8 @@ export function MemoryContent({
                           {densifyReview.text}
                         </div>
                         <p>
-                          The original saved summary remains below for
-                          comparison.
+                          Use Show summary below to compare the original saved
+                          summary when it is collapsed.
                         </p>
                         <div className="button-row">
                           <button
@@ -462,10 +465,32 @@ export function MemoryContent({
                         </p>
                       )}
                     {memory.enabled && memory.state !== "unavailable" ? (
-                      <p className="memory-text">
-                        {memory.stored.text ||
-                          "No generated summary yet. Update from chat history to build one."}
-                      </p>
+                      memory.stored.text ? (
+                        <>
+                          <button
+                            type="button"
+                            aria-expanded={summaryExpanded}
+                            aria-controls={summaryId}
+                            onClick={() =>
+                              setSummaryExpanded((expanded) => !expanded)
+                            }
+                          >
+                            {summaryExpanded ? "Hide summary" : "Show summary"}
+                          </button>
+                          <p
+                            id={summaryId}
+                            className="memory-text"
+                            hidden={!summaryExpanded}
+                          >
+                            {memory.stored.text}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="memory-text">
+                          No generated summary yet. Update from chat history to
+                          build one.
+                        </p>
+                      )
                     ) : (
                       <p>
                         Saved summary is not in use.{" "}

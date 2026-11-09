@@ -273,6 +273,10 @@ impl Command {
             .contains(&action.as_str()),
             Self::Memory { action } => [
                 "summary-edit",
+                "summary-show",
+                "summary-hide",
+                "summary-collapsed",
+                "summary-expanded",
                 "native-copy",
                 "editor-check",
                 "observe",
@@ -1506,6 +1510,10 @@ mod tests {
     fn memory_controls_are_finite_ordinary_only_and_never_accept_or_return_content() {
         for action in [
             "summary-edit",
+            "summary-show",
+            "summary-hide",
+            "summary-collapsed",
+            "summary-expanded",
             "native-copy",
             "editor-check",
             "observe",

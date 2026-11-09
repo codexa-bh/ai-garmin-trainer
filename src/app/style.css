@@ -361,6 +361,9 @@ body::before {
   -webkit-line-clamp: unset;
   line-height: 1.65;
 }
+.memory-root-card .memory-text[hidden] {
+  display: none;
+}
 .memory-root-card .memory-row {
   grid-template-columns: minmax(0, 1fr);
   padding: 16px;

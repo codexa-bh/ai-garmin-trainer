@@ -147,12 +147,26 @@ def memory_controls(run, presentation_families=None, *, native_copy=False):
     after_summary = status(run)
     if after_summary['expected'] == before_summary or after_summary['characters'] != summary_chars:
         raise ValueError('Complete generated summary did not commit; no mutation replay')
+    action('summary-collapsed')
+    run.capture_state = 'summary-collapsed'
+    for preset in ['wide', 'narrow']:
+        run.command({'type': 'setViewport', 'preset': preset})
+        image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
+        images.append({'state': 'summary-collapsed', 'preset': preset, **image})
+    action('summary-show')
+    action('summary-expanded')
+    run.command({'type': 'setViewport', 'preset': 'wide'})
+    action('close')
+    action('open')
+    memory_wait(run, lambda value: value['loaded'], 'reopened summary')
+    action('summary-expanded')
     run.capture_state = 'whole-summary-and-preference'
     for preset in ['wide', 'narrow']:
         run.command({'type': 'setViewport', 'preset': preset})
         image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
         images.append({'state': 'whole-summary-and-preference', 'preset': preset, **image})
         private_json(run.root / ('whole-summary-' + preset + '.json'), images[-1])
+    run.command({'type': 'setViewport', 'preset': 'wide'})
     action('edit')
     memory_wait(run, lambda value: value['editing'], 'manual edit')
     action('draft-update')
@@ -163,6 +177,7 @@ def memory_controls(run, presentation_families=None, *, native_copy=False):
     run.start(run.binary)
     action('open')
     memory_wait(run, lambda value: value['loaded'] and value['updatedManual'], 'manual survives owned restart')
+    action('summary-collapsed')
     if status(run)['characters'] != summary_chars:
         raise ValueError('Whole summary edit did not survive owned restart')
     action('forget')
@@ -285,7 +300,9 @@ def densify_presentations(run, action, capture, images):
 def overview_presentations(run, action, capture, images):
     action('fixture-populated')
     memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'populated fixed presentation')
-    capture('populated')
+    action('summary-collapsed'); capture('populated')
+    action('summary-show'); action('summary-expanded'); capture('populated-expanded')
+    action('summary-hide'); action('summary-collapsed')
     action('summary-edit'); action('draft'); capture('whole-summary-editor', ('wide', 'narrow')); action('cancel-edit')
     action('manage'); capture('manage', ('narrow',)); action('back')
     action('manage'); action('clear'); capture('clear-confirmation', ('narrow',)); action('cancel-confirm'); action('back')

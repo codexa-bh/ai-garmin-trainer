@@ -257,7 +257,7 @@ content refuses. Destructive in-sheet review requires a separate finite `confirm
 fixture mode refuses that effect. The retained exact native-confirm compatibility
 adapter restores the original function synchronously and never accepts arbitrary
 confirmation prose.
-Results contain only action/visibility/loaded/manual-state/Off/editor booleans.
+Finite `summary-show`, `summary-hide`, `summary-collapsed`, and `summary-expanded` actions require the canonical visible disclosure and check its controlled content state; they accept no caller text or selectors. The lifecycle runner checks close/reopen and a fresh owned boot, with wide/narrow collapsed and expanded captures. Results contain only action/visibility/loaded/manual-state/Off/editor booleans.
 Native ordinary/run/boot/origin/request/deadline and unknown-effect guards remain.
 
 The keyless runner saves a manual preference and edits/saves the complete generated

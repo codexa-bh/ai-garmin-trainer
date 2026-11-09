@@ -874,6 +874,10 @@
         "add",
         "edit",
         "summary-edit",
+        "summary-show",
+        "summary-hide",
+        "summary-collapsed",
+        "summary-expanded",
         "native-copy",
         "editor-check",
         "draft",
@@ -966,6 +970,10 @@
           "add",
           "edit",
           "summary-edit",
+          "summary-show",
+          "summary-hide",
+          "summary-collapsed",
+          "summary-expanded",
           "editor-check",
           "draft",
           "draft-update",
@@ -1059,7 +1067,35 @@
         panel.getAttribute("data-memory-view") === "overview"
       )
         target("Manage memory").click();
-      else if (["native-copy", "editor-check"].includes(command.action)) {
+      else if (
+        [
+          "summary-show",
+          "summary-hide",
+          "summary-collapsed",
+          "summary-expanded",
+        ].includes(command.action)
+      ) {
+        const expanded = ["summary-hide", "summary-expanded"].includes(
+          command.action,
+        );
+        const button = [...panel.querySelectorAll("button")].find(
+          (node) => name(node) === (expanded ? "Hide summary" : "Show summary"),
+        );
+        const content =
+          button &&
+          document.getElementById(button.getAttribute("aria-controls"));
+        if (
+          !before.loaded ||
+          !button ||
+          !visible(button) ||
+          button.getAttribute("aria-expanded") !== String(expanded) ||
+          !content ||
+          visible(content) !== expanded
+        )
+          throw Error("Canonical summary disclosure state refused");
+        if (["summary-show", "summary-hide"].includes(command.action))
+          button.click();
+      } else if (["native-copy", "editor-check"].includes(command.action)) {
         const input = panel.querySelector(
           '[aria-label="Edit generated summary"] textarea',
         );
@@ -1208,6 +1244,8 @@
       "When enabled, memory helps your trainer carry important details from previous conversations into new chats.",
       "Generated summary",
       "Densify summary",
+      "Show summary",
+      "Hide summary",
       "Cancel densify",
       "Review densified summary",
       "Use shorter summary",
@@ -1220,7 +1258,7 @@
       "13250 → 13250 characters · target 6000",
       "6250 fewer characters. Check meaning before saving.",
       "No reduction. This result cannot replace your summary; no automatic retry.",
-      "The original saved summary remains below for comparison.",
+      "Use Show summary below to compare the original saved summary when it is collapsed.",
       "Shorter generated summary saved. Separate preferences and existing chat snapshots are unchanged.",
       "Candidate discarded. Saved summary unchanged.",
       ...(memoryFixture?.startsWith("fixture-densify-")

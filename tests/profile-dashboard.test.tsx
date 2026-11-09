@@ -5156,7 +5156,7 @@ describe("TrainerDashboard memory and new chat", () => {
     const memoryButton = screen.getByRole("button", { name: "Memory" });
     fireEvent.click(memoryButton);
 
-    const memoryDialog = await screen.findByRole("dialog", { name: "Memory" });
+    let memoryDialog = await screen.findByRole("dialog", { name: "Memory" });
     expect(memoryDialog).toBeTruthy();
     expect(
       await screen.findByRole("heading", {
@@ -5166,18 +5166,51 @@ describe("TrainerDashboard memory and new chat", () => {
     expect(container.querySelector(".memory-view-panel")).toBeNull();
     expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
     expect(screen.getByRole("log", { name: "Chat transcript" })).toBeTruthy();
-    const closeButton = within(memoryDialog).getByRole("button", {
+    let closeButton = within(memoryDialog).getByRole("button", {
       name: "Close",
     });
     await waitFor(() => expect(document.activeElement).toBe(closeButton));
     expect(screen.queryByRole("dialog", { name: "Profile & data" })).toBeNull();
     expect(screen.queryByText(/Latest revision 3/)).toBeNull();
     expect(screen.queryByText("Preserved inactive record")).toBeNull();
+    const disclosure = within(memoryDialog).getByRole("button", {
+      name: "Show summary",
+    });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(disclosure);
+    fireEvent.click(closeButton);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Memory" })).toBeNull(),
+    );
+    fireEvent.click(memoryButton);
+    const reopened = await screen.findByRole("dialog", { name: "Memory" });
     expect(
-      screen.getByText(memoryPayload.stored.text, {
-        normalizer: (text) => text,
-      }),
-    ).toBeTruthy();
+      within(reopened)
+        .getByRole("button", { name: "Hide summary" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    fireEvent.click(
+      within(reopened).getByRole("button", { name: "Hide summary" }),
+    );
+    fireEvent.click(within(reopened).getByRole("button", { name: "Close" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Memory" })).toBeNull(),
+    );
+    fireEvent.click(memoryButton);
+    memoryDialog = await screen.findByRole("dialog", { name: "Memory" });
+    closeButton = within(memoryDialog).getByRole("button", { name: "Close" });
+    expect(
+      screen
+        .getByRole("button", { name: "Show summary" })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(
+      screen
+        .getByText(memoryPayload.stored.text, {
+          normalizer: (text) => text,
+        })
+        .hasAttribute("hidden"),
+    ).toBe(true);
     expect(screen.getByText("Keep explanations concise.")).toBeTruthy();
     expect(
       screen.getAllByRole("button", { name: "Edit summary" }),

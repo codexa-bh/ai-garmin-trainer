@@ -97,10 +97,10 @@ class SummarySmokeTests(unittest.TestCase):
             with patch.object(smoke,'memory_wait'), patch.object(smoke,'memory_presentations',return_value=[]), patch.object(smoke,'status',side_effect=self.status_sequence()):
                 smoke.memory_controls(run, native_copy=True)
             actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
-            self.assertEqual(actions,['open','rebuild-preflight','rebuild-preflight','rebuild-preflight','back','add','draft','save','summary-edit','draft-update','native-copy','editor-check','editor-check','save','edit','draft-update','save','close','open','forget','confirm','disable','enable','confirm','manage','clear','confirm','back','close'])
+            self.assertEqual(actions,['open','rebuild-preflight','rebuild-preflight','rebuild-preflight','back','add','draft','save','summary-edit','draft-update','native-copy','editor-check','editor-check','save','summary-collapsed','summary-show','summary-expanded','close','open','summary-expanded','edit','draft-update','save','close','open','summary-collapsed','forget','confirm','disable','enable','confirm','manage','clear','confirm','back','close'])
             run.stop.assert_called_once();run.start.assert_called_once_with(run.binary)
             receipt=json.loads((run.root/'integrated-memory-controls.json').read_text())
-            self.assertEqual(len(receipt['captures']),6)
+            self.assertEqual(len(receipt['captures']),8)
             self.assertEqual(json.loads((run.root/'summary-native-copy.json').read_text()), self.command_result({'action':'native-copy'}))
             self.assertTrue(receipt['wholeSummaryEditSaveRestart'])
             self.assertTrue(receipt['preferencesSeparateFromGeneratedAllowance'])
@@ -147,7 +147,7 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertNotIn('save', actions)
             self.assertNotIn('rebuild-start', actions)
             self.assertEqual(actions[-1], 'fixture-reset')
-            self.assertEqual(len(images), 40)
+            self.assertEqual(len(images), 42)
             for name in ('densify-ready', 'densify-review', 'densify-accepted', 'densify-no-reduction', 'densify-busy'):
                 self.assertEqual(len([image for image in images if image['state'] == name]), 2)
             self.assertEqual(actions.count('densify'), 1)
@@ -190,7 +190,7 @@ class SummarySmokeTests(unittest.TestCase):
             run.start.assert_called_once()
 
     def test_selected_families_have_local_prerequisites_and_reset_before_next_family(self):
-        expected = {'densify': (10, 'fixture-densify-ready'), 'overview': (11, 'fixture-populated'), 'history': (19, 'fixture-history')}
+        expected = {'densify': (10, 'fixture-densify-ready'), 'overview': (13, 'fixture-populated'), 'history': (19, 'fixture-history')}
         for family, (count, first) in expected.items():
             with self.subTest(family=family), tempfile.TemporaryDirectory() as folder:
                 run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},command=Mock(return_value={'ok':True}))
