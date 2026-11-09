@@ -1803,7 +1803,7 @@ a:focus-visible {
 .primary-action,
 button:not(.conversation-select):not(.drawer-backdrop):not(
     .settings-backdrop
-  ):not(.health-rollup-value) {
+  ):not(.health-rollup-value):not(.conversation-menu-trigger) {
   padding: 10px 14px;
 }
 
@@ -1863,9 +1863,12 @@ p {
 }
 
 .conversation-menu-trigger {
+  display: grid;
   width: 34px;
   height: 34px;
+  place-items: center;
   padding: 0;
+  line-height: 1;
 }
 
 .conversation-menu {
@@ -2794,7 +2797,7 @@ label {
   .primary-action,
   button:not(.conversation-select):not(.drawer-backdrop):not(
       .settings-backdrop
-    ) {
+    ):not(.conversation-menu-trigger) {
     padding: 9px 11px;
   }
 
