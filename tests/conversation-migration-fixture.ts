@@ -11,12 +11,17 @@ function removeWholeSummaryFixtureSchema(db: Database.Database): void {
   )
     return;
   db.transaction(() => {
+    // Reconstruct the effective pre25 Profile triggers as well as schema24.
+    for (const statement of SCHEMA_MIGRATIONS.find((m) => m.version === 18)!
+      .statements)
+      if (statement.startsWith("create trigger conversation_profile_"))
+        db.exec(statement);
     for (const name of [
       "summary_privacy",
       "summary_explicit_correction",
       "summary_rebuild_invalidation",
     ])
-      db.exec(`drop trigger ${name}`);
+      db.exec(`drop trigger if exists ${name}`);
     const row = db.prepare("select * from summary_state").get() as {
       revision: number;
       frontier: number;

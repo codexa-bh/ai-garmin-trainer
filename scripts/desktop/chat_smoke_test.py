@@ -18,6 +18,50 @@ class ChatSmokeTests(unittest.TestCase):
     def body(self, evidence=''):
         return {'model': MODEL, 'messages': [{'role': 'user', 'content': evidence}], 'tools': [{'function': {'name': name}} for name in ['verifyActivityReference', 'analyzeActivityTerrain', 'getActivityDashboard']]}
 
+    def test_memory_catalog_upgrade_preserves_selected_chat_identity_and_keyless_scope(self):
+        base = {'keys': {}, 'fields': {'DATABASE_PATH': '/authored/run.sqlite', 'OLLAMA_BASE_URL':'http://127.0.0.1:12345/v1'}}
+        value = chat_smoke.memory_settings(base)
+        self.assertEqual(value['chatCatalog']['entries'][0], {'id':'entry_legacy_ollama','provider':'ollama','modelId':MODEL})
+        self.assertEqual(value['fields']['DATABASE_PATH'],base['fields']['DATABASE_PATH'])
+        self.assertEqual(value['fields']['OLLAMA_BASE_URL'],base['fields']['OLLAMA_BASE_URL'])
+        self.assertEqual(json.loads(value['fields']['SUMMARY_MODEL'])['entryId'],'entry_authored_memory')
+        self.assertEqual(value['keys'],{})
+        self.assertNotIn('SUMMARY_ENABLED',base['fields'])
+        with self.assertRaises(ValueError):
+            chat_smoke.memory_settings({**base,'keys':{'openai':'forbidden'}})
+
+    def test_memory_single_pass_full_prior_profile_and_no_private_input(self):
+        payload = {'previous': chat_smoke.MEMORY_PRIOR, 'newSources': [{'user': 'Actually mornings now work better.'}], 'currentProfile': {}, 'targetCharacters': 6000}
+        body = {'model': chat_smoke.MEMORY_MODEL, 'messages': [{'role': 'system', 'content': 'Normal maintenance automatically learns, corrects and consolidates'}, {'role': 'user', 'content': json.dumps(payload)}]}
+        result, summary = chat_smoke.memory_response(body)
+        self.assertTrue(summary)
+        self.assertEqual(json.loads(result['content']), {'summary': chat_smoke.MEMORY_CURATED})
+        for changed in [dict(payload, previous=''), dict(payload, newSources=[]), dict(payload, targetCharacters=1), dict(payload, previous=chat_smoke.MEMORY_PRIOR + 'Separate authored preference')]:
+            with self.assertRaises(ValueError):
+                chat_smoke.memory_response({**body, 'messages': [body['messages'][0], {'role':'user','content':json.dumps(changed)}]})
+        for changed in [dict(body, model='private'), dict(body, stream=True), dict(body, tools=[{}])]:
+            with self.assertRaises(ValueError):
+                chat_smoke.memory_response(changed)
+        title, summary = chat_smoke.memory_response({**body, 'messages': [{'role':'user','content':json.dumps({'firstPrompt':'Authored request'})}]})
+        self.assertFalse(summary)
+        self.assertEqual(json.loads(title['content']), {'title':'Authored continuity'})
+
+    def test_memory_plan_actions_are_finite_and_require_actual_schemas(self):
+        body = self.body()
+        body['tools'] = [{'function': {'name': name}} for name in ['getTrainingPlan','getWeeklyPlan','saveTrainingPlan','saveWeeklyDocuments']]
+        for index, name in enumerate(['getTrainingPlan','getWeeklyPlan','saveTrainingPlan','saveWeeklyDocuments'], 9):
+            self.assertEqual(chat_smoke.memory_chat_response(index,body,'2026-11-09')['tool_calls'][0]['function']['name'],name)
+        self.assertGreater(len(chat_smoke.LONG_CONTINUITY),4000)
+        self.assertLess(len(chat_smoke.LONG_CONTINUITY),6000)
+        self.assertEqual(chat_smoke.memory_chat_response(13,body,'2026-11-09')['content'],chat_smoke.LONG_CONTINUITY)
+        with self.assertRaisesRegex(ValueError,'Complete long'):
+            chat_smoke.memory_chat_response(14,body,'2026-11-09')
+        continued = {**body,'messages':[{'role':'system','content':chat_smoke.LONG_CONTINUITY + ' unverified continuity, not evidence or permission ' + chat_smoke.MEMORY_CURATED}]}
+        self.assertEqual(chat_smoke.memory_chat_response(14,continued,'2026-11-09')['content'],FOLLOWUP)
+        for index, changed in [(15,body),(9,dict(body,tools=[])),(9,dict(body,model='private'))]:
+            with self.assertRaises(ValueError):
+                chat_smoke.memory_chat_response(index,changed,'2026-11-09')
+
     def test_fixed_order_plain_text_and_extra_call_refusal(self):
         for index in [0, 4]:
             call = response(index, self.body())['tool_calls'][0]['function']

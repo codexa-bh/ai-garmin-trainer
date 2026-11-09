@@ -292,7 +292,7 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
   }
 });
 
-it("revokes only new summary-dependent debug copies, preserves original transcript/legacy grounding and returns committed correction metadata", () => {
+it("Clear revokes marked debug copies but ordinary corrections preserve committed continuity", () => {
   publish(1);
   ensureConversation("debug");
   const debugTrace = fallbackLlmDebugTrace({
@@ -348,8 +348,9 @@ it("revokes only new summary-dependent debug copies, preserves original transcri
       debugTrace,
     },
   });
-  expect(answer.grounding?.debugTrace).toBeUndefined();
-  expect(answer.grounding?.conversationContext?.summaryRevoked).toBe(true);
+  expect(answer.grounding?.debugTrace).toEqual(debugTrace);
+  expect(answer.grounding?.conversationContext?.summaryRevision).toBe(2);
+  expect(answer.grounding?.conversationContext?.summaryRevoked).not.toBe(true);
   expect(() => history.assertCurrent(correction.admission)).not.toThrow();
 });
 
@@ -379,7 +380,7 @@ it.each(["clear", "disable"] as const)(
   },
 );
 
-it("correction completion can deliver while a different concurrent turn is invalidated", () => {
+it("ordinary correction delivery does not revoke unrelated concurrent turns or pins", () => {
   publish(1);
   const stale = history.admit("A", "Continue");
   const correction = history.admit("B", "Actually mornings suit me now.");
@@ -389,14 +390,14 @@ it("correction completion can deliver while a different concurrent turn is inval
   });
   expect(answer.content).toBe("Mornings replace evenings.");
   expect(() => history.assertCurrent(correction.admission)).not.toThrow();
-  expect(() => history.assertCurrent(stale.admission)).toThrow("invalidated");
+  expect(() => history.assertCurrent(stale.admission)).not.toThrow();
   expect(
     history.complete(correction.admission, {
       content: answer.content,
       grounding: null,
     }).id,
   ).toBe(answer.id);
-  expect(readSummaryPin("B")).toBeNull();
+  expect(readSummaryPin("B")).not.toBeNull();
 });
 
 it("whole-history invalidation revokes an in-flight complete-text pin without another publication", () => {

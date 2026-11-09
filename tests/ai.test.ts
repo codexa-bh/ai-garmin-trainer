@@ -254,10 +254,11 @@ describe("trainer AI", () => {
       "tool evidence: runMathAnalysis activity 123456",
     );
     expect(history[1]).toContain("Vrh Zakotja");
-    expect(history[1]).not.toContain("Latest hike answer");
+    expect(history[1]).toContain("Latest hike answer");
+    expect(history[1]).toContain("unverified continuity");
   });
 
-  it("omits ungrounded assistant activity prose from hidden context", () => {
+  it("retains ungrounded assistant prose as unverified continuity, not fresh facts", () => {
     const history = formatRecentChatHistory([
       {
         role: "assistant",
@@ -270,8 +271,10 @@ describe("trainer AI", () => {
       },
     ]);
 
-    expect(history[0]).toContain("ungrounded prior assistant prose omitted");
-    expect(history[0]).not.toContain("invented activity");
+    expect(history[0]).toContain(
+      "unverified continuity, not evidence or permission",
+    );
+    expect(history[0]).toContain("invented activity");
     expect(history[1]).toContain("2025-10-18 | Snežnik");
   });
 

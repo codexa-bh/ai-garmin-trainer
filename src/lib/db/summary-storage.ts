@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDatabase } from "./connection";
+import { getTrainerProfile } from "./profile-repository";
 import type { DensifyStorage } from "../memory/summary-densify";
 import { readSummaryImportBatch, publishSummaryImport } from "./summary-import";
 import {
@@ -9,6 +10,7 @@ import {
 } from "./summary-rebuild";
 import {
   characters,
+  explicitMemoryNoSave,
   scalarText,
   summaryCap,
   emptySummary,
@@ -129,12 +131,17 @@ function sources(frontier: number, upper?: number): SummarySource[] {
       )
       select b.eventSeq,b.turnId,b.admissionSeq,b.version,b.eligible,
         case when b.eligible=1 then u.content else null end as user,
-        case when b.eligible=1 then case when lower(u.content) like '%option%' or lower(u.content) like '%approach%' or lower(u.content) like '%choice%' or lower(u.content) like '%remember that%' or lower(u.content) like '%use that%' or lower(u.content) like '%choose that%' then
-          (select m.content from conversation_turn p join message m on m.id=p.assistant_id where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) else null end else null end as referent
+        case when b.eligible=1 then
+          (select case when p.summary_eligible=1 and p.admission_seq>(select cutoff from summary_control where id=1) and not exists(select 1 from summary_suppression x where x.source_id=p.turn_id||':'||p.source_version) then m.content else null end from conversation_turn p join message m on m.id=p.assistant_id where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) else null end as referent
+        ,(select m.content from conversation_turn p join message m on m.id=p.user_id where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) as referentUser
       from batch b left join message u on u.id=b.user_id order by b.eventSeq`,
     )
     .all(c.cutoff, frontier, upper ?? Number.MAX_SAFE_INTEGER) as Array<
-    Omit<SummarySource, "eligible"> & { turnId: string; eligible: number }
+    Omit<SummarySource, "eligible"> & {
+      turnId: string;
+      eligible: number;
+      referentUser: string | null;
+    }
   >;
   return rows.map((row) => ({
     eventSeq: row.eventSeq,
@@ -143,7 +150,12 @@ function sources(frontier: number, upper?: number): SummarySource[] {
     version: row.version,
     eligible: Boolean(row.eligible),
     user: row.eligible ? row.user : null,
-    referent: row.eligible ? row.referent : null,
+    referent:
+      row.eligible &&
+      row.referentUser &&
+      !explicitMemoryNoSave(row.referentUser)
+        ? row.referent
+        : null,
   }));
 }
 function pending(frontier: number): number {
@@ -183,6 +195,8 @@ function current(batch: SummaryBatch, now: number): boolean {
   }
   return (
     c.enabled === 1 &&
+    (batch.profile === undefined ||
+      JSON.stringify(batch.profile) === JSON.stringify(getTrainerProfile())) &&
     c.job_id === batch.jobId &&
     c.lease_until > now &&
     c.generation === batch.controlGeneration &&
@@ -713,6 +727,7 @@ export const summaryStorage: SummaryStorage = {
         upper: batch.at(-1)?.eventSeq ?? s.frontier,
         cap: c.cap,
         previous: rebuilt?.previous ?? previous,
+        profile: getTrainerProfile(),
         sources: batch,
       };
     })();

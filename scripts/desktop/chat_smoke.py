@@ -2,6 +2,8 @@
 import argparse
 import base64
 import contextlib
+import datetime
+import time
 import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +27,46 @@ PROMPT = 'Authored weekday hike numerical dashboard feedback.'
 MODEL = 'qwen3.5:4b'
 VISION_MODEL = 'llava'
 PANELS = ['heartRate', 'elevation', 'speed', 'route']
+MEMORY_MODEL = 'authored-memory'
+MEMORY_PRIOR = 'Short weekdays because caregiving limits time; long weekday plans failed. Equipment remains undecided, not rejected. ' * 130
+MEMORY_CURATED = 'Current mornings; short weekdays because caregiving limits time, and long weekday plans failed. Equipment remains undecided. Watercolor on Sundays because the studio is quiet.'
+LONG_CONTINUITY = 'Assistant option one: long weekdays, rejected because caregiving limits time. Option two: short weekdays remains preferred. ' + ('Unverified continuity. ' * 200)
+DOCUMENT_EXAMPLE = 'Example reference: /Users/example/plan.md; fictional OPENAI_API_KEY=example and access_token: example. Keep the caregiving rationale.'
+
+
+def memory_chat_response(index, body, week):
+    if body.get('model') != MODEL or body.get('stream') is True or not isinstance(body.get('messages'), list):
+        raise ValueError('Fixed memory chat model/protocol required')
+    calls = [('getTrainingPlan', {}), ('getWeeklyPlan', {'weekStart': week}),
+             ('saveTrainingPlan', {'contentMarkdown': DOCUMENT_EXAMPLE}),
+             ('saveWeeklyDocuments', {'changes': [{'kind': 'plan', 'weekStart': week, 'title': 'Authored example', 'contentMarkdown': DOCUMENT_EXAMPLE}]})]
+    if index == 13:
+        return {'role': 'assistant', 'content': LONG_CONTINUITY}
+    if index == 14:
+        rendered = json.dumps(body['messages'])
+        if LONG_CONTINUITY not in rendered or 'unverified continuity, not evidence or permission' not in rendered or MEMORY_CURATED not in rendered:
+            raise ValueError('Complete long assistant continuity/current memory missing from actual fallback request')
+        return {'role': 'assistant', 'content': FOLLOWUP}
+    if not 9 <= index <= 12:
+        raise ValueError('Unexpected memory chat call')
+    name, args = calls[index - 9]
+    if name not in [tool.get('function', {}).get('name') for tool in body.get('tools', [])]:
+        raise ValueError('Actual memory-plan action schema missing')
+    return {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'memory-' + str(index), 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
+
+
+def memory_response(body):
+    if body.get('model') != MEMORY_MODEL or body.get('stream') is True or body.get('tools'):
+        raise ValueError('Fixed single-pass memory protocol required')
+    messages = body.get('messages', [])
+    payload = json.loads(messages[-1]['content'])
+    if set(payload) == {'firstPrompt'}:
+        return {'role': 'assistant', 'content': json.dumps({'title': 'Authored continuity'})}, False
+    if payload.get('previous') not in (MEMORY_PRIOR, MEMORY_CURATED) or not payload.get('newSources') or 'automatically learns, corrects and consolidates' not in json.dumps(messages) or 'Separate authored preference' in json.dumps(payload):
+        raise ValueError('Complete prior/new-source automatic curation contract missing')
+    if 'currentProfile' not in payload or payload['targetCharacters'] != 6000:
+        raise ValueError('Current Profile/advisory target missing')
+    return {'role': 'assistant', 'content': json.dumps({'summary': MEMORY_CURATED})}, True
 
 
 def image_parts(body):
@@ -95,8 +137,13 @@ def response(index, body, expected_zones=None, activity_images=False):
 
 
 class AuthoredProvider:
-    def __init__(self, *, activity_images=False, scratch=None):
+    def __init__(self, *, activity_images=False, memory_curation=False, scratch=None):
         self.calls = []
+        self.memory_curation = memory_curation
+        self.summary_calls = []
+        self.title_calls = 0
+        today = datetime.date.today()
+        self.week = (today - datetime.timedelta(days=today.weekday())).isoformat()
         self.expected_zones = None
         self.activity_images = activity_images
         self.captures = []
@@ -121,7 +168,13 @@ class AuthoredProvider:
                     return
                 try:
                     body = json.loads(self.rfile.read(int(length)))
-                    message = response(len(owner.calls), body, owner.expected_zones, owner.activity_images)
+                    memory = owner.memory_curation and body.get('model') == MEMORY_MODEL
+                    if memory:
+                        message, summary = memory_response(body)
+                    elif owner.memory_curation and len(owner.calls) >= 9:
+                        message = memory_chat_response(len(owner.calls), body, owner.week)
+                    else:
+                        message = response(len(owner.calls), body, owner.expected_zones, owner.activity_images)
                     if owner.screenshots and len(owner.calls) == 3:
                         for panel, raw_image in image_parts(body):
                             path = owner.screenshots / (panel + '.png')
@@ -132,8 +185,14 @@ class AuthoredProvider:
                 except (ValueError, TypeError, AttributeError, KeyError):
                     self.send_error(400)
                     return
-                owner.calls.append({'tool': message.get('tool_calls', [{}])[0].get('function', {}).get('name'), 'ordinaryText': isinstance(message.get('content'), str)})
-                raw = json.dumps({'id': 'authored-response', 'object': 'chat.completion', 'created': 1, 'model': VISION_MODEL if owner.activity_images else MODEL, 'choices': [{'index': 0, 'finish_reason': 'tool_calls' if 'tool_calls' in message else 'stop', 'message': message}], 'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}}).encode()
+                if memory:
+                    if summary:
+                        owner.summary_calls.append({'fullPrior': True, 'newEligibleSources': True, 'currentProfile': True, 'singleCompleteOutput': True})
+                    else:
+                        owner.title_calls += 1
+                else:
+                    owner.calls.append({'tool': message.get('tool_calls', [{}])[0].get('function', {}).get('name'), 'ordinaryText': isinstance(message.get('content'), str)})
+                raw = json.dumps({'id': 'authored-response', 'object': 'chat.completion', 'created': 1, 'model': body['model'], 'choices': [{'index': 0, 'finish_reason': 'tool_calls' if 'tool_calls' in message else 'stop', 'message': message}], 'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}}).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(raw)))
@@ -221,6 +280,61 @@ def exercise(run, provider):
     return ids
 
 
+def memory_settings(base):
+    if base.get('keys'):
+        raise ValueError('Only authored keyless run configuration is allowed')
+    # Preserve the selected ordinary chat identity across the catalog upgrade.
+    entries = [{'id': 'entry_legacy_ollama', 'provider': 'ollama', 'modelId': MODEL}, {'id': 'entry_authored_memory', 'provider': 'ollama', 'modelId': MEMORY_MODEL}]
+    catalog = {'version': 1, 'entries': entries, 'defaultEntryId': entries[0]['id']}
+    fields = {**base['fields'], 'SUMMARY_ENABLED': 'true', 'SUMMARY_MODEL': json.dumps({'version': 1, 'entryId': entries[1]['id'], 'provider': 'ollama', 'modelId': MEMORY_MODEL}), 'SUMMARY_CHAR_LIMIT': '6000', 'SUMMARY_CONTRACT_VERSION': '2'}
+    return {'version': 3, 'fields': fields, 'keys': {}, 'chatCatalog': catalog, 'selectionCompatibility': {'database': None, 'catalog': catalog}}
+
+
+def memory_curation(run, provider):
+    def inspection():
+        return json.loads(api(run, 'GET', '/api/cross-chat-summary?view=content'))
+    def command(action, **fields):
+        value = inspection()
+        return json.loads(api(run, 'POST', '/api/cross-chat-summary', {'version': 2, 'expected': value['expected'], 'action': action, **fields}))
+    command('edit-summary', text=MEMORY_PRIOR)
+    command('edit', id=None, text='Separate authored preference')
+    # This is only the stopped exclusive run configuration, never normal settings.
+    run.stop()
+    base = json.loads((run.root / 'config/settings-v2.json').read_text())
+    private_json(run.root / 'config/settings-v3.json', memory_settings(base))
+    run.start(run.binary)
+    profile = json.loads(api(run, 'GET', '/api/profile'))
+    api(run, 'POST', '/api/profile', profile)
+    api(run, 'POST', '/api/profile', {**profile, 'constraints': ['Authored mornings; caregiving limits weekdays.']})
+    if inspection()['stored']['text'] != MEMORY_PRIOR:
+        raise ValueError('Profile erased substantive prior')
+    api(run, 'PUT', '/api/training-plan', {'contentMarkdown': DOCUMENT_EXAMPLE})
+    chat = 't0304-memory-' + str(uuid.uuid4())
+    result = json.loads(api(run, 'POST', '/api/chat', {'conversationId': chat, 'message': 'Actually mornings now work better. Watercolor on Sundays because the studio is quiet. Save the fictional examples in my General Plan and current weekly plan.'}))
+    if [(step['tool'], step['status']) for step in result['toolSteps']] != [(name, 'succeeded') for name in ['getTrainingPlan', 'getWeeklyPlan', 'saveTrainingPlan', 'saveWeeklyDocuments']]:
+        raise ValueError('Complete native plan/weekly example flow failed')
+    def settled():
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            value = inspection()
+            if value['pending'] == 0 and value['stored']['text'] == MEMORY_CURATED:
+                return value
+            if value['reason']:
+                raise ValueError('Automatic memory maintenance failed: ' + value['reason'])
+            time.sleep(0.2)
+        raise ValueError('Automatic memory maintenance did not settle')
+    first = settled()
+    json.loads(api(run, 'POST', '/api/chat', {'conversationId': chat, 'message': 'Do not save the plan yet; I prefer short weekday sessions because caregiving limits time.'}))
+    final = settled()
+    if len(provider.summary_calls) != 2 or len(final['preferences']) != 1 or final['preferences'][0]['text'] != 'Separate authored preference' or final['frontier'] <= first['frontier']:
+        raise ValueError('Repeated automatic curation/preferences/source progress failed')
+    run.stop(); run.start(run.binary)
+    persisted = inspection()
+    if persisted['stored']['text'] != MEMORY_CURATED or persisted['preferences'] != final['preferences'] or persisted['pending'] != 0 or len(provider.summary_calls) != 2:
+        raise ValueError('Curation restart persistence/no-replay failed')
+    return {'conversation': chat, 'profileNoOpAndChangedPreservedPrior': True, 'completePlanWeeklyExamples': True, 'automaticConsolidation': True, 'planNoSaveIndependentMeaningProcessed': True, 'preferencesPreserved': True, 'restartNoReplay': True, 'summaryCalls': len(provider.summary_calls), 'liveModelQuality': 'not exercised; deterministic loopback supplied generation'}
+
+
 @resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -228,8 +342,11 @@ def main():
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--task-id', default='T0296')
     parser.add_argument('--activity-images', action='store_true', help='Four finite authored panels through the exact loopback llava image adapter; no live model')
+    parser.add_argument('--memory-curation', action='store_true', help='Finite authored Profile/correction/plan/weekly/automatic-memory proof; no private or real provider input')
     parser.set_defaults(input_file=None, grant_file=None, provenance_file=None, anchor=None)
     args = parser.parse_args()
+    if args.memory_curation and args.activity_images:
+        parser.error('Memory curation and image fixtures are separate scenarios')
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
     prepared = prepare(scratch, args, 'ordinary')
@@ -241,7 +358,7 @@ def main():
         try:
             run = OrdinaryRun(scratch, prepared.database, source, bundle, inventory, verified=verified)
             run.before_start = prepared.verify_current
-            provider = AuthoredProvider(activity_images=args.activity_images, scratch=scratch)
+            provider = AuthoredProvider(activity_images=args.activity_images, memory_curation=args.memory_curation, scratch=scratch)
             seed_run(run, provider)
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer
@@ -262,9 +379,10 @@ def main():
             with contextlib.closing(readonly(run.database)) as db:
                 if db.execute("select content from message where conversation_id=? and role='assistant' order by created_at", (ids[0],)).fetchall() != [(ANSWER,), (FOLLOWUP,)]:
                     raise ValueError('Restart history mismatch')
+            memory_evidence = memory_curation(run, provider) if args.memory_curation else None
             if source_identity() != source or audit(bundle) != inventory or audit(run.bundle) != inventory:
                 raise ValueError('Source/artifact changed')
-            receipt.update({'source': source, 'runId': run.id, 'conversations': ids, 'calls': provider.calls, 'captures': captures, 'jsonNdjsonPersistenceContinuationRestart': True, 'activityImageCaptures': provider.captures, 'selectedPanels': PANELS if args.activity_images else [], 'backSync': 'no-op: read/render-only, original authored input unchanged', 'passed': True})
+            receipt.update({'source': source, 'runId': run.id, 'conversations': ids, 'calls': provider.calls, 'captures': captures, 'jsonNdjsonPersistenceContinuationRestart': True, 'memoryCuration': memory_evidence, 'activityImageCaptures': provider.captures, 'selectedPanels': PANELS if args.activity_images else [], 'backSync': 'Authored current-schema run copies only; memory/Profile/plan changes persist only in owned copies. Original prepared input unchanged; schema24-to25 rehearsal is separately covered by SQLite regressions.', 'passed': True})
         finally:
             with resources.preserve_failure():
                 errors = []

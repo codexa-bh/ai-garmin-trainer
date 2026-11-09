@@ -62,6 +62,31 @@ function candidate(batch: SummaryBatch) {
   )!;
 }
 describe("explicit bounded historical transition sharing S", () => {
+  it.each(["suppressed", "memory-private"])(
+    "does not replace the latest %s assistant context with an older unrelated referent",
+    (restriction) => {
+      offTurn("context", "Earlier independent topic.");
+      const restricted = offTurn(
+        "context",
+        restriction === "memory-private"
+          ? "Please do not remember this discussion."
+          : "Restricted latest option.",
+      );
+      if (restriction === "suppressed")
+        db.prepare("insert into summary_suppression(source_id) values(?)").run(
+          restricted,
+        );
+      const selected = offTurn(
+        "context",
+        "Use that for future coaching; I can train only on weekends.",
+      );
+      const input = summaryImportInspection().candidates.find(
+        (candidate) => candidate.id === selected,
+      )!;
+      expect(input.text).toContain("only on weekends");
+      expect(input.referent).toBeNull();
+    },
+  );
   it("resumes a sealed multi-batch selection after SQLite reopen without duplicate coverage", () => {
     const ids = Array.from({ length: 25 }, (_, index) =>
       offTurn(

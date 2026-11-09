@@ -142,6 +142,22 @@ Source delivery grants no primary migration, install, stop/restart or copy-back.
 Any actual activation still needs the exact-target/backup/artifact/owner/stop/
 migration/reopen approvals above; use a compatible forward fix, never downgrade.
 
+### Schema25 freshness activation (separately authorized)
+
+Source delivery adds a forward24→25 migration dropping only ordinary-correction and
+Profile erasure triggers. It changes no stored rows. Valid generated text, preferences,
+originals, compacts and accounting remain; old24 readers refuse25. Installed24 retains
+its old effective triggers until this migration is deliberately applied; rebuild/restart
+alone does not change SQL. No lost historical summary is reconstructed.
+
+Future activation requires explicit authority for the exact DB/settings target, a verified
+WAL-consistent pre-upgrade backup, stopped/reaped app and writer owners, an exact-source
+qualified ARM64 artifact, the explicit process-env migration against that target, then
+integrity/FK/version/effective-trigger and preserved-state checks before controlled reopen.
+Startup/Use existing never migrates. Prefer compatible roll-forward; never downgrade or
+blindly copy new writes back. T0304 validates authored disposable targets only and grants
+no primary read/migration, app stop/install/reopen, private/provider spend or release.
+
 ## Integrations and GUI execution
 
 The cleared child environment uses fixed GUI tool search `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`. Overrides accept canonical absolute executable paths or the supported uv/uvx names, never shell text/relative commands. No terminal init scripts run. Missing tools degrade integrations, not offline saved views. Guidance appears at the requested action: native sign-in uses only its selected uv plus installed Python 3.12; MCP reads use their configured uvx/override and the pinned package's compatible Python (>=3.10), not a global uv-and-uvx requirement. Native sign-in performs a bounded action-time `uv python list 3.12 --only-installed --output-format json --offline --no-config --no-python-downloads` diagnostic with a cleared environment and discarded stderr. Only a successful valid empty inventory establishes missing Python; unsupported/malformed/failed/timed-out checks remain inconclusive and preserve the existing auth path. uvx has no equivalent installed-interpreter diagnostic: an unknown initialization exit is not called missing Python. Executable OS failures are sanitized separately from network/rate/auth failures. Manage external prerequisites using [README Installation](../README.md#installation), then explicitly retry; saved executable overrides remain internal, without normal Settings editors. Startup, Settings reads and local navigation never run these checks. Optional FIT fallback remains best-effort without blocking successful MCP data. Ordinary Garmin remains pinned commit `3610be6feed93088d85b0f35aba9d7d07c2505a7`, exact `mcp==1.28.1`, local stdio/read allowlist; no inherited password/email/file or provider-key fallback reaches MCP/FIT.

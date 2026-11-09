@@ -58,17 +58,21 @@ async function tick(patch: unknown, inspect?: SummaryGeneration["generate"]) {
   return generate;
 }
 describe("ordinary continuity on real SQLite (supplied output, not model quality)", () => {
-  it("refuses a lossy whole replacement when a substantial privacy-valid prior was admitted", async () => {
+  it("preserves substantial prior and pending sources on invalid output without automatic replay", async () => {
     expect([...prior].length).toBeGreaterThan(13000);
     storage.editSummary(storage.version(), prior, now);
     complete();
     await tick(
-      { summary: "Watercolor on Sundays because the studio is quiet." },
+      {
+        summary: "Watercolor on Sundays because the studio is quiet.",
+        extra: true,
+      },
       async (_system, prompt) => {
         expect(JSON.parse(prompt).previous).toBe(prior);
         return {
           patch: {
             summary: "Watercolor on Sundays because the studio is quiet.",
+            extra: true,
           },
           usage: { input: 100, output: 20, cached: 0 },
         };
@@ -110,12 +114,12 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
     const addition = "Watercolor on Sundays because the studio is quiet.";
     await tick(null, async (_system, prompt, _signal, format) => {
       const input = JSON.parse(prompt);
-      expect(format).toBe("incremental");
+      expect(format).toBe("replacement");
       expect(input.previous).toBe(prior);
       expect(input.newSources).toHaveLength(1);
       expect(JSON.stringify(input)).not.toMatch(/Separate authored|sourceId/);
       return {
-        patch: { action: "update", edits: [], addition },
+        patch: { summary: prior + "\n\n" + addition },
         usage: { input: 100, output: 20, cached: 0 },
       };
     });
@@ -125,15 +129,9 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
       "My studio now opens on Saturdays, not Sundays; the quiet-practice reason still applies.",
     );
     await tick({
-      action: "update",
-      edits: [
-        {
-          before: addition,
-          after:
-            "Watercolor on Saturdays because the studio is quiet; equipment still undecided.",
-        },
-      ],
-      addition: "",
+      summary:
+        prior +
+        "\n\nWatercolor on Saturdays because the studio is quiet; equipment still undecided.",
     });
     const expected =
       prior +
@@ -153,7 +151,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
     const bytes = db.serialize();
     db.close();
     db = new Database(bytes);
-    expect(migrateDatabase(db).toVersion).toBe(24);
+    expect(migrateDatabase(db).toVersion).toBe(25);
     expect(
       db.prepare("select name,sql from sqlite_master order by name").all(),
     ).toEqual(schema);
@@ -185,7 +183,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
   it("processes no-useful/unchanged sources without rewriting or falsely adding facts", async () => {
     storage.editSummary(storage.version(), prior, now);
     complete("Thanks for the discussion.");
-    await tick({ action: "unchanged", edits: [], addition: "" });
+    await tick({ summary: prior });
     expect(storage.read().text).toBe(prior);
     expect(storage.status(now)).toMatchObject({
       pending: 0,
@@ -221,7 +219,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
     ]);
   });
   it.each(["actually", "correction"])(
-    "keeps existing %s-prefix invalidation distinct: actual admitted prior is empty",
+    "keeps substantive prior through %s correction and automatic single-request consolidation",
     async (prefix) => {
       storage.editSummary(storage.version(), prior, now);
       storage.edit(storage.version(), null, "Separate preference", now);
@@ -230,17 +228,23 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
           ? "Actually evenings now fit my work schedule."
           : "Correction: evenings now fit my work schedule.",
       );
-      expect(storage.inspect().text).toBe("");
-      await tick(null, async (_system, prompt, _signal, format) => {
-        expect(JSON.parse(prompt).previous).toBe("");
+      expect(storage.inspect().text).toBe(prior);
+      await tick(null, async (system, prompt, _signal, format) => {
+        expect(JSON.parse(prompt).previous).toBe(prior);
+        expect(system).toContain(
+          "automatically learns, corrects and consolidates",
+        );
+        expect(system).toContain("retaining important supported meaning");
         expect(format).toBe("replacement");
         return {
-          patch: { summary: "Evenings fit the current work schedule." },
+          patch: {
+            summary: prior + "\nEvenings fit the current work schedule.",
+          },
           usage: { input: 10, output: 10, cached: 0 },
         };
       });
       expect(storage.read().text).toBe(
-        "Evenings fit the current work schedule.",
+        prior + "\nEvenings fit the current work schedule.",
       );
       expect(storage.preferences()[0].text).toBe("Separate preference");
     },
@@ -255,7 +259,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
     "source-edit",
     "delete",
   ])(
-    "refuses a late incremental result after %s authority loss",
+    "refuses a late consolidated result after %s authority loss",
     async (change) => {
       storage.editSummary(storage.version(), prior, now);
       storage.edit(storage.version(), null, "Separate preference", now);
@@ -276,7 +280,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
         if (change === "delete")
           deleteConversation(turn.admission.conversationId);
         return {
-          patch: { action: "update", edits: [], addition: "Late new meaning" },
+          patch: { summary: prior + "\nLate new meaning" },
           usage: { input: 100, output: 20, cached: 0 },
         };
       });
@@ -329,7 +333,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
     db.close();
     db = new Database(bytes);
     resolve({
-      patch: { action: "update", edits: [], addition: "Late" },
+      patch: { summary: prior + "\nLate" },
       usage: { input: 1, output: 1, cached: 0 },
     });
     await Promise.resolve();

@@ -212,7 +212,9 @@ it("retains route aliases, precedence, exact error mapping and sensitive manual-
     request({ contentMarkdown: "/Users/private/document" }),
   );
   expect(sensitive.status).toBe(200);
-  expect(() => readCompleteTrainingPlan()).toThrow("private_plan_content");
+  expect(readCompleteTrainingPlan().plan?.contentMarkdown).toBe(
+    "/Users/private/document",
+  );
 });
 
 it("maps storage failure to existing HTTP 500 while tool persistence failure propagates without retry", async () => {

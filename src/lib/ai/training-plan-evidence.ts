@@ -1,13 +1,10 @@
 import { trainingPlanReviewTiming } from "../training-plan/policy";
-import {
-  completeTrainingPlanSchema,
-  hasSensitivePlanText,
-} from "../training-plan/snapshot";
+import { completeTrainingPlanSchema } from "../training-plan/snapshot";
 export { completeTrainingPlanSchema } from "../training-plan/snapshot";
 
 export function renderCompleteTrainingPlan(result: unknown): string | null {
   const parsed = completeTrainingPlanSchema.safeParse(result);
-  if (!parsed.success || hasSensitivePlanText(parsed.data.plan)) return null;
+  if (!parsed.success) return null;
   const { plan } = parsed.data;
   if (!plan)
     return "Complete current Training Plan read: no saved plan exists.";

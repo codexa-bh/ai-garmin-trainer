@@ -12,7 +12,6 @@ import {
   TRAINING_PLAN_CONTENT_MAX_LENGTH,
   TRAINING_PLAN_TITLE_MAX_LENGTH,
 } from "../training-plan/limits";
-import { hasSensitivePlanText } from "../training-plan/snapshot";
 
 export function renderWeeklyProposal(proposal: WeeklyProposal): string {
   return `## Weekly draft — not saved\nProposal: ${proposal.id}\nCalendar basis: ${proposal.timeZone}\n\n${proposal.changes.map((change) => `### ${change.kind === "plan" ? "Plan" : "Review"}: ${change.weekStart} – ${addDays(change.weekStart, 6)}\n${change.kind === "review" ? `As of: ${change.asOf}\n` : ""}Title: ${change.title}\n\n${change.contentMarkdown}`).join("\n\n---\n\n")}\n\nConfirm this exact proposal to save ${proposal.changes.length === 2 ? "both documents together" : "this document"}, or ask for changes. Nothing above has been saved as a weekly artifact.`;
@@ -25,10 +24,6 @@ export function createWeekly(
   function read(weekStart: string): WeeklyRead {
     if (!validWeek(weekStart)) throw new Error("invalid_week");
     const record = store.read(weekStart);
-    for (const doc of [record?.original, record?.latest, record?.review]) {
-      if (doc && hasSensitivePlanText({ ...doc, revisedAt: doc.savedAt }))
-        throw new Error("private_weekly_content");
-    }
     return { weekStart, record };
   }
   function history(before: string, limit = 12) {
@@ -63,8 +58,6 @@ export function createWeekly(
         change.contentMarkdown.length > TRAINING_PLAN_CONTENT_MAX_LENGTH
       )
         throw new Error("invalid_document");
-      if (hasSensitivePlanText({ ...change, revisedAt: now.toISOString() }))
-        throw new Error("private_weekly_content");
       if (
         change.kind === "plan" &&
         ![calendar.weekStart, calendar.upcoming].includes(change.weekStart)

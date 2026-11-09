@@ -383,7 +383,7 @@ describe("complete-text real SQLite lifecycle", () => {
     ).toBe(false);
     expect(storage.inspect().text).toBe("Old valid summary");
   });
-  it("preserves previous text on incremental addition and does not send preferences or reconciliation fields", async () => {
+  it("automatically revises complete prior without sending preferences or reconciliation fields", async () => {
     storage.editSummary(storage.version(), "Previous useful summary", now);
     storage.edit(
       storage.version(),
@@ -404,9 +404,8 @@ describe("complete-text real SQLite lifecycle", () => {
           promptValue = JSON.parse(prompt);
           return {
             patch: {
-              action: "update",
-              edits: [],
-              addition: "New useful summary with rationale",
+              summary:
+                "Previous useful summary\n\nNew useful summary with rationale",
             },
             usage: { input: 100, output: 30, cached: null },
           };

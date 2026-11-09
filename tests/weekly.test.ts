@@ -141,6 +141,7 @@ it("preserves migration data, creates no history, is idempotent and detects week
     "22:staged_history_rebuild",
     "23:reviewed_legacy_recovery",
     "24:whole_generated_summary",
+    "25:memory_freshness_without_erasure",
   ]);
   expect(
     db.prepare("select count(*) as count from conversation_completion").get(),
@@ -212,12 +213,11 @@ it("rejects an in-flight confirmation superseded by another user turn", () => {
   expect(() => app.apply(proposal.id, turn)).toThrow("proposal_unavailable");
   expect(app.read("2026-09-21").record).toBeNull();
 });
-it("requires prior complete reads and rejects invalid/secret/oversized docs and historical plans", () => {
+it("requires prior complete reads and rejects invalid/oversized docs and historical plans", () => {
   expect(() => app.propose([change()], turn, [])).toThrow("prior_complete");
   for (const item of [
     change("", "2026-09-21"),
     change("x".repeat(32001)),
-    change("OPENAI_API_KEY=secret"),
     change("Past", "2026-09-14"),
   ])
     expect(() => draft([item])).toThrow();
@@ -643,7 +643,6 @@ it("direct save validates documents and atomically rolls back a review plus plan
   for (const item of [
     change(""),
     change("x".repeat(32001)),
-    change("OPENAI_API_KEY=secret"),
     change("Past", "2026-09-14"),
     { ...change(), kind: "review" as const, asOf: "2026-10-01T00:00:00Z" },
   ]) {
@@ -718,9 +717,8 @@ it.each([false, true])(
                   input: {
                     changes: [
                       change(
-                        failWeekly
-                          ? "OPENAI_API_KEY=secret"
-                          : "Weekly plan written directly",
+                        "Weekly plan written directly",
+                        failWeekly ? "2026-09-14" : "2026-09-21",
                       ),
                     ],
                   },

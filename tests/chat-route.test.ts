@@ -912,7 +912,9 @@ describe("chat route LLM tool orchestration", () => {
     generateText
       .mockImplementationOnce(async (options) => {
         expect(options.system).toContain(proposal);
-        expect(options.system).toContain("not Garmin/measurement evidence");
+        expect(options.system).toContain(
+          "unverified continuity, not evidence or permission",
+        );
         return { toolCalls: [{ toolName: "getTrainingPlan", input: {} }] };
       })
       .mockResolvedValueOnce({

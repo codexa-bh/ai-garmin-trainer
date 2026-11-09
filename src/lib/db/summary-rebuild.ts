@@ -178,7 +178,7 @@ function context(
   if (
     !previous ||
     previous.role !== "assistant" ||
-    previous.length > 1200 ||
+    previous.length > MAX_MESSAGE ||
     previous.createdAt === other?.createdAt ||
     restricted(previous, a, selection)
   )
@@ -216,8 +216,8 @@ function context(
     })
   )
     return undefined;
-  // The common minimizer bounds the assistant passage; ordinary
-  // summarization keeps its existing narrow option-referent admission.
+  // The common minimizer bounds complete assistant passages without making
+  // their availability a veto on independent user meaning.
   const safe = minimizeSummarySource({
     eventSeq: 0,
     admissionSeq: 0,

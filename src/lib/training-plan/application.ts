@@ -4,7 +4,6 @@ import { TRAINING_PLAN_CONTENT_MAX_LENGTH } from "./limits";
 import { normalizeTrainingPlanTitle, planStatus } from "./policy";
 import {
   completeTrainingPlanSchema,
-  hasSensitivePlanText,
   sameTrainingPlan,
   type CompleteTrainingPlan,
 } from "./snapshot";
@@ -54,10 +53,7 @@ export function createTrainingPlan(
   }
 
   function readComplete(): CompleteTrainingPlan {
-    const result = completeTrainingPlanSchema.parse(status());
-    if (hasSensitivePlanText(result.plan))
-      throw new Error("private_plan_content");
-    return result;
+    return completeTrainingPlanSchema.parse(status());
   }
 
   function saveGuarded(
@@ -66,8 +62,7 @@ export function createTrainingPlan(
   ): SaveOutcome {
     const reject = (reason: string): SaveOutcome => ({ ok: false, reason });
     const current = completeTrainingPlanSchema.parse(status());
-    if (current.plan && (!snapshot || hasSensitivePlanText(snapshot.plan)))
-      return reject("complete_plan_read_required");
+    if (current.plan && !snapshot) return reject("complete_plan_read_required");
     if (snapshot && !sameTrainingPlan(current.plan, snapshot.plan))
       return reject("training_plan_changed_read_again");
     let contentMarkdown = args.contentMarkdown;

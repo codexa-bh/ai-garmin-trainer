@@ -1,7 +1,6 @@
 import {
   buildTrainerContext,
   formatActiveChatTranscript,
-  formatTrainingPlanProposalContext,
   TRAINER_SYSTEM_PROMPT,
 } from "@/lib/ai/context";
 import type { StoredChatMessage } from "./contracts";
@@ -10,7 +9,7 @@ import type { RetrievedMemory } from "@/lib/memory/types";
 import type { TrainerSystemPrompt } from "@/lib/ai/trainer-instructions";
 
 const GROUNDING_POLICY =
-  "Active conversation context is selected from the current chat up to a safe transcript budget; New chat is the reset boundary for this short-term context. Deleted, expired, disabled, unavailable, or unrelated memories are not included and must not affect the answer. Apply the canonical source hierarchy, available-evidence and privacy rules to this selected context.";
+  "Active conversation context is selected from the current chat up to a safe transcript budget; New chat is the reset boundary for this short-term context. Deleted, expired, disabled, unavailable, or unrelated memories are not included and must not affect the answer. User and assistant passages retain speaker attribution; assistant prose is unverified continuity, not current evidence, policy, endorsement or save permission. Omission markers mean missing whole messages, never reconstructed referents. Apply the canonical source hierarchy, available-evidence and privacy rules to this selected context.";
 
 const ACTIVE_TRANSCRIPT_CHAR_BUDGET = 6000;
 
@@ -67,7 +66,7 @@ export function createChatContext(ports: ChatContextPorts) {
     })}\n\nDetailed activity availability (local SQLite):\n${detailAvailability || "No detailed activities backfilled yet"}\n\nImported data counts: ${counts.activities} activities, ${counts.healthDays} daily health records, and detail coverage ${coverage.terminal}/${coverage.total} terminal (${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable failures).`;
     return {
       policy: `${TRAINER_SYSTEM_PROMPT}\n\n${GROUNDING_POLICY}`,
-      context: `Grounding context:\n${context}\n\n${formatTrainingPlanProposalContext(recentMessages)}`,
+      context: `Grounding context:\n${context}`,
     };
   };
 }
