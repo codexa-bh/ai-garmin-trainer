@@ -131,6 +131,86 @@ it("uses only the finite6578-scalar summary draft above target and refuses alter
     false,
   );
 });
+it("admits the native-copy probe only for the exact focused authored summary; no caller text/key/clipboard result", async () => {
+  const panel = document.querySelector<HTMLElement>(".memory-root-card")!;
+  const input = document.querySelector("textarea")!;
+  const section = document.createElement("section");
+  section.setAttribute("aria-label", "Edit generated summary");
+  section.append(input);
+  panel.replaceChildren(section);
+  expect((await command({ type: "memory", action: "draft-update" })).ok).toBe(
+    true,
+  );
+  expect((await command({ type: "memory", action: "native-copy" })).ok).toBe(
+    false,
+  );
+  input.focus();
+  const result = await command({ type: "memory", action: "native-copy" });
+  expect(result.ok).toBe(true);
+  expect(JSON.stringify(result)).not.toContain(input.value);
+  expect(result.trustedInput).toBe(false); // Renderer admission alone is NOT native evidence.
+  for (const extra of [
+    { key: "a" },
+    { text: "private" },
+    { clipboard: true },
+    { selector: "body" },
+  ])
+    expect(
+      (await command({ type: "memory", action: "native-copy", ...extra })).ok,
+    ).toBe(false);
+  input.value += "private";
+  expect((await command({ type: "memory", action: "native-copy" })).ok).toBe(
+    false,
+  );
+  expect((await command({ type: "memory", action: "editor-check" })).ok).toBe(
+    false,
+  );
+  delete window.__trainerOrdinaryIsolated;
+  expect((await command({ type: "memory", action: "native-copy" })).ok).toBe(
+    false,
+  );
+});
+it("checks only full-window long-editor geometry with visible actions and internal scroll", async () => {
+  const panel = document.querySelector<HTMLElement>(".memory-root-card")!;
+  const input = document.querySelector("textarea")!;
+  const section = document.createElement("section");
+  section.setAttribute("aria-label", "Edit generated summary");
+  section.append(input);
+  const save = document.createElement("button");
+  save.textContent = "Save summary";
+  const cancel = document.createElement("button");
+  cancel.textContent = "Cancel edit";
+  panel.replaceChildren(section, save, cancel);
+  panel.classList.add("memory-summary-editing");
+  await command({ type: "memory", action: "draft-update" });
+  input.focus();
+  vi.spyOn(input, "getBoundingClientRect").mockReturnValue({
+    width: 1200,
+    height: 600,
+  } as DOMRect);
+  Object.defineProperty(input, "scrollHeight", {
+    configurable: true,
+    value: 1800,
+  });
+  Object.defineProperty(input, "clientHeight", {
+    configurable: true,
+    value: 600,
+  });
+  expect((await command({ type: "memory", action: "editor-check" })).ok).toBe(
+    true,
+  );
+  expect(input.scrollTop).toBeGreaterThan(0);
+  vi.spyOn(cancel, "getBoundingClientRect").mockReturnValue({
+    top: 900,
+    bottom: 950,
+  } as DOMRect);
+  expect((await command({ type: "memory", action: "editor-check" })).ok).toBe(
+    false,
+  );
+  expect(
+    (await command({ type: "memory", action: "editor-check", height: 600 })).ok,
+  ).toBe(false);
+});
 it("waits for retained-chat startup inspection before fixed native mutations, without hiding global content", async () => {
   const panel = document.querySelector<HTMLElement>(".memory-root-card")!;
   panel.dataset.memoryChatReady = "false";
@@ -621,6 +701,28 @@ it("reveals only exact authored memory text, refusing other content without leak
   expect(
     (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
   ).toBe(false);
+});
+it("reveals only the exact full-window editor header and restores masks, hiding unknown header text", async () => {
+  const sheet = document.querySelector(".memory-sheet")!;
+  const header = document.createElement("header");
+  header.className = "sheet-header";
+  header.innerHTML =
+    "<div><h2>Edit generated summary</h2></div><button>Close</button>";
+  sheet.prepend(header);
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(true);
+  expect(header.hasAttribute("data-smoke-reveal")).toBe(true);
+  window.__trainerSmokeRestore();
+  expect(header.hasAttribute("data-smoke-reveal")).toBe(false);
+  header.querySelector("h2")!.textContent += " private sentinel";
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(true);
+  expect(header.hasAttribute("data-smoke-reveal")).toBe(false);
+  expect(header.querySelector("h2")!.hasAttribute("data-smoke-reveal")).toBe(
+    false,
+  );
 });
 it("reveals only the exact conditional purpose hint and restores its mask without admitting appended private text", async () => {
   const hint = document.createElement("p");

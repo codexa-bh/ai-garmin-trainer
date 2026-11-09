@@ -866,7 +866,11 @@ fn main() {
             *app.state::<Runtime>().onboarding.lock().map_err(|_| std::io::Error::other("Setup state unavailable"))? = Some(state);
             let app_menu = tauri::menu::SubmenuBuilder::new(app, "Garmin Trainer")
                 .text("configuration", "Settings…").separator().quit().build()?;
-            let menu = tauri::menu::MenuBuilder::new(app).item(&app_menu).build()?;
+            // Predefined items keep macOS editing in the focused native responder,
+            // including WKWebView textareas; no renderer shortcut/clipboard proxy.
+            let edit_menu = tauri::menu::SubmenuBuilder::new(app, "Edit")
+                .undo().redo().separator().cut().copy().paste().select_all().build()?;
+            let menu = tauri::menu::MenuBuilder::new(app).item(&app_menu).item(&edit_menu).build()?;
             app.set_menu(menu)?;
             app.on_menu_event(|app, event| {
                 if event.id().as_ref() == "configuration" {

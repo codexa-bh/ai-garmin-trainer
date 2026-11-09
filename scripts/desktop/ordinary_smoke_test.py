@@ -396,6 +396,24 @@ class OrdinaryContracts(unittest.TestCase):
             os.close(fd)
         run.stop()
 
+    def test_broad_navigation_restores_wide_after_narrow_feature_capture(self):
+        from unittest.mock import Mock
+        run = self.run_fixture()
+        run.command = Mock(return_value={'ok': True})
+        run.wait = Mock()
+        run.profile_scenario = Mock(return_value='sentinel')
+        self.assertEqual(run.scenario(), 'sentinel')
+        self.assertEqual(run.command.call_args_list[0].args[0], {'type':'setViewport', 'preset':'wide'})
+        self.assertEqual(run.command.call_args_list[1].args[0], {'type':'click', 'target':'Activities'})
+
+    def test_native_copy_is_explicit_and_only_available_with_summary_lifecycle(self):
+        from ordinary_smoke import selection_plan
+        self.assertFalse(selection_plan(self.selection_args(summary_engine=True))['summaryNativeCopy'])
+        self.assertTrue(selection_plan(self.selection_args(summary_engine=True, summary_native_copy=True))['summaryNativeCopy'])
+        for options in ({'summary_native_copy': True}, {'summary_engine': True, 'summary_native_copy': True, 'summary_part': 'presentation'}, {'summary_engine': True, 'summary_native_copy': 'private'}):
+            with self.assertRaises(ValueError):
+                selection_plan(self.selection_args(**options))
+
     def selection_args(self, **options):
         return SimpleNamespace(**{**dict(summary_engine=False, conversation_selection=False,
             composer_footer=False, model_eligibility=False, prepare_only=False,

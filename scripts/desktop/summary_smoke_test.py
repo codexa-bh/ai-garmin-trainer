@@ -8,6 +8,12 @@ import summary_smoke as smoke
 
 
 class SummarySmokeTests(unittest.TestCase):
+    @staticmethod
+    def command_result(value):
+        if value.get('action') == 'native-copy':
+            return {'ok': True, 'nativeResponder': True, 'exactAuthoredCopy': True, 'hardwareInput': False}
+        return {'ok': True}
+
     def status_sequence(self):
         chars=6578  # Fixed authored whole-summary draft above the6000 target.
         return [{'expected':{'revision':1}}, {'expected':{'revision':2},'characters':chars}, {'expected':{'revision':2},'characters':chars}, {'expected':{'revision':2}}, {'expected':{'revision':3}}]
@@ -87,13 +93,15 @@ class SummarySmokeTests(unittest.TestCase):
     def test_memory_controls_are_one_finite_sequence_with_owned_restart_and_preservation(self):
         with tempfile.TemporaryDirectory() as folder:
             run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},binary=Path('/unit-app'),command=Mock(return_value={'ok':True}),chat_hash=Mock(return_value='same'),stop=Mock(),start=Mock())
+            run.command.side_effect = self.command_result
             with patch.object(smoke,'memory_wait'), patch.object(smoke,'memory_presentations',return_value=[]), patch.object(smoke,'status',side_effect=self.status_sequence()):
-                smoke.memory_controls(run)
+                smoke.memory_controls(run, native_copy=True)
             actions=[call.args[0]['action'] for call in run.command.call_args_list if call.args[0]['type']=='memory']
-            self.assertEqual(actions,['open','rebuild-preflight','rebuild-preflight','rebuild-preflight','back','add','draft','save','summary-edit','draft-update','save','edit','draft-update','save','close','open','forget','confirm','disable','enable','confirm','manage','clear','confirm','back','close'])
+            self.assertEqual(actions,['open','rebuild-preflight','rebuild-preflight','rebuild-preflight','back','add','draft','save','summary-edit','draft-update','native-copy','editor-check','editor-check','save','edit','draft-update','save','close','open','forget','confirm','disable','enable','confirm','manage','clear','confirm','back','close'])
             run.stop.assert_called_once();run.start.assert_called_once_with(run.binary)
             receipt=json.loads((run.root/'integrated-memory-controls.json').read_text())
-            self.assertEqual(len(receipt['captures']),4)
+            self.assertEqual(len(receipt['captures']),6)
+            self.assertEqual(json.loads((run.root/'summary-native-copy.json').read_text()), self.command_result({'action':'native-copy'}))
             self.assertTrue(receipt['wholeSummaryEditSaveRestart'])
             self.assertTrue(receipt['preferencesSeparateFromGeneratedAllowance'])
             self.assertEqual(len(receipt['rebuildCaptures']),2)
@@ -101,12 +109,23 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertIn('unavailable',receipt['rebuildSuccess'])
             self.assertIn('not trusted OS input',receipt['input'])
 
+    def test_native_copy_failure_is_not_replayed_or_followed_by_save(self):
+        with tempfile.TemporaryDirectory() as folder:
+            run=SimpleNamespace(root=Path(folder), id='unit', config={'source':'source'}, binary=Path('/unit-app'), command=Mock(return_value={'ok': True}), chat_hash=Mock(return_value='same'))
+            with patch.object(smoke,'memory_wait'), patch.object(smoke,'status',side_effect=self.status_sequence()):
+                with self.assertRaisesRegex(ValueError, 'Native authored summary copy equality missing'):
+                    smoke.memory_controls(run, native_copy=True)
+            actions=[call.args[0].get('action') for call in run.command.call_args_list]
+            self.assertEqual(actions.count('native-copy'), 1)
+            self.assertEqual(actions.count('save'), 1)  # Earlier preference only, not summary.
+            self.assertNotIn('editor-check', actions)
+
     def test_failed_control_preserves_closed_observation_and_capture_without_replay(self):
         with tempfile.TemporaryDirectory() as folder:
             def command(value):
                 if value.get('action') == 'forget':
                     raise RuntimeError('closed failure')
-                return {'ok': True}
+                return self.command_result(value)
             run=SimpleNamespace(root=Path(folder), id='unit', config={'source':'source'}, binary=Path('/unit-app'), command=Mock(side_effect=command), chat_hash=Mock(return_value='same'), stop=Mock(), start=Mock())
             with patch.object(smoke,'memory_wait'), patch.object(smoke,'status',side_effect=self.status_sequence()):
                 with self.assertRaisesRegex(RuntimeError, 'closed failure'):
@@ -156,6 +175,7 @@ class SummarySmokeTests(unittest.TestCase):
     def test_lifecycle_only_keeps_real_controls_without_fixed_presentations(self):
         with tempfile.TemporaryDirectory() as folder:
             run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},binary=Path('/unit-app'),command=Mock(return_value={'ok':True}),chat_hash=Mock(return_value='same'),stop=Mock(),start=Mock())
+            run.command.side_effect = self.command_result
             with patch.object(smoke,'memory_wait'), patch.object(smoke,'memory_presentations') as presentations, patch.object(smoke,'status',side_effect=self.status_sequence()):
                 smoke.memory_controls(run, presentation_families=())
             presentations.assert_not_called()
@@ -163,6 +183,8 @@ class SummarySmokeTests(unittest.TestCase):
             for action in ('summary-edit', 'save', 'forget', 'clear', 'enable', 'disable'):
                 self.assertIn(action, actions)
             self.assertFalse(any(action.startswith('fixture-') for action in actions))
+            self.assertNotIn('native-copy', actions)
+            self.assertFalse((run.root / 'summary-native-copy.json').exists())
             receipt=json.loads((run.root/'integrated-memory-controls.json').read_text())
             self.assertEqual(receipt['presentationCaptures'], [])
             run.start.assert_called_once()
@@ -245,7 +267,7 @@ class SummarySmokeTests(unittest.TestCase):
             db=Mock(); db.execute.return_value.fetchone.side_effect=lambda:next(rows)
             with patch.object(smoke, 'status', side_effect=[missing,missing,{'items':0,'characters':0},{'enabled':False},{'state':'disabled','items':0},{'enabled':True},{'enabled':False}]), patch.object(smoke,'readonly',return_value=db), patch.object(smoke,'memory_controls') as controls:
                 smoke.scenario(run)
-            controls.assert_called_once_with(run)
+            controls.assert_called_once_with(run, native_copy=False)
             self.assertEqual(run.stop.call_count,2)
             self.assertEqual(run.start.call_count,2)
             receipt=json.loads(next(run.root.glob('summary-keyless-*.json')).read_text())

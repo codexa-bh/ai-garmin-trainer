@@ -12,6 +12,8 @@ use std::{
 use tauri::Manager;
 #[path = "dev_capture.rs"]
 pub(crate) mod capture;
+#[path = "memory_edit_probe.rs"]
+mod memory_edit_probe;
 #[cfg(debug_assertions)]
 #[path = "dev_input.rs"]
 mod input;
@@ -271,6 +273,8 @@ impl Command {
             .contains(&action.as_str()),
             Self::Memory { action } => [
                 "summary-edit",
+                "native-copy",
+                "editor-check",
                 "observe",
                 "open",
                 "close",
@@ -1138,6 +1142,14 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
             json!({"requestId":request.request_id,"result":{"ok":false,"error":error}}),
         ),
         Ok(mut result) => {
+            if matches!(&request.command, Command::Memory { action } if action == "native-copy") {
+                result = if result["ok"] == true && result["editing"] == true && result["loaded"] == true && state.config.ordinary.is_some() {
+                    match memory_edit_probe::copy_authored_summary(&window, &state.config.run_id) {
+                        Ok(()) => json!({"ok":true,"nativeResponder":true,"exactAuthoredCopy":true,"hardwareInput":false}),
+                        Err(error) => json!({"ok":false,"error":error}),
+                    }
+                } else { json!({"ok":false,"error":"Authored editor admission refused; no native copy dispatched"}) };
+            }
             #[cfg(debug_assertions)]
             if let Command::DebugKey { key } = &request.command {
                 result = if result["ok"] == true && result["readyForNativeKey"] == true {
@@ -1494,6 +1506,8 @@ mod tests {
     fn memory_controls_are_finite_ordinary_only_and_never_accept_or_return_content() {
         for action in [
             "summary-edit",
+            "native-copy",
+            "editor-check",
             "observe",
             "open",
             "close",
@@ -1547,6 +1561,9 @@ mod tests {
             json!({"type":"memory","action":"draft","text":"private"}),
             json!({"type":"memory","action":"forget","id":"private"}),
             json!({"type":"memory","action":"observe","selector":"body"}),
+            json!({"type":"memory","action":"native-copy","key":"a"}),
+            json!({"type":"memory","action":"native-copy","clipboard":true}),
+            json!({"type":"memory","action":"editor-check","height":600}),
         ] {
             assert!(serde_json::from_value::<Command>(value).is_err());
         }

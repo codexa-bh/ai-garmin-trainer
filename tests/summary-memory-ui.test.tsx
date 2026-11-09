@@ -233,10 +233,10 @@ describe("manual Densify review", () => {
           }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
+    // Summary-only editing removes unrelated overview actions from the tab order.
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Densify summary" })
-        .disabled,
-    ).toBe(true);
+      screen.queryByRole("button", { name: "Densify summary" }),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
     const button = screen.getByRole("button", { name: "Densify summary" });
     fireEvent.click(button);
@@ -407,6 +407,14 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect(editor).toBe(document.activeElement);
     expect((editor as HTMLTextAreaElement).value).toBe(value.stored.text);
     expect(editor.hasAttribute("maxlength")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Add preference" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit summary" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Manage memory" })).toBeNull();
+    expect(screen.queryByText(purposeHint)).toBeNull();
+    expect(editor.closest(".memory-summary-editing")).toBeTruthy();
+    expect((editor as HTMLTextAreaElement).selectionStart).toBe(
+      (editor as HTMLTextAreaElement).selectionEnd,
+    );
     expect(
       screen.getByText(/Regeneration replaces direct summary edits too/),
     ).toBeTruthy();
@@ -429,6 +437,122 @@ describe("integrated Memory visible controls and stale-response safety", () => {
     expect(
       screen.getByText("6578 characters · target 6000 · generated text only"),
     ).toBeTruthy();
+  });
+  it("keeps summary draft, selection and scroll when dirty Escape is rejected, then returns focus safely", async () => {
+    const value = populated();
+    const fetcher = await mountMemory(value);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const editButton = screen.getByRole("button", { name: "Edit summary" });
+    editButton.focus();
+    fireEvent.click(editButton);
+    const editor = screen.getByRole("textbox", {
+      name: "Complete generated summary",
+    }) as HTMLTextAreaElement;
+    const draft = "Authored draft\n" + "😀 café ".repeat(1000);
+    fireEvent.change(editor, { target: { value: draft } });
+    editor.setSelectionRange(4, 25);
+    editor.scrollTop = 180;
+    fireEvent.keyDown(editor, { key: "a", metaKey: true });
+    fireEvent.keyDown(editor, { key: "c", metaKey: true });
+    // jsdom proves no interception/mutation, NOT native shortcut behavior.
+    expect(
+      fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
+    ).toHaveLength(0);
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(editor.value).toBe(draft);
+    expect(document.activeElement).toBe(editor);
+    expect(editor.selectionStart).toBe(4);
+    expect(editor.selectionEnd).toBe(25);
+    expect(editor.scrollTop).toBe(180);
+    confirm.mockReturnValue(true);
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "What your trainer remembers" }),
+    );
+  });
+  it("preserves the mounted summary editor, selection, focus and scroll across passive changed observations", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(populated())));
+    const { result } = renderHook(() =>
+      useMemoryFeature({ setStatus: vi.fn() }),
+    );
+    await act(() => result.current.loadMemories(false, "A"));
+    act(() =>
+      result.current.beginMemoryEdit("summary", "Authored multiline\n😀 café"),
+    );
+    const content = () => (
+      <MemoryContent
+        {...result.current}
+        onOpenSource={vi.fn()}
+        runInBackground={vi.fn()}
+      />
+    );
+    const view = render(content());
+    const editor = screen.getByRole("textbox") as HTMLTextAreaElement;
+    editor.setSelectionRange(3, 9);
+    editor.scrollTop = 160;
+    await act(() => result.current.loadMemories(false, "B"));
+    view.rerender(content());
+    expect(screen.getByRole("textbox")).toBe(editor);
+    expect(editor.value).toBe("Authored multiline\n😀 café");
+    expect(document.activeElement).toBe(editor);
+    expect([
+      editor.selectionStart,
+      editor.selectionEnd,
+      editor.scrollTop,
+    ]).toEqual([3, 9, 160]);
+  });
+  it("returns focus to the summary row after delayed successful save reinspection", async () => {
+    const value = populated();
+    let finish!: (value: Response) => void;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(value))
+      .mockResolvedValueOnce(response({ ok: true }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    render(<MemoryHarness />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Edit summary" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save summary" }));
+    await act(async () => {});
+    expect(screen.queryByRole("textbox")).toBeNull();
+    await act(async () => {
+      finish(response(value));
+    });
+    expect(document.activeElement).toBe(
+      document.querySelector('[data-memory-id="summary"]'),
+    );
+  });
+  it("retains a failed summary draft for reinspection without replaying the uncertain save", async () => {
+    const value = populated();
+    const fetcher = await mountMemory(value, () =>
+      response({ error: "stale" }, 409),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Recoverable authored draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save summary" }));
+    await screen.findByText(/Memory change failed or outcome unknown/);
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading" }));
+    const editor = await screen.findByRole("textbox", {
+      name: "Complete generated summary",
+    });
+    expect((editor as HTMLTextAreaElement).value).toBe(
+      "Recoverable authored draft",
+    );
+    expect(
+      fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
+    ).toHaveLength(1);
   });
   it("never lets an old selected-chat response replace the current projection", async () => {
     const waiting: ((response: Response) => void)[] = [];

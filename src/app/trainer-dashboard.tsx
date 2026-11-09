@@ -973,7 +973,7 @@ export function TrainerDashboard() {
             onClick={closeMemoryView}
           />
           <aside
-            className="settings-sheet memory-sheet"
+            className={`settings-sheet memory-sheet${memoryFeature.editingMemoryId === "summary" ? " memory-summary-sheet" : ""}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="memory-sheet-heading"
@@ -981,12 +981,13 @@ export function TrainerDashboard() {
               if (event.key !== "Tab") return;
               const controls = [
                 ...event.currentTarget.querySelectorAll<HTMLElement>(
-                  "button:not(:disabled), textarea:not(:disabled), input:not(:disabled), summary, [tabindex='0']",
+                  "button, textarea, input, summary, [tabindex='0']",
                 ),
               ].filter(
                 (node) =>
-                  !node.closest("details:not([open])") ||
-                  node.tagName === "SUMMARY",
+                  !node.matches(":disabled") &&
+                  (!node.closest("details:not([open])") ||
+                    node.tagName === "SUMMARY"),
               );
               const first = controls[0],
                 last = controls.at(-1);
@@ -1005,7 +1006,11 @@ export function TrainerDashboard() {
           >
             <header className="sheet-header">
               <div>
-                <h2 id="memory-sheet-heading">Memory</h2>
+                <h2 id="memory-sheet-heading">
+                  {memoryFeature.editingMemoryId === "summary"
+                    ? "Edit generated summary"
+                    : "Memory"}
+                </h2>
               </div>
               <button
                 type="button"

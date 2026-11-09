@@ -435,6 +435,8 @@ class OrdinaryRun(Run):
         return result
 
     def scenario(self):
+        # Feature captures can leave a narrow viewport; use visible desktop nav.
+        self.command({'type': 'setViewport', 'preset': 'wide'})
         self.wait(lambda value: value['view'] == 'Trainer', 'Trainer')
         for view in ['Activities', 'Health', 'Training Plan', 'Sync']:
             self.command({'type': 'click', 'target': view})
@@ -585,6 +587,9 @@ def selection_plan(args):
     basis = getattr(args, 'impact_basis', '')
     part = getattr(args, 'summary_part', 'all')
     families = getattr(args, 'summary_family', None)
+    native_copy = getattr(args, 'summary_native_copy', False)
+    if type(native_copy) is not bool or (native_copy and (not args.summary_engine or part == 'presentation')):
+        raise ValueError('Native copy requires explicit summary lifecycle selection')
     if scope not in ('full', 'feature') or impact not in ('local-feature', 'summary-lifecycle', 'summary-presentation', 'shared', 'unknown'):
         raise ValueError('Unknown smoke scope/impact')
     if part not in ('all', 'lifecycle', 'presentation') or (families and (len(set(families)) != len(families) or any(f not in SUMMARY_FAMILIES for f in families))):
@@ -620,6 +625,7 @@ def selection_plan(args):
     return {'scope': scope, 'impact': impact, 'impactBasis': basis, 'instances': count,
             'configurations': configurations, 'selected': selected,
             'omitted': {group: 'not selected; no pass claimed' for group in universe if group not in selected},
+            'summaryNativeCopy': native_copy,
             'summaryPart': part, 'summaryFamilies': list(families or SUMMARY_FAMILIES) if args.summary_engine and part != 'lifecycle' else [],
             'prerequisites': ['current artifact/context/fixture admission at every boot', 'owned observer/preservation/final settlement',
                               'explicit Profile-close setup for composer/conversation', 'fixed family reset to actual inspection'],
@@ -823,7 +829,7 @@ def feature_scenarios(run, args, plan, perform):
         from summary_smoke import scenario, presentation_scenario
         if plan['summaryPart'] != 'presentation':
             def lifecycle():
-                scenario(run, presentation_families=())
+                scenario(run, presentation_families=(), native_copy=getattr(args, 'summary_native_copy', False))
                 deny_previous_boot(run)
             perform('summary-lifecycle', lifecycle)
         for family in plan['summaryFamilies']:
@@ -855,6 +861,7 @@ def main():
     parser.add_argument('--smoke-scope', choices=('full', 'feature'), default='full')
     parser.add_argument('--impact', choices=('local-feature', 'summary-lifecycle', 'summary-presentation', 'shared', 'unknown'), default='unknown')
     parser.add_argument('--impact-basis', default='', help='Reviewed task-local impact rationale, not automatic classification or permission')
+    parser.add_argument('--summary-native-copy', action='store_true', help='Opt-in real owned summary selectAll:/copy: equality; replaces clipboard with fixed synthetic text, no global input')
     parser.add_argument('--summary-part', choices=('all', 'lifecycle', 'presentation'), default='all')
     parser.add_argument('--summary-family', choices=SUMMARY_FAMILIES, action='append', help='Finite presentation families; default all')
     args = parser.parse_args()
