@@ -11,6 +11,7 @@ import {
   formatSyncCounts,
   formatSyncOutcome,
   formatSyncRunStatus,
+  formatSyncWork,
   syncFailureSummary,
 } from "./sync-presentation";
 
@@ -116,19 +117,46 @@ export function SyncView({
   const history = importSummary?.sync?.historical;
   const active =
     isSyncing || (summaryKnown !== false && importSummary?.syncActive === true);
+  const operation = importSummary?.sync?.operation;
+  const operationInvalid =
+    summaryKnown !== false && importSummary?.sync?.operationInvalid;
+  const workSummary = operationInvalid
+    ? "Saved sync state needs recovery. Preserve it; do not reset or replay."
+    : (syncRun.workSummary ??
+      (summaryKnown !== false && operation
+        ? formatSyncWork({
+            ...operation,
+            detailsRemaining:
+              importSummary?.sync?.detailsRemaining ??
+              operation.detailsRemaining,
+          })
+        : undefined));
   const currentMessage = active
-    ? "Syncing…"
-    : syncRun.kind !== "idle"
-      ? formatSyncRunStatus(syncRun)
-      : summaryKnown === false
-        ? "Status unavailable. Refresh import summary before syncing."
-        : latest
-          ? formatSyncOutcome("Latest refresh", latest.outcome)
-          : "Ready to refresh recent data.";
+    ? isSyncing
+      ? (syncRun.phase ?? "Syncing…")
+      : "Syncing…"
+    : operationInvalid
+      ? "Sync outcome unknown. Refresh import summary."
+      : syncRun.kind !== "idle"
+        ? formatSyncRunStatus(syncRun)
+        : summaryKnown === false
+          ? "Status unavailable. Refresh import summary before syncing."
+          : operation
+            ? formatSyncOutcome(
+                operation.intent === "latest"
+                  ? "Latest refresh"
+                  : operation.intent === "history"
+                    ? "Historical import"
+                    : "Sync",
+                operation.outcome,
+              )
+            : latest
+              ? formatSyncOutcome("Latest refresh", latest.outcome)
+              : "Ready to refresh recent data.";
   const countSummary =
     syncRun.kind === "idle"
-      ? summaryKnown !== false && latest
-        ? formatSyncCounts(latest)
+      ? summaryKnown !== false && (operation || latest)
+        ? formatSyncCounts(operation ?? latest!)
         : undefined
       : syncRun.countSummary;
   return (
@@ -171,7 +199,10 @@ export function SyncView({
               className="primary-action"
               onClick={() => runInBackground(syncNow("latest"))}
               disabled={
-                isSyncing || importSummary?.syncActive || summaryKnown === false
+                isSyncing ||
+                importSummary?.syncActive ||
+                importSummary?.sync?.operationInvalid ||
+                summaryKnown === false
               }
               aria-label="Sync now — import latest Garmin data"
             >
@@ -181,7 +212,11 @@ export function SyncView({
             importSummary?.sync?.historical.state === "available" ? (
               <button
                 type="button"
-                disabled={isSyncing || importSummary.syncActive}
+                disabled={
+                  isSyncing ||
+                  importSummary.syncActive ||
+                  importSummary.sync?.operationInvalid
+                }
                 onClick={() => runInBackground(syncNow("history"))}
               >
                 {importSummary.sync.historical.action === "start"
@@ -226,6 +261,20 @@ export function SyncView({
           ) : null}
           {countSummary && (!active || isSyncing) ? (
             <p className="helper-text sync-counts">{countSummary}</p>
+          ) : null}
+          {!active && workSummary ? (
+            <p className="sync-history-warning sync-work-status">
+              {workSummary}
+            </p>
+          ) : null}
+          {!active &&
+          summaryKnown !== false &&
+          (importSummary?.sync?.detailsRemaining ?? 0) > 0 ? (
+            <p className="helper-text sync-pending-details">
+              {importSummary?.sync?.detailsRemaining} known activity details
+              remain.
+              {!workSummary ? " Sync latest to fetch pending details." : ""}
+            </p>
           ) : null}
           {history?.state === "blocked" ? (
             <p className="sync-history-status sync-history-warning">

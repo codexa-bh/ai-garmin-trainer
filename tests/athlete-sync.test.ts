@@ -144,9 +144,13 @@ describe("Garmin sync athlete baseline stage", () => {
     const result = await runGarminSync((event) => messages.push(event.message));
 
     expect(result.status).toBe("completed");
-    expect(messages).toContain(
-      "Refreshing missing activity detail 1/1: 123456…",
-    );
+    expect(messages).toContain("Fetching pending activity details…");
+    expect(result).toMatchObject({
+      detailsAttempted: 1,
+      detailsProcessed: 1,
+      detailsRemaining: 0,
+    });
+    expect(messages.join("\n")).not.toContain("1/1");
     expect(messages.join("\n")).not.toContain("Backfilling activity detail");
   });
 

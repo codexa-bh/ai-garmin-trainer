@@ -31,6 +31,10 @@ export type GarminSyncResult = {
   activitiesProcessed: number;
   healthDaysRefreshed: number;
   detailsProcessed: number;
+  detailsAttempted: number;
+  detailsFailed: number;
+  detailsRemaining: number;
+  stopReason: import("./sync-policy").SyncStopReason | null;
   effortDetailsProcessed: number;
   storedActivities: number;
   storedHealthRows: number;
@@ -53,11 +57,17 @@ type GarminSyncProgress = {
     | "health"
     | "detail"
     | "completed"
+    | "cancelled"
+    | "budget-limited"
     | "failed";
   message: string;
   activitiesImported: number;
   healthDaysImported: number;
   detailsProcessed?: number;
+  detailsAttempted?: number;
+  detailsFailed?: number;
+  detailsRemaining?: number;
+  stopReason?: import("./sync-policy").SyncStopReason | null;
   detailTotal?: number;
   page?: number;
   date?: string;

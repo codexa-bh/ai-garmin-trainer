@@ -130,7 +130,7 @@ class HistoryTokenContracts(unittest.TestCase):
     def test_latest_only_checks_checkpoint_identity_and_never_retries_a_mutation(self):
         from types import SimpleNamespace
         from unittest.mock import Mock
-        before = {'active':False, 'historicalState':'complete'}
+        before = {'active':False, 'historicalState':'complete', 'detailsRemaining':0}
         after = {**before, 'latestOutcome':'settled'}
         for digest, success in [('same', True), ('changed', False)]:
             run = SimpleNamespace(summary=Mock(side_effect=[before, after]), history_digest=Mock(side_effect=['same', digest]),
@@ -142,6 +142,22 @@ class HistoryTokenContracts(unittest.TestCase):
                     HistoryRun.latest_only(run)
             self.assertEqual(run.command.call_args_list[0].args[0], {'type':'sync','action':'start'})
             self.assertEqual(run.command.call_count, 1)
+
+    def test_multi_detail_progress_requires_actual_owned_progress_without_replay(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        before = {'active':False, 'historicalState':'complete', 'detailsRemaining':3}
+        after = {**before, 'latestOutcome':'settled', 'detailsRemaining':0}
+        for middle, succeeds in [({'active':True, 'detailsProcessed':1}, True), ({'active':False}, False)]:
+            run = SimpleNamespace(summary=Mock(side_effect=[before, middle, after]), history_digest=Mock(return_value='same'),
+                command=Mock(return_value={'ok':True}), wait_sync=Mock(), settle_claim=Mock(), sync_captures=[])
+            if succeeds:
+                HistoryRun.latest_only(run)
+                self.assertEqual(len(run.sync_captures), 2)
+            else:
+                with self.assertRaisesRegex(ValueError, 'no replay'):
+                    HistoryRun.latest_only(run)
+            self.assertEqual(sum(call.args[0].get('action') == 'start' for call in run.command.call_args_list), 1)
 
     def test_backend_latest_uses_one_actual_owned_post_and_requires_settlement(self):
         from types import SimpleNamespace

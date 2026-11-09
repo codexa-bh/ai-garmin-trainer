@@ -64,12 +64,21 @@ def reply(message):
     elif name == 'get_body_battery':
         value = []
     elif name == 'get_activities_by_date':
-        value = {'activities': [], 'has_more': False}
+        # Three stable authored IDs per selected window, including windows only
+        # discovered later in the same historical operation. Never private input.
+        value = {'activities': [
+            {'activityId': '8309' + args['start_date'].replace('-', '') + str(index),
+             'activityType': 'running', 'startTimeLocal': args['start_date'] + 'T12:00:00Z'}
+            for index in range(3)] if args['page'] == 0 else [], 'has_more': False}
     elif name == 'get_activity':
         value = []
     elif name == 'get_activity_fit_data':
-        # Prevent every real FIT fallback, including the baseline helper.
-        value = {'zones_target': {}, 'records': []}
+        # Supply every FIT supplement field; the baseline's records=False path
+        # keeps its empty zones target. No real FIT helper/service can be needed.
+        value = {'zones_target': {}, 'records': [
+            {'timestamp': '2026-01-01T12:00:00Z', 'heart_rate_bpm': 140,
+             'altitude_meters': 10, 'distance_meters': 0, 'speed_mps': 2}
+        ] if args['include_records'] else []}
     elif name == 'get_weekly_steps':
         value = {'end_date': args['end_date'], 'weeks_requested': args['weeks'], 'weeks_returned': 0, 'weekly_data': []}
     else:

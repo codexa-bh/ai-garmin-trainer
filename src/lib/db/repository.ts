@@ -1304,8 +1304,11 @@ export function getActivityDetailAttempt(
     : null;
 }
 
-export function listActivityIdsNeedingDetail(limit = 500): string[] {
-  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 5000);
+// No default ceiling: Sync drains every eligible known activity. Explicit
+// maintenance selections retain their bounded behavior.
+export function listActivityIdsNeedingDetail(limit?: number): string[] {
+  const safeLimit =
+    limit === undefined ? -1 : Math.min(Math.max(Math.trunc(limit), 1), 5000);
   const rows = getDatabase()
     .prepare(
       `select a.garmin_id as garminId

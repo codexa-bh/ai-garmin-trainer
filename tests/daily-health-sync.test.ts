@@ -221,7 +221,11 @@ describe("Garmin daily health adaptive freshness", () => {
 
     const result = await runGarminSync();
 
-    expect(result.status).toBe("completed");
+    expect(result).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+      continuationAvailable: true,
+    });
     expect(result.healthDaysImported).toBe(14);
     expect(
       getDatabase()
@@ -230,7 +234,7 @@ describe("Garmin daily health adaptive freshness", () => {
         )
         .get(),
     ).toMatchObject({
-      status: "completed",
+      status: "budget-limited",
       coverageStart: "2026-07-10",
       coverageEnd: "2026-07-23",
     });
@@ -270,7 +274,11 @@ describe("Garmin daily health adaptive freshness", () => {
 
     const result = await runGarminSync();
 
-    expect(result.status).toBe("completed");
+    expect(result).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+      continuationAvailable: true,
+    });
     expect(result.healthDaysImported).toBe(14);
     expect(fetchedHealthDates("get_stats")).toEqual(
       dateRange("2026-07-10", "2026-07-23").reverse(),
@@ -324,7 +332,11 @@ describe("Garmin daily health adaptive freshness", () => {
 
     const result = await runGarminSync();
 
-    expect(result.status).toBe("completed");
+    expect(result).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+      continuationAvailable: true,
+    });
     expect(result.healthDaysImported).toBe(14);
     expect(fetchedHealthDates("get_stats")).toEqual(
       dateRange("2026-07-10", "2026-07-23").reverse(),
@@ -371,7 +383,11 @@ describe("Garmin daily health adaptive freshness", () => {
 
     const result = await runGarminSync();
 
-    expect(result.status).toBe("completed");
+    expect(result).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+      continuationAvailable: true,
+    });
     expect(result.healthDaysImported).toBe(14);
     expect(fetchedHealthDates("get_stats")).not.toContain("2026-07-05");
     expect(
@@ -418,7 +434,11 @@ describe("Garmin daily health adaptive freshness", () => {
 
     const result = await runGarminSync();
 
-    expect(result.status).toBe("completed");
+    expect(result).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+      continuationAvailable: true,
+    });
     expect(result.healthDaysImported).toBe(14);
     expect(fetchedHealthDates("get_stats")).toEqual(
       dateRange("2026-07-10", "2026-07-23").reverse(),
@@ -467,7 +487,11 @@ describe("Garmin daily health adaptive freshness", () => {
 
     const result = await runGarminSync();
 
-    expect(result.status).toBe("completed");
+    expect(result).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+      continuationAvailable: true,
+    });
     expect(result.healthDaysImported).toBe(15);
     expect(fetchedHealthDates("get_stats")).toContain("2026-07-03");
     expect(fetchedHealthDates("get_stats")).not.toContain("2026-07-04");
@@ -515,7 +539,11 @@ describe("Garmin daily health adaptive freshness", () => {
 
     const result = await runGarminSync();
 
-    expect(result.status).toBe("completed");
+    expect(result).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+      continuationAvailable: true,
+    });
     expect(result.healthDaysImported).toBe(15);
     expect(fetchedHealthDates("get_stats")).toContain("2026-07-05");
     expect(
