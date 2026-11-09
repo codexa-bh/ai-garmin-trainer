@@ -23,6 +23,7 @@ import {
   releaseDatabaseWritersForProcessExit,
 } from "../src/lib/db/writer-ownership";
 import { migrateDatabase } from "../src/lib/db/migrations";
+import { SUMMARY_DEADLINE_MS } from "../src/lib/memory/summary-policy";
 
 const directories: string[] = [];
 const releases: Array<() => void> = [];
@@ -38,6 +39,17 @@ afterEach(() => {
 });
 
 describe("desktop reference boundary", () => {
+  it("derives the summary launcher timeout from the 300-second deadline plus its margin", () => {
+    const runtime = readFileSync(
+      join(process.cwd(), "scripts/desktop/runtime.ts"),
+      "utf8",
+    );
+    expect(SUMMARY_DEADLINE_MS).toBe(300_000);
+    expect(SUMMARY_DEADLINE_MS + 2000).toBe(302_000);
+    expect(runtime).toMatch(
+      /signal: AbortSignal\.timeout\(SUMMARY_DEADLINE_MS \+ 2000\)/,
+    );
+  });
   it("keeps production route/image caches out of immutable resources", () => {
     const original = {
       experimental: { isrFlushToDisk: true },
