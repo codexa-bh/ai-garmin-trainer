@@ -76,6 +76,42 @@ it("admits only the fixed whole-summary editor action and refuses private genera
   );
   expect(click).toHaveBeenCalledOnce();
 });
+it("admits only canonical disclosure states and refuses extra fields or private text", async () => {
+  const panel = document.querySelector(".memory-root-card")!;
+  const section = document.createElement("section");
+  section.setAttribute("aria-label", "Generated summary");
+  section.innerHTML =
+    '<button aria-expanded="false" aria-controls="fixed-summary">Show summary</button><p id="fixed-summary" class="memory-text" hidden>No generated summary yet. Update from chat history to build one.</p>';
+  panel.append(section);
+  const button = section.querySelector("button")!;
+  const text = section.querySelector("p")!;
+  button.addEventListener("click", () => {
+    const expanding = button.getAttribute("aria-expanded") === "false";
+    button.setAttribute("aria-expanded", String(expanding));
+    button.textContent = expanding ? "Hide summary" : "Show summary";
+    text.hidden = !expanding;
+  });
+  expect(
+    (await command({ type: "memory", action: "summary-collapsed" })).ok,
+  ).toBe(true);
+  expect(
+    (await command({ type: "memory", action: "summary-show", text: "private" }))
+      .ok,
+  ).toBe(false);
+  expect((await command({ type: "memory", action: "summary-show" })).ok).toBe(
+    true,
+  );
+  expect(
+    (await command({ type: "memory", action: "summary-expanded" })).ok,
+  ).toBe(true);
+  expect((await command({ type: "memory", action: "summary-hide" })).ok).toBe(
+    true,
+  );
+  text.textContent = "private";
+  expect((await command({ type: "memory", action: "summary-show" })).ok).toBe(
+    false,
+  );
+});
 it("returns closed booleans, uses only fixed run draft and preserves exact confirmation ownership", async () => {
   expect(await command({ type: "memory", action: "observe" })).toEqual({
     ok: true,
@@ -595,6 +631,8 @@ it.each([
     render(
       React.createElement(MemoryContent, {
         memory: dto,
+        summaryExpanded: false,
+        setSummaryExpanded: vi.fn(),
         densifyReview: null,
         densifyMemory: vi.fn(),
         memoryMessage: "",

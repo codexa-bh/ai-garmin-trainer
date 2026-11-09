@@ -90,6 +90,7 @@ export function useMemoryFeature({
   onChangeCommitted?: (conversationId: string | null) => Promise<void>;
 }) {
   const [memory, setMemory] = useState<SummaryInspection | null>(null);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [memoryMessage, setMemoryMessage] = useState(
     "Memory has not been inspected.",
   );
@@ -518,6 +519,8 @@ export function useMemoryFeature({
   }
   return {
     memory,
+    summaryExpanded,
+    setSummaryExpanded,
     densifyReview,
     densifyMemory,
     memoryMessage,

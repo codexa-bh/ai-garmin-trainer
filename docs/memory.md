@@ -40,7 +40,9 @@ or provider-probing API and has no automatic UI replacement.
 
 Trainer **Memory** shows:
 
-- **Generated summary**: one complete text, its generated-only character count,
+- **Generated summary**: one complete text and its generated-only character count.
+  **Show summary** reveals the saved text; **Hide summary** collapses it again.
+  The choice lasts while the app runs and resets to collapsed on restart.
   **Edit summary** opens a full-current-window, labelled complete-text editor.
   Long text scrolls inside the editor; **Save summary** / **Cancel edit** stay visible.
   The native **Edit** menu supplies standard macOS selection/copy and editing commands
