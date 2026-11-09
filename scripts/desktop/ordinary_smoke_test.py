@@ -545,6 +545,22 @@ class OrdinaryContracts(unittest.TestCase):
         runs[0].conversation_scenario.assert_not_called(); runs[0].stop.assert_called_once()
         self.assertIn('AssertionError', receipt['scenarioFailure'])
 
+    def test_native_copy_opt_in_reaches_both_full_and_feature_lifecycle_dispatch(self):
+        for scope in ('full', 'feature'):
+            for enabled in (False, True):
+                args = self.selection_args(summary_engine=True, summary_part='lifecycle', smoke_scope=scope,
+                                           impact='summary-lifecycle', impact_basis='reviewed', summary_native_copy=enabled)
+                # Isolate option forwarding; the mocked lifecycle does not boot.
+                # Real fresh-boot denial remains independently covered above.
+                with patch('ordinary_smoke.deny_previous_boot') as deny:
+                    runs, receipt, _, _, _, lifecycle, _ = self.orchestration(args)
+                count = 2 if scope == 'full' else 1
+                self.assertEqual(deny.call_count, 1 if scope == 'feature' else 0)
+                self.assertTrue(receipt['scenarioPassed'])
+                self.assertEqual(lifecycle.call_count, count)
+                for run in runs[:count]:
+                    lifecycle.assert_any_call(run, presentation_families=(), native_copy=enabled)
+
     def test_summary_parts_dispatch_actual_lifecycle_and_only_named_presentations(self):
         args = self.selection_args(summary_engine=True, summary_part='presentation', summary_family=['densify'])
         _, receipt, _, _, _, lifecycle, presentations = self.orchestration(args)

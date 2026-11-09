@@ -957,7 +957,7 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
             if args.summary_engine and not scenarios:
                 from summary_smoke import scenario as summary_scenario, presentation_scenario
                 if 'summary-lifecycle' in plan['selected']:
-                    perform('summary-lifecycle', lambda: summary_scenario(run, presentation_families=()))
+                    perform('summary-lifecycle', lambda: summary_scenario(run, presentation_families=(), native_copy=getattr(args, 'summary_native_copy', False)))
                 for family in plan['summaryFamilies']:
                     perform('summary-' + family, lambda family=family: presentation_scenario(run, (family,)))
             perform('security', lambda: security(run, other))
