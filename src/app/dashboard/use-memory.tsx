@@ -223,8 +223,16 @@ export function useMemoryFeature({
     },
     [setStatus],
   );
+  // Pending is an observation cue, not evidence that generation is running.
+  // Blocking/unknown reasons need explicit recovery, never an automatic Retry.
+  const observeOrdinary =
+    !!memory?.enabled &&
+    memory.pending > 0 &&
+    memory.reason === null &&
+    ["never-produced", "stale", "fresh"].includes(memory.state);
   useEffect(() => {
     if (
+      !observeOrdinary &&
       memory?.rebuild?.operation?.state !== "active" &&
       !isMemoryReadUnavailable &&
       !memory?.historical.manifests.some((m) => m.state === "active")
@@ -236,6 +244,7 @@ export function useMemoryFeature({
     }, 2000);
     return () => clearInterval(timer);
   }, [
+    observeOrdinary,
     memory?.rebuild?.operation?.state,
     memory?.historical.manifests,
     isMemoryReadUnavailable,

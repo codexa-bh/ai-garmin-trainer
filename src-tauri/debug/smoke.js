@@ -391,6 +391,9 @@
     "Could poles help? We discussed them, but I have not decided to use them. This is an open question, not a preference or commitment.",
     "Last winter only: evening sessions were convenient. That past arrangement does not describe my current schedule. Keep the historical scope and do not turn it into an ongoing preference.",
   ];
+  function ordinaryFixture() {
+    return !!memoryFixture?.startsWith("fixture-ordinary");
+  }
   function memoryFixtureValue() {
     const preferences = [
       { id: "fixture_preference", text: "Keep explanations concise." },
@@ -409,7 +412,20 @@
             ? "cancelled"
             : null;
     const off = memoryFixture === "fixture-off";
-    const empty = memoryFixture === "fixture-empty";
+    const ordinary = ordinaryFixture();
+    const ordinaryTerminal = ordinary && progressiveRead >= 7;
+    const ordinaryReason = !ordinaryTerminal
+      ? null
+      : memoryFixture === "fixture-ordinary-failed"
+        ? "summary_provider_failure"
+        : memoryFixture === "fixture-ordinary-interrupted"
+          ? "summary_interrupted"
+          : null;
+    const empty =
+      memoryFixture === "fixture-empty" ||
+      (memoryFixture === "fixture-ordinary" && progressiveRead < 3);
+    const revision =
+      ordinary && progressiveRead >= 3 ? (ordinaryTerminal ? 5 : 4) : 3;
     const selectedChat = memoryReviewSelection.conversationIds !== null;
     const included = selectedChat
       ? memoryReviewSelection.includeLegacy
@@ -420,12 +436,29 @@
         : 16;
     return {
       version: 1,
-      state: off ? "disabled" : "fresh",
+      state: off
+        ? "disabled"
+        : empty && ordinary
+          ? "never-produced"
+          : ordinary && (!ordinaryTerminal || ordinaryReason)
+            ? "stale"
+            : "fresh",
       reason:
-        memoryFixture === "fixture-error" ? "summary_invalid_output" : null,
-      revision: 3,
-      frontier: 4,
-      pending: 0,
+        ordinaryReason ??
+        (memoryFixture === "fixture-error" ? "summary_invalid_output" : null),
+      revision,
+      frontier: ordinary ? (revision === 3 ? 4 : revision === 4 ? 24 : 45) : 4,
+      pending: ordinary
+        ? ordinaryTerminal
+          ? ordinaryReason
+            ? 1
+            : 0
+          : progressiveRead < 3
+            ? 41
+            : progressiveRead < 6
+              ? 21
+              : 1
+        : 0,
       items: empty ? 0 : 1,
       characters: memoryFixture?.startsWith("fixture-densify-")
         ? memoryFixture === "fixture-densify-accepted"
@@ -445,7 +478,7 @@
       estimatedUsdToday: 0.002,
       unknownReservedUsd: 0.01,
       priceBasis: "authored-presentation-only",
-      expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
+      expected: { revision, privacy: 0, control: 1, manual: 0 },
       stored: {
         version: 2,
         text: memoryFixture?.startsWith("fixture-densify-")
@@ -637,6 +670,7 @@
               const s = command.selection;
               if (
                 init?.method !== "POST" ||
+                ordinaryFixture() ||
                 ["fixture-unknown", "fixture-progressive"].includes(
                   memoryFixture,
                 ) ||
@@ -676,10 +710,12 @@
               );
             }
           }
-          if (memoryFixture === "fixture-progressive") progressiveRead++;
+          if (memoryFixture === "fixture-progressive" || ordinaryFixture())
+            progressiveRead++;
           const unavailable =
             memoryFixture === "fixture-unknown" ||
-            (memoryFixture === "fixture-progressive" && progressiveRead === 5);
+            ((memoryFixture === "fixture-progressive" || ordinaryFixture()) &&
+              progressiveRead === 5);
           return Promise.resolve(
             new Response(
               JSON.stringify(
@@ -814,6 +850,48 @@
         progressiveConnection ||= state === "unreadable";
       }
     }
+    if (ordinaryFixture() && panel) {
+      const refresh = buttons.find((b) =>
+        ["Refresh", "Retry connection"].includes(name(b)),
+      );
+      const scroller =
+        panel.closest(".memory-sheet-groups") ||
+        panel.closest(".settings-sheet");
+      const pending = panel.textContent.includes(
+        "Recent conversation updates pending",
+      );
+      if (!progressiveSample && pending && refresh && scroller) {
+        refresh.focus({ preventScroll: true });
+        progressiveSample = {
+          panel,
+          refresh,
+          scroller,
+          scroll: scroller.scrollTop,
+        };
+      }
+      if (progressiveSample) {
+        const s = progressiveSample;
+        progressiveStable &&=
+          s.panel === panel &&
+          s.scroller.scrollTop === s.scroll &&
+          !panel.textContent.includes("Checking saved memory…");
+        // Connection loss changes the Refresh control; sample focus only while
+        // the original ordinary observation control is still mounted.
+        if (s.refresh.isConnected)
+          progressiveStable &&= document.activeElement === s.refresh;
+        progressiveAdvanced ||=
+          progressiveRead >= 3 &&
+          pending &&
+          generated?.textContent === presentationText.join("\n");
+        progressiveConnection ||= panel.textContent.includes("Connection lost");
+      }
+    }
+    const ordinaryTerminalText =
+      memoryFixture === "fixture-ordinary-failed"
+        ? "The provider could not finish a memory update."
+        : memoryFixture === "fixture-ordinary-interrupted"
+          ? "An update was interrupted. Its cost may be unknown."
+          : "Saved memory available";
     return {
       ok: true,
       action,
@@ -836,8 +914,12 @@
           panel?.getAttribute("data-memory-chat-ready") === "true"),
       presentationFixture: memoryFixture !== null || memoryFixtureRestoring,
       progressiveComplete:
-        memoryFixture === "fixture-progressive" &&
-        state === "complete" &&
+        ((memoryFixture === "fixture-progressive" && state === "complete") ||
+          (ordinaryFixture() &&
+            progressiveRead >= 7 &&
+            panel?.textContent.includes(ordinaryTerminalText) &&
+            !panel?.textContent.includes("Connection lost") &&
+            generated?.textContent === presentationText.join("\n"))) &&
         progressiveAdvanced &&
         progressiveConnection &&
         progressiveStable,
@@ -913,6 +995,9 @@
         "fixture-history",
         "fixture-running",
         "fixture-progressive",
+        "fixture-ordinary",
+        "fixture-ordinary-failed",
+        "fixture-ordinary-interrupted",
         "fixture-complete",
         "fixture-interrupted",
         "fixture-failed",
@@ -1358,6 +1443,14 @@
             ...presentationText,
             "On · Saved memory available",
             "On · The update could not be safely saved.",
+            ...(ordinaryFixture()
+              ? [
+                  "On · Recent conversation updates pending",
+                  "On · The provider could not finish a memory update.",
+                  "On · An update was interrupted. Its cost may be unknown.",
+                  "Retry summary processing",
+                ]
+              : []),
             ...Array.from(
               { length: 12 },
               (_, i) => `Authored conversation ${i + 1}`,

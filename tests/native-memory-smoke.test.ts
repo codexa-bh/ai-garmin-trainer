@@ -343,6 +343,89 @@ it("admits only fixed presentation snapshots, blocks all Memory POSTs locally an
     (await command({ type: "memory", action: "fixture-populated" })).ok,
   ).toBe(false);
 });
+function MemoryFixtureHarness() {
+  const [, setStatus] = React.useState<Status>({ kind: "ok", message: "" });
+  const feature = useMemoryFeature({ setStatus });
+  const { loadMemories } = feature;
+  React.useEffect(() => {
+    loadMemories(false).catch(() => {
+      throw new Error("Test load failed");
+    });
+  }, [loadMemories]);
+  return React.createElement(MemoryContent, {
+    ...feature,
+    onOpenSource: vi.fn(),
+    runInBackground: (work) => {
+      work.catch(() => {
+        throw new Error("Test action failed");
+      });
+    },
+  });
+}
+it.each([
+  "fixture-ordinary",
+  "fixture-ordinary-failed",
+  "fixture-ordinary-interrupted",
+])(
+  "proves automatic ordinary temporal DOM reconciliation and no mutation for %s",
+  async (fixture) => {
+    vi.useFakeTimers();
+    document.querySelector("textarea")!.remove();
+    const original = vi.fn();
+    vi.stubGlobal("fetch", original);
+    expect(
+      (await command({ type: "memory", action: fixture, text: "private" })).ok,
+    ).toBe(false);
+    delete window.__trainerOrdinaryIsolated;
+    expect((await command({ type: "memory", action: fixture })).ok).toBe(false);
+    window.__trainerOrdinaryIsolated = { runId: "unit" };
+    expect((await command({ type: "memory", action: fixture })).ok).toBe(true);
+    const aside = document.querySelector("aside")!;
+    aside.replaceChildren();
+    await act(async () => {
+      render(React.createElement(MemoryFixtureHarness), { container: aside });
+    });
+    expect(
+      screen.getByText(/Recent conversation updates pending/),
+    ).toBeTruthy();
+    expect(
+      (await command({ type: "memory", action: "observe" }))
+        .progressiveComplete,
+    ).toBe(false);
+    for (const action of ["retry", "save", "confirm", "disable"]) {
+      expect((await command({ type: "memory", action })).ok).toBe(false);
+    }
+    await expect(
+      fetch("/api/cross-chat-summary", {
+        method: "POST",
+        body: JSON.stringify({ version: 2, action: "retry" }),
+      }),
+    ).rejects.toThrow(/cannot mutate/);
+    for (let tick = 0; tick < 6; tick++) {
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      const observed = await command({ type: "memory", action: "observe" });
+      expect(observed.progressiveComplete).toBe(tick === 5);
+      if (tick === 3) expect(screen.getByText(/Connection lost/)).toBeTruthy();
+    }
+    const terminal =
+      fixture === "fixture-ordinary"
+        ? /Saved memory available/
+        : fixture === "fixture-ordinary-failed"
+          ? /provider could not finish/
+          : /update was interrupted/;
+    expect(screen.getByText(terminal)).toBeTruthy();
+    expect(
+      screen.queryByText(/Recent conversation updates pending|Connection lost/),
+    ).toBeNull();
+    const fetcher = vi.spyOn(globalThis, "fetch");
+    await act(() => vi.advanceTimersByTimeAsync(6000));
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(original).not.toHaveBeenCalled();
+    // Ordinary expiry uses the same unconditional reset owner, never a new timer.
+    await act(() => vi.advanceTimersByTimeAsync(120000));
+    expect(fetch).toBe(original);
+  },
+);
 it("binds the finite progressive response sequence to actual production hook observations and refuses mutation/extra input", async () => {
   vi.useFakeTimers();
   document.querySelector("textarea")!.remove();
@@ -361,29 +444,10 @@ it("binds the finite progressive response sequence to actual production hook obs
   expect(
     (await command({ type: "memory", action: "fixture-progressive" })).ok,
   ).toBe(true);
-  function Harness() {
-    const [, setStatus] = React.useState<Status>({ kind: "ok", message: "" });
-    const feature = useMemoryFeature({ setStatus });
-    const { loadMemories } = feature;
-    React.useEffect(() => {
-      loadMemories(false).catch(() => {
-        throw new Error("Test load failed");
-      });
-    }, [loadMemories]);
-    return React.createElement(MemoryContent, {
-      ...feature,
-      onOpenSource: vi.fn(),
-      runInBackground: (work) => {
-        work.catch(() => {
-          throw new Error("Test action failed");
-        });
-      },
-    });
-  }
   const aside = document.querySelector("aside")!;
   aside.replaceChildren();
   await act(async () => {
-    render(React.createElement(Harness), { container: aside });
+    render(React.createElement(MemoryFixtureHarness), { container: aside });
   });
   fireEvent.click(
     screen.getByRole("button", { name: /Update from chat history/ }),
