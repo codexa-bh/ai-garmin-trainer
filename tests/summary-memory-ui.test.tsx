@@ -229,6 +229,292 @@ describe("generated summary disclosure", () => {
   });
 });
 
+describe("ordinary Memory observation", () => {
+  function pending(first = false): SummaryInspection {
+    return {
+      ...(first ? snapshot() : populated()),
+      state: first ? "never-produced" : "stale",
+      pending: 41,
+    };
+  }
+  function settled(): SummaryInspection {
+    return {
+      ...populated(),
+      revision: 6,
+      frontier: 45,
+      expected: { ...snapshot().expected, revision: 6 },
+      stored: { version: 2, text: "Complete newly saved ordinary memory." },
+    };
+  }
+  it.each([false, true])(
+    "observes slow ordinary work through unchanged and partial batches to settlement (first=%s)",
+    async (first) => {
+      vi.useFakeTimers();
+      const value = pending(first);
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce(response(value))
+        .mockResolvedValueOnce(response(value))
+        .mockResolvedValueOnce(response(value))
+        .mockResolvedValueOnce(
+          response({ ...value, revision: 4, frontier: 24, pending: 21 }),
+        )
+        // A new arrival means that even another published revision is not done.
+        .mockResolvedValueOnce(
+          response({ ...value, revision: 5, frontier: 44, pending: 2 }),
+        )
+        .mockResolvedValueOnce(response(settled()));
+      vi.stubGlobal("fetch", fetcher);
+      const setStatus = vi.fn();
+      const { result } = renderHook(() => useMemoryFeature({ setStatus }));
+      await act(() => result.current.loadMemories(false, "A"));
+      for (const count of [41, 41, 21, 2, 0]) {
+        await act(() => vi.advanceTimersByTimeAsync(2000));
+        expect(result.current.memory?.pending).toBe(count);
+      }
+      expect(result.current.memory?.stored.text).toBe(settled().stored.text);
+      expect(result.current.memory?.revision).toBe(6);
+      expect(result.current.memory?.frontier).toBe(45);
+      await act(() => vi.advanceTimersByTimeAsync(10000));
+      expect(fetcher).toHaveBeenCalledTimes(6);
+      expect(setStatus).not.toHaveBeenCalled();
+      for (const [url, init] of fetcher.mock.calls) {
+        expect(url).toBe(
+          "/api/cross-chat-summary?view=content&conversationId=A",
+        );
+        expect(init).toEqual({ cache: "no-store" });
+      }
+    },
+  );
+  it.each([
+    null,
+    "summary_provider_failure",
+    "summary_interrupted",
+    "summary_invalid_output",
+  ])(
+    "dispatches explicit Retry once, then passively reconciles its delayed outcome %s",
+    async (reason) => {
+      vi.useFakeTimers();
+      const failed = { ...pending(), reason: "summary_provider_failure" };
+      const terminal = reason ? { ...pending(), reason } : settled();
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce(response(failed))
+        .mockResolvedValueOnce(response({ ok: true }))
+        .mockResolvedValueOnce(response(pending()))
+        .mockResolvedValueOnce(response(pending()))
+        .mockResolvedValueOnce(response(terminal));
+      vi.stubGlobal("fetch", fetcher);
+      const setStatus = vi.fn();
+      const committed = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useMemoryFeature({ setStatus, onChangeCommitted: committed }),
+      );
+      await act(() => result.current.loadMemories(false));
+      await act(() => result.current.changeMemory({ action: "retry" }));
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      expect(result.current.memory?.pending).toBe(41);
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      expect(result.current.memory?.reason).toBe(reason);
+      if (!reason) expect(result.current.memory?.pending).toBe(0);
+      await act(() => vi.advanceTimersByTimeAsync(10000));
+      expect(fetcher).toHaveBeenCalledTimes(5);
+      const posts = fetcher.mock.calls.filter(
+        (call) => call[1]?.method === "POST",
+      );
+      expect(posts).toHaveLength(1);
+      expect(JSON.parse(String(posts[0][1].body))).toEqual({
+        version: 2,
+        expected: failed.expected,
+        action: "retry",
+      });
+      expect(committed).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each([
+    { enabled: false, state: "disabled" as const },
+    { state: "unselected" as const },
+    { state: "unavailable" as const },
+    { reason: "summary_missing_key" },
+    { reason: "summary_provider_failure" },
+    { reason: "summary_interrupted" },
+    { reason: "summary_invalid_output" },
+    { reason: "summary_configuration_changed" },
+    { reason: "unknown_future_reason" },
+    { pending: 0 },
+  ])("does not poll blocked or idle ordinary state %j", async (overrides) => {
+    vi.useFakeTimers();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(response({ ...pending(), ...overrides }));
+    vi.stubGlobal("fetch", fetcher);
+    const setStatus = vi.fn();
+    const { result } = renderHook(() => useMemoryFeature({ setStatus }));
+    await act(() => result.current.loadMemories(false));
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("retains independent historical observation despite an ordinary failure", async () => {
+    vi.useFakeTimers();
+    const value = {
+      ...pending(),
+      reason: "summary_provider_failure",
+      historical: {
+        ...snapshot().historical,
+        manifests: [{ id: "import", state: "active", position: 0, total: 20 }],
+      },
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(value))
+      .mockResolvedValueOnce(
+        response({ ...value, historical: snapshot().historical }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    const setStatus = vi.fn();
+    const { result } = renderHook(() => useMemoryFeature({ setStatus }));
+    await act(() => result.current.loadMemories(false));
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await act(() => vi.advanceTimersByTimeAsync(6000));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.current.memory?.reason).toBe("summary_provider_failure");
+  });
+  it("keeps the editor, draft, focus and scroll during slow reads and connection recovery without writes", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: Response) => void;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(pending()))
+      .mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    await act(async () => {
+      render(<MemoryHarness />);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
+    const editor = screen.getByRole("textbox", {
+      name: "Complete generated summary",
+    });
+    fireEvent.change(editor, { target: { value: "Unsaved ordinary draft" } });
+    editor.focus();
+    editor.scrollTop = 73;
+    await act(() => vi.advanceTimersByTimeAsync(6000));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finish(response(pending()));
+    });
+    expect(
+      screen.getByRole("textbox", { name: "Complete generated summary" }),
+    ).toBe(editor);
+    expect((editor as HTMLTextAreaElement).value).toBe(
+      "Unsaved ordinary draft",
+    );
+    expect(document.activeElement).toBe(editor);
+    expect(editor.scrollTop).toBe(73);
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await act(async () => {
+      finish(response({ error: "private vendor text" }, 503));
+    });
+    expect(screen.getByText(/Connection lost/)).toBeTruthy();
+    expect(screen.queryByText(/private vendor/)).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Save summary" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await act(async () => {
+      finish(response(settled()));
+    });
+    expect(screen.queryByText(/Connection lost/)).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Complete generated summary" }),
+    ).toBe(editor);
+    expect((editor as HTMLTextAreaElement).value).toBe(
+      "Unsaved ordinary draft",
+    );
+    expect(document.activeElement).toBe(editor);
+    expect(editor.scrollTop).toBe(73);
+    const reads = fetcher.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(fetcher).toHaveBeenCalledTimes(reads);
+    expect(fetcher.mock.calls.every((call) => call[1]?.method !== "POST")).toBe(
+      true,
+    );
+  });
+  it("rejects an old poll after selection or privacy mutation and cleans up on true unmount", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: Response) => void;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(pending()))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(
+        response({ ...pending(), selectedChat: snapshot("B").selectedChat }),
+      )
+      .mockResolvedValueOnce(response({ ok: true }))
+      .mockResolvedValueOnce(
+        response({ ...snapshot("B"), enabled: false, state: "disabled" }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    const setStatus = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useMemoryFeature({ setStatus }),
+    );
+    await act(() => result.current.loadMemories(false, "A"));
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await act(() => result.current.loadMemories(false, "B"));
+    await act(() => result.current.changeMemory({ action: "disable" }));
+    await act(async () => {
+      finish(response(settled()));
+    });
+    expect(result.current.memory?.enabled).toBe(false);
+    expect(result.current.memory?.selectedChat?.conversationId).toBe("B");
+    await act(() => vi.advanceTimersByTimeAsync(6000));
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    unmount();
+    await act(() => vi.advanceTimersByTimeAsync(6000));
+    expect(fetcher).toHaveBeenCalledTimes(5);
+  });
+  it("does not accept a deferred ordinary observation after unmount or issue more reads", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: Response) => void;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(pending()))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    const setStatus = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useMemoryFeature({ setStatus }),
+    );
+    await act(() => result.current.loadMemories(false));
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    unmount();
+    await act(async () => {
+      finish(response(settled()));
+    });
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.current.memory?.pending).toBe(41);
+    expect(setStatus).not.toHaveBeenCalled();
+  });
+});
+
 describe("manual Densify review", () => {
   it("keeps saved memory readable, previews all candidate text/counts, and saves only on explicit acceptance", async () => {
     const value = populated();

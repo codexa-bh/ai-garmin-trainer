@@ -401,6 +401,21 @@ remains. Static running/complete/interrupted captures remain supplementary. Clos
 `fixture-cancelled` uses cancelled. Their wide/narrow captures verify distinct
 plain failure/cancellation copy and retained previous-memory disposition, never
 provider success, actual paid cancellation or resumable staging.
+T0312 adds exactly `fixture-ordinary|fixture-ordinary-failed|fixture-ordinary-interrupted`
+within overview presentation. Each supplies seven passive GET snapshots: pending41,
+unchanged41, intermediate revision/pending21, unchanged21, one unavailable read,
+pending1, then fresh/pending0 or an explicit provider-failure/interruption with
+pending retained. There is no active history/rebuild trigger. The existing
+`progressiveComplete` boolean requires actual hook-driven partial advancement,
+connection loss/recovery, stable panel/focus/scroll and the exact terminal DOM
+status/content. Success starts without a saved summary. All mutations, including
+Retry and history review, refuse; no successful Retry POST is simulated. The runner
+never steps responses, Refreshes, resizes or captures during temporal measurement;
+wide/narrow terminal captures and a bounded receipt follow. Existing reset/close/
+120-second expiry, ordinary-only admission and closed boolean-result rules apply.
+This is production-hook/native-WebView temporal presentation, not successful
+provider inference, actual Retry persistence, compositor frames or installed proof.
+
 This supplements representative real keyless manual lifecycle
 and adjacent isolation/Goals/restart smoke; it proves no paid provider quality,
 qualified actual chat use or installed/primary state. All images stay local and
