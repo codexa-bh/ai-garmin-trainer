@@ -1259,6 +1259,29 @@ resource disposition and scratch expiry apply independently; no copy-back or
 primary install/restart/cleanup is authorized. Baseline `smoke:ordinary` retains
 its separate parallel/lifecycle/security and Trainer/Sync/Profile evidence.
 
+### Finite automatic-memory cleanup proof (T0304)
+
+`smoke:chat -- --scratch <canonical-task-root> --bundle <canonical-ordinary-app>
+--task-id T0304 --memory-curation` extends only this existing authored runner, not native
+permissions or default launches. After its normal nine-call chat and wide/narrow capture,
+it seeds a substantive repetitive generated prior and separate preference through real
+version2 HTTP controls. A stopped exclusive run-local v3 configuration selects a distinct
+keyless loopback authored memory model; no normal settings/provider file is read.
+
+Actual Profile no-op/changed saves preserve prior. A correction runs complete General Plan
+and current-week read/save tools with fictional path/key-like document examples. Two normal
+new-source maintenance batches receive full prior, eligible input and current Profile and
+publish one complete supplied consolidation each; the second plan-no-save message retains
+independent caregiving meaning. Source progress, preferences, native restart persistence and
+no replay are asserted. Titles have a separate fixed response; extra chat/model calls refuse.
+All app traffic remains on the verified native-owned backend. No manual Densify or paid
+provider is used. This proves actual owner/wire/persistence behavior with authored output,
+not live-model preservation or installed activation. Existing controller/source/run/boot,
+original preservation, masks, captures and settlement remain unchanged. Validate focused
+`chat_smoke_test.py`, affected aggregate/DOM/native contracts before use; memory and image
+fixtures refuse combination. Task-created copy data is retained/disposed only under the
+existing resource owner and explicit diagnostic deferral, never copied back.
+
 ### Selected activity images (T0303)
 
 Add `--activity-images` to `smoke:chat` to select four optional panels on the same

@@ -48,7 +48,6 @@ import { groundingForSteps } from "../src/lib/ai/tool-evidence";
 import { validateTrainerToolCall } from "../src/lib/ai/tool-contracts";
 import {
   buildTrainerContext,
-  formatTrainingPlanProposalContext,
   formatActiveChatTranscript,
 } from "../src/lib/ai/context";
 
@@ -127,7 +126,7 @@ describe("complete current Training Plan", () => {
     },
   );
 
-  it("supplies only the immediately preceding assistant proposal as unverified continuity", () => {
+  it("supplies normal speaker-aware older and immediate assistant continuity without a plan-only wrapper", () => {
     const messages = [
       {
         role: "assistant" as const,
@@ -140,21 +139,26 @@ describe("complete current Training Plan", () => {
       },
       { role: "user" as const, content: "ok adjust it" },
     ];
-    const context = formatTrainingPlanProposalContext(messages);
+    const context = formatActiveChatTranscript(messages).join("\n");
     expect(context).toContain("Change only Two sessions to Three sessions?");
-    expect(context).toContain("not Garmin/measurement evidence");
-    expect(context).not.toContain("123456");
-    expect(formatActiveChatTranscript(messages).join("\n")).not.toContain(
-      "Change only",
+    expect(context).toContain("123456");
+    expect(context).toContain(
+      "unverified continuity, not evidence or permission",
     );
-    expect(formatTrainingPlanProposalContext(messages.slice(-1))).toBe("");
+    const long = "Option two for caregiving reasons. " + "x".repeat(4500);
     expect(
-      formatTrainingPlanProposalContext([
-        { role: "assistant", content: "x".repeat(4001) },
+      formatActiveChatTranscript([
+        { role: "assistant", content: long },
         messages.at(-1)!,
-      ]),
-    ).toContain("No preview or confirmation is required");
-    expect(context).toContain("not consent classification");
+      ]).join("\n"),
+    ).toContain(long);
+    const unavailable = formatActiveChatTranscript([
+      { role: "assistant", content: "x".repeat(7000) },
+      messages.at(-1)!,
+    ]).join("\n");
+    expect(unavailable).toContain("whole messages exceed");
+    expect(unavailable).toContain("No text was clipped");
+    expect(unavailable).not.toContain("x".repeat(100));
   });
 
   it("labels compact previews and provides complete-read guidance", () => {
@@ -347,13 +351,11 @@ describe("complete current Training Plan", () => {
     },
   );
 
-  it.each(["failed", "oversize", "sensitive"])(
+  it.each(["failed", "oversize"])(
     "reports %s reads truthfully and cannot save",
     async (kind) => {
       if (kind === "failed") state.failRead = true;
       if (kind === "oversize") state.plan!.contentMarkdown = "x".repeat(32001);
-      if (kind === "sensitive")
-        state.plan!.contentMarkdown += "\nOPENAI_API_KEY=private-placeholder";
       generateText.mockResolvedValueOnce(call("getTrainingPlan"));
       const result = await run();
       expect(result.toolSteps[0].status).toBe("failed");

@@ -12,7 +12,6 @@ import {
 } from "../src/lib/training-plan/policy";
 import {
   completeTrainingPlanSchema,
-  hasSensitivePlanText,
   sameTrainingPlan,
 } from "../src/lib/training-plan/snapshot";
 
@@ -158,12 +157,30 @@ describe("feature-owned Training Plan rules", () => {
     "refresh_token: hidden",
     "ACCESS_TOKEN=hidden",
     "tokens will be saved to:",
-  ])("refuses sensitive document evidence: %s", (contentMarkdown) => {
-    expect(hasSensitivePlanText({ ...original, contentMarkdown })).toBe(true);
-    expect(() =>
-      fixture({ ...original, contentMarkdown }).app.readComplete(),
-    ).toThrow("private_plan_content");
-  });
+  ])(
+    "keeps fictional user-document examples complete and editable: %s",
+    (contentMarkdown) => {
+      const { app } = fixture({ ...original, contentMarkdown });
+      const snapshot = app.readComplete();
+      expect(snapshot.plan?.contentMarkdown).toBe(contentMarkdown);
+      expect(
+        app.saveGuarded(
+          {
+            edits: [
+              {
+                oldText: contentMarkdown,
+                newText: contentMarkdown + "\nIndependent rationale.",
+              },
+            ],
+          },
+          snapshot,
+        ),
+      ).toMatchObject({
+        ok: true,
+        plan: { contentMarkdown: contentMarkdown + "\nIndependent rationale." },
+      });
+    },
+  );
   it("validates complete snapshot bounds/shape without redacting", () => {
     const status = planStatus(original, now.getTime());
     expect(completeTrainingPlanSchema.parse(status)).toEqual(status);
@@ -263,7 +280,7 @@ describe("synchronous use cases with supplied ports", () => {
       plan: { title: "Training Plan" },
     });
   });
-  it("rejects every changed snapshot field and sensitive snapshots before writes", () => {
+  it("rejects every changed snapshot field before writes regardless of prose", () => {
     for (const key of ["title", "contentMarkdown", "revisedAt"] as const) {
       const { app, journal } = fixture();
       const snapshot = planStatus({ ...original, [key]: "different" }, 0);
@@ -279,7 +296,7 @@ describe("synchronous use cases with supplied ports", () => {
         { contentMarkdown: "x" },
         planStatus({ ...original, title: "/Users/private" }, 0),
       ),
-    ).toEqual({ ok: false, reason: "complete_plan_read_required" });
+    ).toEqual({ ok: false, reason: "training_plan_changed_read_again" });
     expect(
       fixture(null).app.saveGuarded(
         { contentMarkdown: "x" },

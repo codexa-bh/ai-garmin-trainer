@@ -1,5 +1,4 @@
 import type { StoredChatMessage } from "./contracts";
-import { unsafeMemoryReason } from "../memory/filters";
 import { summaryPinInput, type SummaryPin } from "./summary-pin";
 import { SUMMARY_MODEL_CONTEXT } from "../memory/summary-policy";
 
@@ -17,6 +16,8 @@ export type ConversationAdmission = {
   conversationId: string;
   sourceAdmissionSeq: number;
   privacyGeneration: number;
+  /** Captured Profile values; timestamps are not factual changes. */
+  profileSnapshot?: string;
   summaryAuthority?: { control: number; manual: number };
   summaryPin?: SummaryPin | null;
 };
@@ -181,74 +182,24 @@ export function replayMessages(replay: ConversationReplay): ReplayMessage[] {
   ];
 }
 
-export function unsafeCompactionSource(text: string): boolean {
-  // A generic, explicit denial of medical causation (M09) is not a diagnosis.
-  // Remove only that generic denial for screening; other sensitive clauses and
-  // named/positive diagnostic statements still fail closed. The visible source
-  // remains unchanged, and compact output has no such screening exception.
-  const screened = text.replace(
-    /\bnot (?:for|because of|due to) (?:a |any )?(?:diagnosed|medical) condition\b/gi,
-    "",
+/** Same finite envelope as the compaction transport, not a semantic size target.
+ * Storage remains opaque text, so prior sealed JSON-lines compacts stay readable. */
+export const COMPACTION_TEXT_LIMIT = 65536;
+export function validCompactText(text: string): boolean {
+  return (
+    Boolean(text.trim()) &&
+    text.length <= COMPACTION_TEXT_LIMIT &&
+    !/[\uD800-\uDFFF]/u.test(text)
   );
-  return Boolean(unsafeMemoryReason(screened)) || /\bsk-[a-z0-9-]+/i.test(text);
 }
 
-/** Closed, source-bound output; structural validity is not semantic faithfulness. */
-export function validateCompaction(
-  value: unknown,
-  sources: ConversationTurnSource[],
-  previous: string,
-): string | null {
+/** Structural validity is not semantic faithfulness or speaker verification. */
+export function validateCompaction(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
-  if (
-    Object.keys(candidate).sort().join() !== "items,version" ||
-    candidate.version !== 1 ||
-    !Array.isArray(candidate.items) ||
-    !candidate.items.length ||
-    candidate.items.length > 32
-  )
-    return null;
-  const allowed = new Set(sources.map((source) => source.turnId));
-  if (previous) allowed.add("previous-compaction");
-  const covered = new Set<string>();
-  const lines: string[] = [];
-  for (const raw of candidate.items) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-    const item = raw as Record<string, unknown>;
-    if (
-      Object.keys(item).sort().join() !== "sourceTurnIds,speaker,text" ||
-      !["user", "assistant"].includes(String(item.speaker)) ||
-      typeof item.text !== "string" ||
-      !item.text.trim() ||
-      item.text.length > 1200 ||
-      /[\uD800-\uDFFF]/u.test(item.text) ||
-      !Array.isArray(item.sourceTurnIds) ||
-      !item.sourceTurnIds.length ||
-      item.sourceTurnIds.length > 32
-    )
-      return null;
-    // Same-chat compaction is not permission to persist credentials/medical/raw evidence.
-    if (
-      unsafeMemoryReason(item.text) ||
-      /(?:sk-[a-z0-9-]+|api[_ -]?key|password|diagnos|treatment|raw[_ -]?(?:fit|payload)|gps|latitude|longitude|ignore (?:all|previous) (?:rules|instructions))/i.test(
-        item.text,
-      )
-    )
-      return null;
-    for (const id of item.sourceTurnIds) {
-      if (typeof id !== "string" || !allowed.has(id)) return null;
-      covered.add(id);
-    }
-    lines.push(
-      JSON.stringify({
-        speaker: item.speaker,
-        text: item.text,
-        sourceTurnIds: item.sourceTurnIds,
-      }),
-    );
-  }
-  if ([...allowed].some((id) => !covered.has(id))) return null;
-  const text = lines.join("\n");
-  return text.length <= 6000 ? text : null;
+  return Object.keys(candidate).join() === "summary" &&
+    typeof candidate.summary === "string" &&
+    validCompactText(candidate.summary)
+    ? candidate.summary
+    : null;
 }

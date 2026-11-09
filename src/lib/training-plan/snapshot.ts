@@ -44,13 +44,3 @@ export function sameTrainingPlan(
         a.contentMarkdown === b.contentMarkdown &&
         a.revisedAt === b.revisedAt;
 }
-
-// Refuse rather than silently redact a document and later overwrite it from incomplete evidence.
-export function hasSensitivePlanText(plan: TrainingPlan | null): boolean {
-  return (
-    !!plan &&
-    /(\/Users\/|[A-Z0-9._%+-]+_API_KEY\s*=|(?:refresh|access)_token\s*[=:]|token data from directory|tokens will be saved to:)/i.test(
-      `${plan.title}\n${plan.contentMarkdown}`,
-    )
-  );
-}

@@ -45,7 +45,8 @@ Trainer **Memory** shows:
   Saving replaces the generated field under current-state comparison. It does not
   turn generated sentences into your preferences. A later history regeneration
   replaces this text, **including direct summary edits**.
-- **Densify summary**: one explicit paid request using the configured memory model,
+- **Densify summary**: an optional extra paid request using the configured memory model,
+  not routine upkeep: normal chat updates already consolidate memory automatically,
   available for any nonempty usable saved summary, not only above target. Only the
   captured generated text and advisory target are sent, not history or preferences.
   Saved memory stays readable and in use during generation and complete candidate
@@ -85,15 +86,17 @@ interrupted, failed and unknown results. Off content is not presented as usable 
 memory. Destructive confirmations default to Cancel. Lost connections reconcile the
 same operation; no mutation is automatically replayed.
 
-Ordinary updates with saved generated text use exact local edits plus new durable
-additions, preserving untouched earlier text rather than asking for a complete rewrite
-every time. Corrections and obsolete details can still change. No-useful updates can
-leave text unchanged; an uncertain edit fails without marking sources processed or
-retrying automatically. This reduces accidental loss, but does not guarantee model
-judgment or semantic completeness. Source/privacy invalidation and the existing narrow
-explicit-correction signal can still empty generated text before an update; they never
-restore revoked text as a fallback. Initial generation, reviewed import, history rebuild
-and explicit Densify retain their complete-replacement contracts.
+Ordinary updates automatically learn, correct and consolidate through one complete-summary
+request with full prior meaning and new eligible input. No routine manual Densify, fixed
+size ceiling or second condensation call is required. Identical text means no useful
+change; failure preserves prior and pending input without blind retry. Important reasons,
+negation and unresolved choices must survive, but structural checks cannot guarantee
+model judgment or semantic completeness. Schema25 removes ordinary-prose correction and
+Profile erasure: “Actually …”, “Correction: …”, changed facts and no-op Profile saves do
+not wipe unrelated memory or chat continuity. Changed Profile values invalidate captured
+in-flight work independently. Genuine source/privacy controls still revoke unsafe use;
+revoked text never becomes a fallback. Plan no-save governs documents, not independent
+user facts; narrow explicit memory no-save commands and existing suppressions remain.
 
 At each atomic turn admission, after busy exclusion, the chat adopts latest usable
 summary plus separate preferences, or null. Ordinary publication does not replace
@@ -122,8 +125,9 @@ Choose all retained or selected conversations and explicitly opt into uncertain 
 history if wanted. Earlier schema22's conservative legacy floor and schema23's separate
 known future-Clear floor remain distinct. Permission to reuse uncertain older history
 does not override known suppression, Clear, no-save or source/context authority.
-Unfinished linked sources, unavailable dates, ambiguous referents and whole oversized
-messages are disclosed; excluded originals are never silently labelled processed.
+Unfinished linked sources, unavailable dates and whole oversized messages are disclosed;
+missing/ambiguous assistant context does not exclude independent user text or invent a
+referent. Excluded originals are never silently labelled processed.
 
 A rebuild starts from **empty temporary generated text**, not the old publication.
 Each successful40-source batch receives the previous complete draft and the next
@@ -159,6 +163,11 @@ and usage are recorded once; old reservations remain intact. Missing counters or
 prices are unknown, never zero cost or billed savings.
 
 ## Backup, restore, and reset
+
+Schema25 removes the four correction/Profile erasure triggers without changing stored
+rows; compatible saved compacts, generated text, preferences, originals and costs survive.
+Startup/Use existing does not migrate. Installed24 needs separately authorized exact-target
+migration; source delivery is not activation, lost-text recovery or live-model proof.
 
 Schema24 changes active generated serialization to `{version:2,text}` and uses separate
 `summary_preference` rows and version2 pin/command admission. Historical migrations are

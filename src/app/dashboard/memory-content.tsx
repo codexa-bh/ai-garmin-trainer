@@ -346,8 +346,8 @@ export function MemoryContent({
                   )}
                 </div>
                 <p className="secondary-copy">
-                  One paid AI request using your configured memory model. Review
-                  before saving; the target is guidance.
+                  Chat updates consolidate memory automatically. This optional
+                  rewrite uses one extra AI request; review before saving.
                 </p>
                 {(editingMemoryId || !memory.densify?.available) &&
                   !densifying &&

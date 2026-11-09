@@ -3,6 +3,7 @@ import { getDatabase } from "./connection";
 import { appendChatMessage } from "./conversation-repository";
 import { safeConversationId } from "../chat/conversation-policy";
 import { summaryStorage } from "./summary-storage";
+import { getTrainerProfile } from "./profile-repository";
 import type { SummaryVersion } from "../memory/summary-policy";
 import {
   adoptSummaryPin,
@@ -12,6 +13,7 @@ import {
 } from "./conversation-summary-pin";
 import {
   assertVisibleText,
+  validCompactText,
   CONVERSATION_POLICY_ID,
   type ConversationAdmission,
   type ConversationHistoryPorts,
@@ -72,6 +74,8 @@ function assertCurrent(admission: ConversationAdmission): void {
   if (
     !row ||
     generation() !== admission.privacyGeneration ||
+    (admission.profileSnapshot !== undefined &&
+      admission.profileSnapshot !== JSON.stringify(getTrainerProfile())) ||
     (admission.summaryAuthority &&
       JSON.stringify(summaryAuthority()) !==
         JSON.stringify(admission.summaryAuthority)) ||
@@ -105,7 +109,7 @@ function read(admission: ConversationAdmission): ConversationReplay {
       !Number.isSafeInteger(row.coveredThrough) ||
       row.coveredThrough < 0 ||
       row.compactCharacters !== row.compact.length ||
-      row.compact.length > 6000 ||
+      (row.compact !== "" && !validCompactText(row.compact)) ||
       (row.coveredThrough === 0
         ? row.compact !== "" || row.compactHash !== ""
         : !row.compact || publicationHash(row) !== row.compactHash)
@@ -207,7 +211,7 @@ export function refreshConversationSummary(
       (row.policyIdentity !== CONVERSATION_POLICY_ID ||
         row.privacyGeneration !== generation() ||
         row.compactCharacters !== row.compact.length ||
-        row.compact.length > 6000 ||
+        (row.compact !== "" && !validCompactText(row.compact)) ||
         (row.coveredThrough
           ? publicationHash(row) !== row.compactHash
           : row.compact !== "" || row.compactHash !== ""))
@@ -290,6 +294,7 @@ export const conversationHistory: ConversationHistoryPorts = {
           conversationId: userRecord.conversationId,
           sourceAdmissionSeq: Number(inserted.lastInsertRowid),
           privacyGeneration,
+          profileSnapshot: JSON.stringify(getTrainerProfile()),
           summaryAuthority: summaryAuthority(),
           summaryPin: pin,
         },
@@ -357,13 +362,11 @@ export const conversationHistory: ConversationHistoryPorts = {
       db.prepare("insert into conversation_completion(turn_id) values(?)").run(
         admission.turnId,
       );
-      // The synchronous correction trigger revokes every other admitted turn.
-      // Only this already-committed correction receives the new delivery receipt;
-      // no await or unrelated mutation can interleave with this transaction.
+      // Capture committed authority without treating ordinary correction prose
+      // as a global privacy operation.
       admission.summaryAuthority = summaryAuthority();
       admission.summaryPin = readSummaryPin(admission.conversationId);
-      // Correction may revoke summary-derived debug content in this transaction.
-      // Deliver the actual committed grounding, not its pre-trigger copy.
+      // Deliver actual committed grounding, not a pre-transaction copy.
       const persisted = db
         .prepare("select grounding_json from message where id=?")
         .get(assistant.id) as { grounding_json: string | null };
@@ -407,7 +410,7 @@ export const conversationHistory: ConversationHistoryPorts = {
     })();
   },
   publish(replay, covered, compact) {
-    if (!covered.length || !compact || compact.length > 6000) return false;
+    if (!covered.length || !validCompactText(compact)) return false;
     const db = getDatabase();
     return db.transaction(() => {
       assertCurrent(replay.admission);

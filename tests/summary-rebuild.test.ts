@@ -524,9 +524,13 @@ describe("full-pool original admission and local preflight", () => {
     const batch = readSummaryRebuildBatch()!;
     expect(
       batch.sources.some((source) => source.original?.messageId === "choice"),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      batch.sources.find((source) => source.original?.messageId === "choice")
+        ?.referent,
+    ).toBeNull();
     expect(inventory().counts.assistantContext).toBe(0);
-    expect(inventory().reasons["no-save-or-unresolved-context"]).toBe(2);
+    expect(inventory().reasons["no-save-or-unresolved-context"]).toBe(1);
   });
   it("Clear covers unlinked originals even with no completion/admission rows and does not reopen on enable", () => {
     message("pre-clear");
@@ -558,12 +562,13 @@ describe("full-pool original admission and local preflight", () => {
     message("large", "x".repeat(16001));
     message("a1", "First option is poles.", "assistant", "A", 1700000000);
     message("u1", "I choose the first option.", "user", "A", 1700000000);
-    expect(inventory().counts.includedUserMessages).toBe(0);
-    expect(inventory().reasons).toEqual({
-      "oversized-message": 1,
-      "no-save-or-unresolved-context": 1,
+    expect(inventory().counts.includedUserMessages).toBe(1);
+    expect(inventory().reasons).toEqual({ "oversized-message": 1 });
+    begin();
+    expect(readSummaryRebuildBatch()!.sources[0]).toMatchObject({
+      user: "I choose the first option.",
+      referent: null,
     });
-    expect(() => begin()).toThrow("not_ready");
   });
   it("refuses extra/stale/unknown command fields", () => {
     const base = {
@@ -1106,7 +1111,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     const result = migrateDatabase(db);
     expect(result).toMatchObject({
       fromVersion: 21,
-      toVersion: 24,
+      toVersion: 25,
       integrity: "ok",
     });
     const bytes = db.serialize();

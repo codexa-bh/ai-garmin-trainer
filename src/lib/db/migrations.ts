@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 
-export const LATEST_SCHEMA_VERSION = 24;
+export const LATEST_SCHEMA_VERSION = 25;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -382,6 +382,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         update summary_attempt set outcome='superseded' where outcome='admitted';
        end`,
       `create trigger summary_rebuild_invalidation after update of generation,manual_revision on summary_control when old.generation<>new.generation or old.manual_revision<>new.manual_revision begin update summary_rebuild set state=case when state='active' then 'invalidated' else state end,reason=case when state='active' then 'summary_authority_changed' else reason end,candidate_json='{"version":2,"text":""}',candidate_checksum=''; end`,
+    ],
+  },
+  {
+    version: 25,
+    name: "memory_freshness_without_erasure",
+    statements: [
+      // Ordinary corrections are new learning, not privacy commands. Profile
+      // freshness is compared by current owners, not global derivative erasure.
+      `drop trigger summary_explicit_correction`,
+      `drop trigger conversation_profile_insert`,
+      `drop trigger conversation_profile_update`,
+      `drop trigger conversation_profile_delete`,
     ],
   },
 ];

@@ -68,7 +68,7 @@ describe("closed complete-text policy and independent input/privacy boundaries",
       true,
     );
   });
-  it("does not export ineligible/no-save/empty sources or fresh assistant answers", () => {
+  it("excludes explicit memory no-save and frames eligible preceding assistant context", () => {
     expect(
       minimizeSummarySource({ ...source("Authored"), eligible: false }),
     ).toBeNull();
@@ -76,6 +76,9 @@ describe("closed complete-text policy and independent input/privacy boundaries",
       "Do not save this",
       "don't remember this",
       "Never store this",
+      "Please do not remember this request.",
+      "Sensitive discussion; please do not store this in memory.",
+      "Do not save the plan in memory.",
       "",
     ])
       expect(minimizeSummarySource(source(user))).toBeNull();
@@ -88,13 +91,38 @@ describe("closed complete-text policy and independent input/privacy boundaries",
     expect(value).toEqual({
       sourceId: "authored:1",
       user: "Short weekdays suit me.",
+      referent: "Fresh assistant prose is not automatically a source",
     });
   });
-  it("resolves only bounded preceding option context, refusing missing/oversized referents", () => {
-    expect(minimizeSummarySource(source("Use the second option"))).toBeNull();
+  it("preserves independent meaning with absent/long context and discloses real resource omissions", () => {
+    for (const user of [
+      "This approach fits my work schedule; I can train only on weekends.",
+      "Use that for future coaching; I can train only on weekends.",
+      "Do not save the plan yet; I prefer short weekday sessions because caregiving limits time.",
+      "Do not save this plan yet; I prefer short weekday sessions.",
+      'Quoted instruction: "Do not remember this"; I prefer short weekdays.',
+    ]) {
+      expect(minimizeSummarySource(source(user))?.user).toBe(user);
+      expect(minimizeSummarySource(source(user, "x".repeat(1201)))?.user).toBe(
+        user,
+      );
+      expect(
+        minimizeSummarySource(source(user, "x".repeat(16001))),
+      ).toMatchObject({
+        user,
+        contextLimitation: expect.stringContaining("exceeds"),
+      });
+    }
     expect(
-      minimizeSummarySource(source("Use the second option", "x".repeat(1201))),
-    ).toBeNull();
+      minimizeSummarySource(source("Use the second option")),
+    ).toMatchObject({
+      user: "Use the second option",
+      contextLimitation: expect.stringContaining("No eligible"),
+    });
+    expect(
+      minimizeSummarySource(source("Use the second option", "x".repeat(1201)))
+        ?.referent,
+    ).toHaveLength(1201);
     expect(
       minimizeSummarySource(
         source(

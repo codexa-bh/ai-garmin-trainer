@@ -49,7 +49,10 @@ claim and final-answer-reserve guards still apply. Stable-prefix identity is
 proved separately for equivalent purposes/routes; it is not billed cache savings.
 Refresh, compaction, policy/model incompatibility, expiry and privacy/source/control
 changes are boundaries. Manual edits/Forget/Clear/Off invalidate pins and compact
-derivatives atomically; current correction completion alone gets its updated receipt.
+derivatives atomically. Ordinary correction prose does not erase memory or revoke other
+turns. Actual Profile values are captured at admission and compared before effects and
+delivery; a changed value rejects stale work, while saved derivatives and no-op/timestamp
+saves remain intact.
 
 ## Accounting and limits
 
@@ -90,16 +93,19 @@ most twenty completed turns) plus previous **conversation-only** compact state,
 retaining at least two exact recent pairs. No global snapshot/current tool payload
 is new compaction source. Generation has no tools, a 30-second total abortable,
 monotonic deadline (explicit T0269 operator override after measured five-second live timeouts), 8192 serialized input/2048 output tokens and no automatic retry.
-The rendered compact is independently counted at at most 2048 tokens and bounded
-to 6000 UTF-16 units. Closed item/source validation rejects missing/unknown source
-references, malformed, unsafe and overlong output; this is not a semantic-quality
-certificate.
-
-The existing pure memory exclusions screen sources and outputs. A generic explicit
-negative such as “not for a diagnosed condition” is not a personal diagnosis; only
-that generic negative is exempted during source screening (M09). Other sensitive
-clauses still refuse, and compact output has no medical-screening exemption.
-No new global assistant/tool archive or sensitive retention is authorized.
+Those older token/item allocations are historical, not current admission gates.
+Current generation returns strict `{summary:string}` continuity with no topic blacklist,
+negation exception, item count/text/source-ID certificate or6000-character ceiling.
+The existing65536-unit serialized transport envelope and the same finite opaque-text
+storage envelope bound local allocation, not meaning or a target length. Malformed,
+empty, invalid-Unicode and oversized output refuses without clipping. Application journal
+order and the selected contiguous covered-through interval remain outside model output.
+The prompt preserves speaker attribution, decisions/reasons, uncertainty, corrections
+and original option numbering. Shape cannot prove any of that meaning was retained.
+Medical/token-budget/GPS/path/fictional-key/quoted-policy discussion remains untrusted
+text, not native credential, filesystem, tool or save authority. No new historical tool
+archive is created. Existing sealed opaque JSON-lines compacts remain readable under the
+same storage/policy identity; no migration silently clears them.
 
 New compaction attempts retain durable attempt history without a monetary reservation
 or daily attempt/spending gate. Old reservations and unknown liabilities are preserved;
@@ -131,8 +137,9 @@ compare-publication are idempotent, and the compact, boundary, revision and seal
 publication fingerprint change together without network inside a SQL transaction.
 Unknown format/checksum/count/version state is unavailable and preserved.
 
-Delete/clear/source edits, Profile correction and memory control/edit/deletion
-invalidate new derivatives atomically through existing owners/triggers. Clear
+Delete/clear/source edits and memory control/edit/deletion invalidate new derivatives
+atomically through existing owners/triggers. Schema25 removes Profile/correction-prose
+erasure triggers; value-based currentness rejects stale Profile work independently. Clear
 also acts when its old data scope is empty. Compact text/fingerprints are cleared,
 active source admissions become stale, and late work cannot recreate a deleted
 conversation. Source transcripts, legacy-vector deletion exclusions, saved plan
@@ -158,7 +165,11 @@ admission after owned failure/abort.
 
 ## Migration and evidence
 
-Desktop startup/Use existing remains non-migrating and now requires schema21.
+Current desktop startup/Use existing remains non-migrating and requires schema25.
+Schema25 changes only four effective erasure triggers, preserving all stored rows and
+compatible compacts. Older24 readers refuse25; installed24 retains its old triggers until
+separately authorized exact-target migration. The earlier schema21 transition below is
+historical evidence, not current activation authority.
 Explicitly rehearse additive20/21 changes on an authored populated schema19/20 backup
 first; historical18/19 migration bytes are unchanged. Originals,
 legacy vectors, Profile, plan/settings/key fields are not converted/backfilled.

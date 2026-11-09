@@ -19,7 +19,6 @@ import {
 } from "@/lib/chat/conversation-replay";
 import {
   replayMessages,
-  unsafeCompactionSource,
   type ConversationCompactionGeneration,
 } from "@/lib/chat/conversation-replay";
 
@@ -58,25 +57,12 @@ function seed() {
 }
 const generation = (): ConversationCompactionGeneration => ({
   count: vi.fn(async () => 100),
-  generate: vi.fn(async (_system, prompt) => {
-    const input = JSON.parse(prompt) as {
-      previous: unknown;
-      sources: { turnId: string }[];
-    };
-    return JSON.stringify({
-      version: 1,
-      items: [
-        {
-          speaker: "user",
-          text: "Chose option two for weekday time; long weekdays rejected, not measured fitness.",
-          sourceTurnIds: [
-            ...input.sources.map((source) => source.turnId),
-            ...(input.previous ? ["previous-compaction"] : []),
-          ],
-        },
-      ],
-    });
-  }),
+  generate: vi.fn(async () =>
+    JSON.stringify({
+      summary:
+        "User chose option two for weekday time; long weekdays rejected. Assistant suggestions are not measured fitness.",
+    }),
+  ),
 });
 
 describe("actual SQLite completion journal, segments and privacy", () => {
@@ -270,9 +256,11 @@ describe("actual SQLite completion journal, segments and privacy", () => {
     const model = generation();
     expect(await compactConversation(history, replay, model)).toBe(true);
     const [policy, serialized] = vi.mocked(model.generate).mock.calls[0]!;
-    expect(policy).toContain("original numbered option-to-approach mapping");
-    expect(policy).toContain("Never renumber options");
-    expect(policy).toContain("originally labeled second option");
+    expect(policy).toContain("original numbered option mappings");
+    expect(policy).toContain("without renumbering");
+    expect(policy).toContain(
+      "Attribute user statements and assistant suggestions truthfully",
+    );
     const input = JSON.parse(serialized);
     expect(input.sources[0].user).toContain("option two");
     expect(input.sources[0].assistant).toContain("short weekdays");
@@ -299,7 +287,7 @@ describe("actual SQLite completion journal, segments and privacy", () => {
     ).toEqual({ attempts: 12 });
   });
 
-  it("does not run a model for unsafe sources, invalid output, timeout or stale publication", async () => {
+  it("refuses invalid output, timeout and stale publication without late adoption", async () => {
     const { replay } = seed();
     const invalid = generation();
     invalid.generate = vi.fn(async () => '{"version":1,"items":[]}');
@@ -345,35 +333,13 @@ describe("actual SQLite completion journal, segments and privacy", () => {
       "We chose weekend hiking for available time, not for a diagnosed condition. Evening sessions were rejected.",
       "Weekend hiking fits time; evenings were rejected, not measured fitness.",
     );
-    expect(unsafeCompactionSource(original.userRecord.content)).toBe(false);
-    expect(
-      unsafeCompactionSource("My diagnosis is a named synthetic condition"),
-    ).toBe(true);
-    expect(
-      unsafeCompactionSource(
-        "not for a diagnosed condition; my prescription is synthetic",
-      ),
-    ).toBe(true);
     const scripted = generation();
-    scripted.generate = vi.fn(async (_system, prompt) => {
-      const input = JSON.parse(prompt) as {
-        previous: unknown;
-        sources: { turnId: string }[];
-      };
-      return JSON.stringify({
-        version: 1,
-        items: [
-          {
-            speaker: "user",
-            text: "Chose weekend hiking for time availability; evening sessions were rejected, not because of measured fitness.",
-            sourceTurnIds: [
-              ...input.sources.map((source) => source.turnId),
-              ...(input.previous ? ["previous-compaction"] : []),
-            ],
-          },
-        ],
-      });
-    });
+    scripted.generate = vi.fn(async () =>
+      JSON.stringify({
+        summary:
+          "User chose weekend hiking for time availability; evening sessions were rejected, not because of measured fitness.",
+      }),
+    );
     let covered = 0;
     for (let round = 1; round <= 10; round++) {
       complete(

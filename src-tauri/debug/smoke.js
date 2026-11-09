@@ -1169,7 +1169,7 @@
       "Review densified summary",
       "Use shorter summary",
       "Discard",
-      "One paid AI request using your configured memory model. Review before saving; the target is guidance.",
+      "Chat updates consolidate memory automatically. This optional rewrite uses one extra AI request; review before saving.",
       "Needs a usable saved summary, configured native memory model and no running memory update.",
       "Save or cancel your edit first.",
       "Densifying… Your saved summary stays in use. Cancellation cannot recall sent text or costs.",

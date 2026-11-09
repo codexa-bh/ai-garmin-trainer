@@ -1,4 +1,4 @@
-# Integrated incremental cross-chat summary
+# Integrated automatic cross-chat summary
 
 One complete generated text plus separate authored preferences replaces the
 model-managed item ledger. [Memory](memory.md) owns user controls; [conversation
@@ -37,27 +37,23 @@ own stateless construction and honest privacy limits, not claimed OpenAI retenti
 ## Incremental state and bounded foreground work
 
 Generated value remains exactly `{version:2,text:string}`: **one complete summary**.
-Ordinary generation consumes previous valid generated text plus new eligible minimized
-user/context prose. With nonempty prior text, provider output is strict
-`{action:"update"|"unchanged"|"uncertain",edits:[{before:string,after:string}],addition:string}`.
-Every nonempty `before` must occur exactly once in the captured original; edits cannot
-overlap or target another edit's output. Code applies them simultaneously, preserves
-all untouched text verbatim and appends `addition` with a paragraph separator. Unrelated
-new durable meaning needs only an addition, not a whole-summary rewrite. Supported
-corrections, obsolete details and necessary local consolidation can replace/remove
-specific spans; this is not append-only or frozen wording.
+Ordinary generation consumes the **complete previous valid generated text** plus new
+eligible user/context prose and current Profile. One strict `{summary:string}` response
+learns additions, reconciles supported corrections and automatically consolidates old
+wording. No global rewrite ban, secondary model pass or routine manual Densify step.
+The prompt requires supported prior meaning, reasons, negation, uncertainty and
+historical/current scope to survive; current Profile/corrections outrank stale prose.
+Profile values are captured and compared at job CAS, independently of privacy authority.
 
-`unchanged` requires empty edits/addition: sources are processed, not certified as newly
-learned. `uncertain` refuses publication and processing, retaining prior, pending sources
-and actual usage without automatic replay. Malformed, ambiguous, overlapping, no-op
-update and invalid-scalar output refuse. A supplied complete `{summary}` replacement
-cannot accidentally overwrite nonempty ordinary state. This mechanically preserves
-**untouched** context, not arbitrary meaning: an overbroad edit, missed addition or
-incorrect unchanged decision remains model-dependent. Supplied fixtures prove these
-mechanics, not what a real model would choose.
+Identical complete output processes sources without claiming new learning. Malformed,
+unfinished, invalid-scalar or refused output preserves prior/pending sources and actual
+usage without automatic replay. Shape is not a semantic-loss detector: a valid but lossy
+model rewrite can still pass. Supplied outputs prove owner/wire/state mechanics, not
+live-model fidelity. Advisory sizing never certifies meaning or requires shorter output.
 
-Initial empty-prior generation, reviewed import, whole-history rebuild and manual
-Densify retain strict `{summary:string}` complete replacement. Title stays separate.
+Initial generation, reviewed import, whole-history rebuild and optional manual Densify
+share the same complete replacement shape. Older exact-edit validator/transport support
+remains internal compatibility, not the normal maintenance path. Title stays separate.
 Preferences are not generated-source records or model reconciliation input. Text edits
 are output-only and never persisted as a ledger. No model-managed item IDs,
 keep/remove/upsert/replaces, required coverage schema, citation graph or transitive
@@ -67,8 +63,14 @@ Code owns completion/source selection, operation identity, frontier and processi
 counts. Successful source dispositions mean **processed**, not “represented in a
 sentence”; ineligible and minimized-away sources remain excluded/filtered. Original
 journal/source identities and old restrictions are not generated-memory identities.
-Source eligibility, explicit no-save, Off/cutoff and bounded preceding assistant-option
-referents remain. Fresh assistant answers/tool/debug/compaction/old generated text are
+Source eligibility, explicit memory no-save and Off/cutoff remain. Complete preceding
+assistant passages are lower-authority context, bounded at16000 scalars; missing or
+oversized context is disclosed without dropping independent user meaning. Routine/import
+context excludes suppressed or no-save origins. Narrow anchored direct commands such as
+“Do not remember this”, “Do not save this discussion” and “Do not save my …” retain
+privacy exclusion; plan/document/draft no-save is document direction, not a blanket memory
+veto. Quoted commands are data. This parser is intentionally limited, not a general
+language-consent classifier; explicit controls remain authoritative. Fresh assistant answers/tool/debug/compaction/old generated text are
 not new global sources. Rebuild alone admits separately bounded authentic context.
 User-authored URLs, paths, topic/key-like words and quoted instructions are untrusted
 prose, not a content-pattern veto or authority to access secrets/files/tools.
@@ -110,8 +112,12 @@ preferences can still be used after generated invalidation. Control/preference c
 invalidate captured authority; actual source deletion also revokes affected in-flight
 work and marked derived debug copies. Existing original visible transcript/legacy
 unmarked grounding remain. Already exported/displayed data, backups and provider logs
-cannot be recalled. The existing narrow explicit correction signal remains, not a
-new arbitrary-language classifier. Temporal qualifications live in the summary prose;
+cannot be recalled. Schema25 removes the phrase-triggered correction erasure and all three Profile erasure
+triggers. Ordinary correction completion and changed/no-op/timestamp-only Profile saves
+preserve unrelated generated text, pins and local compacts. Chat admission and summary
+publication independently reject changed captured Profile values, without a global
+privacy cascade. Actual source deletion/edit, Clear/Forget/Off and preference controls
+retain their separate revocation authority. Temporal qualifications live in the summary prose;
 there is no hidden item-expiry maintenance engine.
 
 Content inspection returns one `stored` generated value and separate `preferences`,
@@ -136,7 +142,8 @@ text or trusted counts. One deliberate request captures exact generated text,
 advisory target, expected revision/privacy/control/manual and native boot/live
 configuration. It uses the exact existing provider route, strict complete output,
 no tools/fallback/SDK retries and no preferences/history/new source admission.
-Passive reads and ordinary overshoot never request this work.
+Passive reads and ordinary overshoot never request this separate manual work. Normal
+new-source updates already consolidate automatically; this is an optional extra rewrite.
 
 The process-owned single candidate is ephemeral and lasts at most ten minutes;
 privacy/currentness/configuration loss revokes it. The paid call shares the existing
@@ -201,6 +208,12 @@ local next-turn planner/synthesis composition evidence. Do not substitute a part
 first20, source deletion, synthetic output or transport-only result.
 
 ## Compatibility and validation
+
+Schema25 drops only four obsolete erasure triggers and transforms no stored rows.
+Authored populated24→25 fixtures preserve every table, valid summary/preferences,
+compatible opaque compacts, originals and accounting; reopen is a no-op with integrity/FK
+checks. Older schema24 readers refuse25 honestly. Startup/Use existing remain non-migrating;
+installed schema24 retains its triggers until separately authorized exact-target migration.
 
 Additive schema24 preserves migrations19–23, source transcripts/Profile/Garmin/plans,
 legacy records, suppressions/Clear floors and historical usage/reservations/failures.

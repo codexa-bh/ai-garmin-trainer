@@ -52,6 +52,8 @@ const allowed = new Set([
   // Neutral sealed-pin shape/projection and pure S policy; no SQL/SDK edges.
   "chat/summary-pin.ts",
   "memory/summary-policy.ts",
+  // Plain Profile values captured for generation freshness, no adapter edge.
+  "profile/contracts.ts",
   // Reviewed pure exact-selection/catalog validation; no env/SDK/storage edges.
   "model-settings/summary-selection.ts",
   "model-settings/catalog.ts",
