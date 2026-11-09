@@ -3,6 +3,82 @@ import { historyDateAllowed, type GarminHistoryState } from "./history-policy";
 
 export type SyncIntent = "latest" | "history";
 export const LATEST_CHECKPOINT = "garmin_latest_v1";
+export const SYNC_CHECKPOINT = "garmin_sync_v1";
+export type SyncStopReason =
+  | "cancelled"
+  | "attempt-limit"
+  | "operation-deadline"
+  | "batch-limit"
+  | "request-timeout"
+  | "detail-failure"
+  | "no-progress"
+  | "required-work-remaining"
+  | "auth"
+  | "rate-limit"
+  | "network"
+  | "protocol"
+  | "connector";
+export type SyncOperation = {
+  version: 1;
+  intent: SyncIntent | "legacy";
+  outcome: GarminHistoryState["outcome"];
+  updatedAt: string;
+  stopReason: SyncStopReason | null;
+  detailsAttempted: number;
+  detailsProcessed: number;
+  detailsFailed: number;
+  detailsRemaining: number;
+  activitiesProcessed?: number;
+  healthDaysRefreshed?: number;
+};
+
+/** Absent legacy state is unknown, never evidence of detail exhaustion. */
+export function syncOperation(raw: string | null): SyncOperation | null {
+  if (!raw) return null;
+  const value = JSON.parse(raw) as SyncOperation;
+  if (
+    !value ||
+    value.version !== 1 ||
+    !["latest", "history", "legacy"].includes(value.intent) ||
+    !["running", "settled", "budget-limited", "cancelled", "failed"].includes(
+      value.outcome,
+    ) ||
+    !Number.isFinite(Date.parse(value.updatedAt)) ||
+    ![
+      value.detailsAttempted,
+      value.detailsProcessed,
+      value.detailsFailed,
+      value.detailsRemaining,
+    ].every((count) => Number.isSafeInteger(count) && count >= 0) ||
+    value.detailsProcessed + value.detailsFailed > value.detailsAttempted ||
+    [value.activitiesProcessed, value.healthDaysRefreshed].some(
+      (count) =>
+        count !== undefined && (!Number.isSafeInteger(count) || count < 0),
+    ) ||
+    (value.outcome === "settled" &&
+      (value.detailsRemaining > 0 || value.stopReason !== null)) ||
+    (value.stopReason !== null &&
+      ![
+        "cancelled",
+        "attempt-limit",
+        "operation-deadline",
+        "batch-limit",
+        "request-timeout",
+        "detail-failure",
+        "no-progress",
+        "required-work-remaining",
+        "auth",
+        "rate-limit",
+        "network",
+        "protocol",
+        "connector",
+      ].includes(value.stopReason))
+  )
+    throw new Error(
+      "Unsupported sync operation checkpoint; preserve it for recovery.",
+    );
+  return value;
+}
 export type LatestSyncState = {
   version: 1;
   outcome: GarminHistoryState["outcome"];
@@ -24,6 +100,9 @@ export type HistoricalAction = {
   reason: string;
 };
 export type SyncState = {
+  operation?: SyncOperation | null;
+  operationInvalid?: boolean;
+  detailsRemaining?: number;
   latest: LatestSyncState | null;
   historical: HistoricalAction;
 };

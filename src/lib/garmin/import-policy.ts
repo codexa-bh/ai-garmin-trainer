@@ -103,10 +103,13 @@ export function classifyDetailError(error: unknown): {
   const message =
     error instanceof Error ? error.message : "detail backfill failed";
   const normalized = message.toLowerCase();
-  const stableUnsupported = /not found|unsupported|no fit|unavailable/.test(
-    normalized,
-  );
-  const auth = /auth|token|login|credential/.test(normalized);
+  // Transport/protective messages are not stable source absence. In particular
+  // "service is unavailable" must remain eligible for explicit recovery.
+  const failureClass = historyFailureClass(error);
+  const stableUnsupported =
+    !["auth", "rate-limit", "network", "timeout"].includes(failureClass) &&
+    /not found|unsupported|no fit/.test(normalized);
+  const auth = failureClass === "auth";
   const timeout = /timeout|timed out|rate|429/.test(normalized);
   return {
     errorClass: auth

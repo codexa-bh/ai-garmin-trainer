@@ -16,6 +16,8 @@ import {
   formatHealthCoverageSummary,
   formatSyncCounts,
   formatSyncFinalMessage,
+  formatSyncPhase,
+  formatSyncWork,
   formatSyncProgressLine,
   formatSyncResultLine,
   syncFailureRecovery,
@@ -76,6 +78,7 @@ export function useSyncFeature({
     if (
       isSyncingRef.current ||
       importSummary?.syncActive ||
+      importSummary?.sync?.operationInvalid ||
       !summaryKnownRef.current ||
       (intent === "history" &&
         importSummary?.sync?.historical.state !== "available")
@@ -95,6 +98,8 @@ export function useSyncFeature({
     ];
     const runningMessage = `${intent === "latest" ? "Latest refresh" : "Historical import"} in progress…`;
     let countSummary: string | undefined;
+    let phase: string | undefined;
+    let workSummary: string | undefined;
     let recovery: SyncRunState["recovery"] = null;
     let failureSummary: string | null = null;
     setSyncRun({
@@ -156,6 +161,8 @@ export function useSyncFeature({
           lines: logLines,
           finalMessage,
           countSummary,
+          phase,
+          workSummary,
           failureSummary,
           recovery,
         });
@@ -198,6 +205,7 @@ export function useSyncFeature({
               : syncFailureSummary(recovery);
           }
           if (event.type === "result") {
+            workSummary = formatSyncWork(event);
             receivedResult = true;
             paused =
               event.status === "cancelled" || event.status === "budget-limited";
@@ -215,6 +223,7 @@ export function useSyncFeature({
               }),
             );
           } else {
+            phase = formatSyncPhase(event.stage);
             appendLine(
               formatSyncProgressLine(event),
               failed ? "error" : "info",
@@ -232,6 +241,7 @@ export function useSyncFeature({
         lines: logLines,
         finalMessage,
         countSummary,
+        workSummary,
         failureSummary,
         recovery,
       });

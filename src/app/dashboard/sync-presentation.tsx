@@ -76,7 +76,9 @@ function formatDetailProgress(event: SyncProgressEvent): string | null {
   if (detailTotal > 0) {
     return `activity details ${event.detailsProcessed ?? 0}/${detailTotal}`;
   }
-  if (event.stage === "detail") return "activity details up to date";
+  if (event.detailsRemaining !== undefined)
+    return `activity details ${event.detailsProcessed ?? 0} completed, ${event.detailsAttempted ?? 0} attempted, ${event.detailsRemaining} remaining`;
+  if (event.stage === "detail") return "checking activity details";
   return null;
 }
 
@@ -182,7 +184,9 @@ export function formatSyncRunStatus(run: SyncRunState): string {
   );
 }
 
-export function formatSyncCounts(event: SyncProgressEvent): string | undefined {
+export function formatSyncCounts(
+  event: Omit<SyncProgressEvent, "intent">,
+): string | undefined {
   const activities = event.activitiesProcessed ?? event.activitiesImported;
   const health = event.healthDaysRefreshed ?? event.healthDaysImported;
   return (
@@ -191,10 +195,71 @@ export function formatSyncCounts(event: SyncProgressEvent): string | undefined {
         ? null
         : `${activities} activity records processed`,
       health === undefined ? null : `${health} health dates refreshed`,
+      event.detailsRemaining === undefined
+        ? null
+        : `${event.detailsProcessed ?? 0} details completed · ${event.detailsAttempted ?? 0} attempted · ${event.detailsRemaining} remaining`,
     ]
       .filter(Boolean)
       .join(" · ") || undefined
   );
+}
+
+export function formatSyncPhase(stage: string | undefined): string {
+  switch (stage) {
+    case "starting":
+      return "Starting connector…";
+    case "health":
+      return "Checking daily health…";
+    case "activities":
+      return "Checking activity summaries…";
+    case "body_metrics":
+      return "Refreshing body metrics…";
+    case "athlete":
+      return "Refreshing athlete baseline…";
+    case "detail":
+      return "Fetching activity details…";
+    default:
+      return "Syncing…";
+  }
+}
+
+export function formatSyncWork(event: {
+  outcome?: string;
+  status?: string;
+  stopReason?: import("@/lib/garmin/sync-policy").SyncStopReason | null;
+  detailsRemaining?: number;
+}): string | undefined {
+  const outcome = event.outcome ?? event.status;
+  if (outcome === "settled" || outcome === "completed") return undefined;
+  const reasons: Record<
+    import("@/lib/garmin/sync-policy").SyncStopReason,
+    string
+  > = {
+    cancelled: "Cancelled",
+    "attempt-limit": "Cumulative attempt limit reached",
+    "operation-deadline": "Operation time limit reached",
+    "batch-limit": "Internal batch time limit reached",
+    "request-timeout": "A read timed out",
+    "detail-failure": "An activity detail failed",
+    "no-progress": "No safe progress",
+    "required-work-remaining": "Required work remains",
+    auth: "Authentication could not be verified",
+    "rate-limit": "Garmin rate-limited the request",
+    network: "Connection unavailable",
+    protocol: "Unrecognized connector response",
+    connector: "Connector or storage failure",
+  };
+  const reason =
+    outcome === "running"
+      ? "Previous sync interrupted"
+      : event.stopReason
+        ? reasons[event.stopReason]
+        : "Completion is unconfirmed";
+  const next =
+    outcome === "failed"
+      ? "Resolve the failure, refresh summary, then explicitly retry."
+      : "Refresh summary, then explicitly sync or continue saved history.";
+  return `${reason}. Saved progress is retained. ${next}`;
 }
 
 export function formatSyncFinalMessage(event: SyncProgressEvent): string {

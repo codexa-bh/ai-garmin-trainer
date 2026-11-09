@@ -106,7 +106,7 @@ export interface GarminImportStore extends BaselineStore, DetailStore {
   ): string;
   finishSyncRun(
     id: string,
-    status: "completed" | "failed",
+    status: "completed" | "failed" | "budget-limited" | "cancelled",
     lastError?: string,
   ): void;
   healthHistoryBounds?(): {

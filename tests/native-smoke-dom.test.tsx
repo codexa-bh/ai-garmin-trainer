@@ -755,6 +755,25 @@ describe("native-installed rendered smoke boundary", () => {
     ).toBe(true);
     expect(getComputedStyle(cue).visibility).toBe("visible");
     smoke.__trainerSmokeRestore();
+    current.lastChild!.textContent = "Fetching activity details…";
+    const warning = document.createElement("p");
+    warning.className = "sync-work-status";
+    warning.textContent =
+      "Cancelled. Saved progress is retained. Refresh summary, then explicitly sync or continue saved history.";
+    current.parentElement!.append(warning);
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(true);
+    expect(getComputedStyle(warning).visibility).toBe("visible");
+    smoke.__trainerSmokeRestore();
+    warning.textContent = "private-reason-canary";
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+    warning.remove();
     cue.textContent = "private-cue-canary";
     expect(
       (await command({ type: "captureView", view: "sync", preset: "wide" }))

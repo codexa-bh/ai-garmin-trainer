@@ -138,7 +138,10 @@ def prepare_mixed_sync_presentation(run, outcome):
             raise ValueError('Settled unknown-boundary authored history required')
         history.update(outcome='failed', recoveryReason='no-progress')
         latest = {'version':1, 'outcome':outcome, 'updatedAt':datetime.now(timezone.utc).isoformat(), 'activitiesProcessed':6, 'healthDaysRefreshed':14}
+        operation = {**latest, 'intent':'latest', 'stopReason': 'connector' if outcome == 'failed' else None,
+                     'detailsAttempted':0, 'detailsProcessed':0, 'detailsFailed':0, 'detailsRemaining':0}
         with db:
+            db.execute("insert or replace into sync_checkpoint(key,value,updated_at) values ('garmin_sync_v1',?,?)", (json.dumps(operation), int(time.time())))
             db.execute("update sync_checkpoint set value=? where key='garmin_history_v1'", (json.dumps(history),))
             db.execute("insert or replace into sync_checkpoint(key,value,updated_at) values ('garmin_latest_v1',?,?)", (json.dumps(latest), int(time.time())))
         if db.execute('pragma integrity_check').fetchone() != ('ok',) or db.execute('pragma foreign_key_check').fetchall():
@@ -305,6 +308,7 @@ class HistoryRun(OrdinaryRun):
         if outcome is not None and outcome not in ('settled', 'failed', 'budget-limited', 'cancelled', 'running'):
             raise ValueError('Unexpected safe history outcome')
         operation = (value.get('discovery') or {}).get('operation') or {}
+        sync_work = (value.get('sync') or {}).get('operation') or {}
         return {'outcome': outcome, 'active': value.get('syncActive') is True,
                 'batches': operation.get('batches', 0), 'operationAttempts': operation.get('attempts', 0),
                 'healthChecks': health.get('checks'), 'healthChecksWithMetrics': health.get('checksWithMetrics'),
@@ -312,6 +316,11 @@ class HistoryRun(OrdinaryRun):
                 'operations': history.get('operations'), 'failureClass': history.get('failureClass'),
                 'historicalState': ((value.get('sync') or {}).get('historical') or {}).get('state'),
                 'latestOutcome': ((value.get('sync') or {}).get('latest') or {}).get('outcome'),
+                'detailsAttempted': sync_work.get('detailsAttempted'),
+                'detailsProcessed': sync_work.get('detailsProcessed'),
+                'detailsFailed': sync_work.get('detailsFailed'),
+                'detailsRemaining': (value.get('sync') or {}).get('detailsRemaining'),
+                'stopReason': sync_work.get('stopReason'),
                 'activities': value.get('activities'), 'healthDays': value.get('healthDays')}
 
     def wait_sync(self, predicate, seconds=195):
@@ -343,6 +352,20 @@ class HistoryRun(OrdinaryRun):
         self.wait_sync(lambda value: value['startEnabled'], 10)
         self.command({'type':'sync', 'action':'start'})
         self.wait_sync(lambda value: value['running'] and value['cancelEnabled'], 15)
+        if before['detailsRemaining'] > 1:
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                progress = self.summary()
+                if progress['active'] and (progress['detailsProcessed'] or 0) >= 1:
+                    break
+                if not progress['active']:
+                    raise ValueError('Detail progress did not remain observable; no replay')
+                time.sleep(.25)
+            else:
+                raise TimeoutError('Finite multi-detail progress was not observed')
+            for preset in ('wide', 'narrow'):
+                self.command({'type':'setViewport', 'preset':preset})
+                self.sync_captures.append({'scenario':f'multi-detail-progress-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
         self.wait_sync(lambda value: value['completed'] and not value['running'], 90)
         self.settle_claim()
         after = self.summary()
@@ -396,6 +419,8 @@ class HistoryRun(OrdinaryRun):
         latest = [self.latest_only()]
         if latest[0]['after']['outcome'] is not None:
             raise ValueError('Fresh latest created historical state')
+        if latest[0]['after']['detailsProcessed'] <= 1 or latest[0]['after']['detailsRemaining'] != 0 or latest[0]['after']['detailsFailed'] != 0:
+            raise ValueError('Multi-detail backlog was not actually exhausted')
         settled = []
         for index in range(2):
             before = self.summary()
@@ -448,8 +473,8 @@ class HistoryRun(OrdinaryRun):
             expected = 'cancelled' if index == 0 else 'settled'
             if after['active'] or after['outcome'] != expected or after['healthChecks'] <= (before['healthChecks'] or 0):
                 raise ValueError('Synthetic historical progress/settlement was not durable')
-            if index == 1 and after['historicalState'] != 'complete':
-                raise ValueError('Selected scope did not complete')
+            if index == 1 and (after['historicalState'] != 'complete' or after['detailsRemaining'] != 0):
+                raise ValueError('Selected scope/detail backlog did not complete')
             settled.append({'before':before, 'after':after})
             private_json(self.root / f'synthetic-sync-{index}.json', {'source':self.config['source'], 'boot':self.boot, 'captures':images, 'settled':settled})
             self.stop()

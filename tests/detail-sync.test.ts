@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
+import { normalizeActivity } from "../src/lib/garmin/normalize";
 
 const dbDir = join(tmpdir(), "ai-garmin-detail-sync-tests");
 
@@ -18,6 +19,36 @@ async function repository() {
 }
 
 describe("detail sync state", () => {
+  it("enumerates beyond both former selection ceilings and counts retryable candidates only once", async () => {
+    const repo = await repository();
+    repo.upsertActivities(
+      Array.from({ length: 5003 }, (_, index) =>
+        normalizeActivity({
+          activityId: String(index),
+          startTimeLocal: "2026-07-01T12:00:00Z",
+          activityType: "running",
+        }),
+      ),
+    );
+    repo.recordActivityDetailAttempt({
+      garminId: "0",
+      status: "failed",
+      retryable: true,
+    });
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("1", { records: [{ heart_rate_bpm: 140 }] }),
+    );
+    repo.upsertActivityDetail({
+      ...normalizeActivityDetail("2", {}),
+      status: "unsupported",
+    });
+    expect(repo.listActivityIdsNeedingDetail()).toHaveLength(5001);
+    expect(new Set(repo.listActivityIdsNeedingDetail()).size).toBe(5001);
+    expect(repo.listActivityIdsNeedingDetail(500)).toHaveLength(500);
+    expect(repo.listActivityIdsNeedingDetail(9999)).toHaveLength(5000);
+    expect(repo.listActivityIdsNeedingDetail()).not.toContain("1");
+    expect(repo.listActivityIdsNeedingDetail()).not.toContain("2");
+  });
   it("persists activity effort fields additively and preserves refreshed values across sparse sync rows", async () => {
     const repo = await repository();
     repo.upsertActivities([

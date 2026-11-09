@@ -87,6 +87,12 @@ class SyntheticHistoryContracts(unittest.TestCase):
         fit = json.loads(tool('get_activity_fit_data', {'activity_id':'synthetic', 'include_records':False})['content'][0]['text'])
         self.assertIn('zones_target', fit)
         self.assertEqual(fit['records'], [])
+        detail = json.loads(tool('get_activity_fit_data', {'activity_id':'synthetic', 'include_records':True})['content'][0]['text'])
+        self.assertEqual(len(detail['records']), 1)
+        self.assertTrue({'altitude_meters', 'distance_meters', 'speed_mps'} <= set(detail['records'][0]))
+        page = json.loads(tool('get_activities_by_date', {'start_date':'2026-09-01', 'end_date':'2026-09-07', 'page':0, 'page_size':100})['content'][0]['text'])
+        self.assertEqual(len(page['activities']), 3)
+        self.assertEqual(len({row['activityId'] for row in page['activities']}), 3)
         weekly = json.loads(tool('get_weekly_steps', {'end_date':'2026-09-07', 'weeks':52})['content'][0]['text'])
         self.assertEqual(weekly['weekly_data'], [])
         for name in ('login', 'set_weight', 'fetch', 'private'):
@@ -130,7 +136,8 @@ class SyntheticHistoryContracts(unittest.TestCase):
                     active, checks = False, 24
             return {'active':active, 'outcome':'running' if active else ('settled' if checks == 24 else 'cancelled' if checks else None),
                     'historicalState':'active' if active else 'complete' if checks == 24 else 'available',
-                    'healthChecks':checks, 'batches':2 if active else 0, 'operationAttempts':90, 'activities':8, 'healthDays':20}
+                    'healthChecks':checks, 'batches':2 if active else 0, 'operationAttempts':90, 'activities':8, 'healthDays':20,
+                    'detailsProcessed':11, 'detailsRemaining':0, 'detailsFailed':0}
         def latest_only():
             self.assertFalse(active)
             return {'before':summary(), 'after':summary(), 'historyBytesPreserved':True}

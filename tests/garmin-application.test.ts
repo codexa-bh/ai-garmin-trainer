@@ -274,6 +274,217 @@ function operationFixture() {
   };
 }
 
+function pendingDetails(f: ReturnType<typeof fixture>, count: number) {
+  const pending = new Set(
+    Array.from({ length: count }, (_, index) => String(index + 1)),
+  );
+  vi.mocked(f.store.listActivityIdsNeedingDetail).mockImplementation(() => [
+    ...pending,
+  ]);
+  vi.mocked(f.store.upsertActivityDetail).mockImplementation((detail) => {
+    pending.delete(detail.garminId);
+  });
+  vi.mocked(f.reader.activityDetail).mockImplementation(async (id) => {
+    f.journal.push("read:detail");
+    return {
+      recognized: true,
+      detail: normalizeActivityDetail(id, {
+        records: [{ heart_rate_bpm: 140 }],
+      }),
+    };
+  });
+  return pending;
+}
+
+describe("required detail exhaustion and truthful settlement", () => {
+  it.each([0, 3, 501, 5001])(
+    "drains %i known candidates without a selection quota or duplicate terminal fetch",
+    async (count) => {
+      const f = fixture();
+      pendingDetails(f, count);
+      const events: Array<
+        Parameters<
+          import("../src/lib/garmin/import-contracts").ProgressReporter
+        >[0]
+      > = [];
+      const result = await f.app.runGarminSync((event) => events.push(event), {
+        intent: "latest",
+      });
+      expect(result).toMatchObject({
+        status: "completed",
+        detailsAttempted: count,
+        detailsProcessed: count,
+        detailsFailed: 0,
+        detailsRemaining: 0,
+        stopReason: null,
+      });
+      expect(f.reader.activityDetail).toHaveBeenCalledTimes(count);
+      expect(events.at(-1)?.stage).toBe("completed");
+      expect(f.app.syncSummary().sync.operation).toMatchObject({
+        outcome: "settled",
+        detailsProcessed: count,
+        detailsRemaining: 0,
+      });
+    },
+  );
+
+  it("continues across pre-dispatch internal batches under one real adapter/claim/clock", async () => {
+    const f = operationFixture();
+    pendingDetails(f, 55);
+    const result = await f.app.runGarminSync(undefined, {
+      intent: "latest",
+      interactive: true,
+    });
+    expect(result).toMatchObject({
+      status: "completed",
+      detailsAttempted: 55,
+      detailsProcessed: 55,
+      detailsRemaining: 0,
+    });
+    expect(f.calls.length).toBeGreaterThan(96);
+    expect(f.calls.length).toBeLessThanOrEqual(DISCOVERY_LIMITS.operations);
+    expect(
+      f.calls
+        .slice(1)
+        .every((call, index) => call.at - f.calls[index].at >= 1000),
+    ).toBe(true);
+  });
+
+  it("keeps cumulative admission across detail batches and persists exact incomplete truth", async () => {
+    const f = operationFixture();
+    pendingDetails(f, 501);
+    const stages: string[] = [];
+    const result = await f.app.runGarminSync(
+      (event) => stages.push(event.stage),
+      { intent: "latest", interactive: true },
+    );
+    expect(result.status).toBe("budget-limited");
+    expect(result.stopReason).toBe("attempt-limit");
+    expect(result.detailsRemaining).toBeGreaterThan(0);
+    expect(f.calls).toHaveLength(DISCOVERY_LIMITS.operations);
+    expect(stages.at(-1)).toBe("budget-limited");
+    expect(f.app.syncSummary().sync.operation).toMatchObject({
+      outcome: "budget-limited",
+      stopReason: result.stopReason,
+      detailsProcessed: result.detailsProcessed,
+      detailsRemaining: result.detailsRemaining,
+    });
+    expect(f.store.finishSyncRun).toHaveBeenLastCalledWith(
+      "run",
+      "budget-limited",
+      expect.any(String),
+    );
+  });
+
+  it("reports an overall deadline after committed detail without relabelling it completed", async () => {
+    const f = operationFixture();
+    const pending = pendingDetails(f, 3);
+    vi.mocked(f.store.upsertActivityDetail).mockImplementation((detail) => {
+      pending.delete(detail.garminId);
+      f.advance(DISCOVERY_LIMITS.milliseconds);
+    });
+    const result = await f.app.runGarminSync(undefined, {
+      intent: "latest",
+      interactive: true,
+    });
+    expect(result).toMatchObject({
+      status: "budget-limited",
+      stopReason: "operation-deadline",
+      detailsProcessed: 1,
+      detailsRemaining: 2,
+    });
+  });
+
+  it("admits details inserted by later historical pages in the same operation", async () => {
+    const f = fixture();
+    const pending = pendingDetails(f, 2);
+    vi.mocked(f.reader.activityPage).mockImplementation(
+      async (_start, _end) => {
+        if (_end < "2026-09-08") pending.add("later");
+        return { activities: [], hasMore: false };
+      },
+    );
+    vi.mocked(f.ports.historyStartDate).mockReturnValue("2026-09-01");
+    const result = await f.app.runGarminSync(undefined, { intent: "history" });
+    expect(result.detailsProcessed).toBe(3);
+    expect(result.detailsRemaining).toBe(0);
+    expect(f.reader.activityDetail).toHaveBeenCalledWith("later");
+  });
+
+  it("stops on returned failure without counting it as completed or spinning", async () => {
+    const f = fixture();
+    pendingDetails(f, 3);
+    vi.mocked(f.reader.activityDetail).mockRejectedValue(
+      new Error(
+        "Garmin connection or service is unavailable; authentication validity is inconclusive.",
+      ),
+    );
+    const events: string[] = [];
+    const result = await f.app.runGarminSync(
+      (event) => events.push(event.stage),
+      { intent: "latest" },
+    );
+    expect(result).toMatchObject({
+      status: "failed",
+      detailsAttempted: 1,
+      detailsProcessed: 0,
+      detailsFailed: 1,
+      detailsRemaining: 3,
+      stopReason: "detail-failure",
+    });
+    expect(f.store.upsertActivityDetail).not.toHaveBeenCalled();
+    expect(f.reader.activityDetail).toHaveBeenCalledTimes(1);
+    expect(events.at(-1)).toBe("failed");
+    expect(f.app.syncSummary().sync.operation).toMatchObject({
+      outcome: "failed",
+      detailsRemaining: 3,
+    });
+  });
+
+  it("retains committed detail on cancellation and never emits completed", async () => {
+    const f = fixture();
+    const pending = pendingDetails(f, 3);
+    const events: string[] = [];
+    const result = await f.app.runGarminSync(
+      (event) => events.push(event.stage),
+      { intent: "latest", cancelled: () => pending.size < 3 },
+    );
+    expect(result).toMatchObject({
+      status: "cancelled",
+      detailsProcessed: 1,
+      detailsRemaining: 2,
+      stopReason: "cancelled",
+    });
+    expect(events.at(-1)).toBe("cancelled");
+    expect(f.store.finishSyncRun).toHaveBeenLastCalledWith(
+      "run",
+      "cancelled",
+      expect.any(String),
+    );
+  });
+
+  it("stops a non-removing store as no progress and preserves unsupported operation bytes", async () => {
+    const f = fixture();
+    vi.mocked(f.store.listActivityIdsNeedingDetail).mockReturnValue(["1"]);
+    expect(
+      await f.app.runGarminSync(undefined, { intent: "latest" }),
+    ).toMatchObject({
+      status: "failed",
+      stopReason: "no-progress",
+      detailsRemaining: 1,
+    });
+    f.checkpoints.set("garmin_sync_v1", '{"version":99}');
+    expect(f.app.syncSummary().sync).toMatchObject({
+      operation: null,
+      operationInvalid: true,
+    });
+    await expect(
+      f.app.runGarminSync(undefined, { intent: "latest" }),
+    ).rejects.toThrow("Unsupported sync operation");
+    expect(f.checkpoints.get("garmin_sync_v1")).toBe('{"version":99}');
+  });
+});
+
 describe("interactive ownership, safety and comparative request cost", () => {
   it("amortizes common work compared with repeated bounded callers over the same sparse three-year-old checkpoint", async () => {
     const automatic = operationFixture();
@@ -459,7 +670,7 @@ describe("Garmin imports with supplied capabilities, no infrastructure mocks", (
         };
       },
     );
-    vi.mocked(f.store.listActivityIdsNeedingDetail).mockReturnValue(["1"]);
+    pendingDetails(f, 1);
     f.checkpoints.set("health_next_date", "2026-09-21");
     vi.mocked(f.store.listDailyHealthMissingGapDates).mockReturnValue([
       "2026-09-19",
@@ -724,9 +935,10 @@ describe("Garmin imports with supplied capabilities, no infrastructure mocks", (
       dates: ["2026-09-20", "2026-09-21"],
       checkpointDates: [],
     });
+    // Authentication/transport unavailability must not become terminal source absence.
     expect(classifyDetailError(new Error("auth unavailable"))).toMatchObject({
       errorClass: "auth",
-      retryable: false,
+      retryable: true,
     });
     expect(
       classifyDetailError(new Error("x".repeat(2000))).message,

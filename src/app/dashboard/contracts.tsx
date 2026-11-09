@@ -10,6 +10,8 @@ export type SyncRunState = {
   lines: Array<{ text: string; severity: "info" | "error" }>;
   finalMessage: string;
   countSummary?: string;
+  phase?: string;
+  workSummary?: string;
   failureSummary: string | null;
   recovery:
     | "connector"
@@ -317,6 +319,10 @@ export type SyncProgressEvent = {
   activitiesProcessed?: number;
   healthDaysRefreshed?: number;
   detailsProcessed?: number;
+  detailsAttempted?: number;
+  detailsFailed?: number;
+  detailsRemaining?: number;
+  stopReason?: import("@/lib/garmin/sync-policy").SyncStopReason | null;
   effortDetailsProcessed?: number;
   detailTotal?: number | null;
   storedActivities?: number;

@@ -2740,8 +2740,15 @@
       const safeStates = new Set([
         "Ready to refresh recent data.",
         "Status unavailable. Refresh import summary before syncing.",
+        "Saved sync state needs recovery. Preserve it; do not reset or replay.",
         "Older history needs attention.",
         "Syncing…",
+        "Starting connector…",
+        "Checking daily health…",
+        "Checking activity summaries…",
+        "Refreshing body metrics…",
+        "Refreshing athlete baseline…",
+        "Fetching activity details…",
         "Sync paused. Refresh import summary to confirm settlement.",
         "Selected older range checked; remote earliest history unknown.",
         "Latest refresh in progress…",
@@ -2762,13 +2769,36 @@
         "Previous historical import was interrupted; committed progress is retained.",
         "Selected exploration range checked. Remote earliest history remains unknown.",
       ]);
+      for (const reason of [
+        "Cancelled",
+        "Cumulative attempt limit reached",
+        "Operation time limit reached",
+        "Internal batch time limit reached",
+        "A read timed out",
+        "An activity detail failed",
+        "No safe progress",
+        "Required work remains",
+        "Authentication could not be verified",
+        "Garmin rate-limited the request",
+        "Connection unavailable",
+        "Unrecognized connector response",
+        "Connector or storage failure",
+        "Previous sync interrupted",
+        "Completion is unconfirmed",
+      ]) {
+        for (const next of [
+          "Resolve the failure, refresh summary, then explicitly retry.",
+          "Refresh summary, then explicitly sync or continue saved history.",
+        ])
+          safeStates.add(`${reason}. Saved progress is retained. ${next}`);
+      }
       for (const status of document.querySelectorAll(
-        ".sync-history-status, .sync-current-status",
+        ".sync-history-status, .sync-current-status, .sync-work-status",
       )) {
         if (visible(status)) {
           const cue = status.firstElementChild;
           const busyCue =
-            status.textContent === "Syncing…" &&
+            safeStates.has(status.textContent) &&
             status.childElementCount === 1 &&
             cue.tagName === "SPAN" &&
             cue.className === "sync-busy-cue" &&
@@ -2846,7 +2876,7 @@
             ) &&
             !(
               node.matches(".sync-current-status[data-smoke-reveal]") &&
-              node.textContent === "Syncing…"
+              safeStates.has(node.textContent)
             )
           ) {
             restore();

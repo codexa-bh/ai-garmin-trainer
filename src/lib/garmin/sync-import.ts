@@ -4,6 +4,10 @@ import {
   latestSyncState,
   LATEST_CHECKPOINT,
   nextHistoricalWork,
+  SYNC_CHECKPOINT,
+  syncOperation,
+  type SyncOperation,
+  type SyncStopReason,
   type SyncIntent,
   type SyncState,
 } from "./sync-policy";
@@ -144,7 +148,18 @@ export function createGarminImports({
     } catch {
       /* Preserve unsupported bytes; no refresh result is claimed. */
     }
+    let operation: SyncOperation | null = null;
+    let operationInvalid = false;
+    try {
+      operation = syncOperation(store.getCheckpoint(SYNC_CHECKPOINT));
+    } catch {
+      operationInvalid = true;
+      /* Unsupported operation state remains unknown; never rewrite on read. */
+    }
     const sync: SyncState = {
+      operation,
+      operationInvalid,
+      detailsRemaining: store.listActivityIdsNeedingDetail().length,
       latest,
       historical: historicalAction({
         history,
@@ -185,6 +200,8 @@ export function createGarminImports({
     const recentStart =
       limit && limit > shiftDate(today, -13) ? limit : shiftDate(today, -13);
     const historical = options.intent !== "latest";
+    // Unknown versions are preserved and refuse mutation, never silently reset.
+    syncOperation(store.getCheckpoint(SYNC_CHECKPOINT));
     if (!historical) latestSyncState(store.getCheckpoint(LATEST_CHECKPOINT));
     if (
       options.intent === "history" &&
@@ -242,17 +259,24 @@ export function createGarminImports({
     let readFailure: unknown;
     const overallRemaining = () =>
       Math.max(0, operationLimits.milliseconds - (clock().getTime() - started));
-    const checkStop = () => {
+    const checkStop = (admitting = false) => {
       if (control.cancelled()) throw new SyncPause("cancelled");
       if (readFailure) throw readFailure;
-      if (overallRemaining() <= 0 || operations >= operationLimits.operations)
-        throw new SyncPause("budget-limited");
       if (
-        batchOperations >= SYNC_LIMITS.operations ||
-        clock().getTime() - batchStarted >= SYNC_LIMITS.milliseconds
-      ) {
-        if (interactive) throw new BatchEnd();
+        overallRemaining() <= 0 ||
+        (admitting && operations >= operationLimits.operations)
+      )
         throw new SyncPause("budget-limited");
+      // Only a pre-dispatch boundary can renew an internal batch. Never replay
+      // an in-flight timeout or reset cumulative attempts/the operation clock.
+      if (
+        admitting &&
+        (batchOperations >= SYNC_LIMITS.operations ||
+          clock().getTime() - batchStarted >= SYNC_LIMITS.milliseconds)
+      ) {
+        if (!interactive) throw new SyncPause("budget-limited");
+        batchOperations = 0;
+        batchStarted = clock().getTime();
       }
     };
     const control = {
@@ -271,7 +295,7 @@ export function createGarminImports({
           }
         : undefined,
       async admit() {
-        checkStop();
+        checkStop(true);
         if (interactive && lastDispatch !== null) {
           const delay = Math.max(
             0,
@@ -288,7 +312,7 @@ export function createGarminImports({
             checkStop();
           }
         }
-        checkStop();
+        checkStop(true);
         lastDispatch = clock().getTime();
         operations += 1;
         batchOperations += 1;
@@ -316,6 +340,10 @@ export function createGarminImports({
     let activitiesImported = 0;
     let healthDaysImported = 0;
     let detailsProcessed = 0;
+    let detailsAttempted = 0;
+    let detailsFailed = 0;
+    let detailsRemaining = store.listActivityIdsNeedingDetail().length;
+    let stopReason: SyncStopReason | null = null;
     let effortDetailsProcessed = 0;
     let athleteBaseline = store.getGarminAthleteBaseline();
     let bodyMetrics = store.getGarminBodyMetrics();
@@ -325,6 +353,22 @@ export function createGarminImports({
     const save = () => {
       state.operations = operations;
       state.updatedAt = clock().toISOString();
+      store.saveCheckpoint(
+        SYNC_CHECKPOINT,
+        JSON.stringify({
+          version: 1,
+          intent: options.intent ?? "legacy",
+          outcome: state.outcome,
+          updatedAt: state.updatedAt,
+          stopReason,
+          detailsAttempted,
+          detailsProcessed,
+          detailsFailed,
+          detailsRemaining,
+          activitiesProcessed: activitiesImported,
+          healthDaysRefreshed: healthDaysImported,
+        } satisfies SyncOperation),
+      );
       if (!historical) {
         store.saveCheckpoint(
           LATEST_CHECKPOINT,
@@ -356,6 +400,11 @@ export function createGarminImports({
         date,
         activitiesImported,
         healthDaysImported,
+        detailsAttempted,
+        detailsProcessed,
+        detailsFailed,
+        detailsRemaining,
+        stopReason,
       });
     const handledHealth = new Set<string>();
     async function health(date: string, historical = false) {
@@ -585,6 +634,7 @@ export function createGarminImports({
                 state.activities.page = 0;
               }
               save();
+              await drainDetails();
               if (!page.hasMore) break;
             }
           }
@@ -629,6 +679,45 @@ export function createGarminImports({
           for (let index = 0; index < families.length; index += 1)
             await families[(index + offset) % families.length]();
         }
+        async function drainDetails() {
+          // Successful terminal rows leave eligibility. Re-select without offsets
+          // so bounded store pages and newly admitted rows cannot be skipped.
+          const attempted = new Set<string>();
+          for (;;) {
+            const ids = store.listActivityIdsNeedingDetail();
+            detailsRemaining = ids.length;
+            if (!ids.length) break;
+            for (const id of ids) {
+              checkStop();
+              if (attempted.has(id)) {
+                stopReason = "no-progress";
+                throw new NoHistoryProgress();
+              }
+              attempted.add(id);
+              detailsAttempted += 1;
+              progress("detail", "Fetching pending activity details…");
+              const result = await details.fetchAndStoreActivityDetail(
+                client,
+                id,
+                { force: false },
+              );
+              if (result.status === "completed") detailsProcessed += 1;
+              else detailsFailed += 1;
+              detailsRemaining = store.listActivityIdsNeedingDetail().length;
+              save();
+              progress("detail", "Activity detail progress saved.");
+              // A resolved helper can still represent failed required work.
+              checkStop();
+              if (result.status === "failed") {
+                stopReason = "detail-failure";
+                throw new Error(
+                  "Required activity detail failed; no automatic retry.",
+                );
+              }
+            }
+          }
+          save();
+        }
         async function supplements() {
           if (discovery?.operation) discovery.operation.phase = "supplements";
           progress(
@@ -641,17 +730,7 @@ export function createGarminImports({
             if (await details.fetchAndStoreActivityEffort(client, id))
               effortDetailsProcessed += 1;
           }
-          for (const id of store.listActivityIdsNeedingDetail().slice(0, 1)) {
-            checkStop();
-            progress(
-              "detail",
-              `Refreshing missing activity detail 1/1: ${id}…`,
-            );
-            await details.fetchAndStoreActivityDetail(client, id, {
-              force: false,
-            });
-            detailsProcessed += 1;
-          }
+          await drainDetails();
           checkStop();
           const fit = await client.fitBaseline(
             store.listRecentActivities(1).map((activity) => activity.garminId),
@@ -713,9 +792,31 @@ export function createGarminImports({
             checkStop();
           } while (interactive);
         if (!interactive) await supplements();
+        await drainDetails();
         if (failure) outcome = "failed";
+        if (!failure && historical && work()) {
+          outcome = "budget-limited";
+          stopReason = "required-work-remaining";
+          failure =
+            "Required historical work remains; continue explicitly within the saved scope.";
+        }
       } catch (error) {
         dependency = garminDependencyReason(error);
+        const failureClass = historyFailureClass(error);
+        stopReason ??=
+          error instanceof SyncPause || error instanceof BatchEnd
+            ? control.cancelled()
+              ? "cancelled"
+              : operations >= operationLimits.operations
+                ? "attempt-limit"
+                : overallRemaining() <= 0
+                  ? "operation-deadline"
+                  : "batch-limit"
+            : error instanceof NoHistoryProgress
+              ? "no-progress"
+              : failureClass === "timeout"
+                ? "request-timeout"
+                : failureClass;
         outcome =
           error instanceof SyncPause
             ? error.reason
@@ -740,6 +841,19 @@ export function createGarminImports({
               ? error.message
               : "Garmin sync stopped after a connector or storage failure; committed data and unresolved history are retained.";
       }
+      detailsRemaining = store.listActivityIdsNeedingDetail().length;
+      if (outcome === "settled" && detailsRemaining > 0) {
+        outcome = "failed";
+        stopReason = "required-work-remaining";
+        failure =
+          "Eligible activity details remain; refresh summary before explicit recovery.";
+      }
+      if (outcome === "failed" && !stopReason) {
+        stopReason =
+          state.failureClass === "timeout"
+            ? "request-timeout"
+            : (state.failureClass ?? "connector");
+      }
       state.outcome = outcome;
       if (discovery?.operation) {
         discovery.operation.phase = "settled";
@@ -751,7 +865,7 @@ export function createGarminImports({
       save();
       store.finishSyncRun(
         syncRunId,
-        outcome === "failed" ? "failed" : "completed",
+        outcome === "settled" ? "completed" : outcome,
         failure,
       );
       const totals = store.dataCounts();
@@ -767,6 +881,10 @@ export function createGarminImports({
         activitiesProcessed: activitiesImported,
         healthDaysRefreshed: healthDaysImported,
         detailsProcessed,
+        detailsAttempted,
+        detailsFailed,
+        detailsRemaining,
+        stopReason,
         effortDetailsProcessed,
         storedActivities: totals.activities,
         storedHealthRows: totals.healthCoverage.totalRows,
@@ -782,7 +900,7 @@ export function createGarminImports({
         detail: `${failure ?? (historical ? "Historical invocation settled." : "Latest refresh settled; saved history preserved.")} ${summary.sync.historical.reason} Remote earliest-health boundary is unknown. ${operations}/${operationLimits.operations} remote-operation attempts (not HTTP requests).`,
       };
       close();
-      progress(outcome === "failed" ? "failed" : "completed", result.detail);
+      progress(outcome === "settled" ? "completed" : outcome, result.detail);
       return result;
     } finally {
       try {

@@ -211,7 +211,10 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     });
     db.exec("drop trigger checkpoint_write_fault");
     const resumed = await app.runGarminSync();
-    expect(resumed.status).toBe("completed");
+    expect(resumed).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+    });
     expect(repo.dataCounts().healthDays).toBe(20);
     expect(
       db
@@ -240,7 +243,10 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     repo.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(saved));
     const app = await import("../src/lib/garmin/composition");
     const result = await app.runGarminSync();
-    expect(result.status).toBe("completed");
+    expect(result).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+    });
     expect(healthDates().slice(-2)).toEqual([
       shiftDate("2000-01-01", 500),
       shiftDate("2000-01-01", 501),
@@ -269,7 +275,8 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     const repo = await import("../src/lib/db/repository");
     const first = await app.runGarminSync();
     expect(first).toMatchObject({
-      status: "completed",
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
       continuationAvailable: true,
       history: {
         remoteLowerBound: null,
@@ -381,11 +388,14 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     remote.cancelAt = 0;
     remote.cancelled = false;
     const resumed = await app.runGarminSync();
-    expect(resumed.status).toBe("completed");
+    expect(resumed).toMatchObject({
+      status: "budget-limited",
+      stopReason: "required-work-remaining",
+    });
     const count = repo.dataCounts().healthDays;
     await app.runGarminSync();
     expect(repo.dataCounts().healthDays).toBe(count + 6);
-    expect(repo.importSummary().history?.outcome).toBe("settled");
+    expect(repo.importSummary().history?.outcome).toBe("budget-limited");
   });
 
   it("enforces elapsed-time admission before the next nested read", async () => {

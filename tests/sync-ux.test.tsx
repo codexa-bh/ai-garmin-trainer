@@ -117,6 +117,128 @@ function SyncHarness({ visible = true }: { visible?: boolean }) {
 }
 
 describe("concise Sync presentation", () => {
+  it("does not borrow old latest success when current operation bytes are unsupported", async () => {
+    const value = mixedSummary();
+    value.sync!.operationInvalid = true;
+    const fetch = vi.fn(async () => response(value));
+    vi.stubGlobal("fetch", fetch);
+    render(<SyncHarness />);
+    await screen.findByText("Sync outcome unknown. Refresh import summary.");
+    expect(screen.queryByText("Latest refresh finished.")).toBeNull();
+    expect(
+      screen.getByText(/Saved sync state needs recovery/).closest("details"),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Sync now — import latest Garmin data" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    "attempt-limit",
+    "operation-deadline",
+    "batch-limit",
+    "detail-failure",
+    "request-timeout",
+    "cancelled",
+    "no-progress",
+  ] as const)(
+    "keeps durable %s and remaining detail visible with details closed and no passive POST",
+    async (stopReason) => {
+      const value = summary("complete");
+      value.sync!.operation = {
+        version: 1,
+        intent: "latest",
+        outcome: stopReason === "cancelled" ? "cancelled" : "budget-limited",
+        stopReason,
+        updatedAt: "2026-11-09T12:00:00Z",
+        detailsAttempted: 3,
+        detailsProcessed: 2,
+        detailsFailed: 1,
+        detailsRemaining: 7,
+      };
+      value.sync!.detailsRemaining = 7;
+      const fetch = vi.fn(async () => response(value));
+      vi.stubGlobal("fetch", fetch);
+      render(<SyncHarness />);
+      const warning = await screen.findByText(
+        /7 known activity details remain/,
+      );
+      expect(warning.closest("details")).toBeNull();
+      expect(
+        screen.getByText(/Saved progress is retained/, {
+          selector: ".sync-work-status",
+        }).textContent,
+      ).toContain("explicitly");
+      expect(
+        (
+          screen.getByText("Technical details")
+            .parentElement as HTMLDetailsElement
+        ).open,
+      ).toBe(false);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("renders actual live detail phase and attempted/completed/remaining units outside diagnostics", async () => {
+    let controller: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value;
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) =>
+        url === "/api/sync" ? new Response(stream) : response(summary()),
+      ),
+    );
+    render(<SyncHarness />);
+    const start = await screen.findByRole("button", {
+      name: "Sync now — import latest Garmin data",
+    });
+    await waitFor(() => expect(start.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(start);
+    await act(async () => {
+      controller.enqueue(
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: "progress",
+            stage: "detail",
+            detailsAttempted: 3,
+            detailsProcessed: 2,
+            detailsRemaining: 7,
+          }) + "\n",
+        ),
+      );
+    });
+    expect(
+      within(screen.getByRole("region", { name: "Run Garmin sync" })).getByRole(
+        "status",
+      ).textContent,
+    ).toContain("Fetching activity details");
+    const counts = screen.getByText(
+      /2 details completed · 3 attempted · 7 remaining/,
+    );
+    expect(counts.closest("details")).toBeNull();
+    await act(async () => {
+      controller.enqueue(
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: "result",
+            status: "budget-limited",
+            stopReason: "attempt-limit",
+            detailsRemaining: 7,
+          }) + "\n",
+        ),
+      );
+      controller.close();
+    });
+    expect(
+      await screen.findByText(/Cumulative attempt limit reached/),
+    ).toBeTruthy();
+  });
   it("separates fresh and reloaded 6/14 latest success from one visible recovery warning without passive effects", async () => {
     const fetch = vi.fn((url: string) =>
       Promise.resolve(
