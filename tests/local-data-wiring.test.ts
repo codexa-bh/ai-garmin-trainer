@@ -233,6 +233,9 @@ it("wires list/dashboard/health/summary/reference/tool reads to the same populat
   expect(await (await summary.GET()).json()).toEqual({
     ...storage.importSummary(),
     sync: {
+      operation: null,
+      operationInvalid: false,
+      detailsRemaining: 1,
       latest: null,
       historical: expect.objectContaining({
         state: "available",
