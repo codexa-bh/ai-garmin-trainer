@@ -27,7 +27,7 @@ export function summaryPolicyIdentity(raw: string): string {
   const entry = summarySelection(raw);
   return `global-summary-text-v2/${entry ? JSON.stringify([entry.provider, entry.modelId]) : "unselected"}`;
 }
-export const SUMMARY_DEADLINE_MS = 60_000;
+export const SUMMARY_DEADLINE_MS = 300_000;
 export const SUMMARY_DEBOUNCE_MS = 2000;
 export const SUMMARY_CATCHUP_MS = 8000;
 /** Historical allocation helper only. This does not bound a real provider effect. */
