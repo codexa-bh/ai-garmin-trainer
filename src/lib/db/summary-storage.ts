@@ -129,7 +129,8 @@ function sources(frontier: number, upper?: number): SummarySource[] {
         from conversation_completion e join conversation_turn t on t.turn_id=e.turn_id
         where e.event_seq>? and e.event_seq<=? order by e.event_seq limit 20
       )
-      select b.eventSeq,b.turnId,b.admissionSeq,b.version,b.eligible,
+      select b.eventSeq,b.turnId,b.admissionSeq,b.version,b.eligible,u.created_at as createdAt,
+        (select m.created_at from conversation_turn p join message m on m.id=p.assistant_id where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) as referentCreatedAt,
         case when b.eligible=1 then u.content else null end as user,
         case when b.eligible=1 then
           (select case when p.summary_eligible=1 and p.admission_seq>(select cutoff from summary_control where id=1) and not exists(select 1 from summary_suppression x where x.source_id=p.turn_id||':'||p.source_version) then m.content else null end from conversation_turn p join message m on m.id=p.assistant_id where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) else null end as referent
@@ -143,20 +144,25 @@ function sources(frontier: number, upper?: number): SummarySource[] {
       referentUser: string | null;
     }
   >;
-  return rows.map((row) => ({
-    eventSeq: row.eventSeq,
-    sourceId: `${row.turnId}:${row.version}`,
-    admissionSeq: row.admissionSeq,
-    version: row.version,
-    eligible: Boolean(row.eligible),
-    user: row.eligible ? row.user : null,
-    referent:
+  return rows.map((row) => {
+    const referent =
       row.eligible &&
       row.referentUser &&
       !explicitMemoryNoSave(row.referentUser)
         ? row.referent
-        : null,
-  }));
+        : null;
+    return {
+      eventSeq: row.eventSeq,
+      sourceId: `${row.turnId}:${row.version}`,
+      admissionSeq: row.admissionSeq,
+      version: row.version,
+      eligible: Boolean(row.eligible),
+      user: row.eligible ? row.user : null,
+      referent,
+      ...(row.eligible ? { createdAt: row.createdAt } : {}),
+      ...(referent ? { referentCreatedAt: row.referentCreatedAt } : {}),
+    };
+  });
 }
 function pending(frontier: number): number {
   return (

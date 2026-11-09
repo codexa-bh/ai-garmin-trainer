@@ -31,6 +31,12 @@ MEMORY_MODEL = 'authored-memory'
 MEMORY_PRIOR = 'Short weekdays because caregiving limits time; long weekday plans failed. Equipment remains undecided, not rejected. ' * 130
 MEMORY_CURATED = 'Current mornings; short weekdays because caregiving limits time, and long weekday plans failed. Equipment remains undecided. Watercolor on Sundays because the studio is quiet.'
 LONG_CONTINUITY = 'Assistant option one: long weekdays, rejected because caregiving limits time. Option two: short weekdays remains preferred. ' + ('Unverified continuity. ' * 200)
+IMPORT_TIME = 1577923200000  # 2020-01-02, original authored message time, not review time.
+IMPORT_TEXTS = [
+    'Today I want you to know I prefer short weekdays because caregiving limits time until my child is older.',
+    "Don't save this week's plan yet; I prefer short weekdays because caregiving limits time.",
+    'Do not remember this private note.',
+]
 DOCUMENT_EXAMPLE = 'Example reference: /Users/example/plan.md; fictional OPENAI_API_KEY=example and access_token: example. Keep the caregiving rationale.'
 
 
@@ -42,6 +48,10 @@ def memory_chat_response(index, body, week):
              ('saveWeeklyDocuments', {'changes': [{'kind': 'plan', 'weekStart': week, 'title': 'Authored example', 'contentMarkdown': DOCUMENT_EXAMPLE}]})]
     if index == 13:
         return {'role': 'assistant', 'content': LONG_CONTINUITY}
+    if index == 15:
+        if IMPORT_TEXTS[2] not in json.dumps(body['messages']):
+            raise ValueError('Exact authored privacy turn required')
+        return {'role': 'assistant', 'content': FOLLOWUP}
     if index == 14:
         rendered = json.dumps(body['messages'])
         if LONG_CONTINUITY not in rendered or 'unverified continuity, not evidence or permission' not in rendered or MEMORY_CURATED not in rendered:
@@ -66,6 +76,10 @@ def memory_response(body):
         raise ValueError('Complete prior/new-source automatic curation contract missing')
     if 'currentProfile' not in payload or payload['targetCharacters'] != 6000:
         raise ValueError('Current Profile/advisory target missing')
+    sources = payload['newSources']
+    if any(source.get('user') in IMPORT_TEXTS for source in sources):
+        if [source.get('user') for source in sources] != IMPORT_TEXTS[:2] or [source.get('createdAt') for source in sources] != [IMPORT_TIME, IMPORT_TIME + 2000] or sources[1].get('assistantContextCreatedAt') != IMPORT_TIME + 1000 or not sources[1].get('assistantContext') or payload.get('now', 0) <= IMPORT_TIME + 3000 or 'Unix milliseconds' not in json.dumps(messages):
+            raise ValueError('Actual reviewed import original user/context date contract missing')
     return {'role': 'assistant', 'content': json.dumps({'summary': MEMORY_CURATED})}, True
 
 
@@ -234,7 +248,7 @@ def seed_run(run, provider):
     private_json(run.root / 'config/settings-v2.json', config)
 
 
-def api(run, method, path, body=None):
+def api(run, method, path, body=None, expected_status=200):
     if run.child is None or run.child.poll() is not None or not run.origin:
         raise ValueError('Verified live owned backend required')
     client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=30)
@@ -242,7 +256,7 @@ def api(run, method, path, body=None):
         client.request(method, path, None if body is None else json.dumps(body), {'Content-Type': 'application/json'})
         reply = client.getresponse()
         raw = reply.read(256 * 1024 + 1)
-        if reply.status != 200 or len(raw) > 256 * 1024:
+        if reply.status != expected_status or len(raw) > 256 * 1024:
             raise ValueError('Owned chat API failed or exceeded bound: ' + str(reply.status))
         return raw
     finally:
@@ -290,12 +304,40 @@ def memory_settings(base):
     return {'version': 3, 'fields': fields, 'keys': {}, 'chatCatalog': catalog, 'selectionCompatibility': {'database': None, 'catalog': catalog}}
 
 
+def seed_import_dates(run):
+    # Finite synthetic completed-Off inputs on the already-exclusive stopped copy.
+    # Never rewrite original messages: their update trigger rightly aborts sources.
+    if run.child is not None or run.database.parent != run.root or run.database.is_symlink():
+        raise ValueError('Stopped exclusive authored run required')
+    chat = 't0305-import-' + str(uuid.uuid4())
+    ids = []
+    with contextlib.closing(sqlite3.connect(run.database)) as db:
+        if db.execute('select enabled from summary_control where id=1').fetchone() != (0,):
+            raise ValueError('Authored import seed requires memory Off')
+        privacy = db.execute('select privacy_generation from conversation_history_control where id=1').fetchone()[0]
+        db.execute('insert into conversation(id,title,created_at,updated_at) values(?,?,?,?)', (chat, 'Authored date/privacy import', IMPORT_TIME, IMPORT_TIME + 6000))
+        for index, text in enumerate(IMPORT_TEXTS):
+            turn, user, assistant = [str(uuid.uuid4()) for _ in range(3)]
+            db.execute("insert into message(id,conversation_id,role,content,created_at) values(?,?,'user',?,?)", (user, chat, text, IMPORT_TIME + index * 2000))
+            db.execute("insert into message(id,conversation_id,role,content,created_at) values(?,?,'assistant',?,?)", (assistant, chat, 'Authored preceding context, not endorsement.', IMPORT_TIME + index * 2000 + 1000))
+            db.execute("insert into conversation_turn(turn_id,conversation_id,user_id,assistant_id,source_version,summary_eligible,status,boot_id,privacy_generation) values(?,?,?,?,1,0,'completed','authored-import',?)", (turn, chat, user, assistant, privacy))
+            db.execute('insert into conversation_completion(turn_id) values(?)', (turn,))
+            ids.append(turn + ':1')
+        db.commit()
+        if db.execute('pragma integrity_check').fetchone()[0] != 'ok' or db.execute('pragma foreign_key_check').fetchone():
+            raise ValueError('Authored import copy integrity failed')
+    return ids
+
+
 def memory_curation(run, provider):
     def inspection():
         return json.loads(api(run, 'GET', '/api/cross-chat-summary?view=content'))
     def command(action, **fields):
         value = inspection()
         return json.loads(api(run, 'POST', '/api/cross-chat-summary', {'version': 2, 'expected': value['expected'], 'action': action, **fields}))
+    run.stop()
+    import_ids = seed_import_dates(run)
+    run.start(run.binary)
     command('edit-summary', text=MEMORY_PRIOR)
     command('edit', id=None, text='Separate authored preference')
     # This is only the stopped exclusive run configuration, never normal settings.
@@ -324,15 +366,42 @@ def memory_curation(run, provider):
             time.sleep(0.2)
         raise ValueError('Automatic memory maintenance did not settle')
     first = settled()
-    json.loads(api(run, 'POST', '/api/chat', {'conversationId': chat, 'message': 'Do not save the plan yet; I prefer short weekday sessions because caregiving limits time.'}))
+    json.loads(api(run, 'POST', '/api/chat', {'conversationId': chat, 'message': 'Do not save my weekly plan yet; I prefer short weekday sessions because caregiving limits time.'}))
     final = settled()
     if len(provider.summary_calls) != 2 or len(final['preferences']) != 1 or final['preferences'][0]['text'] != 'Separate authored preference' or final['frontier'] <= first['frontier']:
         raise ValueError('Repeated automatic curation/preferences/source progress failed')
+    if json.loads(api(run, 'GET', '/api/training-plan'))['plan']['contentMarkdown'] != DOCUMENT_EXAMPLE:
+        raise ValueError('Document refusal changed stored plan')
+    json.loads(api(run, 'POST', '/api/chat', {'conversationId': chat, 'message': IMPORT_TEXTS[2]}))
+    settled()
+    # Compatibility content intentionally omits candidate text. Review the fixed
+    # authored inputs/IDs above, prove private selection refuses without a manifest,
+    # then request exactly the two eligible sources through the real HTTP owner.
+    before = inspection()
+    api(run, 'POST', '/api/cross-chat-summary', {'version': 2, 'expected': before['expected'], 'action': 'import-create', 'sourceIds': [import_ids[2]]}, expected_status=503)
+    if inspection()['historical']['manifests'] or len(provider.summary_calls) != 2:
+        raise ValueError('Private source created import or provider effect')
+    command('import-create', sourceIds=import_ids[:2])
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        final = inspection()
+        if final['historical']['manifests'][0]['state'] == 'complete':
+            break
+        if final['reason']:
+            raise ValueError('Authored import failed: ' + final['reason'])
+        time.sleep(0.2)
+    else:
+        raise ValueError('Reviewed authored import did not settle')
+    if len(provider.summary_calls) != 3 or final['historical']['manifests'][0]['position'] != 2:
+        raise ValueError('Exact selected import generation/disposition count failed')
+    with contextlib.closing(readonly(run.database)) as db:
+        if db.execute('select reason from summary_import_disposition order by rowid').fetchall() != [('processed',), ('processed',)] or db.execute("select count(*) from conversation_turn where conversation_id=?", (chat,)).fetchone()[0] != 3:
+            raise ValueError('Import processing or privacy original preservation failed')
     run.stop(); run.start(run.binary)
     persisted = inspection()
-    if persisted['stored']['text'] != MEMORY_CURATED or persisted['preferences'] != final['preferences'] or persisted['pending'] != 0 or len(provider.summary_calls) != 2:
+    if persisted['stored']['text'] != MEMORY_CURATED or persisted['preferences'] != final['preferences'] or persisted['pending'] != 0 or len(provider.summary_calls) != 3:
         raise ValueError('Curation restart persistence/no-replay failed')
-    return {'conversation': chat, 'profileNoOpAndChangedPreservedPrior': True, 'completePlanWeeklyExamples': True, 'automaticConsolidation': True, 'planNoSaveIndependentMeaningProcessed': True, 'preferencesPreserved': True, 'restartNoReplay': True, 'summaryCalls': len(provider.summary_calls), 'liveModelQuality': 'not exercised; deterministic loopback supplied generation'}
+    return {'conversation': chat, 'profileNoOpAndChangedPreservedPrior': True, 'completePlanWeeklyExamples': True, 'automaticConsolidation': True, 'planNoSaveIndependentMeaningProcessed': True, 'preferencesPreserved': True, 'restartNoReplay': True, 'summaryCalls': len(provider.summary_calls), 'reviewedImport': {'sources': import_ids[:2], 'excludedPrivate': import_ids[2], 'originalUserAndContextDates': True, 'noAutomaticReplay': True, 'processed': 2}, 'liveModelQuality': 'not exercised; deterministic loopback supplied generation'}
 
 
 @resources.invocation

@@ -58,9 +58,49 @@ class ChatSmokeTests(unittest.TestCase):
             chat_smoke.memory_chat_response(14,body,'2026-11-09')
         continued = {**body,'messages':[{'role':'system','content':chat_smoke.LONG_CONTINUITY + ' unverified continuity, not evidence or permission ' + chat_smoke.MEMORY_CURATED}]}
         self.assertEqual(chat_smoke.memory_chat_response(14,continued,'2026-11-09')['content'],FOLLOWUP)
-        for index, changed in [(15,body),(9,dict(body,tools=[])),(9,dict(body,model='private'))]:
+        private_turn = {**body, 'messages': [{'role': 'user', 'content': chat_smoke.IMPORT_TEXTS[2]}]}
+        self.assertEqual(chat_smoke.memory_chat_response(15, private_turn, '2026-11-09')['content'], FOLLOWUP)
+        with self.assertRaises(ValueError):
+            chat_smoke.memory_chat_response(15, body, '2026-11-09')
+        for index, changed in [(16,body),(9,dict(body,tools=[])),(9,dict(body,model='private'))]:
             with self.assertRaises(ValueError):
                 chat_smoke.memory_chat_response(index,changed,'2026-11-09')
+
+    def test_reviewed_import_prompt_requires_exact_original_user_and_context_dates(self):
+        sources = [{'user': chat_smoke.IMPORT_TEXTS[0], 'createdAt': chat_smoke.IMPORT_TIME}, {'user': chat_smoke.IMPORT_TEXTS[1], 'createdAt': chat_smoke.IMPORT_TIME + 2000, 'assistantContext': 'Authored context', 'assistantContextCreatedAt': chat_smoke.IMPORT_TIME + 1000}]
+        payload = {'previous': chat_smoke.MEMORY_CURATED, 'newSources': sources, 'currentProfile': {}, 'targetCharacters': 6000, 'now': chat_smoke.IMPORT_TIME + 100000}
+        def body(value):
+            return {'model': chat_smoke.MEMORY_MODEL, 'messages': [{'role': 'system', 'content': 'Normal maintenance automatically learns, corrects and consolidates; Unix milliseconds'}, {'role': 'user', 'content': json.dumps(value)}]}
+        self.assertTrue(chat_smoke.memory_response(body(payload))[1])
+        for changed in [dict(payload, now=chat_smoke.IMPORT_TIME), dict(payload, newSources=sources[:1]), dict(payload, newSources=[sources[0], {**sources[1], 'assistantContextCreatedAt': None}]), dict(payload, newSources=[{**sources[0], 'createdAt': payload['now']}, sources[1]]), dict(payload, newSources=[*sources, {'user': chat_smoke.IMPORT_TEXTS[2]}])]:
+            with self.assertRaisesRegex(ValueError, 'original user/context date'):
+                chat_smoke.memory_response(body(changed))
+
+    def test_import_seed_requires_stopped_exclusive_off_copy_and_preserves_originals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / 'trainer.sqlite'
+            with contextlib.closing(sqlite3.connect(database)) as db:
+                db.executescript('create table summary_control(id,enabled); insert into summary_control values(1,0); create table conversation_history_control(id,privacy_generation); insert into conversation_history_control values(1,0); create table conversation(id,title,created_at,updated_at); create table message(id,conversation_id,role,content,created_at); create table conversation_turn(turn_id,conversation_id,user_id,assistant_id,source_version,summary_eligible,status,boot_id,privacy_generation); create table conversation_completion(turn_id);')
+                db.execute("insert into message values('original','original','user','Original bytes',100)")
+                db.commit()
+            run = SimpleNamespace(root=root, database=database, child=None)
+            ids = chat_smoke.seed_import_dates(run)
+            self.assertEqual(len(set(ids)), 3)
+            with contextlib.closing(sqlite3.connect(database)) as db:
+                self.assertEqual(db.execute("select content,created_at from message where id='original'").fetchone(), ('Original bytes',100))
+                self.assertEqual(db.execute('select count(*) from conversation_completion').fetchone(), (3,))
+                self.assertEqual(db.execute("select created_at from message where role='assistant' order by created_at").fetchall(), [(chat_smoke.IMPORT_TIME + n,) for n in [1000,3000,5000]])
+                db.execute('update summary_control set enabled=1'); db.commit()
+            with self.assertRaisesRegex(ValueError, 'memory Off'):
+                chat_smoke.seed_import_dates(run)
+            run.child = object()
+            with self.assertRaisesRegex(ValueError, 'Stopped exclusive'):
+                chat_smoke.seed_import_dates(run)
+            run.child = None
+            run.root = root / 'other'
+            with self.assertRaisesRegex(ValueError, 'Stopped exclusive'):
+                chat_smoke.seed_import_dates(run)
 
     def test_fixed_order_plain_text_and_extra_call_refusal(self):
         for index in [0, 4]:

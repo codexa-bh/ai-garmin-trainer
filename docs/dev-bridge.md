@@ -1282,6 +1282,29 @@ original preservation, masks, captures and settlement remain unchanged. Validate
 fixtures refuse combination. Task-created copy data is retained/disposed only under the
 existing resource owner and explicit diagnostic deferral, never copied back.
 
+### Finite privacy and original-date import repair (T0305)
+
+The same `smoke:chat --memory-curation` now uses a possessive weekly-plan refusal,
+checks no document write, and completes a genuine memory-private turn without another
+summary request. Before enabling memory, its stopped exclusive copy receives exactly
+three authored linked completed-Off turns: temporal durable meaning, a modified
+plan refusal, and a memory-private negative. Original source times are fixed in2020;
+no original/prepared/private history is edited. The compatibility content API deliberately
+omits candidate text; this fixture reviews its own finite authored IDs, verifies private
+selection refuses without a manifest/effect, then explicitly selects only the two eligible
+IDs through the actual import command. The authored generation adapter refuses unless
+both original user dates and the actual preceding-assistant date reach its serialized
+request, distinct from now. Publication must process exactly two dispositions, preserve
+preferences, and survive restart without replay. Owner-level tests separately prove
+candidate inspection/selection and stale-source/cancel/privacy/accounting boundaries.
+
+Validate `chat_smoke_test.py` and affected owner/aggregate/native contracts before use.
+This adds no UI/bridge/native permissions, public candidate endpoint, real historical
+import, paid calls or semantic-quality certificate. Captures remain the existing ordinary
+chat geometry proof, not a visual rendering of hidden source dates; actual HTTP/provider/
+SQLite assertions prove that nonvisual progression. Existing preservation, settlement,
+resource disposition and source-versus-installed limits remain.
+
 ### Selected activity images (T0303)
 
 Add `--activity-images` to `smoke:chat` to select four optional panels on the same
