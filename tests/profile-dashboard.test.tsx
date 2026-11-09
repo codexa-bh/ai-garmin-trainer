@@ -5646,6 +5646,19 @@ describe("TrainerDashboard memory and new chat", () => {
       name: 'Conversation options for "Previous climb chat"',
     });
 
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger.textContent?.trim()).toBe("⋯");
+    const css = readFileSync("src/app/style.css", "utf8");
+    expect(css).toMatch(
+      /\.conversation-menu-trigger \{\s*display: grid;\s*width: 34px;\s*height: 34px;\s*place-items: center;\s*padding: 0;\s*line-height: 1;/,
+    );
+    expect(css).toMatch(
+      /:not\(\.conversation-menu-trigger\) \{\s*padding: 10px 14px;/,
+    );
+    expect(css).toMatch(
+      /:not\(\.conversation-menu-trigger\) \{\s*padding: 9px 11px;/,
+    );
+
     fireEvent.click(trigger);
 
     expect(screen.getByRole("menu")).toBeTruthy();
