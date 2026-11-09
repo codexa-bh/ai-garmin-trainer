@@ -43,7 +43,11 @@ function candidate(job: SummaryBatch, text: string) {
     const input = minimizeSummarySource(source);
     return input ? [input] : [];
   });
-  return validateSummaryReplacement({ summary: text }, job, inputs)!;
+  return validateSummaryReplacement(
+    { summary: text, exclude: [] },
+    job,
+    inputs,
+  )!;
 }
 function originals(count: number) {
   db.prepare(
@@ -164,7 +168,7 @@ describe("complete-text real SQLite lifecycle", () => {
           expect(system).toContain("advisory guidance");
           expect(system).not.toMatch(/Hard limit|about 500 words/);
           return {
-            patch: { summary: text },
+            patch: { summary: text, exclude: [] },
             usage: { input: 1, output: 1, cached: 0 },
           };
         },
@@ -418,7 +422,10 @@ describe("complete-text real SQLite lifecycle", () => {
             assistantContext: "Acknowledged",
           });
           return {
-            patch: { summary: "Short weekdays due to caregiving." },
+            patch: {
+              summary: "Short weekdays due to caregiving.",
+              exclude: [],
+            },
             usage: { input: 10, output: 10, cached: 0 },
           };
         },
@@ -457,6 +464,7 @@ describe("complete-text real SQLite lifecycle", () => {
           promptValue = JSON.parse(prompt);
           return {
             patch: {
+              exclude: [],
               summary:
                 "Previous useful summary\n\nNew useful summary with rationale",
             },
@@ -536,10 +544,18 @@ describe("complete-text real SQLite lifecycle", () => {
     expect(storage.preferences()).toEqual([]);
     complete("no-save", "Do not save this private request.");
     const noSave = ready("no-save");
-    expect(
-      candidate(noSave, "").dispositions.every((d) => d.reason !== "processed"),
-    ).toBe(true);
-    storage.publish(noSave, candidate(noSave, ""), now);
+    const excluded = validateSummaryReplacement(
+      { summary: noSave.previous.text, exclude: [0] },
+      noSave,
+      noSave.sources.flatMap((source) => {
+        const input = minimizeSummarySource(source);
+        return input ? [input] : [];
+      }),
+    )!;
+    expect(excluded.dispositions.every((d) => d.reason !== "processed")).toBe(
+      true,
+    );
+    storage.publish(noSave, excluded, now);
     expect(storage.inspect().text).toBe("");
   });
 });

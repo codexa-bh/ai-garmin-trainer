@@ -418,12 +418,13 @@ describe("canonical trainer instruction package", () => {
       referent: null,
     };
     expect(minimizeSummarySource(source)?.user).toBe(source.user);
-    expect(
-      minimizeSummarySource({
-        ...source,
-        user: "Do not save my fictional diagnosis",
-      }),
-    ).toBeNull();
+    const privateProse = "Do not save my fictional diagnosis";
+    expect(minimizeSummarySource({ ...source, user: privateProse })?.user).toBe(
+      privateProse,
+    );
+    // Semantic privacy belongs to the same memory-model call; deterministic
+    // hard admission remains independent of discussion topic or wording.
+    expect(minimizeSummarySource({ ...source, eligible: false })).toBeNull();
     expect(TRAINER_SYSTEM_PROMPT).toContain(
       "Cross-chat memory has no content-pattern filter",
     );

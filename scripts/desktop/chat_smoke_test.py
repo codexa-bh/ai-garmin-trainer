@@ -35,7 +35,7 @@ class ChatSmokeTests(unittest.TestCase):
         body = {'model': chat_smoke.MEMORY_MODEL, 'messages': [{'role': 'system', 'content': 'Normal maintenance automatically learns, corrects and consolidates'}, {'role': 'user', 'content': json.dumps(payload)}]}
         result, summary = chat_smoke.memory_response(body)
         self.assertTrue(summary)
-        self.assertEqual(json.loads(result['content']), {'summary': chat_smoke.MEMORY_CURATED})
+        self.assertEqual(json.loads(result['content']), {'summary': chat_smoke.MEMORY_CURATED, 'exclude': []})
         for changed in [dict(payload, previous=''), dict(payload, newSources=[]), dict(payload, targetCharacters=1), dict(payload, previous=chat_smoke.MEMORY_PRIOR + 'Separate authored preference')]:
             with self.assertRaises(ValueError):
                 chat_smoke.memory_response({**body, 'messages': [body['messages'][0], {'role':'user','content':json.dumps(changed)}]})
@@ -45,6 +45,12 @@ class ChatSmokeTests(unittest.TestCase):
         title, summary = chat_smoke.memory_response({**body, 'messages': [{'role':'user','content':json.dumps({'firstPrompt':'Authored request'})}]})
         self.assertFalse(summary)
         self.assertEqual(json.loads(title['content']), {'title':'Authored continuity'})
+
+    def test_routine_privacy_is_decided_in_the_same_request_not_prefiltered(self):
+        payload = {'previous': chat_smoke.MEMORY_CURATED, 'newSources': [{'user': chat_smoke.IMPORT_TEXTS[2]}], 'currentProfile': {}, 'targetCharacters': 6000}
+        response, maintenance = chat_smoke.memory_response({'model': chat_smoke.MEMORY_MODEL, 'messages': [{'role': 'system', 'content': 'automatically learns, corrects and consolidates'}, {'role': 'user', 'content': json.dumps(payload)}]})
+        self.assertTrue(maintenance)
+        self.assertEqual(json.loads(response['content']), {'summary': chat_smoke.MEMORY_CURATED, 'exclude': [0]})
 
     def test_memory_plan_actions_are_finite_and_require_actual_schemas(self):
         body = self.body()
@@ -67,12 +73,14 @@ class ChatSmokeTests(unittest.TestCase):
                 chat_smoke.memory_chat_response(index,changed,'2026-11-09')
 
     def test_reviewed_import_prompt_requires_exact_original_user_and_context_dates(self):
-        sources = [{'user': chat_smoke.IMPORT_TEXTS[0], 'createdAt': chat_smoke.IMPORT_TIME}, {'user': chat_smoke.IMPORT_TEXTS[1], 'createdAt': chat_smoke.IMPORT_TIME + 2000, 'assistantContext': 'Authored context', 'assistantContextCreatedAt': chat_smoke.IMPORT_TIME + 1000}]
+        sources = [{'user': chat_smoke.IMPORT_TEXTS[0], 'createdAt': chat_smoke.IMPORT_TIME}, {'user': chat_smoke.IMPORT_TEXTS[1], 'createdAt': chat_smoke.IMPORT_TIME + 2000, 'assistantContext': 'Authored context', 'assistantContextCreatedAt': chat_smoke.IMPORT_TIME + 1000}, {'user': chat_smoke.IMPORT_TEXTS[2], 'createdAt': chat_smoke.IMPORT_TIME + 4000}]
         payload = {'previous': chat_smoke.MEMORY_CURATED, 'newSources': sources, 'currentProfile': {}, 'targetCharacters': 6000, 'now': chat_smoke.IMPORT_TIME + 100000}
         def body(value):
             return {'model': chat_smoke.MEMORY_MODEL, 'messages': [{'role': 'system', 'content': 'Normal maintenance automatically learns, corrects and consolidates; Unix milliseconds'}, {'role': 'user', 'content': json.dumps(value)}]}
-        self.assertTrue(chat_smoke.memory_response(body(payload))[1])
-        for changed in [dict(payload, now=chat_smoke.IMPORT_TIME), dict(payload, newSources=sources[:1]), dict(payload, newSources=[sources[0], {**sources[1], 'assistantContextCreatedAt': None}]), dict(payload, newSources=[{**sources[0], 'createdAt': payload['now']}, sources[1]]), dict(payload, newSources=[*sources, {'user': chat_smoke.IMPORT_TEXTS[2]}])]:
+        response, maintenance = chat_smoke.memory_response(body(payload))
+        self.assertTrue(maintenance)
+        self.assertEqual(json.loads(response['content'])['exclude'], [2])
+        for changed in [dict(payload, now=chat_smoke.IMPORT_TIME), dict(payload, newSources=sources[:1]), dict(payload, newSources=[sources[0], {**sources[1], 'assistantContextCreatedAt': None}, sources[2]]), dict(payload, newSources=[{**sources[0], 'createdAt': payload['now']}, *sources[1:]]), dict(payload, newSources=[*sources, {'user': chat_smoke.IMPORT_TEXTS[2]}])]:
             with self.assertRaisesRegex(ValueError, 'original user/context date'):
                 chat_smoke.memory_response(body(changed))
 

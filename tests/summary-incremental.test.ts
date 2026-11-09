@@ -152,7 +152,10 @@ describe("output-only incremental text policy", () => {
       ).toBeNull();
       expect(
         validateSummaryReplacement(
-          { summary: "Complete replacement" },
+          {
+            summary: "Complete replacement",
+            ...("manualRewrite" in special ? {} : { exclude: [] }),
+          },
           special,
           inputs,
         )?.value.text,

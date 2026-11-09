@@ -29,7 +29,7 @@ afterEach(() => db.close());
 const authored = (n: number) => "😀".repeat(n - 1) + ".";
 const response = (summary: string) => ({
   // Supplied complete output tests size mechanics, not semantic quality.
-  patch: { summary },
+  patch: { summary, exclude: [] },
   usage: { input: 30, output: 20, cached: 0 },
 });
 function source() {

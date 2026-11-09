@@ -56,6 +56,7 @@ function candidate(batch: SummaryBatch) {
   });
   return validateSummaryReplacement(
     {
+      exclude: [],
       summary: [batch.previous.text, ...inputs.map((input) => input.user)]
         .filter(Boolean)
         .join("\n"),
@@ -73,6 +74,7 @@ function fakeGeneration(): SummaryGeneration {
           format === "incremental"
             ? { action: "unchanged", edits: [], addition: "" }
             : {
+                exclude: [],
                 summary:
                   "Short weekdays chosen for time; long weekdays rejected.",
               },

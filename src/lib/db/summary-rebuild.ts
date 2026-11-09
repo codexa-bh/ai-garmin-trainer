@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { summarySelection } from "../model-settings/summary-selection";
 import { getDatabase } from "./connection";
+import { summarySourceRestricted } from "./summary-privacy";
 import {
   emptySummary,
   minimizeSummarySource,
@@ -119,22 +120,7 @@ function original(id: string): Original | undefined {
     .get(id) as Original | undefined;
 }
 function suppressedOriginal(messageId: string, sourceId: string): boolean {
-  if (!getDatabase().prepare("select 1 from summary_suppression limit 1").get())
-    return false;
-  // Original rows have no native version counter. Preserve a forgotten original
-  // across timestamp/content edits; only a genuinely new message ID is new
-  // authority. Do not lose the relationship by changing its content hash.
-  return Boolean(
-    getDatabase()
-      .prepare(
-        `select 1 from summary_suppression where source_id=?
-    union all select 1 from summary_rebuild r,json_each(r.selection_json) j join summary_suppression s
-    on s.source_id=json_extract(j.value,'$.sourceId')
-      or s.source_id='original-assistant:'||json_extract(j.value,'$.contextHash')
-    where json_extract(j.value,'$.messageId')=? or json_extract(j.value,'$.contextId')=? or json_extract(j.value,'$.contextUserMessageId')=? limit 1`,
-      )
-      .get(sourceId, messageId, messageId, messageId),
-  );
+  return summarySourceRestricted(sourceId, messageId);
 }
 function restricted(
   row: Original,
@@ -249,6 +235,10 @@ function materialize(row: Original, selected: Selected): SummarySource {
     eligible: true,
     user: row.content,
     referent: preceding?.content ?? null,
+    identity: {
+      messageId: row.id,
+      contextUserMessageId: selected.contextUserMessageId,
+    },
     original: {
       conversationId: row.conversationId,
       messageId: row.id,
@@ -688,7 +678,7 @@ export function readSummaryRebuildBatch(expected?: {
     if (expected) throw new Error("summary_rebuild_not_active");
     return null;
   }
-  const { selected, candidate } = checked(row);
+  const { selected, candidate, dispositions } = checked(row);
   if (
     expected &&
     (expected.id !== row.id || expected.position !== row.position)
@@ -714,6 +704,16 @@ export function readSummaryRebuildBatch(expected?: {
     throw new Error("summary_rebuild_source_changed");
   // Revalidate the reviewed pool, not arrivals outside its immutable boundary.
   // This is operation freshness, never a generated-summary citation graph.
+  const ownExcluded = new Set(
+    dispositions
+      .filter((d) => d.reason === "privacy-excluded")
+      .map((d) => d.sourceId),
+  );
+  const ownMessages = new Set(
+    selected
+      .filter((entry) => ownExcluded.has(entry.sourceId))
+      .map((entry) => entry.messageId),
+  );
   for (const entry of selected) {
     const current = original(entry.messageId),
       preceding = entry.contextId ? original(entry.contextId) : null;
@@ -721,7 +721,8 @@ export function readSummaryRebuildBatch(expected?: {
       !current ||
       originalHash(current) !== entry.hash ||
       restricted(current, savedAuthority, consent) ||
-      suppressedOriginal(entry.messageId, entry.sourceId) ||
+      (!ownExcluded.has(entry.sourceId) &&
+        suppressedOriginal(entry.messageId, entry.sourceId)) ||
       (entry.contextId &&
         (!preceding ||
           originalHash(preceding) !== entry.contextHash ||
@@ -730,6 +731,7 @@ export function readSummaryRebuildBatch(expected?: {
             `original-assistant:${entry.contextHash}`,
           ))) ||
       (entry.contextUserMessageId &&
+        !ownMessages.has(entry.contextUserMessageId) &&
         suppressedOriginal(
           entry.contextUserMessageId,
           entry.contextUserSourceId!,
@@ -748,7 +750,18 @@ export function readSummaryRebuildBatch(expected?: {
         (!preceding || originalHash(preceding) !== entry.contextHash))
     )
       throw new Error("summary_rebuild_source_changed");
-    return materialize(current, entry);
+    return materialize(
+      current,
+      entry.contextUserMessageId && ownMessages.has(entry.contextUserMessageId)
+        ? {
+            ...entry,
+            contextId: null,
+            contextHash: null,
+            contextUserSourceId: null,
+            contextUserMessageId: null,
+          }
+        : entry,
+    );
   });
   return {
     identity: { id: row.id, position: row.position },

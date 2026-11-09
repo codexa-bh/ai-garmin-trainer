@@ -1,4 +1,4 @@
-import { generateText, Output } from "ai";
+import { generateText, NoObjectGeneratedError, Output } from "ai";
 import { z } from "zod";
 import { selectedModel } from "../ai/providers";
 import { getOptionalEnv, type AppEnv } from "../env";
@@ -7,6 +7,10 @@ import { summaryCap } from "./summary-policy";
 import type { SummaryGeneration } from "./summary-application";
 
 const summarySchema = z.strictObject({ summary: z.string() });
+const maintenanceSchema = z.strictObject({
+  summary: z.string(),
+  exclude: z.array(z.number().int().nonnegative()),
+});
 const titleSchema = z.strictObject({ title: z.string() });
 const incrementSchema = z.strictObject({
   action: z.enum(["update", "unchanged", "uncertain"]),
@@ -59,9 +63,11 @@ export function createSummaryGeneration(
       const schema =
         purpose === "title"
           ? titleSchema
-          : format === "incremental"
-            ? incrementSchema
-            : summarySchema;
+          : format === "maintenance"
+            ? maintenanceSchema
+            : format === "incremental"
+              ? incrementSchema
+              : summarySchema;
       const result = await generateText({
         model,
         system,
@@ -69,12 +75,20 @@ export function createSummaryGeneration(
         output:
           purpose === "title"
             ? Output.object({ schema: titleSchema, name: "chat_title" })
-            : format === "incremental"
+            : format === "maintenance"
               ? Output.object({
-                  schema: incrementSchema,
-                  name: "summary_increment",
+                  schema: maintenanceSchema,
+                  name: "summary_maintenance",
                 })
-              : Output.object({ schema: summarySchema, name: "summary_text" }),
+              : format === "incremental"
+                ? Output.object({
+                    schema: incrementSchema,
+                    name: "summary_increment",
+                  })
+                : Output.object({
+                    schema: summarySchema,
+                    name: "summary_text",
+                  }),
         maxRetries: 0,
         abortSignal: signal,
         ...(selected.entry.provider === "openai"
@@ -93,6 +107,19 @@ export function createSummaryGeneration(
               },
             }
           : {}),
+      }).catch((error: unknown) => {
+        // The SDK can reject before our validator runs. Retain actual usage
+        // for normal maintenance without persisting private error/draft text.
+        if (
+          format === "maintenance" &&
+          NoObjectGeneratedError.isInstance(error)
+        )
+          return {
+            text: "",
+            finishReason: "error",
+            steps: [{ usage: { raw: error.usage?.raw } }],
+          };
+        throw error;
       });
       signal.throwIfAborted();
       if (!current()) throw new Error("summary_configuration_changed");

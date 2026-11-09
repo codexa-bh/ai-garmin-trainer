@@ -95,10 +95,13 @@ model judgment or semantic completeness. Schema25 removes ordinary-prose correct
 Profile erasure: “Actually …”, “Correction: …”, changed facts and no-op Profile saves do
 not wipe unrelated memory or chat continuity. Changed Profile values invalidate captured
 in-flight work independently. Genuine source/privacy controls still revoke unsafe use;
-revoked text never becomes a fallback. Plan no-save governs documents, not independent
-user facts, including refusals to save “my training plan”, “my weekly plan” or “this
-week's plan”; narrow explicit memory no-save commands and existing suppressions remain.
-An explicit request not to store a plan in memory still excludes it.
+revoked text never becomes a fallback. The configured memory model distinguishes
+plan/review/document no-write directions from memory privacy in its normal single call.
+Otherwise eligible privacy prose is transmitted to that provider; it is not a
+no-transmission guarantee. A minimal validated exclusion decision restricts current
+inputs durably through native storage; it cannot erase arbitrary prior memory or
+preferences. Hard Off/cutoff/suppression/deletion controls still apply before transmission.
+Quoted instructions remain data. Semantic interpretation/omission remains model-dependent.
 
 At each atomic turn admission, after busy exclusion, the chat adopts latest usable
 summary plus separate preferences, or null. Ordinary publication does not replace
@@ -159,7 +162,9 @@ unsupported, missing-key or exhausted capability retains the prompt excerpt.
 The existing first-message/manual-title/clear/delete tombstones and Next `after()`
 lifetime remain. No historical retitling or retry queue is added.
 
-Title-only source input retains explicit no-save controls and is bounded to2000 characters;
+Title-only source input retains its unchanged limited legacy pre-call privacy guard
+(including its weekly-review limitation), isolated from memory eligibility/decisions,
+and is bounded to2000 characters;
 the3000ms deadline, no tools/retries and supported stateless controls remain.
 There is no token-count/output-cap, pricing prerequisite, daily count or monetary
 admission cap. Captured keys/configuration survive awaits; manual titles and

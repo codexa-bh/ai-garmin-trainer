@@ -60,6 +60,7 @@ function proposal(batch: SummaryBatch, keep = true): SummaryCandidate {
   });
   return validateSummaryReplacement(
     {
+      exclude: [],
       summary:
         keep && batch.previous.text
           ? batch.previous.text
@@ -97,6 +98,9 @@ describe("explicit selected legacy recovery", () => {
     (user) => {
       message("document", user);
       message("private", "Do not remember this private note.");
+      db.prepare(
+        "insert into summary_suppression values('original-message:private')",
+      ).run();
       const review = inventory();
       expect(review.counts.includedUserMessages).toBe(1);
       begin();
@@ -334,7 +338,10 @@ describe("growing authored184-source multi-chat repair", () => {
           : "x".repeat(6001);
       calls++;
       return {
-        patch: !repack && calls > 1 ? { summary, extra: true } : { summary },
+        patch:
+          !repack && calls > 1
+            ? { summary, exclude: [], extra: true }
+            : { summary, exclude: [] },
         usage: { input: 200, output: 200, cached: 0 },
       };
     });
@@ -415,6 +422,9 @@ describe("full-pool original admission and local preflight", () => {
       message(`user-${n}`, undefined, "user", `chat-${n % 13}`, 1700000000 + n);
     message("formerly-filtered", "My password is synthetic-private.");
     message("no-save", "Do not save this coaching preference.");
+    db.prepare(
+      "insert into summary_suppression values('original-message:no-save')",
+    ).run();
     message(
       "assistant-only",
       "An unendorsed suggestion.",
@@ -434,7 +444,7 @@ describe("full-pool original admission and local preflight", () => {
       assistantContext: 0,
       excludedMessages: 2,
     });
-    expect(inspected.reasons).toEqual({ "no-save-or-unresolved-context": 1 });
+    expect(inspected.reasons).toEqual({ suppressed: 1 });
     expect(inspected.preflight.estimatedUsd.conservativeMaximum).toBeNull();
     expect(inspected.preflight.ready).toBe(true);
     begin();
@@ -489,7 +499,10 @@ describe("full-pool original admission and local preflight", () => {
     now += 3000;
     const job = storage.admit(now, "context-link")!;
     const candidate = validateSummaryReplacement(
-      { summary: "The bag was rejected as awkward; poles remain unresolved." },
+      {
+        summary: "The bag was rejected as awkward; poles remain unresolved.",
+        exclude: [],
+      },
       job,
       batch.sources.map((source) => minimizeSummarySource(source)!),
     )!;
@@ -511,6 +524,9 @@ describe("full-pool original admission and local preflight", () => {
     );
     message("a1", "Morning coaching suits you.", "assistant", "A", 1700000001);
     message("u2", "I prefer short weekday sessions.", "user", "A", 1700000002);
+    db.prepare(
+      "insert into summary_suppression values('original-message:u1')",
+    ).run();
     begin();
     expect(readSummaryRebuildBatch()!.sources[0].referent).toBeNull();
   });
@@ -547,7 +563,14 @@ describe("full-pool original admission and local preflight", () => {
         ?.referent,
     ).toBeNull();
     expect(inventory().counts.assistantContext).toBe(0);
-    expect(inventory().reasons["no-save-or-unresolved-context"]).toBe(1);
+    expect(
+      inventory().reasons["no-save-or-unresolved-context"],
+    ).toBeUndefined();
+    expect(
+      batch.sources.some(
+        (source) => source.original?.messageId === "a-private",
+      ),
+    ).toBe(true);
   });
   it("Clear covers unlinked originals even with no completion/admission rows and does not reopen on enable", () => {
     message("pre-clear");
@@ -682,6 +705,9 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
         1700000010 + n,
       );
     message("no-save-rich", "Do not save this: I prefer evening coaching.");
+    db.prepare(
+      "insert into summary_suppression values('original-message:no-save-rich')",
+    ).run();
     message("secret-rich", "My password is authored-private.");
     db.prepare(
       "update summary_original_boundary set floor=(select max(rowid) from message)",
@@ -729,7 +755,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
             .map((entry) => entry.text)
             .join("\n");
           return {
-            patch: { summary },
+            patch: { summary, exclude: [] },
             usage: { input: 100, output: 100, cached: 0 },
           };
         },
@@ -1007,7 +1033,9 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
         expect(_system).toContain('ONLY strict JSON {"summary"');
         expect(request.previous).toBe("");
         return {
-          patch: incomplete ? { summary: "", coverage: [] } : { summary: "" },
+          patch: incomplete
+            ? { summary: "", exclude: [], coverage: [] }
+            : { summary: "", exclude: [] },
           usage: { input: 100, output: 50, cached: 0 },
         };
       });

@@ -176,7 +176,7 @@ it("ignores Profile timestamps/no-op saves, rejects changed-Profile in-flight wo
 });
 it.each(["suppressed", "memory-private"])(
   "routine context preserves independent meaning but never substitutes an older assistant after %s latest context",
-  (restriction) => {
+  async (restriction) => {
     complete("Earlier independent topic.");
     const restricted = complete(
       restriction === "memory-private"
@@ -187,6 +187,28 @@ it.each(["suppressed", "memory-private"])(
       db.prepare("insert into summary_suppression(source_id) values(?)").run(
         `${restricted.admission.turnId}:1`,
       );
+    else {
+      noteSummaryActivity(now);
+      now += 3000;
+      const generate = vi.fn(async (_system: string, prompt: string) => {
+        expect(JSON.parse(prompt).newSources[1].user).toBe(
+          "Please do not remember this discussion.",
+        );
+        return {
+          patch: { summary: "", exclude: [1] },
+          usage: { input: 20, output: 10, cached: 0 },
+        };
+      });
+      await createSummaryEngine({
+        storage,
+        generation: { generate },
+        now: () => now,
+        identity: () => "privacy-origin",
+        current: () => true,
+        jitter: () => 0,
+      }).tick(new AbortController().signal);
+      expect(generate).toHaveBeenCalledTimes(1);
+    }
     const selected = complete(
       "Use that for future coaching; I can train only on weekends.",
     );
@@ -213,6 +235,7 @@ it("normal maintenance automatically consolidates repeated prior, corrections an
     expect(system).not.toContain("Do not restate, globally rewrite");
     return {
       patch: {
+        exclude: [],
         summary:
           "Current mornings; short weekdays because caregiving limits time, and long weekdays failed. Equipment remains undecided. New Sunday watercolor practice because the studio is quiet.",
       },

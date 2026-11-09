@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDatabase } from "./connection";
 import { getTrainerProfile } from "./profile-repository";
+import {
+  summarySourceRestricted,
+  restrictSummaryInputs,
+} from "./summary-privacy";
 import type { DensifyStorage } from "../memory/summary-densify";
 import { readSummaryImportBatch, publishSummaryImport } from "./summary-import";
 import {
@@ -10,7 +14,6 @@ import {
 } from "./summary-rebuild";
 import {
   characters,
-  explicitMemoryNoSave,
   scalarText,
   summaryCap,
   emptySummary,
@@ -129,26 +132,32 @@ function sources(frontier: number, upper?: number): SummarySource[] {
         from conversation_completion e join conversation_turn t on t.turn_id=e.turn_id
         where e.event_seq>? and e.event_seq<=? order by e.event_seq limit 20
       )
-      select b.eventSeq,b.turnId,b.admissionSeq,b.version,b.eligible,u.created_at as createdAt,
+      select b.eventSeq,b.turnId,b.admissionSeq,b.version,b.eligible,b.user_id as messageId,u.created_at as createdAt,
+        (select p.user_id from conversation_turn p where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) as contextUserMessageId,
+        (select p.turn_id||':'||p.source_version from conversation_turn p where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) as contextSourceId,
         (select m.created_at from conversation_turn p join message m on m.id=p.assistant_id where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) as referentCreatedAt,
         case when b.eligible=1 then u.content else null end as user,
         case when b.eligible=1 then
           (select case when p.summary_eligible=1 and p.admission_seq>(select cutoff from summary_control where id=1) and not exists(select 1 from summary_suppression x where x.source_id=p.turn_id||':'||p.source_version) then m.content else null end from conversation_turn p join message m on m.id=p.assistant_id where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) else null end as referent
-        ,(select m.content from conversation_turn p join message m on m.id=p.user_id where p.conversation_id=b.conversation_id and p.admission_seq<b.admissionSeq and p.status='completed' order by p.admission_seq desc limit 1) as referentUser
       from batch b left join message u on u.id=b.user_id order by b.eventSeq`,
     )
     .all(c.cutoff, frontier, upper ?? Number.MAX_SAFE_INTEGER) as Array<
     Omit<SummarySource, "eligible"> & {
       turnId: string;
       eligible: number;
-      referentUser: string | null;
+      messageId: string;
+      contextUserMessageId: string | null;
+      contextSourceId: string;
     }
   >;
   return rows.map((row) => {
+    const eligible =
+      Boolean(row.eligible) &&
+      !summarySourceRestricted(`${row.turnId}:${row.version}`, row.messageId);
     const referent =
-      row.eligible &&
-      row.referentUser &&
-      !explicitMemoryNoSave(row.referentUser)
+      eligible &&
+      row.contextUserMessageId &&
+      !summarySourceRestricted(row.contextSourceId, row.contextUserMessageId)
         ? row.referent
         : null;
     return {
@@ -156,10 +165,14 @@ function sources(frontier: number, upper?: number): SummarySource[] {
       sourceId: `${row.turnId}:${row.version}`,
       admissionSeq: row.admissionSeq,
       version: row.version,
-      eligible: Boolean(row.eligible),
-      user: row.eligible ? row.user : null,
+      eligible,
+      user: eligible ? row.user : null,
       referent,
-      ...(row.eligible ? { createdAt: row.createdAt } : {}),
+      identity: {
+        messageId: row.messageId,
+        contextUserMessageId: row.contextUserMessageId,
+      },
+      ...(eligible ? { createdAt: row.createdAt } : {}),
       ...(referent ? { referentCreatedAt: row.referentCreatedAt } : {}),
     };
   });
@@ -797,7 +810,10 @@ export const summaryStorage: SummaryStorage = {
       // Refuse before staging/publication rather than creating unreadable state.
       if (JSON.stringify(value).length > 1024 * 1024)
         throw new Error("summary_input_capacity");
-      if (batch.rebuild && !stageSummaryRebuild(batch, candidate, now)) {
+      const staged =
+        batch.rebuild && !stageSummaryRebuild(batch, candidate, now);
+      restrictSummaryInputs(batch.sources, candidate);
+      if (staged) {
         db.prepare(
           "update summary_attempt set outcome='staged',finished_at=?,source_ids_json=? where job_id in (?,?) and outcome='admitted'",
         ).run(

@@ -38,7 +38,7 @@ own stateless construction and honest privacy limits, not claimed OpenAI retenti
 
 Generated value remains exactly `{version:2,text:string}`: **one complete summary**.
 Ordinary generation consumes the **complete previous valid generated text** plus new
-eligible user/context prose and current Profile. One strict `{summary:string}` response
+eligible user/context prose and current Profile. One strict `{summary:string,exclude:number[]}` normal response
 learns additions, reconciles supported corrections and automatically consolidates old
 wording. No global rewrite ban, secondary model pass or routine manual Densify step.
 The prompt requires supported prior meaning, reasons, negation, uncertainty and
@@ -51,8 +51,8 @@ usage without automatic replay. Shape is not a semantic-loss detector: a valid b
 model rewrite can still pass. Supplied outputs prove owner/wire/state mechanics, not
 live-model fidelity. Advisory sizing never certifies meaning or requires shorter output.
 
-Initial generation, reviewed import, whole-history rebuild and optional manual Densify
-share the same complete replacement shape. Older exact-edit validator/transport support
+Initial generation, reviewed import and whole-history rebuild share that normal contract.
+Manual Densify stays summary-only `{summary:string}`, and title generation stays `{title:string}`. Older exact-edit validator/transport support
 remains internal compatibility, not the normal maintenance path. Title stays separate.
 Preferences are not generated-source records or model reconciliation input. Text edits
 are output-only and never persisted as a ledger. No model-managed item IDs,
@@ -63,16 +63,29 @@ Code owns completion/source selection, operation identity, frontier and processi
 counts. Successful source dispositions mean **processed**, not “represented in a
 sentence”; ineligible and minimized-away sources remain excluded/filtered. Original
 journal/source identities and old restrictions are not generated-memory identities.
-Source eligibility, explicit memory no-save and Off/cutoff remain. Complete preceding
-assistant passages are lower-authority context, bounded at16000 scalars; missing or
-oversized context is disclosed without dropping independent user meaning. Routine/import
-context excludes suppressed or no-save origins. Narrow anchored direct commands such as
-“Do not remember this”, “Do not save this discussion” and “Do not save my …” retain
-privacy exclusion; explicit document objects, including “my training plan”, “my weekly
-plan” and “this week's plan”, are document direction, not a blanket memory veto.
-Modifiers/possessives do not change that boundary. Explicit in-memory no-save still
-excludes those sources. Quoted commands are data, including quoted clause punctuation. This parser is intentionally limited, not a general
-language-consent classifier; explicit controls remain authoritative. Fresh assistant answers/tool/debug/compaction/old generated text are
+Hard source eligibility, durable restrictions and Off/cutoff remain native authority.
+Complete preceding assistant passages are lower-authority context, bounded at16000
+scalars; missing/oversized/restricted context does not drop independent user meaning.
+The configured memory model interprets document directions versus memory privacy in
+this same request, including weekly reviews, paraphrases, quotations and ambiguous or
+retrospective requests. Otherwise permitted natural-language privacy input reaches the
+provider: non-retention is not a no-transmission promise. No English intent parser runs
+in memory selection, import, rebuild or context ancestry.
+
+`exclude` contains unique zero-based positions in the frozen admitted input array,
+not arbitrary source IDs or historical deletion authority. Native validation rejects
+malformed/foreign decisions; all-excluded output must preserve previous text exactly.
+Mixed-source semantic omission remains model-dependent, not mechanically certified.
+Same-batch assistant context identifies its current-input origin by position, so the
+model must ignore context governed by an excluded origin without inventing referents.
+The writer atomically records exact-source and stable original-message suppressions
+with publication or rebuild staging, without erasing unrelated prior/preferences/pins.
+Restrictions survive restart and block later routine/import/rebuild and governed
+assistant-context reentry, including original hash edits. Valid staged exclusions remain
+restricted if a later chunk fails/cancels; no partial generated draft publishes. Rebuild
+continuation recognizes its own staged exclusions and omits governed later context;
+unrelated concurrent restrictions still stale the captured operation. Explicit controls
+retain their independent historical erasure scope. No hidden retry repairs invalid output. Fresh assistant answers/tool/debug/compaction/old generated text are
 not new global sources. Rebuild alone admits separately bounded authentic context.
 User-authored URLs, paths, topic/key-like words and quoted instructions are untrusted
 prose, not a content-pattern veto or authority to access secrets/files/tools.
