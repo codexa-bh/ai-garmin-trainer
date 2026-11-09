@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDatabase } from "./connection";
+import { summarySourceRestricted } from "./summary-privacy";
 import {
   characters,
-  explicitMemoryNoSave,
   minimizeSummarySource,
   type SummarySource,
 } from "../memory/summary-policy";
@@ -88,10 +88,11 @@ function current(row: Manifest): boolean {
 function source(sourceId: string): SummarySource | null {
   const row = getDatabase()
     .prepare(
-      `select e.event_seq as eventSeq,t.admission_seq as admissionSeq,t.source_version as version,m.content as user,m.created_at as createdAt,
+      `select e.event_seq as eventSeq,t.admission_seq as admissionSeq,t.source_version as version,m.id as messageId,m.content as user,m.created_at as createdAt,
+    (select p.user_id from conversation_turn p where p.conversation_id=t.conversation_id and p.admission_seq<t.admission_seq and p.status='completed' order by p.admission_seq desc limit 1) as contextUserMessageId,
+    (select p.turn_id||':'||p.source_version from conversation_turn p where p.conversation_id=t.conversation_id and p.admission_seq<t.admission_seq and p.status='completed' order by p.admission_seq desc limit 1) as contextSourceId,
     (select a.created_at from conversation_turn p join message a on a.id=p.assistant_id where p.conversation_id=t.conversation_id and p.admission_seq<t.admission_seq and p.status='completed' order by p.admission_seq desc limit 1) as referentCreatedAt,
-    (select case when p.admission_seq>(select cutoff from summary_control where id=1) and not exists(select 1 from summary_suppression x where x.source_id=p.turn_id||':'||p.source_version) then a.content else null end from conversation_turn p join message a on a.id=p.assistant_id where p.conversation_id=t.conversation_id and p.admission_seq<t.admission_seq and p.status='completed' order by p.admission_seq desc limit 1) as referent,
-    (select u.content from conversation_turn p join message u on u.id=p.user_id where p.conversation_id=t.conversation_id and p.admission_seq<t.admission_seq and p.status='completed' order by p.admission_seq desc limit 1) as referentUser
+    (select case when p.admission_seq>(select cutoff from summary_control where id=1) and not exists(select 1 from summary_suppression x where x.source_id=p.turn_id||':'||p.source_version) then a.content else null end from conversation_turn p join message a on a.id=p.assistant_id where p.conversation_id=t.conversation_id and p.admission_seq<t.admission_seq and p.status='completed' order by p.admission_seq desc limit 1) as referent
     from conversation_turn t join conversation_completion e on e.turn_id=t.turn_id join message m on m.id=t.user_id
     where t.turn_id||':'||t.source_version=? and t.status='completed' and t.summary_eligible=0
       and t.admission_seq>(select cutoff from summary_control where id=1)
@@ -100,19 +101,31 @@ function source(sourceId: string): SummarySource | null {
     )
     .get(sourceId, sourceId, sourceId) as
     | (Omit<SummarySource, "sourceId" | "eligible"> & {
-        referentUser: string | null;
+        messageId: string;
+        contextUserMessageId: string | null;
+        contextSourceId: string;
       })
     | undefined;
   // Export authoritative original message time, not an admission/review clock.
   if (
     !row ||
+    summarySourceRestricted(sourceId, row.messageId) ||
     !Number.isSafeInteger(row.createdAt) ||
     Math.abs(row.createdAt!) > 8_640_000_000_000_000
   )
     return null;
-  const { referentUser, referentCreatedAt, ...selected } = row;
+  const {
+    referentCreatedAt,
+    messageId,
+    contextUserMessageId,
+    contextSourceId,
+    ...selected
+  } = row;
   const referent =
-    referentUser && !explicitMemoryNoSave(referentUser) ? row.referent : null;
+    contextUserMessageId &&
+    !summarySourceRestricted(contextSourceId, contextUserMessageId)
+      ? row.referent
+      : null;
   return {
     ...selected,
     referent,
@@ -120,6 +133,7 @@ function source(sourceId: string): SummarySource | null {
       ? { referentCreatedAt }
       : {}),
     sourceId,
+    identity: { messageId, contextUserMessageId },
     eligible: true,
   };
 }

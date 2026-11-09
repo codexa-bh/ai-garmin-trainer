@@ -114,12 +114,12 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
     const addition = "Watercolor on Sundays because the studio is quiet.";
     await tick(null, async (_system, prompt, _signal, format) => {
       const input = JSON.parse(prompt);
-      expect(format).toBe("replacement");
+      expect(format).toBe("maintenance");
       expect(input.previous).toBe(prior);
       expect(input.newSources).toHaveLength(1);
       expect(JSON.stringify(input)).not.toMatch(/Separate authored|sourceId/);
       return {
-        patch: { summary: prior + "\n\n" + addition },
+        patch: { summary: prior + "\n\n" + addition, exclude: [] },
         usage: { input: 100, output: 20, cached: 0 },
       };
     });
@@ -129,6 +129,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
       "My studio now opens on Saturdays, not Sundays; the quiet-practice reason still applies.",
     );
     await tick({
+      exclude: [],
       summary:
         prior +
         "\n\nWatercolor on Saturdays because the studio is quiet; equipment still undecided.",
@@ -183,7 +184,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
   it("processes no-useful/unchanged sources without rewriting or falsely adding facts", async () => {
     storage.editSummary(storage.version(), prior, now);
     complete("Thanks for the discussion.");
-    await tick({ summary: prior });
+    await tick({ summary: prior, exclude: [] });
     expect(storage.read().text).toBe(prior);
     expect(storage.status(now)).toMatchObject({
       pending: 0,
@@ -209,13 +210,15 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
       await tick({ action: "unchanged", edits: [], addition: "" }),
     ).not.toHaveBeenCalled();
   });
-  it("does not generate for minimized-away no-save input", async () => {
+  it("interprets no-save in the single model call and durably excludes it", async () => {
     storage.editSummary(storage.version(), prior, now);
     complete("Do not remember this request.");
-    expect(await tick(null)).not.toHaveBeenCalled();
+    expect(await tick({ summary: prior, exclude: [0] })).toHaveBeenCalledTimes(
+      1,
+    );
     expect(storage.read().text).toBe(prior);
     expect(db.prepare("select reason from summary_disposition").all()).toEqual([
-      { reason: "filtered" },
+      { reason: "privacy-excluded" },
     ]);
   });
   it.each(["actually", "correction"])(
@@ -235,10 +238,11 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
           "automatically learns, corrects and consolidates",
         );
         expect(system).toContain("retaining important supported meaning");
-        expect(format).toBe("replacement");
+        expect(format).toBe("maintenance");
         return {
           patch: {
             summary: prior + "\nEvenings fit the current work schedule.",
+            exclude: [],
           },
           usage: { input: 10, output: 10, cached: 0 },
         };

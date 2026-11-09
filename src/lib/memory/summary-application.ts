@@ -14,7 +14,7 @@ export type SummaryGeneration = {
     system: string,
     prompt: string,
     signal: AbortSignal,
-    format?: "replacement" | "incremental",
+    format?: "replacement" | "incremental" | "maintenance",
   ): Promise<{
     patch: unknown;
     usage: {
@@ -90,9 +90,9 @@ export function createSummaryEngine(ports: {
         });
         let candidate: SummaryCandidate | null;
         if (!inputs.length) {
-          // No-save/unresolved/Off/deleted events retain explicit dispositions.
+          // Hard-ineligible/empty events retain native dispositions.
           candidate = validateSummaryReplacement(
-            { summary: job.previous.text },
+            { summary: job.previous.text, exclude: [] },
             job,
             [],
           );
@@ -103,6 +103,25 @@ export function createSummaryEngine(ports: {
           // Capacity/refusal cannot shrink/retry a source interval. The size
           // target guides this single draft, never another inference effect.
           const admitted = inputs;
+          const inputPositions = new Map(
+            admitted.map((input, index) => [input.sourceId, index]),
+          );
+          const messagePositions = new Map(
+            job.sources.flatMap((source) => {
+              const index = inputPositions.get(source.sourceId);
+              return source.identity && index !== undefined
+                ? [[source.identity.messageId, index] as const]
+                : [];
+            }),
+          );
+          const contextOrigins = new Map(
+            job.sources.map((source) => [
+              source.sourceId,
+              source.identity?.contextUserMessageId
+                ? messagePositions.get(source.identity.contextUserMessageId)
+                : undefined,
+            ]),
+          );
           const prompt = JSON.stringify({
             now: ports.now(),
             targetCharacters: job.cap,
@@ -110,7 +129,18 @@ export function createSummaryEngine(ports: {
             currentProfile: job.profile ?? null,
             newSources: admitted.map((source) => ({
               user: source.user,
-              ...(source.referent ? { assistantContext: source.referent } : {}),
+              ...(source.referent
+                ? {
+                    assistantContext: source.referent,
+                    ...(contextOrigins.get(source.sourceId) !== undefined
+                      ? {
+                          assistantContextOrigin: contextOrigins.get(
+                            source.sourceId,
+                          ),
+                        }
+                      : {}),
+                  }
+                : {}),
               ...(source.contextLimitation
                 ? { contextLimitation: source.contextLimitation }
                 : {}),
@@ -129,7 +159,7 @@ export function createSummaryEngine(ports: {
               SUMMARY_SYSTEM,
               prompt,
               signal,
-              "replacement",
+              "maintenance",
             ),
             signal,
           );

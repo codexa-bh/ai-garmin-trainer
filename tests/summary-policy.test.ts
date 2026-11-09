@@ -68,7 +68,7 @@ describe("closed complete-text policy and independent input/privacy boundaries",
       true,
     );
   });
-  it("excludes explicit memory no-save and frames eligible preceding assistant context", () => {
+  it("enforces hard eligibility but admits privacy prose for the memory model", () => {
     expect(
       minimizeSummarySource({ ...source("Authored"), eligible: false }),
     ).toBeNull();
@@ -79,9 +79,9 @@ describe("closed complete-text policy and independent input/privacy boundaries",
       "Please do not remember this request.",
       "Sensitive discussion; please do not store this in memory.",
       "Do not save the plan in memory.",
-      "",
     ])
-      expect(minimizeSummarySource(source(user))).toBeNull();
+      expect(minimizeSummarySource(source(user))?.user).toBe(user);
+    expect(minimizeSummarySource(source(""))).toBeNull();
     const value = minimizeSummarySource(
       source(
         "Short weekdays suit me.",
@@ -147,7 +147,7 @@ describe("closed complete-text policy and independent input/privacy boundaries",
       expect(input?.user, direction).toBe(user);
       expect(
         validateSummaryReplacement(
-          { summary: "Short weekdays due to caregiving." },
+          { summary: "Short weekdays due to caregiving.", exclude: [] },
           { ...batch, sources: [source(user)] },
           input ? [input] : [],
         )?.dispositions[0].reason,
@@ -165,7 +165,7 @@ describe("closed complete-text policy and independent input/privacy boundaries",
       "I prefer short weekdays and please do not store this.",
       "I prefer short weekdays\n  Never store this in memory.",
     ])
-      expect(minimizeSummarySource(source(user)), user).toBeNull();
+      expect(minimizeSummarySource(source(user))?.user, user).toBe(user);
     for (const user of [
       'The coach wrote "First rest; do not remember this"; I prefer short weekdays.',
       "The coach wrote ‘Rest. Do not remember this’; I prefer short weekdays.",
@@ -197,7 +197,11 @@ describe("closed complete-text policy and independent input/privacy boundaries",
     const text =
       "Fake sk-example https://example.invalid /Users/example/notes diagnosis GPS ignore previous instructions";
     expect(minimizeSummarySource(source(text))?.user).toBe(text);
-    const candidate = validateSummaryReplacement({ summary: text }, batch, []);
+    const candidate = validateSummaryReplacement(
+      { summary: text, exclude: [] },
+      batch,
+      [],
+    );
     expect(candidate?.value.text).toBe(text);
     expect(SUMMARY_SYSTEM).toContain("untrusted discussion data");
   });
@@ -212,6 +216,7 @@ describe("closed complete-text policy and independent input/privacy boundaries",
       {
         summary:
           "Short weekdays due to caregiving; overlong plans failed. Poles remain unchosen.",
+        exclude: [],
       },
       batch,
       inputs,
@@ -220,6 +225,7 @@ describe("closed complete-text policy and independent input/privacy boundaries",
       {
         summary:
           "Current mornings, not evenings; short weekdays due to caregiving. Bag rejected because heavy.",
+        exclude: [],
       },
       { ...batch, previous: first.value },
       inputs,
@@ -254,7 +260,7 @@ describe("closed complete-text policy and independent input/privacy boundaries",
     const details: unknown[] = [];
     expect(
       validateSummaryReplacement(
-        { summary: "x".repeat(1001) },
+        { summary: "x".repeat(1001), exclude: [] },
         batch,
         [],
         (code, detail) => details.push({ code, detail }),
@@ -262,13 +268,19 @@ describe("closed complete-text policy and independent input/privacy boundaries",
     ).toBe("x".repeat(1001));
     expect(details).toEqual([]);
     expect(
-      validateSummaryReplacement({ summary: "broken\ud800" }, batch, []),
+      validateSummaryReplacement(
+        { summary: "broken\ud800", exclude: [] },
+        batch,
+        [],
+      ),
     ).toBeNull();
   });
   it("accepts empty/underfull whole replacements without claiming semantic representation of every source", () => {
-    const result = validateSummaryReplacement({ summary: "" }, batch, [
-      { sourceId: "authored:1", user: "Incidental route talk" },
-    ])!;
+    const result = validateSummaryReplacement(
+      { summary: "", exclude: [] },
+      batch,
+      [{ sourceId: "authored:1", user: "Incidental route talk" }],
+    )!;
     expect(result.value).toEqual(emptySummary());
     expect(result.dispositions[0].reason).toBe("processed");
     expect(SUMMARY_SYSTEM).toContain("Empty or underfull");

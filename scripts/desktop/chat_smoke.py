@@ -77,10 +77,11 @@ def memory_response(body):
     if 'currentProfile' not in payload or payload['targetCharacters'] != 6000:
         raise ValueError('Current Profile/advisory target missing')
     sources = payload['newSources']
-    if any(source.get('user') in IMPORT_TEXTS for source in sources):
-        if [source.get('user') for source in sources] != IMPORT_TEXTS[:2] or [source.get('createdAt') for source in sources] != [IMPORT_TIME, IMPORT_TIME + 2000] or sources[1].get('assistantContextCreatedAt') != IMPORT_TIME + 1000 or not sources[1].get('assistantContext') or payload.get('now', 0) <= IMPORT_TIME + 3000 or 'Unix milliseconds' not in json.dumps(messages):
+    if any(source.get('user') in IMPORT_TEXTS[:2] for source in sources):
+        if [source.get('user') for source in sources] != IMPORT_TEXTS or [source.get('createdAt') for source in sources] != [IMPORT_TIME, IMPORT_TIME + 2000, IMPORT_TIME + 4000] or sources[1].get('assistantContextCreatedAt') != IMPORT_TIME + 1000 or not sources[1].get('assistantContext') or payload.get('now', 0) <= IMPORT_TIME + 3000 or 'Unix milliseconds' not in json.dumps(messages):
             raise ValueError('Actual reviewed import original user/context date contract missing')
-    return {'role': 'assistant', 'content': json.dumps({'summary': MEMORY_CURATED})}, True
+    excluded = [index for index, source in enumerate(sources) if source.get('user') == IMPORT_TEXTS[2]]
+    return {'role': 'assistant', 'content': json.dumps({'summary': MEMORY_CURATED, 'exclude': excluded})}, True
 
 
 def image_parts(body):
@@ -201,7 +202,7 @@ class AuthoredProvider:
                     return
                 if memory:
                     if summary:
-                        owner.summary_calls.append({'fullPrior': True, 'newEligibleSources': True, 'currentProfile': True, 'singleCompleteOutput': True})
+                        owner.summary_calls.append({'fullPrior': True, 'newEligibleSources': True, 'currentProfile': True, 'singleCompleteOutput': True, 'excludedInputs': len(json.loads(message['content'])['exclude'])})
                     else:
                         owner.title_calls += 1
                 else:
@@ -366,7 +367,7 @@ def memory_curation(run, provider):
             time.sleep(0.2)
         raise ValueError('Automatic memory maintenance did not settle')
     first = settled()
-    json.loads(api(run, 'POST', '/api/chat', {'conversationId': chat, 'message': 'Do not save my weekly plan yet; I prefer short weekday sessions because caregiving limits time.'}))
+    json.loads(api(run, 'POST', '/api/chat', {'conversationId': chat, 'message': "Don't save my weekly review; weekends suit me because of childcare"}))
     final = settled()
     if len(provider.summary_calls) != 2 or len(final['preferences']) != 1 or final['preferences'][0]['text'] != 'Separate authored preference' or final['frontier'] <= first['frontier']:
         raise ValueError('Repeated automatic curation/preferences/source progress failed')
@@ -374,14 +375,12 @@ def memory_curation(run, provider):
         raise ValueError('Document refusal changed stored plan')
     json.loads(api(run, 'POST', '/api/chat', {'conversationId': chat, 'message': IMPORT_TEXTS[2]}))
     settled()
-    # Compatibility content intentionally omits candidate text. Review the fixed
-    # authored inputs/IDs above, prove private selection refuses without a manifest,
-    # then request exactly the two eligible sources through the real HTTP owner.
-    before = inspection()
-    api(run, 'POST', '/api/cross-chat-summary', {'version': 2, 'expected': before['expected'], 'action': 'import-create', 'sourceIds': [import_ids[2]]}, expected_status=503)
-    if inspection()['historical']['manifests'] or len(provider.summary_calls) != 2:
-        raise ValueError('Private source created import or provider effect')
-    command('import-create', sourceIds=import_ids[:2])
+    # Unknown natural-language privacy must reach the one normal request.
+    # Review only these fixed authored Off IDs; native applies the returned
+    # exclusion atomically with publication, without erasing unrelated prior.
+    if len(provider.summary_calls) != 3 or provider.summary_calls[-1]['excludedInputs'] != 1:
+        raise ValueError('Actual routine privacy decision/request missing')
+    command('import-create', sourceIds=import_ids)
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         final = inspection()
@@ -392,16 +391,19 @@ def memory_curation(run, provider):
         time.sleep(0.2)
     else:
         raise ValueError('Reviewed authored import did not settle')
-    if len(provider.summary_calls) != 3 or final['historical']['manifests'][0]['position'] != 2:
+    if len(provider.summary_calls) != 4 or final['historical']['manifests'][0]['position'] != 3 or provider.summary_calls[-1]['excludedInputs'] != 1:
         raise ValueError('Exact selected import generation/disposition count failed')
     with contextlib.closing(readonly(run.database)) as db:
-        if db.execute('select reason from summary_import_disposition order by rowid').fetchall() != [('processed',), ('processed',)] or db.execute("select count(*) from conversation_turn where conversation_id=?", (chat,)).fetchone()[0] != 3:
+        if db.execute('select reason from summary_import_disposition order by rowid').fetchall() != [('processed',), ('processed',), ('privacy-excluded',)] or db.execute("select count(*) from conversation_turn where conversation_id=?", (chat,)).fetchone()[0] != 3:
             raise ValueError('Import processing or privacy original preservation failed')
+        if db.execute('select count(*) from summary_suppression where source_id=?', (import_ids[2],)).fetchone() != (1,) or db.execute("select count(*) from summary_suppression where source_id like 'original-message:%'").fetchone() != (2,):
+            raise ValueError('Durable routine/import native privacy mapping missing')
     run.stop(); run.start(run.binary)
     persisted = inspection()
-    if persisted['stored']['text'] != MEMORY_CURATED or persisted['preferences'] != final['preferences'] or persisted['pending'] != 0 or len(provider.summary_calls) != 3:
+    if persisted['stored']['text'] != MEMORY_CURATED or persisted['preferences'] != final['preferences'] or persisted['pending'] != 0 or len(provider.summary_calls) != 4:
         raise ValueError('Curation restart persistence/no-replay failed')
-    return {'conversation': chat, 'profileNoOpAndChangedPreservedPrior': True, 'completePlanWeeklyExamples': True, 'automaticConsolidation': True, 'planNoSaveIndependentMeaningProcessed': True, 'preferencesPreserved': True, 'restartNoReplay': True, 'summaryCalls': len(provider.summary_calls), 'reviewedImport': {'sources': import_ids[:2], 'excludedPrivate': import_ids[2], 'originalUserAndContextDates': True, 'noAutomaticReplay': True, 'processed': 2}, 'liveModelQuality': 'not exercised; deterministic loopback supplied generation'}
+    api(run, 'POST', '/api/cross-chat-summary', {'version': 2, 'expected': persisted['expected'], 'action': 'import-create', 'sourceIds': [import_ids[2]]}, expected_status=503)
+    return {'conversation': chat, 'profileNoOpAndChangedPreservedPrior': True, 'completePlanWeeklyExamples': True, 'automaticConsolidation': True, 'planNoSaveIndependentMeaningProcessed': True, 'preferencesPreserved': True, 'restartNoReplay': True, 'summaryCalls': len(provider.summary_calls), 'reviewedImport': {'sources': import_ids, 'excludedPrivate': import_ids[2], 'sameCallExclusion': True, 'durableRestrictions': True, 'originalUserAndContextDates': True, 'noAutomaticReplay': True, 'processed': 2}, 'liveModelQuality': 'not exercised; deterministic loopback supplied generation'}
 
 
 @resources.invocation

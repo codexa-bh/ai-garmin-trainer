@@ -81,7 +81,7 @@ async function due() {
 function valid(_system: string, prompt: string) {
   expect(JSON.parse(prompt)).toHaveProperty("previous");
   return {
-    patch: { summary: "Short weekdays for time." },
+    patch: { summary: "Short weekdays for time.", exclude: [] },
     usage: { input: 100, output: 40, cached: null },
   };
 }

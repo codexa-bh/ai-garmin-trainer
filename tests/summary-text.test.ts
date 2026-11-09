@@ -34,6 +34,7 @@ describe("one complete bounded generated summary", () => {
     const a = validateSummaryReplacement(
       {
         summary: "Short weekdays because of caregiving; overlong plans failed.",
+        exclude: [],
       },
       first,
       first.sources.map((s) => ({ sourceId: s.sourceId, user: s.user! })),
@@ -49,6 +50,7 @@ describe("one complete bounded generated summary", () => {
       {
         summary:
           "Current mornings; short weekdays due to caregiving. Bag not chosen.",
+        exclude: [],
       },
       next,
       [],
@@ -77,11 +79,12 @@ describe("one complete bounded generated summary", () => {
       true,
     );
     expect(
-      validateSummaryReplacement({ summary: "" }, batch(), [])!.value,
+      validateSummaryReplacement({ summary: "", exclude: [] }, batch(), [])!
+        .value,
     ).toEqual(emptySummary());
     expect(
       validateSummaryReplacement(
-        { summary: "Do not infer endorsement." },
+        { summary: "Do not infer endorsement.", exclude: [] },
         batch(),
         [],
       )!.value.text,

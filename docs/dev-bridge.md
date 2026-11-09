@@ -1305,6 +1305,21 @@ chat geometry proof, not a visual rendering of hidden source dates; actual HTTP/
 SQLite assertions prove that nonvisual progression. Existing preservation, settlement,
 resource disposition and source-versus-installed limits remain.
 
+### Same-call semantic privacy proof (T0306)
+
+The current `smoke:chat --memory-curation` supersedes T0305's prose-prefilter
+expectations above. A weekly-review no-write turn reaches the normal memory request;
+a genuine privacy turn also reaches it and returns `{summary,exclude:[0]}` while
+preserving full unrelated prior. Reviewed import deliberately selects all three fixed
+2020 authored Off inputs, receives original user/context dates, and excludes only the
+private input in that same request. Actual native writer dispositions and exact-source/
+stable-message suppressions are inspected on the exclusive copy. Four summary calls,
+restart persistence, refused restricted re-import, unchanged preferences/documents and
+preserved original input are required. No new native/bridge permission or real service.
+Supplied decisions prove owner/wire/transaction mechanics, not live semantic judgment;
+masked chat PNGs cannot prove hidden privacy/date values. Run focused Python contracts,
+affected aggregates/native tests before use; existing resource settlement/disposition applies.
+
 ### Selected activity images (T0303)
 
 Add `--activity-images` to `smoke:chat` to select four optional panels on the same

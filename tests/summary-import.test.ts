@@ -54,6 +54,7 @@ function candidate(batch: SummaryBatch) {
   });
   return validateSummaryReplacement(
     {
+      exclude: [],
       summary: [batch.previous.text, ...inputs.map((source) => source.user)]
         .filter(Boolean)
         .join("\n"),
@@ -121,6 +122,7 @@ describe("explicit bounded historical transition sharing S", () => {
           return {
             patch: {
               summary: "Short weekdays because caregiving limits time.",
+              exclude: [],
             },
             usage: { input: 80, output: 10, cached: 0 },
           };
@@ -161,7 +163,9 @@ describe("explicit bounded historical transition sharing S", () => {
           ? "Please do not remember this discussion."
           : "Restricted latest option.",
       );
-      if (restriction === "suppressed")
+      // Both hard suppression and a previously committed model decision use
+      // the durable native restriction owner; prose alone is not a restriction.
+      if (["suppressed", "memory-private"].includes(restriction))
         db.prepare("insert into summary_suppression(source_id) values(?)").run(
           restricted,
         );

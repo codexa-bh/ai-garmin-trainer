@@ -127,6 +127,33 @@ function fixture(
 
 describe("independent exact catalog summary/title serialization", () => {
   it.each(["openai", "deepseek", "openrouter", "ollama"] as const)(
+    "couples the strict normal maintenance exclusion schema on %s without another request",
+    async (provider) => {
+      const decision = { summary: "Prior remains", exclude: [0] };
+      const f = fixture(provider, { patch: decision });
+      const result = await f.generation.generate(
+        "same-call semantic privacy",
+        prompt,
+        new AbortController().signal,
+        "maintenance",
+      );
+      expect(result.patch).toEqual(decision);
+      expect(f.requests).toHaveLength(1);
+      expect(JSON.stringify(f.requests[0].body)).toContain("exclude");
+      const invalid = fixture(provider, {
+        patch: { summary: "Missing decision" },
+      });
+      const rejected = await invalid.generation.generate(
+        "policy",
+        prompt,
+        new AbortController().signal,
+        "maintenance",
+      );
+      expect(rejected.patch).toBeNull();
+      expect(rejected.usage).toEqual({ input: 100, output: 20, cached: 0 });
+    },
+  );
+  it.each(["openai", "deepseek", "openrouter", "ollama"] as const)(
     "uses exact %s route without count/price qualification, tools, persistence or fallback",
     async (provider) => {
       const { generation, requests, entry } = fixture(provider);
