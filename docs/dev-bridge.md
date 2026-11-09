@@ -262,6 +262,28 @@ Native ordinary/run/boot/origin/request/deadline and unknown-effect guards remai
 
 The keyless runner saves a manual preference and edits/saves the complete generated
 summary independently through fixed `summary-edit` and editor-context `save` actions.
+T0307 adds two finite ordinary-only editor checks, with no caller text/key/selector:
+`editor-check` requires the exact fixed long summary, focused textarea, viewport-wide
+editor, internal scrolling and on-screen Save/Cancel. It scrolls only that editor.
+The explicit `--summary-native-copy` option (requires summary lifecycle selection;
+not presentation-only) enables `native-copy`. Default/legacy summary runs never
+copy or alter the clipboard. `native-copy` refuses fixtures, unavailable/busy/unfocused/noncanonical editors,
+then directly invokes **real WKWebView `selectAll:` / `copy:` responders** on this
+owned non-key window. Native code waits boundedly for the clipboard to change and
+compares it only with the independently authored run-specific 6578-character text.
+It returns only `{ok:true,nativeResponder:true,exactAuthoredCopy:true,hardwareInput:false}`.
+**This deliberately replaces the system clipboard with that synthetic text.** It
+never reads/restores previous clipboard contents or returns any clipboard text,
+accepts no arbitrary command, and never activates a window, posts global events or
+requests permissions. A failure/timeout is retained and never replays Copy/Save.
+This proves actual native responder selection/copy and exact authored-text equality,
+not hardware shortcuts or the installed/default-singleton menu dispatch. Locked
+Tauri/muda native accelerator/selector wiring is separate source evidence. The
+renderer-only preflight/geometry tests do not themselves prove native copying.
+Current native/DOM/Python positive-negative/privacy/restoration contracts must pass
+before this path is used. Full two-instance smoke plus affected Memory groups applies.
+Broad navigation explicitly returns to the wide viewport after feature captures,
+so it uses real visible desktop controls instead of hidden narrow navigation.
 T0285 makes its summary-context `draft-update` one exact6578-scalar authored text,
 above the6000 advisory target; Save/count/owned-restart prove unchanged acceptance.
 Preference drafts stay separate. Exact canonical masks reveal the actual count,

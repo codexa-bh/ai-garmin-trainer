@@ -41,7 +41,10 @@ or provider-probing API and has no automatic UI replacement.
 Trainer **Memory** shows:
 
 - **Generated summary**: one complete text, its generated-only character count,
-  **Edit summary**, labelled complete-text editor, **Save summary** / **Cancel edit**.
+  **Edit summary** opens a full-current-window, labelled complete-text editor.
+  Long text scrolls inside the editor; **Save summary** / **Cancel edit** stay visible.
+  The native **Edit** menu supplies standard macOS selection/copy and editing commands
+  for the focused field (including ⌘A / ⌘C), without extra copy/select controls.
   Saving replaces the generated field under current-state comparison. It does not
   turn generated sentences into your preferences. A later history regeneration
   replaces this text, **including direct summary edits**.

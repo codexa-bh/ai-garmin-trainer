@@ -45,6 +45,7 @@ export function MemoryContent({
   runInBackground: (work: Promise<unknown>) => void;
 }) {
   const isMemoryLoading = isBusy || isMemoryReadUnavailable;
+  const summaryEditing = editingMemoryId === "summary";
   const [view, setView] = useState<View>("overview");
   const [reviewedOperationId, setReviewedOperationId] = useState<string | null>(
     null,
@@ -102,8 +103,13 @@ export function MemoryContent({
         ?.focus();
   }, [confirmation]);
   useLayoutEffect(() => {
-    if (editingMemoryId) root.current?.querySelector("textarea")?.focus();
-    else if (previousEditing.current && memory) {
+    if (editingMemoryId) {
+      if (
+        editingMemoryId !== previousEditing.current ||
+        !root.current?.contains(document.activeElement)
+      )
+        root.current?.querySelector("textarea")?.focus();
+    } else if (previousEditing.current && memory) {
       const rows = [
         ...(root.current?.querySelectorAll<HTMLElement>("[data-memory-id]") ??
           []),
@@ -114,11 +120,16 @@ export function MemoryContent({
           (beforeAdd.current !== null &&
             !beforeAdd.current.includes(r.dataset.memoryId ?? "")),
       );
-      (target ?? invoker.current ?? heading.current)?.focus();
+      (
+        target ??
+        (invoker.current?.isConnected ? invoker.current : heading.current)
+      )?.focus();
       rowAfterSave.current = null;
       beforeAdd.current = null;
     }
-    previousEditing.current = editingMemoryId;
+    // A successful save hides the prior projection until its read completes.
+    // Retain the exit transition so that read can return focus to the saved row.
+    if (editingMemoryId || memory) previousEditing.current = editingMemoryId;
   }, [editingMemoryId, memory]);
   const go = (next: View) => {
     if (isMemoryLoading || !canDiscardMemoryEdit()) return;
@@ -168,7 +179,7 @@ export function MemoryContent({
   };
   return (
     <div
-      className="memory-root-card"
+      className={`memory-root-card${summaryEditing ? " memory-summary-editing" : ""}`}
       aria-label="Cross-chat memory"
       data-memory-ready={!!memory && !isMemoryLoading}
       data-memory-chat-ready={!!memory?.selectedChat}
@@ -196,10 +207,12 @@ export function MemoryContent({
           Back to memory
         </button>
       )}
-      <h3 tabIndex={-1} ref={heading}>
-        {titles[view]}
-      </h3>
-      {view === "overview" && (
+      {!summaryEditing && (
+        <h3 tabIndex={-1} ref={heading}>
+          {titles[view]}
+        </h3>
+      )}
+      {view === "overview" && !summaryEditing && (
         <p>
           When enabled, memory helps your trainer carry important details from
           previous conversations into new chats.
@@ -268,255 +281,267 @@ export function MemoryContent({
         <>
           {view === "overview" && (
             <>
-              <div className="memory-status-row">
-                <p>
-                  <strong>{memory.enabled ? "On" : "Off"}</strong> ·{" "}
-                  {memoryStatus(memory)}
-                </p>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={isMemoryLoading}
-                  onClick={() =>
-                    memory.enabled
-                      ? runInBackground(changeMemory({ action: "disable" }))
-                      : confirm(
-                          { action: "enable" },
-                          "Turn memory On?",
-                          "Turn memory On",
-                          "Usable context may be sent to the configured provider. Automatic processing has no daily cost cap. Saved items can be used again; past conversations are not automatically recovered.",
-                        )
-                  }
-                >
-                  {memory.enabled ? "Turn Off" : "Turn On"}
-                </button>
-              </div>
-              <section
-                aria-label="Generated summary"
-                data-memory-id="summary"
-                tabIndex={-1}
-              >
-                <div className="memory-section-heading">
-                  <h4>Generated summary</h4>
-                  <button
-                    type="button"
-                    disabled={
-                      isMemoryLoading ||
-                      !!editingMemoryId ||
-                      densifying ||
-                      reviewingDensify
-                    }
-                    onClick={() => edit("summary", memory.stored.text)}
-                  >
-                    Edit summary
-                  </button>
-                </div>
-                <p>
-                  {memory.characters} characters · target {memory.cap} ·
-                  generated text only
-                </p>
-                <div className="button-row">
-                  <button
-                    type="button"
-                    ref={densifyButton}
-                    disabled={
-                      isMemoryLoading ||
-                      !!editingMemoryId ||
-                      densifying ||
-                      reviewingDensify ||
-                      !memory.densify?.available
-                    }
-                    onClick={() =>
-                      runInBackground(densifyMemory("densify-request"))
-                    }
-                  >
-                    Densify summary
-                  </button>
-                  {densifying && (
+              {!summaryEditing && (
+                <>
+                  <div className="memory-status-row">
+                    <p>
+                      <strong>{memory.enabled ? "On" : "Off"}</strong> ·{" "}
+                      {memoryStatus(memory)}
+                    </p>
                     <button
                       type="button"
+                      className="secondary-button"
+                      disabled={isMemoryLoading}
                       onClick={() =>
-                        runInBackground(
-                          densifyMemory("densify-cancel", densifyReview.id),
-                        )
+                        memory.enabled
+                          ? runInBackground(changeMemory({ action: "disable" }))
+                          : confirm(
+                              { action: "enable" },
+                              "Turn memory On?",
+                              "Turn memory On",
+                              "Usable context may be sent to the configured provider. Automatic processing has no daily cost cap. Saved items can be used again; past conversations are not automatically recovered.",
+                            )
                       }
                     >
-                      Cancel densify
+                      {memory.enabled ? "Turn Off" : "Turn On"}
                     </button>
-                  )}
-                </div>
-                <p className="secondary-copy">
-                  Chat updates consolidate memory automatically. This optional
-                  rewrite uses one extra AI request; review before saving.
-                </p>
-                {(editingMemoryId || !memory.densify?.available) &&
-                  !densifying &&
-                  !reviewingDensify && (
-                    <p className="secondary-copy">
-                      {editingMemoryId
-                        ? "Save or cancel your edit first."
-                        : "Needs a usable saved summary, configured native memory model and no running memory update."}
-                    </p>
-                  )}
-                {densifying && (
-                  <p role="status">
-                    Densifying… Your saved summary stays in use. Cancellation
-                    cannot recall sent text or costs.
-                  </p>
-                )}
-                {reviewingDensify && (
+                  </div>
                   <section
-                    className="memory-confirm"
-                    aria-label="Review densified summary"
+                    aria-label="Generated summary"
+                    data-memory-id="summary"
+                    tabIndex={-1}
                   >
-                    <h4 tabIndex={-1} ref={densifyHeading}>
-                      Review densified summary
-                    </h4>
-                    <p>
-                      {densifyReview.before} → {densifyReview.after} characters
-                      · target {densifyReview.target}
-                    </p>
-                    <p>
-                      {densifyReview.shorter
-                        ? `${densifyReview.before - densifyReview.after!} fewer characters. Check meaning before saving.`
-                        : "No reduction. This result cannot replace your summary; no automatic retry."}
-                    </p>
-                    <div
-                      className="memory-text"
-                      role="region"
-                      aria-label="Complete candidate summary"
-                      tabIndex={0}
-                      style={{
-                        maxHeight: "20rem",
-                        overflowY: "auto",
-                        whiteSpace: "pre-wrap",
-                      }}
-                    >
-                      {densifyReview.text}
-                    </div>
-                    <p>
-                      The original saved summary remains below for comparison.
-                    </p>
-                    <div className="button-row">
+                    <div className="memory-section-heading">
+                      <h4>Generated summary</h4>
                       <button
                         type="button"
                         disabled={
                           isMemoryLoading ||
                           !!editingMemoryId ||
-                          !densifyReview.shorter
+                          densifying ||
+                          reviewingDensify
                         }
-                        onClick={() =>
-                          runInBackground(
-                            densifyMemory("densify-accept", densifyReview.id),
-                          )
-                        }
+                        onClick={() => edit("summary", memory.stored.text)}
                       >
-                        Use shorter summary
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          runInBackground(
-                            densifyMemory("densify-discard", densifyReview.id),
-                          )
-                        }
-                      >
-                        Discard
+                        Edit summary
                       </button>
                     </div>
-                  </section>
-                )}
-                {densifyReview &&
-                  !densifying &&
-                  !reviewingDensify &&
-                  densifyReview.state !== "accepted" && (
-                    <p role="status">
-                      {densifyReview.state === "discarded"
-                        ? "Candidate discarded. Saved summary unchanged."
-                        : densifyReview.state === "cancelled"
-                          ? "Densify cancelled. Sent requests may still incur cost; saved summary unchanged."
-                          : "Densify unavailable or expired. Saved summary unchanged; refresh before a new deliberate request."}
+                    <p>
+                      {memory.characters} characters · target {memory.cap} ·
+                      generated text only
                     </p>
-                  )}
-                {memory.enabled && memory.state !== "unavailable" ? (
-                  <p className="memory-text">
-                    {memory.stored.text ||
-                      "No generated summary yet. Update from chat history to build one."}
-                  </p>
-                ) : (
-                  <p>
-                    Saved summary is not in use.{" "}
-                    {memory.enabled
-                      ? "Check memory status before continuing."
-                      : "Turn memory On to use it again."}
-                  </p>
-                )}
-              </section>
-              <section aria-label="Manual preferences">
-                <div className="memory-section-heading">
-                  <h4>Your preferences</h4>
-                  <button
-                    type="button"
-                    disabled={
-                      isMemoryLoading ||
-                      !!editingMemoryId ||
-                      densifying ||
-                      reviewingDensify
-                    }
-                    onClick={() => edit("new", "")}
-                  >
-                    Add preference
-                  </button>
-                </div>
-                {!memory.preferences.length && !editingMemoryId && (
-                  <p className="memory-empty">
-                    Add your own preferences or restrictions here. History
-                    updates do not rewrite them.
-                  </p>
-                )}
-                {memory.preferences.map((saved) => (
-                  <article
-                    className="memory-row"
-                    key={saved.id}
-                    tabIndex={-1}
-                    data-memory-id={saved.id}
-                    aria-label="Manual preference"
-                  >
-                    <div className="memory-row-main">
-                      <p className="memory-text">{saved.text}</p>
-                      <div className="button-row">
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        ref={densifyButton}
+                        disabled={
+                          isMemoryLoading ||
+                          !!editingMemoryId ||
+                          densifying ||
+                          reviewingDensify ||
+                          !memory.densify?.available
+                        }
+                        onClick={() =>
+                          runInBackground(densifyMemory("densify-request"))
+                        }
+                      >
+                        Densify summary
+                      </button>
+                      {densifying && (
                         <button
                           type="button"
-                          disabled={
-                            isMemoryLoading ||
-                            !!editingMemoryId ||
-                            densifying ||
-                            reviewingDensify
-                          }
-                          onClick={() => edit(saved.id, saved.text)}
-                        >
-                          Edit preference
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isMemoryLoading || !!editingMemoryId}
                           onClick={() =>
-                            confirm(
-                              { action: "forget", id: saved.id },
-                              "Remove this preference?",
-                              "Remove preference",
-                              `“${saved.text}”\n\nRemove only this separately authored preference. This does not delete conversations or surgically remove related meaning from the generated summary.`,
-                              true,
+                            runInBackground(
+                              densifyMemory("densify-cancel", densifyReview.id),
                             )
                           }
                         >
-                          Remove preference
+                          Cancel densify
                         </button>
-                      </div>
+                      )}
                     </div>
-                  </article>
-                ))}
-              </section>
+                    <p className="secondary-copy">
+                      Chat updates consolidate memory automatically. This
+                      optional rewrite uses one extra AI request; review before
+                      saving.
+                    </p>
+                    {(editingMemoryId || !memory.densify?.available) &&
+                      !densifying &&
+                      !reviewingDensify && (
+                        <p className="secondary-copy">
+                          {editingMemoryId
+                            ? "Save or cancel your edit first."
+                            : "Needs a usable saved summary, configured native memory model and no running memory update."}
+                        </p>
+                      )}
+                    {densifying && (
+                      <p role="status">
+                        Densifying… Your saved summary stays in use.
+                        Cancellation cannot recall sent text or costs.
+                      </p>
+                    )}
+                    {reviewingDensify && (
+                      <section
+                        className="memory-confirm"
+                        aria-label="Review densified summary"
+                      >
+                        <h4 tabIndex={-1} ref={densifyHeading}>
+                          Review densified summary
+                        </h4>
+                        <p>
+                          {densifyReview.before} → {densifyReview.after}{" "}
+                          characters · target {densifyReview.target}
+                        </p>
+                        <p>
+                          {densifyReview.shorter
+                            ? `${densifyReview.before - densifyReview.after!} fewer characters. Check meaning before saving.`
+                            : "No reduction. This result cannot replace your summary; no automatic retry."}
+                        </p>
+                        <div
+                          className="memory-text"
+                          role="region"
+                          aria-label="Complete candidate summary"
+                          tabIndex={0}
+                          style={{
+                            maxHeight: "20rem",
+                            overflowY: "auto",
+                            whiteSpace: "pre-wrap",
+                          }}
+                        >
+                          {densifyReview.text}
+                        </div>
+                        <p>
+                          The original saved summary remains below for
+                          comparison.
+                        </p>
+                        <div className="button-row">
+                          <button
+                            type="button"
+                            disabled={
+                              isMemoryLoading ||
+                              !!editingMemoryId ||
+                              !densifyReview.shorter
+                            }
+                            onClick={() =>
+                              runInBackground(
+                                densifyMemory(
+                                  "densify-accept",
+                                  densifyReview.id,
+                                ),
+                              )
+                            }
+                          >
+                            Use shorter summary
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              runInBackground(
+                                densifyMemory(
+                                  "densify-discard",
+                                  densifyReview.id,
+                                ),
+                              )
+                            }
+                          >
+                            Discard
+                          </button>
+                        </div>
+                      </section>
+                    )}
+                    {densifyReview &&
+                      !densifying &&
+                      !reviewingDensify &&
+                      densifyReview.state !== "accepted" && (
+                        <p role="status">
+                          {densifyReview.state === "discarded"
+                            ? "Candidate discarded. Saved summary unchanged."
+                            : densifyReview.state === "cancelled"
+                              ? "Densify cancelled. Sent requests may still incur cost; saved summary unchanged."
+                              : "Densify unavailable or expired. Saved summary unchanged; refresh before a new deliberate request."}
+                        </p>
+                      )}
+                    {memory.enabled && memory.state !== "unavailable" ? (
+                      <p className="memory-text">
+                        {memory.stored.text ||
+                          "No generated summary yet. Update from chat history to build one."}
+                      </p>
+                    ) : (
+                      <p>
+                        Saved summary is not in use.{" "}
+                        {memory.enabled
+                          ? "Check memory status before continuing."
+                          : "Turn memory On to use it again."}
+                      </p>
+                    )}
+                  </section>
+                  <section aria-label="Manual preferences">
+                    <div className="memory-section-heading">
+                      <h4>Your preferences</h4>
+                      <button
+                        type="button"
+                        disabled={
+                          isMemoryLoading ||
+                          !!editingMemoryId ||
+                          densifying ||
+                          reviewingDensify
+                        }
+                        onClick={() => edit("new", "")}
+                      >
+                        Add preference
+                      </button>
+                    </div>
+                    {!memory.preferences.length && !editingMemoryId && (
+                      <p className="memory-empty">
+                        Add your own preferences or restrictions here. History
+                        updates do not rewrite them.
+                      </p>
+                    )}
+                    {memory.preferences.map((saved) => (
+                      <article
+                        className="memory-row"
+                        key={saved.id}
+                        tabIndex={-1}
+                        data-memory-id={saved.id}
+                        aria-label="Manual preference"
+                      >
+                        <div className="memory-row-main">
+                          <p className="memory-text">{saved.text}</p>
+                          <div className="button-row">
+                            <button
+                              type="button"
+                              disabled={
+                                isMemoryLoading ||
+                                !!editingMemoryId ||
+                                densifying ||
+                                reviewingDensify
+                              }
+                              onClick={() => edit(saved.id, saved.text)}
+                            >
+                              Edit preference
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isMemoryLoading || !!editingMemoryId}
+                              onClick={() =>
+                                confirm(
+                                  { action: "forget", id: saved.id },
+                                  "Remove this preference?",
+                                  "Remove preference",
+                                  `“${saved.text}”\n\nRemove only this separately authored preference. This does not delete conversations or surgically remove related meaning from the generated summary.`,
+                                  true,
+                                )
+                              }
+                            >
+                              Remove preference
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </section>
+                </>
+              )}
               {editingMemoryId && (
                 <section
                   className="memory-editor"
@@ -528,13 +553,13 @@ export function MemoryContent({
                         : "Edit preference"
                   }
                 >
-                  <h4>
-                    {editingMemoryId === "summary"
-                      ? "Edit generated summary"
-                      : editingMemoryId === "new"
+                  {!summaryEditing && (
+                    <h4>
+                      {editingMemoryId === "new"
                         ? "Add preference"
                         : "Edit preference"}
-                  </h4>
+                    </h4>
+                  )}
                   <label>
                     {editingMemoryId === "summary"
                       ? "Complete generated summary"
@@ -603,43 +628,47 @@ export function MemoryContent({
                   </div>
                 </section>
               )}
-              <nav className="memory-routes" aria-label="Memory options">
-                <button
-                  type="button"
-                  disabled={isMemoryLoading || !!editingMemoryId}
-                  onClick={() => go("history")}
-                >
-                  Update from chat history
-                  {memory.rebuild?.operation?.state === "active"
-                    ? " · running"
-                    : ""}
-                </button>
-                <button
-                  type="button"
-                  disabled={isMemoryLoading || !!editingMemoryId}
-                  onClick={() => go("manage")}
-                >
-                  Manage memory
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={isBusy || !!editingMemoryId}
-                  onClick={() => runInBackground(loadMemories())}
-                >
-                  {isMemoryReadUnavailable ? "Retry connection" : "Refresh"}
-                </button>
-              </nav>
-              {canRetrySummary(memory) && (
-                <button
-                  type="button"
-                  disabled={isMemoryLoading}
-                  onClick={() =>
-                    runInBackground(changeMemory({ action: "retry" }))
-                  }
-                >
-                  Retry summary processing
-                </button>
+              {!summaryEditing && (
+                <>
+                  <nav className="memory-routes" aria-label="Memory options">
+                    <button
+                      type="button"
+                      disabled={isMemoryLoading || !!editingMemoryId}
+                      onClick={() => go("history")}
+                    >
+                      Update from chat history
+                      {memory.rebuild?.operation?.state === "active"
+                        ? " · running"
+                        : ""}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isMemoryLoading || !!editingMemoryId}
+                      onClick={() => go("manage")}
+                    >
+                      Manage memory
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={isBusy || !!editingMemoryId}
+                      onClick={() => runInBackground(loadMemories())}
+                    >
+                      {isMemoryReadUnavailable ? "Retry connection" : "Refresh"}
+                    </button>
+                  </nav>
+                  {canRetrySummary(memory) && (
+                    <button
+                      type="button"
+                      disabled={isMemoryLoading}
+                      onClick={() =>
+                        runInBackground(changeMemory({ action: "retry" }))
+                      }
+                    >
+                      Retry summary processing
+                    </button>
+                  )}
+                </>
               )}
             </>
           )}

@@ -2381,6 +2381,53 @@ input::placeholder {
   width: min(820px, 100vw);
 }
 
+.memory-summary-sheet {
+  width: 100vw;
+  border-left: 0;
+}
+.memory-summary-sheet .memory-sheet-groups {
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px 20px;
+}
+.memory-summary-editing {
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+}
+.memory-summary-editing .memory-editor {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.memory-summary-editing .memory-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.memory-summary-editing textarea {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding: 16px;
+  font-weight: 400;
+  resize: none;
+  overflow: auto;
+  line-height: 1.6;
+}
+.memory-summary-editing .memory-editor > p {
+  color: var(--faint);
+  font-size: 0.85rem;
+}
+.memory-summary-editing .button-row {
+  flex-wrap: wrap;
+}
+
 .memory-notice progress {
   display: block;
   width: 100%;
