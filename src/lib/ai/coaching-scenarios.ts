@@ -358,6 +358,8 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     expectedRoute: "sql-math",
     requiredQualities: [
       "same-turn direct saves",
+      "structured KPI persistence with exact set references and complete reads",
+      "atomic related narrative and KPI bundle",
       "distinct General Plan and weekly bundle attempts",
       "honest partial outcomes",
     ],
@@ -403,6 +405,7 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     requiredQualities: [
       "explained relevant partial substitution credit",
       "useful overachievement may exceed 100",
+      "saved structured total and explained extra credit are not clamped",
       "unmet ascent/time-on-feet remains visible",
     ],
     forbiddenBehavior: [
@@ -424,6 +427,7 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     expectedRoute: "sql-math",
     requiredQualities: [
       "provisional interpretation grounded in recorded commitments",
+      "review-defined structured basis, never fabricated agreed original",
       "inferred assumptions not prior agreement",
       "vague targets unavailable or clarified",
     ],

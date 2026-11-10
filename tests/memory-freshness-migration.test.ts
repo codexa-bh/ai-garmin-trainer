@@ -89,7 +89,9 @@ it("preserves every populated authored schema24 table through25, changes effecti
         statement.startsWith("create trigger summary_explicit_correction ")
       )
         db.exec(statement);
-  db.exec("update app_metadata set value='24' where key='schema_version'");
+  db.exec(
+    "drop table weekly_kpi; drop table weekly_kpi_track; update app_metadata set value='24' where key='schema_version'",
+  );
   expect(
     db
       .prepare(
@@ -100,11 +102,15 @@ it("preserves every populated authored schema24 table through25, changes effecti
   const before = tables();
   expect(migrateDatabase(db)).toMatchObject({
     fromVersion: 24,
-    toVersion: 25,
-    applied: ["25:memory_freshness_without_erasure"],
+    toVersion: 26,
+    applied: [
+      "25:memory_freshness_without_erasure",
+      "26:structured_weekly_kpis",
+    ],
     integrity: "ok",
   });
-  expect(tables()).toEqual(before);
+  const preserved = { ...before, weekly_kpi: [], weekly_kpi_track: [] };
+  expect(tables()).toEqual(preserved);
   expect(
     db
       .prepare(
@@ -123,7 +129,7 @@ it("preserves every populated authored schema24 table through25, changes effecti
   db.close();
   db = new Database(bytes);
   expect(migrateDatabase(db).applied).toEqual([]);
-  expect(tables()).toEqual(before);
+  expect(tables()).toEqual(preserved);
   expect(db.pragma("integrity_check", { simple: true })).toBe("ok");
   expect(db.pragma("foreign_key_check")).toEqual([]);
   expect(history.read(active.admission).segment.compact).toBe(oldCompact);

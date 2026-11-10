@@ -15,6 +15,9 @@ export async function executeTrainerTool(
     switch (input.toolName) {
       case "getWeeklyPlan":
       case "saveWeeklyDocuments":
+      case "getWeeklyKpis":
+      case "saveWeeklyKpis":
+      case "getKpiProgress":
         return executeWeeklyTool(input, ports.weekly);
       case "analyzeActivityTerrain":
       case "describeGarminDatabase":

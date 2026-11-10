@@ -53,6 +53,29 @@ function command(script: string, cwd: string, databasePath?: string) {
 }
 const hash = (path: string) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
+function logicalDatabase(path: string) {
+  const db = new Database(path, { readonly: true });
+  try {
+    const schema = db
+      .prepare(
+        "select name,sql from sqlite_master where type='table' and name not like 'sqlite_%' order by name",
+      )
+      .all() as { name: string; sql: string }[];
+    return {
+      schema,
+      rows: schema.map(({ name }) =>
+        db
+          .prepare(
+            `select * from "${name.replaceAll('"', '""')}" order by rowid`,
+          )
+          .all(),
+      ),
+      integrity: db.pragma("integrity_check", { simple: true }),
+    };
+  } finally {
+    db.close();
+  }
+}
 
 describe("Tauri-only product launch contract", () => {
   it("supplies native launchers, not standalone web launch commands or runnable wrappers", () => {
@@ -185,7 +208,7 @@ describe("explicit non-serving source setup", () => {
       "update app_metadata set value=? where key='schema_version'",
     ).run("18"); // Fixture helper reconstructs the exact pre-S schema18.
     db.close();
-    const before = hash(target);
+    const before = logicalDatabase(target);
     const output = command("scripts/migrate.ts", cwd, target);
     expect(output).toMatchObject({
       ok: true,
@@ -195,7 +218,9 @@ describe("explicit non-serving source setup", () => {
     });
     const backup = String(output.backupPath);
     expect(resolve(backup).startsWith(`${cwd}/backups/`)).toBe(true);
-    expect(hash(backup)).toBe(before);
+    // Online backup may change SQLite file-header bytes; recovery requires
+    // every original schema/row plus integrity, not a live main-file raw copy.
+    expect(logicalDatabase(backup)).toEqual(before);
     expect(readdirSync(join(cwd, "backups"))).toHaveLength(1);
     const upgraded = new Database(target, { readonly: true });
     expect(

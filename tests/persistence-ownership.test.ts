@@ -197,6 +197,36 @@ describe("persistence ownership compatibility", () => {
     ).toEqual({ status: "confirmed", updated_at: 1 });
   });
 
+  it("preserves structured weekly KPI state/signatures across both existing bulk deletion scopes", async () => {
+    const { db } = await deletionFixture();
+    const { authoredWeeklyKpis } = await import("../scripts/ci/kpi-fixture");
+    const state = JSON.stringify(authoredWeeklyKpis());
+    db.prepare("insert into weekly_kpi values (?,?)").run("2026-11-09", state);
+    db.prepare("insert into weekly_kpi_track values (?,?,?)").run(
+      "authored-sessions",
+      "count",
+      '["numeric","sessions","Selected session count"]',
+    );
+    const before = {
+      kpis: db.prepare("select * from weekly_kpi").all(),
+      tracks: db.prepare("select * from weekly_kpi_track").all(),
+    };
+    const { clearChatAndProfile, clearGarminData } =
+      await import("../src/lib/db/local-data-lifecycle");
+    clearChatAndProfile();
+    clearGarminData();
+    expect({
+      kpis: db.prepare("select * from weekly_kpi").all(),
+      tracks: db.prepare("select * from weekly_kpi_track").all(),
+    }).toEqual(before);
+    expect(db.prepare("select count(*) as n from conversation").get()).toEqual({
+      n: 0,
+    });
+    expect(db.prepare("select count(*) as n from activity").get()).toEqual({
+      n: 0,
+    });
+  });
+
   it("preserves route fallback creation after deleting the only conversation", async () => {
     const { conversations } = await owners();
     conversations.createConversation({ id: "only" });

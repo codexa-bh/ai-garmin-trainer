@@ -29,6 +29,7 @@ import { validateSettings } from "../desktop/settings";
 import { weeklyCalendar } from "../../src/lib/weekly/calendar";
 import { simpleTableFixture, tableFixture } from "./table-fixture";
 import type { WeeklyRecord } from "../../src/lib/weekly/contracts";
+import { seedWeeklyKpis } from "./kpi-fixture";
 
 // Finite Terrain evidence only: actual normalized rows, no personal streams/GPS.
 export function seedTerrain(db: Database.Database) {
@@ -127,8 +128,12 @@ export function seed(
   tables = false,
   terrain = false,
   activityLabels = false,
+  weeklyKpis = false,
 ): string {
-  if ([llmDebug, tables, terrain, activityLabels].filter(Boolean).length > 1)
+  if (
+    [llmDebug, tables, terrain, activityLabels, weeklyKpis].filter(Boolean)
+      .length > 1
+  )
     throw new Error("Synthetic scenarios are exclusive.");
   const stat = lstatSync(scratch);
   if (
@@ -249,6 +254,7 @@ export function seed(
     }
     if (terrain) seedTerrain(db);
     if (activityLabels) seedActivityLabels(db);
+    if (weeklyKpis) seedWeeklyKpis(db);
     if (
       currentSchemaVersion(db) !== LATEST_SCHEMA_VERSION ||
       runIntegrityCheck(db) !== "ok"
@@ -278,6 +284,7 @@ if (
         "--markdown-tables",
         "--terrain",
         "--activity-labels",
+        "--weekly-kpis",
       ].includes(process.argv[4])
     )
   )
@@ -291,6 +298,7 @@ if (
     process.argv[4] === "--markdown-tables",
     process.argv[4] === "--terrain",
     process.argv[4] === "--activity-labels",
+    process.argv[4] === "--weekly-kpis",
   );
   console.log(
     "Fresh synthetic current-schema Profile seed ready; no private inputs or credentials.",

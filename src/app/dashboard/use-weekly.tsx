@@ -1,13 +1,24 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { WeeklyRecord, WeeklySummary } from "@/lib/weekly/contracts";
-import { weeklyCalendar } from "@/lib/weekly/calendar";
+import { addDays, weeklyCalendar } from "@/lib/weekly/calendar";
+import type { KpiRead, KpiProgress } from "@/lib/weekly/kpi-contracts";
 import { readJsonResponse } from "./transport";
 
-type Mode = "current" | "upcoming" | "general" | "history";
+type Mode = "current" | "upcoming" | "general" | "history" | "progress";
 export function useWeeklyFeature() {
   const [mode, setMode] = useState<Mode>("current");
   const [record, setRecord] = useState<WeeklyRecord | null>(null);
   const [week, setWeek] = useState("");
+  const [kpis, setKpis] = useState<KpiRead | null>(null);
+  const [progress, setProgress] = useState<KpiProgress | null>(null);
+  const [progressRange, setProgressRange] = useState<{
+    from: string;
+    through: string;
+  } | null>(null);
+  const [progressTrack, setProgressTrack] = useState("");
+  const [progressBaseline, setProgressBaseline] = useState<
+    "original" | "latest" | "review-defined"
+  >("original");
   const [basis, setBasis] = useState("");
   const [items, setItems] = useState<WeeklySummary[]>([]);
   const [next, setNext] = useState<string | null>(null);
@@ -15,12 +26,15 @@ export function useWeeklyFeature() {
     "idle",
   );
   const generation = useRef(0);
+  const selectedSet = useRef<{ week: string; id: string } | null>(null);
   const calendarBasis = useRef("");
   async function load(
     selected = mode,
     selectedWeek?: string,
     cursor?: string,
     preserveRange = false,
+    setId?: string,
+    range = progressRange,
   ) {
     const request = ++generation.current;
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -40,7 +54,21 @@ export function useWeeklyFeature() {
     setRecord(null);
     try {
       const query = new URLSearchParams({ timeZone });
-      if (selected === "history" && !selectedWeek) {
+      if (selected === "progress") {
+        const dates = range ?? {
+          from: addDays(calendar.weekStart, -77),
+          through: calendar.weekStart,
+        };
+        query.set("view", "progress");
+        query.set("from", dates.from);
+        query.set("through", dates.through);
+        const data = await readJsonResponse<KpiProgress>(
+          await fetch(`/api/weekly?${query}`),
+        );
+        if (request !== generation.current) return;
+        setProgressRange(dates);
+        setProgress(data);
+      } else if (selected === "history" && !selectedWeek) {
         const oldest = preserveRange ? items.at(-1)?.weekStart : undefined;
         let before = cursor ?? calendar.weekStart;
         let pageNext: string | null;
@@ -65,11 +93,39 @@ export function useWeeklyFeature() {
         setNext(pageNext);
       } else {
         query.set("weekStart", target);
-        const detail = await readJsonResponse<{ record: WeeklyRecord | null }>(
-          await fetch(`/api/weekly?${query}`),
-        );
+        const requestedSet =
+          setId ??
+          (preserveRange && selectedSet.current?.week === target
+            ? selectedSet.current.id
+            : undefined);
+        if (requestedSet) query.set("setId", requestedSet);
+        const detail = await readJsonResponse<{
+          record: WeeklyRecord | null;
+          kpis?: KpiRead;
+        }>(await fetch(`/api/weekly?${query}`));
         if (request !== generation.current) return;
         setRecord(detail.record);
+        setKpis(
+          detail.kpis
+            ? {
+                ...detail.kpis,
+                availableSets:
+                  requestedSet && week === target && kpis
+                    ? [
+                        ...new Map(
+                          [
+                            ...kpis.availableSets,
+                            ...detail.kpis.availableSets,
+                          ].map((set) => [set.id, set]),
+                        ).values(),
+                      ]
+                    : detail.kpis.availableSets,
+              }
+            : null,
+        );
+        selectedSet.current = requestedSet
+          ? { week: target, id: requestedSet }
+          : null;
         setWeek(target);
       }
       setState("loaded");
@@ -105,5 +161,28 @@ export function useWeeklyFeature() {
       window.clearInterval(timer);
     };
   }, []);
-  return { mode, record, week, basis, items, next, state, load, refresh };
+  return {
+    mode,
+    record,
+    week,
+    basis,
+    items,
+    next,
+    state,
+    load,
+    refresh,
+    kpis,
+    progress,
+    progressRange,
+    progressTrack,
+    setProgressTrack,
+    progressBaseline,
+    setProgressBaseline,
+    loadSet: (setId: string) => load(mode, week, undefined, false, setId),
+    loadProgress: (from: string, through: string) =>
+      load("progress", undefined, undefined, false, undefined, {
+        from,
+        through,
+      }),
+  };
 }

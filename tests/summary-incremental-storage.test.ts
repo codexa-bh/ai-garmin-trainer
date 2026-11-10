@@ -152,7 +152,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
     const bytes = db.serialize();
     db.close();
     db = new Database(bytes);
-    expect(migrateDatabase(db).toVersion).toBe(25);
+    expect(migrateDatabase(db).toVersion).toBe(26);
     expect(
       db.prepare("select name,sql from sqlite_master order by name").all(),
     ).toEqual(schema);

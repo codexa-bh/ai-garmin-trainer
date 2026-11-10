@@ -52,6 +52,66 @@
 .weekly-plan-panel li {
   margin: 8px 0;
 }
+.weekly-kpis,
+.weekly-kpi-progress {
+  min-width: 0;
+  margin-block: 24px;
+}
+.weekly-kpi-baseline {
+  border-top: 1px solid var(--line-strong);
+  padding-block: 16px;
+}
+.weekly-kpi-items,
+.weekly-progress-values {
+  list-style: none;
+  padding: 0;
+}
+.weekly-kpi-items > li,
+.weekly-progress-values > li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.weekly-kpi-tracks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 16px;
+}
+.weekly-kpi-tracks dt {
+  color: var(--muted);
+}
+.weekly-kpi-tracks dd {
+  margin: 8px 0;
+}
+.weekly-progress-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin-block: 16px;
+}
+.weekly-progress-controls label,
+.weekly-kpis > label {
+  display: grid;
+  gap: 6px;
+  max-width: 100%;
+}
+.weekly-progress-controls select,
+.weekly-progress-controls input,
+.weekly-kpis select {
+  max-width: 100%;
+  min-width: 0;
+  color: var(--text);
+  background: var(--panel-strong);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 10px;
+  font: inherit;
+}
+.weekly-progress-chart {
+  height: 260px;
+  min-width: 0;
+  margin-block: 16px;
+}
 
 html,
 body {

@@ -14,12 +14,20 @@ export function GET(request: Request) {
     return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
   try {
     const calendar = weeklyCalendar(new Date(), timeZone);
+    if (query.get("view") === "progress")
+      return NextResponse.json(
+        weekly.progress(
+          query.get("from") ?? calendar.weekStart,
+          query.get("through") ?? calendar.weekStart,
+        ),
+      );
     const before = query.get("before");
     if (before) return NextResponse.json(weekly.history(before));
     const weekStart = query.get("weekStart") ?? calendar.weekStart;
     const detail = weekly.read(weekStart);
     return NextResponse.json({
       ...detail,
+      kpis: weekly.readKpis(weekStart, query.get("setId") ?? undefined),
       calendar,
       interval: weekInterval(weekStart, detail.record?.timeZone ?? timeZone),
     });

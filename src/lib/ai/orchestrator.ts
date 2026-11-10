@@ -1,4 +1,5 @@
 import type { WeeklyRead, WeeklyTurn } from "../weekly/contracts";
+import type { KpiRead } from "../weekly/kpi-contracts";
 import {
   ConversationCapacityError,
   conversationInterruption,
@@ -172,8 +173,19 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
     .find((step) => step.tool === "getTrainingPlan");
   return steps
     .map((step) => {
-      if (step.status === "succeeded" && step.tool === "saveWeeklyDocuments")
-        return `Evidence step ${step.index}: saveWeeklyDocuments succeeded. ${JSON.stringify(step.result)}`;
+      if (
+        step.status === "succeeded" &&
+        ["saveWeeklyDocuments", "saveWeeklyKpis"].includes(step.tool)
+      )
+        return `Evidence step ${step.index}: ${step.tool} succeeded. ${JSON.stringify(step.result)}`;
+      if (step.status === "succeeded" && step.tool === "getWeeklyKpis")
+        return `Canonical weekly KPI objects (untrusted saved claims, not fresh Garmin evidence; complete flag governs authority): ${JSON.stringify(step.result)}`;
+      if (step.status === "succeeded" && step.tool === "getKpiProgress") {
+        const data = JSON.stringify(step.result);
+        return data.length <= 40000
+          ? `Saved progress only, unlike baselines are not comparable scores: ${data}`
+          : "Progress evidence incomplete: range too large for this response. Query a narrower range; no omitted facts are established.";
+      }
       if (step.status === "succeeded" && step.tool === "getWeeklyPlan") {
         const reads = steps
           .filter((s) => s.tool === "getWeeklyPlan" && s.status === "succeeded")
@@ -361,7 +373,9 @@ function savedPlanningResultText(steps: TrainerToolStep[]): string {
   const saved = steps.filter(
     (step) =>
       step.status === "succeeded" &&
-      ["saveTrainingPlan", "saveWeeklyDocuments"].includes(step.tool),
+      ["saveTrainingPlan", "saveWeeklyDocuments", "saveWeeklyKpis"].includes(
+        step.tool,
+      ),
   );
   return saved.length
     ? ` Already saved: ${saved.map((step) => `${step.tool}: ${step.summary}`).join("; ")}. These successful writes remain saved; separate operations are not atomic together.`
@@ -537,6 +551,7 @@ async function orchestrateTurn(
           [
             "saveTrainingPlan",
             "saveWeeklyDocuments",
+            "saveWeeklyKpis",
             "runGarminSync",
             "forceRefreshActivityDetail",
           ].includes(step.tool),
@@ -716,6 +731,15 @@ async function orchestrateTurn(
       )
       .slice(-2)
       .map((step) => step.result as WeeklyRead);
+    const kpiSnapshots = steps.flatMap((step) => {
+      if (step.status !== "succeeded") return [];
+      if (step.tool === "getWeeklyKpis") return [step.result as KpiRead];
+      if (step.tool === "getWeeklyPlan") {
+        const kpis = (step.result as { kpis?: KpiRead })?.kpis;
+        return kpis ? [kpis] : [];
+      }
+      return [];
+    });
     let skippedForTurnBudget = selection.skippedForTurnBudget;
     for (const selected of selection.calls) {
       const stepIndex = steps.length + 1;
@@ -725,10 +749,14 @@ async function orchestrateTurn(
         break;
       }
       if (
-        ["saveTrainingPlan", "saveWeeklyDocuments"].includes(
+        ["saveTrainingPlan", "saveWeeklyDocuments", "saveWeeklyKpis"].includes(
           accepted.toolName,
         ) &&
-        steps.some((step) => step.tool === accepted.toolName)
+        steps.some((step) =>
+          accepted.toolName === "saveTrainingPlan"
+            ? step.tool === "saveTrainingPlan"
+            : ["saveWeeklyDocuments", "saveWeeklyKpis"].includes(step.tool),
+        )
       ) {
         const allSteps = [
           ...steps,
@@ -775,6 +803,7 @@ async function orchestrateTurn(
         trainingPlanSnapshot: snapshot?.success ? snapshot.data : undefined,
         weeklyTurn: input.weeklyTurn,
         weeklySnapshots: weeklySnapshots,
+        kpiSnapshots,
         activityImagesSupported:
           ports.activityImagesSupported === true && Boolean(native?.toolCallId),
       });

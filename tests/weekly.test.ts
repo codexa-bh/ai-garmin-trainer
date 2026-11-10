@@ -125,7 +125,7 @@ describe("weekly calendar", () => {
 it("preserves migration data, creates no history, is idempotent and detects weekly-only user data", () => {
   removeConversationHistoryFixtureSchema(db);
   db.exec(
-    "drop table weekly_artifact; drop table weekly_proposal; drop table conversation_title_attempt; update app_metadata set value='15' where key='schema_version'",
+    "drop table if exists weekly_kpi; drop table if exists weekly_kpi_track; drop table weekly_artifact; drop table weekly_proposal; drop table conversation_title_attempt; update app_metadata set value='15' where key='schema_version'",
   );
   db.prepare(
     "insert into training_plan values ('default','General','Operator template',1,1)",
@@ -142,6 +142,7 @@ it("preserves migration data, creates no history, is idempotent and detects week
     "23:reviewed_legacy_recovery",
     "24:whole_generated_summary",
     "25:memory_freshness_without_erasure",
+    "26:structured_weekly_kpis",
   ]);
   expect(
     db.prepare("select count(*) as count from conversation_completion").get(),

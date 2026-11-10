@@ -23,13 +23,31 @@ export function executeWeeklyTool(
     let result: unknown;
     switch (input.toolName) {
       case "getWeeklyPlan":
-        result = weekly.read(input.input.weekStart);
+        result = {
+          ...weekly.read(input.input.weekStart),
+          kpis: weekly.readKpis(input.input.weekStart),
+        };
+        break;
+      case "getWeeklyKpis":
+        result = weekly.readKpis(input.input.weekStart, input.input.setId);
+        break;
+      case "getKpiProgress":
+        result = weekly.progress(input.input.from, input.input.through);
+        break;
+      case "saveWeeklyKpis":
+        result = weekly.saveKpis(
+          input.input,
+          input.weeklyTurn,
+          input.kpiSnapshots ?? [],
+        );
         break;
       case "saveWeeklyDocuments":
         result = weekly.save(
           input.input.changes,
           input.weeklyTurn,
           input.weeklySnapshots ?? [],
+          input.input.kpiChanges ?? [],
+          input.kpiSnapshots ?? [],
         );
         break;
       default:
@@ -39,9 +57,15 @@ export function executeWeeklyTool(
       ...base,
       status: "succeeded",
       summary:
-        input.toolName === "saveWeeklyDocuments"
-          ? `Weekly documents saved atomically: ${input.input.changes.map(({ weekStart, kind }) => `${kind} ${weekStart}`).join(", ")}.`
-          : "Complete selected week read; missing plan means no recorded commitment.",
+        input.toolName === "saveWeeklyKpis"
+          ? "Structured weekly KPI changes saved atomically; saved claims are not fresh Garmin verification."
+          : input.toolName === "saveWeeklyDocuments"
+            ? `Weekly bundle saved atomically: ${[...input.input.changes.map(({ weekStart, kind }) => `${kind} ${weekStart}`), ...(input.input.kpiChanges ?? []).map(({ weekStart }) => `KPIs ${weekStart}`)].join(", ")}.`
+            : input.toolName === "getWeeklyKpis"
+              ? "Canonical KPI read; complete=false requires narrower reads before mutation. Missing is not zero."
+              : input.toolName === "getKpiProgress"
+                ? "Saved bounded progress only; gaps and unlike baselines remain explicit, never evaluated."
+                : "Complete selected week read; missing plan means no recorded commitment.",
       result,
     };
   } catch (error) {
