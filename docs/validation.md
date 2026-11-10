@@ -62,6 +62,13 @@ config, DOM or database contents. Pivan registers PR/main CI asynchronously;
 no polling loop or skipped/pending-as-green claim. Ordinary checked merge/protection
 and explicit task gates remain independent.
 
+Rendered smoke contracts keep independent navigation, mode-persistence and
+privacy scenarios in separate tests under the default per-test deadline. They
+still exercise the real components and bridge; splitting cumulative render work
+does not justify extending timeouts, dropping assertions or mocking the boundary.
+For load-sensitive failures, run the affected file first and then the full Vitest
+suite to check behavior under normal worker concurrency.
+
 Automated validation:
 
 ```bash
