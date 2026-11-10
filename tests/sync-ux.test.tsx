@@ -441,7 +441,7 @@ function syncElement(
 }
 
 describe("live Sync feedback", () => {
-  it("keeps busy text independent of motion with a scoped static reduced-motion cue", () => {
+  it("keeps Sync and Memory busy cues animated with a scoped static reduced-motion fallback", () => {
     const css = readFileSync("src/app/style.css", "utf8");
     expect(css).toContain(
       ".sync-action-card details:not([open]) > :not(summary)",
@@ -449,9 +449,11 @@ describe("live Sync feedback", () => {
     expect(css).toMatch(
       /details:not\(\[open\]\) > :not\(summary\)\s*\{\s*display: none;/,
     );
-    expect(css).toMatch(/\.sync-busy-cue\s*\{[^}]*animation: sync-busy-turn/);
     expect(css).toMatch(
-      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.sync-busy-cue\s*\{\s*animation: none;\s*border-color: var\(--accent\)/,
+      /\.sync-busy-cue,\s*\.memory-busy-cue\s*\{[^}]*animation: sync-busy-turn/,
+    );
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.sync-busy-cue,\s*\.memory-busy-cue\s*\{\s*animation: none;\s*border-color: var\(--accent\)/,
     );
   });
   it.each(["local latest", "local history", "backend-only"])(
