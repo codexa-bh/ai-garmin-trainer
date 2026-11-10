@@ -41,9 +41,42 @@ Ordinary generation consumes the **complete previous valid generated text** plus
 eligible user/context prose and current Profile. One strict `{summary:string,exclude:number[]}` normal response
 learns additions, reconciles supported corrections and automatically consolidates old
 wording. No global rewrite ban, secondary model pass or routine manual Densify step.
-The prompt requires supported prior meaning, reasons, negation, uncertainty and
-historical/current scope to survive; current Profile/corrections outrank stale prose.
+The prompt selects durable user-specific coaching value from **both prior and new
+input**, then merges duplicates and compresses. Prior inclusion is not evidence of
+importance/truth: low-value or stale prior content can disappear without a new
+contradiction; still-useful prior constraints survive unrelated new input. Goals,
+preferences, practical constraints, explicit still-applicable commitments and recurring
+patterns take priority. Reasons/rejected alternatives/failed-approach lessons remain
+only when they materially change advice. Preserve essential qualifications, negation,
+uncertainty and historical/current scope **on selected facts**; current Profile,
+corrections and fresh evidence outrank stale prose. Explicit corrections replace
+superseded claims, not retain dispute history; genuine unresolved uncertainty stays
+unresolved. Questions/suggestions do not become user commitments.
+
+Keep user choices arising from analysis, not the analysis archive. Normally omit
+incidental activity statistics, calculated comparisons, KPI actuals/scores, historical
+plan tables, detailed single-workout analysis and assistant plan-save claims; retrieve
+or recalculate authoritative records when needed. Do not accumulate generic advice,
+assistant operating rules/mistake histories or needless claims plus disclaimers.
+This is not a number ban: useful durable numerical facts and commitments may remain;
+a changing measurement needs genuine value and honest historical qualification,
+not promotion to verified current state. Target size is not a quota: concise underfull
+useful memory is valid, without padding or a word ceiling. An empty ordinary summary
+is structurally valid when no useful durable context exists. Relevance pruning omits
+prose from `summary`, never repurposes privacy `exclude`.
 Profile values are captured and compared at job CAS, independently of privacy authority.
+
+Authored selection contrasts (design examples, not measured model compliance):
+
+- Rotating shifts allow25-minute weekday sessions and the user commits to one weekend
+  strength session: retain availability/commitment, not ride calorie/zone/KPI tables.
+- After a walk distance comparison, the user chooses controlled effort: retain that
+  choice, not splits/calculations or generic coaching prescriptions.
+- “Could two sessions work?” is unchosen. “I now prefer afternoons, not mornings”
+  replaces the earlier preference; an assistant's saved-plan claim proves no save.
+- Retain a still-useful old constraint despite unrelated new input; prune stale clutter.
+  A useful dated measurement stays historical. All privacy-excluded input still requires
+  exact previous text even if cluttered; this safety contract outranks ordinary curation.
 
 Identical complete output processes sources without claiming new learning. Malformed,
 unfinished, invalid-scalar or refused output preserves prior/pending sources and actual
@@ -161,6 +194,15 @@ configuration. It uses the exact existing provider route, strict complete output
 no tools/fallback/SDK retries and no preferences/history/new source admission.
 Passive reads and ordinary overshoot never request this separate manual work. Normal
 new-source updates already consolidate automatically; this is an optional extra rewrite.
+The prompt first curates/selects durable user-specific knowledge, then merges redundancy,
+then compresses. It permits deletion of low-value statistics, obsolete temporary details,
+generic advice, repeated caveats and assistant-claim history, not just shorter wording
+for everything. Preserve essential meaning/qualifications of what remains; no invented
+facts, resolutions, endorsements or verified current truth. Its only evidence is the
+saved summary, without fresh Profile, original history or authoritative records. The
+advisory target is not a quota or ceiling; underfull useful text need not be padded.
+These instructions do not change the independent nonblank/strictly-shorter acceptance
+requirements below; structural success does not measure semantic selection quality.
 
 The process-owned single candidate is ephemeral and lasts at most ten minutes;
 privacy/currentness/configuration loss revokes it. The paid call shares the existing
@@ -222,8 +264,9 @@ replays Start or publishes a partial draft. Scrub staged derivatives while retai
 bounded progress/provenance/accounting and original adverse results. Final receipts do
 not retain duplicate generated-text history. Arrivals beyond review remain pending.
 
-Quality is separate from processing coverage. Useful constraints/decisions/rejected
-approaches must preserve rationale, historical/current scope, negation and uncertainty.
+Quality is separate from processing coverage. Select useful constraints/decisions/rejected
+approaches; retain rationale only when it materially changes advice, and preserve essential
+historical/current scope, negation and uncertainty on what remains.
 A question/assistant proposal is not endorsement; incidental routes/weather, isolated
 measurements and obsolete targets are not filler. Underfull is valid. Authored supplied
 outputs prove mechanics only; required real-history acceptance needs every included

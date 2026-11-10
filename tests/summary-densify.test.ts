@@ -118,6 +118,24 @@ describe("explicit summary-only review and real schema24 SQLite acceptance", () 
     expect(storage.inspect().text).toBe(original);
     expect(preserved()).toEqual(rows);
     expect(generate).toHaveBeenCalledTimes(1);
+    const system = vi.mocked(generate).mock.calls[0][0];
+    // Actual call capture proves instructions/wiring, not semantic model quality.
+    for (const instruction of [
+      "First select what deserves retention, then merge duplicates, then compress",
+      "Prior inclusion alone is not evidence of importance or truth",
+      "only when they materially change future advice",
+      "Delete low-value activity statistics",
+      "not a number ban",
+      "25-minute weekday availability",
+      "Questions and assistant suggestions are not user commitments",
+      "leave genuine unresolved uncertainty unresolved",
+      "no original history, fresh Profile or authoritative records",
+      "negation, uncertainty and historical/current qualifications of selected facts",
+      "not a quota or ceiling",
+      "do not pad toward the target",
+      "user reviews before saving",
+    ])
+      expect(system).toContain(instruction);
     expect(JSON.parse(vi.mocked(generate).mock.calls[0][1])).toEqual({
       summary: original,
       targetCharacters: 6000,

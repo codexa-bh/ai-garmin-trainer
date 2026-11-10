@@ -447,8 +447,8 @@ connector and AI tool suites retain compatibility coverage. `garmin-history.test
 
 The [accepted memory contract](memory-redesign-contract.md) and [scenarios](memory-redesign-acceptance.md)
 separate source behavior from evidence/activation. [S](cross-chat-summary.md) owns
-one complete generated text, output-only exact-text ordinary edits and foreground
-incremental generation; `db/summary-storage`
+one complete generated text, selection-first complete-replacement ordinary maintenance
+and foreground incremental generation; `db/summary-storage`
 owns eligibility/lease/CAS/coverage/manual/spend and `db/summary-import` owns sealed
 reviewed source selections/dispositions through that same writer.
 `db/summary-rebuild` adds bounded original inventory/provenance and operation staging

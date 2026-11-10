@@ -152,7 +152,7 @@ export function createSummaryEngine(ports: {
                 : {}),
             })),
             allowance:
-              "Generated summary only; manual preferences are composed separately. Return one complete consolidated replacement preserving useful supported prior meaning and new learning. Identical text means no useful change; if unable to safely revise, refuse rather than erase prior state.",
+              "Generated summary only; manual preferences are composed separately. Select useful durable coaching knowledge from both prior text and new eligible input, then consolidate into one complete replacement. The advisory target is not a quota; concise underfull text is valid. Omit low-value content from summary, not via exclude. Identical text means no useful change; if unable to safely revise, refuse rather than erase prior state.",
           });
           const output = await boundedGeneration(
             ports.generation.generate(

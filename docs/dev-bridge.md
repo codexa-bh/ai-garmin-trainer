@@ -1354,7 +1354,11 @@ stable-message suppressions are inspected on the exclusive copy. Four summary ca
 restart persistence, refused restricted re-import, unchanged preferences/documents and
 preserved original input are required. No new native/bridge permission or real service.
 Supplied decisions prove owner/wire/transaction mechanics, not live semantic judgment;
-masked chat PNGs cannot prove hidden privacy/date values. Run focused Python contracts,
+masked chat PNGs cannot prove hidden privacy/date values. Reviewed-import observation
+allows65 seconds for the launcher's existing30-second idle poll,30-second HTTP bound
+and5-second settlement margin; failure reasons still refuse immediately and all exact
+publication/disposition/call-count assertions remain required. This changes only fixture
+observation, not product scheduling, operation deadlines or provider retries. Run focused Python contracts,
 affected aggregates/native tests before use; existing resource settlement/disposition applies.
 
 ### Selected activity images (T0303)

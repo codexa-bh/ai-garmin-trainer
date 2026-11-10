@@ -330,6 +330,20 @@ def seed_import_dates(run):
     return ids
 
 
+def wait_reviewed_import(run):
+    # import-create does not wake the launcher: allow its 30s idle poll plus
+    # the existing 30s HTTP observation bound and 5s settlement margin.
+    deadline = time.monotonic() + 65
+    while time.monotonic() < deadline:
+        value = json.loads(api(run, 'GET', '/api/cross-chat-summary?view=content'))
+        if value['historical']['manifests'][0]['state'] == 'complete':
+            return value
+        if value['reason']:
+            raise ValueError('Authored import failed: ' + value['reason'])
+        time.sleep(0.2)
+    raise ValueError('Reviewed authored import did not settle')
+
+
 def memory_curation(run, provider):
     def inspection():
         return json.loads(api(run, 'GET', '/api/cross-chat-summary?view=content'))
@@ -381,16 +395,7 @@ def memory_curation(run, provider):
     if len(provider.summary_calls) != 3 or provider.summary_calls[-1]['excludedInputs'] != 1:
         raise ValueError('Actual routine privacy decision/request missing')
     command('import-create', sourceIds=import_ids)
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        final = inspection()
-        if final['historical']['manifests'][0]['state'] == 'complete':
-            break
-        if final['reason']:
-            raise ValueError('Authored import failed: ' + final['reason'])
-        time.sleep(0.2)
-    else:
-        raise ValueError('Reviewed authored import did not settle')
+    final = wait_reviewed_import(run)
     if len(provider.summary_calls) != 4 or final['historical']['manifests'][0]['position'] != 3 or provider.summary_calls[-1]['excludedInputs'] != 1:
         raise ValueError('Exact selected import generation/disposition count failed')
     with contextlib.closing(readonly(run.database)) as db:

@@ -993,7 +993,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     expect(JSON.parse(generate.mock.calls[0][1]).targetCharacters).toBe(6000);
     expect(generate.mock.calls[0][0]).toBe(SUMMARY_SYSTEM);
     expect(SUMMARY_SYSTEM).toContain("FUTURE COACHING");
-    expect(SUMMARY_SYSTEM).toContain("One incident is not a universal rule");
+    expect(SUMMARY_SYSTEM).toContain("one incident is not a universal rule");
     expect(SUMMARY_SYSTEM).toContain("Latest explicit corrections");
     expect(SUMMARY_SYSTEM).toContain("A question is not a commitment");
     expect(JSON.parse(generate.mock.calls[0][1]).newSources[0]).toHaveProperty(

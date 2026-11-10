@@ -237,7 +237,9 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
         expect(system).toContain(
           "automatically learns, corrects and consolidates",
         );
-        expect(system).toContain("retaining important supported meaning");
+        expect(system).toContain(
+          "keeping still-useful prior knowledge when new input is unrelated",
+        );
         expect(format).toBe("maintenance");
         return {
           patch: {
