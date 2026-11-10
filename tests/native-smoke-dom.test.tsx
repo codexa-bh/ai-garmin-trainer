@@ -1079,7 +1079,9 @@ describe("native-installed rendered smoke boundary", () => {
         </>
       );
     }
-    it("drives only finite actions and never returns private dates or values", async () => {
+    // Keep real rendered navigation, mode persistence and privacy checks within
+    // independent deadlines rather than accumulating their work in one test.
+    it("drives finite range navigation and detects a changed remembered range", async () => {
       render(<Health />);
       expect(
         (await command({ type: "health", action: "assert-range" })).result.ok,
@@ -1093,14 +1095,6 @@ describe("native-installed rendered smoke boundary", () => {
       expect(
         (await command({ type: "health", action: "remember-range" })).result.ok,
       ).toBe(true);
-      for (const action of ["weekly", "monthly", "daily"]) {
-        expect((await command({ type: "health", action })).result.ok).toBe(
-          true,
-        );
-        expect((await command({ type: "observe" })).result.healthMode).toBe(
-          action,
-        );
-      }
       expect(
         (await command({ type: "health", action: "assert-range" })).result.ok,
       ).toBe(true);
@@ -1110,6 +1104,35 @@ describe("native-installed rendered smoke boundary", () => {
       expect(
         (await command({ type: "health", action: "assert-range" })).result.ok,
       ).toBe(false);
+    });
+
+    it.each(["weekly", "monthly"])(
+      "preserves the remembered daily range across %s navigation",
+      async (mode) => {
+        render(<Health />);
+        expect(
+          (await command({ type: "health", action: "previous" })).result.ok,
+        ).toBe(true);
+        expect(
+          (await command({ type: "health", action: "remember-range" })).result
+            .ok,
+        ).toBe(true);
+        for (const action of [mode, "daily"]) {
+          expect((await command({ type: "health", action })).result.ok).toBe(
+            true,
+          );
+          expect((await command({ type: "observe" })).result.healthMode).toBe(
+            action,
+          );
+        }
+        expect(
+          (await command({ type: "health", action: "assert-range" })).result.ok,
+        ).toBe(true);
+      },
+    );
+
+    it("never returns private dates or values and refuses unknown actions or fields", async () => {
+      render(<Health />);
       const observed = JSON.stringify(await command({ type: "observe" }));
       expect(observed).not.toMatch(
         /2026-|8,412|synthetic-status|private outside transcript/,

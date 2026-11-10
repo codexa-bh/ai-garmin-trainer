@@ -123,7 +123,8 @@ it("rehearses20→24 preserving old attempts/spend/unknown effects while explici
     expect(copy.prepare("select * from summary_spend").get()).toEqual(spend);
     const after = copy.serialize();
     migrateDatabase(copy);
-    expect(copy.serialize()).toEqual(after);
+    // Compare SQLite bytes directly, not each Buffer entry via generic deep equality.
+    expect(copy.serialize().equals(after)).toBe(true);
     expect(copy.pragma("integrity_check", { simple: true })).toBe("ok");
     const reopened = new Database(path);
     try {
@@ -133,7 +134,7 @@ it("rehearses20→24 preserving old attempts/spend/unknown effects while explici
     } finally {
       reopened.close();
     }
-    expect(db.serialize()).toEqual(original);
+    expect(db.serialize().equals(original)).toBe(true);
   } finally {
     copy.close();
     rmSync(root, { recursive: true, force: true });
