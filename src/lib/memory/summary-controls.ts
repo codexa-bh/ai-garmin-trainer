@@ -1,4 +1,10 @@
 import type { SummaryVersion } from "./summary-policy";
+import { parseSummaryOverride } from "../model-settings/summary-selection";
+
+export type DensifyModels = {
+  default: { label: string; available: boolean };
+  options: { value: string; label: string }[];
+};
 
 export type SummaryRebuildSelection = {
   version: 1;
@@ -44,12 +50,9 @@ export type SummaryCommand = {
   expected: SummaryVersion;
 } & (
   | { action: "clear" | "disable" | "enable" | "retry" }
+  | { action: "densify-request"; id: string; model?: string }
   | {
-      action:
-        | "densify-request"
-        | "densify-accept"
-        | "densify-discard"
-        | "densify-cancel";
+      action: "densify-accept" | "densify-discard" | "densify-cancel";
       id: string;
     }
   | { action: "edit-summary"; text: string }
@@ -134,13 +137,18 @@ export function parseSummaryCommand(value: unknown): SummaryCommand | null {
     typeof input === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(input);
   if (["clear", "disable", "enable", "retry"].includes(String(value.action))) {
     if (fields !== common) return null;
+  } else if (value.action === "densify-request") {
+    if (
+      !id(value.id) ||
+      (fields !== "action,expected,id,version" &&
+        (fields !== "action,expected,id,model,version" ||
+          !parseSummaryOverride(value.model)))
+    )
+      return null;
   } else if (
-    [
-      "densify-request",
-      "densify-accept",
-      "densify-discard",
-      "densify-cancel",
-    ].includes(String(value.action))
+    ["densify-accept", "densify-discard", "densify-cancel"].includes(
+      String(value.action),
+    )
   ) {
     if (fields !== "action,expected,id,version" || !id(value.id)) return null;
   } else if (value.action === "edit-summary") {

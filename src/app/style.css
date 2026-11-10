@@ -385,6 +385,16 @@ body::before {
   align-items: center;
   flex-wrap: wrap;
 }
+.memory-densify-model {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.memory-densify-model select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
 .memory-status-row {
   font-size: 0.9rem;
 }

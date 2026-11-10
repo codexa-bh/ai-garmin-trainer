@@ -634,6 +634,8 @@ it.each([
         summaryExpanded: false,
         setSummaryExpanded: vi.fn(),
         densifyReview: null,
+        densifyModel: undefined,
+        setDensifyModel: vi.fn(),
         densifyMemory: vi.fn(),
         memoryMessage: "",
         isMemoryLoading: false,
@@ -709,12 +711,44 @@ it("exercises only supplied Densify presentation through the actual hook, refuse
     container: document.querySelector("aside")!,
   });
   await screen.findByRole("button", { name: "Densify summary" });
+  const picker = screen.getByRole<HTMLSelectElement>("combobox", {
+    name: "Model for this run",
+  });
+  expect(picker.value).toBe("");
+  expect(
+    (
+      await command({
+        type: "memory",
+        action: "densify-model-alternative",
+        model: "private",
+      })
+    ).ok,
+  ).toBe(false);
+  await act(async () => {
+    expect(
+      (await command({ type: "memory", action: "densify-model-alternative" }))
+        .ok,
+    ).toBe(true);
+  });
+  expect(JSON.parse(picker.value)).toEqual({
+    version: 1,
+    entryId: "entry_authored_manual",
+    provider: "openrouter",
+    modelId: "authored/densify:exact",
+  });
   await act(async () => {
     expect((await command({ type: "memory", action: "densify" })).ok).toBe(
       true,
     );
   });
   await screen.findByRole("heading", { name: "Review densified summary" });
+  expect(picker.disabled).toBe(true);
+  expect(
+    screen.getByText("Request model: openrouter / authored/densify:exact"),
+  ).toBeTruthy();
+  expect(
+    (await command({ type: "memory", action: "densify-model-alternative" })).ok,
+  ).toBe(false);
   const preview = screen.getByRole("region", {
     name: "Complete candidate summary",
   });
@@ -723,7 +757,15 @@ it("exercises only supplied Densify presentation through the actual hook, refuse
     (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
   ).toBe(true);
   expect(getComputedStyle(preview).visibility).toBe("visible");
+  expect(picker.hasAttribute("data-smoke-reveal")).toBe(true);
   window.__trainerSmokeRestore();
+  const label = picker.options[1].textContent;
+  picker.options[1].textContent = "private injected identity";
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(false);
+  window.__trainerSmokeRestore();
+  picker.options[1].textContent = label;
   const originalCandidate = preview.textContent;
   preview.textContent = "private injected candidate";
   expect(
@@ -736,6 +778,25 @@ it("exercises only supplied Densify presentation through the actual hook, refuse
     await command({ type: "memory", action: "densify-discard" });
   });
   await screen.findByText(/Candidate discarded/);
+  expect(picker.value).toBe("");
+  await act(async () => {
+    await command({ type: "memory", action: "fixture-densify-unavailable" });
+  });
+  await screen.findByRole("option", {
+    name: "Default — openai / gpt-6-luna (unavailable)",
+  });
+  expect(picker.value).toBe("");
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Densify summary" })
+      .disabled,
+  ).toBe(true);
+  const unavailableCapture = await command({
+    type: "captureView",
+    view: "memory",
+    preset: "wide",
+  });
+  expect(unavailableCapture.ok, JSON.stringify(unavailableCapture)).toBe(true);
+  window.__trainerSmokeRestore();
   await act(async () => {
     expect(
       (await command({ type: "memory", action: "fixture-populated" })).ok,

@@ -93,6 +93,8 @@ export type SummaryBatch = {
   jobId: string;
   /** Explicit summary-only rewrite; never a history-source admission. */
   manualRewrite?: true;
+  /** Captured manual-call accounting identity; never shared configuration. */
+  manualModel?: string;
   import?: { id: string; position: number };
   rebuild?: { id: string; position: number; upperCompletion: number };
   revision: number;

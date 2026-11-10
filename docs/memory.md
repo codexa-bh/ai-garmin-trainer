@@ -50,8 +50,15 @@ Trainer **Memory** shows:
   Saving replaces the generated field under current-state comparison. It does not
   turn generated sentences into your preferences. A later history regeneration
   replaces this text, **including direct summary edits**.
-- **Densify summary**: an optional extra paid request using the configured memory model,
-  not routine upkeep: normal chat updates already consolidate memory automatically,
+- **Densify summary**: an optional extra paid request, not routine upkeep: normal
+  chat updates already consolidate memory automatically. **Model for this run**
+  defaults to the configured memory model (including an honest unavailable default),
+  or explicitly chooses an eligible exact catalog entry for this request only.
+  It never saves settings, changes automatic summary/title or Trainer models, or
+  requires a restart. Local eligibility is not remote readiness or a cost estimate.
+  The choice is captured once, disabled during generation/review and resets to the
+  default after settlement; live configuration changes still revoke stale work.
+  Densify is
   available for any nonempty usable saved summary, not only above target. Only the
   captured generated text and advisory target are sent, not history or preferences.
   Saved memory stays readable and in use during generation and complete candidate

@@ -4,7 +4,11 @@ import {
   resolveSummarySelection,
   summarySelection,
 } from "@/lib/model-settings/summary-selection";
-import { summaryConfiguration } from "@/lib/memory/summary-configuration";
+import {
+  summaryConfiguration,
+  densifyModels,
+} from "@/lib/memory/summary-configuration";
+import { parseSummaryCommand } from "@/lib/memory/summary-controls";
 import { getOptionalEnv } from "@/lib/env";
 import { activationEnvironment } from "../scripts/desktop/settings";
 import type { ChatEntry } from "@/lib/model-settings/contracts";
@@ -26,6 +30,72 @@ const catalog = {
 const raw = encodeSummarySelection(entry);
 
 describe("exact independent shared summary/title choice", () => {
+  it("exposes read-only eligible manual options without substituting an unavailable default", () => {
+    const env = getOptionalEnv({
+      SUMMARY_MODEL: "gpt-6-luna",
+      OPENAI_API_KEY: "<placeholder>",
+      OPENROUTER_API_KEY: "synthetic-router",
+      CHAT_MODEL_CATALOG: JSON.stringify(catalog),
+    });
+    const before = JSON.stringify(env);
+    expect(densifyModels(env)).toEqual({
+      default: { label: "openai / gpt-6-luna", available: false },
+      options: [
+        { value: raw, label: "openrouter / Vendor/模型:Case" },
+        {
+          value: encodeSummarySelection(catalog.entries[1]),
+          label: "ollama / Vendor/模型:Case",
+        },
+      ],
+    });
+    expect(
+      densifyModels({ ...env, SUMMARY_MODEL: "unselected" }).default,
+    ).toEqual({ label: "Unselected memory model", available: false });
+    expect(
+      densifyModels({
+        ...env,
+        SUMMARY_MODEL: raw,
+        CHAT_MODEL_CATALOG: JSON.stringify({ ...catalog, entries: [] }),
+      }).default,
+    ).toEqual({ label: "openrouter / Vendor/模型:Case", available: false });
+    expect(JSON.stringify(env)).toBe(before);
+    expect(JSON.stringify(densifyModels(env))).not.toContain(
+      "synthetic-router",
+    );
+  });
+  it("admits only a closed exact manual-request override; old omitted default remains valid", () => {
+    const command = {
+      version: 2,
+      expected: { revision: 0, privacy: 0, control: 0, manual: 0 },
+      action: "densify-request",
+      id: "request",
+    };
+    expect(parseSummaryCommand(command)).not.toBeNull();
+    expect(parseSummaryCommand({ ...command, model: raw })).not.toBeNull();
+    for (const model of [
+      null,
+      {},
+      1,
+      "gpt-6-luna",
+      "unselected",
+      "bad-json",
+      JSON.stringify({ ...JSON.parse(raw), extra: true }),
+      JSON.stringify({ ...JSON.parse(raw), provider: "bad" }),
+      JSON.stringify({ ...JSON.parse(raw), modelId: "" }),
+    ]) {
+      expect(parseSummaryCommand({ ...command, model })).toBeNull();
+    }
+    for (const action of [
+      "densify-accept",
+      "densify-discard",
+      "densify-cancel",
+      "retry",
+    ]) {
+      expect(
+        parseSummaryCommand({ ...command, action, model: raw }),
+      ).toBeNull();
+    }
+  });
   it("preserves case, Unicode, provider and identity; legacy intent has no catalog prerequisite", () => {
     expect(summarySelection(raw)).toEqual({
       id: entry.id,

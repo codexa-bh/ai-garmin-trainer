@@ -333,12 +333,23 @@ Validate native/DOM/Python positive/negative contracts before artifact use.
 ### Manual Densify presentation evidence (T0287)
 
 The existing ordinary Memory controller additionally admits exactly
-`fixture-densify-ready|fixture-densify-busy|fixture-densify-review|fixture-densify-no-reduction|fixture-densify-accepted|fixture-densify-discarded`.
+`fixture-densify-ready|fixture-densify-unavailable|fixture-densify-busy|fixture-densify-review|fixture-densify-no-reduction|fixture-densify-accepted|fixture-densify-discarded`.
 Only inside these renderer-only fixed authored fixtures, `densify`,
 `densify-cancel`, `densify-accept`, `densify-discard` click the corresponding
 production controls. They refuse outside fixture mode: this is no provider grant.
+`densify-model-alternative` selects only the fixed authored alternative through the
+labelled production **Model for this run** select, refusing hidden/disabled or
+noncanonical options. No caller value/selector/provider/credential input is accepted.
 The adapter accepts only exact version2 expected counters and opaque request ID,
-with no caller text/selector/provider/credential input. It returns the fixed
+plus an optional `model` string on `densify-request` equal to the fixed encoded
+version1 identity `entry_authored_manual / openrouter / authored/densify:exact`.
+It rejects overrides on settlement actions; the unavailable-default fixture refuses
+omitted default requests and never substitutes the alternative. Review carries the
+captured safe model label. The capture mask reveals this select only with the exact
+canonical default/alternative label/value inventory; injected options refuse.
+The Densify family captures ready, selected, unavailable, review, accepted,
+non-reducing and busy wide/narrow states. This is per-request UI/wire evidence,
+not provider/configuration eligibility or real save. It returns the fixed
 13250-at6000 original and7000-scalar shorter candidate (or equal-count refusal),
 never calls backend/provider or pretends to persist a mutation. Wide/narrow captures
 exercise actual persistent hook/components and labelled busy/review/count/result

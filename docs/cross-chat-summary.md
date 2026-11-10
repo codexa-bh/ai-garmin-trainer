@@ -188,7 +188,15 @@ Retry preserves all costs and does not synchronously infer. Old version1 writers
 
 Closed version2 `densify-request`, `densify-accept`, `densify-discard` and
 `densify-cancel` carry an opaque request ID; the renderer never supplies candidate
-text or trusted counts. One deliberate request captures exact generated text,
+text or trusted counts. Only `densify-request` additionally accepts an optional
+`model` string: the existing encoded version1 `{version,entryId,provider,modelId}`
+exact catalog choice. Omission preserves the configured default, including legacy
+compatibility; alternatives must still match the current activated catalog and
+credential eligibility. Unknown/removed/remapped identities or extra fields refuse,
+never fall back. Read-only content inspection exposes safe default/eligible picker
+metadata without initializing the Trainer preference. The existing Memory hook
+keeps intent ephemeral, with no Settings writes or automatic inference on selection.
+One deliberate request captures exact model/credentials, generated text,
 advisory target, expected revision/privacy/control/manual and native boot/live
 configuration. It uses the exact existing provider route, strict complete output,
 no tools/fallback/SDK retries and no preferences/history/new source admission.
@@ -208,7 +216,10 @@ The process-owned single candidate is ephemeral and lasts at most ten minutes;
 privacy/currentness/configuration loss revokes it. The paid call shares the existing
 writer lease/heartbeat/native cancellation and durable attempt/usage owners with
 an empty source list and distinct manual purpose. Its unique durable identity
-refuses restart replay. A preview is not publication or source processing. After
+refuses restart replay. Reusing an in-process ID with different selection intent
+refuses rather than regenerating. Manual policy identity and price basis reflect
+the captured model, including unknown price; shared control/model/default, routine
+updates and titles stay unchanged. A preview is not publication or source processing. After
 settlement review holds no writer lease; routine work may win and stale the review.
 Cancellation/unknown effects retain accounting, never a refund or automatic retry.
 Manual failure/restart recovery does not poison routine backlog retry controls.

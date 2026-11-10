@@ -32,7 +32,9 @@ import {
   assertSummaryRefreshIdle,
   refreshConversationSummary,
 } from "../db/conversation-history";
-import { summaryConfiguration } from "./summary-configuration";
+import { summaryConfiguration, densifyModels } from "./summary-configuration";
+import { entryLabel } from "../model-settings/catalog";
+import { parseSummaryOverride } from "../model-settings/summary-selection";
 import type {
   SummaryCommand,
   SummaryRebuildSelection,
@@ -74,6 +76,8 @@ export function readCrossChatSummary(content = false, conversationId?: string) {
         preferences: summaryStorage.preferences(),
         densify: {
           available: densifyAvailable(),
+          sourceAvailable: densifySourceAvailable(),
+          models: densifyModels(),
           review: summaryLifetime().densify?.inspect() ?? null,
         },
         // Empty compatible projections: ordinary Memory no longer reads or ships
@@ -203,14 +207,16 @@ export async function prepareSummaryAdoption(
   return { ...command, expected };
 }
 
+function densifySourceAvailable(): boolean {
+  return (
+    !summaryLifetime().stopping &&
+    !summaryLifetime().running &&
+    Boolean(liveConfigurationStatus().boot) &&
+    summaryDensifyAvailable()
+  );
+}
 function densifyAvailable(): boolean {
-  if (
-    summaryLifetime().stopping ||
-    summaryLifetime().running ||
-    !liveConfigurationStatus().boot ||
-    !summaryDensifyAvailable()
-  )
-    return false;
+  if (!densifySourceAvailable()) return false;
   try {
     return Boolean(summaryConfiguration(getOptionalEnv()));
   } catch {
@@ -222,9 +228,16 @@ function densifyOwner() {
   return (lifetime.densify ??= createSummaryDensify({
     storage: summaryDensifyStorage,
     now: Date.now,
-    begin() {
-      if (!densifyAvailable()) throw new Error("summary_densify_unavailable");
-      const env = getOptionalEnv();
+    begin(model) {
+      if (
+        !densifySourceAvailable() ||
+        (model !== undefined && !parseSummaryOverride(model))
+      )
+        throw new Error("summary_densify_unavailable");
+      const env = { ...getOptionalEnv() };
+      const captured = { ...env, SUMMARY_MODEL: model ?? env.SUMMARY_MODEL };
+      const selected = summaryConfiguration(captured);
+      if (!selected) throw new Error("summary_densify_unavailable");
       const live = liveConfigurationStatus();
       summaryStorage.configure(
         env.SUMMARY_ENABLED === "true",
@@ -238,7 +251,7 @@ function densifyOwner() {
         liveConfigurationStatus().boot === live.boot &&
         liveConfigurationStatus().generation === live.generation;
       const generation = createSummaryGeneration(
-        env,
+        captured,
         fetch,
         current,
         "summary",
@@ -248,6 +261,8 @@ function densifyOwner() {
       lifetime.active = abort;
       return {
         generation,
+        model: captured.SUMMARY_MODEL,
+        modelLabel: entryLabel(selected.entry),
         current,
         signal: abort.signal,
         finish() {
@@ -261,7 +276,11 @@ function densifyOwner() {
 export async function executeSummaryCommand(command: SummaryCommand) {
   if (command.action === "densify-request") {
     return {
-      densify: await densifyOwner().request(command.id, command.expected),
+      densify: await densifyOwner().request(
+        command.id,
+        command.expected,
+        command.model,
+      ),
     };
   }
   if (

@@ -27,12 +27,19 @@ import { ensureConversation } from "@/lib/db/conversation-repository";
 import { readSummaryPin } from "@/lib/db/conversation-summary-pin";
 import { SUMMARY_DEADLINE_MS } from "@/lib/memory/summary-policy";
 import { activationEnvironment } from "../scripts/desktop/settings";
+import { encodeSummarySelection } from "@/lib/model-settings/summary-selection";
+import type { AppEnv } from "@/lib/env";
 let db: Database.Database, boot: string;
-const f = vi.hoisted(() => ({ generate: vi.fn(), keys: [] as string[] }));
+const f = vi.hoisted(() => ({
+  generate: vi.fn(),
+  keys: [] as string[],
+  configurations: [] as AppEnv[],
+}));
 vi.mock("@/lib/db/connection", () => ({ getDatabase: () => db }));
 vi.mock("@/lib/memory/summary-provider", () => ({
-  createSummaryGeneration: (env: { OPENAI_API_KEY?: string }) => {
+  createSummaryGeneration: (env: AppEnv) => {
     f.keys.push(env.OPENAI_API_KEY ?? "");
+    f.configurations.push(env);
     return { generate: f.generate };
   },
 }));
@@ -55,6 +62,7 @@ beforeEach(() => {
   initializeLiveConfiguration(boot);
   f.generate.mockReset();
   f.keys = [];
+  f.configurations = [];
 });
 afterEach(() => {
   db.close();
@@ -86,6 +94,245 @@ function valid(_system: string, prompt: string) {
   };
 }
 describe("actual production summary composition and foreground cancellation", () => {
+  const alternative = {
+    id: "entry_manual",
+    provider: "openrouter" as const,
+    modelId: "Vendor/Manual:Exact",
+  };
+  const choice = encodeSummarySelection(alternative);
+  function activate(
+    entries = [alternative],
+    generation = 1,
+    key = "synthetic-router",
+  ) {
+    applyLiveConfiguration({
+      version: 1,
+      boot,
+      generation,
+      revision: String(generation),
+      chatCatalog: { version: 1, entries, defaultEntryId: null },
+      secrets: { OPENAI_API_KEY: "synthetic-one", OPENROUTER_API_KEY: key },
+    });
+  }
+  async function saved() {
+    await tickCrossChatSummary(boot);
+    summaryStorage.editSummary(
+      summaryStorage.version(),
+      "Original qualified saved summary with reasons.",
+      Date.now(),
+    );
+  }
+  it("captures each manual choice and accounting independently without changing routine configuration or preferences", async () => {
+    await saved();
+    activate();
+    const before = summaryStorage.version();
+    const control = db
+      .prepare("select model,generation,manual_revision from summary_control")
+      .get();
+    const preferences = db.prepare("select * from app_metadata").all();
+    f.generate.mockResolvedValue({
+      patch: { summary: "Shorter reasons." },
+      usage: { input: 20, output: 10, cached: 0 },
+    });
+    const command = {
+      version: 2 as const,
+      expected: before,
+      action: "densify-request" as const,
+      id: "alternative",
+      model: choice,
+    };
+    const result = await executeSummaryCommand(command);
+    expect(result).toMatchObject({
+      densify: {
+        state: "review",
+        modelLabel: "openrouter / Vendor/Manual:Exact",
+      },
+    });
+    expect(f.configurations.at(-1)).toMatchObject({
+      SUMMARY_MODEL: choice,
+      OPENROUTER_API_KEY: "synthetic-router",
+    });
+    expect(
+      db
+        .prepare(
+          "select policy_identity,price_basis,source_ids_json,usage_json from summary_attempt where job_id='densify_alternative'",
+        )
+        .get(),
+    ).toMatchObject({
+      policy_identity:
+        'global-summary-text-v2/["openrouter","Vendor/Manual:Exact"]/manual-densify',
+      price_basis: "unknown-price/no-reservation",
+      source_ids_json: "[]",
+      usage_json: JSON.stringify({ input: 20, output: 10, cached: 0 }),
+    });
+    await executeSummaryCommand(command);
+    await expect(
+      executeSummaryCommand({ ...command, model: undefined }),
+    ).rejects.toThrow("summary_densify_identity_changed");
+    expect(f.generate).toHaveBeenCalledTimes(1);
+    expect(
+      db
+        .prepare("select model,generation,manual_revision from summary_control")
+        .get(),
+    ).toEqual(control);
+    expect(db.prepare("select * from app_metadata").all()).toEqual(preferences);
+    expect(summaryStorage.version()).toEqual(before);
+    await executeSummaryCommand({
+      version: 2,
+      expected: before,
+      action: "densify-discard",
+      id: command.id,
+    });
+    await executeSummaryCommand({
+      version: 2,
+      expected: before,
+      action: "densify-request",
+      id: "default-again",
+    });
+    expect(f.configurations.at(-1)?.SUMMARY_MODEL).toBe("gpt-6-luna");
+    expect(getOptionalEnv().SUMMARY_MODEL).toBe("gpt-6-luna");
+    expect(f.generate).toHaveBeenCalledTimes(2);
+  });
+  it("allows an explicit eligible alternative with an unavailable default without enabling or changing shared configuration", async () => {
+    await saved();
+    applyLiveConfiguration({
+      version: 1,
+      boot,
+      generation: 1,
+      revision: "1",
+      chatCatalog: { version: 1, entries: [alternative], defaultEntryId: null },
+      secrets: { OPENROUTER_API_KEY: "synthetic-router" },
+    });
+    expect(readCrossChatSummary(true)).toMatchObject({
+      densify: {
+        available: false,
+        sourceAvailable: true,
+        models: { default: { available: false } },
+      },
+    });
+    const before = summaryStorage.version();
+    await expect(
+      executeSummaryCommand({
+        version: 2,
+        expected: before,
+        action: "densify-request",
+        id: "missing-default",
+      }),
+    ).rejects.toThrow();
+    f.generate.mockResolvedValue({
+      patch: { summary: "Shorter." },
+      usage: { input: null, output: null, cached: null },
+    });
+    expect(
+      await executeSummaryCommand({
+        version: 2,
+        expected: before,
+        action: "densify-request",
+        id: "eligible",
+        model: choice,
+      }),
+    ).toMatchObject({ densify: { state: "review" } });
+    expect(summaryStorage.version()).toEqual(before);
+    expect(getOptionalEnv().SUMMARY_MODEL).toBe("gpt-6-luna");
+    expect(f.generate).toHaveBeenCalledTimes(1);
+    expect(
+      db.prepare("select reserved_usd,price_basis from summary_attempt").get(),
+    ).toEqual({
+      reserved_usd: null,
+      price_basis: "unknown-price/no-reservation",
+    });
+    await executeSummaryCommand({
+      version: 2,
+      expected: before,
+      action: "densify-discard",
+      id: "eligible",
+    });
+    changeCrossChatSummary("disable");
+    await expect(
+      executeSummaryCommand({
+        version: 2,
+        expected: summaryStorage.version(),
+        action: "densify-request",
+        id: "off",
+        model: choice,
+      }),
+    ).rejects.toThrow();
+    expect(f.generate).toHaveBeenCalledTimes(1);
+  });
+  it.each(["removed", "remapped", "missing-key"])(
+    "rejects %s selection before any provider or attempt",
+    async (failure) => {
+      await saved();
+      activate(
+        failure === "removed"
+          ? []
+          : failure === "remapped"
+            ? [{ ...alternative, modelId: "replaced" }]
+            : [alternative],
+      );
+      if (failure === "missing-key")
+        applyLiveConfiguration({
+          version: 1,
+          boot,
+          generation: 2,
+          revision: "2",
+          chatCatalog: {
+            version: 1,
+            entries: [alternative],
+            defaultEntryId: null,
+          },
+          secrets: {},
+        });
+      await expect(
+        executeSummaryCommand({
+          version: 2,
+          expected: summaryStorage.version(),
+          action: "densify-request",
+          id: "rejected",
+          model: choice,
+        }),
+      ).rejects.toThrow();
+      expect(f.generate).not.toHaveBeenCalled();
+      expect(
+        db.prepare("select count(*) as n from summary_attempt").get(),
+      ).toEqual({ n: 0 });
+    },
+  );
+  it("revokes delayed manual work on live catalog/key change without retargeting or replay", async () => {
+    await saved();
+    activate();
+    let release!: (value: unknown) => void;
+    f.generate.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const pending = executeSummaryCommand({
+      version: 2,
+      expected: summaryStorage.version(),
+      action: "densify-request",
+      id: "race",
+      model: choice,
+    });
+    const captured = f.configurations.at(-1)!;
+    activate([{ ...alternative, modelId: "replaced" }], 2, "synthetic-new");
+    release({
+      patch: { summary: "Late." },
+      usage: { input: 20, output: 5, cached: 0 },
+    });
+    expect(await pending).toMatchObject({
+      densify: { state: "failed", text: null },
+    });
+    expect(captured).toMatchObject({
+      SUMMARY_MODEL: choice,
+      OPENROUTER_API_KEY: "synthetic-router",
+    });
+    expect(f.generate).toHaveBeenCalledTimes(1);
+    expect(summaryStorage.inspect().text).toBe(
+      "Original qualified saved summary with reasons.",
+    );
+  });
   it("keeps GET and routine overshoot passive, uses captured provider once and preserves usable content until explicit acceptance", async () => {
     await tickCrossChatSummary(boot);
     summaryStorage.editSummary(
