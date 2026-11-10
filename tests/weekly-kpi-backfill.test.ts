@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { mkdtempSync, readdirSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { migrateDatabase } from "../src/lib/db/migrations";
+import { acquireDatabaseWriter } from "../src/lib/db/writer-ownership";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
 import { backfillWeeklyKpis } from "../src/lib/weekly/backfill";
 import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
@@ -128,10 +129,27 @@ it("explicit migration refuses live ownership and creates a verified online back
       env: { ...process.env, DATABASE_PATH: path },
       timeout: 20000,
     });
+  // Unleased legacy-writer detection is an additional macOS lsof boundary,
+  // not a portable SQLite-open-file lock. Keep its original native assertion.
+  if (process.platform === "darwin") {
+    const legacy = new Database(path);
+    try {
+      expect(migrate().status).not.toBe(0);
+    } finally {
+      legacy.close();
+    }
+  }
+  // Normal app writers use this cooperative owner on every supported test OS.
+  const release = acquireDatabaseWriter(path);
   const live = new Database(path);
-  const refused = migrate();
-  expect(refused.status).not.toBe(0);
-  live.close();
+  try {
+    const lease = readFileSync(path + ".trainer-writer", "utf8");
+    expect(migrate().status).not.toBe(0);
+    expect(readFileSync(path + ".trainer-writer", "utf8")).toBe(lease);
+  } finally {
+    live.close();
+    release();
+  }
   // Dead writer intentionally leaves a committed WAL without an open owner.
   const writer = spawnSync(
     process.execPath,
