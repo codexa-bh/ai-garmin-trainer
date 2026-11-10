@@ -516,6 +516,121 @@ describe("ordinary Memory observation", () => {
 });
 
 describe("manual Densify review", () => {
+  function expectNoActivity() {
+    expect(screen.queryByText("Densifying…")).toBeNull();
+    expect(document.querySelector(".memory-busy-cue")).toBeNull();
+  }
+
+  it.each([
+    "review",
+    "accepted",
+    "discarded",
+    "cancelled",
+    "failed",
+    "expired",
+  ])(
+    "shows action-adjacent activity only while running, then removes it for %s",
+    async (state) => {
+      const value = populated();
+      value.densify = { available: true, review: null };
+      let finish!: (result: Response) => void;
+      await mountMemory(
+        value,
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      expectNoActivity();
+      fireEvent.click(screen.getByRole("button", { name: "Densify summary" }));
+      const label = screen.getByText("Densifying…");
+      expect(label.getAttribute("role")).toBe("status");
+      expect(label.getAttribute("aria-live")).toBe("polite");
+      expect(label.getAttribute("aria-atomic")).toBe("true");
+      expect(
+        label.querySelector(".memory-busy-cue")?.getAttribute("aria-hidden"),
+      ).toBe("true");
+      const cancel = screen.getByRole<HTMLButtonElement>("button", {
+        name: "Cancel densify",
+      });
+      expect(cancel.disabled).toBe(false);
+      expect(label.parentElement).toBe(cancel.parentElement);
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", {
+          name: "Densify summary",
+        }).disabled,
+      ).toBe(true);
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Edit summary" })
+          .disabled,
+      ).toBe(true);
+      expect(
+        screen.getByText(/Your saved summary stays in use/).textContent,
+      ).toContain("Cancellation cannot recall sent text or costs.");
+      expect(screen.getByText(value.stored.text).hasAttribute("hidden")).toBe(
+        true,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Show summary" }));
+      expect(screen.getByText(value.stored.text).hasAttribute("hidden")).toBe(
+        false,
+      );
+      expect(screen.getAllByText("Densifying…")).toHaveLength(1);
+      await act(async () =>
+        finish(
+          response({
+            densify: {
+              id: "authored",
+              state,
+              text: state === "review" ? "Short candidate" : null,
+              before: value.characters,
+              after: 15,
+              target: 6000,
+              shorter: true,
+            },
+          }),
+        ),
+      );
+      expectNoActivity();
+      if (state === "review") {
+        expect(document.activeElement?.textContent).toBe(
+          "Review densified summary",
+        );
+      } else {
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Densify summary" }),
+        );
+      }
+      expect(value.expected.revision).toBe(3);
+    },
+  );
+
+  it.each(["failed response", "lost response"])(
+    "clears activity on %s without automatic replay",
+    async (outcome) => {
+      const value = populated();
+      value.densify = { available: true, review: null };
+      let fail!: () => void;
+      const fetcher = await mountMemory(
+        value,
+        () =>
+          new Promise<Response>((resolve, reject) => {
+            fail = () =>
+              outcome === "lost response"
+                ? reject(new TypeError("Authored connection loss"))
+                : resolve(response({ error: "Authored refusal" }, 500));
+          }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Densify summary" }));
+      expect(screen.getByText("Densifying…")).toBeTruthy();
+      await act(async () => fail());
+      await screen.findByText(/Densify failed or its outcome is unknown/);
+      expectNoActivity();
+      expect(
+        fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
+      ).toHaveLength(1);
+      expect(value.stored.text).toContain("I have not chosen poles");
+    },
+  );
   it("keeps saved memory readable, previews all candidate text/counts, and saves only on explicit acceptance", async () => {
     const value = populated();
     value.densify = { available: true, review: null };
@@ -570,6 +685,7 @@ describe("manual Densify review", () => {
       screen.getByRole("button", { name: "Use shorter summary" }),
     );
     await screen.findByText(/Shorter generated summary saved/);
+    expectNoActivity();
     expect(calls).toBe(2);
     expect(value.stored.text).toBe(candidate);
     expect(
@@ -609,8 +725,10 @@ describe("manual Densify review", () => {
     expect(screen.getByText(value.stored.text).hasAttribute("hidden")).toBe(
       true,
     );
+    expect(screen.getByText("Densifying…")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel densify" }));
     await screen.findByText(/Densify cancelled/);
+    expectNoActivity();
     await act(async () =>
       finish(
         response({
@@ -627,6 +745,7 @@ describe("manual Densify review", () => {
       ),
     );
     expect(screen.queryByText("Late unsafe preview")).toBeNull();
+    expectNoActivity();
     expect(
       fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
     ).toHaveLength(2);
@@ -649,6 +768,7 @@ describe("manual Densify review", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Densify summary" }));
     await screen.findByText(/No reduction/);
+    expectNoActivity();
     expect(
       screen.getByRole<HTMLButtonElement>("button", {
         name: "Use shorter summary",
@@ -656,6 +776,7 @@ describe("manual Densify review", () => {
     ).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     await screen.findByText(/Candidate discarded/);
+    expectNoActivity();
     expect(
       fetcher.mock.calls.filter((call) => call[1]?.method === "POST"),
     ).toHaveLength(2);

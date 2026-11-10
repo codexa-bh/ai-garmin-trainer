@@ -342,7 +342,9 @@ with no caller text/selector/provider/credential input. It returns the fixed
 13250-at6000 original and7000-scalar shorter candidate (or equal-count refusal),
 never calls backend/provider or pretends to persist a mutation. Wide/narrow captures
 exercise actual persistent hook/components and labelled busy/review/count/result
-states under exact canonical-content masks. Unknown/private candidates refuse;
+states under exact canonical-content masks. The exact action-row “Densifying…” status and its decorative cue, plus
+saved-summary/cancellation limitation copy, are revealed during busy presentation;
+unknown status/limitation text stays masked. Unknown/private candidates refuse;
 reset/close/120-second expiry restore fetch, and default launches install nothing.
 Existing booleans/result schema and wrong-run/origin/late/unknown/default denials
 remain unchanged. Native/DOM/Python contracts must pass before use.
