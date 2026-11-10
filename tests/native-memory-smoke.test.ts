@@ -738,6 +738,57 @@ it("exercises only supplied Densify presentation through the actual hook, refuse
   await screen.findByText(/Candidate discarded/);
   await act(async () => {
     expect(
+      (await command({ type: "memory", action: "fixture-densify-busy" })).ok,
+    ).toBe(true);
+  });
+  const activity = await screen.findByText("Densifying…");
+  const cue = activity.querySelector(".memory-busy-cue")!;
+  const limitations = screen.getByText(/Your saved summary stays in use/);
+  for (const preset of ["wide", "narrow"]) {
+    vi.stubGlobal("innerWidth", preset === "wide" ? 1280 : 420);
+    const capture = await command({
+      type: "captureView",
+      view: "memory",
+      preset,
+    });
+    expect(capture.ok, JSON.stringify(capture)).toBe(true);
+    for (const node of [activity, cue, limitations]) {
+      expect(node.hasAttribute("data-smoke-reveal")).toBe(true);
+      expect(getComputedStyle(node).visibility).toBe("visible");
+    }
+    window.__trainerSmokeRestore();
+    for (const node of [activity, cue, limitations])
+      expect(node.hasAttribute("data-smoke-reveal")).toBe(false);
+  }
+  vi.stubGlobal("innerWidth", 1280);
+  const activityText = [...activity.childNodes].find(
+    (node) => node.nodeType === Node.TEXT_NODE,
+  )!;
+  const originalActivity = activityText.textContent;
+  const originalLimitations = limitations.textContent;
+  activityText.textContent = "Private unexpected activity";
+  limitations.textContent = "Private unexpected limitations";
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(true);
+  for (const node of [activity, cue, limitations]) {
+    expect(node.hasAttribute("data-smoke-reveal")).toBe(false);
+    expect(getComputedStyle(node).visibility).toBe("hidden");
+  }
+  window.__trainerSmokeRestore();
+  activityText.textContent = originalActivity;
+  limitations.textContent = originalLimitations;
+  await act(async () => {
+    expect(
+      (await command({ type: "memory", action: "densify-cancel" })).ok,
+    ).toBe(true);
+  });
+  // This fixed presentation adapter settles cancellation as discarded;
+  // actual cancellation/late-response semantics live in summary-memory-ui.
+  await screen.findByText(/Candidate discarded/);
+  expect(screen.queryByText("Densifying…")).toBeNull();
+  await act(async () => {
+    expect(
       (await command({ type: "memory", action: "fixture-populated" })).ok,
     ).toBe(true);
   });
