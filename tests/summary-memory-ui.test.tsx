@@ -1812,6 +1812,61 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       ).toBeTruthy();
     expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(true);
   });
+  it("returns from a completed history result without another action or mutation", async () => {
+    const value = populated();
+    value.rebuild!.operation = {
+      id: "complete",
+      state: "complete",
+      reason: null,
+      processed: 41,
+      total: 41,
+      dispositions: {},
+      createdAt: 1,
+      deadline: 10000,
+    };
+    const fetcher = await mountMemory(value);
+    const open = screen.getByRole("button", {
+      name: /Update from chat history/,
+    });
+    open.focus();
+    fireEvent.click(open);
+    expect(screen.getByText("Saved memory updated")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Review a new update" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "View saved memory" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review a new update" }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "View saved memory" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to memory" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByText("What your trainer remembers"),
+      ),
+    );
+    const reopen = screen.getByRole("button", {
+      name: /Update from chat history/,
+    });
+    reopen.focus();
+    fireEvent.click(reopen);
+    expect(
+      screen.queryByRole("button", { name: "View saved memory" }),
+    ).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Back to memory" }), {
+      key: "Escape",
+    });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByText("What your trainer remembers"),
+      ),
+    );
+    expect(fetcher.mock.calls.every((c) => c[1]?.method !== "POST")).toBe(true);
+  });
   it.each(["unmeasured", "older", "unused"])(
     "keeps %s internal chat snapshots out of routine Memory without read-time adoption",
     async (state) => {
@@ -2052,6 +2107,10 @@ describe("integrated Memory visible controls and stale-response safety", () => {
       );
     });
     expect(screen.getByText("Saved memory updated")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "View saved memory" }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Back to memory" })).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Review and update" }),
     ).toBeNull();
