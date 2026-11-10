@@ -60,5 +60,8 @@ export type TrainerToolPorts = {
   analytics: AnalyticsToolPorts;
   localData: LocalDataToolPorts;
   trainingPlan: TrainingPlanToolPorts;
-  weekly?: Pick<ReturnType<typeof createWeekly>, "read" | "save">;
+  weekly?: Pick<
+    ReturnType<typeof createWeekly>,
+    "read" | "save" | "readKpis" | "saveKpis" | "progress"
+  >;
 };

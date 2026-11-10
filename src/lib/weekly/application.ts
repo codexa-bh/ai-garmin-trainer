@@ -1,4 +1,6 @@
 import { addDays, validWeek, weeklyCalendar, weekInterval } from "./calendar";
+import { applyKpiChange, projectKpis } from "./kpis";
+import type { KpiChange, KpiRead, KpiProgress } from "./kpi-contracts";
 import type {
   WeeklyChange,
   WeeklyDocument,
@@ -40,11 +42,15 @@ export function createWeekly(
       next: items.length > limit ? items[limit - 1].weekStart : null,
     };
   }
-  function validateChanges(changes: WeeklyChange[], turn: WeeklyTurn) {
+  function validateChanges(
+    changes: WeeklyChange[],
+    turn: WeeklyTurn,
+    allowEmpty = false,
+  ) {
     const now = clock();
     const calendar = weeklyCalendar(now, turn.timeZone);
     if (
-      changes.length < 1 ||
+      (!allowEmpty && changes.length < 1) ||
       changes.length > 2 ||
       new Set(changes.map((c) => c.kind)).size !== changes.length
     )
@@ -79,6 +85,7 @@ export function createWeekly(
     turn: WeeklyTurn,
     snapshots: WeeklyRead[],
   ): WeeklyProposal {
+    if (!changes.length) throw new Error("invalid_weekly_bundle");
     validateChanges(changes, turn);
     return store.transaction(() => {
       const expected: WeeklyProposal["expected"] = {};
@@ -181,12 +188,41 @@ export function createWeekly(
       status: "saved" as const,
     };
   }
+  function readKpis(weekStart: string, setId?: string) {
+    if (!validWeek(weekStart)) throw new Error("invalid_week");
+    return projectKpis(weekStart, store.readKpis(weekStart), setId);
+  }
+  function progress(from: string, through: string): KpiProgress {
+    if (
+      !validWeek(from) ||
+      !validWeek(through) ||
+      from > through ||
+      through > addDays(from, 77)
+    )
+      throw new Error("invalid_progress_range");
+    const weeks: KpiProgress["weeks"] = [];
+    for (let week = from; week <= through; week = addDays(week, 7))
+      weeks.push({ weekStart: week, kpis: readKpis(week) });
+    return { from, through, weeks };
+  }
+  function saveKpis(change: KpiChange, turn: WeeklyTurn, snapshots: KpiRead[]) {
+    return save([], turn, [], [change], snapshots);
+  }
   function save(
     changes: WeeklyChange[],
     turn: WeeklyTurn,
     snapshots: WeeklyRead[],
+    kpiChanges: KpiChange[] = [],
+    kpiSnapshots: KpiRead[] = [],
   ) {
-    validateChanges(changes, turn);
+    if (
+      (!changes.length && !kpiChanges.length) ||
+      kpiChanges.length > 2 ||
+      new Set(kpiChanges.map((c) => c.weekStart)).size !== kpiChanges.length ||
+      new Set([...changes, ...kpiChanges].map((c) => c.weekStart)).size > 2
+    )
+      throw new Error("invalid_weekly_bundle");
+    validateChanges(changes, turn, kpiChanges.length > 0);
     return store.transaction(() => {
       if (!store.isCurrentTurn(turn)) throw new Error("weekly_turn_superseded");
       for (const change of changes) {
@@ -200,7 +236,34 @@ export function createWeekly(
         )
           throw new Error("week_changed_read_again");
       }
-      return saveChanges(changes, turn.timeZone);
+      // Validate and stage structured writes inside the same synchronous
+      // transaction as narrative. A later rejection rolls back signatures too.
+      const structured = kpiChanges.map((change) => ({
+        weekStart: change.weekStart,
+        state: applyKpiChange(
+          change,
+          store.readKpis(change.weekStart),
+          store.read(change.weekStart),
+          turn,
+          kpiSnapshots,
+          clock(),
+          newId,
+          store.registerTrack,
+        ),
+      }));
+      const result = saveChanges(changes, turn.timeZone);
+      for (const { weekStart, state } of structured)
+        store.saveKpis(weekStart, state);
+      return {
+        ...result,
+        saved: [
+          ...new Set([...result.saved, ...structured.map((s) => s.weekStart)]),
+        ],
+        kpiTargets: structured.map(({ weekStart, state }) => ({
+          weekStart,
+          revision: state.revision,
+        })),
+      };
     });
   }
   function apply(id: string, turn: WeeklyTurn) {
@@ -229,11 +292,21 @@ export function createWeekly(
       currentPlan: Boolean(current?.latest),
       currentReview: Boolean(current?.review),
       upcomingPlan: Boolean(upcoming?.latest),
+      currentKpis: Boolean(store.readKpis(calendar.weekStart)?.latestId),
+      currentAssessment: Boolean(
+        store.readKpis(calendar.weekStart)?.assessments.length,
+      ),
+      previousReview: Boolean(
+        store.read(addDays(calendar.weekStart, -7))?.review,
+      ),
     };
   }
   return {
     read,
     history,
+    readKpis,
+    progress,
+    saveKpis,
     save,
     propose,
     bindDisplayed,

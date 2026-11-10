@@ -20,6 +20,7 @@ from ordinary_identity import ordinary_preparation
 from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
 from smoke_input import prepare
+from weekly_kpi_provider import response as weekly_kpi_response
 
 ANSWER = 'Authored weekday hike: 6543 m in 4321 s, 321 m ascent, mean HR 123. The elevation section averages 10% across 1000 m. Keep weekday climbing practice manageable; surface and technicality remain unknown.'
 FOLLOWUP = 'Continue with short weekday practice and adjust to recovery; this is authored coaching, not live-provider validation.'
@@ -152,7 +153,10 @@ def response(index, body, expected_zones=None, activity_images=False):
 
 
 class AuthoredProvider:
-    def __init__(self, *, activity_images=False, memory_curation=False, scratch=None):
+    def __init__(self, *, activity_images=False, memory_curation=False, weekly_kpis=False, scratch=None):
+        if weekly_kpis and (activity_images or memory_curation):
+            raise ValueError('Authored KPI scope is exclusive')
+        self.weekly_kpis = weekly_kpis
         self.calls = []
         self.memory_curation = memory_curation
         self.summary_calls = []
@@ -184,7 +188,9 @@ class AuthoredProvider:
                 try:
                     body = json.loads(self.rfile.read(int(length)))
                     memory = owner.memory_curation and body.get('model') == MEMORY_MODEL
-                    if memory:
+                    if owner.weekly_kpis:
+                        message = weekly_kpi_response(len(owner.calls), body, owner.week)
+                    elif memory:
                         message, summary = memory_response(body)
                     elif owner.memory_curation and len(owner.calls) >= 9:
                         message = memory_chat_response(len(owner.calls), body, owner.week)

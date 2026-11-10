@@ -2,6 +2,8 @@ import type { ReactNode, RefObject } from "react";
 import type { useWeeklyFeature } from "./use-weekly";
 import { addDays } from "@/lib/weekly/calendar";
 import { AssistantContent } from "./markdown";
+import { WeeklyKpiScorecard } from "./weekly-kpi-scorecard";
+import { WeeklyKpiProgress } from "./weekly-kpi-progress";
 
 export function WeeklyPlanView({
   weekly,
@@ -32,6 +34,7 @@ export function WeeklyPlanView({
             ["current", "This Week"],
             ["upcoming", "Upcoming"],
             ["general", "General Plan"],
+            ["progress", "Progress"],
             ["history", "History"],
           ] as const
         ).map(([key, label]) => (
@@ -57,11 +60,13 @@ export function WeeklyPlanView({
             <div>
               <p className="section-kicker">Training Plan</p>
               <h1>
-                {mode === "history"
-                  ? "History"
-                  : mode === "upcoming"
-                    ? "Upcoming"
-                    : "This Week"}
+                {mode === "progress"
+                  ? "Progress"
+                  : mode === "history"
+                    ? "History"
+                    : mode === "upcoming"
+                      ? "Upcoming"
+                      : "This Week"}
               </h1>
             </div>
             <button
@@ -88,20 +93,47 @@ export function WeeklyPlanView({
               <p role="alert">Weekly plans could not be loaded. Try Reload.</p>
             ) : (
               <>
-                {week ? (
+                {mode === "progress" ? (
+                  <WeeklyKpiProgress
+                    weekly={weekly}
+                    run={run}
+                    openWeek={(selected) =>
+                      run(weekly.load("history", selected))
+                    }
+                  />
+                ) : week ? (
                   <>
                     <h2>
                       {week} – {addDays(week, 6)}
                     </h2>
                     <p className="training-plan-meta">
-                      Calendar basis: {record?.timeZone ?? weekly.basis}
+                      Calendar basis:{" "}
+                      {record?.timeZone ??
+                        weekly.kpis?.timeZone ??
+                        weekly.basis}
                       {record && record.timeZone !== weekly.basis
                         ? ` (device now ${weekly.basis}; saved dates unchanged)`
                         : ""}
                     </p>
+                    <WeeklyKpiScorecard
+                      kpis={weekly.kpis}
+                      loadSet={(id) => run(weekly.loadSet(id))}
+                      discuss={() =>
+                        startChat(
+                          `Discuss the saved KPIs and evidence for the week starting ${week}; read complete baselines before any changes.`,
+                        )
+                      }
+                    />
                     {record?.latest ? (
                       <article className="training-plan-report">
                         <h3>{record.latest.title}</h3>
+                        {weekly.kpis?.availableSets.length ? (
+                          <p>
+                            Preserved narrative source. Structured KPI baselines
+                            and assessments above are authoritative; historical
+                            tables are not separately refreshed.
+                          </p>
+                        ) : null}
                         <p>Latest saved {record.latest.savedAt}</p>
                         <AssistantContent
                           content={record.latest.contentMarkdown}
@@ -109,8 +141,9 @@ export function WeeklyPlanView({
                       </article>
                     ) : (
                       <p>
-                        No weekly commitment saved for this week. Create or
-                        update it directly in chat.
+                        No narrative weekly plan saved for this week. Create or
+                        update it directly in chat; saved structured KPIs are
+                        shown above.
                       </p>
                     )}
                     {record?.original ? (
@@ -143,6 +176,12 @@ export function WeeklyPlanView({
                     {record?.review ? (
                       <article className="training-plan-report">
                         <h3>{record.review.title}</h3>
+                        {weekly.kpis?.availableSets.length ? (
+                          <p>
+                            Preserved review narrative source; see exact saved
+                            structured comparisons above.
+                          </p>
+                        ) : null}
                         <p>
                           Review as of {record.review.asOf} · saved{" "}
                           {record.review.savedAt} · latest-plan snapshot at save{" "}

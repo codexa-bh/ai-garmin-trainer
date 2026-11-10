@@ -4,6 +4,11 @@ import { SCHEMA_MIGRATIONS } from "@/lib/db/migrations";
 
 /** Authored fixture reconstruction only, never a product downgrade or actual-data operation. */
 function removeWholeSummaryFixtureSchema(db: Database.Database): void {
+  // Schema26 is independent of H/S but must be removed before relabelling an
+  // exclusively authored current fixture as an earlier schema.
+  db.exec(
+    "drop table if exists weekly_kpi; drop table if exists weekly_kpi_track",
+  );
   if (
     !db
       .prepare("select 1 from sqlite_master where name='summary_preference'")

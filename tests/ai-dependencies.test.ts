@@ -38,6 +38,8 @@ const allowed = new Set([
   "ai/tool-training-plan.ts",
   "ai/tool-weekly.ts",
   "weekly/contracts.ts",
+  "weekly/kpi-contracts.ts",
+  "weekly/kpis.ts",
   "weekly/calendar.ts",
   "weekly/application.ts",
   "ai/tool-types.ts",

@@ -174,6 +174,15 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
   const startChat = vi.fn();
   const weekly = {
     mode: "history" as const,
+    kpis: null,
+    progress: null,
+    progressRange: null,
+    progressTrack: "",
+    setProgressTrack: vi.fn(),
+    progressBaseline: "original" as const,
+    setProgressBaseline: vi.fn(),
+    loadSet: load,
+    loadProgress: load,
     record,
     week: record.weekStart,
     basis: "UTC",
@@ -227,6 +236,15 @@ it("keeps general editor separately accessible and history secondary", () => {
   const load = vi.fn(async () => {});
   const weekly = {
     mode: "general" as const,
+    kpis: null,
+    progress: null,
+    progressRange: null,
+    progressTrack: "",
+    setProgressTrack: vi.fn(),
+    progressBaseline: "original" as const,
+    setProgressBaseline: vi.fn(),
+    loadSet: load,
+    loadProgress: load,
     record: null,
     week: "",
     basis: "UTC",

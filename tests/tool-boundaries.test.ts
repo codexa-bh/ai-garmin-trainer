@@ -41,6 +41,36 @@ import type { TrainerToolStep } from "../src/lib/ai/tool-types";
 describe("dependency-light contracts and evidence", () => {
   it("parses all tools with compatible defaults and strict rejection", () => {
     const inputs = {
+      getWeeklyKpis: { weekStart: "2026-11-09" },
+      saveWeeklyKpis: {
+        weekStart: "2026-11-09",
+        commitment: {
+          origin: "planned",
+          provenance: "Authored test",
+          items: [
+            {
+              id: "count",
+              conceptId: "authored-count",
+              label: "Count",
+              definition: "Authored count",
+              selection: "User-selected",
+              evidenceRequired: "User report",
+              availablePoints: null,
+              scoring: "",
+              tracks: [
+                {
+                  key: "count",
+                  kind: "numeric",
+                  unit: "sessions",
+                  meaning: "Authored count",
+                  target: null,
+                },
+              ],
+            },
+          ],
+        },
+      },
+      getKpiProgress: { from: "2026-11-02", through: "2026-11-09" },
       getActivityDashboard: { garminId: "123" },
       analyzeActivityTerrain: { garminId: "123" },
       getWeeklyPlan: { weekStart: "2026-09-21" },

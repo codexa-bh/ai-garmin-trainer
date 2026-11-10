@@ -12,11 +12,11 @@ use std::{
 use tauri::Manager;
 #[path = "dev_capture.rs"]
 pub(crate) mod capture;
-#[path = "memory_edit_probe.rs"]
-mod memory_edit_probe;
 #[cfg(debug_assertions)]
 #[path = "dev_input.rs"]
 mod input;
+#[path = "memory_edit_probe.rs"]
+mod memory_edit_probe;
 const LIMIT: usize = 16 * 1024;
 #[derive(Clone)]
 pub struct Config {
@@ -62,7 +62,8 @@ impl Config {
             | Command::Memory { .. }
             | Command::Tables { .. }
             | Command::Terrain { .. }
-            | Command::ActivityLabels { .. } => self.ordinary.is_some(),
+            | Command::ActivityLabels { .. }
+            | Command::WeeklyKpis { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
                 if self.ordinary.is_some() =>
             {
@@ -159,6 +160,9 @@ pub enum Command {
     ActivityLabels {
         action: String,
     },
+    WeeklyKpis {
+        action: String,
+    },
     #[cfg(debug_assertions)]
     Settings {
         action: crate::setup_smoke::Action,
@@ -230,13 +234,19 @@ impl Command {
                     "tables",
                     "terrain",
                     "activityLabels",
+                    "weeklyKpis",
                 ]
                 .contains(&view.as_str())
                     && (["wide", "narrow"].contains(&preset.as_str())
                         || (view == "terrain" && preset == "medium"))
             }
-            Self::ActivityLabels { action } => ["observe", "strength", "gravel", "hiking", "list"]
-                .contains(&action.as_str()),
+            Self::WeeklyKpis { action } => [
+                "observe", "current", "progress", "original", "latest", "reload", "frame",
+            ]
+            .contains(&action.as_str()),
+            Self::ActivityLabels { action } => {
+                ["observe", "strength", "gravel", "hiking", "list"].contains(&action.as_str())
+            }
             Self::Terrain { action } => [
                 "observe",
                 "supported",
@@ -293,10 +303,46 @@ impl Command {
                 "disable",
                 "enable",
                 "retry",
-                "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
-                "fixture-densify-ready", "fixture-densify-unavailable", "densify-model-alternative", "fixture-densify-busy", "fixture-densify-review", "fixture-densify-no-reduction", "fixture-densify-accepted", "fixture-densify-discarded", "densify", "densify-cancel", "densify-accept", "densify-discard",
-                "fixture-ordinary", "fixture-ordinary-failed", "fixture-ordinary-interrupted",
-                "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-progressive", "fixture-complete", "fixture-interrupted", "fixture-failed", "fixture-cancelled", "fixture-unknown", "fixture-reset",
+                "rebuild-preflight",
+                "back",
+                "manage",
+                "earlier-sources",
+                "older-records",
+                "item-details",
+                "cancel-edit",
+                "confirm",
+                "cancel-confirm",
+                "history-effects",
+                "history-select",
+                "history-legacy",
+                "fixture-densify-ready",
+                "fixture-densify-unavailable",
+                "densify-model-alternative",
+                "fixture-densify-busy",
+                "fixture-densify-review",
+                "fixture-densify-no-reduction",
+                "fixture-densify-accepted",
+                "fixture-densify-discarded",
+                "densify",
+                "densify-cancel",
+                "densify-accept",
+                "densify-discard",
+                "fixture-ordinary",
+                "fixture-ordinary-failed",
+                "fixture-ordinary-interrupted",
+                "fixture-populated",
+                "fixture-empty",
+                "fixture-error",
+                "fixture-off",
+                "fixture-history",
+                "fixture-running",
+                "fixture-progressive",
+                "fixture-complete",
+                "fixture-interrupted",
+                "fixture-failed",
+                "fixture-cancelled",
+                "fixture-unknown",
+                "fixture-reset",
             ]
             .contains(&action.as_str()),
             Self::Tables { surface, edge } => {
@@ -654,9 +700,25 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
     if value["ok"] == false {
         return (exact_keys(value, &["ok", "error"])
             && (value["error"] == "Rendered command refused or failed"
-                || (matches!(command, Command::Memory { .. } | Command::CaptureView { .. })
-                    && ["idle", "action", "history-navigation", "inspection", "anchor", "canonical-copy", "private-ancestor", "ready-before-control", "canonical-control-lookup", "canonical-control-target", "canonical-control-click", "post-action-observation"]
-                        .iter().any(|stage| value["error"] == format!("Memory action failed at {stage}")))
+                || (matches!(
+                    command,
+                    Command::Memory { .. } | Command::CaptureView { .. }
+                ) && [
+                    "idle",
+                    "action",
+                    "history-navigation",
+                    "inspection",
+                    "anchor",
+                    "canonical-copy",
+                    "private-ancestor",
+                    "ready-before-control",
+                    "canonical-control-lookup",
+                    "canonical-control-target",
+                    "canonical-control-click",
+                    "post-action-observation",
+                ]
+                .iter()
+                .any(|stage| value["error"] == format!("Memory action failed at {stage}")))
                 || (matches!(command, Command::Conversation { .. })
                     && [
                         "admission",
@@ -947,6 +1009,23 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 && value["trustedInput"] == false
                 && booleans.iter().all(|key| value[*key].is_boolean())
         }
+        Command::WeeklyKpis { action } => {
+            let booleans = [
+                "ready",
+                "progress",
+                "aboveHundred",
+                "unknown",
+                "gaps",
+                "contained",
+            ];
+            let mut keys = vec!["ok", "action", "trustedInput"];
+            keys.extend(booleans);
+            ordinary
+                && exact_keys(value, &keys)
+                && value["action"].as_str() == Some(action)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
+        }
         Command::ActivityLabels { action } => {
             let booleans = ["choicesReady", "ready", "contained"];
             let mut keys = vec!["ok", "action", "trustedInput"];
@@ -1148,12 +1227,20 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
         ),
         Ok(mut result) => {
             if matches!(&request.command, Command::Memory { action } if action == "native-copy") {
-                result = if result["ok"] == true && result["editing"] == true && result["loaded"] == true && state.config.ordinary.is_some() {
+                result = if result["ok"] == true
+                    && result["editing"] == true
+                    && result["loaded"] == true
+                    && state.config.ordinary.is_some()
+                {
                     match memory_edit_probe::copy_authored_summary(&window, &state.config.run_id) {
-                        Ok(()) => json!({"ok":true,"nativeResponder":true,"exactAuthoredCopy":true,"hardwareInput":false}),
+                        Ok(()) => {
+                            json!({"ok":true,"nativeResponder":true,"exactAuthoredCopy":true,"hardwareInput":false})
+                        }
                         Err(error) => json!({"ok":false,"error":error}),
                     }
-                } else { json!({"ok":false,"error":"Authored editor admission refused; no native copy dispatched"}) };
+                } else {
+                    json!({"ok":false,"error":"Authored editor admission refused; no native copy dispatched"})
+                };
             }
             #[cfg(debug_assertions)]
             if let Command::DebugKey { key } = &request.command {
@@ -1531,10 +1618,46 @@ mod tests {
             "disable",
             "enable",
             "retry",
-            "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
-            "fixture-densify-ready", "fixture-densify-unavailable", "densify-model-alternative", "fixture-densify-busy", "fixture-densify-review", "fixture-densify-no-reduction", "fixture-densify-accepted", "fixture-densify-discarded", "densify", "densify-cancel", "densify-accept", "densify-discard",
-            "fixture-ordinary", "fixture-ordinary-failed", "fixture-ordinary-interrupted",
-            "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-progressive", "fixture-complete", "fixture-interrupted", "fixture-failed", "fixture-cancelled", "fixture-unknown", "fixture-reset",
+            "rebuild-preflight",
+            "back",
+            "manage",
+            "earlier-sources",
+            "older-records",
+            "item-details",
+            "cancel-edit",
+            "confirm",
+            "cancel-confirm",
+            "history-effects",
+            "history-select",
+            "history-legacy",
+            "fixture-densify-ready",
+            "fixture-densify-unavailable",
+            "densify-model-alternative",
+            "fixture-densify-busy",
+            "fixture-densify-review",
+            "fixture-densify-no-reduction",
+            "fixture-densify-accepted",
+            "fixture-densify-discarded",
+            "densify",
+            "densify-cancel",
+            "densify-accept",
+            "densify-discard",
+            "fixture-ordinary",
+            "fixture-ordinary-failed",
+            "fixture-ordinary-interrupted",
+            "fixture-populated",
+            "fixture-empty",
+            "fixture-error",
+            "fixture-off",
+            "fixture-history",
+            "fixture-running",
+            "fixture-progressive",
+            "fixture-complete",
+            "fixture-interrupted",
+            "fixture-failed",
+            "fixture-cancelled",
+            "fixture-unknown",
+            "fixture-reset",
         ] {
             let command = Command::Memory {
                 action: action.into(),
@@ -1555,13 +1678,41 @@ mod tests {
                 assert!(!super::safe_result(&command, &invalid, true));
             }
         }
-        let diagnostic = Command::Memory { action: "observe".into() };
-        assert!(super::safe_result(&diagnostic, &json!({"ok":false,"error":"Memory action failed at history-navigation"}), true));
-        for stage in ["ready-before-control", "canonical-control-lookup", "canonical-control-target", "canonical-control-click", "post-action-observation"] {
-            assert!(super::safe_result(&diagnostic, &json!({"ok":false,"error":format!("Memory action failed at {stage}")}), true));
+        let diagnostic = Command::Memory {
+            action: "observe".into(),
+        };
+        assert!(super::safe_result(
+            &diagnostic,
+            &json!({"ok":false,"error":"Memory action failed at history-navigation"}),
+            true
+        ));
+        for stage in [
+            "ready-before-control",
+            "canonical-control-lookup",
+            "canonical-control-target",
+            "canonical-control-click",
+            "post-action-observation",
+        ] {
+            assert!(super::safe_result(
+                &diagnostic,
+                &json!({"ok":false,"error":format!("Memory action failed at {stage}")}),
+                true
+            ));
         }
-        assert!(!super::safe_result(&diagnostic, &json!({"ok":false,"error":"Memory action failed at private-content"}), true));
-        for action in ["export", "import", "select", "eval", "login", "rebuild-start", "rebuild-cancel"] {
+        assert!(!super::safe_result(
+            &diagnostic,
+            &json!({"ok":false,"error":"Memory action failed at private-content"}),
+            true
+        ));
+        for action in [
+            "export",
+            "import",
+            "select",
+            "eval",
+            "login",
+            "rebuild-start",
+            "rebuild-cancel",
+        ] {
             assert!(!Command::Memory {
                 action: action.into()
             }
@@ -1710,6 +1861,39 @@ mod tests {
             preset: "medium".into()
         }
         .valid());
+    }
+    #[test]
+    fn weekly_kpis_are_closed_ordinary_boolean_only() {
+        for action in [
+            "observe", "current", "progress", "original", "latest", "reload", "frame",
+        ] {
+            let command = Command::WeeklyKpis {
+                action: action.into(),
+            };
+            assert!(command.valid());
+            assert!(!config().permits(&command));
+            let result = json!({"ok":true,"action":action,"trustedInput":false,"ready":true,"progress":false,"aboveHundred":true,"unknown":true,"gaps":false,"contained":true});
+            assert!(super::safe_result(&command, &result, true));
+            assert!(!safe_result(&command, &result));
+            for (key, value) in [
+                ("private", json!("secret")),
+                ("ready", json!("secret")),
+                ("action", json!("settings")),
+                ("trustedInput", json!(true)),
+            ] {
+                let mut invalid = result.clone();
+                invalid[key] = value;
+                assert!(!super::safe_result(&command, &invalid, true));
+            }
+        }
+        assert!(!Command::WeeklyKpis {
+            action: "save".into()
+        }
+        .valid());
+        assert!(serde_json::from_value::<Command>(
+            json!({"type":"weeklyKpis","action":"current","selector":"body"})
+        )
+        .is_err());
     }
     #[test]
     fn activity_labels_are_closed_ordinary_boolean_only() {

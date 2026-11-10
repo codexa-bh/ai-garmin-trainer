@@ -1,3 +1,5 @@
+import type { WeeklyKpis } from "./kpi-contracts";
+
 export type WeeklyDocument = {
   title: string;
   contentMarkdown: string;
@@ -51,6 +53,9 @@ export type WeeklyStore = {
   read(weekStart: string): WeeklyRecord | null;
   history(before: string, limit: number): WeeklySummary[];
   save(record: WeeklyRecord): void;
+  readKpis(weekStart: string): WeeklyKpis | null;
+  saveKpis(weekStart: string, state: WeeklyKpis): void;
+  registerTrack(concept: string, key: string, signature: string): void;
   proposal(id: string): WeeklyProposal | null;
   pending(conversationId: string): WeeklyProposal | null;
   saveProposal(proposal: WeeklyProposal): void;

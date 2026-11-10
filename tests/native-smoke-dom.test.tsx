@@ -25,6 +25,9 @@ import { ModelSettingsCard } from "../src/app/dashboard/model-settings-card";
 import { useModelSettings } from "../src/app/dashboard/use-model-settings";
 import { modelSettingsSnapshot } from "../src/lib/model-settings/policy";
 import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
+import { WeeklyKpiScorecard } from "../src/app/dashboard/weekly-kpi-scorecard";
+import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
+import { projectKpis } from "../src/lib/weekly/kpis";
 
 declare global {
   interface Window {
@@ -1897,3 +1900,61 @@ it.each(["supported", "partial", "capped"])(
     ).toBe(false);
   },
 );
+
+it("admits only finite ordinary KPI actions and masks every noncanonical/private value", async () => {
+  smoke.__trainerOrdinaryIsolated = { runId: "run" };
+  vi.stubGlobal("innerWidth", 1280);
+  vi.stubGlobal("innerHeight", 850);
+  const view = render(
+    <section className="weekly-plan-panel">
+      <WeeklyKpiScorecard
+        kpis={projectKpis("2026-11-09", authoredWeeklyKpis())}
+        loadSet={() => {}}
+        discuss={() => {}}
+      />
+      <p>Private adjacent history must remain hidden</p>
+    </section>,
+  );
+  const observed = (await command({ type: "weeklyKpis", action: "observe" }))
+    .result;
+  expect(observed).toMatchObject({
+    ok: true,
+    ready: true,
+    aboveHundred: true,
+    unknown: true,
+    progress: false,
+    trustedInput: false,
+  });
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(true);
+  expect(
+    screen
+      .getByText("Private adjacent history must remain hidden")
+      .hasAttribute("data-smoke-reveal"),
+  ).toBe(false);
+  expect(
+    screen
+      .getAllByText("T0319 authored sessions")[0]
+      .hasAttribute("data-smoke-reveal"),
+  ).toBe(true);
+  smoke.__trainerSmokeRestore();
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  for (const invalid of [
+    { type: "weeklyKpis", action: "save" },
+    { type: "weeklyKpis", action: "observe", selector: "body" },
+    { type: "weeklyKpis", action: "settings" },
+  ])
+    expect((await command(invalid)).result.ok).toBe(false);
+  view.container.querySelector("h4")!.textContent = "Private replacement";
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  expect(document.querySelector("#trainer-smoke-sanitizer")).toBeNull();
+  delete smoke.__trainerOrdinaryIsolated;
+  expect(
+    (await command({ type: "weeklyKpis", action: "observe" })).result.ok,
+  ).toBe(false);
+});

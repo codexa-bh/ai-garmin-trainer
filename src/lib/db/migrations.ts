@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 
-export const LATEST_SCHEMA_VERSION = 25;
+export const LATEST_SCHEMA_VERSION = 26;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -394,6 +394,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `drop trigger conversation_profile_insert`,
       `drop trigger conversation_profile_update`,
       `drop trigger conversation_profile_delete`,
+    ],
+  },
+  {
+    version: 26,
+    name: "structured_weekly_kpis",
+    statements: [
+      `create table weekly_kpi (week_start text primary key, state_json text not null check(json_valid(state_json)))`,
+      `create table weekly_kpi_track (concept_id text not null, track_key text not null, signature text not null, primary key(concept_id,track_key))`,
     ],
   },
 ];
@@ -796,6 +804,8 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "training_plan",
     "weekly_artifact",
     "weekly_proposal",
+    "weekly_kpi",
+    "weekly_kpi_track",
     "conversation_turn",
     "conversation_completion",
     "conversation_segment",

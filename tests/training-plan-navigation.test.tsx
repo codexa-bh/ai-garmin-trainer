@@ -84,6 +84,15 @@ it.each([
       <WeeklyPlanView
         weekly={{
           mode: "current",
+          kpis: null,
+          progress: null,
+          progressRange: null,
+          progressTrack: "",
+          setProgressTrack: vi.fn(),
+          progressBaseline: "original",
+          setProgressBaseline: vi.fn(),
+          loadSet: load,
+          loadProgress: load,
           record,
           week: record.weekStart,
           basis: "UTC",

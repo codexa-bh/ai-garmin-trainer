@@ -103,6 +103,7 @@ export function debugProviderCall(input: {
         : [
               "saveTrainingPlan",
               "saveWeeklyDocuments",
+              "saveWeeklyKpis",
               "proposeWeeklyDocuments",
               "applyWeeklyProposal",
             ].includes(call.toolName)
@@ -144,6 +145,9 @@ export function buildLlmDebugTrace(input: {
   const weeklyTurn = input.toolSteps.some((step) =>
     [
       "getWeeklyPlan",
+      "getWeeklyKpis",
+      "getKpiProgress",
+      "saveWeeklyKpis",
       "saveWeeklyDocuments",
       "proposeWeeklyDocuments",
       "applyWeeklyProposal",
@@ -169,9 +173,13 @@ export function buildLlmDebugTrace(input: {
     .slice(0, LLM_DEBUG_TRACE_CAPS.toolSteps)
     .map((step) => {
       const result = boundedDebugValue(
-        ["getTrainingPlan", "getWeeklyPlan", "proposeWeeklyDocuments"].includes(
-          step.tool,
-        )
+        [
+          "getTrainingPlan",
+          "getWeeklyPlan",
+          "getWeeklyKpis",
+          "getKpiProgress",
+          "proposeWeeklyDocuments",
+        ].includes(step.tool)
           ? { documentContent: "omitted; see compact step summary" }
           : step.result,
       );

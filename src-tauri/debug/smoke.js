@@ -2878,6 +2878,186 @@
       node.setAttribute("data-smoke-reveal", "");
     }
   }
+  function weeklyKpiRegion() {
+    const region = document.querySelector(".weekly-kpis, .weekly-kpi-progress");
+    if (!globalThis.__trainerOrdinaryIsolated || !region || !visible(region))
+      return null;
+    const labels = [...region.querySelectorAll("h4")];
+    const progress = region.classList.contains("weekly-kpi-progress");
+    if (
+      !progress &&
+      (labels.filter((el) => el.textContent === "T0319 authored sessions")
+        .length !== 2 ||
+        labels.some(
+          (el) =>
+            ![
+              "T0319 authored sessions",
+              "Explained additional credit",
+            ].includes(el.textContent),
+        ))
+    )
+      return null;
+    if (progress && !region.textContent.includes("T0319 authored sessions"))
+      return null;
+    return region;
+  }
+  function weeklyKpiObservation(action) {
+    const region = weeklyKpiRegion();
+    const text = region?.textContent ?? "";
+    return {
+      ok: true,
+      action,
+      trustedInput: false,
+      ready: !!region,
+      progress: !!region?.classList.contains("weekly-kpi-progress"),
+      aboveHundred: text.includes("112.5"),
+      unknown: text.includes("Unknown"),
+      gaps: text.includes("gap"),
+      contained:
+        !!region &&
+        document.documentElement.scrollWidth <= innerWidth &&
+        region.getBoundingClientRect().right <= innerWidth,
+    };
+  }
+  async function weeklyKpiAction(command) {
+    if (
+      !globalThis.__trainerOrdinaryIsolated ||
+      Object.keys(command).sort().join(",") !== "action,type" ||
+      ![
+        "observe",
+        "current",
+        "progress",
+        "original",
+        "latest",
+        "reload",
+        "frame",
+      ].includes(command.action)
+    )
+      throw Error("Unsupported weekly KPI action/mode");
+    restore();
+    if (["current", "progress", "reload"].includes(command.action)) {
+      const label = {
+        current: "This Week",
+        progress: "Progress",
+        reload: "Reload weekly plans",
+      }[command.action];
+      const buttons = [
+        ...document.querySelectorAll(".weekly-plan-panel button"),
+      ].filter((el) => visible(el) && name(el) === label);
+      if (buttons.length !== 1 || buttons[0].disabled)
+        throw Error("Weekly KPI control unavailable");
+      buttons[0].click();
+    } else if (command.action === "frame") {
+      const root = weeklyKpiRegion();
+      if (!root) throw Error("Canonical weekly region unavailable");
+      const region =
+        innerWidth <= 600
+          ? (root.querySelector(".weekly-progress-chart") ?? root)
+          : root;
+      for (let node = region.parentElement; node; node = node.parentElement)
+        if (
+          ["auto", "scroll"].includes(getComputedStyle(node).overflowY) &&
+          node.scrollHeight > node.clientHeight
+        )
+          node.scrollTop +=
+            region.getBoundingClientRect().top -
+            node.getBoundingClientRect().top -
+            8;
+    } else if (["original", "latest"].includes(command.action)) {
+      const region = weeklyKpiRegion();
+      const select = region?.querySelector(
+        ".weekly-progress-controls select:last-child",
+      );
+      // Select only the existing labelled comparison control, never arbitrary values.
+      const labels = [...(region?.querySelectorAll("label") ?? [])];
+      const basis = labels
+        .find((el) => el.textContent.startsWith("Comparison basis"))
+        ?.querySelector("select");
+      if (!basis || !select || !visible(basis))
+        throw Error("Comparison control unavailable");
+      basis.value = command.action;
+      basis.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    return weeklyKpiObservation(command.action);
+  }
+  function revealWeeklyKpis() {
+    const region = weeklyKpiRegion();
+    if (!region) throw Error("Canonical synthetic weekly KPI state required");
+    // Reveal only exact authored/static text. Source prose, arbitrary values and
+    // unrelated/adjacent DOM remain hidden, preserving actual layout/geometry.
+    const safe = new Set([
+      "Weekly KPIs",
+      "Saved weekly progress",
+      "Original commitment",
+      "Adapted commitment · latest",
+      "T0319 authored sessions",
+      "Explained additional credit",
+      "Saved commitments and assessments, not live evaluation. Manage or correct them in chat.",
+      "100 available points (one allocation for this item) · 100 awarded",
+      "80 available points (one allocation for this item) · No awarded points recorded",
+      "Selected session count",
+      "Selected session duration",
+      "Target: At least 3 sessionsRecorded actual: 4 sessions",
+      "Target: At least 5 sessionsRecorded actual: Unknown",
+      "Target: At least 90 minutesRecorded actual: Unknown",
+      "Not assessed. This is not a zero or a missed commitment.",
+      "Targets and recorded actuals in their own units. Gaps are not zero; above-target values do not award bonus points. Different rubrics and point denominators are not a fitness trend.",
+      "Dashed: target / range upper bound. Solid: recorded actual. Target direction and evidence remain explicit below; connecting saved points is not a new assessment.",
+      "No saved baseline · gap",
+      "Discuss / assess KPIs in chat",
+    ]);
+    const nodes = [
+      ...region.querySelectorAll("h2,h3,h4,p,dt,dd,button"),
+    ].filter((el) => visible(el));
+    for (const el of nodes) {
+      const text = el.textContent;
+      const assessment =
+        /^Assessment: provisional · as of (\S+)\. Recorded total: 112\.5 points\.$/.exec(
+          text,
+        );
+      const fresh =
+        assessment &&
+        Math.abs(Date.now() - Date.parse(assessment[1])) < 3600000;
+      const progressValue =
+        /^T0319 authored sessions · Target: At least (3|5) sessions · Recorded actual: (0|4) sessions · provisional · as of (\S+)$/.exec(
+          text,
+        );
+      const safeProgress =
+        progressValue &&
+        Math.abs(Date.now() - Date.parse(progressValue[3])) < 3600000;
+      if (!safe.has(text) && !fresh && !safeProgress) continue;
+      el.setAttribute("data-smoke-reveal", "");
+      for (const child of el.querySelectorAll("*"))
+        child.setAttribute("data-smoke-reveal", "");
+      for (
+        let parent = el.parentElement;
+        parent && parent !== document.body;
+        parent = parent.parentElement
+      ) {
+        if (
+          [...parent.childNodes].some(
+            (node) =>
+              node.nodeType === Node.TEXT_NODE && node.textContent.trim(),
+          )
+        )
+          throw Error("Private direct weekly ancestor refused");
+        parent.setAttribute("data-smoke-reveal", "");
+      }
+    }
+    const chart = region.querySelector(".weekly-progress-chart");
+    // Chart labels/values must match this fixed authored numeric corpus.
+    if (
+      chart &&
+      [...chart.querySelectorAll("text")].every((el) =>
+        /^(?:\d{4}-\d{2}-\d{2}|[0-5](?:\.\d+)?|[0-5] sessions)$/.test(
+          el.textContent,
+        ),
+      )
+    )
+      for (const el of [chart, ...chart.querySelectorAll("svg,svg *")])
+        el.setAttribute("data-smoke-reveal", "");
+  }
   let maskExpiry;
   let maskScroll = [];
   function restore() {
@@ -2921,7 +3101,9 @@
       sync: "Sync",
       profile: "Profile & data",
     }[command.view];
-    if (command.view === "activityLabels") {
+    if (command.view === "weeklyKpis") {
+      if (!weeklyKpiRegion()) throw Error("Unsafe weekly KPI capture");
+    } else if (command.view === "activityLabels") {
       if (!labelElements().ready) throw Error("Unsafe Activity capture");
     } else if (command.view === "terrain") {
       if (!terrainRegion()) throw Error("Unsafe Terrain capture");
@@ -3155,6 +3337,7 @@
     if (command.view === "ordinary-chat") revealOrdinaryChat();
     if (command.view === "terrain") revealTerrain();
     if (command.view === "activityLabels") revealActivityLabels();
+    if (command.view === "weeklyKpis") revealWeeklyKpis();
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";
     style.textContent =
@@ -3265,6 +3448,8 @@
         return terrainAction(command);
       case "activityLabels":
         return labelsAction(command);
+      case "weeklyKpis":
+        return weeklyKpiAction(command);
       case "click": {
         if (["LLM debug traces", "First LLM trace"].includes(command.target)) {
           debugSummary(command.target === "First LLM trace").click();

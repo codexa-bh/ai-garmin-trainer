@@ -717,9 +717,11 @@ export function useChatFeature({
           loadWeekly &&
           event.assistantMessage.grounding?.toolSteps?.some(
             (step) =>
-              ["saveWeeklyDocuments", "applyWeeklyProposal"].includes(
-                step.tool,
-              ) && step.status === "succeeded",
+              [
+                "saveWeeklyDocuments",
+                "saveWeeklyKpis",
+                "applyWeeklyProposal",
+              ].includes(step.tool) && step.status === "succeeded",
           )
         )
           runInBackground(loadWeekly());
@@ -781,9 +783,11 @@ export function useChatFeature({
           loadWeekly &&
           payload.toolEvidence?.toolSteps?.some(
             (step) =>
-              ["saveWeeklyDocuments", "applyWeeklyProposal"].includes(
-                step.tool,
-              ) && step.status === "succeeded",
+              [
+                "saveWeeklyDocuments",
+                "saveWeeklyKpis",
+                "applyWeeklyProposal",
+              ].includes(step.tool) && step.status === "succeeded",
           )
         )
           runInBackground(loadWeekly());

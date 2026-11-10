@@ -92,6 +92,7 @@ const allowed = new Set([
   "training-plan/policy.ts",
   "training-plan/limits.ts",
   "weekly/contracts.ts",
+  "weekly/kpi-contracts.ts",
 ]);
 
 function checkClosure(

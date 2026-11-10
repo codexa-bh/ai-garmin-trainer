@@ -1,4 +1,5 @@
 import type { WeeklyRead, WeeklyTurn } from "../weekly/contracts";
+import type { KpiRead } from "../weekly/kpi-contracts";
 import type { ValidatedTrainerToolCall } from "./tool-contracts";
 import type { TrainerToolExecutionContext } from "./tool-execution-context";
 import type { CompleteTrainingPlan } from "../training-plan/snapshot";
@@ -10,4 +11,5 @@ export type TrainerToolExecutionInput = ValidatedTrainerToolCall & {
   trainingPlanSnapshot?: CompleteTrainingPlan;
   weeklyTurn?: WeeklyTurn;
   weeklySnapshots?: WeeklyRead[];
+  kpiSnapshots?: KpiRead[];
 };

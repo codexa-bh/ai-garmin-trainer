@@ -13,7 +13,10 @@ export type TrainerToolName =
   | "getTrainingPlan"
   | "saveTrainingPlan"
   | "getWeeklyPlan"
-  | "saveWeeklyDocuments";
+  | "saveWeeklyDocuments"
+  | "getWeeklyKpis"
+  | "saveWeeklyKpis"
+  | "getKpiProgress";
 
 export type TrainerToolStepName = TrainerToolName | "providerToolSelection";
 
