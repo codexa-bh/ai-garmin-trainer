@@ -23,12 +23,18 @@ export type DensifyReview = {
   after: number | null;
   target: number;
   shorter: boolean;
+  modelLabel?: string;
 };
 export type DensifyStorage = Pick<
   SummaryStorage,
   "reserve" | "heartbeat" | "usage"
 > & {
-  admit(id: string, expected: SummaryVersion, now: number): SummaryBatch;
+  admit(
+    id: string,
+    expected: SummaryVersion,
+    now: number,
+    model?: string,
+  ): SummaryBatch;
   current(batch: SummaryBatch): boolean;
   settle(batch: SummaryBatch, outcome: string, now: number): void;
   accept(batch: SummaryBatch, value: SummaryValue, now: number): void;
@@ -39,8 +45,10 @@ const DENSIFY_SYSTEM = `Curate the complete saved generated summary for useful d
 export function createSummaryDensify(ports: {
   storage: DensifyStorage;
   now(): number;
-  begin(): {
+  begin(model?: string): {
     generation: SummaryGeneration;
+    model?: string;
+    modelLabel?: string;
     current(): boolean;
     signal: AbortSignal;
     finish(): void;
@@ -48,6 +56,7 @@ export function createSummaryDensify(ports: {
 }) {
   let slot: {
     review: DensifyReview;
+    selection?: string;
     batch: SummaryBatch;
     current(): boolean;
     abort: AbortController;
@@ -78,18 +87,20 @@ export function createSummaryDensify(ports: {
   };
   return {
     inspect,
-    async request(id: string, expected: SummaryVersion) {
+    async request(id: string, expected: SummaryVersion, model?: string) {
       if (slot?.review.id === id) {
+        if (slot.selection !== model)
+          throw new Error("summary_densify_identity_changed");
         await slot.completion;
         return inspect();
       }
       if (slot && ["running", "review"].includes(inspect()?.state ?? ""))
         throw new Error("summary_densify_busy");
       // The shared lifetime and SQLite writer independently enforce exclusion.
-      const owner = ports.begin();
+      const owner = ports.begin(model);
       let batch: SummaryBatch;
       try {
-        batch = ports.storage.admit(id, expected, ports.now());
+        batch = ports.storage.admit(id, expected, ports.now(), owner.model);
       } catch (error) {
         owner.finish();
         throw error;
@@ -108,7 +119,9 @@ export function createSummaryDensify(ports: {
           after: null,
           target: batch.cap,
           shorter: false,
+          ...(owner.modelLabel ? { modelLabel: owner.modelLabel } : {}),
         },
+        selection: model,
         batch,
         current: owner.current,
         abort,

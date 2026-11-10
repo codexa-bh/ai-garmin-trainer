@@ -516,6 +516,147 @@ describe("ordinary Memory observation", () => {
 });
 
 describe("manual Densify review", () => {
+  const manualChoice = JSON.stringify({
+    version: 1,
+    entryId: "entry_manual",
+    provider: "openrouter",
+    modelId: "Vendor/Exact:Manual",
+  });
+  it("defaults honestly, sends one exact ephemeral alternative and resets only after review settlement", async () => {
+    const value = populated();
+    value.densify = {
+      available: true,
+      sourceAvailable: true,
+      models: {
+        default: { label: "openai / gpt-6-luna", available: true },
+        options: [
+          { value: manualChoice, label: "openrouter / Vendor/Exact:Manual" },
+        ],
+      },
+      review: null,
+    };
+    const bodies: Record<string, unknown>[] = [];
+    const fetcher = await mountMemory(value, (body) => {
+      bodies.push(body);
+      return response({
+        densify: {
+          id: body.id,
+          state: body.action === "densify-discard" ? "discarded" : "review",
+          text: "Short.",
+          before: value.characters,
+          after: 6,
+          target: 6000,
+          shorter: true,
+          modelLabel: body.model
+            ? "openrouter / Vendor/Exact:Manual"
+            : "openai / gpt-6-luna",
+        },
+      });
+    });
+    const picker = screen.getByRole<HTMLSelectElement>("combobox", {
+      name: "Model for this run",
+    });
+    expect(picker.value).toBe("");
+    expect(picker.selectedOptions[0].textContent).toBe(
+      "Default — openai / gpt-6-luna",
+    );
+    fireEvent.change(picker, { target: { value: manualChoice } });
+    expect(bodies).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Densify summary" }));
+    await screen.findByRole("heading", { name: "Review densified summary" });
+    expect(bodies[0]).toMatchObject({
+      action: "densify-request",
+      model: manualChoice,
+    });
+    expect(picker.disabled).toBe(true);
+    expect(picker.value).toBe(manualChoice);
+    expect(
+      screen.getByText("Request model: openrouter / Vendor/Exact:Manual"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    await screen.findByText(/Candidate discarded/);
+    expect(picker.value).toBe("");
+    expect(bodies[1]).not.toHaveProperty("model");
+    fireEvent.click(screen.getByRole("button", { name: "Densify summary" }));
+    await screen.findByRole("heading", { name: "Review densified summary" });
+    expect(bodies[2]).not.toHaveProperty("model");
+    expect(
+      fetcher.mock.calls.every(([url]) =>
+        String(url).startsWith("/api/cross-chat-summary"),
+      ),
+    ).toBe(true);
+  });
+  it("resets ephemeral intent when passive inspection discovers an expired review", async () => {
+    const value = populated();
+    const review = {
+      id: "expired",
+      state: "review" as const,
+      text: "Short.",
+      before: value.characters,
+      after: 6,
+      target: 6000,
+      shorter: true,
+    };
+    value.densify = {
+      available: true,
+      sourceAvailable: true,
+      models: {
+        default: { label: "openai / gpt-6-luna", available: true },
+        options: [
+          { value: manualChoice, label: "openrouter / Vendor/Exact:Manual" },
+        ],
+      },
+      review: null,
+    };
+    await mountMemory(value, () => response({ densify: review }));
+    const picker = screen.getByRole<HTMLSelectElement>("combobox", {
+      name: "Model for this run",
+    });
+    fireEvent.change(picker, { target: { value: manualChoice } });
+    fireEvent.click(screen.getByRole("button", { name: "Densify summary" }));
+    await screen.findByRole("heading", { name: "Review densified summary" });
+    value.densify.review = {
+      ...review,
+      state: "expired",
+      text: null,
+      shorter: false,
+    };
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await screen.findByText(/Densify unavailable or expired/);
+    expect(picker.value).toBe("");
+    expect(picker.disabled).toBe(false);
+  });
+  it("never replaces an unavailable default with the first alternative, but permits explicit eligible intent", async () => {
+    const value = populated();
+    value.densify = {
+      available: false,
+      sourceAvailable: true,
+      models: {
+        default: { label: "Unselected memory model", available: false },
+        options: [
+          { value: manualChoice, label: "openrouter / Vendor/Exact:Manual" },
+        ],
+      },
+      review: null,
+    };
+    let calls = 0;
+    await mountMemory(value, () => {
+      calls++;
+      return response({});
+    });
+    const picker = screen.getByRole<HTMLSelectElement>("combobox", {
+      name: "Model for this run",
+    });
+    const button = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Densify summary",
+    });
+    expect(picker.value).toBe("");
+    expect(picker.selectedOptions[0].textContent).toContain("unavailable");
+    expect(button.disabled).toBe(true);
+    fireEvent.change(picker, { target: { value: manualChoice } });
+    expect(button.disabled).toBe(false);
+    expect(calls).toBe(0);
+  });
   function expectNoActivity() {
     expect(screen.queryByText("Densifying…")).toBeNull();
     expect(document.querySelector(".memory-busy-cue")).toBeNull();
@@ -1247,6 +1388,8 @@ describe("integrated Memory visible controls and stale-response safety", () => {
         summaryExpanded={false}
         setSummaryExpanded={vi.fn()}
         densifyReview={null}
+        densifyModel={undefined}
+        setDensifyModel={vi.fn()}
         densifyMemory={vi.fn()}
         memoryMessage="Summary fresh"
         isMemoryLoading={false}

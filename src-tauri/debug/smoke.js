@@ -350,6 +350,15 @@
       .repeat(Math.floor(length / paragraph.length))
       .padEnd(length, " ");
   };
+  const densifyAlternative = JSON.stringify({
+    version: 1,
+    entryId: "entry_authored_manual",
+    provider: "openrouter",
+    modelId: "authored/densify:exact",
+  });
+  const densifyDefaultLabel = "openai / gpt-6-luna";
+  const densifyAlternativeLabel = "openrouter / authored/densify:exact";
+  let memoryDensifyModel;
   let memoryDensifyId = "fixture_densify";
   const densifyFixtureReview = () => {
     const state =
@@ -369,6 +378,9 @@
       after: state === "running" ? null : noReduction ? 13250 : 7000,
       target: 6000,
       shorter: state === "review" && !noReduction,
+      modelLabel: memoryDensifyModel
+        ? densifyAlternativeLabel
+        : densifyDefaultLabel,
     };
   };
   let memoryFixture = null;
@@ -491,9 +503,24 @@
       },
       densify: {
         available: memoryFixture === "fixture-densify-ready",
+        sourceAvailable: [
+          "fixture-densify-ready",
+          "fixture-densify-unavailable",
+        ].includes(memoryFixture),
+        models: {
+          default: {
+            label: densifyDefaultLabel,
+            available: memoryFixture !== "fixture-densify-unavailable",
+          },
+          options: [
+            { value: densifyAlternative, label: densifyAlternativeLabel },
+          ],
+        },
         review:
           memoryFixture?.startsWith("fixture-densify-") &&
-          memoryFixture !== "fixture-densify-ready"
+          !["fixture-densify-ready", "fixture-densify-unavailable"].includes(
+            memoryFixture,
+          )
             ? densifyFixtureReview()
             : null,
       },
@@ -636,17 +663,24 @@
                 memoryFixture?.startsWith("fixture-densify-") &&
                 init?.method === "POST" &&
                 command.version === 2 &&
-                Object.keys(command).sort().join() ===
-                  "action,expected,id,version" &&
+                (Object.keys(command).sort().join() ===
+                  "action,expected,id,version" ||
+                  (command.action === "densify-request" &&
+                    Object.keys(command).sort().join() ===
+                      "action,expected,id,model,version" &&
+                    command.model === densifyAlternative)) &&
                 /^[a-zA-Z0-9_-]{1,80}$/.test(command.id) &&
                 JSON.stringify(command.expected) ===
                   JSON.stringify(memoryFixtureValue().expected)
               ) {
                 if (
                   command.action === "densify-request" &&
-                  memoryFixture === "fixture-densify-ready"
+                  (memoryFixture === "fixture-densify-ready" ||
+                    (memoryFixture === "fixture-densify-unavailable" &&
+                      command.model === densifyAlternative))
                 ) {
                   memoryDensifyId = command.id;
+                  memoryDensifyModel = command.model;
                   memoryFixture = "fixture-densify-review";
                 } else if (
                   command.id === memoryDensifyId &&
@@ -734,6 +768,7 @@
       };
     }
     memoryFixture = action;
+    memoryDensifyModel = undefined;
     memoryFixtureRestoring = false;
     progressiveRead = 0;
     progressiveSample = null;
@@ -983,6 +1018,8 @@
         "cancel-confirm",
         "history-effects",
         "fixture-densify-ready",
+        "fixture-densify-unavailable",
+        "densify-model-alternative",
         "fixture-densify-busy",
         "fixture-densify-review",
         "fixture-densify-no-reduction",
@@ -1035,6 +1072,7 @@
       } else if (
         memoryFixture &&
         ![
+          "densify-model-alternative",
           "densify",
           "densify-cancel",
           "densify-accept",
@@ -1126,7 +1164,26 @@
           throw Error("Unsupported confirmation");
         confirmButton.click();
       } else if (command.action === "cancel-confirm") target("Cancel").click();
-      else if (
+      else if (command.action === "densify-model-alternative") {
+        if (!memoryFixture?.startsWith("fixture-densify-"))
+          throw Error("Manual model selection requires fixed presentation");
+        const select = panel.querySelector(".memory-densify-model select");
+        if (
+          !select ||
+          !visible(select) ||
+          select.disabled ||
+          select.labels?.[0]?.textContent !== "Model for this run" ||
+          select.options.length !== 2 ||
+          select.options[1].value !== densifyAlternative ||
+          select.options[1].textContent !== densifyAlternativeLabel
+        )
+          throw Error("Noncanonical or disabled manual model picker");
+        Object.getOwnPropertyDescriptor(
+          HTMLSelectElement.prototype,
+          "value",
+        ).set.call(select, densifyAlternative);
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      } else if (
         [
           "densify",
           "densify-cancel",
@@ -1335,8 +1392,15 @@
       "Review densified summary",
       "Use shorter summary",
       "Discard",
-      "Chat updates consolidate memory automatically. This optional rewrite uses one extra AI request; review before saving.",
-      "Needs a usable saved summary, configured native memory model and no running memory update.",
+      "Model for this run",
+      "For this request only; saved settings and automatic updates stay unchanged. This optional rewrite uses one extra AI request and may incur cost; review before saving.",
+      "Needs a usable saved summary, an available model for this run and no running memory update.",
+      ...(memoryFixture?.startsWith("fixture-densify-")
+        ? [
+            `Request model: ${densifyDefaultLabel}`,
+            `Request model: ${densifyAlternativeLabel}`,
+          ]
+        : []),
       "Save or cancel your edit first.",
       "Densifying…",
       "Your saved summary stays in use. Cancellation cannot recall sent text or costs.",
@@ -1539,6 +1603,25 @@
         node.setAttribute("data-smoke-reveal", "");
     }
     memoryStage = "canonical-copy";
+    const manualPicker = panel.querySelector(".memory-densify-model select");
+    if (manualPicker && memoryFixture?.startsWith("fixture-densify-")) {
+      const expectedDefault = `Default — ${densifyDefaultLabel}${memoryFixture === "fixture-densify-unavailable" ? " (unavailable)" : ""}`;
+      if (
+        manualPicker.options.length !== 2 ||
+        manualPicker.labels?.[0]?.textContent !== "Model for this run" ||
+        manualPicker.options[0].value !== "" ||
+        manualPicker.options[0].textContent !== expectedDefault ||
+        manualPicker.options[1].value !== densifyAlternative ||
+        manualPicker.options[1].textContent !== densifyAlternativeLabel ||
+        !["", densifyAlternative].includes(manualPicker.value)
+      )
+        throw Error("Noncanonical manual model capture refused");
+      for (const node of [
+        manualPicker,
+        ...manualPicker.querySelectorAll("option"),
+      ])
+        node.setAttribute("data-smoke-reveal", "");
+    }
     for (const progress of panel.querySelectorAll("progress")) {
       if (
         !memoryFixture ||

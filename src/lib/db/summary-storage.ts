@@ -355,17 +355,13 @@ export function summaryDensifyAvailable(): boolean {
   const c = control();
   try {
     assertDensifyIdle();
-    return (
-      c.enabled === 1 &&
-      summaryModelAvailable(c.model) &&
-      !!currentValue(state(), c.cap).text.trim()
-    );
+    return c.enabled === 1 && !!currentValue(state(), c.cap).text.trim();
   } catch {
     return false;
   }
 }
 export const summaryDensifyStorage: DensifyStorage = {
-  admit(id, expected, now) {
+  admit(id, expected, now, model) {
     return getDatabase().transaction(() => {
       assertVersion(expected);
       assertDensifyIdle();
@@ -382,7 +378,7 @@ export const summaryDensifyStorage: DensifyStorage = {
         .run(
           jobId,
           now,
-          `${summaryPolicyIdentity(c.model)}/manual-densify`,
+          `${summaryPolicyIdentity(model ?? c.model)}/manual-densify`,
           s.frontier,
           s.revision,
           s.privacy_generation,
@@ -394,6 +390,7 @@ export const summaryDensifyStorage: DensifyStorage = {
       return {
         jobId,
         manualRewrite: true as const,
+        manualModel: model ?? c.model,
         revision: s.revision,
         privacyGeneration: s.privacy_generation,
         controlGeneration: c.generation,
@@ -770,7 +767,12 @@ export const summaryStorage: SummaryStorage = {
       db.prepare("update summary_control set day=? where id=1").run(budget.day);
       db.prepare(
         "update summary_attempt set reserved=1,reserved_usd=?,spend_day=?,price_basis=? where job_id=?",
-      ).run(null, budget.day, summaryPriceBasis(control().model), requestId);
+      ).run(
+        null,
+        budget.day,
+        summaryPriceBasis(batch.manualModel ?? control().model),
+        requestId,
+      );
       return true;
     })();
   },

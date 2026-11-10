@@ -31,6 +31,8 @@ export function MemoryContent({
   isMemoryReadUnavailable = false,
   pendingMemoryAction,
   densifyReview,
+  densifyModel,
+  setDensifyModel,
   densifyMemory,
   loadMemories,
   reviewHistory,
@@ -77,6 +79,12 @@ export function MemoryContent({
       densifyButton.current?.focus();
     previousDensify.current = densifyReview?.state;
   }, [densifyReview?.state]);
+  const models = memory?.densify?.models;
+  const selectedModelAvailable =
+    densifyModel === undefined
+      ? memory?.densify?.available
+      : memory?.densify?.sourceAvailable &&
+        models?.options.some((option) => option.value === densifyModel);
   const operation = memory?.rebuild?.operation;
   const retainedResult =
     !!operation &&
@@ -333,6 +341,47 @@ export function MemoryContent({
                       {memory.characters} characters · target {memory.cap} ·
                       generated text only
                     </p>
+                    <div className="memory-densify-model">
+                      <label htmlFor={`${summaryId}-model`}>
+                        Model for this run
+                      </label>
+                      <select
+                        id={`${summaryId}-model`}
+                        aria-describedby={`${summaryId}-model-scope`}
+                        value={densifyModel ?? ""}
+                        disabled={
+                          isMemoryLoading ||
+                          !!editingMemoryId ||
+                          densifying ||
+                          reviewingDensify ||
+                          !models?.options.length
+                        }
+                        onChange={(event) =>
+                          setDensifyModel(event.target.value || undefined)
+                        }
+                      >
+                        <option value="">
+                          Default —{" "}
+                          {models?.default.label ?? "Memory model unavailable"}
+                          {models && !models.default.available
+                            ? " (unavailable)"
+                            : ""}
+                        </option>
+                        {densifyModel !== undefined &&
+                          !models?.options.some(
+                            (option) => option.value === densifyModel,
+                          ) && (
+                            <option value={densifyModel} disabled>
+                              Unavailable selected model
+                            </option>
+                          )}
+                        {models?.options.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="button-row">
                       {densifying && (
                         <span
@@ -356,7 +405,7 @@ export function MemoryContent({
                           !!editingMemoryId ||
                           densifying ||
                           reviewingDensify ||
-                          !memory.densify?.available
+                          !selectedModelAvailable
                         }
                         onClick={() =>
                           runInBackground(densifyMemory("densify-request"))
@@ -377,18 +426,21 @@ export function MemoryContent({
                         </button>
                       )}
                     </div>
-                    <p className="secondary-copy">
-                      Chat updates consolidate memory automatically. This
-                      optional rewrite uses one extra AI request; review before
-                      saving.
+                    <p
+                      className="secondary-copy"
+                      id={`${summaryId}-model-scope`}
+                    >
+                      For this request only; saved settings and automatic
+                      updates stay unchanged. This optional rewrite uses one
+                      extra AI request and may incur cost; review before saving.
                     </p>
-                    {(editingMemoryId || !memory.densify?.available) &&
+                    {(editingMemoryId || !selectedModelAvailable) &&
                       !densifying &&
                       !reviewingDensify && (
                         <p className="secondary-copy">
                           {editingMemoryId
                             ? "Save or cancel your edit first."
-                            : "Needs a usable saved summary, configured native memory model and no running memory update."}
+                            : "Needs a usable saved summary, an available model for this run and no running memory update."}
                         </p>
                       )}
                     {densifying && (
@@ -405,6 +457,9 @@ export function MemoryContent({
                         <h4 tabIndex={-1} ref={densifyHeading}>
                           Review densified summary
                         </h4>
+                        {densifyReview.modelLabel && (
+                          <p>Request model: {densifyReview.modelLabel}</p>
+                        )}
                         <p>
                           {densifyReview.before} → {densifyReview.after}{" "}
                           characters · target {densifyReview.target}

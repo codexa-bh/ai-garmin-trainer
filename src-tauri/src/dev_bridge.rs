@@ -294,7 +294,7 @@ impl Command {
                 "enable",
                 "retry",
                 "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
-                "fixture-densify-ready", "fixture-densify-busy", "fixture-densify-review", "fixture-densify-no-reduction", "fixture-densify-accepted", "fixture-densify-discarded", "densify", "densify-cancel", "densify-accept", "densify-discard",
+                "fixture-densify-ready", "fixture-densify-unavailable", "densify-model-alternative", "fixture-densify-busy", "fixture-densify-review", "fixture-densify-no-reduction", "fixture-densify-accepted", "fixture-densify-discarded", "densify", "densify-cancel", "densify-accept", "densify-discard",
                 "fixture-ordinary", "fixture-ordinary-failed", "fixture-ordinary-interrupted",
                 "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-progressive", "fixture-complete", "fixture-interrupted", "fixture-failed", "fixture-cancelled", "fixture-unknown", "fixture-reset",
             ]
@@ -1532,7 +1532,7 @@ mod tests {
             "enable",
             "retry",
             "rebuild-preflight", "back", "manage", "earlier-sources", "older-records", "item-details", "cancel-edit", "confirm", "cancel-confirm", "history-effects", "history-select", "history-legacy",
-            "fixture-densify-ready", "fixture-densify-busy", "fixture-densify-review", "fixture-densify-no-reduction", "fixture-densify-accepted", "fixture-densify-discarded", "densify", "densify-cancel", "densify-accept", "densify-discard",
+            "fixture-densify-ready", "fixture-densify-unavailable", "densify-model-alternative", "fixture-densify-busy", "fixture-densify-review", "fixture-densify-no-reduction", "fixture-densify-accepted", "fixture-densify-discarded", "densify", "densify-cancel", "densify-accept", "densify-discard",
             "fixture-ordinary", "fixture-ordinary-failed", "fixture-ordinary-interrupted",
             "fixture-populated", "fixture-empty", "fixture-error", "fixture-off", "fixture-history", "fixture-running", "fixture-progressive", "fixture-complete", "fixture-interrupted", "fixture-failed", "fixture-cancelled", "fixture-unknown", "fixture-reset",
         ] {
@@ -1574,6 +1574,8 @@ mod tests {
             json!({"type":"memory","action":"native-copy","key":"a"}),
             json!({"type":"memory","action":"native-copy","clipboard":true}),
             json!({"type":"memory","action":"editor-check","height":600}),
+            json!({"type":"memory","action":"densify-model-alternative","model":"private"}),
+            json!({"type":"memory","action":"fixture-densify-unavailable","options":[]}),
         ] {
             assert!(serde_json::from_value::<Command>(value).is_err());
         }

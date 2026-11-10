@@ -278,6 +278,8 @@ def densify_presentations(run, action, capture, images):
     action('fixture-densify-ready')
     memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'authored 13250 densify button')
     capture('densify-ready')
+    action('densify-model-alternative')
+    capture('densify-selected')
     action('densify')
     memory_wait(run, lambda value: value['confirmationVisible'], 'actual hook supplied-candidate review')
     capture('densify-review')
@@ -294,6 +296,9 @@ def densify_presentations(run, action, capture, images):
     capture('densify-busy')
     action('densify-cancel')
     memory_wait(run, lambda value: not value['confirmationVisible'], 'fixed cancellation settled')
+    action('fixture-densify-unavailable')
+    memory_wait(run, lambda value: value['loaded'] and not value['confirmationVisible'], 'unavailable default without substitution')
+    capture('densify-unavailable')
     return images
 
 

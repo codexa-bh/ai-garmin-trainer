@@ -11,6 +11,7 @@ import type {
   SummaryCommand,
   SummaryRebuildInspection,
   SummaryRebuildSelection,
+  DensifyModels,
 } from "@/lib/memory/summary-controls";
 import { parseRebuildSelection } from "@/lib/memory/summary-controls";
 import type { SummaryPin } from "@/lib/chat/summary-pin";
@@ -41,7 +42,12 @@ export type SummaryInspection = Omit<SummaryStatus, "usedByChat"> & {
     exclusions: string;
   };
   rebuild?: SummaryRebuildInspection;
-  densify?: { available: boolean; review: DensifyReview | null };
+  densify?: {
+    available: boolean;
+    sourceAvailable?: boolean;
+    models?: DensifyModels;
+    review: DensifyReview | null;
+  };
   selectedChat: {
     conversationId: string;
     segmentRevision: number;
@@ -103,6 +109,7 @@ export function useMemoryFeature({
   const [densifyReview, setDensifyReview] = useState<DensifyReview | null>(
     null,
   );
+  const [densifyModel, setDensifyModel] = useState<string | undefined>();
   const densifyPending = useRef(false);
   const densifySequence = useRef(0);
   const currentInspection = useRef<SummaryInspection | null>(null);
@@ -199,7 +206,11 @@ export function useMemoryFeature({
           currentInspection.current = result;
           setMemory(result);
         }
-        if (result.densify?.review) setDensifyReview(result.densify.review);
+        if (result.densify?.review) {
+          setDensifyReview(result.densify.review);
+          if (!["running", "review"].includes(result.densify.review.state))
+            setDensifyModel(undefined);
+        }
         setIsMemoryReadUnavailable(false);
         setMemoryMessage("");
         if (showStatus)
@@ -307,7 +318,11 @@ export function useMemoryFeature({
       action.action === "densify-discard" ||
       action.action === "densify-cancel"
     )
-      return densifyMemory(action.action, action.id);
+      return densifyMemory(
+        action.action,
+        action.id,
+        action.action === "densify-request" ? action.model : undefined,
+      );
     if (
       reviewed &&
       (reviewed !== currentInspection.current || reviewed !== memory)
@@ -359,6 +374,7 @@ export function useMemoryFeature({
     sequence.current++;
     densifySequence.current++;
     setDensifyReview(null);
+    setDensifyModel(undefined);
     changing.current = true;
     currentInspection.current = null;
     setPendingMemoryAction(action.action);
@@ -441,12 +457,20 @@ export function useMemoryFeature({
       | "densify-discard"
       | "densify-cancel",
     existingId?: string,
+    model = densifyModel,
   ) {
     const before = currentInspection.current;
     if (!before || isMemoryReadUnavailable || changing.current) return;
     if (
       action === "densify-request" &&
-      (densifyPending.current || editingMemoryId || !before.densify?.available)
+      (densifyPending.current ||
+        editingMemoryId ||
+        (model === undefined
+          ? !before.densify?.available
+          : !before.densify?.sourceAvailable ||
+            !before.densify.models?.options.some(
+              (option) => option.value === model,
+            )))
     )
       return;
     if (
@@ -479,11 +503,16 @@ export function useMemoryFeature({
             expected: before.expected,
             action,
             id,
+            ...(action === "densify-request" && model !== undefined
+              ? { model }
+              : {}),
           }),
         }),
       );
       if (!mounted.current || request !== densifySequence.current) return;
       setDensifyReview(result.densify);
+      if (!["running", "review"].includes(result.densify.state))
+        setDensifyModel(undefined);
       if (action === "densify-accept") {
         await loadMemories(false);
         setMemoryMessage(
@@ -493,6 +522,7 @@ export function useMemoryFeature({
     } catch {
       if (request !== densifySequence.current) return;
       setDensifyReview(null);
+      setDensifyModel(undefined);
       setMemoryMessage(
         "Densify failed or its outcome is unknown. Refresh to inspect; no request is automatically repeated and previous costs remain.",
       );
@@ -522,6 +552,8 @@ export function useMemoryFeature({
     summaryExpanded,
     setSummaryExpanded,
     densifyReview,
+    densifyModel,
+    setDensifyModel,
     densifyMemory,
     memoryMessage,
     isMemoryLoading,

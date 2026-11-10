@@ -46,6 +46,26 @@ export function resolveSummarySelection(
   return selected;
 }
 
+/** Manual overrides are exact catalog choices, never the legacy default scalar. */
+export function parseSummaryOverride(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const record: unknown = JSON.parse(value);
+    if (
+      !record ||
+      typeof record !== "object" ||
+      Array.isArray(record) ||
+      Object.keys(record).sort().join() !==
+        "entryId,modelId,provider,version" ||
+      !summarySelection(value)
+    )
+      return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 export function encodeSummarySelection(entry: ChatEntry): string {
   const raw = JSON.stringify({
     version: 1,

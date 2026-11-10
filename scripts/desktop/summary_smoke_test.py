@@ -147,7 +147,7 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertNotIn('save', actions)
             self.assertNotIn('rebuild-start', actions)
             self.assertEqual(actions[-1], 'fixture-reset')
-            self.assertEqual(len(images), 48)
+            self.assertEqual(len(images), 52)
             for fixture in ('ordinary', 'ordinary-failed', 'ordinary-interrupted'):
                 self.assertEqual(actions.count('fixture-' + fixture), 1)
                 receipt = json.loads((run.root / ('memory-' + fixture + '.json')).read_text())
@@ -155,8 +155,9 @@ class SummarySmokeTests(unittest.TestCase):
                 self.assertEqual(receipt['mutations'], 0)
                 self.assertTrue(receipt['automaticObservation'])
                 self.assertEqual(len([image for image in images if image['state'] == fixture]), 2)
-            for name in ('densify-ready', 'densify-review', 'densify-accepted', 'densify-no-reduction', 'densify-busy'):
+            for name in ('densify-ready', 'densify-selected', 'densify-review', 'densify-accepted', 'densify-no-reduction', 'densify-busy', 'densify-unavailable'):
                 self.assertEqual(len([image for image in images if image['state'] == name]), 2)
+            self.assertEqual(actions.count('densify-model-alternative'), 1)
             self.assertEqual(actions.count('densify'), 1)
             self.assertEqual(actions.count('densify-accept'), 1)
             self.assertEqual(actions.count('densify-cancel'), 1)
@@ -197,7 +198,7 @@ class SummarySmokeTests(unittest.TestCase):
             run.start.assert_called_once()
 
     def test_selected_families_have_local_prerequisites_and_reset_before_next_family(self):
-        expected = {'densify': (10, 'fixture-densify-ready'), 'overview': (19, 'fixture-populated'), 'history': (19, 'fixture-history')}
+        expected = {'densify': (14, 'fixture-densify-ready'), 'overview': (19, 'fixture-populated'), 'history': (19, 'fixture-history')}
         for family, (count, first) in expected.items():
             with self.subTest(family=family), tempfile.TemporaryDirectory() as folder:
                 run=SimpleNamespace(root=Path(folder),id='unit',config={'source':'source'},command=Mock(return_value={'ok':True}))
