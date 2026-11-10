@@ -520,14 +520,16 @@ body::before {
   display: none;
 }
 
-.sync-current-status {
+.sync-current-status,
+.memory-densify-status {
   display: flex;
   align-items: center;
   gap: 8px;
   font-weight: 600;
 }
 
-.sync-busy-cue {
+.sync-busy-cue,
+.memory-busy-cue {
   width: 1em;
   height: 1em;
   flex: 0 0 1em;
@@ -544,7 +546,8 @@ body::before {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sync-busy-cue {
+  .sync-busy-cue,
+  .memory-busy-cue {
     animation: none;
     border-color: var(--accent);
   }

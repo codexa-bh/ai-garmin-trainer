@@ -1402,7 +1402,8 @@
           ]
         : []),
       "Save or cancel your edit first.",
-      "Densifying… Your saved summary stays in use. Cancellation cannot recall sent text or costs.",
+      "Densifying…",
+      "Your saved summary stays in use. Cancellation cannot recall sent text or costs.",
       "13250 → 7000 characters · target 6000",
       "13250 → 13250 characters · target 6000",
       "6250 fewer characters. Check meaning before saving.",
@@ -1632,7 +1633,7 @@
       progress.setAttribute("data-smoke-reveal", "");
     }
     for (const node of panel.querySelectorAll(
-      'h2,h3,h4,p,li,button,label,legend,div[aria-label="Complete candidate summary"]',
+      'h2,h3,h4,p,li,button,label,legend,div[aria-label="Complete candidate summary"],span.memory-densify-status[role="status"]',
     )) {
       if (!labels.has(node.textContent.trim()) || !visible(node)) continue;
       if (

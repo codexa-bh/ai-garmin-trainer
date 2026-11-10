@@ -383,6 +383,20 @@ export function MemoryContent({
                       </select>
                     </div>
                     <div className="button-row">
+                      {densifying && (
+                        <span
+                          className="memory-densify-status"
+                          role="status"
+                          aria-live="polite"
+                          aria-atomic="true"
+                        >
+                          <span
+                            className="memory-busy-cue"
+                            aria-hidden="true"
+                          />
+                          Densifying…
+                        </span>
+                      )}
                       <button
                         type="button"
                         ref={densifyButton}
@@ -430,9 +444,9 @@ export function MemoryContent({
                         </p>
                       )}
                     {densifying && (
-                      <p role="status">
-                        Densifying… Your saved summary stays in use.
-                        Cancellation cannot recall sent text or costs.
+                      <p>
+                        Your saved summary stays in use. Cancellation cannot
+                        recall sent text or costs.
                       </p>
                     )}
                     {reviewingDensify && (
