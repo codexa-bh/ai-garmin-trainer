@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { migrateDatabase } from "@/lib/db/migrations";
+import { SUMMARY_SYSTEM } from "@/lib/memory/summary-policy";
 import {
   summaryStorage as storage,
   noteSummaryActivity,
@@ -94,6 +95,61 @@ it.each([5999, 6000, 6578, 6399, 20001])(
       cap: 6000,
       attemptsToday: 1,
     });
+  },
+);
+it.each([
+  "Rotating shifts allow 25-minute weekday sessions; committed to one weekend strength session. Now prefers afternoons, not mornings.",
+  "",
+])(
+  "processes relevance-pruned supplied output with exclude: [] and complete prior input (%j)",
+  async (text) => {
+    const previous =
+      "Rotating shifts allow 25-minute weekday sessions. Prefers mornings. Ride calorie/zone/KPI table and assistant save claims are old clutter.";
+    storage.editSummary(storage.version(), previous, now);
+    const admitted = history.admit(
+      "authored-curation",
+      "I now prefer afternoons, not mornings, and commit to one weekend strength session. Could two sessions work?",
+    );
+    history.complete(admitted.admission, {
+      content:
+        "We could compare options; no choice of two sessions is recorded.",
+      grounding: null,
+    });
+    noteSummaryActivity(now);
+    now += 3000;
+    const generate = vi.fn<SummaryGeneration["generate"]>(async () =>
+      response(text),
+    );
+    await engine(generate).tick(new AbortController().signal);
+    expect(generate).toHaveBeenCalledTimes(1);
+    const [system, prompt, , format] = vi.mocked(generate).mock.calls[0];
+    expect(system).toBe(SUMMARY_SYSTEM);
+    expect(format).toBe("maintenance");
+    const payload = JSON.parse(prompt);
+    expect(Object.keys(payload).sort()).toEqual([
+      "allowance",
+      "currentProfile",
+      "newSources",
+      "now",
+      "previous",
+      "targetCharacters",
+    ]);
+    expect(payload.previous).toBe(previous);
+    expect(payload.newSources).toHaveLength(1);
+    expect(payload.newSources[0].user).toContain("Could two sessions work?");
+    expect(payload.allowance).toContain(
+      "both prior text and new eligible input",
+    );
+    expect(payload.allowance).toContain("not a quota");
+    expect(payload.allowance).toContain("not via exclude");
+    expect(storage.inspect().text).toBe(text);
+    expect(storage.status(now).pending).toBe(0);
+    expect(db.prepare("select reason from summary_disposition").all()).toEqual([
+      { reason: "processed" },
+    ]);
+    expect(attempts()[0].outcome).toBe("committed");
+    // Supplied candidates (including empty) prove mechanics, not that the model
+    // selected these facts correctly or that the empty candidate is desirable here.
   },
 );
 it.each([

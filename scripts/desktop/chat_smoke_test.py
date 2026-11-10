@@ -84,6 +84,30 @@ class ChatSmokeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'original user/context date'):
                 chat_smoke.memory_response(body(changed))
 
+    def test_import_observation_allows_idle_poll_but_still_requires_completion(self):
+        for complete_at in [31, None]:
+            clock = [0.0]
+            def sleep(seconds):
+                clock[0] += seconds
+            def api(*args):
+                state = 'complete' if complete_at is not None and clock[0] >= complete_at else 'active'
+                return json.dumps({'historical': {'manifests': [{'state': state, 'position': 3 if state == 'complete' else 0}]}, 'reason': None})
+            with patch.object(chat_smoke.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(chat_smoke.time, 'sleep', side_effect=sleep), patch.object(chat_smoke, 'api', side_effect=api):
+                if complete_at is None:
+                    with self.assertRaisesRegex(ValueError, 'did not settle'):
+                        chat_smoke.wait_reviewed_import(object())
+                    self.assertLess(clock[0], 66)
+                else:
+                    result = chat_smoke.wait_reviewed_import(object())
+                    self.assertEqual(result['historical']['manifests'][0], {'state': 'complete', 'position': 3})
+                    self.assertGreaterEqual(clock[0], 31)
+                    self.assertLess(clock[0], 32)
+        failed = json.dumps({'historical': {'manifests': [{'state': 'active'}]}, 'reason': 'summary_invalid_output'})
+        with patch.object(chat_smoke, 'api', return_value=failed), patch.object(chat_smoke.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(ValueError, 'summary_invalid_output'):
+                chat_smoke.wait_reviewed_import(object())
+            sleep.assert_not_called()
+
     def test_import_seed_requires_stopped_exclusive_off_copy_and_preserves_originals(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

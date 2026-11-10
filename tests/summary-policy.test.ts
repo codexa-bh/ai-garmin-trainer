@@ -205,7 +205,7 @@ describe("closed complete-text policy and independent input/privacy boundaries",
     expect(candidate?.value.text).toBe(text);
     expect(SUMMARY_SYSTEM).toContain("untrusted discussion data");
   });
-  it("has no model IDs, source-fate or item-loss contract; preserves complete meaning including negation", () => {
+  it("has no model IDs, source-fate or item-loss contract; accepts supplied qualified meaning including negation", () => {
     const inputs = [
       {
         sourceId: "authored:1",
@@ -239,7 +239,29 @@ describe("closed complete-text policy and independent input/privacy boundaries",
     expect(SUMMARY_SYSTEM).toContain(
       "Assistant proposals/context are not user endorsement",
     );
-    expect(SUMMARY_SYSTEM).toContain("their reasons");
+    expect(SUMMARY_SYSTEM).toContain(
+      "only when they materially change future advice",
+    );
+  });
+  it("instructs selection before compression without treating privacy exclusion as relevance", () => {
+    // Prompt-contract evidence only, not an assertion of model compliance.
+    for (const instruction of [
+      "BOTH previous text and new eligible input",
+      "Prior inclusion alone is not evidence of importance or truth",
+      "keeping still-useful prior knowledge when new input is unrelated",
+      "not the analysis archive",
+      "not a number ban",
+      "25-minute weekday sessions",
+      "one weekend strength session",
+      "KPI actuals/scores",
+      "not via exclude",
+      "not a quota",
+      "do not pad toward the target",
+      "unresolved conflicts remain unresolved",
+      "If every new input is excluded return previous exactly unchanged",
+    ])
+      expect(SUMMARY_SYSTEM).toContain(instruction);
+    expect(SUMMARY_SYSTEM).not.toContain("around that target");
   });
   it("rejects extra/malformed/non-scalar outputs with only closed diagnostics and no repair", () => {
     for (const raw of [
@@ -283,7 +305,12 @@ describe("closed complete-text policy and independent input/privacy boundaries",
     )!;
     expect(result.value).toEqual(emptySummary());
     expect(result.dispositions[0].reason).toBe("processed");
-    expect(SUMMARY_SYSTEM).toContain("Empty or underfull");
+    expect(SUMMARY_SYSTEM).toContain(
+      "Empty is valid when there is no useful durable context",
+    );
+    expect(SUMMARY_SYSTEM).toContain(
+      "Concise underfull useful memory is valid",
+    );
     expect(SUMMARY_SYSTEM).toContain(
       "Structural validation is not semantic truth certification",
     );
