@@ -822,11 +822,6 @@ export function MemoryContent({
                     </button>
                   </section>
                 ))}
-              {memory.rebuild?.operation?.state === "complete" && (
-                <button type="button" onClick={back}>
-                  View saved memory
-                </button>
-              )}
               {memory.rebuild?.operation?.state !== "active" &&
                 !retainedResult && (
                   <>
