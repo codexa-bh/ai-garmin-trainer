@@ -29,8 +29,7 @@ finite provider/whole-run cost bounds before any effect; old allocation constant
 not such proof. Historical reservations, unknown liabilities and observed usage remain
 distinct from invoices and are never reset/refunded by retries or migration.
 
-Native's existing owner supplies immutable captured provider credentials; they never
-enter jobs, SQLite, renderer readback or new secret files. Direct OpenAI remains
+Native's API-key or separate [ChatGPT subscription](chatgpt.md) owner supplies immutable admitted provider identity; credentials never enter jobs, SQLite or renderer readback. Subscription uses its protected companion store and compatible streaming path for maintenance, rebuild, retained explicit import, Densify and titles. It needs no API key, embedding or unsupported counting preflight; token observations carry a plan/credit basis, not API-price multiplication. Disconnect/currentness loss prevents stale publication without a replacement request. Direct OpenAI remains
 store:false without threads/tools/SDK retries. Other configured transports retain their
 own stateless construction and honest privacy limits, not claimed OpenAI retention.
 

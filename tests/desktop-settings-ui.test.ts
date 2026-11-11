@@ -645,7 +645,13 @@ describe("trusted local desktop settings UI", () => {
       Array.from(document.querySelectorAll(".catalog-provider h2")).map(
         (el) => el.textContent,
       ),
-    ).toEqual(["OpenAI", "DeepSeek", "Ollama", "OpenRouter"]);
+    ).toEqual([
+      "ChatGPT subscription",
+      "OpenAI API key",
+      "DeepSeek",
+      "Ollama",
+      "OpenRouter",
+    ]);
     for (const provider of ["openai", "deepseek", "openrouter"]) {
       const slot = `${provider.toUpperCase()}_API_KEY`;
       expect(document.querySelectorAll(`#${slot}`)).toHaveLength(1);
@@ -655,8 +661,12 @@ describe("trusted local desktop settings UI", () => {
       input("OLLAMA_BASE_URL").closest("#catalog-ollama details"),
     ).not.toBeNull();
     expect(
-      document.querySelectorAll("#catalog-entries select:not([id$='-intent'])"),
-    ).toHaveLength(0);
+      [
+        ...document.querySelectorAll(
+          "#catalog-entries select:not([id$='-intent'])",
+        ),
+      ].map((select) => select.id),
+    ).toEqual(["chatgpt-account", "chatgpt-model"]);
     const key = input("OPENAI_API_KEY");
     fireEvent.input(key, { target: { value: "synthetic-draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Add DeepSeek model" }));
@@ -719,7 +729,7 @@ describe("trusted local desktop settings UI", () => {
     for (const add of document.querySelectorAll<HTMLButtonElement>(
       ".catalog-add",
     ))
-      expect(add.disabled).toBe(false);
+      expect(add.disabled).toBe(add.id === "catalog-chatgpt-add");
   });
   it("preserves catalog drafts/array order and IDs on stale save, clears secrets, and restores persisted catalog only on cancel", async () => {
     const original = invoke.getMockImplementation()!;

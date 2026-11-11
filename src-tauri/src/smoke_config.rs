@@ -399,6 +399,26 @@ mod tests {
         let mut settings = serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite"),"AI_PROVIDER":"ollama","MEMORY_ENABLED":"false"}});
         write(&config.settings(), settings.to_string().as_bytes());
         assert!(config.validate().is_ok());
+        #[cfg(debug_assertions)]
+        {
+            assert!(crate::setup_smoke::chatgpt_metadata(&config).unwrap().is_none());
+            let marker = root.join("chatgpt-presentation.json");
+            write(&marker,serde_json::json!({"version":1,"runId":id}).to_string().as_bytes());
+            let metadata = crate::setup_smoke::chatgpt_metadata(&config).unwrap().unwrap();
+            assert_eq!(metadata.as_array().unwrap().len(),2);
+            for forbidden in ["accessToken","refreshToken","idToken","clientId","subject"] { assert!(!metadata.to_string().contains(forbidden)); }
+            let subscription: crate::chat_catalog::Catalog = serde_json::from_value(serde_json::json!({"version":1,"defaultEntryId":null,"entries":[{"id":"entry_fixture","provider":"chatgpt","registrationId":"registration_11111111-1111-4111-8111-111111111111","modelId":"synthetic/chatgpt:one"}]})).unwrap();
+            assert!(!config.accepts_catalog(&subscription,&std::collections::BTreeMap::new()));
+            write(&marker,serde_json::json!({"version":1,"runId":"foreign"}).to_string().as_bytes());
+            assert!(crate::setup_smoke::chatgpt_metadata(&config).is_err());
+            write(&marker,serde_json::json!({"version":1,"runId":id,"token":"private"}).to_string().as_bytes());
+            assert!(crate::setup_smoke::chatgpt_metadata(&config).is_err());
+            fs::remove_file(&marker).unwrap();
+            std::os::unix::fs::symlink(config.settings(),&marker).unwrap();
+            assert!(crate::setup_smoke::chatgpt_metadata(&config).is_err());
+            fs::remove_file(&marker).unwrap();
+            assert!(crate::setup_smoke::chatgpt_metadata(&config).unwrap().is_none());
+        }
         settings["fields"]["AI_MODEL"] = serde_json::json!("gpt-6-luna");
         write(&config.settings(), settings.to_string().as_bytes());
         assert!(config.validate().is_ok());
@@ -556,6 +576,7 @@ mod tests {
                 id: format!("entry_{}", uuid::Uuid::new_v4()),
                 provider: provider.into(),
                 model_id: format!("synthetic/{provider}:Second"),
+                registration_id: None,
                 display_name: None,
             });
         }

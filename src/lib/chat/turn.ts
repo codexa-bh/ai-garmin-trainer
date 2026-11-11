@@ -123,9 +123,19 @@ export function createChatTurns(ports: ChatTurnPorts) {
     };
     input.assertCurrent?.();
     const generate = ports.selectGeneration(input.assertCurrent);
+    if (generate.assertCurrent) {
+      const historyCurrent = input.assertCurrent;
+      input.assertCurrent = () => {
+        historyCurrent?.();
+        generate.assertCurrent?.();
+      };
+      input.assertCurrent();
+    }
     let replay: ConversationReplay | undefined;
     let contextReason: ConversationContextObservation["reason"] =
-      generate.compaction ? "reviewed-luna" : "unqualified-route";
+      generate.compaction
+        ? (generate.replayReason ?? "reviewed-luna")
+        : "unqualified-route";
     let publication: ConversationContextObservation["publication"] =
       "not-needed";
     let compactionReason: ConversationContextObservation["compactionReason"];

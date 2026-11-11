@@ -32,8 +32,12 @@ import {
   assertSummaryRefreshIdle,
   refreshConversationSummary,
 } from "../db/conversation-history";
-import { summaryConfiguration, densifyModels } from "./summary-configuration";
-import { entryLabel } from "../model-settings/catalog";
+import {
+  summaryConfiguration,
+  densifyModels,
+  summaryConnectionCurrent,
+  summaryEntryLabel,
+} from "./summary-configuration";
 import { parseSummaryOverride } from "../model-settings/summary-selection";
 import type {
   SummaryCommand,
@@ -249,7 +253,8 @@ function densifyOwner() {
         !lifetime.stopping &&
         !abort.signal.aborted &&
         liveConfigurationStatus().boot === live.boot &&
-        liveConfigurationStatus().generation === live.generation;
+        liveConfigurationStatus().generation === live.generation &&
+        summaryConnectionCurrent(captured);
       const generation = createSummaryGeneration(
         captured,
         fetch,
@@ -262,7 +267,7 @@ function densifyOwner() {
       return {
         generation,
         model: captured.SUMMARY_MODEL,
-        modelLabel: entryLabel(selected.entry),
+        modelLabel: summaryEntryLabel(selected.entry, captured),
         current,
         signal: abort.signal,
         finish() {
@@ -380,7 +385,8 @@ export async function tickCrossChatSummary(identity: string): Promise<void> {
   const current = () =>
     !lifetime.stopping &&
     !abort.signal.aborted &&
-    liveConfigurationStatus().generation === live.generation;
+    liveConfigurationStatus().generation === live.generation &&
+    summaryConnectionCurrent(env);
   const generationCurrent = () => {
     if (!current()) return false;
     const latest = summaryStorage.version();

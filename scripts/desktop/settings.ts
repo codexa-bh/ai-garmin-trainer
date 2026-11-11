@@ -2,6 +2,7 @@ import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { configuredSecret, getOptionalEnv } from "../../src/lib/env";
 import fields from "../../src-tauri/ui/settings-fields.json";
+import { validateChatgptDescriptor } from "../../src/lib/ai/chatgpt-connection";
 import {
   legacyChatCatalog,
   containsControlCharacters,
@@ -130,12 +131,55 @@ export function validateSettings(
   return result;
 }
 
+// Version4 wraps two independently bounded private documents plus its descriptor.
+// Preserve the old single-document bound for every other private command/frame.
+export const PRIVATE_FRAME_LIMIT = 260 * 1024;
+export function decodePrivateFrame(bytes: Uint8Array): unknown {
+  if (bytes.length >= PRIVATE_FRAME_LIMIT)
+    throw new Error("Activation too large.");
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(bytes).toString("utf8"));
+  } catch {
+    throw new Error("Invalid activation.");
+  }
+  if (
+    bytes.length >= 128 * 1024 &&
+    !(
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      "version" in value &&
+      value.version === 4
+    )
+  )
+    throw new Error("Activation too large.");
+  return value; // Closed per-operation validators still own the complete schema.
+}
 export function activationEnvironment(
   input: unknown,
   database: "existing" | "new" = "existing",
 ): Record<string, string> {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("Invalid activation.");
+  if ("version" in input && input.version === 4) {
+    if (
+      Object.keys(input).sort().join() !== "activation,chatgpt,version" ||
+      !("activation" in input) ||
+      !("chatgpt" in input) ||
+      !input.activation ||
+      typeof input.activation !== "object" ||
+      !("version" in input.activation) ||
+      ![1, 2, 3].includes(input.activation.version as number)
+    )
+      throw new Error("Unsupported ChatGPT activation.");
+    return {
+      ...activationEnvironment(input.activation, database),
+      CHATGPT_CONNECTIONS: JSON.stringify(
+        validateChatgptDescriptor(input.chatgpt).connections,
+      ),
+    };
+  }
   const frame = input as {
     version?: unknown;
     fields?: unknown;

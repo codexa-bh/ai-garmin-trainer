@@ -76,15 +76,20 @@ export function modelSettingsSnapshot(
   config: ModelConfiguration,
 ): ModelSettingsSnapshot {
   const options = config.catalog.entries.map((entry) => {
-    const available = config.configured[entry.provider];
+    const available =
+      entry.provider === "chatgpt"
+        ? Boolean(config.availableSubscriptionEntries?.includes(entry.id))
+        : config.configured[entry.provider];
     return {
       ...entry,
-      label: entryLabel(entry),
+      label: config.subscriptionLabels?.[entry.id] ?? entryLabel(entry),
       available,
       ...(!available
         ? {
             unavailableReason:
-              "Provider key is not configured. Save in native Settings and confirm live application; retry availability.",
+              entry.provider === "chatgpt"
+                ? "ChatGPT registration, plan permission or selected account model is unavailable. Reconnect or refresh models in native Settings; no paid fallback."
+                : "Provider key is not configured. Save in native Settings and confirm live application; retry availability.",
           }
         : {}),
     };

@@ -122,6 +122,9 @@ export function garminTokenEnvironment(
     "OPENAI_API_KEY",
     "DEEPSEEK_API_KEY",
     "OPENROUTER_API_KEY",
+    "CHATGPT_CONNECTIONS",
+    "CHATGPT_REGISTRATION",
+    "CHATGPT_MODEL",
   ])
     delete env[key];
   return env;

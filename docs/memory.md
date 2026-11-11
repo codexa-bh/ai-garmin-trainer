@@ -21,8 +21,10 @@ Native Settings → Memory exposes:
   valid text above the target is saved and used unchanged; lowering the target
   does not erase it. Separately authored preferences do not count toward the target.
 
+[ChatGPT subscription](chatgpt.md) is an independent supported summary/title choice with no API-key, embedding or token-count prerequisite. The same compatible streaming factory serves maintenance, history rebuild/import, explicit Densify and titles while Summary is Off. The selected registration/model is captured; disconnect or permission/currentness loss prevents late publication. Plan/credit usage and observed tokens are not API-price estimates; missing counters stay unknown.
+
 A smaller, cheaper model is usually sufficient. Minimized eligible context may
-leave the device through the selected provider's existing native private-slot owner;
+leave the device through the selected provider's native private-key or subscription credential owner;
 keys never enter renderer readback, jobs or generated secret files. Summary/title/
 local compaction have no product-wide spending/attempt cap, tokenizer qualification
 or output-token cap. The provider can refuse capacity; full memory is not silently

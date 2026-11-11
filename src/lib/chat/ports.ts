@@ -39,6 +39,8 @@ export type ChatGenerator = ((
   input: ChatGenerationInput,
 ) => Promise<ChatGenerationResult>) & {
   compaction?: ConversationCompactionGeneration;
+  assertCurrent?: () => void;
+  replayReason?: "subscription-replay";
 };
 
 export type ChatTurnPorts = {

@@ -15,6 +15,19 @@
         <p id="step-heading" tabindex="-1"></p>
         <p>1. Data → 2. Provider → 3. Connect Garmin or continue → 4. Review</p>
       </nav>
+      <dialog
+        id="chatgpt-welcome"
+        aria-labelledby="chatgpt-welcome-heading"
+        aria-describedby="chatgpt-welcome-description"
+      >
+        <h2 id="chatgpt-welcome-heading">You’re using your ChatGPT plan</h2>
+        <p id="chatgpt-welcome-description">
+          Eligible requests through ChatGPT models use your plan or credits.
+          Other provider choices stay unchanged. Manage usage and app limits in
+          ChatGPT settings.
+        </p>
+        <button type="button" id="chatgpt-welcome-dismiss">Got it</button>
+      </dialog>
       <form id="settings" autocomplete="off">
         <fieldset id="data-step">
           <legend>Local data</legend>
@@ -34,9 +47,8 @@
         <fieldset id="normal">
           <legend>Chat model catalog</legend>
           <p>
-            Add up to 32 entries across OpenAI, DeepSeek, Ollama and OpenRouter.
-            Enter exact model IDs; names are optional. Keys are shared per
-            provider. Local configuration is not remote availability.
+            Add up to 32 models. ChatGPT plan access is separate from API keys
+            and local Ollama. No automatic provider or paid fallback.
           </p>
           <p id="catalog-migration" hidden>
             Legacy models are shown for explicit compatibility on Save. Original
@@ -47,11 +59,82 @@
           <div id="catalog-entries">
             <section
               class="catalog-provider"
+              id="catalog-chatgpt"
+              aria-labelledby="catalog-chatgpt-heading"
+            >
+              <header>
+                <h2 id="catalog-chatgpt-heading">ChatGPT subscription</h2>
+              </header>
+              <p class="helper">
+                Eligible requests use your ChatGPT plan or credits. No OpenAI
+                API key needed.
+              </p>
+              <label
+                >Saved registration<select id="chatgpt-account">
+                  <option value="">Add a ChatGPT account</option>
+                </select></label
+              >
+              <div class="actions">
+                <button type="button" id="chatgpt-connect">
+                  <img
+                    src="chatgpt-logo-white.svg"
+                    alt=""
+                    width="21"
+                    height="21"
+                  />
+                  Continue with ChatGPT
+                </button>
+                <button type="button" id="chatgpt-consent">
+                  Enable plan use
+                </button>
+                <button type="button" id="chatgpt-cancel" hidden>
+                  Cancel sign-in
+                </button>
+              </div>
+              <p id="chatgpt-status" role="status" tabindex="-1">
+                Not connected
+              </p>
+              <div class="actions">
+                <button type="button" id="chatgpt-models">
+                  Refresh models
+                </button>
+                <button type="button" id="chatgpt-disconnect">
+                  Disconnect
+                </button>
+                <button type="button" id="chatgpt-usage">Manage usage</button>
+              </div>
+              <label
+                >Account model<select id="chatgpt-model">
+                  <option value="">Choose a model</option>
+                </select></label
+              >
+              <button
+                type="button"
+                class="catalog-add"
+                id="catalog-chatgpt-add"
+                aria-label="Add ChatGPT plan model"
+              >
+                Add model
+              </button>
+              <div id="catalog-chatgpt-rows"></div>
+              <details>
+                <summary>Connection and storage</summary>
+                <p class="helper">
+                  Sign in privately in your system browser. Native owner-private
+                  plaintext storage keeps credentials out of Trainer; it is not
+                  encryption. Connection changes are saved separately. Add
+                  models and Save to apply the catalog; memory model changes
+                  need quit/reopen.
+                </p>
+              </details>
+            </section>
+            <section
+              class="catalog-provider"
               id="catalog-openai"
               aria-labelledby="catalog-openai-heading"
             >
               <header>
-                <h2 id="catalog-openai-heading">OpenAI</h2>
+                <h2 id="catalog-openai-heading">OpenAI API key</h2>
                 <button
                   type="button"
                   class="catalog-add"

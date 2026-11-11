@@ -66,6 +66,12 @@ export function ModelSettingsCard({
               : "Saved"}
         </span>
       ) : null}
+      {entry?.provider === "chatgpt" && entry.available ? (
+        <span className="chat-model-save-state">
+          Using ChatGPT plan ·{" "}
+          <a href="https://chatgpt.com/settings/usage">Manage usage</a>
+        </span>
+      ) : null}
       {snapshot?.unavailableReason ? (
         <p role="alert">{snapshot.unavailableReason}</p>
       ) : null}

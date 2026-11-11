@@ -1,5 +1,7 @@
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAI } from "@ai-sdk/openai";
+import { chatgptModel } from "./chatgpt-transport";
+import { chatgptConnection } from "./chatgpt-connection";
 import {
   countedConversationFetch,
   conversationTextCounter,
@@ -7,6 +9,7 @@ import {
 import type { ReplayMessage } from "../chat/conversation-replay";
 import {
   configuredSecret,
+  chatgptAdmissionCurrent,
   extractionConfiguration,
   getOptionalEnv,
   hasConfiguredSecret,
@@ -16,7 +19,8 @@ import {
 export const OLLAMA_CHAT_DEFAULT_MODEL = "qwen3.5:4b";
 export const OLLAMA_CHAT_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
 
-type AiProviderName = "deepseek" | "openai" | "ollama" | "openrouter";
+type AiProviderName =
+  "deepseek" | "openai" | "ollama" | "openrouter" | "chatgpt";
 type AiProviderSelectionMode = "default" | "fallback" | "explicit";
 
 export type AiProviderStatus = {
@@ -37,6 +41,8 @@ export type SelectedAiModel = {
   selectionMode: AiProviderSelectionMode | null;
   modelName: string;
   model: unknown;
+  assertCurrent?: () => void;
+  conversationReplay?: boolean;
   conversationCount?: (
     messages: ReplayMessage[],
     signal: AbortSignal,
@@ -161,6 +167,30 @@ export function aiProviderStatus(
   env: AppEnv = getOptionalEnv(),
 ): AiProviderStatus {
   const openrouterKeyConfigured = hasConfiguredSecret(env.OPENROUTER_API_KEY);
+  if (env.AI_PROVIDER === "chatgpt") {
+    const connection = chatgptConnection(
+      env.CHATGPT_CONNECTIONS,
+      env.CHATGPT_REGISTRATION,
+      env.CHATGPT_MODEL ?? "",
+    );
+    return {
+      requested: "chatgpt",
+      selected: connection ? "chatgpt" : null,
+      selectionMode: connection ? "explicit" : null,
+      modelName: connection ? (env.CHATGPT_MODEL ?? null) : null,
+      deepseekKeyConfigured: hasConfiguredSecret(env.DEEPSEEK_API_KEY),
+      openaiKeyConfigured: hasConfiguredSecret(env.OPENAI_API_KEY),
+      openrouterKeyConfigured,
+      ollamaBaseUrlLoopback: null,
+      failureClass: connection ? null : "provider.chatgpt_unavailable",
+      ...(!connection
+        ? {
+            remediation:
+              "Reconnect the selected ChatGPT registration, enable plan permission and refresh models in native Settings. No API-key fallback.",
+          }
+        : {}),
+    };
+  }
   if (env.AI_PROVIDER === "openrouter") {
     return {
       requested: "openrouter",
@@ -290,6 +320,42 @@ export function selectedModel(
     };
   }
 
+  if (status.selected === "chatgpt") {
+    const connection = chatgptConnection(
+      env.CHATGPT_CONNECTIONS,
+      env.CHATGPT_REGISTRATION,
+      env.CHATGPT_MODEL ?? "",
+    );
+    if (!connection || !env.CHATGPT_MODEL)
+      throw new Error("chatgpt_connection_unavailable");
+    const current = () => {
+      assertCurrent?.();
+      if (
+        !chatgptAdmissionCurrent(
+          connection.id,
+          connection.epoch,
+          env.CHATGPT_MODEL!,
+        )
+      )
+        throw new Error("conversation_context_invalidated");
+    };
+    return {
+      provider: "chatgpt",
+      assertCurrent: current,
+      selectionMode: "explicit",
+      modelName: env.CHATGPT_MODEL,
+      model: chatgptModel(
+        {
+          registrationId: connection.id,
+          epoch: connection.epoch,
+          model: env.CHATGPT_MODEL,
+        },
+        current,
+        transport,
+      ),
+      conversationReplay: true,
+    };
+  }
   if (status.selected === "openrouter") {
     const openrouter = createOpenAI({
       apiKey: configuredSecret(env.OPENROUTER_API_KEY),

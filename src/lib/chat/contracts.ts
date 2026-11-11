@@ -6,6 +6,7 @@ export type ConversationContextObservation = {
   mode: "active" | "legacy" | "limited";
   reason:
     | "reviewed-luna"
+    | "subscription-replay"
     | "configured-memory"
     | "legacy-unlinked"
     | "unqualified-route"
