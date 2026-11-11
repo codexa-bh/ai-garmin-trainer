@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { WeeklyKpiScorecard } from "../src/app/dashboard/weekly-kpi-scorecard";
+import {
+  WeeklyKpiScorecard,
+  kpiValue,
+} from "../src/app/dashboard/weekly-kpi-scorecard";
 import { WeeklyPlanView } from "../src/app/dashboard/weekly-plan-view";
 import { useWeeklyFeature } from "../src/app/dashboard/use-weekly";
 import type { KpiRead } from "../src/lib/weekly/kpi-contracts";
@@ -17,7 +22,7 @@ const sample: KpiRead = {
   revision: "state",
   timeZone: "UTC",
   originalId: "original",
-  latestId: "adapted",
+  latestId: "original",
   reviewDefinedId: null,
   complete: true,
   availableSets: [
@@ -94,44 +99,147 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-it("exposes original/compound allocation, zero/unknown, above100 and evidence without a manual editor", () => {
+it("formats duration fractions and finite display values without changing stored precision", () => {
+  expect(kpiValue(74.125, "min")).toBe("1 h 14 min 7.5 s");
+  expect(kpiValue(15.25, "sec")).toBe("15.25 s");
+  expect(kpiValue(0, "minutes")).toBe("0 min");
+  expect(kpiValue(7.333333333333, "m")).toBe("7.33 m");
+  expect(kpiValue(Number.POSITIVE_INFINITY, "m")).toBe("Unknown");
+});
+
+it("renders one compact compound KPI grid with zero/unknown, saved above100 total and accessible qualification", () => {
   render(<WeeklyKpiScorecard kpis={sample} loadSet={vi.fn()} />);
+  expect(screen.getByRole("table")).toBeTruthy();
   expect(
-    screen.getByRole("heading", { name: "Original commitment" }),
-  ).toBeTruthy();
-  expect(screen.getByText(/Recorded total: 112.5/)).toBeTruthy();
-  expect(
-    screen.getByText(/100 available points \(one allocation/),
-  ).toBeTruthy();
+    screen.getAllByRole("columnheader").map((value) => value.textContent),
+  ).toEqual(["KPI", "Target", "Actual", "Points"]);
+  expect(screen.getByText("112.5 / 100 points · 112.5%")).toBeTruthy();
+  expect(screen.queryByText("Original commitment")).toBeNull();
+  expect(screen.queryByRole("combobox")).toBeNull();
   expect(screen.getByText(/0 sessions/)).toBeTruthy();
-  expect(screen.getByText(/Recorded actual: Unknown/)).toBeTruthy();
-  fireEvent.click(screen.getByText(/Definition, scoring and evidence/));
+  expect(screen.getByText("Unknown")).toBeTruthy();
+  fireEvent.click(screen.getByText("Scoring and evidence"));
   expect(screen.getByText(/Missing duration, not zero/)).toBeTruthy();
   expect(screen.queryByRole("textbox")).toBeNull();
   expect(
     screen.queryByRole("button", { name: /Discuss|assess.*chat/ }),
   ).toBeNull();
 });
-it("distinguishes empty, unassessed and incomplete baseline reads", () => {
+it("distinguishes empty, unassessed and incomplete latest-plan reads without obsolete fallback", () => {
   const { rerender } = render(
     <WeeklyKpiScorecard kpis={null} loadSet={vi.fn()} />,
   );
-  expect(screen.getByText(/No structured KPIs saved/)).toBeTruthy();
+  expect(screen.getByText(/No KPIs saved for this plan/)).toBeTruthy();
   rerender(
     <WeeklyKpiScorecard
       kpis={{ ...sample, assessments: [] }}
       loadSet={vi.fn()}
     />,
   );
-  expect(screen.getByText(/Not assessed. This is not a zero/)).toBeTruthy();
+  expect(screen.getByText(/Not assessed — not a zero/)).toBeTruthy();
   rerender(
     <WeeklyKpiScorecard
       kpis={{ ...sample, complete: false, sets: [], assessments: [] }}
       loadSet={vi.fn()}
     />,
   );
-  expect(screen.getByRole("status").textContent).toContain("too large");
+  expect(screen.getByRole("status").textContent).toContain("complete read");
+  rerender(
+    <WeeklyKpiScorecard
+      kpis={{ ...sample, latestId: "missing-new-targets" }}
+      loadSet={vi.fn()}
+    />,
+  );
+  expect(screen.queryByText(/112.5/)).toBeNull();
+  expect(screen.getByText(/No KPIs saved for this plan/)).toBeTruthy();
 });
+it("automatically narrows incomplete latest reads and refreshes new targets rather than pinning an obsolete selection", async () => {
+  let latest = "first-latest";
+  const requests: URLSearchParams[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const query = new URL(url, "http://localhost").searchParams;
+      requests.push(query);
+      return Response.json({
+        record: null,
+        kpis: query.get("setId")
+          ? {
+              ...sample,
+              latestId: latest,
+              latestPlanSetId: latest,
+              sets: [{ ...sample.sets[0], id: latest }],
+              assessments: [],
+            }
+          : {
+              ...sample,
+              latestId: latest,
+              latestPlanSetId: latest,
+              complete: false,
+              sets: [],
+              assessments: [],
+            },
+      });
+    }),
+  );
+  const { result } = renderHook(useWeeklyFeature);
+  await act(() => result.current.load("current"));
+  expect(result.current.kpis).toMatchObject({
+    complete: true,
+    latestPlanSetId: latest,
+  });
+  latest = "newer-latest";
+  await act(() => result.current.refresh());
+  expect(result.current.kpis?.sets[0].id).toBe(latest);
+  expect(requests.map((query) => query.get("setId"))).toEqual([
+    null,
+    "first-latest",
+    null,
+    "newer-latest",
+  ]);
+});
+
+it("rejects a late automatic narrowing response after a newer selected week", async () => {
+  let finish!: (value: Response) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const query = new URL(url, "http://localhost").searchParams;
+      if (query.has("setId"))
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      if (query.get("weekStart") === "2026-10-26")
+        return Response.json({
+          record: { revision: "selected" },
+          kpis: sample,
+        });
+      return Response.json({
+        record: null,
+        kpis: {
+          ...sample,
+          latestPlanSetId: "narrow",
+          complete: false,
+          sets: [],
+        },
+      });
+    }),
+  );
+  const { result } = renderHook(useWeeklyFeature);
+  let pending!: Promise<void>;
+  act(() => {
+    pending = result.current.load("current");
+  });
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  await act(() => result.current.load("history", "2026-10-26"));
+  await act(async () => {
+    finish(Response.json({ record: { revision: "obsolete" }, kpis: sample }));
+    await pending;
+  });
+  expect(result.current.week).toBe("2026-10-26");
+  expect(result.current.record?.revision).toBe("selected");
+});
+
 it("reads progress/weekly selection without writes, retains range and ignores stale selected-week responses", async () => {
   const requests: string[] = [];
   let resolveOld: (response: Response) => void = () => {};
@@ -193,7 +301,7 @@ it("reads progress/weekly selection without writes, retains range and ignores st
   resolveOld(Response.json({ record: null, kpis: { ...sample, sets: [] } }));
   await waitFor(() => expect(screen.getByText(/2026-11-09 –/)).toBeTruthy());
   fireEvent.click(screen.getByText("Range"));
-  await screen.findByRole("heading", { name: "Saved weekly progress" });
+  await screen.findByRole("heading", { name: "Weekly achievement" });
   expect(screen.getByLabelText("From Monday")).toHaveProperty(
     "value",
     "2026-11-02",

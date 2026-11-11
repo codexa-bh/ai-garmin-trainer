@@ -10,6 +10,7 @@ import {
   within,
 } from "@testing-library/react";
 import { useState, createRef } from "react";
+import { getNiceTickValues } from "recharts";
 import { SyncView } from "../src/app/dashboard/sync-view";
 import { TerrainTable } from "../src/app/dashboard/terrain-table";
 import { analyzeTerrainSections } from "../src/lib/analytics/terrain-sections";
@@ -26,8 +27,11 @@ import { useModelSettings } from "../src/app/dashboard/use-model-settings";
 import { modelSettingsSnapshot } from "../src/lib/model-settings/policy";
 import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
 import { WeeklyKpiScorecard } from "../src/app/dashboard/weekly-kpi-scorecard";
-import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
+import { authoredAssessedLatestKpis } from "../scripts/ci/kpi-fixture";
 import { projectKpis } from "../src/lib/weekly/kpis";
+import { WeeklyPlanView } from "../src/app/dashboard/weekly-plan-view";
+import { useWeeklyFeature } from "../src/app/dashboard/use-weekly";
+import { addDays, weeklyCalendar } from "../src/lib/weekly/calendar";
 
 declare global {
   interface Window {
@@ -1901,6 +1905,173 @@ it.each(["supported", "partial", "capped"])(
   },
 );
 
+it("exercises finite previous-week and current-plan measurement actions on real weekly views without exposing arbitrary options", async () => {
+  smoke.__trainerOrdinaryIsolated = { runId: "run" };
+  vi.stubGlobal("innerWidth", 1280);
+  vi.stubGlobal("innerHeight", 850);
+  const week = weeklyCalendar(
+    new Date(),
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  ).weekStart;
+  const previous = addDays(week, -7);
+  const current = projectKpis(week, authoredAssessedLatestKpis());
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const query = new URL(url, "http://localhost").searchParams;
+      return Response.json(
+        query.has("before")
+          ? {
+              items: [{ weekStart: previous, hasPlan: true, hasReview: true }],
+              next: null,
+            }
+          : query.get("view") === "progress"
+            ? {
+                from: previous,
+                through: week,
+                weeks: [
+                  { weekStart: previous, kpis: current },
+                  { weekStart: week, kpis: current },
+                ],
+                latestPlan: current,
+              }
+            : { record: null, kpis: current },
+      );
+    }),
+  );
+  function View() {
+    const weekly = useWeeklyFeature();
+    return (
+      <WeeklyPlanView
+        weekly={weekly}
+        close={() => {}}
+        closeRef={createRef()}
+        openGeneral={async () => {}}
+        run={(work) => {
+          work.catch(() => {
+            throw new Error("Unexpected weekly test read failure");
+          });
+        }}
+      >
+        {null}
+      </WeeklyPlanView>
+    );
+  }
+  render(<View />);
+  expect(
+    (await command({ type: "weeklyKpis", action: "current" })).result.ok,
+  ).toBe(true);
+  await screen.findByRole("table");
+  // Let React commit the intermediate History list while the bridge waits for
+  // its finite row. One async act around the entire wait would defer that commit.
+  let previousAction!: Promise<void>;
+  act(() => {
+    previousAction = smoke.__trainerSmoke({
+      requestId: "request",
+      expectedRunId: "run",
+      command: { type: "weeklyKpis", action: "previous" },
+    });
+  });
+  await waitFor(() =>
+    expect(
+      screen.getByText(`${previous} – ${addDays(previous, 6)}`),
+    ).toBeTruthy(),
+  );
+  await act(async () => {
+    await previousAction;
+  });
+  expect(
+    (invoke.mock.calls.at(-1)?.[1] as { result: { ok: boolean } }).result.ok,
+  ).toBe(true);
+  expect(
+    screen.getByText(`${previous} – ${addDays(previous, 6)}`),
+  ).toBeTruthy();
+  expect(
+    (await command({ type: "weeklyKpis", action: "progress" })).result.ok,
+  ).toBe(true);
+  await screen.findByRole("heading", { name: "Weekly achievement" });
+  expect(
+    (await command({ type: "weeklyKpis", action: "measurement" })).result.ok,
+  ).toBe(true);
+  expect(
+    (screen.getByLabelText("Individual KPI") as HTMLSelectElement).value,
+  ).toBe("authored-sessions/count");
+  // jsdom has no chart geometry. Bind the mask fixture to the installed
+  // Recharts tick generator, not a guessed axis; actual native smoke is separate.
+  const authoredTicks = getNiceTickValues([0, 5], 5);
+  expect(authoredTicks).toEqual([0, 2, 4, 6, 8]);
+  const charts = [...document.querySelectorAll(".weekly-progress-chart")];
+  let svg!: SVGSVGElement;
+  for (const [index, chart] of charts.entries()) {
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const value of index === 0
+      ? [0, 40, 80, 120, 140.63]
+      : authoredTicks) {
+      const tick = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text",
+      );
+      tick.textContent = String(value);
+      svg.append(tick);
+    }
+    chart.append(svg);
+  }
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(true);
+  const select = screen.getByLabelText("Individual KPI");
+  expect(select.hasAttribute("data-smoke-reveal")).toBe(true);
+  expect(
+    [...svg.querySelectorAll("text")].every((tick) =>
+      tick.hasAttribute("data-smoke-reveal"),
+    ),
+  ).toBe(true);
+  smoke.__trainerSmokeRestore();
+  const selectedChart = charts.at(-1)!;
+  const renderedSvgs = [...selectedChart.querySelectorAll("svg")];
+  for (const node of renderedSvgs) node.remove();
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  for (const node of renderedSvgs) selectedChart.append(node);
+  const chartParent = selectedChart.parentNode!;
+  const chartNext = selectedChart.nextSibling;
+  selectedChart.remove();
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  chartParent.insertBefore(selectedChart, chartNext);
+  const unknownTick = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "text",
+  );
+  unknownTick.textContent = "7.75";
+  svg.append(unknownTick);
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  expect(unknownTick.hasAttribute("data-smoke-reveal")).toBe(false);
+  expect(svg.hasAttribute("data-smoke-reveal")).toBe(false);
+  smoke.__trainerSmokeRestore();
+  unknownTick.remove();
+  const privateOption = document.createElement("option");
+  privateOption.textContent = "Private measurement";
+  privateOption.value = "private";
+  select.append(privateOption);
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  expect(privateOption.hasAttribute("data-smoke-reveal")).toBe(false);
+  expect(select.hasAttribute("data-smoke-reveal")).toBe(false);
+  smoke.__trainerSmokeRestore();
+  delete smoke.__trainerOrdinaryIsolated;
+});
+
 it("admits only finite ordinary KPI actions and masks every noncanonical/private value", async () => {
   smoke.__trainerOrdinaryIsolated = { runId: "run" };
   vi.stubGlobal("innerWidth", 1280);
@@ -1908,7 +2079,7 @@ it("admits only finite ordinary KPI actions and masks every noncanonical/private
   const view = render(
     <section className="weekly-plan-panel">
       <WeeklyKpiScorecard
-        kpis={projectKpis("2026-11-09", authoredWeeklyKpis())}
+        kpis={projectKpis("2026-11-09", authoredAssessedLatestKpis())}
         loadSet={() => {}}
       />
       <p>Private adjacent history must remain hidden</p>
@@ -1944,9 +2115,12 @@ it("admits only finite ordinary KPI actions and masks every noncanonical/private
     { type: "weeklyKpis", action: "save" },
     { type: "weeklyKpis", action: "observe", selector: "body" },
     { type: "weeklyKpis", action: "settings" },
+    { type: "weeklyKpis", action: "original" },
+    { type: "weeklyKpis", action: "latest" },
   ])
     expect((await command(invalid)).result.ok).toBe(false);
-  view.container.querySelector("h4")!.textContent = "Private replacement";
+  view.container.querySelector("tbody th[scope='row']")!.textContent =
+    "Private replacement";
   expect(
     (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
       .result.ok,

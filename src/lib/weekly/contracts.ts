@@ -52,6 +52,7 @@ export type WeeklyStore = {
   transaction<T>(action: () => T): T;
   read(weekStart: string): WeeklyRecord | null;
   history(before: string, limit: number): WeeklySummary[];
+  latestPlanWeek(): string | null;
   save(record: WeeklyRecord): void;
   readKpis(weekStart: string): WeeklyKpis | null;
   saveKpis(weekStart: string, state: WeeklyKpis): void;

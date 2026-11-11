@@ -41,6 +41,21 @@ export function createWeeklyStore(
         hasReview: Boolean(row.hasReview),
       }));
     },
+    latestPlanWeek() {
+      const row = getDatabase()
+        .prepare(
+          `
+        with weeks as (select week_start from weekly_artifact union select week_start from weekly_kpi)
+        select weeks.week_start as weekStart from weeks
+        left join weekly_artifact using(week_start) left join weekly_kpi using(week_start)
+        where json_type(document_json, '$.latest') = 'object'
+          or json_extract(state_json, '$.latestId') is not null
+        order by weeks.week_start desc limit 1
+      `,
+        )
+        .get() as { weekStart: string } | undefined;
+      return row?.weekStart ?? null;
+    },
     save(record) {
       getDatabase()
         .prepare(

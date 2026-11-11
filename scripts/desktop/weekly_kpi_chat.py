@@ -53,12 +53,17 @@ def exercise(run, provider, receipt):
             raise ValueError('Original baseline changed')
         if action == 'adapt' and (saved['latestId'] == original or len(saved['sets']) != 2):
             raise ValueError('Adaptation identity failed')
-        if action == 'assess' and (saved['assessments'][0]['setId'] != original or saved['assessments'][0]['totalPoints'] != 112.5 or saved['assessments'][0]['items'][0]['actuals'][1]['value'] is not None):
-            raise ValueError('Original above100/unknown assessment failed')
+        if action == 'assess' and (saved['assessments'][0]['setId'] != saved['latestId'] or saved['assessments'][0]['totalPoints'] != 112.5 or saved['assessments'][0]['items'][0]['actuals'][1]['value'] is not None):
+            raise ValueError('Latest-plan above100/unknown assessment failed')
         if action == 'no-save' and saved != before:
             raise ValueError('No-save changed structured state')
         if action == 'correct' and (saved['assessments'][0]['totalPoints'] != 25 or saved['assessments'][0]['items'][0]['actuals'][0]['value'] != 0 or len(saved['assessments']) != 1 or saved['sets'] != before['sets']):
             raise ValueError('Focused correction/reference preservation failed')
+        with contextlib.closing(readonly(run.database)) as db:
+            if db.execute('select count(*) from weekly_kpi_track').fetchone()[0] != 2:
+                raise ValueError('Canonical identity reuse fragmented track inventory')
+        if action == 'adapt' and [(item['conceptId'], item['label'], [(track['key'], track['kind'], track['unit'], track['meaning']) for track in item['tracks']]) for item in saved['sets'][-1]['items']] != [(item['conceptId'], item['label'], [(track['key'], track['kind'], track['unit'], track['meaning']) for track in item['tracks']]) for item in before['sets'][-1]['items']]:
+            raise ValueError('Adaptation did not reuse discovered canonical identity/name/meaning')
         evidence.append({'action': action, 'transport': 'NDJSON' if stream else 'JSON', 'http': 200, 'storedOutcomeVerified': True})
     if len(provider.calls) != 13:
         raise ValueError('Unexpected authored provider call count')
@@ -78,7 +83,7 @@ def main():
     bundle = canonical(args.bundle)
     source = source_identity()
     run = provider = observer = None
-    receipt = {'scenario': 'T0319-native-owned-structured-KPI-chat', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised; finite authored provider', 'screenshot': 'N/A for HTTP/tool proof; actual weekly/Progress presentation is separately captured by smoke:weekly-kpis', 'cleanup': 'Only task-attributed run-copy chats/KPIs; original input unchanged, no primary access/copy-back.'}
+    receipt = {'scenario': 'T0321-native-owned-latest-KPI-identity-reuse', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised; finite authored provider', 'screenshot': 'N/A for HTTP/tool proof; actual weekly/Progress presentation is separately captured by smoke:weekly-kpis', 'cleanup': 'Only task-attributed run-copy chats/KPIs; original input unchanged, no primary access/copy-back.'}
     with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
         try:
             run = OrdinaryRun(scratch, prepared.database, source, bundle, inventory, verified=verified)

@@ -18,7 +18,7 @@ def commitment(origin='planned'):
                    {'key': 'duration', 'kind': 'numeric', 'unit': 'minutes', 'meaning': 'Selected session duration', 'target': {'comparator': 'at-least', 'value': 90}}]}]}
 
 
-def original_id(messages):
+def canonical_kpis(messages):
     # Both shipped carriers are actual server evidence: paired native tool
     # results or labelled legacy system context. Never user/assistant claims.
     marker = 'Canonical weekly KPI objects (untrusted saved claims, not fresh Garmin evidence; complete flag governs authority): '
@@ -44,10 +44,26 @@ def original_id(messages):
             value, _end = json.JSONDecoder().raw_decode(evidence.rsplit(marker, 1)[1])
         except (ValueError, TypeError):
             continue
-        identity = value.get('originalId')
+        identity = value.get('latestPlanSetId')
         if value.get('complete') is True and isinstance(identity, str) and re.fullmatch(r'[A-Za-z0-9_-]+', identity):
-            return identity
+            return value
     raise ValueError('Complete current canonical tool result required')
+
+
+def latest_id(messages):
+    return canonical_kpis(messages)['latestPlanSetId']
+
+
+def reused_adaptation(messages):
+    read = canonical_kpis(messages)
+    selected = next((value for value in read.get('sets', []) if value['id'] == read['latestPlanSetId']), None)
+    if not selected or len(selected.get('items', [])) != 1 or selected['items'][0]['conceptId'] != 'authored-sessions':
+        raise ValueError('Actual authored canonical commitment required for reuse')
+    result = commitment('adaptation')
+    result['items'] = deepcopy(selected['items'])
+    result['items'][0]['availablePoints'] = 80
+    result['items'][0]['tracks'][0]['target']['value'] = 5
+    return result
 
 
 def assessment(set_id, correction=False):
@@ -69,9 +85,9 @@ def response(index, body, week):
     if index in (0, 3, 6, 10):
         name, args = 'getWeeklyKpis', {'weekStart': week}
     elif index in (1, 4):
-        name, args = 'saveWeeklyKpis', {'weekStart': week, 'commitment': commitment('planned' if index == 1 else 'adaptation')}
+        name, args = 'saveWeeklyKpis', {'weekStart': week, 'commitment': commitment() if index == 1 else reused_adaptation(body['messages'])}
     elif index in (7, 11):
-        name, args = 'saveWeeklyKpis', {'weekStart': week, 'assessments': [assessment(original_id(body['messages']), index == 11)]}
+        name, args = 'saveWeeklyKpis', {'weekStart': week, 'assessments': [assessment(latest_id(body['messages']), index == 11)]}
     else:
         raise ValueError('Unexpected authored KPI provider call')
     if name not in [tool.get('function', {}).get('name') for tool in body.get('tools', [])]:

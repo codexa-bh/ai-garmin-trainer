@@ -414,10 +414,10 @@ it.each([
   expect(weeklyStore.pending(turn.conversationId)).toEqual(legacy);
 });
 it.each([
-  { hikingMeters: 20000, ascent: 1000, cyclingSeconds: 0, expected: 100 },
-  { hikingMeters: 10000, ascent: 500, cyclingSeconds: 7200, expected: 110 },
+  { hikingMeters: 10000, ascent: 500, cyclingSeconds: 0, expected: 100 },
+  { hikingMeters: 5000, ascent: 250, cyclingSeconds: 7200, expected: 110 },
 ])(
-  "persists an exact original-baseline review from executed SQL/math: $expected points",
+  "persists an exact latest-plan review from executed SQL/math: $expected points",
   async ({ hikingMeters, ascent, cyclingSeconds, expected }) => {
     // Illustrative model-selected commitments, NOT a universal runtime rubric.
     const originalMarkdown =
@@ -465,7 +465,7 @@ it.each([
     const interval = weekInterval("2026-09-21", "Europe/Zagreb");
     const sql = `select sum(case when sport='hiking' then distance_meters else 0 end) as hiking_meters, sum(case when sport='hiking' then elevation_gain_meters else 0 end) as ascent_meters, sum(case when sport='cycling' then duration_sec else 0 end) as ride_seconds from activity where started_at >= ${Date.parse(interval.from)} and started_at < ${now.getTime()}`;
     const formula =
-      "hiking_meters / 20000 * 60 + ascent_meters / 1000 * 40 + ride_seconds / 7200 * 60";
+      "hiking_meters / 10000 * 60 + ascent_meters / 500 * 40 + ride_seconds / 7200 * 60";
     let calculated = NaN;
     let reviewMarkdown = "";
     let pass = 0;
@@ -473,12 +473,13 @@ it.each([
       {
         system: TRAINER_SYSTEM_PROMPT,
         userRequest:
-          "Save an as-of review against my original commitment, not the reduced adaptation.",
+          "Save an as-of review against my latest adapted commitment, not the obsolete original.",
         weeklyTurn: turn,
       },
       {
         generate: async ({ system }) => {
-          expect(system).toContain("original.revision baseline");
+          expect(system).toContain("latest KPI set ID");
+          expect(system).toContain("Never score obsolete targets");
           pass += 1;
           if (pass === 1)
             return {
@@ -513,7 +514,7 @@ it.each([
               ],
             };
           if (pass === 4) {
-            reviewMarkdown = `Scored commitment: original revision ${original.revision}. As of ${now.toISOString()}, Europe/Zagreb.\nOriginal: 20000 m hiking / 1000 m ascent; actual ${hikingMeters} m / ${ascent} m.\nFormula: ${formula}; total ${calculated} points. Activity coverage available; Sunday remains partial. No target proration.\n${cyclingSeconds ? "Hiking and ascent each half met (30+20 points); useful extra cycling aerobic contribution 60 points, not hiking distance/ascent, no duplicate allocation. Specific hiking gaps remain even above 100; not a recommendation to maximize activity." : "Both original KPIs fully met (60+40 points)."}\nLatest adaptation ${latest.revision} is context only, not denominator.`;
+            reviewMarkdown = `Scored commitment: latest revision ${latest.revision}. As of ${now.toISOString()}, Europe/Zagreb.\nLatest: 10000 m hiking / 500 m ascent; actual ${hikingMeters} m / ${ascent} m.\nFormula: ${formula}; total ${calculated} points. Activity coverage available; Sunday remains partial. No target proration.\n${cyclingSeconds ? "Hiking and ascent each half met (30+20 points); useful extra cycling aerobic contribution 60 points, not hiking distance/ascent, no duplicate allocation. Specific hiking gaps remain even above 100; not a recommendation to maximize activity." : "Both latest KPIs fully met (60+40 points)."}\nScored exact latest targets ${latest.revision}; obsolete original ${original.revision} is retained, not the denominator.`;
             return {
               toolCalls: [
                 {
@@ -531,7 +532,7 @@ it.each([
               ],
             };
           }
-          return { text: "Review saved against the original commitment." };
+          return { text: "Review saved against the latest commitment." };
         },
         executeTool: async (input) => {
           if (

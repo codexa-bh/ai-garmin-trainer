@@ -51,21 +51,19 @@ it.each([
     "identical document, different metadata",
     { ...doc, revision: "later", savedAt: "2026-10-02T00:00:00Z" },
     doc,
-    false,
   ],
-  ["different title", { ...doc, title: "Adapted" }, doc, true],
-  ["different Markdown", { ...doc, contentMarkdown: "Adaptation" }, doc, true],
+  ["different title", { ...doc, title: "Adapted" }, doc],
+  ["different Markdown", { ...doc, contentMarkdown: "Adaptation" }, doc],
   [
     "whitespace is not normalized",
     { ...doc, contentMarkdown: `${doc.contentMarkdown}\n` },
     doc,
-    true,
   ],
-  ["original without latest", null, doc, true],
-  ["review without original", null, null, false],
+  ["original without latest", null, doc],
+  ["review without original", null, null],
 ] as const)(
-  "explains baseline truthfully for %s",
-  (_label, latest, original, disclosure) => {
+  "shows latest narrative without competing original copies for %s",
+  (_label, latest, original) => {
     const record: WeeklyRecord = {
       weekStart: "2026-09-28",
       timeZone: "UTC",
@@ -89,8 +87,6 @@ it.each([
           progressRange: null,
           progressTrack: "",
           setProgressTrack: vi.fn(),
-          progressBaseline: "original",
-          setProgressBaseline: vi.fn(),
           loadSet: load,
           loadProgress: load,
           record,
@@ -114,15 +110,16 @@ it.each([
         General
       </WeeklyPlanView>,
     );
-    expect(Boolean(container.querySelector("details > summary"))).toBe(
-      disclosure,
-    );
-    expect(Boolean(screen.queryByText(/first saved plan, retained/))).toBe(
-      Boolean(original),
-    );
-    expect(Boolean(screen.queryByText(/latest plan is identical/))).toBe(
-      Boolean(original && !disclosure),
-    );
+    expect(container.querySelectorAll("details")).toHaveLength(1);
+    expect(
+      screen.queryByText(
+        /Original commitment|first saved plan, retained|latest plan is identical/,
+      ),
+    ).toBeNull();
+    if (latest)
+      expect(screen.getByRole("heading", { name: latest.title })).toBeTruthy();
+    else
+      expect(screen.getByText(/No narrative weekly plan saved/)).toBeTruthy();
     expect(
       container.querySelector("details")?.hasAttribute("open") ?? false,
     ).toBe(false);
@@ -508,7 +505,7 @@ it("returns from empty Upcoming and Progress to the device-current week on expli
   await screen.findByRole("heading", { name: "Current saved plan" });
   expect(requests.at(-1)).toContain("weekStart=2026-11-09");
   fireEvent.click(screen.getByRole("button", { name: "Progress" }));
-  await screen.findByRole("heading", { name: "Saved weekly progress" });
+  await screen.findByRole("heading", { name: "Weekly achievement" });
   close();
   open();
   await screen.findByRole("heading", { name: "Current saved plan" });

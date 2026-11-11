@@ -10,6 +10,12 @@ function validId(value: unknown): value is string {
 }
 
 export type ReviewedKpiMapping = { source: WeeklyRecord; state: WeeklyKpis };
+export type ReviewedKpiSourceMapping = {
+  source: WeeklyRecord;
+  expected: WeeklyKpis;
+  newRevision: string;
+  planRevisions: Record<string, string>;
+};
 
 /** Explicit maintenance only: finite reviewed mappings, never extraction,
  * startup, rescoring, or model invocation. The outer owner admits the target.
@@ -107,6 +113,63 @@ export function backfillWeeklyKpis(
         reconciled++;
       } else {
         store.saveKpis(source.weekStart, state);
+        applied++;
+      }
+    }
+    return { applied, reconciled, weeks: mappings.length };
+  });
+}
+
+/** Separate existing-state maintenance: source bindings only, never replacement
+ * values, identity remapping, rescoring or an overwrite mode on backfill. */
+export function reconcileKpiSources(
+  store: WeeklyStore,
+  mappings: ReviewedKpiSourceMapping[],
+) {
+  if (
+    !mappings.length ||
+    mappings.length > 52 ||
+    new Set(mappings.map((mapping) => mapping.source.weekStart)).size !==
+      mappings.length
+  )
+    throw new Error("invalid_source_mapping_manifest");
+  return store.transaction(() => {
+    let applied = 0;
+    let reconciled = 0;
+    for (const { source, expected, newRevision, planRevisions } of mappings) {
+      if (
+        !validWeek(source.weekStart) ||
+        JSON.stringify(store.read(source.weekStart)) !== JSON.stringify(source)
+      )
+        throw new Error("kpi_source_changed");
+      if (
+        !validId(newRevision) ||
+        newRevision === expected.revision ||
+        !Object.keys(planRevisions).length
+      )
+        throw new Error("invalid_source_mapping");
+      const next = JSON.parse(JSON.stringify(expected)) as WeeklyKpis;
+      for (const [id, revision] of Object.entries(planRevisions)) {
+        const set = next.sets.find((value) => value.id === id);
+        const document =
+          set?.origin === "planned" ? source.original : source.latest;
+        if (
+          !set ||
+          !document ||
+          revision !== document.revision ||
+          (set.planRevision != null && set.planRevision !== revision)
+        )
+          throw new Error("incompatible_kpi_source_binding");
+        set.planRevision = revision;
+      }
+      next.revision = newRevision;
+      const current = store.readKpis(source.weekStart);
+      if (JSON.stringify(current) === JSON.stringify(next)) {
+        reconciled++;
+      } else {
+        if (JSON.stringify(current) !== JSON.stringify(expected))
+          throw new Error("kpi_structured_source_changed");
+        store.saveKpis(source.weekStart, next);
         applied++;
       }
     }
