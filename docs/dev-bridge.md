@@ -24,6 +24,10 @@ Two authenticated release-native/source/artifact/boot/selected-copy identities a
 
 The baseline is keyless. No real provider/Garmin success is implied; separately provisioned run-native settings and explicit token copies are required for available real integration checks through the verified owned backend. Never read back keys, copy normal settings, generate env files or automate sign-in/MFA. Existing debug, quick and release-probe regressions remain independent. Focus is sampled every 10ms without activation/restoration; absence of a live operator instance must be disclosed, not manufactured. Only live child handles authorize shutdown; verify native reaping, backend/control endpoints and DB/run lease settlement. Copies/Goals are task-attributed and subject to [evidence-first owned disposal](#preparation-reuse-and-owned-disposal); no primary mutation/copy-back or worktree disposal.
 
+### Final DMG payload handoff
+
+`smoke:ordinary` additionally accepts `--release-record <canonical-release.json>` with the original `--bundle` producer. This finite input is implemented by `release_artifact.transported`, not caller-asserted trust: under the existing producer preparation lock it verifies the final DMG digest, complete producer bytes/modes/xattrs/provenance and mounted payload, then copies only that payload into ordinary run roots. Every boot and final preservation rechecks both identities; no stamp rebinding, binary/Info.plist patch, native-grant change or fallback to the producer exists. Run copies preserve macOS metadata and are checked before launch/final settlement. Full ordinary admission/scenario/capture/settlement rules still apply. See [commands and failure recovery](release.md#local-build-package-and-verify). Cheap positive/refusal/timeout/transport contracts must pass before actual use. Read-only mounting does not authorize installation or ordinary singleton launch.
+
 ## Risk-selected ordinary feature smoke
 
 No-option and existing feature-flag commands retain **full** broad regression: two

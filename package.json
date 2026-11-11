@@ -1,6 +1,9 @@
 {
   "name": "ai-garmin-trainer",
+  "version": "0.1.0",
   "scripts": {
+    "release": "python3 scripts/desktop/release.py",
+    "release:check": "python3 scripts/desktop/release.py check",
     "desktop:resources": "npm run build && npm run desktop:assemble",
     "desktop:assemble": "node scripts/desktop/assemble.mjs",
     "smoke:quick": "python3 scripts/desktop/quick_smoke.py",

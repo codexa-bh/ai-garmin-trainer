@@ -218,4 +218,7 @@ def build_ordinary(repo):
 
 
 if __name__ == '__main__':
-    build_ordinary(Path(__file__).resolve().parents[2])
+    from release_metadata import check
+    root = Path(__file__).resolve().parents[2]
+    check(root)
+    build_ordinary(root)
