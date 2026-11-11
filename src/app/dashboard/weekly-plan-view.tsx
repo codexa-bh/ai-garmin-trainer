@@ -2,7 +2,7 @@ import type { ReactNode, RefObject } from "react";
 import type { useWeeklyFeature } from "./use-weekly";
 import { addDays } from "@/lib/weekly/calendar";
 import { AssistantContent } from "./markdown";
-import { WeeklyKpiScorecard } from "./weekly-kpi-scorecard";
+import { WeeklyKpiScorecard, kpiCutoff } from "./weekly-kpi-scorecard";
 import { WeeklyKpiProgress } from "./weekly-kpi-progress";
 
 export function WeeklyPlanView({
@@ -11,7 +11,6 @@ export function WeeklyPlanView({
   children,
   close,
   closeRef,
-  startChat,
   run,
 }: {
   weekly: ReturnType<typeof useWeeklyFeature>;
@@ -19,10 +18,12 @@ export function WeeklyPlanView({
   children: ReactNode;
   close: () => void;
   closeRef: RefObject<HTMLButtonElement | null>;
-  startChat: (text: string) => void;
   run: (work: Promise<unknown>) => void;
 }) {
   const { record, week, state, mode } = weekly;
+  const structured = Boolean(
+    weekly.kpis?.latestPlanSetId ?? weekly.kpis?.latestId,
+  );
   return (
     <section className="weekly-plan-panel" aria-label="Weekly training plans">
       <nav
@@ -91,176 +92,98 @@ export function WeeklyPlanView({
               <p role="status">Loading weekly plans…</p>
             ) : state === "error" ? (
               <p role="alert">Weekly plans could not be loaded. Try Reload.</p>
+            ) : mode === "progress" ? (
+              <WeeklyKpiProgress
+                weekly={weekly}
+                run={run}
+                openWeek={(selected) => run(weekly.load("history", selected))}
+              />
+            ) : week ? (
+              <>
+                <h2>
+                  {week} – {addDays(week, 6)}
+                </h2>
+                <p className="training-plan-meta">
+                  {record?.timeZone ?? weekly.kpis?.timeZone ?? weekly.basis}
+                  {record && record.timeZone !== weekly.basis
+                    ? ` (device now ${weekly.basis}; saved dates unchanged)`
+                    : ""}
+                </p>
+                <WeeklyKpiScorecard
+                  kpis={weekly.kpis}
+                  loadSet={(id) => run(weekly.loadSet(id))}
+                />
+                {record?.latest ? (
+                  structured ? (
+                    <details className="training-plan-report">
+                      <summary>Plan notes · {record.latest.title}</summary>
+                      <p>
+                        Preserved narrative; the KPI grid shows saved targets
+                        and values.
+                      </p>
+                      <AssistantContent
+                        content={record.latest.contentMarkdown}
+                      />
+                    </details>
+                  ) : (
+                    <article className="training-plan-report">
+                      <h3>{record.latest.title}</h3>
+                      <AssistantContent
+                        content={record.latest.contentMarkdown}
+                      />
+                    </article>
+                  )
+                ) : (
+                  <p>
+                    No narrative weekly plan saved for this week. Create or
+                    update it in chat.
+                  </p>
+                )}
+                {record?.review ? (
+                  <details className="training-plan-report">
+                    <summary>
+                      Review notes · {kpiCutoff(record.review.asOf)}
+                    </summary>
+                    <AssistantContent content={record.review.contentMarkdown} />
+                  </details>
+                ) : (
+                  <p className="training-plan-meta">No review saved.</p>
+                )}
+              </>
             ) : (
               <>
-                {mode === "progress" ? (
-                  <WeeklyKpiProgress
-                    weekly={weekly}
-                    run={run}
-                    openWeek={(selected) =>
-                      run(weekly.load("history", selected))
-                    }
-                  />
-                ) : week ? (
-                  <>
-                    <h2>
-                      {week} – {addDays(week, 6)}
-                    </h2>
-                    <p className="training-plan-meta">
-                      Calendar basis:{" "}
-                      {record?.timeZone ??
-                        weekly.kpis?.timeZone ??
-                        weekly.basis}
-                      {record && record.timeZone !== weekly.basis
-                        ? ` (device now ${weekly.basis}; saved dates unchanged)`
-                        : ""}
-                    </p>
-                    <WeeklyKpiScorecard
-                      kpis={weekly.kpis}
-                      loadSet={(id) => run(weekly.loadSet(id))}
-                      discuss={() =>
-                        startChat(
-                          `Discuss the saved KPIs and evidence for the week starting ${week}; read complete baselines before any changes.`,
-                        )
-                      }
-                    />
-                    {record?.latest ? (
-                      <article className="training-plan-report">
-                        <h3>{record.latest.title}</h3>
-                        {weekly.kpis?.availableSets.length ? (
-                          <p>
-                            Preserved narrative source. Structured KPI baselines
-                            and assessments above are authoritative; historical
-                            tables are not separately refreshed.
-                          </p>
-                        ) : null}
-                        <p>Latest saved {record.latest.savedAt}</p>
-                        <AssistantContent
-                          content={record.latest.contentMarkdown}
-                        />
-                      </article>
-                    ) : (
-                      <p>
-                        No narrative weekly plan saved for this week. Create or
-                        update it directly in chat; saved structured KPIs are
-                        shown above.
-                      </p>
-                    )}
-                    {record?.original ? (
-                      <>
-                        <p>
-                          Original commitment is the first saved plan, retained
-                          as the baseline for reviews and scoring. Latest shows
-                          later adaptations; these do not replace that baseline.
-                        </p>
-                        {record.latest?.title === record.original.title &&
-                        record.latest.contentMarkdown ===
-                          record.original.contentMarkdown ? (
-                          <p>
-                            The latest plan is identical to the original
-                            commitment.
-                          </p>
-                        ) : (
-                          <details>
-                            <summary>
-                              Original commitment · {record.original.savedAt}
-                            </summary>
-                            <h3>{record.original.title}</h3>
-                            <AssistantContent
-                              content={record.original.contentMarkdown}
-                            />
-                          </details>
-                        )}
-                      </>
-                    ) : null}
-                    {record?.review ? (
-                      <article className="training-plan-report">
-                        <h3>{record.review.title}</h3>
-                        {weekly.kpis?.availableSets.length ? (
-                          <p>
-                            Preserved review narrative source; see exact saved
-                            structured comparisons above.
-                          </p>
-                        ) : null}
-                        <p>
-                          Review as of {record.review.asOf} · saved{" "}
-                          {record.review.savedAt} · latest-plan snapshot at save{" "}
-                          {record.review.planRevision ?? "unavailable"}
-                          {record.latest &&
-                          record.review.planRevision !== record.latest.revision
-                            ? " (earlier revision; not silently refreshed)"
-                            : ""}
-                        </p>
-                        <p>
-                          This snapshot is context, not the scoring baseline.
-                          See the review document for its scored commitment and
-                          any provisional assumptions.
-                        </p>
-                        <AssistantContent
-                          content={record.review.contentMarkdown}
-                        />
-                      </article>
-                    ) : (
-                      <p>
-                        No review saved. An unfinished week can be reviewed
-                        as-of now.
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      className="primary-action compact"
-                      onClick={() =>
-                        startChat(
-                          mode === "history"
-                            ? `Review ${record?.review ? "and correct" : "the evidence for"} the week starting ${week}; save the review directly.`
-                            : `Discuss a plan or review for the week starting ${week}.`,
-                        )
-                      }
-                    >
-                      {mode === "history"
-                        ? "Review / correct via chat"
-                        : "Discuss in chat"}
-                    </button>
-                  </>
+                <p>Past plans and reviews. Changes are managed in chat.</p>
+                {weekly.items.length ? (
+                  <ul>
+                    {weekly.items.map((item) => (
+                      <li key={item.weekStart}>
+                        <button
+                          type="button"
+                          className="chrome-button"
+                          onClick={() =>
+                            run(weekly.load("history", item.weekStart))
+                          }
+                        >
+                          {item.weekStart} – {addDays(item.weekStart, 6)} ·{" "}
+                          {item.hasPlan ? "Plan" : "No plan"} ·{" "}
+                          {item.hasReview ? "Review" : "No review"}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
-                  <>
-                    <p>
-                      Past plans and reviews are read-only here. Review
-                      corrections can be saved directly through chat.
-                    </p>
-                    {weekly.items.length ? (
-                      <ul>
-                        {weekly.items.map((item) => (
-                          <li key={item.weekStart}>
-                            <button
-                              type="button"
-                              className="chrome-button"
-                              onClick={() =>
-                                run(weekly.load("history", item.weekStart))
-                              }
-                            >
-                              {item.weekStart} – {addDays(item.weekStart, 6)} ·{" "}
-                              {item.hasPlan ? "Plan" : "No plan"} ·{" "}
-                              {item.hasReview ? "Review" : "No review"}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p>No historical weekly artifacts.</p>
-                    )}
-                    {weekly.next ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          run(weekly.load("history", undefined, weekly.next!))
-                        }
-                      >
-                        Older weeks
-                      </button>
-                    ) : null}
-                  </>
+                  <p>No historical weekly artifacts.</p>
                 )}
+                {weekly.next ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      run(weekly.load("history", undefined, weekly.next!))
+                    }
+                  >
+                    Older weeks
+                  </button>
+                ) : null}
               </>
             )}
           </div>

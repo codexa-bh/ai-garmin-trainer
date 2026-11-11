@@ -376,18 +376,18 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     domain: "calculation",
     userPrompt: "Score this week after we reduced the latest plan targets.",
     providedEvidence: [
-      "complete original rubric",
-      "easier latest revision",
+      "retained obsolete original rubric",
+      "complete latest adapted targets and exact set ID",
       "target-week SQL/math",
     ],
     expectedRoute: "sql-math",
     requiredQualities: [
-      "original revision named as baseline",
-      "latest adaptation separate from denominator",
+      "exact latest committed set named as baseline",
+      "latest target allocation used without obsolete assessment fallback",
       "target/actual/contribution/coverage and formula",
     ],
     forbiddenBehavior: [
-      "latest snapshot presented as scoring baseline",
+      "obsolete original assessment substituted for latest targets",
       "model-only Garmin arithmetic",
     ],
     severity: "critical",
@@ -398,7 +398,7 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     userPrompt:
       "I cycled extra but missed part of the hiking. Can I exceed 100?",
     providedEvidence: [
-      "original hiking and aerobic commitments",
+      "latest hiking and aerobic commitments",
       "partial hiking and extra cycling SQL/math",
     ],
     expectedRoute: "sql-math",
@@ -420,8 +420,8 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     domain: "policy",
     userPrompt: "Review my old plan, which had no point rubric.",
     providedEvidence: [
-      "original qualitative commitments",
-      "rubric added only in latest",
+      "latest recorded qualitative commitments without agreed rubric",
+      "review-defined interpretation explicitly bound to that latest plan",
       "current activity evidence",
     ],
     expectedRoute: "sql-math",
@@ -442,13 +442,13 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     domain: "calculation",
     userPrompt: "Score Sunday so far; ascent and some uploads are missing.",
     providedEvidence: [
-      "original rubric",
+      "latest-plan rubric",
       "partial target-week SQL rows with null ascent/calories",
       "user-reported unsynced walk",
     ],
     expectedRoute: "sql-math",
     requiredQualities: [
-      "as-of and original denominator retained",
+      "as-of and latest-plan denominator retained",
       "bounded provisional progress with unsupported portions",
       "explicit missing evidence and distinct self-report attribution",
       "activity versus daily calorie distinction",
@@ -467,7 +467,7 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     domain: "policy",
     userPrompt: "How well did I complete last week?",
     providedEvidence: [
-      "no recorded original",
+      "no recorded weekly plan or committed KPI set",
       "available activities or all-missing week",
     ],
     expectedRoute: "sql",

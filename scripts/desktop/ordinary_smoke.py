@@ -34,7 +34,7 @@ def private_directory(path):
 
 
 class OrdinaryRun(Run):
-    def __init__(self, scratch, database, source, bundle, inventory, *, history_setup=None, verified=None, enroll=None):
+    def __init__(self, scratch, database, source, bundle, inventory, *, history_setup=None, verified=None, enroll=None, macos_metadata=False):
         # Account for partial preparation before any allocation; no partial object
         # can launch. Existing direct callers need not supply an enrollment owner.
         self.child, self.root = None, None
@@ -51,10 +51,10 @@ class OrdinaryRun(Run):
             verified = verified or verify_ordinary(REPO, bundle, source, inventory)
             if verified['current']['source'] != source:
                 raise ValueError('Current driver binding mismatch')
-            self.prepare_ordinary(scratch, database, bundle, inventory, verified, history_setup)
+            self.prepare_ordinary(scratch, database, bundle, inventory, verified, history_setup, macos_metadata)
             self.prepared = True
 
-    def prepare_ordinary(self, scratch, database, bundle, inventory, verified, history_setup):
+    def prepare_ordinary(self, scratch, database, bundle, inventory, verified, history_setup, macos_metadata=False):
         original = verified['provenance']
         self.build_source = original['buildSourceFingerprint']
         self.build_context = original['buildContext']
@@ -70,7 +70,10 @@ class OrdinaryRun(Run):
         self.previous_boot = None
         self.rejected_pids = []
         self.bundle = self.root / 'Garmin Trainer.app'
-        resources.copy_tree(bundle, self.bundle)
+        if macos_metadata:
+            resources.copy_tree(bundle, self.bundle, macos_metadata=True)
+        else:
+            resources.copy_tree(bundle, self.bundle)
         if audit(self.bundle) != inventory:
             raise ValueError('Ordinary bundle copy changed inventory')
         self.binary = self.bundle / 'Contents/MacOS/garmin-trainer-desktop'
@@ -854,6 +857,7 @@ def main():
     arguments(parser)
     parser.add_argument('--bundle', required=True, help='Actual unmodified desktop:build .app; copied outside checkout per run')
     parser.add_argument('--prepare-only', action='store_true')
+    parser.add_argument('--release-record', type=Path, help='Finite final-DMG handoff; original --bundle producer remains stamped and locked')
     parser.add_argument('--conversation-selection', action='store_true', help='Finite keyless synthetic conversation create/select/restart/delete on empty-chat populated copies')
     parser.add_argument('--composer-footer', action='store_true', help='Finite keyless explicit choice/draft/restart and wide/narrow masked capture; no provider send')
     parser.add_argument('--model-eligibility', action='store_true', help='Opt-in fixed mixed/zero eligible catalogs with unavailable explicit choices; implies composer footer')
@@ -878,15 +882,23 @@ def main():
     bundle = canonical(args.bundle)
     source = source_identity()
     with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
-        execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory)
+        with contextlib.ExitStack() as stack:
+            transport = None
+            if args.release_record:
+                from release_artifact import transported
+                transport = stack.enter_context(transported(REPO, bundle, source, verified, inventory,
+                                                            canonical(args.release_record), scratch))
+            execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory, transport=transport)
 
 
-def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory, *, scenarios=(), plan=None):
+def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventory, *, scenarios=(), plan=None, transport=None):
     plan = selection_plan(args) if plan is None else plan
     database = prepared.database
     def verify_current():
         prepared.verify_current()
         verify_ordinary(REPO, bundle, source, inventory)
+        if transport:
+            transport[1]()
         if scenarios and [scenario_identity(scenario) for scenario in scenarios] != plan['compositions']:
             raise ValueError('Scenario source/declaration changed during execution')
     runs = []
@@ -896,6 +908,7 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
                'artifactBuildSource': verified['provenance']['buildSourceFingerprint'],
                'buildContext': verified['context'], 'artifactReused': True,
                'buildStageRequests': {'nextBuild': 0, 'resourceAssembly': 0, 'nativeBuild': 0},
+               'releaseTransport': transport[2] if transport else None,
                'fixtureIdentity': {'databaseSha256': digest_file(database), 'logical': prepared.original,
                                    'preparationSha256': digest_file(prepared.root / 'preparation.json'),
                                    'selectionSha256': digest_file(prepared.root / 'selection.json')},
@@ -915,7 +928,11 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
         for index in range(plan['instances']):
             prepared.verify_current()
             verify_current()
-            OrdinaryRun(scratch, database, source, bundle, inventory, verified=verified, enroll=enroll)
+            OrdinaryRun(scratch, database, source, transport[0] if transport else bundle, inventory, verified=verified, enroll=enroll, macos_metadata=bool(transport))
+            if transport:
+                from release_artifact import tree_identity
+                if tree_identity(runs[-1].bundle) != tree_identity(transport[0]):
+                    raise ValueError('Run copy changed final-DMG payload modes/metadata')
             receipt['groupOutcomes'][-1]['run'] = str(runs[-1].root)
             runs[-1].before_start = verify_current
             if args.summary_engine:
@@ -1010,6 +1027,10 @@ def execute_ordinary(args, scratch, prepared, bundle, source, verified, inventor
             def verify_copy(run):
                 if audit(run.bundle) != inventory:
                     raise ValueError('Copied artifact changed')
+                if transport:
+                    from release_artifact import tree_identity
+                    if tree_identity(run.bundle) != tree_identity(transport[0]):
+                        raise ValueError('Copied final-DMG payload metadata changed')
             for run in runs:
                 if getattr(run, 'prepared', False):
                     finalize('copied artifact preservation', lambda run=run: verify_copy(run))

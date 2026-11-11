@@ -1,6 +1,9 @@
 {
   "name": "ai-garmin-trainer",
+  "version": "0.1.0",
   "scripts": {
+    "release": "python3 scripts/desktop/release.py",
+    "release:check": "python3 scripts/desktop/release.py check",
     "desktop:resources": "npm run build && npm run desktop:assemble",
     "desktop:assemble": "node scripts/desktop/assemble.mjs",
     "smoke:quick": "python3 scripts/desktop/quick_smoke.py",
@@ -43,6 +46,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "backfill:weekly-kpis": "tsx scripts/backfill-weekly-kpis.ts",
+    "reconcile:weekly-kpi-sources": "tsx scripts/reconcile-weekly-kpi-sources.ts",
     "deps:evidence": "tsx scripts/dependency-evidence.ts",
     "eval:reliability": "tsx scripts/evaluate-coaching.ts",
     "validate": "npm run format && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test && npm run build",

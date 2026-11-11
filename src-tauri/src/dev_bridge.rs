@@ -241,7 +241,13 @@ impl Command {
                         || (view == "terrain" && preset == "medium"))
             }
             Self::WeeklyKpis { action } => [
-                "observe", "current", "progress", "original", "latest", "reload", "frame",
+                "observe",
+                "current",
+                "progress",
+                "previous",
+                "measurement",
+                "reload",
+                "frame",
             ]
             .contains(&action.as_str()),
             Self::ActivityLabels { action } => {
@@ -1865,7 +1871,13 @@ mod tests {
     #[test]
     fn weekly_kpis_are_closed_ordinary_boolean_only() {
         for action in [
-            "observe", "current", "progress", "original", "latest", "reload", "frame",
+            "observe",
+            "current",
+            "progress",
+            "previous",
+            "measurement",
+            "reload",
+            "frame",
         ] {
             let command = Command::WeeklyKpis {
                 action: action.into(),
@@ -1886,10 +1898,12 @@ mod tests {
                 assert!(!super::safe_result(&command, &invalid, true));
             }
         }
-        assert!(!Command::WeeklyKpis {
-            action: "save".into()
+        for action in ["save", "original", "latest", "settings", "arbitrary-week"] {
+            assert!(!Command::WeeklyKpis {
+                action: action.into()
+            }
+            .valid());
         }
-        .valid());
         assert!(serde_json::from_value::<Command>(
             json!({"type":"weeklyKpis","action":"current","selector":"body"})
         )

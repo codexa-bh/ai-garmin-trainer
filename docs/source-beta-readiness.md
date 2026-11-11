@@ -1,6 +1,6 @@
 # Source-beta readiness foundation
 
-This repository supports one product: the advanced-user locally source-built macOS ARM64 Tauri app. Standalone browser support is retired. See [desktop build/adoption/recovery](desktop.md). This is not a distributed installer, clean-machine certification, public release, beta invitation, provider application, deployment or commercial implementation.
+This repository supports one product: the advanced-user locally source-built macOS ARM64 Tauri app. Standalone browser support is retired. See [desktop build/adoption/recovery](desktop.md). The [local DMG/release foundation](release.md) is preparation tooling only, not a distributed installer, clean-machine certification, public release, beta invitation, provider application, deployment or commercial implementation. Future publication retains unresolved [redistribution gates](redistribution.md). Downloaded-app existing-DB upgrades still need matching source CLI/dependencies, verified backups and explicit stopped-target approval.
 
 ## Supported boundary
 

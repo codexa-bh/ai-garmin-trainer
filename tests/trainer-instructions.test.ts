@@ -344,7 +344,7 @@ describe("canonical trainer instruction package", () => {
     });
   });
 
-  it("carries transparent original-commitment scoring and no-save policy into both generation paths", () => {
+  it("carries exact latest-plan scoring, canonical reuse and no-save policy into both generation paths", () => {
     for (const instructions of [
       buildPlannerInstructions(TRAINER_SYSTEM_PROMPT, "bounded evidence"),
       buildFinalSynthesisInstructions(
@@ -356,14 +356,17 @@ describe("canonical trainer instruction package", () => {
         "model-selected KPI/target/unit/evidence/points/scoring-rule table",
         "full achievement=100",
         "no fixed app rubric",
-        "original.revision baseline",
-        "context, not denominator",
+        "latest KPI set ID",
+        "Never score obsolete targets",
+        "review.planRevision is contextual",
+        "reuse conceptId, track key, exact kind/unit/meaning",
         "may exceed 100",
         "no double-counting",
         "cycling km are not hiking km",
         "Show unmet KPIs even above 100",
         "provisional recorded-commitment assumptions",
-        "not prior agreement/latest-added rubric",
+        "explicitly bound to the latest plan",
+        "not fabricated prior agreement",
         "Never infer targets from results",
         "no completion score",
         "target-week guarded SQL/math",

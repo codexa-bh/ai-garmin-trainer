@@ -261,7 +261,7 @@ export function TrainerDashboard() {
   const closeMemoryFromKeyboard = useEffectEvent(() => closeMemoryView());
   const closePlanFromKeyboard = useEffectEvent(() => closeTrainingPlan());
   const reloadOpenedPlan = useEffectEvent(() => {
-    runInBackground(weekly.refresh());
+    runInBackground(weekly.load("current"));
     runInBackground(loadTrainingPlan("manual", false));
   });
   const reloadActivitySearch = useEffectEvent((query: string) => {
@@ -923,10 +923,6 @@ export function TrainerDashboard() {
           close={closeTrainingPlan}
           closeRef={trainingPlanCloseRef}
           run={runInBackground}
-          startChat={(text) => {
-            setMessage(text);
-            closeTrainingPlan();
-          }}
         >
           <TrainingPlanView
             trainingPlan={trainingPlan}

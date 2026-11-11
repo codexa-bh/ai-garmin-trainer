@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 import uuid
 
@@ -404,11 +405,20 @@ def copy_file(source, destination):
         ledger.seal(entry)
 
 
-def copy_tree(source, destination, prepare=None):
+def copy_tree(source, destination, prepare=None, *, macos_metadata=False):
     directory(destination)
     ledger = _CURRENT.get()
     entry = ledger.register(destination, tree=True) if ledger else None
-    shutil.copytree(source, destination, dirs_exist_ok=True, symlinks=True)
+    if macos_metadata:
+        # Finite final-DMG copy: CPython/macOS copy2 does not preserve xattrs.
+        # Enrollment precedes this potentially partial effect; sealing follows it.
+        subprocess.run(['/usr/bin/ditto', '--rsrc', '--extattr', str(source), str(destination)],
+                       check=True, timeout=120, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # ditto preserves an already-existing destination directory's root mode.
+        # Restore the source root metadata as part of this initial copy, before sealing.
+        shutil.copystat(source, destination, follow_symlinks=False)
+    else:
+        shutil.copytree(source, destination, dirs_exist_ok=True, symlinks=True)
     if prepare:
         prepare(destination)
     if ledger:

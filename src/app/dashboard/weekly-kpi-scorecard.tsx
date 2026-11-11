@@ -1,212 +1,209 @@
 import type { KpiRead, KpiTrack } from "@/lib/weekly/kpi-contracts";
+import { latestKpiScore } from "@/lib/weekly/kpis";
 
-export function kpiTarget(track: KpiTrack): string {
-  if (!track.target) return "No target · context only";
-  const value =
-    typeof track.target.value === "boolean"
-      ? track.target.value
-        ? "Yes"
-        : "No"
-      : track.target.value;
-  const comparator = {
-    "at-least": "At least",
-    "at-most": "At most",
-    equal: "Exactly",
-    range: "Range",
-  }[track.target.comparator];
-  return `${comparator} ${value}${track.target.upper === undefined ? "" : `–${track.target.upper}`} ${track.unit}`;
+export function kpiNumber(value: number): string {
+  return Number.isFinite(value)
+    ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(
+        value,
+      )
+    : "Unknown";
 }
 export function kpiValue(
   value: number | boolean | null | undefined,
   unit: string,
 ): string {
-  return value === null || value === undefined
-    ? "Unknown"
-    : `${typeof value === "boolean" ? (value ? "Yes" : "No") : value} ${unit}`;
+  if (value === null || value === undefined) return "Unknown";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (!Number.isFinite(value)) return "Unknown";
+  if (["min", "minutes", "s", "sec", "seconds"].includes(unit) && value >= 0) {
+    const inMinutes = ["min", "minutes"].includes(unit);
+    const centiseconds = Math.round(value * (inMinutes ? 6000 : 100));
+    if (Number.isSafeInteger(centiseconds)) {
+      const hours = Math.floor(centiseconds / 360000);
+      const minutes = Math.floor((centiseconds % 360000) / 6000);
+      const seconds = (centiseconds % 6000) / 100;
+      return (
+        [
+          hours ? `${hours} h` : "",
+          minutes ? `${minutes} min` : "",
+          seconds ? `${kpiNumber(seconds)} s` : "",
+        ]
+          .filter(Boolean)
+          .join(" ") || (inMinutes ? "0 min" : "0 s")
+      );
+    }
+  }
+  return `${kpiNumber(value)} ${unit}`;
 }
-function kpiBaseline(kpis: KpiRead, id: string): string {
-  const origin =
-    kpis.availableSets.find((set) => set.id === id)?.origin ??
-    kpis.sets.find((set) => set.id === id)?.origin;
-  return origin === "review-defined"
-    ? "Review-defined · provisional basis, not prior agreement"
-    : id === kpis.originalId
-      ? "Original commitment"
-      : "Adapted commitment";
+export function kpiTrackLabel(track: KpiTrack, tracks: KpiTrack[]): string {
+  return tracks.filter((value) => value.unit === track.unit).length > 1
+    ? track.key.replaceAll("-", " ").replaceAll("_", " ")
+    : track.unit;
 }
+export function kpiTarget(track: KpiTrack): string {
+  if (!track.target) return "—";
+  const { comparator, value, upper } = track.target;
+  const prefix = { "at-least": "≥ ", "at-most": "≤ ", equal: "", range: "" }[
+    comparator
+  ];
+  return `${prefix}${kpiValue(value, track.unit)}${upper === undefined ? "" : ` – ${kpiValue(upper, track.unit)}`}`;
+}
+export function kpiCutoff(value: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(date)
+    : "Cutoff unavailable";
+}
+
 export function WeeklyKpiScorecard({
   kpis,
   loadSet,
-  discuss,
 }: {
   kpis: KpiRead | null;
   loadSet: (id: string) => void;
-  discuss: () => void;
 }) {
+  const score = latestKpiScore(kpis);
+  const { set, assessment } = score;
   return (
     <section className="weekly-kpis" aria-label="Saved weekly KPIs">
       <h2>Weekly KPIs</h2>
-      <p>
-        Saved commitments and assessments, not live evaluation. Manage or
-        correct them in chat.
-      </p>
-      {!kpis?.sets.length && kpis?.complete !== false ? (
-        <p>
-          No structured KPIs saved. Discuss relevant commitments with your
-          trainer; nothing is assigned automatically.
-        </p>
-      ) : null}
       {kpis?.complete === false ? (
         <p role="status">
-          This comparison is too large. Select an individual saved baseline
-          below; incomplete previews cannot authorize changes.
+          Latest-plan KPIs need a complete read.{" "}
+          {kpis.latestPlanSetId ? (
+            <button
+              className="chrome-button"
+              onClick={() => loadSet(kpis.latestPlanSetId!)}
+            >
+              Load latest KPIs
+            </button>
+          ) : null}
         </p>
-      ) : null}
-      {kpis?.availableSets.length ? (
-        <label>
-          Saved baseline{" "}
-          <select
-            value={kpis.sets.length === 1 ? kpis.sets[0].id : ""}
-            onChange={(event) => {
-              if (event.target.value) loadSet(event.target.value);
-            }}
-          >
-            <option value="" disabled>
-              Original / latest / review-defined
-            </option>
-            {kpis.availableSets.map((set) => (
-              <option key={set.id} value={set.id}>
-                {kpiBaseline(kpis, set.id)} · {set.savedAt}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      {kpis?.sets.map((set) => {
-        const assessment = kpis.assessments.find((a) => a.setId === set.id);
-        return (
-          <article key={set.id} className="weekly-kpi-baseline">
-            <h3>
-              {kpiBaseline(kpis, set.id)}
-              {set.id === kpis.latestId && set.id !== kpis.originalId
-                ? " · latest"
-                : ""}
-            </h3>
-            {assessment ? (
-              <p>
-                Assessment: {assessment.status} · as of {assessment.asOf}.{" "}
-                {assessment.totalPoints === null
-                  ? "No overall score recorded."
-                  : `Recorded total: ${assessment.totalPoints} points.`}
-              </p>
-            ) : (
-              <p>Not assessed. This is not a zero or a missed commitment.</p>
-            )}
-            <ul className="weekly-kpi-items">
-              {set.items.map((item) => {
-                const result = assessment?.items.find(
-                  (r) => r.itemId === item.id,
-                );
-                return (
-                  <li key={item.id}>
-                    <h4>{item.label}</h4>
-                    <p>
-                      {item.availablePoints === null
-                        ? "Monitoring / context · no point allocation"
-                        : `${item.availablePoints} available points (one allocation for this item)`}
-                      {result?.awardedPoints === null ||
-                      result?.awardedPoints === undefined
-                        ? " · No awarded points recorded"
-                        : ` · ${result.awardedPoints} awarded`}
-                    </p>
-                    <dl className="weekly-kpi-tracks">
-                      {item.tracks.map((track) => (
-                        <div key={track.key}>
-                          <dt>{track.meaning}</dt>
-                          <dd>
-                            Target: {kpiTarget(track)}
-                            <br />
-                            Recorded actual:{" "}
+      ) : !set ? (
+        <p>No KPIs saved for this plan.</p>
+      ) : (
+        <>
+          <p className="training-plan-meta">
+            {assessment
+              ? `As of ${kpiCutoff(assessment.asOf)}`
+              : "Not assessed — not a zero."}
+            {score.provisional ? " · Provisional" : ""}
+          </p>
+          <div className="weekly-kpi-table-scroll">
+            <table className="weekly-kpi-table">
+              <thead>
+                <tr>
+                  <th scope="col">KPI</th>
+                  <th scope="col">Target</th>
+                  <th scope="col">Actual</th>
+                  <th scope="col">Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                {set.items.map((item) => {
+                  const result = assessment?.items.find(
+                    (value) => value.itemId === item.id,
+                  );
+                  return (
+                    <tr key={item.id}>
+                      <th scope="row">
+                        {item.label}
+                        {item.availablePoints === null ? (
+                          <small>Monitoring</small>
+                        ) : null}
+                      </th>
+                      <td>
+                        {item.tracks.map((track) => (
+                          <div key={track.key}>
+                            {kpiTrackLabel(track, item.tracks) !== track.unit
+                              ? `${kpiTrackLabel(track, item.tracks)}: `
+                              : ""}
+                            {kpiTarget(track)}
+                          </div>
+                        ))}
+                      </td>
+                      <td>
+                        {item.tracks.map((track) => (
+                          <div key={track.key}>
+                            {kpiTrackLabel(track, item.tracks) !== track.unit
+                              ? `${kpiTrackLabel(track, item.tracks)}: `
+                              : ""}
                             {kpiValue(
                               result?.actuals.find(
-                                (a) => a.trackKey === track.key,
+                                (value) => value.trackKey === track.key,
                               )?.value,
                               track.unit,
                             )}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                    <details>
-                      <summary>
-                        Definition, scoring and evidence
-                        {result ? ` · ${result.status}` : " · unassessed"}
-                      </summary>
-                      <p>{item.definition}</p>
-                      <p>Selection / exclusions: {item.selection}</p>
-                      <p>Evidence required: {item.evidenceRequired}</p>
-                      <p>
-                        Scoring: {item.scoring || "No scoring rubric recorded"}
-                      </p>
-                      {result ? (
-                        <>
-                          <p>{result.explanation}</p>
-                          <p>
-                            Evidence origin: {result.evidence.origin} ·{" "}
-                            {result.evidence.qualification}
-                          </p>
-                          <p>
-                            References:{" "}
-                            {result.evidence.references.join("; ") ||
-                              "None recorded"}
-                          </p>
-                          <p>
-                            Limitations:{" "}
-                            {result.evidence.limitations ||
-                              "None recorded; not fresh verification"}
-                          </p>
-                        </>
-                      ) : null}
-                    </details>
-                  </li>
-                );
-              })}
-            </ul>
-            {assessment?.extras.length ? (
-              <section aria-label="Explained additional credit">
-                <h4>Explained additional credit</h4>
-                {assessment.extras.map((extra, index) => (
-                  <p key={index}>
-                    {extra.label}: {extra.points} points · {extra.explanation} ·{" "}
-                    {extra.evidence.origin}: {extra.evidence.qualification}.
-                    Limits: {extra.evidence.limitations || "None recorded"}
+                          </div>
+                        ))}
+                        {result ? (
+                          <details className="weekly-kpi-qualification">
+                            <summary>
+                              {result.status === "supported"
+                                ? "Evidence"
+                                : result.status === "provisional"
+                                  ? "Provisional"
+                                  : "Unavailable"}
+                            </summary>
+                            <p>{result.evidence.qualification}</p>
+                            {result.evidence.limitations ? (
+                              <p>{result.evidence.limitations}</p>
+                            ) : null}
+                            <p>{result.explanation}</p>
+                          </details>
+                        ) : null}
+                      </td>
+                      <td>
+                        {item.availablePoints === null
+                          ? "—"
+                          : `${result?.awardedPoints == null ? "—" : kpiNumber(result.awardedPoints)} / ${kpiNumber(item.availablePoints)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {assessment?.extras.map((extra, index) => (
+                  <tr key={`extra-${index}`}>
+                    <th scope="row">{extra.label}</th>
+                    <td colSpan={2}>{extra.explanation}</td>
+                    <td>+{kpiNumber(extra.points)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row">Total</th>
+                  <td colSpan={3}>
+                    {score.total === null
+                      ? score.reason
+                      : `${kpiNumber(score.total)} / ${kpiNumber(score.available!)} points · ${kpiNumber(score.percentage!)}%`}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <details>
+            <summary>Scoring and evidence</summary>
+            {assessment ? <p>{assessment.explanation}</p> : null}
+            {set.items.map((item) => (
+              <section key={item.id}>
+                <h3>{item.label}</h3>
+                <p>{item.definition}</p>
+                <p>{item.selection}</p>
+                {item.tracks.map((track) => (
+                  <p key={track.key}>
+                    {track.unit}: {track.meaning}
                   </p>
                 ))}
+                <p>{item.scoring || "Monitoring — no point allocation."}</p>
+                <p>{item.evidenceRequired}</p>
               </section>
-            ) : null}
-            <details>
-              <summary>Source and revision</summary>
-              <p>
-                Saved {set.savedAt} · basis {set.id} · {kpis.timeZone}
-              </p>
-              <p>{set.provenance}</p>
-              {assessment ? (
-                <p>
-                  Assessment saved {assessment.savedAt}.{" "}
-                  {assessment.explanation}
-                </p>
-              ) : null}
-              <p>
-                Assessment revision: {assessment?.revision ?? "Not assessed"}.
-                Saved values do not establish fresh Garmin verification.
-              </p>
-            </details>
-          </article>
-        );
-      })}
-      <button type="button" className="chrome-button" onClick={discuss}>
-        Discuss / assess KPIs in chat
-      </button>
+            ))}
+          </details>
+        </>
+      )}
     </section>
   );
 }

@@ -144,6 +144,11 @@ if (
   throw new Error(
     "Packaged fresh-only initializer failed; no selected file was opened.",
   );
+// Preserve the reviewed limitations with the actual payload, not only in source docs.
+await cp(
+  join(root, "docs/redistribution.md"),
+  join(resources, "REDISTRIBUTION-REVIEW.txt"),
+);
 const files = [];
 async function inventory(dir, relative = "") {
   for (const item of await readdir(dir, { withFileTypes: true })) {
@@ -172,7 +177,7 @@ const notices = Object.entries(lock.packages)
   .join("\n");
 await writeFile(
   join(resources, "THIRD-PARTY-NOTICES.txt"),
-  `Local unsigned build only. No distribution authorization.\nNode: see NODE-LICENSE.txt.\nTauri: Apache-2.0 OR MIT (Cargo.lock pins native inputs).\nNext production dependencies (lockfile license metadata, not legal certification):\n${notices}\n`,
+  `Local unsigned build only. No distribution authorization.\nNode: see NODE-LICENSE.txt.\nTauri: Apache-2.0 OR MIT (Cargo.lock pins native inputs; complete native notice review remains required).\nSee REDISTRIBUTION-REVIEW.txt for first-party/helper/component publication gates.\nNext production dependencies (lockfile license metadata, not legal certification):\n${notices}\n`,
 );
 await writeFile(
   join(resources, "provenance.json"),

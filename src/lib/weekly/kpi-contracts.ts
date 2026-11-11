@@ -25,7 +25,12 @@ export type KpiSetInput = {
   provenance: string;
   items: KpiItem[];
 };
-export type KpiSet = KpiSetInput & { id: string; savedAt: string };
+export type KpiSet = KpiSetInput & {
+  id: string;
+  savedAt: string;
+  /** Explicit narrative source, not an assessment revision or timestamp guess. */
+  planRevision?: string | null;
+};
 export type KpiEvidence = {
   origin: "garmin" | "user-report" | "model-interpretation" | "recorded-source";
   references: string[];
@@ -74,6 +79,8 @@ export type KpiRead = {
   latestId: string | null;
   reviewDefinedId: string | null;
   complete: boolean;
+  /** Latest committed targets, or a source-matched legacy interpretation only. */
+  latestPlanSetId?: string | null;
   sets: KpiSet[];
   assessments: KpiAssessment[];
   availableSets: { id: string; origin: KpiSet["origin"]; savedAt: string }[];
@@ -88,4 +95,5 @@ export type KpiProgress = {
   from: string;
   through: string;
   weeks: { weekStart: string; kpis: KpiRead }[];
+  latestPlan: KpiRead | null;
 };
