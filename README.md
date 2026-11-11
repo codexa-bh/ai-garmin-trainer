@@ -46,7 +46,7 @@ Captured on 18 September 2026 from the loopback development app at a 1440-pixel 
 
 The sole supported product is the **locally source-built macOS ARM64 Tauri app** with bundled Node. Standalone browser development/start/restart/bootstrap support has been removed, including its wrappers and automatic Ollama preparation. Next.js remains internal desktop rendering/backend/build technology, not a second product launch path. Other platforms are unsupported.
 
-This advanced-user setup from the **public repository** is cross-checked against scripts, not clean-machine certification. Follow [desktop build, private-state adoption and recovery](docs/desktop.md) too. No installer distribution, signing, notarization or release channel is provided.
+This advanced-user setup from the **public repository** is cross-checked against scripts, not clean-machine certification. Follow [desktop build, private-state adoption and recovery](docs/desktop.md) too. No published binary, signing, notarization or release channel is provided. The [local ARM64 DMG/release foundation](docs/release.md) prepares future manual distribution; it does not announce a download. Existing-data upgrades still require matching source CLI/dependencies, stopped owners and verified backups.
 
 ### 1. Install prerequisites and build
 
@@ -122,6 +122,7 @@ Start with [architecture](docs/architecture.md), then read only the detailed doc
 - [Local macOS desktop runtime](docs/desktop.md) — bundled resources, native lifecycle, private file settings/adoption, private sign-in, external integrations and rollback.
 - [Local smoke inputs](docs/smoke-inputs.md) — representative authored synthetic defaults and optional exact reusable private authority; no personal-input discovery or recurring nightly expansion.
 - [Programmatic native smoke](docs/dev-bridge.md) — explicit isolated ordinary-artifact navigation/Profile/save/restart and geometry-preserving redacted capture without normal settings/singleton contact; separate debug/CI-quick, finite Health and keyless native Settings scenarios, owned shutdown and separately labeled legacy release-denial evidence. Its [task-needed extension policy](docs/dev-bridge.md#task-needed-bridge-and-runner-extensions) makes bounded safe bridge/runner evolution expected, not a permanent capability ceiling.
+- [Local DMG and future release runbook](docs/release.md) — version/notes, same-artifact verification, explicit draft/publication, manual placement and advanced existing-DB upgrades; [redistribution gates](docs/redistribution.md) remain unresolved.
 - [Source readiness and data lifecycle](docs/source-beta-readiness.md) — supported boundary, backup/restore, diagnostics, and dependency evidence.
 
 Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/style.css`, `src/app/api/`, `src/lib/ai/`, `src/lib/garmin/`, and `src/lib/memory/`.
