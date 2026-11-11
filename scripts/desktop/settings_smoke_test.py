@@ -83,6 +83,37 @@ from settings_smoke import capture_garmin, verify_choice_catalog, wait_settings
 
 
 class SettingsCaptureTests(unittest.TestCase):
+    def test_chatgpt_presentation_uses_only_fixed_draft_and_capture_actions(self):
+        run = Mock()
+        run.http.return_value = {'pid': 1, 'origin': 'owned', 'database': 'copy'}
+        run.command.side_effect = lambda command: {'ok': True, 'capture': 'unit-only.png', 'chatgptReady': True, 'chatgptExercised': command['action'] == 'chatgptExercise', 'privateActionsDenied': True}
+        captures = []
+        with patch.object(settings_smoke, 'wait_settings', return_value={'chatgptReady': True, 'chatgptExercised': False, 'privateActionsDenied': True}):
+            result = settings_smoke.chatgpt_presentation(run, captures)
+        self.assertTrue(result['fictionalMetadataOnly'])
+        self.assertEqual(len(captures), 4)
+        self.assertEqual([call.args[0] for call in run.command.call_args_list], [
+            {'type': 'settings', 'action': 'captureChatgptWide'}, {'type': 'settings', 'action': 'captureChatgptNarrow'},
+            {'type': 'settings', 'action': 'chatgptExercise'},
+            {'type': 'settings', 'action': 'captureChatgptWide'}, {'type': 'settings', 'action': 'captureChatgptNarrow'},
+            {'type': 'settings', 'action': 'chatgptReset'}])
+
+    def test_chatgpt_presentation_refuses_privilege_capture_and_draft_failures_without_retry(self):
+        run = Mock()
+        run.http.return_value = {'pid': 1, 'origin': 'owned', 'database': 'copy'}
+        with patch.object(settings_smoke, 'wait_settings', return_value={'privateActionsDenied': False}), self.assertRaises(ValueError):
+            settings_smoke.chatgpt_presentation(run, [])
+        run.command.assert_not_called()
+        run.command.side_effect = RuntimeError('capture refused')
+        with patch.object(settings_smoke, 'wait_settings', return_value={'privateActionsDenied': True}), self.assertRaises(RuntimeError):
+            settings_smoke.chatgpt_presentation(run, [])
+        self.assertEqual(run.command.call_count, 1)
+        run.command.reset_mock()
+        run.command.side_effect = lambda command: {'capture': 'unit-only.png', 'chatgptReady': True, 'chatgptExercised': False, 'privateActionsDenied': True}
+        with patch.object(settings_smoke, 'wait_settings', return_value={'privateActionsDenied': True}), self.assertRaises(ValueError):
+            settings_smoke.chatgpt_presentation(run, [])
+        self.assertEqual(run.command.call_count, 3)
+
     def test_dependency_settings_uses_live_owner_state_not_cached_renderer_origin(self):
         origin = 'http://127.0.0.1:19324'
         run = Mock()

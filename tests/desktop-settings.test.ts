@@ -14,6 +14,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   validateSettings,
   activationEnvironment,
+  decodePrivateFrame,
+  PRIVATE_FRAME_LIMIT,
   SECRET_SLOTS,
 } from "../scripts/desktop/settings";
 import { getOptionalEnv } from "../src/lib/env";
@@ -41,6 +43,27 @@ afterEach(() => {
     .forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
 
+it("bounds the two-document v4 frame without widening legacy commands or bypassing activation validation", () => {
+  const payload = {
+    version: 4,
+    activation: { version: 2, padding: "x".repeat(70000) },
+    chatgpt: { padding: "y".repeat(70000) },
+  };
+  const bytes = Buffer.from(JSON.stringify(payload));
+  expect(bytes.length).toBeGreaterThan(128 * 1024);
+  expect(decodePrivateFrame(bytes)).toEqual(payload);
+  expect(() => activationEnvironment(decodePrivateFrame(bytes))).toThrow(); // Framing is not schema admission.
+  for (const version of [1, 2, 3, 5])
+    expect(() =>
+      decodePrivateFrame(Buffer.from(JSON.stringify({ ...payload, version }))),
+    ).toThrow("Activation too large");
+  expect(() =>
+    decodePrivateFrame(Buffer.alloc(PRIVATE_FRAME_LIMIT, 32)),
+  ).toThrow("Activation too large");
+  expect(() => decodePrivateFrame(Buffer.from("{private-invalid"))).toThrow(
+    "Invalid activation",
+  );
+});
 describe("desktop editable settings", () => {
   it("activates existing or new configurations without a date, preserves a valid legacy limit and clears it explicitly", () => {
     const base = baseline();

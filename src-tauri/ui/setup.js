@@ -144,7 +144,271 @@ const providers = {
   deepseek: "DeepSeek",
   ollama: "Ollama",
   openrouter: "OpenRouter",
+  chatgpt: "ChatGPT plan",
 };
+let chatgptConnections = [];
+let chatgptPending = false;
+let chatgptAuthorizing = false;
+let chatgptContext = null;
+let chatgptRead = 0;
+let chatgptWelcomeRegistration = null;
+const chatgptWelcome = byId("chatgpt-welcome");
+function selectedChatgpt() {
+  return chatgptConnections.find(
+    (connection) => connection.id === byId("chatgpt-account").value,
+  );
+}
+function chatgptAvailable(entry) {
+  return chatgptConnections.some(
+    (connection) =>
+      connection.id === entry.registrationId &&
+      connection.planEnabled &&
+      connection.state === "connected" &&
+      connection.models.some((model) => model.slug === entry.modelId),
+  );
+}
+function chatgptEntryLabel(entry) {
+  if (entry.provider !== "chatgpt")
+    return `${providers[entry.provider]} / ${entry.modelId}`;
+  const index = chatgptConnections.findIndex(
+    (connection) => connection.id === entry.registrationId,
+  );
+  const connection = chatgptConnections[index];
+  const model = connection?.models.find(
+    (model) => model.slug === entry.modelId,
+  );
+  const name =
+    model &&
+    connection.models.filter(
+      (candidate) => candidate.displayName === model.displayName,
+    ).length === 1
+      ? model.displayName
+      : entry.modelId;
+  return `ChatGPT plan · ${index < 0 ? "unavailable account" : `account ${index + 1}`} / ${name}`;
+}
+function renderChatgpt(message) {
+  const input = byId("chatgpt-account");
+  const selected = input.value;
+  input.replaceChildren(
+    ...[{ id: "", label: "Add a ChatGPT account" }, ...chatgptConnections].map(
+      (connection) => {
+        const option = document.createElement("option");
+        option.value = connection.id;
+        option.textContent = connection.label;
+        return option;
+      },
+    ),
+  );
+  input.value = chatgptConnections.some(
+    (connection) => connection.id === selected,
+  )
+    ? selected
+    : "";
+  const connection = selectedChatgpt();
+  const models = byId("chatgpt-model");
+  const previous =
+    models.dataset.registration === connection?.id ? models.value : "";
+  models.dataset.registration = connection?.id ?? "";
+  models.replaceChildren(
+    ...[
+      { slug: "", displayName: "Choose a model" },
+      ...(connection?.models ?? []),
+    ].map((model) => {
+      const option = document.createElement("option");
+      option.value = model.slug;
+      option.textContent = model.displayName;
+      return option;
+    }),
+  );
+  models.value = connection?.models.some((model) => model.slug === previous)
+    ? previous
+    : "";
+  input.disabled = busy || chatgptPending;
+  models.disabled = busy || chatgptPending || !connection?.planEnabled;
+  models.closest("label").hidden = !connection?.planEnabled;
+  byId("catalog-chatgpt-add").hidden = !connection?.planEnabled;
+  byId("chatgpt-models").hidden = !connection?.planEnabled;
+  byId("chatgpt-disconnect").hidden = !connection;
+  for (const id of [
+    "chatgpt-connect",
+    "chatgpt-consent",
+    "chatgpt-models",
+    "chatgpt-disconnect",
+    "chatgpt-usage",
+  ])
+    byId(id).disabled =
+      busy ||
+      chatgptPending ||
+      chatgptContext === null ||
+      (id !== "chatgpt-connect" && id !== "chatgpt-usage" && !connection);
+  byId("chatgpt-consent").hidden = !connection || connection.planEnabled;
+  byId("chatgpt-models").disabled ||= !connection?.planEnabled;
+  byId("chatgpt-cancel").hidden = !chatgptPending || !chatgptAuthorizing;
+  byId("chatgpt-cancel").disabled = !chatgptPending || !chatgptAuthorizing;
+  byId("chatgpt-status").textContent =
+    message ??
+    (connection
+      ? `${connection.label} — ${connection.state === "connected" ? "plan permission enabled" : connection.state === "identity-only" ? "signed in; plan permission required" : connection.state === "reconnect-required" ? "reconnect required" : connection.state === "unavailable" ? "connection state unavailable; reload before retry" : "disconnected"}.`
+      : "Choose a saved registration or continue in your system browser.");
+  byId("catalog-chatgpt-add").disabled =
+    catalogLocked() ||
+    chatgptPending ||
+    catalog.entries.length >= 32 ||
+    !connection?.planEnabled ||
+    !models.value;
+  renderSummaryModels();
+}
+function showChatgptWelcome(
+  connection = chatgptConnections.find(
+    (connection) => connection.planEnabled && !connection.disclosed,
+  ),
+) {
+  if (!connection?.planEnabled || connection.disclosed || chatgptWelcome.open)
+    return;
+  chatgptWelcomeRegistration = connection.id;
+  chatgptWelcome.showModal();
+  byId("chatgpt-welcome-dismiss").focus();
+}
+async function refreshChatgpt() {
+  const read = ++chatgptRead,
+    epoch = settingsEpoch;
+  let context = null;
+  try {
+    const value = await invoke("chatgpt_context");
+    if (!Number.isSafeInteger(value) || value < 0)
+      throw Error("Connection context unavailable");
+    context = value;
+    const connections = await invoke("chatgpt_connections");
+    if (read !== chatgptRead || epoch !== settingsEpoch) return false;
+    if (!Array.isArray(connections))
+      throw Error("Connection metadata unavailable");
+    chatgptContext = context;
+    chatgptConnections = connections;
+    renderChatgpt();
+    return true;
+  } catch {
+    if (read !== chatgptRead || epoch !== settingsEpoch) return false;
+    chatgptContext = context;
+    chatgptConnections = [];
+    renderChatgpt(
+      "Connection status unavailable. Reload before choosing a registration; no paid fallback.",
+    );
+    return false;
+  }
+}
+async function chatgptOperation(operation) {
+  if (chatgptPending || busy || chatgptContext === null) return;
+  const selection = byId("chatgpt-account").value || null;
+  const previous = new Map(
+    chatgptConnections.map((connection) => [connection.id, connection.epoch]),
+  );
+  const epoch = settingsEpoch;
+  chatgptPending = true;
+  chatgptAuthorizing = operation === "connect" || operation === "consent";
+  const context = chatgptContext;
+  setBusy(true);
+  renderChatgpt(
+    operation === "connect" || operation === "consent"
+      ? "Complete sign-in privately in your system browser. This attempt expires in three minutes."
+      : "Updating the selected ChatGPT registration…",
+  );
+  let message;
+  try {
+    message =
+      operation === "connect" || operation === "consent"
+        ? await invoke("chatgpt_connect", {
+            registrationId: selection,
+            consent: operation === "consent",
+            context,
+          })
+        : await invoke("chatgpt_action", {
+            action: operation,
+            registrationId: selection,
+            context,
+          });
+  } catch (error) {
+    message =
+      typeof error === "string"
+        ? error
+        : "Connection outcome unknown. Reload committed state before another attempt.";
+  } finally {
+    if (epoch === settingsEpoch) {
+      chatgptPending = false;
+      chatgptAuthorizing = false;
+      await refreshChatgpt();
+      if (epoch === settingsEpoch) {
+        const changed = chatgptConnections.filter(
+          (connection) => previous.get(connection.id) !== connection.epoch,
+        );
+        if (
+          (operation === "connect" || operation === "consent") &&
+          changed.length === 1
+        )
+          byId("chatgpt-account").value = changed[0].id;
+        setBusy(false);
+        renderChatgpt(message);
+        byId("chatgpt-status").focus();
+        showChatgptWelcome(selectedChatgpt());
+      }
+    }
+  }
+}
+async function dismissChatgptWelcome() {
+  const id = chatgptWelcomeRegistration;
+  if (!id) return;
+  try {
+    await invoke("chatgpt_action", {
+      action: "disclose",
+      registrationId: id,
+      context: chatgptContext,
+    });
+    chatgptWelcomeRegistration = null;
+    chatgptWelcome.close();
+    await refreshChatgpt();
+    byId("chatgpt-connect").focus();
+  } catch {
+    byId("chatgpt-status").textContent =
+      "Disclosure acknowledgment was not saved. Reload connection status.";
+  }
+}
+byId("chatgpt-welcome-dismiss").addEventListener(
+  "click",
+  dismissChatgptWelcome,
+);
+chatgptWelcome.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  dismissChatgptWelcome();
+});
+chatgptWelcome.addEventListener("keydown", (event) => {
+  if (event.key === "Tab") {
+    event.preventDefault();
+    byId("chatgpt-welcome-dismiss").focus();
+  }
+});
+byId("chatgpt-account").addEventListener("change", () => renderChatgpt());
+byId("chatgpt-model").addEventListener("change", () => renderChatgpt());
+byId("chatgpt-connect").addEventListener("click", () =>
+  chatgptOperation("connect"),
+);
+byId("chatgpt-consent").addEventListener("click", () =>
+  chatgptOperation("consent"),
+);
+for (const action of ["models", "disconnect", "usage"])
+  byId(`chatgpt-${action}`).addEventListener("click", () =>
+    chatgptOperation(action),
+  );
+byId("chatgpt-cancel").addEventListener("click", () => {
+  const epoch = settingsEpoch;
+  invoke("chatgpt_action", {
+    action: "cancel",
+    registrationId: null,
+    context: chatgptContext,
+  }).catch(() => {
+    if (epoch === settingsEpoch)
+      byId("chatgpt-status").textContent =
+        "Cancellation outcome unknown; wait for connection settlement.";
+  });
+});
 function catalogLocked() {
   return busy || Boolean(firstRun && onboarding?.settingsCommitted);
 }
@@ -155,6 +419,7 @@ function updateCatalogControls() {
       (other) =>
         other.id !== entry.id &&
         other.provider === entry.provider &&
+        other.registrationId === entry.registrationId &&
         other.modelId === entry.modelId,
     );
     // Early correction cue only; native catalog validation remains authoritative.
@@ -170,6 +435,10 @@ function updateCatalogControls() {
   }
   for (const add of document.querySelectorAll(".catalog-add"))
     add.disabled = catalogLocked() || catalog.entries.length >= 32;
+  byId("catalog-chatgpt-add").disabled ||=
+    chatgptPending ||
+    !selectedChatgpt()?.planEnabled ||
+    !byId("chatgpt-model").value;
   byId("catalog-limit").textContent =
     `${catalog.entries.length}/32 models${catalog.entries.length >= 32 ? " — remove a model before adding another." : ""}`;
 }
@@ -210,6 +479,7 @@ function renderSummaryModels(
     if (!entry.modelId.trim()) continue;
     const state = keyStates.get(`${entry.provider.toUpperCase()}_API_KEY`);
     const available =
+      (entry.provider === "chatgpt" && chatgptAvailable(entry)) ||
       entry.provider === "ollama" ||
       (state?.available &&
         (state.intent === "replace" ||
@@ -219,12 +489,15 @@ function renderSummaryModels(
         entry === exactMatch
           ? value
           : JSON.stringify({
-              version: 1,
+              version: entry.provider === "chatgpt" ? 2 : 1,
+              ...(entry.provider === "chatgpt"
+                ? { registrationId: entry.registrationId }
+                : {}),
               entryId: entry.id,
               provider: entry.provider,
               modelId: entry.modelId,
             }),
-      label: `${providers[entry.provider]} / ${entry.modelId}${available ? "" : " — key unavailable"}`,
+      label: `${chatgptEntryLabel(entry)}${available ? "" : entry.provider === "chatgpt" ? " — connection unavailable" : " — key unavailable"}`,
     });
   }
   if (!choices.some((choice) => choice.value === value)) {
@@ -234,7 +507,7 @@ function renderSummaryModels(
       try {
         const saved = JSON.parse(value);
         if (
-          saved.version === 1 &&
+          [1, 2].includes(saved.version) &&
           providers[saved.provider] &&
           typeof saved.modelId === "string" &&
           saved.modelId.length <= 256
@@ -286,9 +559,18 @@ function renderCatalog() {
           input.required = true;
           input.disabled = catalogLocked();
           input.value = entry.modelId;
+          input.readOnly = provider === "chatgpt";
+          if (provider === "chatgpt") {
+            const account = document.createElement("span");
+            account.textContent =
+              chatgptConnections.find(
+                (connection) => connection.id === entry.registrationId,
+              )?.label ?? "Unavailable saved registration";
+            wrapper.append(account);
+          }
           input.setAttribute("aria-describedby", `${entry.id}-error`);
           const edit = () => {
-            if (catalogLocked()) return;
+            if (catalogLocked() || provider === "chatgpt") return;
             const draft = catalog.entries.find(
               (value) => value.id === entry.id,
             );
@@ -341,7 +623,18 @@ function renderCatalog() {
 for (const provider of Object.keys(providers)) {
   byId(`catalog-${provider}-add`).addEventListener("click", () => {
     if (catalogLocked() || catalog.entries.length >= 32) return;
-    const entry = { id: `entry_${crypto.randomUUID()}`, provider, modelId: "" };
+    const connection = selectedChatgpt();
+    if (
+      provider === "chatgpt" &&
+      (!connection?.planEnabled || !byId("chatgpt-model").value)
+    )
+      return;
+    const entry = {
+      id: `entry_${crypto.randomUUID()}`,
+      provider,
+      modelId: provider === "chatgpt" ? byId("chatgpt-model").value : "",
+      ...(provider === "chatgpt" ? { registrationId: connection.id } : {}),
+    };
     catalog.entries.push(entry);
     renderCatalog();
     byId(`${entry.id}-modelId`).focus();
@@ -518,6 +811,7 @@ function setBusy(value) {
     add.disabled = value || committed || catalog.entries.length >= 32;
   renderHistory();
   renderAuthPresentation();
+  renderChatgpt();
 }
 async function reconcileOnboarding() {
   onboarding = await invoke("read_onboarding");
@@ -602,6 +896,7 @@ async function refresh() {
       throw new Error("Unsupported settings snapshot");
     catalog = { ...structuredClone(saved.chatCatalog), defaultEntryId: null };
     loadedRevision = saved.revision;
+    await refreshChatgpt();
     renderCatalog();
     onboarding = await invoke("read_onboarding");
     legacyRequired = saved.storage === "legacy-required";
@@ -656,6 +951,7 @@ async function refresh() {
       : saved.saved
         ? `Saved settings loaded; keys are masked. ${saved.activation || "Live status unknown; no automatic retry."}`
         : "Existing installation recovery: settings are inaccessible or unsupported. Preserve them and reopen with a compatible build; no blank-install overwrite.";
+    showChatgptWelcome();
     return true;
   } catch {
     loadedRevision = null;
@@ -816,12 +1112,21 @@ async function initialize() {
     label.className = "provider-key";
     byId(`catalog-${provider}-config`).append(label);
   }
+  // Dynamic fields exist before asynchronous native snapshots arrive. Keep the
+  // form noninteractive until the complete initial snapshot has been applied.
+  setBusy(true);
   await refresh();
+  setBusy(false);
   await window.__TAURI__.event.listen("desktop-status", (event) => {
     status.textContent = event.payload;
   });
   await window.__TAURI__.event.listen("desktop-settings-closed", () => {
     settingsEpoch++;
+    chatgptPending = false;
+    chatgptAuthorizing = false;
+    chatgptContext = null;
+    chatgptWelcomeRegistration = null;
+    if (chatgptWelcome.open) chatgptWelcome.close();
     closeRestart();
     authEpoch++;
     authPending = false;
@@ -1004,6 +1309,24 @@ byId("database-selection").addEventListener("change", () => {
       : "Select an existing current-schema database; missing, old or owned targets are refused, never initialized.";
 });
 byId("cancel").addEventListener("click", async () => {
+  if (chatgptPending) {
+    settingsEpoch++;
+    try {
+      await invoke("chatgpt_action", {
+        action: "cancel",
+        registrationId: null,
+        context: chatgptContext,
+      });
+    } catch {
+      byId("chatgpt-status").textContent =
+        "Cancellation outcome unknown. Wait for settlement or quit; saved connections are retained.";
+      return;
+    }
+    chatgptPending = false;
+    chatgptAuthorizing = false;
+    chatgptContext = null;
+    setBusy(false);
+  }
   if (busy && firstRun) {
     status.textContent =
       "Cancellation requested. Wait for the operation to settle; committed database/settings/tokens remain saved.";

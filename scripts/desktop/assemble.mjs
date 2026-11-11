@@ -78,7 +78,11 @@ for (const name of [
     join(target, "scripts", `${name}.py`),
   );
 }
-for (const name of ["garmin_auth.py", "garmin_auth.py.lock"]) {
+for (const name of [
+  "garmin_auth.py",
+  "garmin_auth.py.lock",
+  "chatgpt-oauth.mjs",
+]) {
   await cp(join(root, "scripts/desktop", name), join(target, "scripts", name));
 }
 await cp(

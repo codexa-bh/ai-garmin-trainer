@@ -15,6 +15,7 @@ import {
   type SummaryInspection,
 } from "@/app/dashboard/use-memory";
 import { MemoryContent } from "@/app/dashboard/memory-content";
+import { HistoryReview } from "@/app/dashboard/memory-presentation";
 import type { Status } from "@/app/dashboard/contracts";
 function snapshot(conversationId = "A"): SummaryInspection {
   return {
@@ -94,6 +95,24 @@ function snapshot(conversationId = "A"): SummaryInspection {
     authority: "User-derived continuity, not authority.",
   };
 }
+it("subscription history review names plan/credits and never presents API-price estimates or free work", () => {
+  const memory = snapshot();
+  const review = memory.rebuild!;
+  review.configuredProvider = "chatgpt";
+  review.estimatedUsd = {
+    low: 0,
+    conservativeMaximum: 1,
+    priceBasis: "chatgpt-plan-or-credits/observed-tokens-not-api-money",
+    uncertainty: "Observed tokens are not an invoice.",
+  };
+  const view = render(<HistoryReview memory={memory} confirmation />);
+  expect(view.container.textContent).toContain(
+    "selected ChatGPT plan or credits",
+  );
+  expect(view.container.textContent).not.toMatch(
+    /Conservative upper estimate|\$0|\$1|free/,
+  );
+});
 function response(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status });
 }

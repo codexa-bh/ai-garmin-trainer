@@ -5,6 +5,7 @@ import {
   validateChatCatalog,
 } from "./model-settings/catalog";
 import { summarySelection } from "./model-settings/summary-selection";
+import { validateChatgptConnections } from "./model-settings/chatgpt-metadata";
 import { GARMIN_MCP_DEFAULT_ARGS_STRING } from "./garmin/mcp-config";
 
 const PLACEHOLDER_SECRET_PATTERNS = [
@@ -28,9 +29,13 @@ const optionalEnvSchema = z.object({
   GARMIN_MCP_ARGS: z.string().default(GARMIN_MCP_DEFAULT_ARGS_STRING),
   GARMIN_MCP_TOKEN_DIR: z.string().optional(),
   AI_PROVIDER: z
-    .enum(["auto", "openai", "deepseek", "ollama", "openrouter"])
+    .enum(["auto", "openai", "deepseek", "ollama", "openrouter", "chatgpt"])
     .default("auto"),
   AI_MODEL: z.string().default("gpt-6-luna"),
+  // Native metadata/admission only. No tokens or owner capabilities in env.
+  CHATGPT_CONNECTIONS: z.string().optional(),
+  CHATGPT_REGISTRATION: z.string().optional(),
+  CHATGPT_MODEL: z.string().optional(),
   // Private startup adapter only; never an editable scalar/build configuration.
   CHAT_MODEL_CATALOG: z.string().optional(),
   CHAT_SELECTION_COMPATIBILITY: z.string().optional(),
@@ -177,6 +182,56 @@ export function liveConfigurationStatus() {
     state: "applied",
   } as const;
 }
+export function chatgptAdmissionCurrent(
+  registrationId: string,
+  epoch: number,
+  model: string,
+): boolean {
+  const cell = configurationCell();
+  if (!cell.boot) return true; // Non-serving adapter tests/CLI still require the native credential capability.
+  try {
+    const raw = cell.active?.env.CHATGPT_CONNECTIONS;
+    return (
+      raw !== undefined &&
+      validateChatgptConnections(JSON.parse(raw) as unknown).some(
+        (connection) =>
+          connection.id === registrationId &&
+          connection.epoch === epoch &&
+          connection.state === "connected" &&
+          connection.planEnabled &&
+          connection.models.some((entry) => entry.slug === model),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+export function applyChatgptConnections(input: unknown): void {
+  const connections = validateChatgptConnections(input);
+  const cell = configurationCell();
+  if (!cell.active) throw new Error("chatgpt_activation_unavailable");
+  const previous = cell.active.env.CHATGPT_CONNECTIONS;
+  const prior =
+    previous === undefined
+      ? []
+      : validateChatgptConnections(JSON.parse(previous) as unknown);
+  if (
+    prior.some(
+      (old) =>
+        !connections.some(
+          (next) => next.id === old.id && next.epoch >= old.epoch,
+        ),
+    )
+  )
+    throw new Error("chatgpt_stale_activation");
+  cell.active = {
+    ...cell.active,
+    env: Object.freeze({
+      ...cell.active.env,
+      CHATGPT_CONNECTIONS: JSON.stringify(connections),
+    }),
+  };
+}
 export function extractionConfiguration(env: AppEnv): AppEnv | null {
   const cell = configurationCell();
   if (!cell.boot) return env;
@@ -243,6 +298,7 @@ export function applyLiveConfiguration(input: unknown) {
   const env = Object.freeze({
     ...cell.base,
     CHAT_MODEL_CATALOG: JSON.stringify(catalog),
+    CHATGPT_CONNECTIONS: cell.active.env.CHATGPT_CONNECTIONS,
     OPENAI_API_KEY: secrets.OPENAI_API_KEY as string | undefined,
     DEEPSEEK_API_KEY: secrets.DEEPSEEK_API_KEY as string | undefined,
     OPENROUTER_API_KEY: secrets.OPENROUTER_API_KEY as string | undefined,

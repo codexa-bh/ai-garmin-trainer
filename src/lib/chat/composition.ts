@@ -59,8 +59,14 @@ const turns = createChatTurns({
   buildSystemContext,
   fallbackDebugTrace: fallbackLlmDebugTrace,
   selectGeneration: (assertCurrent) => {
-    const { model, provider, modelName, conversationCount } =
-      selectedTrainerModel(assertCurrent);
+    const {
+      model,
+      provider,
+      modelName,
+      conversationCount,
+      conversationReplay,
+      assertCurrent: providerCurrent,
+    } = selectedTrainerModel(assertCurrent);
     const generate: ChatGenerator = ({
       executionLimit,
       conversation,
@@ -84,7 +90,9 @@ const turns = createChatTurns({
         ...(onStatus ? { onStatus } : {}),
         debug: { enabled: debugTraceEnabled, provider, model: modelName },
       });
-    if (conversationCount)
+    generate.assertCurrent = providerCurrent;
+    if (provider === "chatgpt") generate.replayReason = "subscription-replay";
+    if (conversationCount || conversationReplay)
       generate.compaction = createConversationCompactionGeneration(
         model,
         conversationCount,
@@ -99,6 +107,10 @@ const turns = createChatTurns({
 // Delivery may spread PreparedChatTurn for streaming; its userRecord identity
 // survives that copy, unlike the outer object. Keep the admitted config bound.
 const admitted = new WeakMap<PreparedChatTurn["userRecord"], AppEnv>();
+const admittedChecks = new WeakMap<
+  PreparedChatTurn["userRecord"],
+  () => void
+>();
 export const prepareChatTurn: typeof turns.prepareChatTurn = (...args) => {
   const env = getOptionalEnv();
   const prepared = withConfiguration(env, () => turns.prepareChatTurn(...args));
@@ -107,21 +119,30 @@ export const prepareChatTurn: typeof turns.prepareChatTurn = (...args) => {
 };
 export const generateChatTurn: typeof turns.generateChatTurn = (...args) =>
   withConfiguration(admitted.get(args[0].userRecord) ?? getOptionalEnv(), () =>
-    turns.generateChatTurn(...args),
-  );
-export const completeChatTurn: typeof turns.completeChatTurn = (...args) =>
-  withConfiguration(admitted.get(args[0].userRecord) ?? getOptionalEnv(), () =>
-    turns.completeChatTurn(...args).then((result) => {
-      try {
-        noteSummaryActivity(Date.now());
-        notifySummaryActivity();
-      } catch {
-        // A summary notification cannot undo a committed answer. The existing
-        // native discovery tick recovers durable journal backlog without replay.
-      }
-      return result;
+    turns.generateChatTurn(...args).then((answer) => {
+      if (args[0].assertCurrent)
+        admittedChecks.set(args[0].userRecord, args[0].assertCurrent);
+      return answer;
     }),
   );
+export const completeChatTurn: typeof turns.completeChatTurn = (...args) => {
+  args[0].assertCurrent =
+    admittedChecks.get(args[0].userRecord) ?? args[0].assertCurrent;
+  return withConfiguration(
+    admitted.get(args[0].userRecord) ?? getOptionalEnv(),
+    () =>
+      turns.completeChatTurn(...args).then((result) => {
+        try {
+          noteSummaryActivity(Date.now());
+          notifySummaryActivity();
+        } catch {
+          // A summary notification cannot undo a committed answer. The existing
+          // native discovery tick recovers durable journal backlog without replay.
+        }
+        return result;
+      }),
+  );
+};
 export const completeConversationTitle: typeof turns.completeConversationTitle =
   (...args) =>
     withConfiguration(

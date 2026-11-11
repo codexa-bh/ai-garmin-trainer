@@ -42,6 +42,7 @@ beforeEach(async () => {
   });
   invoke.mockReset();
   invoke.mockImplementation(async (command) => {
+    if (command === "chatgpt_context") return 0;
     if (command === "read_settings")
       return {
         revision: "synthetic-revision",
@@ -91,6 +92,131 @@ afterEach(() => {
   controller.__trainerSetupSmokeRestore();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+async function chatgptFixture() {
+  const original = invoke.getMockImplementation()!;
+  invoke.mockImplementation(async (command, args) =>
+    command === "chatgpt_connections"
+      ? [
+          {
+            id: "registration_11111111-1111-4111-8111-111111111111",
+            epoch: 1,
+            label: "synthetic@example.invalid · 1",
+            state: "connected",
+            planEnabled: true,
+            disclosed: true,
+            models: [
+              {
+                slug: "synthetic/chatgpt:one",
+                displayName: "Authored model one",
+              },
+            ],
+          },
+          {
+            id: "registration_22222222-2222-4222-8222-222222222222",
+            epoch: 1,
+            label: "synthetic@example.invalid · 2",
+            state: "connected",
+            planEnabled: true,
+            disclosed: true,
+            models: [
+              {
+                slug: "synthetic/chatgpt:two",
+                displayName: "Authored model two",
+              },
+            ],
+          },
+        ]
+      : original(command, args),
+  );
+  document.getElementById("cancel")!.click();
+  await waitFor(() =>
+    expect(controller.__trainerSetupSmoke("observe").chatgptReady).toBe(true),
+  );
+}
+it("closed ChatGPT presentation exercises actual account/model/draft controls without auth or Save, then resets", async () => {
+  await chatgptFixture();
+  const before = document.querySelectorAll(".catalog-row").length;
+  expect(controller.__trainerSetupSmoke("chatgptExercise")).toMatchObject({
+    ok: true,
+    chatgptReady: true,
+    chatgptExercised: true,
+  });
+  expect(document.querySelectorAll(".catalog-row").length).toBe(before + 1);
+  expect(controller.__trainerSetupSmoke("chatgptReset")).toMatchObject({
+    ok: true,
+    chatgptReady: true,
+    chatgptExercised: false,
+  });
+  expect(document.querySelectorAll(".catalog-row").length).toBe(before);
+  expect(
+    invoke.mock.calls.some(([command]) =>
+      ["chatgpt_connect", "chatgpt_action", "save_settings"].includes(command),
+    ),
+  ).toBe(false);
+});
+it.each(["captureChatgptWide", "captureChatgptNarrow"])(
+  "%s reveals only exact fictional/static nodes and restores all private styles",
+  async (action) => {
+    await chatgptFixture();
+    const privateNode = document.createElement("div");
+    privateNode.textContent = "private-unit-sentinel";
+    privateNode.style.color = "red";
+    document.body.append(privateNode);
+    const original = privateNode.style.cssText;
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+    expect(getComputedStyle(privateNode).visibility).toBe("hidden");
+    controller.__trainerSetupSmokeRestore();
+    expect(privateNode.style.cssText).toBe(original);
+    expect(controller.__trainerSetupSmoke("chatgptExercise").ok).toBe(true);
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+    expect(
+      getComputedStyle(document.getElementById("chatgpt-status")!).visibility,
+    ).toBe("visible");
+    controller.__trainerSetupSmokeRestore();
+    expect(privateNode.style.cssText).toBe(original);
+  },
+);
+it.each(["option", "status", "unknown-child", "overflow"])(
+  "ChatGPT capture refuses %s drift and restores masks without invoking private actions",
+  async (fault) => {
+    await chatgptFixture();
+    const root = document.getElementById("catalog-chatgpt")!;
+    if (fault === "option")
+      (
+        document.getElementById("chatgpt-account") as HTMLSelectElement
+      ).options[1].textContent = "private-unit-sentinel";
+    if (fault === "status")
+      document.getElementById("chatgpt-status")!.textContent =
+        "private-unit-sentinel";
+    if (fault === "unknown-child") root.append(document.createElement("p"));
+    if (fault === "overflow")
+      vi.spyOn(
+        document.getElementById("chatgpt-connect")!,
+        "getBoundingClientRect",
+      ).mockReturnValue(new DOMRect(-1, 24, 300, 45));
+    const before = root.style.cssText;
+    expect(controller.__trainerSetupSmoke("captureChatgptWide").ok).toBe(false);
+    expect(root.style.cssText).toBe(before);
+    expect(
+      invoke.mock.calls.some(([command]) =>
+        ["chatgpt_connect", "chatgpt_action", "save_settings"].includes(
+          command,
+        ),
+      ),
+    ).toBe(false);
+  },
+);
+it("ChatGPT controller refuses absent metadata and arbitrary values/actions", () => {
+  expect(controller.__trainerSetupSmoke("chatgptExercise").ok).toBe(false);
+  expect(
+    controller.__trainerSetupSmoke({
+      action: "chatgptExercise",
+      value: "private",
+    }).ok,
+  ).toBe(false);
+  expect(controller.__trainerSetupSmoke("chatgptSignIn").ok).toBe(false);
 });
 
 it.each(["configured", "not configured"])(

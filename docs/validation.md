@@ -127,6 +127,12 @@ canonical-content masks, twelve wide/narrow/scroll-edge captures, before-use
 contracts and explicit integration/input-fidelity limits. Default recurring CI and
 quick/ordinary scenarios are unchanged.
 
+### ChatGPT subscription proof boundaries
+
+`tests/chatgpt-{oauth,transport,composition,settings}.test.*` cover authored OAuth/JWKS/callbacks, private-browser launch arguments, actual compatible HTTP/SSE for all generation purposes, API-key-free production coaching/tool/history/complete-memory/title plus maintenance/rebuild/import/Densify, terminal failures, native-refusal currentness and UI intent. Native `chatgpt` tests cover protected restart/identity, rotating refresh, transient/terminal disposition, queued/late cancellation, file/parent replacement and authenticated broker denials. These are not real-account certificates.
+
+After the before-use marker/DOM/Python/native checks, use `smoke:settings -- --scratch <canonical-root> --input-file <authored-selection> --chatgpt-presentation` for fixed fictional account/model controls and inspected native wide/narrow presentation without credentials or a broker. Keep full ordinary two-instance regression plus affected eligibility/chat/summary proof for shared lifetime changes. Real browser authorization/renewal and finite subscription inference require separately explicit operator account/usage/data/window authority; record exact unavailable proof instead of treating a mock/native image as real integration. See [connection contract](chatgpt.md).
+
 ## Generated Next.js declarations
 
 `next-env.d.ts` and `.next/` are framework-owned, ignored local output. Do not

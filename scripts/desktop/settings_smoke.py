@@ -276,6 +276,26 @@ def dependency_settings(run, captures, binary):
     captures.append({'scenario':'backend-unavailable-native-settings', **run.command({'type':'settings', 'action':'captureFooterWide'})})
 
 
+def chatgpt_presentation(run, captures):
+    before = run.http('/identity')
+    initial = wait_settings(run, lambda value: value['chatgptReady'] and not value['chatgptExercised'], 'exact fictional ChatGPT metadata with no selection')
+    if not initial['privateActionsDenied']:
+        raise ValueError('Presentation fixture gained private authority')
+    for size in ['Wide', 'Narrow']:
+        captures.append({'scenario': 'chatgpt-unselected-' + size.lower(), **run.command({'type': 'settings', 'action': 'captureChatgpt' + size})})
+    exercised = run.command({'type': 'settings', 'action': 'chatgptExercise'})
+    if not exercised['chatgptReady'] or not exercised['chatgptExercised'] or not exercised['privateActionsDenied']:
+        raise ValueError('ChatGPT account/model isolation or draft exercise failed')
+    for size in ['Wide', 'Narrow']:
+        captures.append({'scenario': 'chatgpt-authored-account-draft-' + size.lower(), **run.command({'type': 'settings', 'action': 'captureChatgpt' + size})})
+    run.command({'type': 'settings', 'action': 'chatgptReset'})
+    wait_settings(run, lambda value: value['chatgptReady'] and not value['chatgptExercised'], 'ChatGPT draft removed before ordinary Save')
+    after = run.http('/identity')
+    if any(before[key] != after[key] for key in ['pid', 'origin', 'database']):
+        raise ValueError('ChatGPT presentation switched a backend or database')
+    return {'fictionalMetadataOnly': True, 'accountModelIsolation': True, 'noFirstModelSelection': True, 'draftResetWithoutSave': True, 'privateActionsDenied': True, 'activeBackendUnchanged': True}
+
+
 @resources.invocation
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -285,6 +305,7 @@ def main():
     scenario = parser.add_mutually_exclusive_group()
     scenario.add_argument('--dependency-guidance', action='store_true', help='Finite notice absence, normal keyless Save/reload and backend-unavailable Settings; no auth')
     scenario.add_argument('--live-settings', action='store_true', help='Finite synthetic live settings and task-owned local stream fixture; no real provider calls')
+    scenario.add_argument('--chatgpt-presentation', action='store_true', help='Fixed secret-free fictional account/model presentation; no credential broker, auth, provider or usage-opening authority')
     scenario.add_argument('--provider-fields', action='store_true', help='Finite authored synthetic provider presence/edit/clear/stale-save scenario; no caller key input')
     args = parser.parse_args()
     os.umask(0o077)
@@ -315,6 +336,8 @@ def main():
             initial_fields = json.loads(authored.read_text())
             initial_fields['fields']['OLLAMA_BASE_URL'] = 'http://127.0.0.1:11435/v1'
             authored.write_text(json.dumps(initial_fields))
+        if args.chatgpt_presentation:
+            private_json(run.root / 'chatgpt-presentation.json', {'version': 1, 'runId': run.id})
         original_named = prepare_named_settings(run)
         observer = Observer(scratch)
         run.observer = observer
@@ -325,6 +348,14 @@ def main():
         initial = wait_settings(run, lambda o: o['ready'], 'initial setup ready')
         if not initial['notConnected'] or not initial['manualControlsAbsent'] or initial['formVisible'] or not initial['privateActionsDenied']:
             raise ValueError('Initial Garmin settings state incorrect')
+        if args.chatgpt_presentation:
+            credential_owner = run.root / 'config/chatgpt-v1'
+            if credential_owner.exists():
+                raise ValueError('Keyless presentation created a credential owner')
+            receipt['chatgptPresentation'] = chatgpt_presentation(run, captures)
+            if credential_owner.exists():
+                raise ValueError('Presentation gained a credential owner')
+            receipt['chatgptPresentation']['noCredentialOwner'] = True
         if args.dependency_guidance:
             dependency_settings(run, captures, binary)
             if source_identity() != source:

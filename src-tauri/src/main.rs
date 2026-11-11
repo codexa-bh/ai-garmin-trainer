@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod auth;
 mod chat_catalog;
+mod chatgpt;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
 mod dev_bridge;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
@@ -37,6 +38,9 @@ struct Runtime {
     live_unknown: AtomicBool,
     setup_failure: Mutex<Option<&'static str>>,
     auth: Mutex<auth::Auth>,
+    chatgpt: Mutex<Option<std::sync::Arc<chatgpt::Owner>>>,
+    chatgpt_context: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    chatgpt_control: Mutex<()>,
     onboarding: Mutex<Option<onboarding::State>>,
     onboarding_id: Mutex<String>,
     onboarding_cancel: AtomicBool,
@@ -56,6 +60,109 @@ fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
     )?))
 }
 
+fn chatgpt_owner(app: &tauri::AppHandle) -> Result<std::sync::Arc<chatgpt::Owner>, &'static str> {
+    let runtime = app.state::<Runtime>();
+    let mut owner = runtime.chatgpt.lock().map_err(|_| "ChatGPT ownership unavailable.")?;
+    if owner.is_none() {
+        if runtime.quitting.load(Ordering::SeqCst) { return Err("App is quitting."); }
+        let path = settings_path(app)?;
+        *owner = Some(chatgpt::Owner::start(path.parent().ok_or("Private settings parent unavailable.")?, &resources(app)?)?);
+    }
+    owner.clone().ok_or("ChatGPT ownership unavailable.")
+}
+fn notify_model_settings(app:&tauri::AppHandle) {
+    // Metadata-only read notification; never exposes native IPC or credentials.
+    if let Some(trainer)=app.get_webview_window("trainer") { let _=trainer.eval("window.dispatchEvent(new Event('trainer-live-settings-applied'));"); }
+}
+fn apply_chatgpt_connections(app: &tauri::AppHandle, owner: &chatgpt::Owner) -> String {
+    let runtime = app.state::<Runtime>();
+    let Ok(mut service) = runtime.service.try_lock() else { return "Connection saved; live activation unknown. Reload or reopen Trainer.".into(); };
+    match service.as_mut() {
+        Some(service) => if service.update_chatgpt(&owner.metadata()).is_ok() {
+            notify_model_settings(app);
+            "Connection saved and live metadata applied. Catalog changes still require Save.".into()
+        } else {
+            "Connection saved; live activation unknown. Reload or reopen Trainer.".into()
+        },
+        None => "Connection saved; opens with the next Trainer launch. Catalog changes still require Save.".into(),
+    }
+}
+#[tauri::command]
+async fn chatgpt_connections(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<serde_json::Value, String> {
+    setup_only(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        if app.try_state::<std::sync::Arc<isolated_run::Admission>>().is_some() { return Ok(serde_json::json!([])); }
+        #[cfg(any(debug_assertions, feature = "release-probe"))]
+        if let Some(config) = app.try_state::<smoke_config::Config>() {
+            #[cfg(debug_assertions)]
+            { return setup_smoke::chatgpt_metadata(&config).map(|value| value.unwrap_or_else(|| serde_json::json!([]))); }
+            #[cfg(not(debug_assertions))]
+            { let _ = config; return Ok(serde_json::json!([])); }
+        }
+        chatgpt_owner(&app).map(|owner| owner.metadata()).map_err(str::to_owned)
+    }).await.map_err(|_| "ChatGPT status unavailable.".to_string())?
+}
+#[tauri::command]
+fn chatgpt_context(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<u64,String> {
+    setup_only(&window)?;
+    Ok(app.state::<Runtime>().chatgpt_context.load(Ordering::SeqCst))
+}
+#[tauri::command]
+async fn chatgpt_connect(app: tauri::AppHandle, window: tauri::WebviewWindow, registration_id: Option<String>, consent: bool, context:u64) -> Result<String, String> {
+    private_setup_only(&window)?;
+    if !window.is_visible().unwrap_or(false) { return Err("Open Settings before signing in.".into()); }
+    let (owner,epoch,reserved) = {
+        let runtime = app.state::<Runtime>();
+        let _control = runtime.chatgpt_control.lock().map_err(|_| "Connection context unavailable.")?;
+        if runtime.quitting.load(Ordering::SeqCst) || runtime.chatgpt_context.load(Ordering::SeqCst) != context || context > 9_007_199_254_740_989 { return Err("Connection context changed; reload before signing in.".into()); }
+        let owner = chatgpt_owner(&app).map_err(str::to_owned)?;
+        let epoch = owner.reserve_sign_in().map_err(str::to_owned)?;
+        runtime.chatgpt_context.store(context+1,Ordering::SeqCst);
+        (owner,epoch,context+1)
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = app.state::<Runtime>();
+        if runtime.quitting.load(Ordering::SeqCst) { owner.stop(); }
+        owner.sign_in(registration_id, consent,epoch,Some((&runtime.chatgpt_context,reserved))).map_err(str::to_owned)?;
+        if runtime.chatgpt_context.load(Ordering::SeqCst) != reserved || runtime.quitting.load(Ordering::SeqCst) { return Ok("Connection committed; live activation deferred after the Settings context closed. Reopen to inspect saved state.".into()); }
+        Ok(apply_chatgpt_connections(&app, &owner))
+    }).await.map_err(|_| "ChatGPT sign-in interrupted; reload committed state.".to_string())?
+}
+#[tauri::command]
+async fn chatgpt_action(app: tauri::AppHandle, window: tauri::WebviewWindow, action: String, registration_id: Option<String>, context:u64) -> Result<String, String> {
+    private_setup_only(&window)?;
+    if action == "cancel" {
+        let runtime = app.state::<Runtime>();
+        let _control = runtime.chatgpt_control.lock().map_err(|_| "Connection context unavailable.")?;
+        if !chatgpt::cancel_ui_generation(&runtime.chatgpt_context,context) { return Ok("That sign-in context already ended; no newer attempt was cancelled.".into()); }
+        if let Ok(owner) = runtime.chatgpt.lock() { if let Some(owner)=owner.as_ref(){owner.cancel();} }
+        return Ok("Sign-in cancelled; committed connections preserved.".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = app.state::<Runtime>();
+        if runtime.quitting.load(Ordering::SeqCst) || runtime.chatgpt_context.load(Ordering::SeqCst) != context { return Err("Connection context changed; reload before another action.".into()); }
+        if action == "usage" {
+            std::process::Command::new("/usr/bin/open").arg("https://chatgpt.com/settings/usage").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().map_err(|_| "Usage settings could not open.".to_string())?;
+            return Ok("Opened ChatGPT usage settings.".into());
+        }
+        if !["models","disclose","disconnect"].contains(&action.as_str()) { return Err("Unsupported ChatGPT action.".into()); }
+        let owner = chatgpt_owner(&app).map_err(str::to_owned)?;
+        let scope = Some((&*runtime.chatgpt_context,context));
+        let id = registration_id.ok_or("Choose a saved ChatGPT registration.")?;
+        match action.as_str() {
+            "models" => owner.discover_models(&id,scope).map_err(str::to_owned)?,
+            "disclose" => owner.disclose(&id,scope).map_err(str::to_owned)?,
+            "disconnect" => {
+                let mut activation = String::new();
+                let confirmed = owner.disconnect(&id, || { if runtime.chatgpt_context.load(Ordering::SeqCst) == context && !runtime.quitting.load(Ordering::SeqCst) { activation = apply_chatgpt_connections(&app, &owner); } else { activation = "Live activation deferred after the Settings context closed.".into(); } },scope).map_err(str::to_owned)?;
+                return Ok(format!("Disconnected locally. {} {activation}", if confirmed { "Renewable session revocation confirmed." } else { "Remote revocation was not confirmed; manage access in ChatGPT settings." }));
+            },
+            _ => return Err("Unsupported ChatGPT action.".into()),
+        }
+        if runtime.chatgpt_context.load(Ordering::SeqCst) != context || runtime.quitting.load(Ordering::SeqCst) { return Ok("Connection change committed; live activation deferred after the Settings context closed.".into()); }
+        Ok(apply_chatgpt_connections(&app, &owner))
+    }).await.map_err(|_| "ChatGPT operation interrupted; reload committed state.".to_string())?
+}
 fn resources(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
     if cfg!(debug_assertions) {
         Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources"))
@@ -98,6 +205,10 @@ fn private_setup_only(window: &tauri::WebviewWindow) -> Result<(), String> {
 fn stop_runtime(app: &tauri::AppHandle) {
     let runtime = app.state::<Runtime>();
     runtime.quitting.store(true, Ordering::SeqCst);
+    if let Ok(owner) = runtime.chatgpt.lock() {
+        if let Some(owner) = owner.as_ref() { owner.stop(); }
+    }
+    { let _control = runtime.chatgpt_control.lock().ok(); runtime.chatgpt_context.fetch_add(2,Ordering::SeqCst); }
     if let Ok(mut auth) = runtime.auth.lock() {
         auth.stop();
     }
@@ -152,6 +263,20 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
         settings::activation(&path)?
     };
     drop(_write); // Saves remain available during backend startup; activation is immutable.
+    #[allow(unused_mut)]
+    let mut subscription_allowed = app.try_state::<std::sync::Arc<isolated_run::Admission>>().is_none();
+    #[cfg(any(debug_assertions, feature = "release-probe"))]
+    if app.try_state::<smoke_config::Config>().is_some() { subscription_allowed = false; }
+    // Optional subscription storage must not disable existing API-key/local routes.
+    // Unsafe/unsupported records remain untouched and unavailable in Settings.
+    let subscription = if subscription_allowed { chatgpt_owner(app).ok() } else { None };
+    if let Some(chatgpt) = subscription {
+        let activation: serde_json::Value = serde_json::from_slice(&snapshot).map_err(|_| "Private activation invalid.")?;
+        let frame = serde_json::json!({"version":4,"activation":activation,"chatgpt":chatgpt.descriptor()});
+        snapshot.fill(0);
+        snapshot = serde_json::to_vec(&frame).map_err(|_| "Private activation invalid.")?;
+        snapshot.push(b'\n');
+    }
     let result = supervisor::Service::start(
         &resources(app)?,
         &mut snapshot,
@@ -232,6 +357,10 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
                     }
                     probe_app.exit(if denied{0}else{1});
                 }
+                return false;
+            }
+            if subscription_allowed && url.as_str() == "https://chatgpt.com/settings/usage" {
+                let _ = std::process::Command::new("/usr/bin/open").arg("https://chatgpt.com/settings/usage").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
                 return false;
             }
             url.origin().ascii_serialization() == expected
@@ -386,15 +515,17 @@ async fn save_settings(
             let Some(owned) = service.as_mut().and_then(|guard| guard.as_mut()) else {
                 return Ok(" Saved; live fields not applied: owned backend absent or busy. No start/restart or retry performed.".to_string());
             };
+            let subscription_warning = if saved.chat_catalog.as_ref().map(|catalog| catalog.entries.iter().any(|entry| entry.provider == "chatgpt")).unwrap_or(false) {
+                let owner = runtime.chatgpt.lock().ok().and_then(|owner| owner.clone());
+                if owner.map(|owner| owned.update_chatgpt(&owner.metadata()).is_ok()).unwrap_or(false) { "" } else { " ChatGPT availability was not confirmed; reopen Trainer before using that route. No provider was substituted." }
+            } else { "" };
             let pending = if owned.live.pending_restart(&saved) { " Other saved settings are pending explicit quit/reopen." } else { "" };
             let outcome = match owned.apply_live(&saved, &revision) {
                 Ok(()) => {
                     runtime.live_unknown.store(false, Ordering::SeqCst);
                     // Fixed secret-free notification. Trainer receives no native IPC
                     // authority; its existing metadata owner performs the safe read.
-                    if let Some(trainer) = app.get_webview_window("trainer") {
-                        let _ = trainer.eval("window.dispatchEvent(new Event('trainer-live-settings-applied'));");
-                    }
+                    notify_model_settings(&app);
                     " Live fields applied for subsequent operations; captured work is unchanged."
                 },
                 Err(live_settings::Failure::Unapplied) => " Saved; live fields not applied. Reload to reconcile, or explicitly quit/reopen; no automatic retry.",
@@ -403,7 +534,7 @@ async fn save_settings(
                     " Saved; live outcome unknown/unconfirmed. Reload to reconcile exact active state before another Save; no automatic retry."
                 },
             };
-            Ok::<String, &'static str>(format!("{outcome}{pending}"))
+            Ok::<String, &'static str>(format!("{outcome}{pending}{subscription_warning}"))
         })();
         Ok(settings::SaveResult {
             message: format!("{}{}", committed.message, result.unwrap_or_else(|_| " Saved; committed state retained, live outcome unknown. Reload before another action; no rollback or retry.".into())),
@@ -791,6 +922,10 @@ fn main() {
         cancel_auth,
         adopt_provider_settings,
         read_memory_status,
+        chatgpt_connections,
+        chatgpt_connect,
+        chatgpt_action,
+        chatgpt_context,
         dev_bridge::smoke_result
     ]);
     #[cfg(all(not(debug_assertions), feature = "release-probe"))]
@@ -807,13 +942,23 @@ fn main() {
         submit_mfa,
         cancel_auth,
         adopt_provider_settings,
-        read_memory_status
+        read_memory_status,
+        chatgpt_connections,
+        chatgpt_connect,
+        chatgpt_action,
+        chatgpt_context
     ]);
     let app = builder.on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
                 if window.label() == "setup" {
                     api.prevent_close();
+                    {
+                        let runtime=app.state::<Runtime>();
+                        let _control=runtime.chatgpt_control.lock().ok();
+                        runtime.chatgpt_context.fetch_add(2,Ordering::SeqCst);
+                        if let Ok(owner)=runtime.chatgpt.lock(){if let Some(owner)=owner.as_ref(){owner.cancel();}};
+                    }
                     if let Ok(mut auth)=app.state::<Runtime>().auth.lock(){auth.stop();}
                     let _=app.emit_to("setup","desktop-settings-closed",());
                     if app.get_webview_window("trainer").is_some() { let _ = window.hide(); }

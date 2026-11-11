@@ -7,10 +7,12 @@ pub struct Entry {
     pub id: String,
     pub provider: String,
     pub model_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "literal_string")]
+    pub registration_id: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "display_name"
+        deserialize_with = "literal_string"
     )]
     // Inert legacy metadata, retained on round-trip but never used as a label.
     pub display_name: Option<String>,
@@ -23,7 +25,7 @@ pub struct Catalog {
     #[serde(deserialize_with = "Option::deserialize")]
     pub default_entry_id: Option<String>,
 }
-fn display_name<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
+fn literal_string<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
     String::deserialize(value).map(Some)
 }
 impl Default for Catalog {
@@ -56,9 +58,12 @@ impl Catalog {
         let mut tuples = HashSet::new();
         for entry in &self.entries {
             if !id(&entry.id)
-                || !["openai", "deepseek", "ollama", "openrouter"]
+                || !["openai", "deepseek", "ollama", "openrouter", "chatgpt"]
                     .contains(&entry.provider.as_str())
                 || !text(&entry.model_id, 256)
+                || if entry.provider == "chatgpt" {
+                    !entry.registration_id.as_ref().map(|id| id.strip_prefix("registration_").and_then(|suffix| uuid::Uuid::parse_str(suffix).ok().map(|parsed| parsed.get_version_num()==4 && parsed.to_string()==suffix)).unwrap_or(false)).unwrap_or(false)
+                } else { entry.registration_id.is_some() }
                 || entry
                     .display_name
                     .as_ref()
@@ -70,7 +75,7 @@ impl Catalog {
             if !ids.insert(&entry.id) {
                 return Err("Duplicate chat entry identity.");
             }
-            if !tuples.insert((&entry.provider, &entry.model_id)) {
+            if !tuples.insert((&entry.provider, &entry.registration_id, &entry.model_id)) {
                 return Err("This provider and exact model ID already exist.");
             }
         }
@@ -103,6 +108,7 @@ pub fn legacy(fields: &BTreeMap<String, String>, keys: &BTreeMap<String, String>
         .map(|(provider, key, default)| Entry {
             id: format!("entry_legacy_{provider}"),
             provider: provider.to_string(),
+            registration_id: None,
             model_id: {
                 let value = fields.get(*key).map(String::as_str).unwrap_or(default);
                 // Only the legacy OpenRouter env schema normalized whitespace.
@@ -152,6 +158,7 @@ mod tests {
             entries: vec![Entry {
                 id: "entry_a".into(),
                 provider: "openrouter".into(),
+                registration_id: None,
                 model_id: "Vendor/Model:Tag".into(),
                 display_name: Some("Shared label".into()),
             }],

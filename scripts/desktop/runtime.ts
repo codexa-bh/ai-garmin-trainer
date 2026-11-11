@@ -8,11 +8,15 @@ import { assertDesktopDatabase } from "../../src/lib/db/desktop-preflight";
 import { releaseDatabaseWritersForProcessExit } from "../../src/lib/db/writer-ownership";
 import {
   activationEnvironment,
+  decodePrivateFrame,
+  PRIVATE_FRAME_LIMIT,
   SECRET_SLOTS,
   validateSettings,
 } from "./settings";
 import { freshDatabase } from "./initialize";
 import { initializeLiveConfiguration } from "../../src/lib/env";
+import { initializeChatgptOwner } from "../../src/lib/ai/chatgpt-connection";
+import { serveChatgptConnections } from "./chatgpt-connections";
 import { serveLiveSettings } from "./live-settings";
 import {
   createSummarySchedule,
@@ -62,6 +66,8 @@ async function main(): Promise<void> {
   });
   const snapshot = await readPrivateFrame();
   const tooling = adoptConfiguration(snapshot);
+  if (snapshot && typeof snapshot === "object" && "chatgpt" in snapshot)
+    initializeChatgptOwner(snapshot.chatgpt);
   stage = "database";
   const adoptedDatabase = process.env.DATABASE_PATH!;
   assertDesktopDatabase(adoptedDatabase);
@@ -90,6 +96,15 @@ async function main(): Promise<void> {
   const server = createServer((request, response) => {
     if (!acceptsDesktopRequest(request.headers, origin)) {
       response.writeHead(403).end("Desktop origin refused.");
+      return;
+    }
+    if (request.url === "/__desktop/chatgpt-connections") {
+      serveChatgptConnections(request, response, nonce, () => ready).catch(
+        () => {
+          if (!response.headersSent) response.writeHead(409);
+          response.end();
+        },
+      );
       return;
     }
     if (request.url === "/__desktop/live-settings") {
@@ -259,16 +274,14 @@ function readPrivateFrame(): Promise<unknown> {
       const next = Buffer.concat([bytes, chunk]);
       bytes.fill(0);
       bytes = next;
-      if (bytes.length > 128 * 1024)
+      if (bytes.length > PRIVATE_FRAME_LIMIT)
         return finish(new Error("Activation too large."));
       const end = bytes.indexOf(10);
       if (end < 0) return;
       try {
         if (end !== bytes.length - 1)
           throw new Error("Unexpected activation data.");
-        const value: unknown = JSON.parse(
-          bytes.subarray(0, end).toString("utf8"),
-        );
+        const value: unknown = decodePrivateFrame(bytes.subarray(0, end));
         finish(undefined, value);
       } catch {
         finish(new Error("Invalid activation."));

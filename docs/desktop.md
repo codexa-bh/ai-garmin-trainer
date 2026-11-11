@@ -69,7 +69,7 @@ restart-only, default Off/unselected/6000. SUMMARY_MODEL selects future titles a
 summaries independently of Trainer chat. Its dropdown derives from the configured
 catalog, labels provider/exact ID and preserves unavailable choices without substitution.
 The existing scalar stores legacy unselected/Luna or version1 JSON with entryId,
-provider and modelId. Catalog edits/removal never retarget that exact choice; reselect
+provider and modelId; subscription version2 additionally binds registrationId. Catalog edits/removal never retarget that exact choice; reselect
 explicitly. A legacy scalar with one exact OpenAI/gpt-6-luna catalog match has one
 ordinary option. Rendering and untouched Save preserve the scalar; **Use this catalog
 entry on Save** changes only the draft, and explicit Save adopts that exact entry
@@ -78,8 +78,7 @@ not select an arbitrary catalog row; edited/removed saved JSON stays unavailable
 The uncapped automatic-processing warning is beside Remember across chats.
 Old enums refuse new JSON values, not downgrade. Summary Off does not
 disable titles. Missing configuration/provider capability retains an explicit
-unavailable result or title excerpt, never chat/extractor fallback. Existing private OpenAI ownership/live-key snapshots are reused; no new
-secret file or live protocol field is added. Explicit Save includes hidden
+unavailable result or title excerpt, never chat/extractor fallback. Existing API-key routes reuse their private ownership/live-key snapshots. Subscription has its separate protected credential owner and fixed private metadata protocol; it never turns tokens into API-key fields. Explicit Save includes hidden
 SUMMARY_CONTRACT_VERSION=2 so old field parsers refuse changed semantics; schema19
 admission refuses20. Preserve originals and use a compatible build/forward fix.
 Rehearse authored copy migration first; no primary upgrade/restart is implied.
@@ -164,6 +163,12 @@ Schema26 adds separate structured weekly state/signatures without rewriting narr
 
 Rehearse first and follow the exact target/read/copy/backup/stop/install/mutation/reopen approvals and integrity/reference/source-preservation checks in [weekly KPI migration](weekly-kpis.md#storage-migration-and-recovery). Source delivery alone is not installed adoption; preserve newer writes and prefer a compatible forward fix, not an older writer or blind backup copy-back.
 
+## Optional ChatGPT subscription
+
+[ChatGPT subscription setup and recovery](chatgpt.md) is separate from API-key slots and Garmin login: native-owned official OAuth/PKCE, a bounded loopback callback, verified identity/plan scopes and separate saved registration/model selection. Native alone persists version1 protected companion credentials, stable host identity and rotating tokens. Metadata-only setup commands and a private startup version4 wrapper/fixed credential broker give the owned backend only its admitted registration/epoch access; no renderer, argv, connector or model receives credentials. Unsupported private records preserve originals and leave unrelated API-key/local routes usable.
+
+Connection commit, catalog Save and backend acknowledgment remain distinct. Explicit Save also projects saved subscription availability. Reconnect/disconnect/changed permission or entitlements invalidate affected admission epochs; stale UI intent/results cannot publish credentials. Remote revocation confirmation is separate from committed local disconnect. Same-user/privileged/backups can read the private plaintext file; no encryption/secure-erasure promise is added. There is no SQLite migration or primary-state adoption for this addition. Ordinary/debug admitted smoke remains credential-owner/broker-free; finite fictional presentation does not authorize real sign-in.
+
 ## Integrations and GUI execution
 
 The cleared child environment uses fixed GUI tool search `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`. Overrides accept canonical absolute executable paths or the supported uv/uvx names, never shell text/relative commands. No terminal init scripts run. Missing tools degrade integrations, not offline saved views. Guidance appears at the requested action: native sign-in uses only its selected uv plus installed Python 3.12; MCP reads use their configured uvx/override and the pinned package's compatible Python (>=3.10), not a global uv-and-uvx requirement. Native sign-in performs a bounded action-time `uv python list 3.12 --only-installed --output-format json --offline --no-config --no-python-downloads` diagnostic with a cleared environment and discarded stderr. Only a successful valid empty inventory establishes missing Python; unsupported/malformed/failed/timed-out checks remain inconclusive and preserve the existing auth path. uvx has no equivalent installed-interpreter diagnostic: an unknown initialization exit is not called missing Python. Executable OS failures are sanitized separately from network/rate/auth failures. Manage external prerequisites using [README Installation](../README.md#installation), then explicitly retry; saved executable overrides remain internal, without normal Settings editors. Startup, Settings reads and local navigation never run these checks. Optional FIT fallback remains best-effort without blocking successful MCP data. Ordinary Garmin remains pinned commit `3610be6feed93088d85b0f35aba9d7d07c2505a7`, exact `mcp==1.28.1`, local stdio/read allowlist; no inherited password/email/file or provider-key fallback reaches MCP/FIT.
@@ -182,7 +187,7 @@ Cloud provider/Trainer preference and memory extraction/embedding choices remain
 
 Native owns a fresh process group and ephemeral `127.0.0.1` backend, never an unrelated source service. A private random readiness identity plus actual composition/selected DB lease proof precede trainer display; HTTP 200 alone is insufficient. Identity never enters a public URL. Foreign Origin/Host/cross-site requests are refused. Loopback is a single-user operational boundary, not isolation from other same-user processes.
 
-Only local setup has narrow settings/auth IPC. Trainer/remote pages have no settings/auth/native-action privileges; an explicitly admitted smoke trainer may only return correlated closed results; new windows/external navigation are refused. Second launch focuses the existing native instance and ignores arguments, never starts a second writer. Port zero coexists with unrelated listeners. Startup is bounded at 90 seconds; failure shows settings without hidden retry.
+Only local setup has narrow settings/auth IPC, including optional subscription administration. The only new external destination is the fixed official ChatGPT usage page; this is not a generic URL opener. Trainer/remote pages have no settings/auth/native-action privileges; an explicitly admitted smoke trainer may only return correlated closed results; new windows/external navigation are refused. Second launch focuses the existing native instance and ignores arguments, never starts a second writer. Port zero coexists with unrelated listeners. Startup is bounded at 90 seconds; failure shows settings without hidden retry.
 
 Quit drains HTTP/Next work for at most five seconds; owned-group termination is bounded at eight seconds. Auth is cancelled and only native-owned Node/connector/FIT/auth descendants are stopped, not listeners/Ollama/primary processes. Host death closes the pipe and causes bounded child termination; auth also detects pipe EOF. Cancellation is not DB rollback: saved turns/planning writes/checkpoints remain, generation/import/title work may be incomplete. Force-kill/power loss can leave a lease requiring exact ownership inspection. Relaunch reads persisted state.
 

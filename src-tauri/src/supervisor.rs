@@ -70,7 +70,7 @@ impl Service {
     ) -> Result<Self, &'static str> {
         let frame: serde_json::Value =
             serde_json::from_slice(snapshot).map_err(|_| "Startup frame invalid.")?;
-        let fields = serde_json::from_value(frame["fields"].clone())
+        let fields = serde_json::from_value(if frame["version"] == 4 { frame["activation"]["fields"].clone() } else { frame["fields"].clone() })
             .map_err(|_| "Startup fields invalid.")?;
         let startup_fields = crate::settings::validate(resources, &fields)?;
         let nonce = uuid::Uuid::new_v4().to_string();
@@ -177,6 +177,20 @@ impl Service {
             return Err(error);
         }
         Ok(service)
+    }
+    pub fn update_chatgpt(&mut self, connections: &serde_json::Value) -> Result<(), &'static str> {
+        if self.stopped || self.exited() { return Err("Owned backend not running."); }
+        let body = serde_json::to_vec(connections).map_err(|_| "Connection metadata invalid.")?;
+        if body.len() > 128 * 1024 { return Err("Connection metadata exceeded bound."); }
+        let address: SocketAddr = format!("127.0.0.1:{}", self.port).parse().map_err(|_| "Invalid owned port.")?;
+        let mut socket = TcpStream::connect_timeout(&address, Duration::from_secs(1)).map_err(|_| "Owned backend unavailable.")?;
+        socket.set_read_timeout(Some(Duration::from_secs(3))).map_err(|_| "Connection timeout unavailable.")?;
+        socket.set_write_timeout(Some(Duration::from_secs(1))).map_err(|_| "Connection timeout unavailable.")?;
+        write!(socket,"POST /__desktop/chatgpt-connections HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nx-trainer-identity: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",self.port,self.nonce,body.len()).and_then(|_| socket.write_all(&body)).map_err(|_| "Connection activation unknown.")?;
+        let mut response = String::new();
+        socket.take(4096).read_to_string(&mut response).map_err(|_| "Connection activation unknown.")?;
+        if !response.starts_with("HTTP/1.1 200 ") || !response.lines().any(|line| line.eq_ignore_ascii_case(&format!("x-trainer-identity: {}",self.nonce))) { return Err("Connection activation unknown."); }
+        Ok(())
     }
     pub fn memory_status(&mut self) -> Result<crate::memory_status::Status, &'static str> {
         if self.stopped || self.exited() {

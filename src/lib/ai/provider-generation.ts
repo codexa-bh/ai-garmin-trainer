@@ -10,6 +10,8 @@ import {
 
 import type { TrainerTokenUsage } from "./debug-types";
 import { activityExchangeMessages } from "./provider-activity-images";
+import { isChatgptModel, ChatgptRequestError } from "./chatgpt-transport";
+import { chatgptText, chatgptTrainerGeneration } from "./chatgpt-generation";
 
 const count = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0
@@ -114,13 +116,26 @@ function reviewedConversationModel(model: unknown): boolean {
 
 export function createConversationCompactionGeneration(
   model: unknown,
-  count: ConversationCompactionGeneration["count"],
+  count: ConversationCompactionGeneration["count"] = async () => {
+    throw new Error("conversation_counting_unsupported");
+  },
 ): ConversationCompactionGeneration {
-  if (!reviewedConversationModel(model))
+  if (!reviewedConversationModel(model) && !isChatgptModel(model))
     throw new Error("conversation_model_capability_unavailable");
   return {
     count,
     async generate(system, prompt, signal) {
+      if (isChatgptModel(model)) {
+        const result = await chatgptText({
+          model,
+          system,
+          prompt,
+          abortSignal: signal,
+        });
+        if (result.finishReason !== "stop" || result.toolCalls.length)
+          throw new Error("conversation_provider_unavailable");
+        return result.text;
+      }
       const result = await generateText({
         model: model as Parameters<typeof generateText>[0]["model"],
         system,
@@ -149,7 +164,8 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
     if (
       request.conversation &&
       !request.conversation.memoryOnly &&
-      !reviewedConversationModel(model)
+      !reviewedConversationModel(model) &&
+      !isChatgptModel(model)
     )
       throw new Error("conversation_model_capability_unavailable");
     const controller = new AbortController();
@@ -161,6 +177,19 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
       }, TRAINER_PROVIDER_CALL_TIMEOUT_MS);
     });
     try {
+      if (isChatgptModel(model)) {
+        const generated = await Promise.race([
+          chatgptTrainerGeneration(model, request, controller.signal),
+          timeout,
+        ]);
+        if (!["stop", "tool-calls"].includes(generated.finishReason))
+          throw new Error("chatgpt_generation_incomplete");
+        return {
+          text: generated.text,
+          toolCalls: generated.toolCalls,
+          tokenUsage: tokenUsage(generated.usage),
+        };
+      }
       const cachePolicy =
         typeof request.system !== "string" && explicitCaching(model);
       const system =
@@ -297,6 +326,10 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
         tokenUsage: tokenUsage(generated.usage),
       };
     } catch (error) {
+      // Subscription errors are already closed/sanitized and retain actionable
+      // quota/admission codes even on linked-history requests.
+      if (isChatgptModel(model) && error instanceof ChatgptRequestError)
+        throw error;
       // A rejection may echo the request. Never retain image-bearing diagnostics.
       if (hasImages && !request.conversation) {
         if (

@@ -1,3 +1,8 @@
+import {
+  chatgptConnection,
+  chatgptConnections,
+} from "@/lib/ai/chatgpt-connection";
+import { subscriptionEntryLabel } from "./chatgpt-metadata";
 import { isLoopbackAiBaseUrl, selectedModel } from "@/lib/ai/providers";
 import {
   getAppMetadata,
@@ -17,8 +22,34 @@ function configuration(env: AppEnv): ModelConfiguration {
     ollama: isLoopbackAiBaseUrl(env.OLLAMA_BASE_URL),
   };
   try {
+    const catalog =
+      env.CHAT_MODEL_CATALOG === undefined
+        ? legacyChatCatalog(env, configured)
+        : validateChatCatalog(JSON.parse(env.CHAT_MODEL_CATALOG) as unknown);
     return {
       configured,
+      subscriptionLabels: Object.fromEntries(
+        catalog.entries
+          .filter((entry) => entry.provider === "chatgpt")
+          .map((entry) => [
+            entry.id,
+            subscriptionEntryLabel(
+              entry,
+              chatgptConnections(env.CHATGPT_CONNECTIONS),
+            ),
+          ]),
+      ),
+      availableSubscriptionEntries: catalog.entries
+        .filter(
+          (entry) =>
+            entry.provider === "chatgpt" &&
+            chatgptConnection(
+              env.CHATGPT_CONNECTIONS,
+              entry.registrationId,
+              entry.modelId,
+            ),
+        )
+        .map((entry) => entry.id),
       ...(env.CHAT_SELECTION_COMPATIBILITY !== undefined
         ? {
             compatibilityCatalog:
@@ -29,10 +60,7 @@ function configuration(env: AppEnv): ModelConfiguration {
                   ),
           }
         : {}),
-      catalog:
-        env.CHAT_MODEL_CATALOG === undefined
-          ? legacyChatCatalog(env, configured)
-          : validateChatCatalog(JSON.parse(env.CHAT_MODEL_CATALOG) as unknown),
+      catalog,
     };
   } catch {
     throw new Error(
@@ -59,6 +87,12 @@ export function selectedTrainerModel(assertCurrent?: () => void) {
   const selected = {
     ...env,
     AI_PROVIDER: entry.provider,
+    ...(entry.provider === "chatgpt"
+      ? {
+          CHATGPT_REGISTRATION: entry.registrationId,
+          CHATGPT_MODEL: entry.modelId,
+        }
+      : {}),
     AI_MODEL: entry.provider === "openai" ? entry.modelId : env.AI_MODEL,
     DEEPSEEK_MODEL:
       entry.provider === "deepseek" ? entry.modelId : env.DEEPSEEK_MODEL,
