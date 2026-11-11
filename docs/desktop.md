@@ -2,7 +2,7 @@
 
 The source-built **macOS Apple Silicon** app is a thin Tauri host with an owned loopback Next.js service. React, HTTP/NDJSON, Next `after()`, guarded tools, SQLite and connector policies remain the application, not a remote website wrapper or Rust domain rewrite. Default launches grant native commands only to the local settings document, never trainer/remote pages. An explicitly admitted isolated ordinary-artifact or debug smoke instance has only its exact-origin correlated-result callback, never settings/auth privileges; see [programmatic smoke](dev-bridge.md).
 
-Local unsigned builds only: no signing/notarization, installer/release channel, auto-update, login item or background service. Public source grants none of these operations. Intel, Windows, Linux and universal bundles are unsupported.
+Local unsigned builds only: no signing/notarization, published installer/release channel, auto-update, login item or background service. The [ARM64 DMG foundation](release.md) packages the unchanged ordinary producer for local verification and separately authorized future distribution; its tooling is not an available download or redistribution approval. Public source grants none of these operations. Intel, Windows, Linux and universal bundles are unsupported.
 
 ## Build and run
 
