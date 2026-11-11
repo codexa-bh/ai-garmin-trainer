@@ -147,7 +147,7 @@ it("shows explicit error then persisted reload content", async () => {
   await act(() => result.current.load());
   expect(result.current.record?.revision).toBe("saved");
 });
-it("renders latest/original/as-of metadata safely and starts only a correction conversation", () => {
+it("renders saved narrative safely without redundant chat actions", () => {
   const doc = {
     title: "Plan",
     contentMarkdown:
@@ -171,7 +171,6 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
     },
   };
   const load = vi.fn(async () => {});
-  const startChat = vi.fn();
   const weekly = {
     mode: "history" as const,
     kpis: null,
@@ -197,7 +196,6 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
       weekly={weekly}
       close={vi.fn()}
       closeRef={createRef()}
-      startChat={startChat}
       openGeneral={vi.fn(async () => {})}
       run={(work) => {
         work.catch(() => {
@@ -224,12 +222,10 @@ it("renders latest/original/as-of metadata safely and starts only a correction c
   expect(container.querySelector("script")).toBeNull();
   expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
   expect(container.querySelector("textarea")).toBeNull();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Review / correct via chat" }),
-  );
-  expect(startChat).toHaveBeenCalledWith(
-    expect.stringContaining("save the review directly"),
-  );
+  expect(
+    screen.queryByRole("button", { name: /Discuss|Review \/ correct/ }),
+  ).toBeNull();
+  expect(screen.getByRole("button", { name: "Back to chat" })).toBeTruthy();
   expect(load).not.toHaveBeenCalled();
 });
 it("keeps general editor separately accessible and history secondary", () => {
@@ -259,7 +255,6 @@ it("keeps general editor separately accessible and history secondary", () => {
       weekly={weekly}
       close={vi.fn()}
       closeRef={createRef()}
-      startChat={vi.fn()}
       openGeneral={vi.fn(async () => {})}
       run={(work) => {
         work.catch(() => {

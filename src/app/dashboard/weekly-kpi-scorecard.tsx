@@ -37,11 +37,9 @@ function kpiBaseline(kpis: KpiRead, id: string): string {
 export function WeeklyKpiScorecard({
   kpis,
   loadSet,
-  discuss,
 }: {
   kpis: KpiRead | null;
   loadSet: (id: string) => void;
-  discuss: () => void;
 }) {
   return (
     <section className="weekly-kpis" aria-label="Saved weekly KPIs">
@@ -204,9 +202,6 @@ export function WeeklyKpiScorecard({
           </article>
         );
       })}
-      <button type="button" className="chrome-button" onClick={discuss}>
-        Discuss / assess KPIs in chat
-      </button>
     </section>
   );
 }
