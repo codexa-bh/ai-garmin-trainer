@@ -3016,6 +3016,16 @@
     if (!region) throw Error("Canonical synthetic weekly KPI state required");
     // Reveal only exact authored/static text. Source prose, arbitrary values and
     // unrelated/adjacent DOM remain hidden, preserving actual layout/geometry.
+    if (region.classList.contains("weekly-kpi-progress")) {
+      const selected = region.querySelector(
+        ".weekly-individual-kpis select",
+      )?.value;
+      if (
+        region.querySelectorAll(".weekly-progress-chart").length !==
+        (selected ? 2 : 1)
+      )
+        throw Error("Authored weekly chart surface missing");
+    }
     const dates = new Set();
     const ranges = new Set();
     const monday = new Date();
@@ -3172,11 +3182,11 @@
             text === `${date} · 140.63%` ||
             text === `${date} · Not assessed`,
         );
-      if (
-        select &&
-        ["Individual KPI", "Week details"].includes(own) &&
-        [...select.options].every((option) => optionSafe(option.textContent))
-      ) {
+      if (select && ["Individual KPI", "Week details"].includes(own)) {
+        if (
+          ![...select.options].every((option) => optionSafe(option.textContent))
+        )
+          throw Error("Noncanonical authored weekly selector");
         mark(label);
         for (const el of label.querySelectorAll("*")) mark(el);
       } else if (
@@ -3188,22 +3198,21 @@
         mark(input);
       }
     }
-    const numeric = new Set([
-      0, 1, 1.25, 2, 2.5, 3, 3.75, 4, 5, 25, 37.5, 40, 50, 75, 80, 100, 120,
-      125, 140.63, 140.625, 150, 160,
-    ]);
+    const numeric = new Set([0, 2, 4, 6, 8, 40, 80, 120, 140.63]);
     for (const chart of region.querySelectorAll(".weekly-progress-chart")) {
       // Only fixed authored numeric ticks and current twelve civil weeks; no tooltip wrappers.
       if (
-        [...chart.querySelectorAll("text")].every(
+        !chart.querySelector("svg") ||
+        ![...chart.querySelectorAll("text")].every(
           (el) =>
             dates.has(el.textContent) ||
             (/^\d+(?:\.\d+)?%?$/.test(el.textContent) &&
               numeric.has(Number(el.textContent.replace("%", "")))),
         )
       )
-        for (const el of [chart, ...chart.querySelectorAll("svg,svg *")])
-          mark(el);
+        throw Error("Authored weekly chart unavailable or noncanonical ticks");
+      for (const el of [chart, ...chart.querySelectorAll("svg,svg *")])
+        mark(el);
     }
   }
   let maskExpiry;

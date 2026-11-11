@@ -10,6 +10,7 @@ import {
   within,
 } from "@testing-library/react";
 import { useState, createRef } from "react";
+import { getNiceTickValues } from "recharts";
 import { SyncView } from "../src/app/dashboard/sync-view";
 import { TerrainTable } from "../src/app/dashboard/terrain-table";
 import { analyzeTerrainSections } from "../src/lib/analytics/terrain-sections";
@@ -1995,18 +1996,26 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   expect(
     (screen.getByLabelText("Individual KPI") as HTMLSelectElement).value,
   ).toBe("authored-sessions/count");
-  // jsdom has no real chart geometry; exercise the finite SVG mask boundary
-  // with the exact quarter ticks emitted by the authored native corpus.
-  const chart = [...document.querySelectorAll(".weekly-progress-chart")].at(
-    -1,
-  )!;
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  for (const value of ["0", "1.25", "2.5", "3.75", "5"]) {
-    const tick = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    tick.textContent = value;
-    svg.append(tick);
+  // jsdom has no chart geometry. Bind the mask fixture to the installed
+  // Recharts tick generator, not a guessed axis; actual native smoke is separate.
+  const authoredTicks = getNiceTickValues([0, 5], 5);
+  expect(authoredTicks).toEqual([0, 2, 4, 6, 8]);
+  const charts = [...document.querySelectorAll(".weekly-progress-chart")];
+  let svg!: SVGSVGElement;
+  for (const [index, chart] of charts.entries()) {
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const value of index === 0
+      ? [0, 40, 80, 120, 140.63]
+      : authoredTicks) {
+      const tick = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text",
+      );
+      tick.textContent = String(value);
+      svg.append(tick);
+    }
+    chart.append(svg);
   }
-  chart.append(svg);
   expect(
     (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
       .result.ok,
@@ -2019,21 +2028,44 @@ it("exercises finite previous-week and current-plan measurement actions on real 
     ),
   ).toBe(true);
   smoke.__trainerSmokeRestore();
+  const selectedChart = charts.at(-1)!;
+  const renderedSvgs = [...selectedChart.querySelectorAll("svg")];
+  for (const node of renderedSvgs) node.remove();
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  for (const node of renderedSvgs) selectedChart.append(node);
+  const chartParent = selectedChart.parentNode!;
+  const chartNext = selectedChart.nextSibling;
+  selectedChart.remove();
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  chartParent.insertBefore(selectedChart, chartNext);
   const unknownTick = document.createElementNS(
     "http://www.w3.org/2000/svg",
     "text",
   );
   unknownTick.textContent = "7.75";
   svg.append(unknownTick);
-  await command({ type: "captureView", view: "weeklyKpis", preset: "wide" });
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
   expect(unknownTick.hasAttribute("data-smoke-reveal")).toBe(false);
   expect(svg.hasAttribute("data-smoke-reveal")).toBe(false);
   smoke.__trainerSmokeRestore();
+  unknownTick.remove();
   const privateOption = document.createElement("option");
   privateOption.textContent = "Private measurement";
   privateOption.value = "private";
   select.append(privateOption);
-  await command({ type: "captureView", view: "weeklyKpis", preset: "wide" });
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
   expect(privateOption.hasAttribute("data-smoke-reveal")).toBe(false);
   expect(select.hasAttribute("data-smoke-reveal")).toBe(false);
   smoke.__trainerSmokeRestore();
