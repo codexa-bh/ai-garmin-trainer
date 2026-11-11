@@ -39,21 +39,19 @@ def scenario(run):
     observed = wait_kpis(run)
     if not observed['aboveHundred'] or not observed['unknown']:
         raise ValueError('Saved above100/unknown facts missing')
-    for view in ['current', 'progress']:
-        if view == 'progress':
-            run.command({'type': 'weeklyKpis', 'action': 'progress'})
-            wait_kpis(run, True)
+    for view in ['current', 'previous', 'progress', 'measurement']:
+        progress_view = view in ['progress', 'measurement']
+        if view != 'current':
+            run.command({'type': 'weeklyKpis', 'action': view})
+            wait_kpis(run, progress_view)
         for preset in ['wide', 'narrow']:
             run.command({'type': 'setViewport', 'preset': preset})
-            observed = wait_kpis(run, view == 'progress')
+            observed = wait_kpis(run, progress_view)
             run.command({'type': 'weeklyKpis', 'action': 'frame'})
             image = run.command({'type': 'captureView', 'view': 'weeklyKpis', 'preset': preset})
             captures.append({'view': view, 'preset': preset, 'observation': observed, **image})
-            if not observed['contained'] or (view == 'progress' and not observed['gaps']):
+            if not observed['contained'] or (progress_view and not observed['gaps']):
                 raise ValueError('Weekly KPI geometry/gap proof failed; inspect retained capture')
-    run.command({'type': 'weeklyKpis', 'action': 'latest'})
-    wait_kpis(run, True)
-    run.command({'type': 'weeklyKpis', 'action': 'original'})
     run.command({'type': 'weeklyKpis', 'action': 'reload'})
     wait_kpis(run, True)
     # Explicit entry must reset the retained Progress selection without a restart.
@@ -87,7 +85,7 @@ def main():
         expected = saved_hash(run.database)
         observer = None
         errors = []
-        receipt = {'source': source, 'scenario': 'T0321-authored-weekly-entry-kpis', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. Synthetic DOM input, not trusted input, real trainer/provider writes or production migration.', 'resourceDisposition': resources.disposition()}
+        receipt = {'source': source, 'scenario': 'T0321-latest-plan-grid-achievement-continuity', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. Synthetic DOM input, not trusted input, real trainer/provider writes or production migration.', 'resourceDisposition': resources.disposition()}
         try:
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer

@@ -6,6 +6,7 @@ import type {
   KpiEvidence,
   KpiRead,
   KpiSetInput,
+  KpiSet,
   WeeklyKpis,
 } from "./kpi-contracts";
 
@@ -196,6 +197,7 @@ export function projectKpis(
   weekStart: string,
   state: WeeklyKpis | null,
   setId?: string,
+  record?: WeeklyRecord | null,
 ): KpiRead {
   const selected = setId
     ? [setId]
@@ -210,6 +212,16 @@ export function projectKpis(
     latestId: state?.latestId ?? null,
     reviewDefinedId: state?.reviewDefinedId ?? null,
     complete: true,
+    latestPlanSetId:
+      state?.latestId ??
+      (record?.latest &&
+      state?.sets.some(
+        (set) =>
+          set.id === state.reviewDefinedId &&
+          set.planRevision === record.latest?.revision,
+      )
+        ? (state?.reviewDefinedId ?? null)
+        : null),
     sets: state?.sets.filter((s) => selected.includes(s.id)) ?? [],
     assessments:
       state?.assessments.filter((a) => selected.includes(a.setId)) ?? [],
@@ -316,6 +328,7 @@ export function applyKpiChange(
       ...commitment,
       id: newSetId,
       savedAt: now.toISOString(),
+      planRevision: record?.latest?.revision ?? null,
     });
     if (commitment.origin === "review-defined")
       state.reviewDefinedId = newSetId;
@@ -349,4 +362,101 @@ export function applyKpiChange(
   }
   state.revision = newId();
   return state;
+}
+
+/** One read-only score meaning for report and Progress; never rescoring. */
+export function latestKpiScore(kpis: KpiRead | null) {
+  const id =
+    kpis?.latestPlanSetId !== undefined ? kpis.latestPlanSetId : kpis?.latestId;
+  const sets = kpis?.sets.filter((value) => value.id === id) ?? [];
+  const set: KpiSet | undefined = sets.length === 1 ? sets[0] : undefined;
+  const assessments =
+    kpis?.assessments.filter((value) => value.setId === id) ?? [];
+  const assessment = assessments.length === 1 ? assessments[0] : undefined;
+  const available =
+    set?.items.reduce((sum, item) => sum + (item.availablePoints ?? 0), 0) ??
+    null;
+  const structurallyComplete = set?.items.every((item) => {
+    const result = assessment?.items.find((value) => value.itemId === item.id);
+    return (
+      result &&
+      assessment?.items.length === set.items.length &&
+      result.actuals.length === item.tracks.length &&
+      item.tracks.every((track) =>
+        result.actuals.some((value) => value.trackKey === track.key),
+      ) &&
+      (item.availablePoints === null ||
+        (Number.isFinite(item.availablePoints) &&
+          item.availablePoints >= 0 &&
+          result.status !== "unavailable" &&
+          result.awardedPoints !== null &&
+          Number.isFinite(result.awardedPoints)))
+    );
+  });
+  const reason =
+    kpis?.complete === false
+      ? "Incomplete KPI read"
+      : !set
+        ? "No latest-plan KPIs"
+        : !assessment
+          ? "Not assessed"
+          : !structurallyComplete ||
+              assessment.status === "unavailable" ||
+              assessment.totalPoints === null ||
+              assessment.totalPoints < 0 ||
+              !Number.isFinite(assessment.totalPoints)
+            ? "Overall score unavailable"
+            : !available || !Number.isFinite(available) || available < 0
+              ? "No available-point denominator"
+              : null;
+  const total = reason === null ? assessment!.totalPoints! : null;
+  const arithmetic = total === null ? null : (total / available!) * 100;
+  const percentage =
+    arithmetic !== null && Number.isFinite(arithmetic) ? arithmetic : null;
+  return {
+    set,
+    assessment,
+    available,
+    total,
+    percentage,
+    provisional:
+      set?.origin === "review-defined" || assessment?.status === "provisional",
+    reason:
+      arithmetic !== null && percentage === null
+        ? "Percentage unavailable"
+        : reason,
+  };
+}
+
+/** Exact stable identity, never renderer fuzzy matching or cross-revision mixing. */
+export function latestKpiMeasurement(
+  kpis: KpiRead,
+  conceptId: string,
+  selected: KpiSet["items"][number]["tracks"][number],
+) {
+  const { set, assessment } = latestKpiScore(kpis);
+  if (!kpis.complete) return null;
+  const items =
+    set?.items.filter((value) => value.conceptId === conceptId) ?? [];
+  const item = items.length === 1 ? items[0] : undefined;
+  const tracks =
+    item?.tracks.filter(
+      (value) =>
+        value.key === selected.key &&
+        value.kind === selected.kind &&
+        value.unit === selected.unit &&
+        value.meaning === selected.meaning,
+    ) ?? [];
+  const track = tracks.length === 1 ? tracks[0] : undefined;
+  if (!item || !track) return null;
+  const result = assessment?.items.find((value) => value.itemId === item.id);
+  return {
+    item,
+    track,
+    assessment,
+    result,
+    value:
+      result?.actuals.find((value) => value.trackKey === track.key)?.value ??
+      null,
+  };
 }

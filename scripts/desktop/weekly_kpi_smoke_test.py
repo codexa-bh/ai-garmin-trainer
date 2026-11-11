@@ -10,8 +10,10 @@ class Run:
 
     def command(self, command):
         self.commands.append(command)
-        if command.get('action') == 'progress':
+        if command.get('action') in ['progress', 'measurement']:
             self.progress = True
+        if command.get('action') == 'previous':
+            self.progress = False
         if command['type'] == 'setViewport':
             self.preset = command['preset']
         if command.get('target') == 'Training Plan':
@@ -33,9 +35,9 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
         run = Run()
         result = kpis.scenario(run)
         self.assertEqual([(value['view'], value['preset']) for value in result],
-                         [('current', 'wide'), ('current', 'narrow'), ('progress', 'wide'), ('progress', 'narrow')])
+                         [(view, size) for view in ['current', 'previous', 'progress', 'measurement'] for size in ['wide', 'narrow']])
         self.assertEqual([value['action'] for value in run.commands if value['type'] == 'weeklyKpis' and value['action'] != 'observe'],
-                         ['frame', 'frame', 'progress', 'frame', 'frame', 'latest', 'original', 'reload'])
+                         ['frame', 'frame', 'previous', 'frame', 'frame', 'progress', 'frame', 'frame', 'measurement', 'frame', 'frame', 'reload'])
         self.assertTrue(all(set(value) <= {'type', 'action', 'target', 'view', 'preset'} for value in run.commands))
         self.assertEqual([value['target'] for value in run.commands if value['type'] == 'click'],
                          ['Training Plan', 'Back to chat', 'Training Plan'])

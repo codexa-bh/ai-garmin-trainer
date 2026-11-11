@@ -11,6 +11,7 @@ import type {
   WeeklyKpis,
 } from "../src/lib/weekly/kpi-contracts";
 import { migrateDatabase, databaseHasUserData } from "../src/lib/db/migrations";
+import { createWeeklyStore } from "../src/lib/db/weekly-repository";
 
 const now = new Date("2026-11-10T12:00:00Z");
 const week = "2026-11-09";
@@ -143,6 +144,7 @@ beforeEach(() => {
       );
     },
     history: () => [],
+    latestPlanWeek: () => createWeeklyStore(() => db).latestPlanWeek(),
     isCurrentTurn: () => current,
     proposal: () => null,
     pending: () => null,

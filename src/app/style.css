@@ -55,32 +55,61 @@
 .weekly-kpis,
 .weekly-kpi-progress {
   min-width: 0;
-  margin-block: 24px;
+  margin-block: 12px;
 }
-.weekly-kpi-baseline {
-  border-top: 1px solid var(--line-strong);
-  padding-block: 16px;
+.weekly-plan-panel .training-plan-content > h2,
+.weekly-plan-panel .training-plan-content > p {
+  margin-block: 0;
 }
-.weekly-kpi-items,
-.weekly-progress-values {
-  list-style: none;
-  padding: 0;
+.weekly-kpis > h2,
+.weekly-kpi-progress > h2 {
+  margin: 0 0 6px;
 }
-.weekly-kpi-items > li,
-.weekly-progress-values > li {
-  padding: 12px 0;
+.weekly-kpi-table thead th {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.weekly-kpi-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.weekly-kpi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.weekly-kpi-table th,
+.weekly-kpi-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 10px 6px;
   border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
 }
-.weekly-kpi-tracks {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
-  gap: 16px;
+.weekly-kpi-table th:first-child {
+  width: 30%;
 }
-.weekly-kpi-tracks dt {
+.weekly-kpi-table small {
+  display: block;
+  color: var(--muted);
+  font-weight: normal;
+  margin-top: 4px;
+}
+.weekly-kpi-table td > div + div {
+  margin-top: 4px;
+}
+.weekly-kpi-table tfoot {
+  font-weight: 600;
+}
+.weekly-plan-panel .weekly-kpi-qualification {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  font-size: 0.85em;
   color: var(--muted);
 }
-.weekly-kpi-tracks dd {
-  margin: 8px 0;
+.weekly-progress-detail {
+  margin-block: 16px;
 }
 .weekly-progress-controls {
   display: flex;
@@ -90,14 +119,14 @@
   margin-block: 16px;
 }
 .weekly-progress-controls label,
-.weekly-kpis > label {
+.weekly-progress-detail label,
+.weekly-individual-kpis label {
   display: grid;
   gap: 6px;
   max-width: 100%;
 }
-.weekly-progress-controls select,
-.weekly-progress-controls input,
-.weekly-kpis select {
+.weekly-kpi-progress select,
+.weekly-progress-controls input {
   max-width: 100%;
   min-width: 0;
   color: var(--text);

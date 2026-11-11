@@ -8,6 +8,7 @@ import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import { TRAINER_SYSTEM_PROMPT } from "../src/lib/ai/trainer-instructions";
 import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
 import { weeklyCalendar } from "../src/lib/weekly/calendar";
+import { TrainerToolExecutionContext } from "../src/lib/ai/tool-execution-context";
 import type { TrainerToolCall } from "../src/lib/ai/tool-types";
 import type { WeeklyTurn } from "../src/lib/weekly/contracts";
 
@@ -86,6 +87,76 @@ async function run(passes: TrainerToolCall[][], answers: string[] = []) {
   );
   return { result, systems };
 }
+it("discovers latest canonical identities outside the chart range and reuses them in a future real tool write", async () => {
+  const store = createWeeklyStore(() => db);
+  store.saveKpis(weekStart, structuredClone(fixture));
+  const read = executeWeeklyTool(
+    {
+      toolName: "getKpiProgress",
+      input: { from: "2026-08-03", through: "2026-08-10" },
+      index: 0,
+      context: new TrainerToolExecutionContext(),
+      weeklyTurn: turn,
+    },
+    app,
+  );
+  expect(read.status).toBe("succeeded");
+  const latest = (read.result as ReturnType<typeof app.progress>).latestPlan!;
+  expect(latest.weekStart).toBe(weekStart);
+  const canonical = latest.sets[0];
+  expect(canonical.id).toBe(fixture.latestId);
+  const future = "2026-11-16";
+  const { result } = await run([
+    [
+      {
+        toolName: "getKpiProgress",
+        input: { from: "2026-08-03", through: "2026-08-10" },
+      },
+      { toolName: "getWeeklyPlan", input: { weekStart: future } },
+    ],
+    [
+      {
+        toolName: "saveWeeklyKpis",
+        input: {
+          weekStart: future,
+          commitment: {
+            origin: "planned",
+            provenance:
+              "Authored future reuse of discovered canonical identity",
+            items: structuredClone(canonical.items),
+          },
+        },
+      },
+    ],
+  ]);
+  expect(result.toolSteps.every((step) => step.status === "succeeded")).toBe(
+    true,
+  );
+  expect(app.readKpis(future).sets[0].items).toEqual(canonical.items);
+  expect(
+    db.prepare("select count(*) as n from weekly_kpi_track").get(),
+  ).toEqual({ n: 2 });
+  expect(app.context(turn).latestPlanWeek).toBe(future);
+  const incompatible = structuredClone(canonical.items);
+  incompatible[0].tracks[0].meaning =
+    "Genuinely different qualifying selection";
+  expect(() =>
+    app.saveKpis(
+      {
+        weekStart: future,
+        commitment: {
+          origin: "adaptation",
+          provenance: "Authored incompatible reuse refusal",
+          items: incompatible,
+        },
+      },
+      turn,
+      [app.readKpis(future)],
+    ),
+  ).toThrow("incompatible_kpi_track_identity");
+  expect(app.readKpis(future).sets).toHaveLength(1);
+});
+
 it("carries complete canonical prior-pass data through real dispatch and stores explained above100 compound results", async () => {
   const { result, systems } = await run([
     [{ toolName: "getWeeklyPlan", input: { weekStart } }],

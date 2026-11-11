@@ -178,8 +178,6 @@ it("renders saved narrative safely without redundant chat actions", () => {
     progressRange: null,
     progressTrack: "",
     setProgressTrack: vi.fn(),
-    progressBaseline: "original" as const,
-    setProgressBaseline: vi.fn(),
     loadSet: load,
     loadProgress: load,
     record,
@@ -207,18 +205,19 @@ it("renders saved narrative safely without redundant chat actions", () => {
     </WeeklyPlanView>,
   );
   expect(screen.getByText(/saved dates unchanged/)).toBeTruthy();
-  expect(screen.getByText(/latest-plan snapshot at save old/)).toBeTruthy();
-  expect(screen.getByText(/earlier revision/)).toBeTruthy();
   expect(
-    screen.getByText(/snapshot is context, not the scoring baseline/),
-  ).toBeTruthy();
+    screen.queryByText(
+      /latest-plan snapshot at save old|earlier revision|snapshot is context/,
+    ),
+  ).toBeNull();
   expect(
     screen.getByText(/Scored commitment: original revision r/),
   ).toBeTruthy();
   expect(screen.queryByText(/evaluated plan/)).toBeNull();
-  expect(screen.getByText(/Original commitment/)).toBeTruthy();
-  expect(container.querySelector("details")).toBeNull();
-  expect(screen.getByText(/latest plan is identical/)).toBeTruthy();
+  expect(
+    screen.queryByText(/Original commitment|latest plan is identical/),
+  ).toBeNull();
+  expect(container.querySelectorAll("details")).toHaveLength(1);
   expect(container.querySelector("script")).toBeNull();
   expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
   expect(container.querySelector("textarea")).toBeNull();
@@ -237,8 +236,6 @@ it("keeps general editor separately accessible and history secondary", () => {
     progressRange: null,
     progressTrack: "",
     setProgressTrack: vi.fn(),
-    progressBaseline: "original" as const,
-    setProgressBaseline: vi.fn(),
     loadSet: load,
     loadProgress: load,
     record: null,

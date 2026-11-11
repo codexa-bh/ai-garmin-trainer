@@ -190,7 +190,18 @@ export function createWeekly(
   }
   function readKpis(weekStart: string, setId?: string) {
     if (!validWeek(weekStart)) throw new Error("invalid_week");
-    return projectKpis(weekStart, store.readKpis(weekStart), setId);
+    return projectKpis(
+      weekStart,
+      store.readKpis(weekStart),
+      setId,
+      store.read(weekStart),
+    );
+  }
+  function latestRead(weekStart: string) {
+    const header = readKpis(weekStart);
+    return header.latestPlanSetId
+      ? readKpis(weekStart, header.latestPlanSetId)
+      : { ...header, sets: [], assessments: [], availableSets: [] };
   }
   function progress(from: string, through: string): KpiProgress {
     if (
@@ -202,8 +213,14 @@ export function createWeekly(
       throw new Error("invalid_progress_range");
     const weeks: KpiProgress["weeks"] = [];
     for (let week = from; week <= through; week = addDays(week, 7))
-      weeks.push({ weekStart: week, kpis: readKpis(week) });
-    return { from, through, weeks };
+      weeks.push({ weekStart: week, kpis: latestRead(week) });
+    const latest = store.latestPlanWeek();
+    return {
+      from,
+      through,
+      weeks,
+      latestPlan: latest ? latestRead(latest) : null,
+    };
   }
   function saveKpis(change: KpiChange, turn: WeeklyTurn, snapshots: KpiRead[]) {
     return save([], turn, [], [change], snapshots);
@@ -252,8 +269,21 @@ export function createWeekly(
         ),
       }));
       const result = saveChanges(changes, turn.timeZone);
-      for (const { weekStart, state } of structured)
+      for (const { weekStart, state } of structured) {
+        const commitment = kpiChanges.find(
+          (change) => change.weekStart === weekStart,
+        )?.commitment;
+        if (commitment) {
+          const id =
+            commitment.origin === "review-defined"
+              ? state.reviewDefinedId
+              : state.latestId;
+          const set = state.sets.find((value) => value.id === id);
+          if (set)
+            set.planRevision = store.read(weekStart)?.latest?.revision ?? null;
+        }
         store.saveKpis(weekStart, state);
+      }
       return {
         ...result,
         saved: [
@@ -289,6 +319,7 @@ export function createWeekly(
     const upcoming = store.read(calendar.upcoming);
     return {
       calendar,
+      latestPlanWeek: store.latestPlanWeek(),
       currentPlan: Boolean(current?.latest),
       currentReview: Boolean(current?.review),
       upcomingPlan: Boolean(upcoming?.latest),

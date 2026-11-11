@@ -2882,17 +2882,18 @@
     const region = document.querySelector(".weekly-kpis, .weekly-kpi-progress");
     if (!globalThis.__trainerOrdinaryIsolated || !region || !visible(region))
       return null;
-    const labels = [...region.querySelectorAll("h4")];
+    const labels = [...region.querySelectorAll("tbody th[scope='row']")];
     const progress = region.classList.contains("weekly-kpi-progress");
     if (
       !progress &&
       (labels.filter((el) => el.textContent === "T0319 authored sessions")
-        .length !== 2 ||
+        .length !== 1 ||
         labels.some(
           (el) =>
             ![
               "T0319 authored sessions",
-              "Explained additional credit",
+              "Authored additional work",
+              "T0321 authored contextMonitoring",
             ].includes(el.textContent),
         ))
     )
@@ -2910,9 +2911,9 @@
       trustedInput: false,
       ready: !!region,
       progress: !!region?.classList.contains("weekly-kpi-progress"),
-      aboveHundred: text.includes("112.5"),
+      aboveHundred: text.includes("112.5") || text.includes("140.63%"),
       unknown: text.includes("Unknown"),
-      gaps: text.includes("gap"),
+      gaps: text.includes("Gaps are not zero") && text.includes("Not assessed"),
       contained:
         !!region &&
         document.documentElement.scrollWidth <= innerWidth &&
@@ -2927,8 +2928,8 @@
         "observe",
         "current",
         "progress",
-        "original",
-        "latest",
+        "previous",
+        "measurement",
         "reload",
         "frame",
       ].includes(command.action)
@@ -2950,10 +2951,14 @@
     } else if (command.action === "frame") {
       const root = weeklyKpiRegion();
       if (!root) throw Error("Canonical weekly region unavailable");
+      const individual = root.querySelector(".weekly-individual-kpis");
+      const focus = individual?.querySelector("select")?.value
+        ? individual
+        : root;
       const region =
         innerWidth <= 600
-          ? (root.querySelector(".weekly-progress-chart") ?? root)
-          : root;
+          ? (focus.querySelector(".weekly-progress-chart") ?? focus)
+          : focus;
       for (let node = region.parentElement; node; node = node.parentElement)
         if (
           ["auto", "scroll"].includes(getComputedStyle(node).overflowY) &&
@@ -2963,20 +2968,45 @@
             region.getBoundingClientRect().top -
             node.getBoundingClientRect().top -
             8;
-    } else if (["original", "latest"].includes(command.action)) {
+    } else if (command.action === "measurement") {
       const region = weeklyKpiRegion();
-      const select = region?.querySelector(
-        ".weekly-progress-controls select:last-child",
-      );
-      // Select only the existing labelled comparison control, never arbitrary values.
-      const labels = [...(region?.querySelectorAll("label") ?? [])];
-      const basis = labels
-        .find((el) => el.textContent.startsWith("Comparison basis"))
-        ?.querySelector("select");
-      if (!basis || !select || !visible(basis))
-        throw Error("Comparison control unavailable");
-      basis.value = command.action;
-      basis.dispatchEvent(new Event("change", { bubbles: true }));
+      const details = region?.querySelector(".weekly-individual-kpis");
+      const select = details?.querySelector("select");
+      if (
+        !details ||
+        !select ||
+        ![...select.options].some(
+          (option) =>
+            option.value === "authored-sessions/count" &&
+            option.textContent === "T0319 authored sessions · sessions",
+        )
+      )
+        throw Error("Authored current-plan measurement unavailable");
+      if (!details.open) details.querySelector("summary").click();
+      select.value = "authored-sessions/count";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (command.action === "previous") {
+      if (!weeklyKpiRegion()) throw Error("Authored weekly origin required");
+      const history = [
+        ...document.querySelectorAll(".weekly-tabs button"),
+      ].find((button) => visible(button) && name(button) === "History");
+      if (!history) throw Error("History control unavailable");
+      history.click();
+      const date = new Date();
+      date.setDate(date.getDate() - ((date.getDay() + 6) % 7) - 7);
+      const week = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      let previous;
+      for (let attempt = 0; attempt < 40; attempt++) {
+        previous = [
+          ...document.querySelectorAll(".weekly-plan-panel li button"),
+        ].find(
+          (button) => visible(button) && name(button).startsWith(`${week} – `),
+        );
+        if (previous) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (!previous) throw Error("Authored previous week unavailable");
+      previous.click();
     }
     await new Promise((resolve) => setTimeout(resolve, 120));
     return weeklyKpiObservation(command.action);
@@ -2986,47 +3016,91 @@
     if (!region) throw Error("Canonical synthetic weekly KPI state required");
     // Reveal only exact authored/static text. Source prose, arbitrary values and
     // unrelated/adjacent DOM remain hidden, preserving actual layout/geometry.
+    const dates = new Set();
+    const ranges = new Set();
+    const monday = new Date();
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    const civil = (date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    for (let offset = 0; offset < 12; offset++) {
+      const date = new Date(monday);
+      date.setDate(date.getDate() - offset * 7);
+      const end = new Date(date);
+      end.setDate(end.getDate() + 6);
+      dates.add(civil(date));
+      dates.add(civil(date).slice(5));
+      ranges.add(`${civil(date)} – ${civil(end)}`);
+    }
     const safe = new Set([
       "Weekly KPIs",
-      "Saved weekly progress",
-      "Original commitment",
-      "Adapted commitment · latest",
+      "Plan notes · T0321 authored plan",
+      "Weekly achievement",
+      "KPI",
+      "Target",
+      "Actual",
+      "Points",
+      "Total",
+      "Week",
       "T0319 authored sessions",
-      "Explained additional credit",
-      "Saved commitments and assessments, not live evaluation. Manage or correct them in chat.",
-      "100 available points (one allocation for this item) · 100 awarded",
-      "80 available points (one allocation for this item) · No awarded points recorded",
+      "Authored additional work",
+      "T0321 authored contextMonitoring",
+      "load: —",
+      "recovery: —",
+      "load: 7.5 index",
+      "recovery: Unknown",
+      "—",
       "Selected session count",
-      "Selected session duration",
-      "Target: At least 3 sessionsRecorded actual: 4 sessions",
-      "Target: At least 5 sessionsRecorded actual: Unknown",
-      "Target: At least 90 minutesRecorded actual: Unknown",
-      "Not assessed. This is not a zero or a missed commitment.",
-      "Targets and recorded actuals in their own units. Gaps are not zero; above-target values do not award bonus points. Different rubrics and point denominators are not a fitness trend.",
-      "Dashed: target / range upper bound. Solid: recorded actual. Target direction and evidence remain explicit below; connecting saved points is not a new assessment.",
-      "No saved baseline · gap",
-      "Discuss / assess KPIs in chat",
+      "Dashed: target. Solid: recorded actual (sessions).",
+      `Choices from the latest established plan · ${civil(monday)}`,
+      "≥ 3 sessions",
+      "≥ 5 sessions",
+      "≥ 1 h 30 min",
+      "4 sessions",
+      "0 sessions",
+      "Unknown",
+      "100 / 80",
+      "0 / 100",
+      "+12.5",
+      "112.5 / 80 points · 140.63%",
+      "0 / 100 points · 0%",
+      "Authored relevant partial credit without double counting",
+      "Provisional",
+      "Scoring and evidence",
+      "Saved points against each week’s latest plan — not fitness improvement. Gaps are not zero.",
+      "Load range (up to 12 weeks)",
+      "Individual KPIs",
+      "Saved measurement values",
+      "Choose a KPI",
+      "Choose a saved week",
+      "Not assessed — not a zero.",
+      "Not assessed",
+      "No saved achievement scores in this range.",
+      "This Week",
+      "Upcoming",
+      "General Plan",
+      "Progress",
+      "History",
+      "Back to chat",
+      "Reload weekly plans",
+      "Training Plan",
+      ...ranges,
     ]);
+    const format = new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    for (let minute = -60; minute <= 60; minute++) {
+      const cutoff = format.format(new Date(Date.now() + minute * 60000));
+      safe.add(`As of ${cutoff} · Provisional`);
+      safe.add(`Review notes · ${cutoff}`);
+    }
+    const panel = region.closest(".weekly-plan-panel");
     const nodes = [
-      ...region.querySelectorAll("h2,h3,h4,p,dt,dd,button"),
+      ...panel.querySelectorAll("h1,h2,h3,p,th,td,td > div,summary,button"),
     ].filter((el) => visible(el));
     for (const el of nodes) {
       const text = el.textContent;
-      const assessment =
-        /^Assessment: provisional · as of (\S+)\. Recorded total: 112\.5 points\.$/.exec(
-          text,
-        );
-      const fresh =
-        assessment &&
-        Math.abs(Date.now() - Date.parse(assessment[1])) < 3600000;
-      const progressValue =
-        /^T0319 authored sessions · Target: At least (3|5) sessions · Recorded actual: (0|4) sessions · provisional · as of (\S+)$/.exec(
-          text,
-        );
-      const safeProgress =
-        progressValue &&
-        Math.abs(Date.now() - Date.parse(progressValue[3])) < 3600000;
-      if (!safe.has(text) && !fresh && !safeProgress) continue;
+      if (!safe.has(text)) continue;
       el.setAttribute("data-smoke-reveal", "");
       for (const child of el.querySelectorAll("*"))
         child.setAttribute("data-smoke-reveal", "");
@@ -3045,18 +3119,92 @@
         parent.setAttribute("data-smoke-reveal", "");
       }
     }
-    const chart = region.querySelector(".weekly-progress-chart");
-    // Chart labels/values must match this fixed authored numeric corpus.
-    if (
-      chart &&
-      [...chart.querySelectorAll("text")].every((el) =>
-        /^(?:\d{4}-\d{2}-\d{2}|[0-5](?:\.\d+)?|[0-5] sessions)$/.test(
-          el.textContent,
-        ),
+    const mark = (el) => {
+      el.setAttribute("data-smoke-reveal", "");
+      for (
+        let parent = el.parentElement;
+        parent && parent !== document.body;
+        parent = parent.parentElement
+      ) {
+        const own = [...parent.childNodes]
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent)
+          .join("")
+          .trim();
+        if (
+          own &&
+          parent.namespaceURI !== "http://www.w3.org/2000/svg" &&
+          !(
+            parent.tagName === "LABEL" &&
+            [
+              "Individual KPI",
+              "Week details",
+              "From Monday",
+              "Through Monday",
+            ].includes(own)
+          )
+        )
+          throw Error("Private direct weekly ancestor refused");
+        parent.setAttribute("data-smoke-reveal", "");
+      }
+    };
+    for (const label of region.querySelectorAll("label")) {
+      const own = [...label.childNodes]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent)
+        .join("")
+        .trim();
+      const select = label.querySelector("select");
+      const input = label.querySelector("input[type='date']");
+      const optionSafe = (text) =>
+        [
+          "Choose a KPI",
+          "Choose a saved week",
+          "T0319 authored sessions · sessions",
+          "T0319 authored sessions · minutes",
+          "T0321 authored context · load",
+          "T0321 authored context · recovery",
+        ].includes(text) ||
+        [...dates].some(
+          (date) =>
+            text === `${date} · 0%` ||
+            text === `${date} · 37.5%` ||
+            text === `${date} · 140.63%` ||
+            text === `${date} · Not assessed`,
+        );
+      if (
+        select &&
+        ["Individual KPI", "Week details"].includes(own) &&
+        [...select.options].every((option) => optionSafe(option.textContent))
+      ) {
+        mark(label);
+        for (const el of label.querySelectorAll("*")) mark(el);
+      } else if (
+        input &&
+        ["From Monday", "Through Monday"].includes(own) &&
+        dates.has(input.value)
+      ) {
+        mark(label);
+        mark(input);
+      }
+    }
+    const numeric = new Set([
+      0, 1, 1.25, 2, 2.5, 3, 3.75, 4, 5, 25, 37.5, 40, 50, 75, 80, 100, 120,
+      125, 140.63, 140.625, 150, 160,
+    ]);
+    for (const chart of region.querySelectorAll(".weekly-progress-chart")) {
+      // Only fixed authored numeric ticks and current twelve civil weeks; no tooltip wrappers.
+      if (
+        [...chart.querySelectorAll("text")].every(
+          (el) =>
+            dates.has(el.textContent) ||
+            (/^\d+(?:\.\d+)?%?$/.test(el.textContent) &&
+              numeric.has(Number(el.textContent.replace("%", "")))),
+        )
       )
-    )
-      for (const el of [chart, ...chart.querySelectorAll("svg,svg *")])
-        el.setAttribute("data-smoke-reveal", "");
+        for (const el of [chart, ...chart.querySelectorAll("svg,svg *")])
+          mark(el);
+    }
   }
   let maskExpiry;
   let maskScroll = [];
