@@ -104,7 +104,6 @@ it.each([
         }}
         close={vi.fn()}
         closeRef={createRef()}
-        startChat={vi.fn()}
         openGeneral={load}
         run={(work) => {
           work.catch(() => {
@@ -326,7 +325,7 @@ it.each([200, 500])(
   },
 );
 
-it("revalidates actual shell destinations on repeated navigation and retains hidden drafts without request loops", async () => {
+it("reopens the actual shell at This Week while retaining history and hidden General Plan drafts without request loops", async () => {
   let version = 1;
   const fetch = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
@@ -393,6 +392,8 @@ it("revalidates actual shell destinations on repeated navigation and retains hid
       close();
       version++;
       open();
+      await screen.findByText(`Version ${version}`);
+      fireEvent.click(screen.getByRole("button", { name: "History" }));
       fireEvent.click(
         await screen.findByRole("button", { name: /2026-09-21.*Review/ }),
       );
@@ -406,10 +407,11 @@ it("revalidates actual shell destinations on repeated navigation and retains hid
     open();
     await screen.findByText(`Version ${version}`);
     expect(
-      screen.getByRole("button", { name: tab }).getAttribute("aria-pressed"),
+      screen
+        .getByRole("button", { name: "This Week" })
+        .getAttribute("aria-pressed"),
     ).toBe("true");
-    if (tab === "History")
-      expect(screen.getByText("2026-09-21 – 2026-09-27")).toBeTruthy();
+    expect(screen.queryByText("2026-09-21 – 2026-09-27")).toBeNull();
   }
   version++;
   fireEvent.click(screen.getByRole("button", { name: "General Plan" }));
@@ -424,6 +426,8 @@ it("revalidates actual shell destinations on repeated navigation and retains hid
   close();
   version++;
   open();
+  await screen.findByText(`Version ${version}`);
+  fireEvent.click(screen.getByRole("button", { name: "General Plan" }));
   await screen.findByText(/unsaved edits were preserved/);
   expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
     "Retained title",
@@ -439,6 +443,84 @@ it("revalidates actual shell destinations on repeated navigation and retains hid
   expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(
     false,
   );
+});
+
+it("returns from empty Upcoming and Progress to the device-current week on explicit entry, not on in-view reload", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-11T12:00:00Z"));
+  const requests: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/weekly?")) {
+        expect(init?.method ?? "GET").toBe("GET");
+        requests.push(url);
+        const query = new URL(url, "http://localhost").searchParams;
+        if (query.get("view") === "progress")
+          return response({
+            from: "2026-08-24",
+            through: "2026-11-09",
+            weeks: [],
+          });
+        return response({
+          record:
+            query.get("weekStart") === "2026-11-09"
+              ? {
+                  weekStart: "2026-11-09",
+                  timeZone: "UTC",
+                  revision: "current",
+                  original: doc,
+                  latest: { ...doc, title: "Current saved plan" },
+                  review: null,
+                }
+              : null,
+        });
+      }
+      if (url === "/api/training-plan") return response(general("General"));
+      if (url.startsWith("/api/chat"))
+        return response({ conversationId: "default", messages: [] });
+      return response({ conversations: [], memories: [] });
+    }),
+  );
+  render(<TrainerDashboard />);
+  const open = () =>
+    fireEvent.click(screen.getByRole("button", { name: "Training Plan" }));
+  const close = () =>
+    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+  open();
+  await screen.findByRole("heading", { name: "Current saved plan" });
+  fireEvent.click(screen.getByRole("button", { name: "Upcoming" }));
+  await screen.findByText("2026-11-16 – 2026-11-22");
+  await screen.findByText(/No narrative weekly plan saved/);
+  fireEvent.click(screen.getByRole("button", { name: "Reload weekly plans" }));
+  await waitFor(() =>
+    expect(requests.at(-1)).toContain("weekStart=2026-11-16"),
+  );
+  await screen.findByText(/No narrative weekly plan saved/);
+  expect(
+    screen
+      .getByRole("button", { name: "Upcoming" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  close();
+  open();
+  await screen.findByRole("heading", { name: "Current saved plan" });
+  expect(requests.at(-1)).toContain("weekStart=2026-11-09");
+  fireEvent.click(screen.getByRole("button", { name: "Progress" }));
+  await screen.findByRole("heading", { name: "Saved weekly progress" });
+  close();
+  open();
+  await screen.findByRole("heading", { name: "Current saved plan" });
+  expect(requests.at(-1)).toContain("weekStart=2026-11-09");
+  expect(
+    screen
+      .getByRole("button", { name: "This Week" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(
+    screen.queryByRole("button", { name: /Discuss|Review \/ correct/ }),
+  ).toBeNull();
 });
 
 it("retains historical civil selection on calendar rollover and advances Upcoming to the new current week", async () => {

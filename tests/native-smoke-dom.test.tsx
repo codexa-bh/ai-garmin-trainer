@@ -1910,7 +1910,6 @@ it("admits only finite ordinary KPI actions and masks every noncanonical/private
       <WeeklyKpiScorecard
         kpis={projectKpis("2026-11-09", authoredWeeklyKpis())}
         loadSet={() => {}}
-        discuss={() => {}}
       />
       <p>Private adjacent history must remain hidden</p>
     </section>,

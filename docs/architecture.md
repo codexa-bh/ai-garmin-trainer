@@ -133,9 +133,9 @@ Files below are in [`src/app/dashboard`](../src/app/dashboard):
 Integration stays explicit: startup schedules conversation/memory/Profile/plan/summary
 loads; history waits for resolved conversation selection via Effect Events; navigation
 triggers Activity search and plan reload. The existing closed-to-open plan effect
-revalidates persistent owners; weekly refresh retains the selected historical civil
-week or rereads list pages through the oldest loaded week with fresh cursors and
-deduplication. General Plan tab entry explicitly refreshes its saved snapshot.
+revalidates persistent owners and explicitly selects the current weekly plan.
+In-view weekly refresh retains the selected historical civil week or rereads list
+pages through the oldest loaded week with fresh cursors and deduplication. General Plan tab entry explicitly refreshes its saved snapshot.
 Read generations reject superseded completions; active editor drafts survive
 hidden views and refreshed snapshots. Cancel restores the current saved snapshot;
 explicit save invalidates older reads. Navigation does not write or remount owners.
@@ -527,7 +527,7 @@ Dedicated getWeeklyPlan/getWeeklyKpis/saveWeeklyDocuments/saveWeeklyKpis tools c
 
 [Structured weekly KPIs](weekly-kpis.md) are weekly-owned contracts/application policy (`weekly/{kpi-contracts,kpis}`), persisted separately by weekly-repository on the same lazy transaction. Schema26 adds weekly_kpi JSON and the concept/track signature inventory. Canonical reads compose narrative and complete selected KPI baselines; focused/combined writes share revision/calendar/current-turn authority and the once-per-turn attempt family. Explicit reviewed maintenance (`weekly/backfill`, scripts/backfill-weekly-kpis.ts) is never startup parsing, coaching or historical rescoring. Saved-only scorecard/Progress UI and persistent hook generations expose exact baseline IDs, typed compound tracks, null gaps and evidence. KPI-only records survive existing deletion scopes. The trainer remains the scoring owner, not an app-owned engine. New rubrics allocate 100 full-target points with explained goal-relevant metrics; useful extras may exceed 100 without hiding unmet sport-specific commitments or double-counting benefits. Reviews name the complete original revision as baseline, with target-week SQL/math evidence and coverage limitations. Latest adaptations do not replace the denominator. Legacy rubrics remain provisional; no plan means no completion score and missing evidence never silently becomes zero. `review.planRevision` retains its existing latest-plan-at-save snapshot semantics; the contextual UI label is not a scoring-baseline claim. Existing documents/pending proposals are not migrated or automatically rescored.
 
-`/api/weekly` is a read-only detail/paged-summary adapter; browser chat transports an IANA timezone and legacy callers receive an explicit server-local fallback. `use-weekly` is a persistent shell-owned request owner with generation guards and date/zone rollover checks. `weekly-plan-view` wraps the preserved General Plan editor with This Week/Upcoming/secondary History; history corrections merely prefill chat. Streaming and JSON successful-step metadata trigger refresh. Focus/section-return ownership remains in the dashboard shell. Focused coverage: `weekly.test.ts`, `weekly-ui.test.tsx`, existing chat/orchestrator/plan suites and the production composition/ownership checks.
+`/api/weekly` is a read-only detail/paged-summary adapter; browser chat transports an IANA timezone and legacy callers receive an explicit server-local fallback. `use-weekly` is a persistent shell-owned request owner with generation guards and date/zone rollover checks. `weekly-plan-view` wraps the preserved General Plan editor with This Week/Upcoming/secondary History; normal Back to chat navigation remains, without redundant discussion or review-prefill actions. Streaming and JSON successful-step metadata trigger refresh. Focus/section-return ownership remains in the dashboard shell. Focused coverage: `weekly.test.ts`, `weekly-ui.test.tsx`, existing chat/orchestrator/plan suites and the production composition/ownership checks.
 
 ## Training Plan application and adapters
 

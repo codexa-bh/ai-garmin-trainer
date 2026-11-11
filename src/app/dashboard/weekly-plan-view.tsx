@@ -11,7 +11,6 @@ export function WeeklyPlanView({
   children,
   close,
   closeRef,
-  startChat,
   run,
 }: {
   weekly: ReturnType<typeof useWeeklyFeature>;
@@ -19,7 +18,6 @@ export function WeeklyPlanView({
   children: ReactNode;
   close: () => void;
   closeRef: RefObject<HTMLButtonElement | null>;
-  startChat: (text: string) => void;
   run: (work: Promise<unknown>) => void;
 }) {
   const { record, week, state, mode } = weekly;
@@ -118,11 +116,6 @@ export function WeeklyPlanView({
                     <WeeklyKpiScorecard
                       kpis={weekly.kpis}
                       loadSet={(id) => run(weekly.loadSet(id))}
-                      discuss={() =>
-                        startChat(
-                          `Discuss the saved KPIs and evidence for the week starting ${week}; read complete baselines before any changes.`,
-                        )
-                      }
                     />
                     {record?.latest ? (
                       <article className="training-plan-report">
@@ -206,21 +199,6 @@ export function WeeklyPlanView({
                         as-of now.
                       </p>
                     )}
-                    <button
-                      type="button"
-                      className="primary-action compact"
-                      onClick={() =>
-                        startChat(
-                          mode === "history"
-                            ? `Review ${record?.review ? "and correct" : "the evidence for"} the week starting ${week}; save the review directly.`
-                            : `Discuss a plan or review for the week starting ${week}.`,
-                        )
-                      }
-                    >
-                      {mode === "history"
-                        ? "Review / correct via chat"
-                        : "Discuss in chat"}
-                    </button>
                   </>
                 ) : (
                   <>

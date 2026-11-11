@@ -95,10 +95,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 it("exposes original/compound allocation, zero/unknown, above100 and evidence without a manual editor", () => {
-  const discuss = vi.fn();
-  render(
-    <WeeklyKpiScorecard kpis={sample} loadSet={vi.fn()} discuss={discuss} />,
-  );
+  render(<WeeklyKpiScorecard kpis={sample} loadSet={vi.fn()} />);
   expect(
     screen.getByRole("heading", { name: "Original commitment" }),
   ).toBeTruthy();
@@ -111,19 +108,19 @@ it("exposes original/compound allocation, zero/unknown, above100 and evidence wi
   fireEvent.click(screen.getByText(/Definition, scoring and evidence/));
   expect(screen.getByText(/Missing duration, not zero/)).toBeTruthy();
   expect(screen.queryByRole("textbox")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: /Discuss \/ assess/ }));
-  expect(discuss).toHaveBeenCalledOnce();
+  expect(
+    screen.queryByRole("button", { name: /Discuss|assess.*chat/ }),
+  ).toBeNull();
 });
 it("distinguishes empty, unassessed and incomplete baseline reads", () => {
   const { rerender } = render(
-    <WeeklyKpiScorecard kpis={null} loadSet={vi.fn()} discuss={vi.fn()} />,
+    <WeeklyKpiScorecard kpis={null} loadSet={vi.fn()} />,
   );
   expect(screen.getByText(/No structured KPIs saved/)).toBeTruthy();
   rerender(
     <WeeklyKpiScorecard
       kpis={{ ...sample, assessments: [] }}
       loadSet={vi.fn()}
-      discuss={vi.fn()}
     />,
   );
   expect(screen.getByText(/Not assessed. This is not a zero/)).toBeTruthy();
@@ -131,7 +128,6 @@ it("distinguishes empty, unassessed and incomplete baseline reads", () => {
     <WeeklyKpiScorecard
       kpis={{ ...sample, complete: false, sets: [], assessments: [] }}
       loadSet={vi.fn()}
-      discuss={vi.fn()}
     />,
   );
   expect(screen.getByRole("status").textContent).toContain("too large");
@@ -183,7 +179,6 @@ it("reads progress/weekly selection without writes, retains range and ignores st
           openGeneral={async () => {}}
           close={() => {}}
           closeRef={{ current: null }}
-          startChat={() => {}}
           run={run}
         >
           {null}
