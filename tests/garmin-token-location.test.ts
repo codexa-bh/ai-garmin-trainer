@@ -71,6 +71,9 @@ describe("one explicit Garmin token location", () => {
       OPENAI_API_KEY: "sentinel-provider-key",
       DEEPSEEK_API_KEY: "sentinel-provider-key",
       OPENROUTER_API_KEY: "sentinel-provider-key",
+      CHATGPT_CONNECTIONS: "private-account-metadata-canary",
+      CHATGPT_REGISTRATION: "private-registration-canary",
+      CHATGPT_MODEL: "private-model-canary",
       GARMIN_MCP_TRANSPORT: "sse",
     };
     const env = garminTokenEnvironment(input);
@@ -88,6 +91,9 @@ describe("one explicit Garmin token location", () => {
       "OPENAI_API_KEY",
       "DEEPSEEK_API_KEY",
       "OPENROUTER_API_KEY",
+      "CHATGPT_CONNECTIONS",
+      "CHATGPT_REGISTRATION",
+      "CHATGPT_MODEL",
     ])
       expect(env[key]).toBeUndefined();
     expect(input.GARMINTOKENS).toBe("secret canary");

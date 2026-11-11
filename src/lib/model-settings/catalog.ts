@@ -5,6 +5,7 @@ const providers: readonly string[] = [
   "deepseek",
   "ollama",
   "openrouter",
+  "chatgpt",
 ];
 const ownKeys = (value: object, allowed: string[]) =>
   Object.keys(value).every((key) => allowed.includes(key));
@@ -44,17 +45,33 @@ export function validateChatCatalog(value: unknown): ChatCatalog {
   const entries: ChatEntry[] = value.entries.map((raw: unknown) => {
     if (
       !object(raw) ||
-      !ownKeys(raw, ["id", "provider", "modelId", "displayName"]) ||
+      !ownKeys(raw, [
+        "id",
+        "provider",
+        "modelId",
+        "displayName",
+        "registrationId",
+      ]) ||
       !isChatEntryId(raw.id) ||
       typeof raw.provider !== "string" ||
       !providers.includes(raw.provider) ||
       !text(raw.modelId, 256) ||
+      (raw.provider === "chatgpt"
+        ? typeof raw.registrationId !== "string" ||
+          !/^registration_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+            raw.registrationId,
+          )
+        : raw.registrationId !== undefined) ||
       (raw.displayName !== undefined && !text(raw.displayName, 80))
     )
       throw new Error(
         "Each chat entry needs a stable identity, supported provider and nonblank bounded model/name without controls.",
       );
-    const tuple = JSON.stringify([raw.provider, raw.modelId]);
+    const tuple = JSON.stringify([
+      raw.provider,
+      raw.registrationId ?? null,
+      raw.modelId,
+    ]);
     if (ids.has(raw.id)) throw new Error("Duplicate chat entry identity.");
     if (tuples.has(tuple))
       throw new Error("This provider and exact model ID already exist.");
@@ -64,6 +81,9 @@ export function validateChatCatalog(value: unknown): ChatCatalog {
       id: raw.id,
       provider: raw.provider as ChatProvider,
       modelId: raw.modelId,
+      ...(raw.provider === "chatgpt"
+        ? { registrationId: raw.registrationId as string }
+        : {}),
       ...(raw.displayName !== undefined
         ? { displayName: raw.displayName as string }
         : {}),
@@ -84,7 +104,7 @@ export function validateChatCatalog(value: unknown): ChatCatalog {
 }
 
 export function entryLabel(entry: ChatEntry): string {
-  return `${entry.provider} / ${entry.modelId}`;
+  return `${entry.provider === "chatgpt" ? "ChatGPT plan" : entry.provider} / ${entry.modelId}`;
 }
 
 // Used only by legacy read-only activation/migration. Never infers catalog

@@ -1,8 +1,11 @@
-export type ChatProvider = "openai" | "deepseek" | "ollama" | "openrouter";
+export type ChatProvider =
+  "openai" | "deepseek" | "ollama" | "openrouter" | "chatgpt";
 export type ChatEntry = {
   id: string;
   provider: ChatProvider;
   modelId: string;
+  /** Required only for ChatGPT plan access; opaque, never an OAuth client ID. */
+  registrationId?: string;
   /** Inert legacy metadata; retained for settings compatibility, never a label. */
   displayName?: string;
 };
@@ -29,5 +32,9 @@ export type ModelConfiguration = {
   catalog: ChatCatalog;
   // Undefined only for old activation/CLI inputs. Null means processed fresh configuration.
   compatibilityCatalog?: ChatCatalog | null;
-  configured: Record<ChatProvider, boolean>;
+  configured: Record<Exclude<ChatProvider, "chatgpt">, boolean> & {
+    chatgpt?: boolean;
+  };
+  availableSubscriptionEntries?: string[];
+  subscriptionLabels?: Record<string, string>;
 };

@@ -153,8 +153,11 @@ export function HistoryReview({
           <p>
             Updates send selected usable text to your selected AI provider (
             {r.configuredProvider}) and may incur charges.{" "}
-            {r.estimatedUsd.conservativeMaximum !== null &&
-            r.estimatedUsd.conservativeMaximum > 0 ? (
+            {r.estimatedUsd.priceBasis ===
+            "chatgpt-plan-or-credits/observed-tokens-not-api-money" ? (
+              "This uses your selected ChatGPT plan or credits; API token-price estimates do not apply. "
+            ) : r.estimatedUsd.conservativeMaximum !== null &&
+              r.estimatedUsd.conservativeMaximum > 0 ? (
               <>
                 Conservative upper estimate: $
                 {r.estimatedUsd.conservativeMaximum.toFixed(4)} — not predicted

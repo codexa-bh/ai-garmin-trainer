@@ -49,6 +49,9 @@ const groups = [
     "lib/ai",
     [
       "provider-generation",
+      "chatgpt-connection",
+      "chatgpt-transport",
+      "chatgpt-generation",
       "provider-activity-images",
       "provider-tool-definitions",
       "providers",
@@ -268,7 +271,7 @@ const groups = [
     "model-settings",
     "domain",
     "lib/model-settings",
-    ["contracts", "policy", "catalog", "summary-selection"],
+    ["contracts", "policy", "catalog", "summary-selection", "chatgpt-metadata"],
   ],
   ["model-settings", "application", "lib/model-settings", ["application"]],
   ["model-settings", "composition", "lib/model-settings", ["composition"]],

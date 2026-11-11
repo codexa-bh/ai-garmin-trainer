@@ -8,7 +8,7 @@ the current consumer, controls and explicit historical transition.
 ## Supported path and independent states
 
 New, durably linked conversations can use role-preserving replay when the explicit
-Trainer selection is **OpenAI `gpt-6-luna` on Responses**. This does not select a
+Trainer selection is **OpenAI `gpt-6-luna` on Responses**, or an explicitly available [ChatGPT subscription](chatgpt.md) account/model using its compatible streaming adapter. This does not select a
 model, acquire credentials, change the shared summary/title selection or substitute an
 account. Other models retain the existing bounded legacy context; a requested new
 replay operation on an unqualified adapter refuses rather than flattening roles.
@@ -31,6 +31,8 @@ change and carry no billed-cache guarantee. Legacy semantic retrieval
 and awaited post-answer ingestion are removed; no embedding or summary-provider
 wait is part of answer completion. Optional unqualified routes retain bounded local
 context, not vector retrieval.
+
+Subscription replay/compaction retains complete client-side history, developer policy and exact namespaced local tool call/result identities. It uses no stored-conversation continuation, API-key fallback or unsupported token-count preflight. Observed usage remains separate from plan/credit billing; unavailable counters are unknown. Existing Luna/API-key accounting below is not silently applied to subscription. Unlinked legacy browsing/context and privacy/source/CAS rules remain unchanged.
 
 ## Requests and authority
 

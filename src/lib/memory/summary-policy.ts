@@ -16,6 +16,8 @@ export function summaryModelAvailable(raw: string): boolean {
 export function summaryPriceBasis(raw: string): string {
   try {
     const entry = summarySelection(raw);
+    if (entry?.provider === "chatgpt")
+      return "chatgpt-plan-or-credits/observed-tokens-not-api-money";
     return entry?.provider === "openai" && entry.modelId === "gpt-6-luna"
       ? SUMMARY_PRICE_BASIS
       : "unknown-price/no-reservation";
@@ -25,7 +27,7 @@ export function summaryPriceBasis(raw: string): string {
 }
 export function summaryPolicyIdentity(raw: string): string {
   const entry = summarySelection(raw);
-  return `global-summary-text-v2/${entry ? JSON.stringify([entry.provider, entry.modelId]) : "unselected"}`;
+  return `global-summary-text-v2/${entry ? JSON.stringify([entry.provider, entry.modelId, ...(entry.registrationId ? [entry.registrationId] : [])]) : "unselected"}`;
 }
 export const SUMMARY_DEADLINE_MS = 300_000;
 export const SUMMARY_DEBOUNCE_MS = 2000;

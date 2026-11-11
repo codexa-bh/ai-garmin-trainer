@@ -12,7 +12,14 @@ export function summarySelection(raw: string): ChatEntry | null {
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new Error();
     const record = value as Record<string, unknown>;
-    if (record.version !== 1 || Object.keys(record).length !== 4)
+    if (!(
+      (record.version === 1 &&
+        Object.keys(record).length === 4 &&
+        record.provider !== "chatgpt") ||
+      (record.version === 2 &&
+        Object.keys(record).length === 5 &&
+        record.provider === "chatgpt")
+    ))
       throw new Error();
     return validateChatCatalog({
       version: 1,
@@ -21,6 +28,9 @@ export function summarySelection(raw: string): ChatEntry | null {
           id: record.entryId,
           provider: record.provider,
           modelId: record.modelId,
+          ...(record.version === 2
+            ? { registrationId: record.registrationId }
+            : {}),
         },
       ],
       defaultEntryId: null,
@@ -40,7 +50,8 @@ export function resolveSummarySelection(
   if (
     !entry ||
     entry.provider !== selected.provider ||
-    entry.modelId !== selected.modelId
+    entry.modelId !== selected.modelId ||
+    entry.registrationId !== selected.registrationId
   )
     throw new Error("summary_selected_entry_changed_choose_explicitly");
   return selected;
@@ -55,8 +66,10 @@ export function parseSummaryOverride(value: unknown): string | null {
       !record ||
       typeof record !== "object" ||
       Array.isArray(record) ||
-      Object.keys(record).sort().join() !==
-        "entryId,modelId,provider,version" ||
+      ![
+        "entryId,modelId,provider,version",
+        "entryId,modelId,provider,registrationId,version",
+      ].includes(Object.keys(record).sort().join()) ||
       !summarySelection(value)
     )
       return null;
@@ -68,7 +81,10 @@ export function parseSummaryOverride(value: unknown): string | null {
 
 export function encodeSummarySelection(entry: ChatEntry): string {
   const raw = JSON.stringify({
-    version: 1,
+    version: entry.provider === "chatgpt" ? 2 : 1,
+    ...(entry.provider === "chatgpt"
+      ? { registrationId: entry.registrationId }
+      : {}),
     entryId: entry.id,
     provider: entry.provider,
     modelId: entry.modelId,

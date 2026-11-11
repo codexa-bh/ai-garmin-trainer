@@ -1,8 +1,12 @@
 import { generateText, NoObjectGeneratedError, Output } from "ai";
 import { z } from "zod";
 import { selectedModel } from "../ai/providers";
+import { chatgptText } from "../ai/chatgpt-generation";
 import { getOptionalEnv, type AppEnv } from "../env";
-import { summaryConfiguration } from "./summary-configuration";
+import {
+  summaryConfiguration,
+  summaryConnectionCurrent,
+} from "./summary-configuration";
 import { summaryCap } from "./summary-policy";
 import type { SummaryGeneration } from "./summary-application";
 
@@ -35,6 +39,8 @@ export function createSummaryGeneration(
       : configuration;
   const selected = summaryConfiguration(env);
   if (!selected) throw new Error("summary_model_unselected");
+  const applicationCurrent = current;
+  current = () => applicationCurrent() && summaryConnectionCurrent(env);
   // Validate the configured drafting target independently of output validity.
   // Never force decoder termination or buy another inference to meet it.
   summaryCap(cap ?? Number(env.SUMMARY_CHAR_LIMIT));
@@ -68,59 +74,85 @@ export function createSummaryGeneration(
             : format === "incremental"
               ? incrementSchema
               : summarySchema;
-      const result = await generateText({
-        model,
-        system,
-        prompt,
-        output:
-          purpose === "title"
-            ? Output.object({ schema: titleSchema, name: "chat_title" })
-            : format === "maintenance"
+      const output =
+        purpose === "title"
+          ? Output.object({ schema: titleSchema, name: "chat_title" })
+          : format === "maintenance"
+            ? Output.object({
+                schema: maintenanceSchema,
+                name: "summary_maintenance",
+              })
+            : format === "incremental"
               ? Output.object({
-                  schema: maintenanceSchema,
-                  name: "summary_maintenance",
+                  schema: incrementSchema,
+                  name: "summary_increment",
                 })
-              : format === "incremental"
-                ? Output.object({
-                    schema: incrementSchema,
-                    name: "summary_increment",
-                  })
-                : Output.object({
-                    schema: summarySchema,
-                    name: "summary_text",
-                  }),
-        maxRetries: 0,
-        abortSignal: signal,
-        ...(selected.entry.provider === "openai"
-          ? {
-              providerOptions: {
-                openai: {
-                  store: false,
-                  ...(selected.entry.modelId === "gpt-6-luna"
-                    ? {
-                        forceReasoning: true,
-                        reasoningEffort: "none",
-                        systemMessageMode: "system",
-                      }
-                    : {}),
-                },
-              },
-            }
-          : {}),
-      }).catch((error: unknown) => {
-        // The SDK can reject before our validator runs. Retain actual usage
-        // for normal maintenance without persisting private error/draft text.
-        if (
-          format === "maintenance" &&
-          NoObjectGeneratedError.isInstance(error)
-        )
-          return {
-            text: "",
-            finishReason: "error",
-            steps: [{ usage: { raw: error.usage?.raw } }],
-          };
-        throw error;
-      });
+              : Output.object({ schema: summarySchema, name: "summary_text" });
+      const result =
+        selected.entry.provider === "chatgpt"
+          ? await chatgptText({
+              model,
+              system,
+              prompt,
+              output,
+              abortSignal: signal,
+            }).then((result) => ({
+              ...result,
+              steps: [{ usage: result.usage }],
+            }))
+          : await generateText({
+              model,
+              system,
+              prompt,
+              output:
+                purpose === "title"
+                  ? Output.object({ schema: titleSchema, name: "chat_title" })
+                  : format === "maintenance"
+                    ? Output.object({
+                        schema: maintenanceSchema,
+                        name: "summary_maintenance",
+                      })
+                    : format === "incremental"
+                      ? Output.object({
+                          schema: incrementSchema,
+                          name: "summary_increment",
+                        })
+                      : Output.object({
+                          schema: summarySchema,
+                          name: "summary_text",
+                        }),
+              maxRetries: 0,
+              abortSignal: signal,
+              ...(selected.entry.provider === "openai"
+                ? {
+                    providerOptions: {
+                      openai: {
+                        store: false,
+                        ...(selected.entry.modelId === "gpt-6-luna"
+                          ? {
+                              forceReasoning: true,
+                              reasoningEffort: "none",
+                              systemMessageMode: "system",
+                            }
+                          : {}),
+                      },
+                    },
+                  }
+                : {}),
+            }).catch((error: unknown) => {
+              // The SDK can reject before our validator runs. Retain actual usage
+              // for normal maintenance without persisting private error/draft text.
+              if (
+                format === "maintenance" &&
+                NoObjectGeneratedError.isInstance(error)
+              )
+                return {
+                  text: "",
+                  finishReason: "error",
+                  steps: [{ usage: { raw: error.usage?.raw } }],
+                };
+              throw error;
+            });
       signal.throwIfAborted();
       if (!current()) throw new Error("summary_configuration_changed");
       const raw = result.steps[0]?.usage.raw;

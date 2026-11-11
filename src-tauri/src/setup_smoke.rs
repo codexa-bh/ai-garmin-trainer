@@ -50,6 +50,10 @@ pub enum Action {
     CaptureDeepseek,
     CaptureOllama,
     CaptureOpenrouter,
+    ChatgptExercise,
+    ChatgptReset,
+    CaptureChatgptWide,
+    CaptureChatgptNarrow,
     Close,
 }
 #[derive(Deserialize, Serialize)]
@@ -80,6 +84,33 @@ struct Observation {
     keys_ready: bool,
     keys_edited: bool,
     keys_rejected: bool,
+    #[serde(default)]
+    chatgpt_ready: bool,
+    #[serde(default)]
+    chatgpt_exercised: bool,
+}
+#[derive(Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+struct ChatgptMarker { version: u8, run_id: String }
+fn chatgpt_marker(bytes: &[u8], run_id: &str) -> Result<(), String> {
+    let marker: ChatgptMarker = serde_json::from_slice(bytes).map_err(|_| "ChatGPT presentation marker refused")?;
+    if marker.version != 1 || marker.run_id != run_id { return Err("Foreign ChatGPT presentation marker".into()); }
+    Ok(())
+}
+pub fn chatgpt_metadata(config: &Config) -> Result<Option<Value>, String> {
+    config.validate()?;
+    let path = config.root.join("chatgpt-presentation.json");
+    match std::fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("ChatGPT presentation marker unavailable".into()),
+        Ok(_) => {}
+    }
+    let bytes = crate::private_store::read(&path).map_err(str::to_owned)?;
+    chatgpt_marker(&bytes,&config.run_id)?;
+    Ok(Some(json!([
+        {"id":"registration_11111111-1111-4111-8111-111111111111","epoch":1,"label":"synthetic@example.invalid · 1","state":"connected","planEnabled":true,"disclosed":true,"models":[{"slug":"synthetic/chatgpt:one","displayName":"Authored model one"}]},
+        {"id":"registration_22222222-2222-4222-8222-222222222222","epoch":1,"label":"synthetic@example.invalid · 2","state":"connected","planEnabled":true,"disclosed":true,"models":[{"slug":"synthetic/chatgpt:two","displayName":"Authored model two"}]}
+    ])))
 }
 struct Document {
     loaded: Arc<AtomicBool>,
@@ -156,6 +187,9 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
     let admitted = app.try_state::<Config>().ok_or("No admitted debug run")?;
     if admitted.run_id != config.run_id || admitted.root != config.root {
         return Err("Wrong debug run".into());
+    }
+    if matches!(action, Action::ChatgptExercise | Action::ChatgptReset | Action::CaptureChatgptWide | Action::CaptureChatgptNarrow) && chatgpt_metadata(config)?.is_none() {
+        return Err("ChatGPT presentation requires its exact owned debug fixture".into());
     }
     if matches!(action, Action::Open) {
         config.validate()?;
@@ -247,11 +281,15 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             | Action::CaptureDeepseek
             | Action::CaptureOllama
             | Action::CaptureOpenrouter
+            | Action::CaptureChatgptWide
+            | Action::CaptureChatgptNarrow
             | Action::CaptureLive
             | Action::CaptureRestartWide
             | Action::CaptureRestartNarrow
     ) {
-        let boundary = if matches!(
+        let boundary = if matches!(action, Action::CaptureChatgptWide | Action::CaptureChatgptNarrow) {
+            "geometry-preserving debug ChatGPT presentation with exact fictional secret-free accounts/models; synthetic DOM draft only, no credentials/auth/broker/provider/ordinary/trusted-input proof"
+        } else if matches!(
             action,
             Action::CaptureRestartWide | Action::CaptureRestartNarrow
         ) {
@@ -291,10 +329,12 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
                 | Action::CaptureRestartNarrow
                 | Action::CaptureLive
                 | Action::CapturePrivacy
+                | Action::CaptureChatgptWide
+                | Action::CaptureChatgptNarrow
         ) {
             let width = if matches!(
                 action,
-                Action::CaptureNarrow | Action::CaptureFooterNarrow | Action::CaptureRestartNarrow
+                Action::CaptureNarrow | Action::CaptureFooterNarrow | Action::CaptureRestartNarrow | Action::CaptureChatgptNarrow
             ) {
                 420.0
             } else {
@@ -351,6 +391,13 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn chatgpt_presentation_marker_is_run_bound_and_never_accepts_credentials() {
+        assert!(chatgpt_marker(br#"{"version":1,"runId":"owned"}"#,"owned").is_ok());
+        for bytes in [br#"{"version":1,"runId":"foreign"}"#.as_slice(),br#"{"version":2,"runId":"owned"}"#.as_slice(),br#"{"version":1,"runId":"owned","accessToken":"private"}"#.as_slice(),br#"{"version":1,"runId":"owned","runId":"owned"}"#.as_slice()] {
+            assert!(chatgpt_marker(bytes,"owned").is_err());
+        }
+    }
     #[test]
     fn only_fixed_local_entry_routes_are_admitted() {
         for text in [
@@ -427,6 +474,10 @@ mod tests {
             "captureRestartWide",
             "captureRestartNarrow",
             "stopBackend",
+            "chatgptExercise",
+            "chatgptReset",
+            "captureChatgptWide",
+            "captureChatgptNarrow",
         ] {
             assert!(serde_json::from_value::<Action>(json!(action)).is_ok());
             assert!(

@@ -241,6 +241,34 @@ summary {
 #restart-required h2 {
   margin-top: 0;
 }
+#chatgpt-connect {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-strong);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+}
+#catalog-chatgpt .actions {
+  gap: 8px;
+}
+#chatgpt-status {
+  color: var(--focus);
+}
+#chatgpt-welcome {
+  box-sizing: border-box;
+  width: min(440px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--panel-strong);
+}
+#chatgpt-welcome::backdrop {
+  background: var(--overlay);
+}
 [hidden] {
   display: none !important;
 }

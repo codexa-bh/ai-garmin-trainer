@@ -24,6 +24,8 @@
     keysReady: false,
     keysEdited: false,
     keysRejected: false,
+    chatgptReady: false,
+    chatgptExercised: false,
   });
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -189,6 +191,88 @@
       throw Error("Removal/draft identity lost");
     exercised = true;
   }
+  let chatgptExercised = false;
+  const chatgptIds = [
+    "registration_11111111-1111-4111-8111-111111111111",
+    "registration_22222222-2222-4222-8222-222222222222",
+  ];
+  function chatgptPresentation() {
+    const account = byId("chatgpt-account"),
+      choice = byId("chatgpt-model");
+    if (
+      !keyless() ||
+      !account ||
+      !choice ||
+      account.options.length !== 3 ||
+      ![...account.options].every(
+        (option, index) =>
+          option.value === ["", ...chatgptIds][index] &&
+          option.textContent ===
+            [
+              "Add a ChatGPT account",
+              "synthetic@example.invalid · 1",
+              "synthetic@example.invalid · 2",
+            ][index],
+      )
+    )
+      return false;
+    if (account.value === "")
+      return (
+        rows("chatgpt").length === 0 &&
+        choice.value === "" &&
+        choice.options.length === 1 &&
+        byId("catalog-chatgpt-add").disabled &&
+        choice.closest("label").hidden
+      );
+    const group = rows("chatgpt");
+    return (
+      account.value === chatgptIds[0] &&
+      choice.options.length === 2 &&
+      choice.options[0].value === "" &&
+      choice.options[0].textContent === "Choose a model" &&
+      choice.options[1].value === "synthetic/chatgpt:one" &&
+      choice.options[1].textContent === "Authored model one" &&
+      choice.value === "synthetic/chatgpt:one" &&
+      group.length === 1 &&
+      model(group[0])?.readOnly &&
+      model(group[0]).value === "synthetic/chatgpt:one" &&
+      group[0].querySelector("label span")?.textContent ===
+        "synthetic@example.invalid · 1"
+    );
+  }
+  function chatgptChoose(input, value) {
+    if (
+      !visible(input) ||
+      input.disabled ||
+      ![...input.options].some((option) => option.value === value)
+    )
+      throw Error("ChatGPT fixture selection refused");
+    input.value = value;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  function exerciseChatgpt() {
+    if (!chatgptPresentation() || byId("chatgpt-account").value !== "")
+      throw Error("Not initial ChatGPT presentation fixture");
+    chatgptChoose(byId("chatgpt-account"), chatgptIds[1]);
+    if (
+      byId("chatgpt-model").value !== "" ||
+      !byId("catalog-chatgpt-add").disabled ||
+      byId("chatgpt-model").options.length !== 2 ||
+      byId("chatgpt-model").options[1].value !== "synthetic/chatgpt:two"
+    )
+      throw Error("Account model isolation refused");
+    chatgptChoose(byId("chatgpt-model"), "synthetic/chatgpt:two");
+    chatgptChoose(byId("chatgpt-account"), chatgptIds[0]);
+    if (
+      byId("chatgpt-model").value !== "" ||
+      !byId("catalog-chatgpt-add").disabled
+    )
+      throw Error("Account change silently selected a model");
+    chatgptChoose(byId("chatgpt-model"), "synthetic/chatgpt:one");
+    click(byId("catalog-chatgpt-add"));
+    if (!chatgptPresentation()) throw Error("ChatGPT exact draft row refused");
+    chatgptExercised = true;
+  }
   function observe() {
     const value = empty();
     value.ready =
@@ -203,6 +287,9 @@
       !document.querySelector('.catalog-row [aria-label^="Default"]');
     value.emptyCatalog =
       safeKeys() && document.querySelectorAll(".catalog-row").length === 0;
+    value.chatgptReady = chatgptPresentation();
+    value.chatgptExercised =
+      chatgptExercised && rows("chatgpt").length === 1 && value.chatgptReady;
     value.keysReady = keysReady();
     value.keysEdited = keysEdited();
     value.keysRejected =
@@ -266,7 +353,7 @@
     if (
       reveal[0].textContent !==
         {
-          openai: "OpenAI",
+          openai: "OpenAI API key",
           deepseek: "DeepSeek",
           ollama: "Ollama",
           openrouter: "OpenRouter",
@@ -337,6 +424,140 @@
         rect.bottom > window.innerHeight
       )
         throw Error("Provider overflow");
+    }
+    restoreTimer = setTimeout(restore, 5000);
+  }
+  function captureChatgpt() {
+    restore();
+    if (!chatgptPresentation() || byId("chatgpt-welcome").open)
+      throw Error("Not exact fictional ChatGPT presentation");
+    const root = byId("catalog-chatgpt"),
+      reveal = [];
+    if (
+      root.children.length !== 10 ||
+      [...root.childNodes].some(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim(),
+      ) ||
+      [...root.querySelectorAll(":scope > .actions")].length !== 2 ||
+      [...root.querySelectorAll(":scope > .actions")].some(
+        (group) => group.children.length !== 3,
+      )
+    )
+      throw Error("Unexpected ChatGPT structure");
+    const verifyText = (element, text) => {
+      if (
+        !element ||
+        element.textContent.replace(/\s+/g, " ").trim() !== text ||
+        element.childElementCount
+      )
+        throw Error("Unexpected ChatGPT copy");
+      if (visible(element)) reveal.push(element);
+    };
+    verifyText(root.querySelector("h2"), "ChatGPT subscription");
+    verifyText(
+      root.querySelector("p.helper"),
+      "Eligible requests use your ChatGPT plan or credits. No OpenAI API key needed.",
+    );
+    verifyText(
+      byId("chatgpt-status"),
+      byId("chatgpt-account").value
+        ? "synthetic@example.invalid · 1 — plan permission enabled."
+        : "Choose a saved registration or continue in your system browser.",
+    );
+    for (const [id, text] of Object.entries({
+      "chatgpt-consent": "Enable plan use",
+      "chatgpt-cancel": "Cancel sign-in",
+      "chatgpt-models": "Refresh models",
+      "chatgpt-disconnect": "Disconnect",
+      "chatgpt-usage": "Manage usage",
+      "catalog-chatgpt-add": "Add model",
+    }))
+      verifyText(byId(id), text);
+    const connect = byId("chatgpt-connect"),
+      logo = connect.querySelector("img");
+    if (
+      connect.textContent.trim() !== "Continue with ChatGPT" ||
+      connect.childElementCount !== 1 ||
+      !logo ||
+      logo.getAttribute("src") !== "chatgpt-logo-white.svg" ||
+      logo.getAttribute("alt") !== "" ||
+      logo.childElementCount
+    )
+      throw Error("Unexpected ChatGPT sign-in branding");
+    reveal.push(connect, logo);
+    for (const [id, caption] of [
+      ["chatgpt-account", "Saved registration"],
+      ["chatgpt-model", "Account model"],
+    ]) {
+      const input = byId(id),
+        label = input.closest("label");
+      if (
+        label.childElementCount !== 1 ||
+        [...label.childNodes]
+          .filter(
+            (node) =>
+              node.nodeType === Node.TEXT_NODE && node.textContent.trim(),
+          )
+          .map((node) => node.textContent.trim())
+          .join() !== caption ||
+        [...input.children].some(
+          (option) => option.tagName !== "OPTION" || option.childElementCount,
+        )
+      )
+        throw Error("Unexpected ChatGPT picker");
+      if (visible(label)) reveal.push(label, input, ...input.options);
+    }
+    for (const row of rows("chatgpt")) {
+      const label = row.querySelector("label"),
+        input = model(row),
+        account = label.querySelector("span"),
+        button = row.querySelector("button");
+      if (
+        label.childElementCount !== 2 ||
+        label.firstChild.textContent !== "Model ID" ||
+        row.querySelectorAll("input").length !== 1 ||
+        row.querySelectorAll("button").length !== 1 ||
+        account?.textContent !== "synthetic@example.invalid · 1" ||
+        account.childElementCount ||
+        !input.readOnly ||
+        input.value !== "synthetic/chatgpt:one" ||
+        row.querySelector(".catalog-error")?.textContent !== ""
+      )
+        throw Error("Unexpected ChatGPT draft");
+      verifyText(button, "Remove");
+      reveal.push(label, input, account);
+    }
+    verifyText(root.querySelector("summary"), "Connection and storage");
+    if (root.querySelector("details").open)
+      throw Error("Unexpected expanded ChatGPT disclosure");
+    scrollPosition = [window.scrollX, window.scrollY];
+    window.scrollTo(0, window.scrollY + root.getBoundingClientRect().top - 16);
+    for (const element of document.body.querySelectorAll("*"))
+      if (element instanceof HTMLElement)
+        style(element, "visibility", "hidden");
+    for (const element of reveal) style(element, "visibility", "visible");
+    if (
+      [...document.body.querySelectorAll("*")].some(
+        (element) =>
+          element instanceof HTMLElement &&
+          !reveal.includes(element) &&
+          getComputedStyle(element).visibility !== "hidden" &&
+          element.getClientRects().length > 0,
+      )
+    )
+      throw Error("ChatGPT mask ineffective");
+    for (const element of reveal.filter(
+      (element) => element.tagName !== "OPTION",
+    )) {
+      const rect = element.getBoundingClientRect();
+      if (
+        !visible(element) ||
+        rect.left < 0 ||
+        rect.top < 0 ||
+        rect.right > innerWidth ||
+        rect.bottom > innerHeight
+      )
+        throw Error("ChatGPT presentation overflow");
     }
     restoreTimer = setTimeout(restore, 5000);
   }
@@ -577,6 +798,18 @@
         )
           throw Error("Live mask failed");
         restoreTimer = setTimeout(restore, 5000);
+      } else if (action === "chatgptExercise") {
+        exerciseChatgpt();
+      } else if (action === "chatgptReset") {
+        if (!chatgptPresentation() || rows("chatgpt").length !== 1)
+          throw Error("Only the exact ChatGPT draft may be removed");
+        click(rows("chatgpt")[0].querySelector('button[aria-label^="Remove"]'));
+        chatgptChoose(byId("chatgpt-account"), "");
+        if (!chatgptPresentation()) throw Error("ChatGPT draft reset refused");
+      } else if (
+        ["captureChatgptWide", "captureChatgptNarrow"].includes(action)
+      ) {
+        captureChatgpt();
       } else if (action === "keysExercise") {
         exerciseKeys();
       } else if (action === "catalogExercise") {
