@@ -196,6 +196,40 @@ it("retains condition-only legacy allocations in evidence and total, not as bool
   expect(screen.getByText(/Non-numeric scoring conditions/)).toBeTruthy();
   expect(JSON.stringify(data)).toBe(original);
 });
+it("keeps scored rows including zero allocation before monitoring, preserving each group's stored order", () => {
+  const data = structuredClone(sample);
+  const compound = data.sets[0].items[0];
+  const item = (id: string, availablePoints: number | null) => ({
+    ...structuredClone(compound),
+    id,
+    conceptId: id,
+    label: id,
+    availablePoints,
+    tracks: structuredClone(compound.tracks.slice(0, 1)),
+  });
+  data.sets[0].items = [
+    item("Monitor first", null),
+    item("Zero allocation", 0),
+    compound,
+    item("Monitor last", null),
+  ];
+  data.assessments = [];
+  const original = JSON.stringify(data);
+  render(<WeeklyKpiScorecard kpis={data} loadSet={vi.fn()} />);
+  expect(
+    within(screen.getByRole("table"))
+      .getAllByRole("rowheader")
+      .map((row) => row.textContent),
+  ).toEqual([
+    "Zero allocation",
+    "Qualifying sessions · sessions",
+    "Qualifying sessions · minutes",
+    "Monitor firstMonitoring",
+    "Monitor lastMonitoring",
+    "Total",
+  ]);
+  expect(JSON.stringify(data)).toBe(original);
+});
 it("distinguishes empty, unassessed and incomplete latest-plan reads without obsolete fallback", () => {
   const { rerender } = render(
     <WeeklyKpiScorecard kpis={null} loadSet={vi.fn()} />,
