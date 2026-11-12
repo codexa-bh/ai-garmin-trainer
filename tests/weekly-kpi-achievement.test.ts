@@ -157,24 +157,26 @@ it("finds latest established plan independently of chart range, skips empty slot
     () => now,
     () => "id",
   );
-  expect(app.progress("2026-08-03", "2026-08-10").latestPlan?.weekStart).toBe(
-    week,
-  );
+  expect(
+    app.progress("2026-08-03", "2026-08-10", 12).latestPlan?.weekStart,
+  ).toBe(week);
   store.save({
     ...source,
     weekStart: "2026-11-16",
     original: null,
     latest: null,
   });
-  expect(app.progress("2026-08-03", "2026-08-10").latestPlan?.weekStart).toBe(
-    week,
-  );
+  expect(
+    app.progress("2026-08-03", "2026-08-10", 12).latestPlan?.weekStart,
+  ).toBe(week);
   store.save({ ...source, weekStart: "2026-11-16" });
-  expect(app.progress("2026-08-03", "2026-08-10").latestPlan).toMatchObject({
-    weekStart: "2026-11-16",
-    complete: true,
-    sets: [],
-  });
+  expect(app.progress("2026-08-03", "2026-08-10", 12).latestPlan).toMatchObject(
+    {
+      weekStart: "2026-11-16",
+      complete: true,
+      sets: [],
+    },
+  );
 });
 it("joins renamed historical labels and changed targets by stable exact meaning, never obsolete sets, conflicting candidates or incompatible semantics", () => {
   const state = authoredWeeklyKpis(now);

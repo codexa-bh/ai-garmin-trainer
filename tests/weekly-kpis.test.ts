@@ -11,6 +11,7 @@ import type {
   WeeklyKpis,
 } from "../src/lib/weekly/kpi-contracts";
 import { migrateDatabase, databaseHasUserData } from "../src/lib/db/migrations";
+import { PROGRESS_MAX_WEEKS } from "../src/lib/weekly/calendar";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
 
 const now = new Date("2026-11-10T12:00:00Z");
@@ -346,10 +347,26 @@ it("projects explicit gaps with a bounded read-only progress range and schema re
     app.readKpis(week),
   ]);
   const prior = app.readKpis(week);
-  const progress = app.progress("2026-11-02", "2026-11-16");
+  const progress = app.progress("2026-11-02", "2026-11-16", 12);
   expect(progress.weeks.map((w) => w.kpis.sets.length)).toEqual([0, 1, 0]);
   expect(app.readKpis(week)).toEqual(prior);
-  expect(() => app.progress("2026-01-05", week)).toThrow(
+  // The trainer's 12-week bound refuses a 13th week; the app bound allows 54.
+  expect(() => app.progress("2026-08-17", week, 12)).toThrow(
+    "invalid_progress_range",
+  );
+  expect(app.progress("2026-08-24", week, 12).weeks).toHaveLength(12);
+  const year = app.progress("2025-11-03", week, PROGRESS_MAX_WEEKS);
+  expect(year.weeks).toHaveLength(54);
+  expect(year.weeks.at(-1)?.weekStart).toBe(week);
+  expect(year.weeks.at(-1)?.kpis.sets).toHaveLength(1);
+  expect(() => app.progress("2025-10-27", week, PROGRESS_MAX_WEEKS)).toThrow(
+    "invalid_progress_range",
+  );
+  for (const bound of [0, 55, 1.5])
+    expect(() => app.progress(week, week, bound)).toThrow(
+      "invalid_progress_range",
+    );
+  expect(() => app.progress("2026-01-05", week, 12)).toThrow(
     "invalid_progress_range",
   );
   expect(databaseHasUserData(db)).toBe(true);

@@ -455,3 +455,28 @@ it("advertises per-measurement points only and no shared allocation", () => {
   expect(TRAINER_SYSTEM_PROMPT).toContain("Points per measurement");
   expect(TRAINER_SYSTEM_PROMPT).toContain("no shared pool");
 });
+
+it("keeps the trainer getKpiProgress tool at 12 weeks while the app Progress bound is wider", async () => {
+  const thirteen = await run([
+    [
+      {
+        toolName: "getKpiProgress",
+        input: { from: "2026-08-17", through: weekStart },
+      },
+    ],
+  ]);
+  expect(thirteen.result.toolSteps.at(-1)?.status).toBe("rejected");
+  const twelve = await run([
+    [
+      {
+        toolName: "getKpiProgress",
+        input: { from: "2026-08-24", through: weekStart },
+      },
+    ],
+  ]);
+  expect(twelve.result.toolSteps.at(-1)?.status).toBe("succeeded");
+  expect(app.progress("2026-08-17", weekStart, 54).weeks).toHaveLength(13);
+  expect(trainerToolContracts.getKpiProgress.description).toContain(
+    "at most12 weeks",
+  );
+});
