@@ -97,9 +97,9 @@ export function WeeklyKpiProgress({
               if (period) run(weekly.loadProgress(period));
             }}
           >
-            <option value="6w">Last 6 weeks</option>
-            <option value="12w">Last 12 weeks</option>
+            <option value="1m">Last 1 month</option>
             <option value="2m">Last 2 months</option>
+            <option value="3m">Last 3 months</option>
             <option value="6m">Last 6 months</option>
             <option value="12m">Last 12 months</option>
           </select>

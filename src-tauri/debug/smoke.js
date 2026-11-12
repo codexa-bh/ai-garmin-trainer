@@ -2913,9 +2913,9 @@
     const selects = [...region.querySelectorAll("select")];
     const select = selects[0];
     const expected = [
-      ["6w", "Last 6 weeks"],
-      ["12w", "Last 12 weeks"],
+      ["1m", "Last 1 month"],
       ["2m", "Last 2 months"],
+      ["3m", "Last 3 months"],
       ["6m", "Last 6 months"],
       ["12m", "Last 12 months"],
     ];
@@ -2924,7 +2924,7 @@
       JSON.stringify(
         [...select.options].map((option) => [option.value, option.textContent]),
       ) === JSON.stringify(expected) &&
-      ["6w", "12w", "12m"].includes(select.value)
+      ["1m", "2m", "3m", "6m", "12m"].includes(select.value)
       ? select
       : null;
   }
@@ -2945,15 +2945,30 @@
     const bounds = pane?.getBoundingClientRect();
     const period =
       region && progress ? weeklyPeriodSelect(region)?.value : null;
-    const weekCount = { "6w": 6, "12w": 12, "12m": 54 }[period];
+    const months = { "1m": 1, "2m": 2, "3m": 3, "6m": 6, "12m": 12 }[period];
     const monday = new Date();
     monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
     const civil = (date) =>
       `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    const from = new Date(monday);
-    from.setDate(from.getDate() - 7 * ((weekCount ?? 1) - 1));
+    const from = new Date(
+      monday.getFullYear(),
+      monday.getMonth() - (months ?? 0),
+      1,
+    );
+    const lastDay = new Date(
+      from.getFullYear(),
+      from.getMonth() + 1,
+      0,
+    ).getDate();
+    from.setDate(Math.min(monday.getDate(), lastDay));
+    from.setDate(from.getDate() - ((from.getDay() + 6) % 7));
+    const weekCount =
+      (Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()) -
+        Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) /
+        (7 * 86400000) +
+      1;
     const rangeCorrect =
-      !!weekCount &&
+      !!months &&
       charts.length === 5 &&
       charts.every((chart) => {
         const values = [...chart.querySelectorAll("ul.visually-hidden > li")];
@@ -3050,7 +3065,8 @@
         "middle",
         "bottom",
         "frame",
-        "sixWeeks",
+        "oneMonth",
+        "threeMonths",
         "twelveMonths",
       ].includes(command.action)
     )
@@ -3068,11 +3084,15 @@
       if (buttons.length !== 1 || buttons[0].disabled)
         throw Error("Weekly KPI control unavailable");
       buttons[0].click();
-    } else if (["sixWeeks", "twelveMonths"].includes(command.action)) {
+    } else if (
+      ["oneMonth", "threeMonths", "twelveMonths"].includes(command.action)
+    ) {
       const region = weeklyKpiRegion();
       const select = region && weeklyPeriodSelect(region);
       if (!select) throw Error("Canonical Progress period required");
-      select.value = command.action === "sixWeeks" ? "6w" : "12m";
+      select.value = { oneMonth: "1m", threeMonths: "3m", twelveMonths: "12m" }[
+        command.action
+      ];
       select.dispatchEvent(new Event("change", { bubbles: true }));
     } else if (
       ["frame", "notes", "middle", "bottom"].includes(command.action)

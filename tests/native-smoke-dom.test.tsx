@@ -31,7 +31,11 @@ import { authoredAssessedLatestKpis } from "../scripts/ci/kpi-fixture";
 import { projectKpis } from "../src/lib/weekly/kpis";
 import { WeeklyPlanView } from "../src/app/dashboard/weekly-plan-view";
 import { useWeeklyFeature } from "../src/app/dashboard/use-weekly";
-import { addDays, weeklyCalendar } from "../src/lib/weekly/calendar";
+import {
+  addDays,
+  progressPeriodRange,
+  weeklyCalendar,
+} from "../src/lib/weekly/calendar";
 
 declare global {
   interface Window {
@@ -2047,12 +2051,20 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   ).toBe(false);
   expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
     "value",
-    "12w",
+    "2m",
   );
-  for (const [action, period, count] of [
-    ["sixWeeks", "6w", 6],
-    ["twelveMonths", "12m", 54],
+  expect(
+    (await command({ type: "weeklyKpis", action: "sixWeeks" })).result.ok,
+  ).toBe(false);
+  for (const [action, period] of [
+    ["oneMonth", "1m"],
+    ["threeMonths", "3m"],
+    ["twelveMonths", "12m"],
   ] as const) {
+    const count =
+      (Date.parse(week) - Date.parse(progressPeriodRange(period, week).from)) /
+        604800000 +
+      1;
     const observation = (await command({ type: "weeklyKpis", action })).result;
     expect(observation.ok).toBe(true);
     // React act flushes the async reload after the command settles; observe

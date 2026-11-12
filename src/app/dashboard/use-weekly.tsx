@@ -15,7 +15,7 @@ export function useWeeklyFeature() {
   const [week, setWeek] = useState("");
   const [kpis, setKpis] = useState<KpiRead | null>(null);
   const [progress, setProgress] = useState<KpiProgress | null>(null);
-  const [progressPeriod, setProgressPeriod] = useState<ProgressPeriod>("12w");
+  const [progressPeriod, setProgressPeriod] = useState<ProgressPeriod>("2m");
   const [progressRange, setProgressRange] = useState<{
     from: string;
     through: string;

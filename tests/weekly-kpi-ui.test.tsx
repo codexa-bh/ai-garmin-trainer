@@ -439,7 +439,7 @@ it("reads progress/weekly selection without writes, retains range and ignores st
         <button onClick={() => run(weekly.load("history", "2026-11-09"))}>
           New
         </button>
-        <button onClick={() => run(weekly.loadProgress("6w"))}>Range</button>
+        <button onClick={() => run(weekly.loadProgress("1m"))}>Range</button>
         <WeeklyPlanView
           weekly={weekly}
           openGeneral={async () => {}}
@@ -462,7 +462,7 @@ it("reads progress/weekly selection without writes, retains range and ignores st
   await screen.findByRole("heading", { name: "Weekly achievement" });
   expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
     "value",
-    "6w",
+    "1m",
   );
   expect(
     screen.queryByRole("button", { name: /Reload|Load range/ }),

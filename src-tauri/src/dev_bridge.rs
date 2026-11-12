@@ -255,7 +255,8 @@ impl Command {
                 "middle",
                 "bottom",
                 "frame",
-                "sixWeeks",
+                "oneMonth",
+                "threeMonths",
                 "twelveMonths",
             ]
             .contains(&action.as_str()),
@@ -1925,7 +1926,8 @@ mod tests {
             "middle",
             "bottom",
             "frame",
-            "sixWeeks",
+            "oneMonth",
+            "threeMonths",
             "twelveMonths",
         ] {
             let command = Command::WeeklyKpis {
