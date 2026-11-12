@@ -439,11 +439,7 @@ it("reads progress/weekly selection without writes, retains range and ignores st
         <button onClick={() => run(weekly.load("history", "2026-11-09"))}>
           New
         </button>
-        <button
-          onClick={() => run(weekly.loadProgress("2026-11-02", "2026-11-09"))}
-        >
-          Range
-        </button>
+        <button onClick={() => run(weekly.loadProgress("6w"))}>Range</button>
         <WeeklyPlanView
           weekly={weekly}
           openGeneral={async () => {}}
@@ -464,15 +460,21 @@ it("reads progress/weekly selection without writes, retains range and ignores st
   await waitFor(() => expect(screen.getByText(/2026-11-09 –/)).toBeTruthy());
   fireEvent.click(screen.getByText("Range"));
   await screen.findByRole("heading", { name: "Weekly achievement" });
-  expect(screen.getByLabelText("From Monday")).toHaveProperty(
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
     "value",
-    "2026-11-02",
+    "6w",
   );
-  expect(screen.queryByRole("button", { name: /Reload/ })).toBeNull();
-  fireEvent.submit(screen.getByLabelText("From Monday").closest("form")!);
+  expect(
+    screen.queryByRole("button", { name: /Reload|Load range/ }),
+  ).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "Period" }), {
+    target: { value: "12m" },
+  });
   await waitFor(() =>
-    expect(requests.filter((r) => r.includes("from=2026-11-02"))).toHaveLength(
-      2,
-    ),
+    expect(requests.filter((r) => r.includes("view=progress"))).toHaveLength(2),
+  );
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+    "value",
+    "12m",
   );
 });

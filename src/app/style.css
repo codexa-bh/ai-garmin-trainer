@@ -162,7 +162,7 @@
   gap: 6px;
   max-width: 100%;
 }
-.weekly-progress-controls input {
+.weekly-progress-controls select {
   max-width: 100%;
   min-width: 0;
   color: var(--text);

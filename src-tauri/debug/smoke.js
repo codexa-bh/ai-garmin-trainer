@@ -2909,6 +2909,25 @@
       return null;
     return region;
   }
+  function weeklyPeriodSelect(region) {
+    const selects = [...region.querySelectorAll("select")];
+    const select = selects[0];
+    const expected = [
+      ["6w", "Last 6 weeks"],
+      ["12w", "Last 12 weeks"],
+      ["2m", "Last 2 months"],
+      ["6m", "Last 6 months"],
+      ["12m", "Last 12 months"],
+    ];
+    return selects.length === 1 &&
+      select.closest("label")?.childNodes[0]?.textContent.trim() === "Period" &&
+      JSON.stringify(
+        [...select.options].map((option) => [option.value, option.textContent]),
+      ) === JSON.stringify(expected) &&
+      ["6w", "12w", "12m"].includes(select.value)
+      ? select
+      : null;
+  }
   function weeklyKpiObservation(action) {
     const region = weeklyKpiRegion();
     const text = region?.textContent ?? "";
@@ -2924,12 +2943,33 @@
         ?.textContent === "History";
     const last = charts.at(-1)?.getBoundingClientRect();
     const bounds = pane?.getBoundingClientRect();
+    const period =
+      region && progress ? weeklyPeriodSelect(region)?.value : null;
+    const weekCount = { "6w": 6, "12w": 12, "12m": 54 }[period];
+    const monday = new Date();
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    const civil = (date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const from = new Date(monday);
+    from.setDate(from.getDate() - 7 * ((weekCount ?? 1) - 1));
+    const rangeCorrect =
+      !!weekCount &&
+      charts.length === 5 &&
+      charts.every((chart) => {
+        const values = [...chart.querySelectorAll("ul.visually-hidden > li")];
+        return (
+          values.length === weekCount &&
+          values[0].textContent.startsWith(civil(from) + ":") &&
+          values.at(-1).textContent.startsWith(civil(monday) + ":")
+        );
+      });
     return {
       ok: true,
       action,
       trustedInput: false,
       ready: !!region,
       progress,
+      rangeCorrect,
       aboveHundred: text.includes("112.5") || text.includes("140.63%"),
       unknown: text.includes("Unknown"),
       gaps: text.includes("Gaps are not zero") && text.includes("Not assessed"),
@@ -3010,6 +3050,8 @@
         "middle",
         "bottom",
         "frame",
+        "sixWeeks",
+        "twelveMonths",
       ].includes(command.action)
     )
       throw Error("Unsupported weekly KPI action/mode");
@@ -3026,6 +3068,12 @@
       if (buttons.length !== 1 || buttons[0].disabled)
         throw Error("Weekly KPI control unavailable");
       buttons[0].click();
+    } else if (["sixWeeks", "twelveMonths"].includes(command.action)) {
+      const region = weeklyKpiRegion();
+      const select = region && weeklyPeriodSelect(region);
+      if (!select) throw Error("Canonical Progress period required");
+      select.value = command.action === "sixWeeks" ? "6w" : "12m";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
     } else if (
       ["frame", "notes", "middle", "bottom"].includes(command.action)
     ) {
@@ -3098,7 +3146,7 @@
       if (
         !weeklyKpiObservation("observe").allCharts ||
         region.querySelectorAll(".weekly-progress-chart").length !== 5 ||
-        region.querySelector("select") ||
+        !weeklyKpiObservation("observe").rangeCorrect ||
         !region.querySelector(".weekly-individual-kpis")?.open
       )
         throw Error("Authored weekly chart surface missing");
@@ -3109,7 +3157,7 @@
     monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
     const civil = (date) =>
       `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    for (let offset = -1; offset < 12; offset++) {
+    for (let offset = -1; offset < 54; offset++) {
       const date = new Date(monday);
       date.setDate(date.getDate() - offset * 7);
       const end = new Date(date);
@@ -3164,7 +3212,7 @@
       "Authored relevant partial credit without double counting",
       "Provisional",
       "Saved points against each week’s latest plan — not fitness improvement. Gaps are not zero.",
-      "Load range (up to 12 weeks)",
+      "Period",
       "Individual KPIs",
       "Not assessed — not a zero.",
       "Not assessed",
@@ -3229,10 +3277,7 @@
         if (
           own &&
           parent.namespaceURI !== "http://www.w3.org/2000/svg" &&
-          !(
-            parent.tagName === "LABEL" &&
-            ["From Monday", "Through Monday"].includes(own)
-          )
+          !(parent.tagName === "LABEL" && own === "Period")
         )
           throw Error("Private direct weekly ancestor refused");
         parent.setAttribute("data-smoke-reveal", "");
@@ -3244,18 +3289,13 @@
         .map((node) => node.textContent)
         .join("")
         .trim();
-      const input = label.querySelector("input[type='date']");
-      if (
-        input &&
-        ["From Monday", "Through Monday"].includes(own) &&
-        dates.has(input.value)
-      ) {
+      const select = weeklyPeriodSelect(region);
+      if (select && own === "Period" && label.contains(select)) {
         mark(label);
-        mark(input);
+        mark(select);
+        for (const option of select.options) mark(option);
       }
     }
-    if (region.querySelector("select"))
-      throw Error("Rejected weekly selector present");
     const numeric = new Set([
       0, 0.25, 0.5, 0.75, 1, 2, 4, 6, 8, 25, 40, 50, 75, 80, 100, 120, 140.63,
       160,

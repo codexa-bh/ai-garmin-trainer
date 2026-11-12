@@ -87,7 +87,10 @@ export function validateKpiSet(set: KpiSetInput) {
           ),
         ),
     );
-    requireValid(item.availablePoints == null, "kpi_item_pool_unsupported");
+    requireValid(
+      !("availablePoints" in item) || item.availablePoints == null,
+      "kpi_item_pool_unsupported",
+    );
     requireValid(
       Array.isArray(item.tracks) &&
         item.tracks.length > 0 &&
@@ -170,7 +173,10 @@ export function validateKpiAssessment(
       scored.every((unit) => unit.trackKey !== null),
       "kpi_legacy_pool_requires_mapping",
     );
-    requireValid(result.awardedPoints == null, "kpi_item_award_unsupported");
+    requireValid(
+      !("awardedPoints" in result) || result.awardedPoints == null,
+      "kpi_item_award_unsupported",
+    );
     requireValid(
       optionalText(result.explanation) &&
         ["supported", "provisional", "unavailable"].includes(result.status),
@@ -393,7 +399,7 @@ export function applyKpiChange(
 }
 
 type KpiItem = KpiSet["items"][number];
-type KpiItemResult = KpiAssessmentInput["items"][number];
+type KpiItemResult = WeeklyKpis["assessments"][number]["items"][number];
 
 /**
  * Independently scored units of one item. A track's own allocation is the

@@ -102,7 +102,9 @@ export function WeeklyPlanView({
             </button>
           </div>
           <div className="training-plan-content">
-            {state === "loading" || state === "idle" ? (
+            {mode === "progress" ? (
+              <WeeklyKpiProgress weekly={weekly} run={run} />
+            ) : state === "loading" || state === "idle" ? (
               <p role="status">Loading weekly plans…</p>
             ) : state === "error" ? (
               <div role="alert">
@@ -115,8 +117,6 @@ export function WeeklyPlanView({
                   Retry
                 </button>
               </div>
-            ) : mode === "progress" ? (
-              <WeeklyKpiProgress weekly={weekly} run={run} />
             ) : week ? (
               <>
                 <h2>

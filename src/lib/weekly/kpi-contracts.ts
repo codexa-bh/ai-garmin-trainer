@@ -28,9 +28,11 @@ type KpiItem = {
 export type KpiSetInput = {
   origin: "planned" | "adaptation" | "review-defined";
   provenance?: string;
-  items: KpiItem[];
+  items: Omit<KpiItem, "availablePoints">[];
 };
-export type KpiSet = KpiSetInput & {
+export type KpiSet = Omit<KpiSetInput, "items"> & {
+  /** Stored legacy pools remain readable, but are not new-write input fields. */
+  items: KpiItem[];
   id: string;
   savedAt: string;
   /** Explicit narrative source, not an assessment revision or timestamp guess. */
@@ -54,8 +56,6 @@ export type KpiAssessmentInput = {
       /** Present only for a scored track: awarded points, or null = unknown. */
       awardedPoints?: number | null;
     }[];
-    /** Legacy item-level award for a legacy pool, read-only. */
-    awardedPoints?: number | null;
     explanation?: string;
     status: "supported" | "provisional" | "unavailable";
     evidence: KpiEvidence;
@@ -69,7 +69,11 @@ export type KpiAssessmentInput = {
   totalPoints: number | null;
   explanation?: string;
 };
-export type KpiAssessment = KpiAssessmentInput & {
+export type KpiAssessment = Omit<KpiAssessmentInput, "items"> & {
+  items: (KpiAssessmentInput["items"][number] & {
+    /** Legacy item-level award for a saved legacy pool, read-only. */
+    awardedPoints?: number | null;
+  })[];
   revision: string;
   savedAt: string;
 };

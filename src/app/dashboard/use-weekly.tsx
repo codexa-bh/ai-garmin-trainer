@@ -1,6 +1,10 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { WeeklyRecord, WeeklySummary } from "@/lib/weekly/contracts";
-import { addDays, weeklyCalendar } from "@/lib/weekly/calendar";
+import {
+  progressPeriodRange,
+  weeklyCalendar,
+  type ProgressPeriod,
+} from "@/lib/weekly/calendar";
 import type { KpiRead, KpiProgress } from "@/lib/weekly/kpi-contracts";
 import { readJsonResponse } from "./transport";
 
@@ -11,6 +15,7 @@ export function useWeeklyFeature() {
   const [week, setWeek] = useState("");
   const [kpis, setKpis] = useState<KpiRead | null>(null);
   const [progress, setProgress] = useState<KpiProgress | null>(null);
+  const [progressPeriod, setProgressPeriod] = useState<ProgressPeriod>("12w");
   const [progressRange, setProgressRange] = useState<{
     from: string;
     through: string;
@@ -29,7 +34,7 @@ export function useWeeklyFeature() {
     cursor?: string,
     preserveRange = false,
     setId?: string,
-    range = progressRange,
+    period = progressPeriod,
   ) {
     const request = ++generation.current;
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -50,10 +55,7 @@ export function useWeeklyFeature() {
     try {
       const query = new URLSearchParams({ timeZone });
       if (selected === "progress") {
-        const dates = range ?? {
-          from: addDays(calendar.weekStart, -77),
-          through: calendar.weekStart,
-        };
+        const dates = progressPeriodRange(period, calendar.weekStart);
         query.set("view", "progress");
         query.set("from", dates.from);
         query.set("through", dates.through);
@@ -155,11 +157,11 @@ export function useWeeklyFeature() {
     kpis,
     progress,
     progressRange,
+    progressPeriod,
     loadSet: (setId: string) => load(mode, week, undefined, false, setId),
-    loadProgress: (from: string, through: string) =>
-      load("progress", undefined, undefined, false, undefined, {
-        from,
-        through,
-      }),
+    loadProgress: (period: ProgressPeriod) => {
+      setProgressPeriod(period);
+      return load("progress", undefined, undefined, false, undefined, period);
+    },
   };
 }

@@ -39,12 +39,12 @@ def scenario(run):
     observed = wait_kpis(run)
     if not observed['aboveHundred'] or not observed['unknown']:
         raise ValueError('Saved above100/unknown facts missing')
-    for view in ['current', 'next', 'previous', 'progress']:
-        progress_view = view == 'progress'
+    for view in ['current', 'next', 'previous', 'progress', 'sixWeeks', 'twelveMonths']:
+        progress_view = view in ['progress', 'sixWeeks', 'twelveMonths']
         if view != 'current':
             run.command({'type': 'weeklyKpis', 'action': view})
             wait_kpis(run, progress_view)
-        presets = ['wide', 'narrow', 'wide-short', 'narrow-short', 'wide', 'narrow'] if progress_view else ['wide', 'narrow']
+        presets = ['wide', 'narrow', 'wide-short', 'narrow-short', 'wide', 'narrow'] if view == 'progress' else ['wide', 'narrow']
         for index, preset in enumerate(presets):
             run.command({'type': 'setViewport', 'preset': preset})
             wait_kpis(run, progress_view)
@@ -55,7 +55,7 @@ def scenario(run):
                 observed = run.command({'type': 'weeklyKpis', 'action': edge})
                 image = run.command({'type': 'captureView', 'view': 'weeklyKpis', 'preset': preset})
                 captures.append({'view': view, 'preset': preset, 'edge': edge, 'observation': observed, **image})
-                valid = observed['contained'] and (observed['allCharts'] and observed['chartsSized'] and observed['gaps'] if progress_view else observed['notesCorrect'])
+                valid = observed['contained'] and (observed['allCharts'] and observed['chartsSized'] and observed['rangeCorrect'] and observed['gaps'] if progress_view else observed['notesCorrect'])
                 if not valid or (edge == 'bottom' and not observed['bottomVisible']):
                     raise ValueError('Weekly KPI geometry/notes/all-chart/bottom proof failed; inspect retained capture')
     # Internal navigation and fresh explicit entry preserve existing routing.
@@ -91,7 +91,7 @@ def main():
         expected = saved_hash(run.database)
         observer = None
         errors = []
-        receipt = {'source': source, 'scenario': 'T0324-notes-all-charts-real-pane-bottom', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. Synthetic DOM input, not trusted input, real trainer/provider writes or production migration.', 'resourceDisposition': resources.disposition()}
+        receipt = {'source': source, 'scenario': 'T0325-independent-points-preset-periods-real-pane-bottom', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. Synthetic DOM input, not trusted input, real trainer/provider writes or production migration.', 'resourceDisposition': resources.disposition()}
         try:
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer

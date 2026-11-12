@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,6 +14,8 @@ import { useWeeklyFeature } from "../src/app/dashboard/use-weekly";
 import { projectKpis } from "../src/lib/weekly/kpis";
 import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
 import type { KpiProgress } from "../src/lib/weekly/kpi-contracts";
+import { addDays } from "../src/lib/weekly/calendar";
+import { WeeklyPlanView } from "../src/app/dashboard/weekly-plan-view";
 
 vi.mock("recharts", () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
@@ -44,6 +47,7 @@ vi.mock("recharts", () => ({
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 const now = new Date("2026-11-11T12:00:00Z");
 function progress(): KpiProgress {
@@ -80,9 +84,7 @@ function setup(get: () => KpiProgress) {
     };
     return (
       <>
-        <button
-          onClick={() => run(weekly.loadProgress("2026-10-26", "2026-11-09"))}
-        >
+        <button onClick={() => run(weekly.loadProgress("12w"))}>
           Read progress
         </button>
         <WeeklyKpiProgress weekly={weekly} run={run} />
@@ -117,7 +119,21 @@ it("opens all latest-plan numeric charts, independently of range, with achieveme
   expect(screen.getByText("Individual KPIs").closest("details")?.open).toBe(
     true,
   );
-  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+    "value",
+    "12w",
+  );
+  expect(
+    screen.getAllByRole("option").map((option) => option.textContent),
+  ).toEqual([
+    "Last 6 weeks",
+    "Last 12 weeks",
+    "Last 2 months",
+    "Last 6 months",
+    "Last 12 months",
+  ]);
+  expect(document.querySelector("input[type='date']")).toBeNull();
+  expect(screen.queryByRole("button", { name: /Load range|Apply/ })).toBeNull();
   expect(
     screen.queryByText(
       /Week details|Choose a saved week|Saved measurement values|Historical-only option/,
@@ -214,4 +230,157 @@ it("keeps achievement for KPI-free latest plan and offers failure-only incomplet
   expect(screen.getAllByTestId("saved-chart")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Retry latest KPIs" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+});
+
+function ProgressView() {
+  const weekly = useWeeklyFeature();
+  return (
+    <WeeklyPlanView
+      weekly={weekly}
+      close={() => {}}
+      closeRef={{ current: null }}
+      openGeneral={async () => {}}
+      run={(work) => {
+        work.catch(() => {
+          throw new Error("Unexpected Progress test action failure");
+        });
+      }}
+    >
+      {null}
+    </WeeklyPlanView>
+  );
+}
+function rangedProgress(from: string, through: string): KpiProgress {
+  const data = progress();
+  const weeks: KpiProgress["weeks"] = [];
+  for (let week = from; week <= through; week = addDays(week, 7))
+    weeks.push({ weekStart: week, kpis: data.weeks[0].kpis });
+  return { ...data, from, through, weeks };
+}
+
+it("immediately reloads all charts, keeps the select while loading and ignores superseded responses", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now);
+  const pending: {
+    from: string;
+    through: string;
+    resolve: (value: Response) => void;
+  }[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init?: RequestInit) => {
+      expect(init?.method ?? "GET").toBe("GET");
+      const query = new URL(url, "http://localhost").searchParams;
+      if (query.get("view") !== "progress")
+        return Promise.resolve(Response.json({ record: null }));
+      const from = query.get("from")!;
+      const through = query.get("through")!;
+      return new Promise<Response>((resolve) =>
+        pending.push({ from, through, resolve }),
+      );
+    }),
+  );
+  render(<ProgressView />);
+  fireEvent.click(screen.getByRole("button", { name: "Progress" }));
+  expect(pending[0]).toMatchObject({
+    from: "2026-08-24",
+    through: "2026-11-09",
+  });
+  await act(async () =>
+    pending[0].resolve(
+      Response.json(rangedProgress(pending[0].from, pending[0].through)),
+    ),
+  );
+  expect(screen.getAllByTestId("saved-chart")).toHaveLength(3);
+  fireEvent.change(screen.getByRole("combobox", { name: "Period" }), {
+    target: { value: "6w" },
+  });
+  expect(screen.getByRole("status").textContent).toContain(
+    "Loading saved progress",
+  );
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+    "value",
+    "6w",
+  );
+  expect(pending[1]).toMatchObject({
+    from: "2026-10-05",
+    through: "2026-11-09",
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "Period" }), {
+    target: { value: "12m" },
+  });
+  expect(pending[2]).toMatchObject({
+    from: "2025-11-03",
+    through: "2026-11-09",
+  });
+  await act(async () =>
+    pending[2].resolve(
+      Response.json(rangedProgress(pending[2].from, pending[2].through)),
+    ),
+  );
+  expect(
+    screen.getAllByTestId("saved-chart").map((chart) => series(chart).length),
+  ).toEqual([54, 54, 54]);
+  await act(async () =>
+    pending[1].resolve(
+      Response.json(rangedProgress(pending[1].from, pending[1].through)),
+    ),
+  );
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+    "value",
+    "12m",
+  );
+  expect(
+    screen.getAllByTestId("saved-chart").map((chart) => series(chart).length),
+  ).toEqual([54, 54, 54]);
+  fireEvent.click(screen.getByRole("button", { name: "Current week" }));
+  await screen.findByText(/No KPIs saved for this plan/);
+  vi.setSystemTime(new Date("2026-11-18T12:00:00Z"));
+  fireEvent.click(screen.getByRole("button", { name: "Progress" }));
+  expect(pending[3]).toMatchObject({
+    from: "2025-11-10",
+    through: "2026-11-16",
+  });
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+    "value",
+    "12m",
+  );
+  await act(async () =>
+    pending[3].resolve(
+      Response.json(rangedProgress(pending[3].from, pending[3].through)),
+    ),
+  );
+});
+
+it("keeps the chosen period and failure-only retry after a failed reload", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now);
+  let failed = true;
+  const urls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      urls.push(url);
+      if (failed)
+        return Response.json({ error: "Unavailable" }, { status: 500 });
+      const q = new URL(url, "http://localhost").searchParams;
+      return Response.json(rangedProgress(q.get("from")!, q.get("through")!));
+    }),
+  );
+  render(<ProgressView />);
+  fireEvent.click(screen.getByRole("button", { name: "Progress" }));
+  await screen.findByRole("alert");
+  fireEvent.change(screen.getByRole("combobox", { name: "Period" }), {
+    target: { value: "6m" },
+  });
+  await screen.findByRole("alert");
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+    "value",
+    "6m",
+  );
+  failed = false;
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findAllByTestId("saved-chart");
+  expect(urls[1]).toBe(urls[2]);
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 });
