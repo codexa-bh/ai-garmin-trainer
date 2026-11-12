@@ -32,8 +32,8 @@ export function WeeklyPlanView({
       >
         {(
           [
-            ["current", "This Week"],
-            ["upcoming", "Upcoming"],
+            ["current", "Current week"],
+            ["upcoming", "Next week"],
             ["general", "General Plan"],
             ["progress", "Progress"],
             ["history", "History"],
@@ -66,8 +66,8 @@ export function WeeklyPlanView({
                   : mode === "history"
                     ? "History"
                     : mode === "upcoming"
-                      ? "Upcoming"
-                      : "This Week"}
+                      ? "Next week"
+                      : "Current week"}
               </h1>
             </div>
             <button

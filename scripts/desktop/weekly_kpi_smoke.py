@@ -54,10 +54,14 @@ def scenario(run):
                 raise ValueError('Weekly KPI geometry/gap proof failed; inspect retained capture')
     run.command({'type': 'weeklyKpis', 'action': 'reload'})
     wait_kpis(run, True)
-    # Explicit entry must reset the retained Progress selection without a restart.
-    # Reload above remains in-view and must not reset it. Use desktop navigation:
-    # narrow Trainer exposes Training Plan through the mobile menu instead.
+    # Exercise the existing internal Current week return without changing routing.
     run.command({'type': 'setViewport', 'preset': 'wide'})
+    run.command({'type': 'weeklyKpis', 'action': 'current'})
+    wait_kpis(run)
+    run.command({'type': 'weeklyKpis', 'action': 'progress'})
+    wait_kpis(run, True)
+    # Explicit entry still resets Progress; in-view Reload above preserves it.
+    # Desktop navigation is explicit: narrow Trainer uses the mobile menu.
     run.command({'type': 'click', 'target': 'Back to chat'})
     run.wait(lambda value: value['view'] == 'Trainer', 'Trainer before weekly reentry')
     run.command({'type': 'click', 'target': 'Training Plan'})

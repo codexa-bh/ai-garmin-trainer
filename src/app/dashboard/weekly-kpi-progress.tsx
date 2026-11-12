@@ -37,19 +37,25 @@ export function WeeklyKpiProgress({
   const detail = saved.find((point) => point.weekStart === detailWeek);
   const latest = weekly.progress?.latestPlan;
   const latestSet = latestKpiScore(latest ?? null).set;
-  const options =
-    latestSet?.items.flatMap((item) =>
-      item.tracks.map((track) => ({
-        key: `${item.conceptId}/${track.key}`,
+  const groups =
+    latestSet?.items
+      .map((item) => ({
         item,
-        track,
-        label:
-          item.tracks.length === 1
-            ? item.label
-            : `${item.label} · ${kpiTrackLabel(track, item.tracks)}`,
-      })),
-    ) ?? [];
+        tracks: item.tracks.filter((track) => track.kind === "numeric"),
+      }))
+      .filter(({ tracks }) => tracks.length) ?? [];
+  const options = groups.flatMap(({ item, tracks }) =>
+    tracks.map((track) => ({
+      key: `${item.conceptId}/${track.key}`,
+      item,
+      track,
+      label: kpiTrackLabel(track, tracks),
+    })),
+  );
   const selected = options.find((value) => value.key === weekly.progressTrack);
+  const measurementsForKpi = options.filter(
+    (value) => value.item.conceptId === selected?.item.conceptId,
+  );
   const measurements = selected
     ? weeks.map(({ weekStart, kpis }) => {
         const point = latestKpiMeasurement(
@@ -68,7 +74,6 @@ export function WeeklyKpiProgress({
             typeof point?.track.target?.value === "number"
               ? point.track.target.value
               : null,
-          upper: point?.track.target?.upper ?? null,
         };
       })
     : [];
@@ -198,29 +203,54 @@ export function WeeklyKpiProgress({
           <p>
             {latest?.complete === false
               ? "Latest-plan KPIs are unavailable; reload to retry."
-              : "No KPIs in the latest established plan."}
+              : latestSet?.items.length
+                ? "No numeric measurements in the latest established plan."
+                : "No KPIs in the latest established plan."}
           </p>
         ) : (
           <>
             <p className="training-plan-meta">
               Choices from the latest established plan · {latest?.weekStart}
             </p>
-            <label>
-              Individual KPI
-              <select
-                value={selected?.key ?? ""}
-                onChange={(event) =>
-                  weekly.setProgressTrack(event.target.value)
-                }
-              >
-                <option value="">Choose a KPI</option>
-                {options.map((value) => (
-                  <option key={value.key} value={value.key}>
-                    {value.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="weekly-progress-controls">
+              <label>
+                Individual KPI
+                <select
+                  value={selected?.item.conceptId ?? ""}
+                  onChange={(event) =>
+                    weekly.setProgressTrack(
+                      options.find(
+                        (value) => value.item.conceptId === event.target.value,
+                      )?.key ?? "",
+                    )
+                  }
+                >
+                  <option value="">Choose a KPI</option>
+                  {groups.map(({ item }) => (
+                    <option key={item.conceptId} value={item.conceptId}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {measurementsForKpi.length > 1 ? (
+                <label>
+                  Measurement
+                  <select
+                    value={selected?.key ?? ""}
+                    onChange={(event) =>
+                      weekly.setProgressTrack(event.target.value)
+                    }
+                  >
+                    {measurementsForKpi.map((value) => (
+                      <option key={value.key} value={value.key}>
+                        {value.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </div>
             {selected ? (
               <>
                 {selected.track.kind === "numeric" ? (
@@ -237,7 +267,7 @@ export function WeeklyKpiProgress({
                           tick={{ fill: "var(--muted)", fontSize: 11 }}
                         />
                         <YAxis
-                          domain={["auto", "auto"]}
+                          domain={[0, "auto"]}
                           tick={{ fill: "var(--muted)", fontSize: 11 }}
                         />
                         <Tooltip
@@ -251,15 +281,6 @@ export function WeeklyKpiProgress({
                           name="Target"
                           stroke="#b6a3ff"
                           strokeDasharray="5 5"
-                          connectNulls={false}
-                          isAnimationActive={false}
-                        />
-                        <Line
-                          type="linear"
-                          dataKey="upper"
-                          name="Range upper"
-                          stroke="#b6a3ff"
-                          strokeDasharray="2 4"
                           connectNulls={false}
                           isAnimationActive={false}
                         />

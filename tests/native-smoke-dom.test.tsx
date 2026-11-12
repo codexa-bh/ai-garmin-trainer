@@ -1995,6 +1995,9 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   ).toBe(true);
   expect(
     (screen.getByLabelText("Individual KPI") as HTMLSelectElement).value,
+  ).toBe("authored-sessions");
+  expect(
+    (screen.getByLabelText("Measurement") as HTMLSelectElement).value,
   ).toBe("authored-sessions/count");
   // jsdom has no chart geometry. Bind the mask fixture to the installed
   // Recharts tick generator, not a guessed axis; actual native smoke is separate.
@@ -2022,6 +2025,9 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   ).toBe(true);
   const select = screen.getByLabelText("Individual KPI");
   expect(select.hasAttribute("data-smoke-reveal")).toBe(true);
+  expect(
+    screen.getByLabelText("Measurement").hasAttribute("data-smoke-reveal"),
+  ).toBe(true);
   expect(
     [...svg.querySelectorAll("text")].every((tick) =>
       tick.hasAttribute("data-smoke-reveal"),

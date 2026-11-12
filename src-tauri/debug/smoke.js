@@ -2938,7 +2938,7 @@
     restore();
     if (["current", "progress", "reload"].includes(command.action)) {
       const label = {
-        current: "This Week",
+        current: "Current week",
         progress: "Progress",
         reload: "Reload weekly plans",
       }[command.action];
@@ -2977,13 +2977,13 @@
         !select ||
         ![...select.options].some(
           (option) =>
-            option.value === "authored-sessions/count" &&
-            option.textContent === "T0319 authored sessions · sessions",
+            option.value === "authored-sessions" &&
+            option.textContent === "T0319 authored sessions",
         )
       )
         throw Error("Authored current-plan measurement unavailable");
       if (!details.open) details.querySelector("summary").click();
-      select.value = "authored-sessions/count";
+      select.value = "authored-sessions";
       select.dispatchEvent(new Event("change", { bubbles: true }));
     } else if (command.action === "previous") {
       if (!weeklyKpiRegion()) throw Error("Authored weekly origin required");
@@ -3085,8 +3085,8 @@
       "Not assessed — not a zero.",
       "Not assessed",
       "No saved achievement scores in this range.",
-      "This Week",
-      "Upcoming",
+      "Current week",
+      "Next week",
       "General Plan",
       "Progress",
       "History",
@@ -3148,6 +3148,7 @@
             parent.tagName === "LABEL" &&
             [
               "Individual KPI",
+              "Measurement",
               "Week details",
               "From Monday",
               "Through Monday",
@@ -3170,10 +3171,12 @@
         [
           "Choose a KPI",
           "Choose a saved week",
-          "T0319 authored sessions · sessions",
-          "T0319 authored sessions · minutes",
-          "T0321 authored context · load",
-          "T0321 authored context · recovery",
+          "T0319 authored sessions",
+          "T0321 authored context",
+          "sessions",
+          "minutes",
+          "load",
+          "recovery",
         ].includes(text) ||
         [...dates].some(
           (date) =>
@@ -3182,7 +3185,10 @@
             text === `${date} · 140.63%` ||
             text === `${date} · Not assessed`,
         );
-      if (select && ["Individual KPI", "Week details"].includes(own)) {
+      if (
+        select &&
+        ["Individual KPI", "Measurement", "Week details"].includes(own)
+      ) {
         if (
           ![...select.options].every((option) => optionSafe(option.textContent))
         )
