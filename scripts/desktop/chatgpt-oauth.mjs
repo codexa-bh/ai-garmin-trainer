@@ -27,8 +27,36 @@ const opaque = (value, max = 16384) =>
     const code = character.charCodeAt(0);
     return code < 32 || (code >= 127 && code <= 159);
   });
-const fail = (code) => {
-  throw new Error(code);
+const IDENTITY_REASONS = new Set([
+  "format",
+  "header",
+  "issuer",
+  "subject",
+  "audience",
+  "expiry",
+  "nonce",
+  "key",
+  "signature",
+  "registration",
+]);
+const MODEL_REASONS = new Set([
+  "network",
+  "request",
+  "rate-limit",
+  "size",
+  "response",
+  "catalog",
+  "entry",
+  "duplicate",
+]);
+const fail = (code, reason) => {
+  const error = new Error(code);
+  if (
+    (code === "identity" && IDENTITY_REASONS.has(reason)) ||
+    (code === "model-discovery" && MODEL_REASONS.has(reason))
+  )
+    error.reason = reason;
+  throw error;
 };
 const random = () => randomBytes(32).toString("base64url");
 
@@ -42,7 +70,7 @@ async function boundedJson(response, limit = 128 * 1024) {
       const { value, done } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > limit) return fail("protocol");
+      if (size > limit) return fail("response-size");
       chunks.push(value);
     }
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -87,42 +115,63 @@ export async function validateIdentity(
   transport = fetch,
   now = Date.now() / 1000,
 ) {
-  if (!opaque(token) || !opaque(clientId, 256)) return fail("identity");
+  if (!opaque(token) || !opaque(clientId, 256))
+    return fail("identity", "format");
   const parts = token.split(".");
   if (
     parts.length !== 3 ||
     parts.some((part) => !/^[A-Za-z0-9_-]+$/.test(part))
   )
-    return fail("identity");
+    return fail("identity", "format");
   let header, claims;
   try {
     header = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
     claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
   } catch {
-    return fail("identity");
+    return fail("identity", "format");
   }
+  if (
+    !header ||
+    typeof header !== "object" ||
+    Array.isArray(header) ||
+    !claims ||
+    typeof claims !== "object" ||
+    Array.isArray(claims)
+  )
+    return fail("identity", "format");
   if (
     header.alg !== "RS256" ||
     !opaque(header.kid, 256) ||
     header.jku ||
     header.jwk ||
     header.x5u ||
-    header.crit ||
-    claims.iss !== ISSUER ||
-    !opaque(claims.sub, 256) ||
-    !(
-      claims.aud === clientId ||
-      (Array.isArray(claims.aud) &&
-        claims.aud.includes(clientId) &&
-        claims.azp === clientId)
-    ) ||
+    header.crit
+  )
+    return fail("identity", "header");
+  if (claims.iss !== ISSUER) return fail("identity", "issuer");
+  if (!opaque(claims.sub, 256)) return fail("identity", "subject");
+  // OIDC represents even a single audience as an array. Require the issued
+  // client in either representation; keep the explicit party binding for
+  // multiple audiences and reject any conflicting azp, including string aud.
+  const audiences = typeof claims.aud === "string" ? [claims.aud] : claims.aud;
+  if (
+    !Array.isArray(audiences) ||
+    !audiences.length ||
+    audiences.some((audience) => !opaque(audience, 256)) ||
+    !audiences.includes(clientId) ||
+    (claims.azp !== undefined && claims.azp !== clientId) ||
+    (audiences.length > 1 && claims.azp !== clientId)
+  )
+    return fail("identity", "audience");
+  if (
     !Number.isFinite(claims.exp) ||
     claims.exp <= now ||
     (claims.nbf !== undefined &&
-      (!Number.isFinite(claims.nbf) || claims.nbf > now + 30)) ||
-    (nonce !== undefined && claims.nonce !== nonce)
+      (!Number.isFinite(claims.nbf) || claims.nbf > now + 30))
   )
-    return fail("identity");
+    return fail("identity", "expiry");
+  if (nonce !== undefined && claims.nonce !== nonce)
+    return fail("identity", "nonce");
   const config = await discovery(transport);
   const response = await request(config.jwks_uri, {}, transport);
   if (!response.ok) return fail("network");
@@ -137,7 +186,7 @@ export async function validateIdentity(
           (!key.key_ops || key.key_ops.includes("verify")),
       )
     : [];
-  if (keys.length !== 1) return fail("identity");
+  if (keys.length !== 1) return fail("identity", "key");
   try {
     const key = createPublicKey({ key: keys[0], format: "jwk" });
     if (
@@ -148,9 +197,9 @@ export async function validateIdentity(
         Buffer.from(parts[2], "base64url"),
       )
     )
-      return fail("identity");
+      return fail("identity", "signature");
   } catch {
-    return fail("identity");
+    return fail("identity", "signature");
   }
   return {
     issuer: ISSUER,
@@ -293,14 +342,14 @@ async function tokens(parameters, registration, nonce, transport) {
           subject: registration.subject,
           email: registration.email,
         }
-      : fail("identity");
+      : fail("identity", "format");
   if (
     registration &&
     (identity.issuer !== registration.issuer ||
       identity.subject !== registration.subject ||
       parameters.client_id !== registration.clientId)
   )
-    return fail("identity");
+    return fail("identity", "registration");
   const now = Math.floor(Date.now() / 1000);
   const earliest = body.earliest_refresh_at;
   if (
@@ -358,32 +407,48 @@ export async function models(registration, transport = fetch) {
     !registration.scopes.includes("resource.invoke")
   )
     return fail("consent-required");
-  const response = await request(
-    `${RESOURCE}/models`,
-    { headers: { Authorization: `Bearer ${registration.accessToken}` } },
-    transport,
-  );
-  if (!response.ok)
-    return fail(
-      response.status === 401
-        ? "reconnect-required"
-        : response.status === 403
-          ? "ineligible"
-          : "network",
+  let response;
+  try {
+    response = await request(
+      `${RESOURCE}/models`,
+      { headers: { Authorization: `Bearer ${registration.accessToken}` } },
+      transport,
     );
-  const body = await boundedJson(response);
-  if (!Array.isArray(body.models) || body.models.length > 256)
-    return fail("protocol");
+  } catch {
+    return fail("model-discovery", "network");
+  }
+  if (!response.ok) {
+    if (response.status === 401) return fail("reconnect-required");
+    if (response.status === 403) return fail("ineligible");
+    return fail(
+      "model-discovery",
+      response.status === 429 ? "rate-limit" : "request",
+    );
+  }
+  let body;
+  try {
+    // Model catalogs include rich provider metadata, unlike credential replies.
+    // Bound that read separately; only validated visible names/ids leave here.
+    body = await boundedJson(response, 2 * 1024 * 1024);
+  } catch (error) {
+    return fail(
+      "model-discovery",
+      error.message === "response-size" ? "size" : "response",
+    );
+  }
+  if (!body || !Array.isArray(body.models) || body.models.length > 256)
+    return fail("model-discovery", "catalog");
   const seen = new Set();
   return body.models
-    .filter((model) => model.visibility === "list")
+    .filter((model) => {
+      if (!model || typeof model !== "object" || Array.isArray(model))
+        return fail("model-discovery", "entry");
+      return model.visibility === "list";
+    })
     .map((model) => {
-      if (
-        !opaque(model.slug, 256) ||
-        !opaque(model.display_name, 256) ||
-        seen.has(model.slug)
-      )
-        return fail("protocol");
+      if (!opaque(model.slug, 256) || !opaque(model.display_name, 256))
+        return fail("model-discovery", "entry");
+      if (seen.has(model.slug)) return fail("model-discovery", "duplicate");
       seen.add(model.slug);
       return { slug: model.slug, displayName: model.display_name };
     });
@@ -561,39 +626,46 @@ async function main() {
     input.fill(0);
   }
 }
+// Public failure projection is deliberately closed even for unexpected errors.
+export function failureResult(error) {
+  const code = [
+    "protocol",
+    "network",
+    "identity",
+    "model-discovery",
+    "discovery",
+    "host",
+    "callback",
+    "denied",
+    "reconnect-required",
+    "invalid-client",
+    "consent-required",
+    "ineligible",
+    "browser",
+    "timeout",
+    "listener",
+  ].includes(error?.message)
+    ? error.message
+    : "protocol";
+  return {
+    ok: false,
+    code,
+    ...((code === "identity" && IDENTITY_REASONS.has(error?.reason)) ||
+    (code === "model-discovery" && MODEL_REASONS.has(error?.reason))
+      ? { reason: error.reason }
+      : {}),
+    ...(code === "reconnect-required" && opaque(error.pendingClientId, 256)
+      ? { pendingClientId: error.pendingClientId }
+      : {}),
+  };
+}
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   // Only closed diagnostics ever leave this private protocol; no error body/URL.
   main().catch((error) => {
-    const code = [
-      "protocol",
-      "network",
-      "identity",
-      "discovery",
-      "host",
-      "callback",
-      "denied",
-      "reconnect-required",
-      "invalid-client",
-      "consent-required",
-      "ineligible",
-      "browser",
-      "timeout",
-      "listener",
-    ].includes(error.message)
-      ? error.message
-      : "protocol";
-    process.stdout.write(
-      JSON.stringify({
-        ok: false,
-        code,
-        ...(code === "reconnect-required" && opaque(error.pendingClientId, 256)
-          ? { pendingClientId: error.pendingClientId }
-          : {}),
-      }),
-    );
+    process.stdout.write(JSON.stringify(failureResult(error)));
     process.exitCode = 1;
   });
 }

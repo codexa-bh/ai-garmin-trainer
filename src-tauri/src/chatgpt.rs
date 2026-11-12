@@ -381,9 +381,30 @@ impl Owner {
                 return Err(match value["code"].as_str() {
                     Some("reconnect-required") => "reconnect-required",
                     Some("denied") => "ChatGPT permission declined; previous connection preserved.",
-                    Some("identity") => {
-                        "ChatGPT identity validation failed; previous connection preserved."
-                    }
+                    Some("identity") => match value["reason"].as_str() {
+                        Some("format") => "ChatGPT identity validation failed (token format); previous connection preserved.",
+                        Some("header") => "ChatGPT identity validation failed (signing header); previous connection preserved.",
+                        Some("issuer") => "ChatGPT identity validation failed (issuer); previous connection preserved.",
+                        Some("subject") => "ChatGPT identity validation failed (account identity); previous connection preserved.",
+                        Some("audience") => "ChatGPT identity validation failed (issued client); previous connection preserved.",
+                        Some("expiry") => "ChatGPT identity validation failed (token time); previous connection preserved.",
+                        Some("nonce") => "ChatGPT identity validation failed (sign-in nonce); previous connection preserved.",
+                        Some("key") => "ChatGPT identity validation failed (trusted signing key); previous connection preserved.",
+                        Some("signature") => "ChatGPT identity validation failed (signature); previous connection preserved.",
+                        Some("registration") => "ChatGPT identity validation failed (saved registration); previous connection preserved.",
+                        _ => "ChatGPT identity validation failed; previous connection preserved.",
+                    },
+                    Some("model-discovery") => match value["reason"].as_str() {
+                        Some("network") => "ChatGPT model discovery failed (network); saved connection preserved.",
+                        Some("request") => "ChatGPT model discovery failed (service request); saved connection preserved.",
+                        Some("rate-limit") => "ChatGPT model discovery rate limited; retry later. Saved connection preserved.",
+                        Some("size") => "ChatGPT model discovery failed (response limit); saved connection preserved.",
+                        Some("response") => "ChatGPT model discovery failed (bounded response); saved connection preserved.",
+                        Some("catalog") => "ChatGPT model discovery failed (catalog format); saved connection preserved.",
+                        Some("entry") => "ChatGPT model discovery failed (model metadata); saved connection preserved.",
+                        Some("duplicate") => "ChatGPT model discovery failed (duplicate models); saved connection preserved.",
+                        _ => ERROR,
+                    },
                     Some("consent-required") => "ChatGPT plan permission required.",
                     Some("ineligible") => "ChatGPT plan access unavailable for this registration.",
                     _ => ERROR,
@@ -999,6 +1020,98 @@ mod tests {
             std::fs::Permissions::from_mode(0o700),
         )
         .unwrap();
+    }
+    #[test]
+    fn identity_diagnostics_are_closed_and_failed_sign_in_preserves_credentials() {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let r = connected(&owner);
+        let before = crate::private_store::read(&owner.path).unwrap();
+        for (reason, label) in [
+            ("format", "token format"),
+            ("header", "signing header"),
+            ("issuer", "issuer"),
+            ("subject", "account identity"),
+            ("audience", "issued client"),
+            ("expiry", "token time"),
+            ("nonce", "sign-in nonce"),
+            ("key", "trusted signing key"),
+            ("signature", "signature"),
+            ("registration", "saved registration"),
+        ] {
+            fake_helper(
+                &fixture,
+                json!({"ok":false,"code":"identity","reason":reason,"message":"authored-private-access"}),
+                "",
+            );
+            let epoch = owner.reserve_sign_in().unwrap();
+            assert_eq!(
+                owner.sign_in(Some(r.id.clone()), false, epoch, None),
+                Err(format!(
+                    "ChatGPT identity validation failed ({label}); previous connection preserved."
+                )
+                .as_str())
+            );
+            assert_eq!(before, crate::private_store::read(&owner.path).unwrap());
+        }
+        for reason in [
+            Value::Null,
+            json!("authored-private-access"),
+            json!({"nonce":"authored-private-id"}),
+        ] {
+            fake_helper(
+                &fixture,
+                json!({"ok":false,"code":"identity","reason":reason}),
+                "",
+            );
+            let epoch = owner.reserve_sign_in().unwrap();
+            assert_eq!(
+                owner.sign_in(Some(r.id.clone()), false, epoch, None),
+                Err("ChatGPT identity validation failed; previous connection preserved.")
+            );
+            assert_eq!(before, crate::private_store::read(&owner.path).unwrap());
+        }
+        fake_helper(
+            &fixture,
+            json!({"ok":false,"code":"authored-private-access","reason":"nonce"}),
+            "",
+        );
+        assert_eq!(owner.helper(json!({}), None, None), Err(ERROR));
+    }
+    #[test]
+    fn model_discovery_diagnostics_preserve_the_entire_saved_connection() {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let r = connected(&owner);
+        let before = crate::private_store::read(&owner.path).unwrap();
+        for reason in [
+            "network",
+            "request",
+            "rate-limit",
+            "size",
+            "response",
+            "catalog",
+            "entry",
+            "duplicate",
+            "authored-private-access",
+        ] {
+            fake_helper(
+                &fixture,
+                json!({"ok":false,"code":"model-discovery","reason":reason,"body":"authored-private-id"}),
+                "",
+            );
+            let error = owner.discover_models(&r.id, None).unwrap_err();
+            if reason == "authored-private-access" {
+                assert_eq!(error, ERROR);
+            } else {
+                assert!(
+                    error.contains("saved connection preserved")
+                        || error.contains("Saved connection preserved")
+                );
+            }
+            assert!(!error.contains("authored-private"));
+            assert_eq!(before, crate::private_store::read(&owner.path).unwrap());
+        }
     }
     fn wait_until(mut condition: impl FnMut() -> bool) {
         let deadline = Instant::now() + Duration::from_secs(3);

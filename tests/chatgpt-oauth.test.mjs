@@ -6,6 +6,7 @@ import {
   authorization,
   callbackResult,
   validateIdentity,
+  failureResult,
   refresh,
   models,
   revoke,
@@ -217,6 +218,150 @@ test("signed ID tokens require trusted key, algorithm, issuer, audience, expiry,
   );
 });
 
+test("a single issued-client audience is equivalent in string and array form; authorized-party binding remains strict", async () => {
+  for (const aud of [registration.clientId, [registration.clientId]]) {
+    for (const azp of [undefined, registration.clientId]) {
+      const identity = await validateIdentity(
+        jwt({ aud, azp }),
+        registration.clientId,
+        "authored-nonce",
+        transport(),
+      );
+      assert.equal(identity.subject, registration.subject);
+    }
+    for (const azp of ["foreign-client", "", null, [registration.clientId]])
+      await assert.rejects(
+        validateIdentity(
+          jwt({ aud, azp }),
+          registration.clientId,
+          "authored-nonce",
+          transport(),
+        ),
+        (error) => error.message === "identity" && error.reason === "audience",
+      );
+  }
+  for (const aud of [
+    undefined,
+    null,
+    [],
+    ["foreign-client"],
+    [registration.clientId, 1],
+    [registration.clientId, ""],
+    { client: registration.clientId },
+  ])
+    await assert.rejects(
+      validateIdentity(
+        jwt({ aud, azp: registration.clientId }),
+        registration.clientId,
+        "authored-nonce",
+        transport(),
+      ),
+      (error) => error.message === "identity" && error.reason === "audience",
+    );
+});
+
+test("identity failures expose only allowlisted categories, never token, claim, key or exception contents", async () => {
+  const secret = "authored-private-do-not-echo";
+  const refused = async (token, reason, network = transport()) => {
+    await assert.rejects(
+      validateIdentity(token, registration.clientId, "authored-nonce", network),
+      (error) => {
+        assert.equal(error.message, "identity");
+        assert.deepEqual(failureResult(error), {
+          ok: false,
+          code: "identity",
+          reason,
+        });
+        assert.equal(
+          JSON.stringify(failureResult(error)).includes(secret),
+          false,
+        );
+        return true;
+      },
+    );
+  };
+  for (const token of [
+    secret,
+    "a.b.c",
+    `${Buffer.from("null").toString("base64url")}.e30.c2ln`,
+    `e30.${Buffer.from("null").toString("base64url")}.c2ln`,
+    `e30.${Buffer.from("[]").toString("base64url")}.c2ln`,
+  ])
+    await refused(token, "format");
+  for (const header of [
+    { alg: secret },
+    { kid: "" },
+    { jku: secret },
+    { jwk: { secret } },
+    { x5u: secret },
+    { crit: [secret] },
+  ])
+    await refused(jwt({}, header), "header");
+  for (const [claims, reason] of [
+    [{ iss: secret }, "issuer"],
+    [{ sub: "" }, "subject"],
+    [{ aud: secret }, "audience"],
+    [{ aud: [registration.clientId, secret], azp: secret }, "audience"],
+    [{ exp: now - 1 }, "expiry"],
+    [{ exp: secret }, "expiry"],
+    [{ nbf: now + 600 }, "expiry"],
+    [{ nonce: secret }, "nonce"],
+    [{ nonce: undefined }, "nonce"],
+  ])
+    await refused(jwt(claims), reason);
+  for (const keys of [[], [jwk, jwk], [{ ...jwk, kid: secret }]])
+    await refused(jwt(), "key", async (url) =>
+      String(url).endsWith("openid-configuration")
+        ? json(config)
+        : json({ keys }),
+    );
+  const token = jwt();
+  await refused(token.slice(0, -8) + "AAAAAAAA", "signature");
+  const multiAudience = await validateIdentity(
+    jwt({ aud: [registration.clientId, "other"], azp: registration.clientId }),
+    registration.clientId,
+    "authored-nonce",
+    transport(),
+  );
+  assert.equal(multiAudience.subject, registration.subject);
+  for (const error of [
+    null,
+    new Error(secret),
+    { message: "identity", reason: secret, token, claims: secret },
+    { message: "identity", reason: { secret }, stack: secret },
+    { message: "network", reason: "nonce", body: secret },
+  ]) {
+    const result = failureResult(error);
+    assert.equal(JSON.stringify(result).includes(secret), false);
+    assert.deepEqual(Object.keys(result), ["ok", "code"]);
+  }
+  await assert.rejects(
+    validateIdentity(
+      jwt(),
+      registration.clientId,
+      "authored-nonce",
+      async () => {
+        throw new Error(secret);
+      },
+    ),
+    (error) => {
+      assert.deepEqual(failureResult(error), { ok: false, code: "network" });
+      return true;
+    },
+  );
+  await assert.rejects(
+    refresh(registration, transport({ id_token: jwt({ sub: secret }) })),
+    (error) => {
+      assert.deepEqual(failureResult(error), {
+        ok: false,
+        code: "identity",
+        reason: "registration",
+      });
+      return true;
+    },
+  );
+});
+
 test("rotating refresh keeps exact client/resource and rejects cross-account or unusable tokens", async () => {
   const calls = [];
   const result = await refresh(registration, transport({}, calls));
@@ -273,6 +418,125 @@ test("rotating refresh keeps exact client/resource and rejects cross-account or 
   );
 });
 
+test("model discovery accepts a bounded rich catalog above the credential-response limit and projects only visible names/ids", async () => {
+  const extra = "authored-nonpublic-metadata-".repeat(8000);
+  const body = {
+    models: [
+      {
+        slug: "second",
+        display_name: "Second",
+        visibility: "list",
+        capabilities: extra,
+      },
+      { slug: "hidden", visibility: "hidden", capabilities: extra },
+      { slug: "first", display_name: "First", visibility: "list" },
+    ],
+  };
+  assert.ok(Buffer.byteLength(JSON.stringify(body)) > 128 * 1024);
+  const found = await models(registration, async () => json(body));
+  assert.deepEqual(found, [
+    { slug: "second", displayName: "Second" },
+    { slug: "first", displayName: "First" },
+  ]);
+  assert.equal(JSON.stringify(found).includes("nonpublic-metadata"), false);
+  await assert.rejects(refresh(registration, transport({ extra })), (error) => {
+    assert.deepEqual(failureResult(error), { ok: false, code: "protocol" });
+    return true;
+  });
+});
+
+test("model discovery failures are closed, bounded and secret-free without claiming an empty catalog", async () => {
+  const secret = "authored-private-model-response";
+  for (const [network, code, reason] of [
+    [
+      async () => {
+        throw new Error(secret);
+      },
+      "model-discovery",
+      "network",
+    ],
+    [
+      async () => new Response(secret, { status: 500 }),
+      "model-discovery",
+      "request",
+    ],
+    [
+      async () => new Response(secret, { status: 429 }),
+      "model-discovery",
+      "rate-limit",
+    ],
+    [
+      async () => new Response(secret, { status: 401 }),
+      "reconnect-required",
+      undefined,
+    ],
+    [
+      async () => new Response(secret, { status: 403 }),
+      "ineligible",
+      undefined,
+    ],
+    [async () => new Response(secret), "model-discovery", "response"],
+    [
+      async () => new Response("x".repeat(2 * 1024 * 1024 + 1)),
+      "model-discovery",
+      "size",
+    ],
+    [async () => json(null), "model-discovery", "catalog"],
+    [async () => json({ data: [secret] }), "model-discovery", "catalog"],
+    [
+      async () => json({ models: Array(257).fill({ visibility: "hidden" }) }),
+      "model-discovery",
+      "catalog",
+    ],
+    [async () => json({ models: [null] }), "model-discovery", "entry"],
+    [
+      async () => json({ models: [{ visibility: "list", slug: secret }] }),
+      "model-discovery",
+      "entry",
+    ],
+    [
+      async () =>
+        json({
+          models: Array(2).fill({
+            visibility: "list",
+            slug: secret,
+            display_name: secret,
+          }),
+        }),
+      "model-discovery",
+      "duplicate",
+    ],
+  ])
+    await assert.rejects(models(registration, network), (error) => {
+      assert.deepEqual(failureResult(error), {
+        ok: false,
+        code,
+        ...(reason ? { reason } : {}),
+      });
+      assert.equal(
+        JSON.stringify(failureResult(error)).includes(secret),
+        false,
+      );
+      return true;
+    });
+  assert.deepEqual(
+    failureResult({ message: "model-discovery", reason: secret, body: secret }),
+    { ok: false, code: "model-discovery" },
+  );
+  assert.deepEqual(
+    failureResult({ message: "model-discovery", reason: "nonce" }),
+    { ok: false, code: "model-discovery" },
+  );
+  assert.deepEqual(failureResult({ message: "identity", reason: "catalog" }), {
+    ok: false,
+    code: "identity",
+  });
+  assert.deepEqual(
+    await models(registration, async () => json({ models: [] })),
+    [],
+  );
+});
+
 test("account catalog preserves list order and exact slugs, without fallback", async () => {
   const seen = [];
   const found = await models(registration, async (url, init) => {
@@ -306,7 +570,8 @@ test("account catalog preserves list order and exact slugs, without fallback", a
         ],
       }),
     ),
-    /protocol/,
+    (error) =>
+      error.message === "model-discovery" && error.reason === "duplicate",
   );
 });
 
@@ -325,48 +590,57 @@ test("revocation uses trusted discovery and form credentials, empty 200 is confi
   assert.equal(called, true);
 });
 
-test("real loopback flow starts listener before browser and exchanges exact redirect/client", async () => {
-  let pending;
-  const calls = [];
-  const network = async (url, init) => {
-    if (String(url).endsWith("oauth/token")) {
-      assert.equal(
-        init.body.get("redirect_uri"),
-        pending.searchParams.get("redirect_uri"),
-      );
-      assert.equal(init.body.get("client_id"), "oaiapp_authored");
-      return json({
-        access_token: "authored-access",
-        refresh_token: "authored-refresh",
-        id_token: jwt({ nonce: pending.searchParams.get("nonce") }),
-        token_type: "Bearer",
-        expires_in: 3600,
-        scope: "openid resource.invoke chatgpt.tokens.use.direct",
-      });
-    }
-    return transport({}, calls)(url, init);
-  };
-  const result = await signIn(
-    { hostId: "urn:uuid:11111111-1111-4111-8111-111111111111" },
-    network,
-    async (url) => {
-      pending = url;
-      const callback = new URL(url.searchParams.get("redirect_uri"));
-      callback.search = new URLSearchParams({
-        state: url.searchParams.get("state"),
-        code: "authored-code",
-        client_id: "oaiapp_authored",
-      }).toString();
-      const wrong = new URL(callback);
-      wrong.searchParams.set("state", "wrong");
-      assert.equal((await fetch(wrong)).status, 400);
-      assert.equal((await fetch(callback)).status, 200);
-      assert.equal((await fetch(callback)).status, 400);
-    },
-  );
-  assert.equal(result.subject, registration.subject);
-  assert.equal(result.clientId, registration.clientId);
-});
+test.each(["string", "single-array"])(
+  "real loopback flow with %s audience starts listener before browser and exchanges exact redirect/client",
+  async (audienceShape) => {
+    let pending;
+    const calls = [];
+    const network = async (url, init) => {
+      if (String(url).endsWith("oauth/token")) {
+        assert.equal(
+          init.body.get("redirect_uri"),
+          pending.searchParams.get("redirect_uri"),
+        );
+        assert.equal(init.body.get("client_id"), "oaiapp_authored");
+        return json({
+          access_token: "authored-access",
+          refresh_token: "authored-refresh",
+          id_token: jwt({
+            nonce: pending.searchParams.get("nonce"),
+            aud:
+              audienceShape === "single-array"
+                ? [registration.clientId]
+                : registration.clientId,
+          }),
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "openid resource.invoke chatgpt.tokens.use.direct",
+        });
+      }
+      return transport({}, calls)(url, init);
+    };
+    const result = await signIn(
+      { hostId: "urn:uuid:11111111-1111-4111-8111-111111111111" },
+      network,
+      async (url) => {
+        pending = url;
+        const callback = new URL(url.searchParams.get("redirect_uri"));
+        callback.search = new URLSearchParams({
+          state: url.searchParams.get("state"),
+          code: "authored-code",
+          client_id: "oaiapp_authored",
+        }).toString();
+        const wrong = new URL(callback);
+        wrong.searchParams.set("state", "wrong");
+        assert.equal((await fetch(wrong)).status, 400);
+        assert.equal((await fetch(callback)).status, 200);
+        assert.equal((await fetch(callback)).status, 400);
+      },
+    );
+    assert.equal(result.subject, registration.subject);
+    assert.equal(result.clientId, registration.clientId);
+  },
+);
 
 test("an expired initial code retains its issued client for a fresh explicit authorization, without automatic retry", async () => {
   let pending;
