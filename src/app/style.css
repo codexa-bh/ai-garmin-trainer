@@ -51,6 +51,7 @@
   margin: 0;
 }
 .weekly-chart-block {
+  position: relative;
   margin: 20px 0;
   min-width: 0;
 }

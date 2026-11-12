@@ -44,11 +44,13 @@ def scenario(run):
         if view != 'current':
             run.command({'type': 'weeklyKpis', 'action': view})
             wait_kpis(run, progress_view)
-        presets = ['wide', 'narrow', 'wide-short', 'narrow-short'] if progress_view else ['wide', 'narrow']
-        for preset in presets:
+        presets = ['wide', 'narrow', 'wide-short', 'narrow-short', 'wide', 'narrow'] if progress_view else ['wide', 'narrow']
+        for index, preset in enumerate(presets):
             run.command({'type': 'setViewport', 'preset': preset})
             wait_kpis(run, progress_view)
-            edges = ['frame', 'middle', 'bottom'] if progress_view else ['frame', 'notes']
+            # Revisit both normal heights after the short viewports. Capture the
+            # real end again, not just a pane that fits inside a larger window.
+            edges = ['bottom'] if progress_view and index >= 4 else ['frame', 'middle', 'bottom'] if progress_view else ['frame', 'notes']
             for edge in edges:
                 observed = run.command({'type': 'weeklyKpis', 'action': edge})
                 image = run.command({'type': 'captureView', 'view': 'weeklyKpis', 'preset': preset})
