@@ -2936,8 +2936,11 @@
       contained:
         !!region &&
         document.documentElement.scrollWidth <= innerWidth &&
+        document.documentElement.scrollHeight <= innerHeight &&
+        (document.scrollingElement?.scrollTop ?? 0) === 0 &&
         region.getBoundingClientRect().right <= innerWidth &&
-        (!bounds || bounds.bottom <= innerHeight),
+        (!bounds ||
+          (bounds.bottom <= innerHeight && bounds.bottom >= innerHeight - 20)),
       allCharts:
         progress &&
         charts.length === 5 &&
@@ -3043,6 +3046,9 @@
       } else if (command.action === "middle") {
         const chart = root.querySelectorAll(".weekly-chart-block")[1];
         if (!chart) throw Error("Authored middle chart unavailable");
+        // Exercise the same focus/scroll path as the accessible chart figures,
+        // without OS input or forcing a hidden ancestor's scroll position.
+        chart.focus();
         pane.scrollTop +=
           chart.getBoundingClientRect().top -
           pane.getBoundingClientRect().top -

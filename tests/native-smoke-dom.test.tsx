@@ -2142,6 +2142,13 @@ it("admits only finite ordinary KPI actions and masks every noncanonical/private
     progress: false,
     trustedInput: false,
   });
+  const documentHeight = vi
+    .spyOn(document.documentElement, "scrollHeight", "get")
+    .mockReturnValue(1700);
+  expect(
+    (await command({ type: "weeklyKpis", action: "observe" })).result.contained,
+  ).toBe(false);
+  documentHeight.mockRestore();
   expect(
     (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
       .result.ok,

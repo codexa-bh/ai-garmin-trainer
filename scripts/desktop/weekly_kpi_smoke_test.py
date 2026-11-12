@@ -38,6 +38,7 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
         result = kpis.scenario(run)
         expected = [(view, size, edge) for view in ['current', 'next', 'previous'] for size in ['wide', 'narrow'] for edge in ['frame', 'notes']]
         expected += [('progress', size, edge) for size in ['wide', 'narrow', 'wide-short', 'narrow-short'] for edge in ['frame', 'middle', 'bottom']]
+        expected += [('progress', size, 'bottom') for size in ['wide', 'narrow']]
         self.assertEqual([(value['view'], value['preset'], value['edge']) for value in result], expected)
         self.assertFalse(any(value.get('action') in ['reload', 'measurement'] for value in run.commands))
         self.assertTrue(all(set(value) <= {'type', 'action', 'target', 'view', 'preset'} for value in run.commands))
@@ -102,6 +103,23 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
             run.command = invalid
             with self.assertRaisesRegex(ValueError, 'proof failed'):
                 kpis.scenario(run)
+
+    def test_pane_underfill_after_growing_stays_failed(self):
+        run = Run()
+        original = run.command
+        progress_sizes = []
+        def underfilled(value):
+            result = original(value)
+            if value['type'] == 'setViewport' and run.progress:
+                progress_sizes.append(value['preset'])
+            if value.get('action') == 'bottom' and len(progress_sizes) >= 5:
+                result['contained'] = False
+            return result
+        run.command = underfilled
+        with self.assertRaisesRegex(ValueError, 'geometry'):
+            kpis.scenario(run)
+        self.assertEqual(progress_sizes, ['wide', 'narrow', 'wide-short', 'narrow-short', 'wide'])
+        self.assertEqual(sum(value['type'] == 'captureView' for value in run.commands), 25)
 
     def test_failed_readiness_retains_bounded_observation_without_replay(self):
         run = Run()
