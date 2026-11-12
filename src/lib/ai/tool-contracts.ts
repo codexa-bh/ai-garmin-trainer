@@ -72,6 +72,11 @@ const mathOperationSchema = z.enum([
 const kpiId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/);
 const kpiText = z.string().min(1).max(800);
 const kpiPoints = z.number().finite().nonnegative().nullable();
+// Legacy calls may still say null; a numeric item-level pool is refused.
+const legacyNoPool = z
+  .null()
+  .optional()
+  .describe("Legacy only; points belong to each measurement.");
 const kpiEvidence = z
   .object({
     origin: z.enum([
@@ -133,12 +138,17 @@ const kpiChangeSchema = z
                           })
                           .strict()
                           .nullable(),
+                        availablePoints: kpiPoints
+                          .optional()
+                          .describe(
+                            "This numeric measurement's own agreed points; omit for monitoring-only. Qualifying tracks are conditions, never scored.",
+                          ),
                       })
                       .strict(),
                   )
                   .min(1)
                   .max(3),
-                availablePoints: kpiPoints,
+                availablePoints: legacyNoPool,
                 scoring: z
                   .string()
                   .max(800)
@@ -176,12 +186,17 @@ const kpiChangeSchema = z
                             value: z
                               .union([z.number().finite(), z.boolean()])
                               .nullable(),
+                            awardedPoints: kpiPoints
+                              .optional()
+                              .describe(
+                                "Required only for a scored measurement: its own awarded points, or null when unknown.",
+                              ),
                           })
                           .strict(),
                       )
                       .min(1)
                       .max(3),
-                    awardedPoints: kpiPoints,
+                    awardedPoints: legacyNoPool,
                     explanation: kpiText
                       .optional()
                       .describe(
@@ -231,6 +246,7 @@ const kpiGenerationSchema = kpiChangeSchema.extend({
             definition: true,
             selection: true,
             evidenceRequired: true,
+            availablePoints: true,
           }),
         )
         .min(1)
@@ -238,7 +254,16 @@ const kpiGenerationSchema = kpiChangeSchema.extend({
     })
     .optional(),
   assessments: z
-    .array(assessmentSchema.omit({ explanation: true }))
+    .array(
+      assessmentSchema.omit({ explanation: true }).extend({
+        items: z
+          .array(
+            assessmentSchema.shape.items.element.omit({ awardedPoints: true }),
+          )
+          .min(1)
+          .max(12),
+      }),
+    )
     .min(1)
     .max(3)
     .optional(),
@@ -397,7 +422,7 @@ export const trainerToolContracts = {
   },
   saveWeeklyKpis: {
     description:
-      "Save/adapt weekly structured commitments or assess/correct exact saved baselines through chat. One shared weekly save attempt per turn, including saveWeeklyDocuments; use its kpiChanges for atomic related narrative/KPI changes. Read current header and full original/latest before commitment edits; read each assessed set first. Planned/adapted commitments are current/upcoming only; review-defined is explicitly provisional interpretation of a recorded legacy plan, never prior agreement. Assessment setId=new binds to the same-operation new set. First discover the latest established plan via context latestPlanWeek or getKpiProgress.latestPlan and read its complete KPIs. Reuse equivalent canonical conceptId/track key, exact kind/unit/meaning and consistent display name; labels or target changes alone are not new identities. Use a new identity for genuinely changed selection/qualification/unit semantics. Assess only the exact latestPlanSetId for current plan achievement, not an obsolete target set. Compound tracks share one item allocation. Targets/points are independently nullable; actual null means unknown, not zero. Persist scores/extra credit including above100 without clamping; code does not evaluate. Use minimal structured inputs: omit duplicate definitions, selection/evidence essays, provenance and overall explanation. Include concise scoring only for a non-obvious agreed rule, result explanation only for a real substitution/partial-credit rationale, and extra explanation for why its credit is relevant. Garmin claims still require successful target-week SQL/math; retain cutoff, origins and references, adding qualification/limitations only for actual uncertainty not already expressed by status. Respect no-save; never retry uncertain writes.",
+      "Save/adapt weekly structured commitments or assess/correct exact saved baselines through chat. One shared weekly save attempt per turn, including saveWeeklyDocuments; use its kpiChanges for atomic related narrative/KPI changes. Read current header and full original/latest before commitment edits; read each assessed set first. Planned/adapted commitments are current/upcoming only; review-defined is explicitly provisional interpretation of a recorded legacy plan, never prior agreement. Assessment setId=new binds to the same-operation new set. First discover the latest established plan via context latestPlanWeek or getKpiProgress.latestPlan and read its complete KPIs. Reuse equivalent canonical conceptId/track key, exact kind/unit/meaning and consistent display name; labels or target changes alone are not new identities. Use a new identity for genuinely changed selection/qualification/unit semantics. Assess only the exact latestPlanSetId for current plan achievement, not an obsolete target set. Points are per measurement: each scored numeric track has its own availablePoints and its actual its own awardedPoints; never one pool across measurements. Monitoring measurements omit points; qualifying tracks are conditions. Agree per-measurement points with the user; never invent weights. Targets/points are independently nullable; actual null means unknown, not zero. Persist scores/extra credit including above100 without clamping; code does not evaluate. Use minimal structured inputs: omit duplicate definitions, selection/evidence essays, provenance and overall explanation. Include concise scoring only for a non-obvious agreed rule, result explanation only for a real substitution/partial-credit rationale, and extra explanation for why its credit is relevant. Garmin claims still require successful target-week SQL/math; retain cutoff, origins and references, adding qualification/limitations only for actual uncertainty not already expressed by status. Respect no-save; never retry uncertain writes.",
     inputSchema: kpiGenerationSchema,
   },
   getKpiProgress: {

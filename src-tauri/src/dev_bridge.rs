@@ -246,8 +246,17 @@ impl Command {
                             && ["wide-short", "narrow-short"].contains(&preset.as_str())))
             }
             Self::WeeklyKpis { action } => [
-                "observe", "current", "progress", "previous", "next", "notes", "middle", "bottom",
+                "observe",
+                "current",
+                "progress",
+                "previous",
+                "next",
+                "notes",
+                "middle",
+                "bottom",
                 "frame",
+                "sixWeeks",
+                "twelveMonths",
             ]
             .contains(&action.as_str()),
             Self::ActivityLabels { action } => {
@@ -1030,6 +1039,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 "contained",
                 "allCharts",
                 "chartsSized",
+                "rangeCorrect",
                 "notesCorrect",
                 "bottomVisible",
             ];
@@ -1906,15 +1916,24 @@ mod tests {
     #[test]
     fn weekly_kpis_are_closed_ordinary_boolean_only() {
         for action in [
-            "observe", "current", "progress", "previous", "next", "notes", "middle", "bottom",
+            "observe",
+            "current",
+            "progress",
+            "previous",
+            "next",
+            "notes",
+            "middle",
+            "bottom",
             "frame",
+            "sixWeeks",
+            "twelveMonths",
         ] {
             let command = Command::WeeklyKpis {
                 action: action.into(),
             };
             assert!(command.valid());
             assert!(!config().permits(&command));
-            let result = json!({"ok":true,"action":action,"trustedInput":false,"ready":true,"progress":false,"aboveHundred":true,"unknown":true,"gaps":false,"contained":true,"allCharts":true,"chartsSized":true,"notesCorrect":true,"bottomVisible":false,"viewportHeight":600,"paneHeight":400,"paneScrollHeight":2000,"paneScrollTop":0,"lastChartBottom":2000,"paneBottom":600});
+            let result = json!({"ok":true,"action":action,"trustedInput":false,"ready":true,"progress":false,"aboveHundred":true,"unknown":true,"gaps":false,"contained":true,"allCharts":true,"chartsSized":true,"rangeCorrect":true,"notesCorrect":true,"bottomVisible":false,"viewportHeight":600,"paneHeight":400,"paneScrollHeight":2000,"paneScrollTop":0,"lastChartBottom":2000,"paneBottom":600});
             assert!(super::safe_result(&command, &result, true));
             assert!(!safe_result(&command, &result));
             for (key, value) in [

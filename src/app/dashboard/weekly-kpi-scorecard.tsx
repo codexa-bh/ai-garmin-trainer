@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import type { KpiRead, KpiTrack } from "@/lib/weekly/kpi-contracts";
-import { latestKpiScore } from "@/lib/weekly/kpis";
+import { kpiAwarded, kpiScoredUnits, latestKpiScore } from "@/lib/weekly/kpis";
 
 export function kpiNumber(value: number): string {
   return Number.isFinite(value)
@@ -66,6 +66,56 @@ function kpiPoints(
   return `${awarded == null ? "—" : kpiNumber(awarded)} / ${kpiNumber(available)}`;
 }
 
+type KpiItem = NonNullable<
+  ReturnType<typeof latestKpiScore>["set"]
+>["items"][number];
+type KpiRow =
+  | {
+      kind: "track";
+      item: KpiItem;
+      track: KpiTrack;
+      tracks: KpiTrack[];
+      available: number | null;
+      evidence: boolean;
+    }
+  | { kind: "legacy"; item: KpiItem; available: number };
+
+/** Scored rows (including unmapped legacy pools) precede monitoring rows,
+ * each group in stored order; an item's evidence shows on its first row. */
+function kpiRows(items: KpiItem[]): KpiRow[] {
+  const rows = items.flatMap((item): KpiRow[] => {
+    const units = kpiScoredUnits(item);
+    const tracks = item.tracks.filter((track) => track.kind === "numeric");
+    const legacy = units.find((unit) => unit.trackKey === null);
+    const trackRows: KpiRow[] = tracks.map((track) => ({
+      kind: "track",
+      item,
+      track,
+      tracks,
+      available:
+        units.find((unit) => unit.trackKey === track.key)?.available ?? null,
+      evidence: false,
+    }));
+    return legacy && tracks.length
+      ? [...trackRows, { kind: "legacy", item, available: legacy.available }]
+      : trackRows;
+  });
+  const scored = (row: KpiRow) =>
+    row.kind === "legacy" ||
+    row.available !== null ||
+    kpiScoredUnits(row.item).some((unit) => unit.trackKey === null);
+  const ordered = [
+    ...rows.filter(scored),
+    ...rows.filter((row) => !scored(row)),
+  ];
+  const shown = new Set<string>();
+  return ordered.map((row) => {
+    if (row.kind !== "track" || shown.has(row.item.id)) return row;
+    shown.add(row.item.id);
+    return { ...row, evidence: true };
+  });
+}
+
 export function WeeklyKpiScorecard({
   kpis,
   loadSet,
@@ -79,6 +129,15 @@ export function WeeklyKpiScorecard({
     set?.items.filter(
       (item) => !item.tracks.some((track) => track.kind === "numeric"),
     ) ?? [];
+  const rows = set ? kpiRows(set.items) : [];
+  const monitoringStart = rows.findIndex(
+    (row) =>
+      row.kind === "track" &&
+      row.available === null &&
+      !kpiScoredUnits(row.item).some((unit) => unit.trackKey === null),
+  );
+  const result = (item: KpiItem) =>
+    assessment?.items.find((value) => value.itemId === item.id);
   return (
     <section className="weekly-kpis" aria-label="Saved weekly KPIs">
       <h2>Weekly KPIs</h2>
@@ -106,20 +165,18 @@ export function WeeklyKpiScorecard({
           </p>
           {conditionOnly.length ? (
             <p>
-              {conditionOnly
-                .filter((item) => item.availablePoints !== null)
-                .map((item) => (
+              {conditionOnly.flatMap((item) =>
+                kpiScoredUnits(item).map((unit) => (
                   <span key={item.id}>
                     {item.label}:{" "}
                     {kpiPoints(
-                      assessment?.items.find(
-                        (result) => result.itemId === item.id,
-                      )?.awardedPoints,
-                      item.availablePoints!,
+                      kpiAwarded(item, result(item), unit.trackKey),
+                      unit.available,
                     )}{" "}
                     conditional points.{" "}
                   </span>
-                ))}
+                )),
+              )}
             </p>
           ) : null}
           <div className="weekly-kpi-table-scroll">
@@ -133,100 +190,36 @@ export function WeeklyKpiScorecard({
                 </tr>
               </thead>
               <tbody>
-                {[false, true].map((monitoring) => (
-                  <Fragment key={monitoring ? "monitoring" : "scored"}>
-                    {set.items
-                      .filter(
-                        (item) =>
-                          (item.availablePoints === null) === monitoring,
-                      )
-                      .flatMap((item) => {
-                        const result = assessment?.items.find(
-                          (value) => value.itemId === item.id,
-                        );
-                        const tracks = item.tracks.filter(
-                          (track) => track.kind === "numeric",
-                        );
-                        return tracks.map((track, index) => (
-                          <tr key={`${item.id}/${track.key}`}>
-                            <th scope="row">
-                              {tracks.length > 1
-                                ? `${item.label} · ${kpiTrackLabel(track, tracks)}`
-                                : item.label}
-                              {item.availablePoints === null ? (
-                                <small>Monitoring</small>
-                              ) : null}
-                            </th>
-                            <td>{kpiTarget(track)}</td>
-                            <td>
-                              <div>
-                                {kpiValue(
-                                  result?.actuals.find(
-                                    (value) => value.trackKey === track.key,
-                                  )?.value,
-                                  track.unit,
-                                )}
-                              </div>
-                              {index === 0 && result ? (
-                                <details className="weekly-kpi-qualification">
-                                  <summary>
-                                    {result.status === "supported"
-                                      ? "Evidence"
-                                      : result.status === "provisional"
-                                        ? "Provisional"
-                                        : "Unavailable"}
-                                  </summary>
-                                  <p>
-                                    {result.evidence.origin}
-                                    {result.evidence.references.length
-                                      ? ` · ${result.evidence.references.join(", ")}`
-                                      : ""}
-                                  </p>
-                                  {result.evidence.qualification ? (
-                                    <p>{result.evidence.qualification}</p>
-                                  ) : null}
-                                  {result.evidence.limitations ? (
-                                    <p>{result.evidence.limitations}</p>
-                                  ) : null}
-                                  {result.explanation ? (
-                                    <p>{result.explanation}</p>
-                                  ) : null}
-                                </details>
-                              ) : null}
-                            </td>
-                            {item.availablePoints === null || index === 0 ? (
-                              <td
-                                rowSpan={
-                                  item.availablePoints === null
-                                    ? 1
-                                    : tracks.length
-                                }
-                              >
-                                {item.availablePoints === null
-                                  ? "—"
-                                  : kpiPoints(
-                                      result?.awardedPoints,
-                                      item.availablePoints,
-                                    )}
-                                {item.availablePoints !== null &&
-                                tracks.length > 1 ? (
-                                  <small>Shared</small>
-                                ) : null}
-                              </td>
-                            ) : null}
-                          </tr>
-                        ));
-                      })}
-                    {!monitoring &&
-                      assessment?.extras.map((extra, index) => (
-                        <tr key={`extra-${index}`}>
-                          <th scope="row">{extra.label}</th>
-                          <td colSpan={2}>{extra.explanation}</td>
-                          <td>+{kpiNumber(extra.points)}</td>
-                        </tr>
-                      ))}
+                {rows.map((row, index) => (
+                  <Fragment
+                    key={
+                      row.kind === "track"
+                        ? `${row.item.id}/${row.track.key}`
+                        : `${row.item.id}/legacy`
+                    }
+                  >
+                    {monitoringStart === index ? (
+                      <ExtraRows assessment={assessment} />
+                    ) : null}
+                    {row.kind === "legacy" ? (
+                      <tr>
+                        <th scope="row">{row.item.label} · combined points</th>
+                        <td colSpan={2}>Saved before per-measurement points</td>
+                        <td className="weekly-kpi-points">
+                          {kpiPoints(
+                            kpiAwarded(row.item, result(row.item), null),
+                            row.available,
+                          )}
+                        </td>
+                      </tr>
+                    ) : (
+                      <TrackRow row={row} result={result(row.item)} />
+                    )}
                   </Fragment>
                 ))}
+                {monitoringStart < 0 ? (
+                  <ExtraRows assessment={assessment} />
+                ) : null}
               </tbody>
               <tfoot>
                 <tr>
@@ -243,5 +236,90 @@ export function WeeklyKpiScorecard({
         </>
       )}
     </section>
+  );
+}
+
+function ExtraRows({
+  assessment,
+}: {
+  assessment: ReturnType<typeof latestKpiScore>["assessment"];
+}) {
+  return (
+    <>
+      {assessment?.extras.map((extra, index) => (
+        <tr key={`extra-${index}`}>
+          <th scope="row">{extra.label}</th>
+          <td colSpan={2}>{extra.explanation}</td>
+          <td className="weekly-kpi-points">+{kpiNumber(extra.points)}</td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function TrackRow({
+  row,
+  result,
+}: {
+  row: Extract<KpiRow, { kind: "track" }>;
+  result:
+    | NonNullable<
+        ReturnType<typeof latestKpiScore>["assessment"]
+      >["items"][number]
+    | undefined;
+}) {
+  const { item, track, tracks, available } = row;
+  const legacyPool = kpiScoredUnits(item).some(
+    (unit) => unit.trackKey === null,
+  );
+  const monitoring = available === null && !legacyPool;
+  return (
+    <tr>
+      <th scope="row">
+        {tracks.length > 1
+          ? `${item.label} · ${kpiTrackLabel(track, tracks)}`
+          : item.label}
+        {monitoring ? <small>Monitoring</small> : null}
+      </th>
+      <td>{kpiTarget(track)}</td>
+      <td>
+        <div>
+          {kpiValue(
+            result?.actuals.find((value) => value.trackKey === track.key)
+              ?.value,
+            track.unit,
+          )}
+        </div>
+        {row.evidence && result ? (
+          <details className="weekly-kpi-qualification">
+            <summary>
+              {result.status === "supported"
+                ? "Evidence"
+                : result.status === "provisional"
+                  ? "Provisional"
+                  : "Unavailable"}
+            </summary>
+            <p>
+              {result.evidence.origin}
+              {result.evidence.references.length
+                ? ` · ${result.evidence.references.join(", ")}`
+                : ""}
+            </p>
+            {result.evidence.qualification ? (
+              <p>{result.evidence.qualification}</p>
+            ) : null}
+            {result.evidence.limitations ? (
+              <p>{result.evidence.limitations}</p>
+            ) : null}
+            {result.explanation ? <p>{result.explanation}</p> : null}
+          </details>
+        ) : null}
+      </td>
+      <td className="weekly-kpi-points">
+        {available === null
+          ? "—"
+          : kpiPoints(kpiAwarded(item, result, track.key), available)}
+      </td>
+    </tr>
   );
 }

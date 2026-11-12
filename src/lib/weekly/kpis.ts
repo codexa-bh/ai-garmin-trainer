@@ -80,8 +80,16 @@ export function validateKpiSet(set: KpiSetInput) {
         optionalText(item.definition) &&
         optionalText(item.selection) &&
         optionalText(item.evidenceRequired) &&
-        optionalText(item.scoring, item.availablePoints === null) &&
-        points(item.availablePoints),
+        optionalText(
+          item.scoring,
+          !item.tracks?.some(
+            (track) => typeof track.availablePoints === "number",
+          ),
+        ),
+    );
+    requireValid(
+      !("availablePoints" in item) || item.availablePoints == null,
+      "kpi_item_pool_unsupported",
     );
     requireValid(
       Array.isArray(item.tracks) &&
@@ -94,7 +102,13 @@ export function validateKpiSet(set: KpiSetInput) {
         id(track.key) &&
           ["numeric", "qualifying"].includes(track.kind) &&
           text(track.unit, 80) &&
-          text(track.meaning, 240),
+          text(track.meaning, 240) &&
+          (track.availablePoints === undefined ||
+            points(track.availablePoints)),
+      );
+      requireValid(
+        track.availablePoints == null || track.kind === "numeric",
+        "kpi_qualifying_points_unsupported",
       );
       if (track.target !== null) {
         const target = track.target;
@@ -154,9 +168,17 @@ export function validateKpiAssessment(
   for (const result of assessment.items) {
     const item = set.items.find((i) => i.id === result.itemId);
     requireValid(item, "unknown_kpi_item");
+    const scored = kpiScoredUnits(item);
     requireValid(
-      points(result.awardedPoints) &&
-        optionalText(result.explanation) &&
+      scored.every((unit) => unit.trackKey !== null),
+      "kpi_legacy_pool_requires_mapping",
+    );
+    requireValid(
+      !("awardedPoints" in result) || result.awardedPoints == null,
+      "kpi_item_award_unsupported",
+    );
+    requireValid(
+      optionalText(result.explanation) &&
         ["supported", "provisional", "unavailable"].includes(result.status),
     );
     requireValid(
@@ -174,6 +196,13 @@ export function validateKpiAssessment(
             : typeof actual.value === "number" &&
               Number.isFinite(actual.value)),
         "incompatible_kpi_actual",
+      );
+      const isScored = scored.some((unit) => unit.trackKey === track.key);
+      requireValid(
+        isScored
+          ? actual.awardedPoints !== undefined && points(actual.awardedPoints)
+          : actual.awardedPoints === undefined,
+        "invalid_kpi_track_award",
       );
     }
     evidence(result.evidence);
@@ -369,6 +398,47 @@ export function applyKpiChange(
   return state;
 }
 
+type KpiItem = KpiSet["items"][number];
+type KpiItemResult = WeeklyKpis["assessments"][number]["items"][number];
+
+/**
+ * Independently scored units of one item. A track's own allocation is the
+ * current model. Read-only legacy item pools stay readable: with exactly one
+ * numeric track the pool is that track's allocation; otherwise (several
+ * numeric tracks or condition-only) it remains one unmapped legacy item-level
+ * unit (trackKey null), counted once and never split or duplicated.
+ */
+export function kpiScoredUnits(
+  item: KpiItem,
+): { trackKey: string | null; available: number }[] {
+  const numeric = item.tracks.filter((track) => track.kind === "numeric");
+  if (typeof item.availablePoints === "number")
+    return [
+      {
+        trackKey: numeric.length === 1 ? numeric[0].key : null,
+        available: item.availablePoints,
+      },
+    ];
+  return numeric.flatMap((track) =>
+    typeof track.availablePoints === "number"
+      ? [{ trackKey: track.key, available: track.availablePoints }]
+      : [],
+  );
+}
+
+/** Saved award for one scored unit; undefined when none was recorded. */
+export function kpiAwarded(
+  item: KpiItem,
+  result: KpiItemResult | undefined,
+  trackKey: string | null,
+): number | null | undefined {
+  const actual = result?.actuals.find((value) => value.trackKey === trackKey);
+  if (actual && actual.awardedPoints !== undefined) return actual.awardedPoints;
+  return typeof item.availablePoints === "number"
+    ? result?.awardedPoints
+    : undefined;
+}
+
 /** One read-only score meaning for report and Progress; never rescoring. */
 export function latestKpiScore(kpis: KpiRead | null) {
   const id =
@@ -379,8 +449,12 @@ export function latestKpiScore(kpis: KpiRead | null) {
     kpis?.assessments.filter((value) => value.setId === id) ?? [];
   const assessment = assessments.length === 1 ? assessments[0] : undefined;
   const available =
-    set?.items.reduce((sum, item) => sum + (item.availablePoints ?? 0), 0) ??
-    null;
+    set?.items.reduce(
+      (sum, item) =>
+        sum +
+        kpiScoredUnits(item).reduce((total, unit) => total + unit.available, 0),
+      0,
+    ) ?? null;
   const structurallyComplete = set?.items.every((item) => {
     const result = assessment?.items.find((value) => value.itemId === item.id);
     return (
@@ -390,12 +464,16 @@ export function latestKpiScore(kpis: KpiRead | null) {
       item.tracks.every((track) =>
         result.actuals.some((value) => value.trackKey === track.key),
       ) &&
-      (item.availablePoints === null ||
-        (Number.isFinite(item.availablePoints) &&
-          item.availablePoints >= 0 &&
+      kpiScoredUnits(item).every((unit) => {
+        const awarded = kpiAwarded(item, result, unit.trackKey);
+        return (
+          Number.isFinite(unit.available) &&
+          unit.available >= 0 &&
           result.status !== "unavailable" &&
-          result.awardedPoints !== null &&
-          Number.isFinite(result.awardedPoints)))
+          typeof awarded === "number" &&
+          Number.isFinite(awarded)
+        );
+      })
     );
   });
   const reason =

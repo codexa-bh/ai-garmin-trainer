@@ -47,6 +47,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "backfill:weekly-kpis": "tsx scripts/backfill-weekly-kpis.ts",
     "reconcile:weekly-kpi-sources": "tsx scripts/reconcile-weekly-kpi-sources.ts",
+    "map:weekly-kpi-points": "tsx scripts/map-weekly-kpi-points.ts",
     "deps:evidence": "tsx scripts/dependency-evidence.ts",
     "eval:reliability": "tsx scripts/evaluate-coaching.ts",
     "validate": "npm run format && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test && npm run build",
