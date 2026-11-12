@@ -11,9 +11,10 @@ NO_SAVE = 'Authored draft only; no structured changes saved.'
 def commitment(origin='planned'):
     return {'origin': origin, 'items': [{
         'id': 'sessions', 'conceptId': 'authored-sessions', 'label': 'T0319 authored sessions',
-        'availablePoints': 100 if origin == 'planned' else 80,
-        'tracks': [{'key': 'count', 'kind': 'numeric', 'unit': 'sessions', 'meaning': 'Selected session count', 'target': {'comparator': 'at-least', 'value': 3 if origin == 'planned' else 5}},
-                   {'key': 'duration', 'kind': 'numeric', 'unit': 'minutes', 'meaning': 'Selected session duration', 'target': {'comparator': 'at-least', 'value': 90}}]}]}
+        'tracks': [{'key': 'count', 'kind': 'numeric', 'unit': 'sessions', 'meaning': 'Selected session count', 'target': {'comparator': 'at-least', 'value': 3 if origin == 'planned' else 5},
+                    'availablePoints': 60 if origin == 'planned' else 50},
+                   {'key': 'duration', 'kind': 'numeric', 'unit': 'minutes', 'meaning': 'Selected session duration', 'target': {'comparator': 'at-least', 'value': 90},
+                    'availablePoints': 40 if origin == 'planned' else 30}]}]}
 
 
 def canonical_kpis(messages):
@@ -59,7 +60,8 @@ def reused_adaptation(messages):
         raise ValueError('Actual authored canonical commitment required for reuse')
     result = commitment('adaptation')
     result['items'] = deepcopy(selected['items'])
-    result['items'][0]['availablePoints'] = 80
+    result['items'][0]['tracks'][0]['availablePoints'] = 50
+    result['items'][0]['tracks'][1]['availablePoints'] = 30
     result['items'][0]['tracks'][0]['target']['value'] = 5
     return result
 
@@ -68,8 +70,9 @@ def assessment(set_id, correction=False):
     evidence = {'origin': 'user-report', 'references': ['T0319 synthetic report']}
     return {'setId': set_id, 'asOf': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'), 'status': 'provisional',
             'totalPoints': 25 if correction else 112.5,
-            'items': [{'itemId': 'sessions', 'actuals': [{'trackKey': 'count', 'value': 0 if correction else 4}, {'trackKey': 'duration', 'value': None}],
-                       'awardedPoints': 12.5 if correction else 100, 'status': 'provisional', 'evidence': evidence}],
+            'items': [{'itemId': 'sessions', 'actuals': [{'trackKey': 'count', 'value': 0 if correction else 4, 'awardedPoints': 12.5 if correction else 50},
+                                                         {'trackKey': 'duration', 'value': None, 'awardedPoints': 0 if correction else 50}],
+                       'status': 'provisional', 'evidence': evidence}],
             'extras': [{'label': 'Authored additional work', 'points': 12.5, 'explanation': 'Explained relevance without double counting', 'evidence': deepcopy(evidence)}]}
 
 

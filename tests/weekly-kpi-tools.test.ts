@@ -273,32 +273,26 @@ it.each(["saveWeeklyKpis", "saveWeeklyDocuments"] as const)(
   async (toolName) => {
     const minimalCommitment = {
       origin: "planned" as const,
-      items: commitment.items.map(
-        ({ id, conceptId, label, tracks, availablePoints }) => ({
-          id,
-          conceptId,
-          label,
-          tracks,
-          availablePoints,
-        }),
-      ),
+      items: commitment.items.map(({ id, conceptId, label, tracks }) => ({
+        id,
+        conceptId,
+        label,
+        tracks,
+      })),
     };
     const minimalAssessment = {
       setId: "new",
       asOf: assessment.asOf,
       status: assessment.status,
-      items: assessment.items.map(
-        ({ itemId, actuals, awardedPoints, status, evidence }) => ({
-          itemId,
-          actuals,
-          awardedPoints,
-          status,
-          evidence: {
-            origin: evidence.origin,
-            references: evidence.references,
-          },
-        }),
-      ),
+      items: assessment.items.map(({ itemId, actuals, status, evidence }) => ({
+        itemId,
+        actuals,
+        status,
+        evidence: {
+          origin: evidence.origin,
+          references: evidence.references,
+        },
+      })),
       extras: [],
       totalPoints: 100,
     };
@@ -347,7 +341,10 @@ it.each(["saveWeeklyKpis", "saveWeeklyDocuments"] as const)(
               totalPoints: 0,
               items: minimalAssessment.items.map((item) => ({
                 ...item,
-                awardedPoints: 0,
+                actuals: item.actuals.map((actual) => ({
+                  ...actual,
+                  awardedPoints: 0,
+                })),
               })),
             },
           ],
@@ -406,4 +403,55 @@ it("does not advertise obsolete prose in either model schema and explicitly inst
   expect(trainerToolContracts.saveWeeklyKpis.description).toContain(
     "Use minimal structured inputs",
   );
+});
+
+it.each(["saveWeeklyKpis", "saveWeeklyDocuments"] as const)(
+  "refuses a shared item-level point pool through parsed %s and saves nothing",
+  async (toolName) => {
+    const pooled = structuredClone(change);
+    const item = pooled.commitment.items[0];
+    for (const track of item.tracks) delete track.availablePoints;
+    Object.assign(item, { availablePoints: 100 });
+    const result = await run([
+      [{ toolName: "getWeeklyKpis", input: { weekStart } }],
+      [
+        {
+          toolName,
+          input:
+            toolName === "saveWeeklyKpis"
+              ? pooled
+              : { changes: [], kpiChanges: [pooled] },
+        },
+      ],
+    ]);
+    expect(result.result.toolSteps.at(-1)?.status).toBe("rejected");
+    expect(app.readKpis(weekStart).revision).toBeNull();
+    // Item-level awarded points are likewise refused on a per-track set.
+    const awarded = structuredClone(change);
+    Object.assign(awarded.assessments[0].items[0], { awardedPoints: 100 });
+    const second = await run([
+      [{ toolName: "getWeeklyKpis", input: { weekStart } }],
+      [{ toolName: "saveWeeklyKpis", input: awarded }],
+    ]);
+    expect(second.result.toolSteps.at(-1)?.status).toBe("rejected");
+    expect(app.readKpis(weekStart).revision).toBeNull();
+  },
+);
+
+it("advertises per-measurement points only and no shared allocation", () => {
+  for (const toolName of ["saveWeeklyKpis", "saveWeeklyDocuments"] as const) {
+    const schema = z.toJSONSchema(
+      trainerToolContracts[toolName].inputSchema,
+    ) as Record<string, unknown>;
+    const text = JSON.stringify(schema);
+    // Exactly the track allocation and the actual award carry points.
+    expect(text.match(/"availablePoints":/g)).toHaveLength(1);
+    expect(text.match(/"awardedPoints":/g)).toHaveLength(1);
+    expect(text).toContain("This numeric measurement's own agreed points");
+  }
+  const description = trainerToolContracts.saveWeeklyKpis.description;
+  expect(description).not.toMatch(/share one item allocation/i);
+  expect(description).toContain("Points are per measurement");
+  expect(TRAINER_SYSTEM_PROMPT).toContain("Points per measurement");
+  expect(TRAINER_SYSTEM_PROMPT).toContain("no shared pool");
 });

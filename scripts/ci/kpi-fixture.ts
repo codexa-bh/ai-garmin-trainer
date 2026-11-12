@@ -23,8 +23,8 @@ export function authoredWeeklyKpis(now = new Date()): WeeklyKpis {
         selection:
           "Count and duration describe the same sessions; no duplicate credit",
         evidenceRequired: "Authored user report, not Garmin verification",
-        availablePoints: 100,
-        scoring: "One model-defined allocation; full achievement is 100 points",
+        scoring:
+          "Per-measurement allocations agreed with the user; full achievement is 100 points",
         tracks: [
           {
             key: "count",
@@ -32,6 +32,7 @@ export function authoredWeeklyKpis(now = new Date()): WeeklyKpis {
             unit: "sessions",
             meaning: "Selected session count",
             target: { comparator: "at-least", value: 3 },
+            availablePoints: 60,
           },
           {
             key: "duration",
@@ -39,6 +40,7 @@ export function authoredWeeklyKpis(now = new Date()): WeeklyKpis {
             unit: "minutes",
             meaning: "Selected session duration",
             target: { comparator: "at-least", value: 90 },
+            availablePoints: 40,
           },
         ],
       },
@@ -48,7 +50,8 @@ export function authoredWeeklyKpis(now = new Date()): WeeklyKpis {
   adapted.id = "T0319-adapted";
   adapted.origin = "adaptation";
   adapted.items[0].tracks[0].target!.value = 5;
-  adapted.items[0].availablePoints = 80;
+  adapted.items[0].tracks[0].availablePoints = 50;
+  adapted.items[0].tracks[1].availablePoints = 30;
   const assessment: KpiAssessment = {
     setId: original.id,
     revision: "T0319-assessment",
@@ -62,10 +65,9 @@ export function authoredWeeklyKpis(now = new Date()): WeeklyKpis {
       {
         itemId: "sessions",
         actuals: [
-          { trackKey: "count", value: 4 },
-          { trackKey: "duration", value: null },
+          { trackKey: "count", value: 4, awardedPoints: 60 },
+          { trackKey: "duration", value: null, awardedPoints: 40 },
         ],
-        awardedPoints: 100,
         explanation: "Authored model interpretation, not automatic attainment",
         status: "provisional",
         evidence: {
@@ -105,6 +107,8 @@ export function authoredAssessedLatestKpis(now = new Date()): WeeklyKpis {
   const latest = structuredClone(state.assessments[0]);
   latest.setId = state.latestId!;
   latest.revision = "T0321-latest-assessment";
+  latest.items[0].actuals[0].awardedPoints = 50;
+  latest.items[0].actuals[1].awardedPoints = 30;
   state.sets
     .find((set) => set.id === state.latestId)!
     .items[0].tracks.push({
@@ -122,7 +126,6 @@ export function authoredAssessedLatestKpis(now = new Date()): WeeklyKpis {
     definition: "Independent fictional monitoring values",
     selection: "Authored context only, never a scored allocation",
     evidenceRequired: "Authored synthetic input",
-    availablePoints: null,
     scoring: "",
     tracks: [
       {
@@ -148,7 +151,6 @@ export function authoredAssessedLatestKpis(now = new Date()): WeeklyKpis {
       { trackKey: "load", value: 7.5 },
       { trackKey: "recovery", value: null },
     ],
-    awardedPoints: null,
     explanation: "Context is not scored",
     status: "provisional",
     evidence: structuredClone(latest.items[0].evidence),
@@ -227,7 +229,8 @@ export function seedWeeklyKpis(db: Database.Database) {
   );
   previous.assessments = [previous.assessments[0]];
   previous.assessments[0].items[0].actuals[0].value = 0;
-  previous.assessments[0].items[0].awardedPoints = 0;
+  previous.assessments[0].items[0].actuals[0].awardedPoints = 0;
+  previous.assessments[0].items[0].actuals[1].awardedPoints = 0;
   previous.assessments[0].extras = [];
   previous.assessments[0].totalPoints = 0;
   db.prepare("insert into weekly_kpi values (?,?)").run(
@@ -237,7 +240,8 @@ export function seedWeeklyKpis(db: Database.Database) {
   const earlier = structuredClone(previous);
   earlier.revision = "T0321-earlier-saved-score";
   earlier.assessments[0].totalPoints = 37.5;
-  earlier.assessments[0].items[0].awardedPoints = 25;
+  earlier.assessments[0].items[0].actuals[0].awardedPoints = 25;
+  earlier.assessments[0].items[0].actuals[1].awardedPoints = 0;
   earlier.assessments[0].items[0].actuals[0].value = 1;
   earlier.assessments[0].extras = structuredClone(state.assessments[0].extras);
   db.prepare("insert into weekly_kpi values (?,?)").run(

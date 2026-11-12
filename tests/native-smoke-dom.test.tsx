@@ -1970,8 +1970,14 @@ it("exercises finite previous-week and current-plan measurement actions on real 
     "T0321 authored context · loadMonitoring",
     "T0321 authored context · recoveryMonitoring",
   ]);
-  const allocation = table.querySelector("td[rowspan='2']")!;
-  expect(allocation.textContent).toBe("100 / 80Shared");
+  expect(table.querySelector("[rowspan]")).toBeNull();
+  const allocations = [...table.querySelectorAll("tbody tr")]
+    .slice(0, 2)
+    .map((row) => row.querySelector("td:last-child")!);
+  expect(allocations.map((cell) => cell.textContent)).toEqual([
+    "50 / 50",
+    "30 / 30",
+  ]);
   const currentCapture = (
     await command({ type: "captureView", view: "weeklyKpis", preset: "wide" })
   ).result;
@@ -1979,7 +1985,9 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   expect(
     numericHeaders.every((node) => node.hasAttribute("data-smoke-reveal")),
   ).toBe(true);
-  expect(allocation.hasAttribute("data-smoke-reveal")).toBe(true);
+  expect(
+    allocations.every((cell) => cell.hasAttribute("data-smoke-reveal")),
+  ).toBe(true);
   smoke.__trainerSmokeRestore();
   const extraBoolean = document.createElement("div");
   extraBoolean.textContent = "Yes";

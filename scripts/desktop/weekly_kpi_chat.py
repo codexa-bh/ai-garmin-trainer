@@ -53,8 +53,8 @@ def exercise(run, provider, receipt):
             raise ValueError('Original baseline changed')
         if action == 'adapt' and (saved['latestId'] == original or len(saved['sets']) != 2):
             raise ValueError('Adaptation identity failed')
-        if action == 'assess' and (saved['assessments'][0]['setId'] != saved['latestId'] or saved['assessments'][0]['totalPoints'] != 112.5 or saved['assessments'][0]['items'][0]['actuals'][1]['value'] is not None):
-            raise ValueError('Latest-plan above100/unknown assessment failed')
+        if action == 'assess' and (saved['assessments'][0]['setId'] != saved['latestId'] or saved['assessments'][0]['totalPoints'] != 112.5 or saved['assessments'][0]['items'][0]['actuals'][1]['value'] is not None or [actual.get('awardedPoints') for actual in saved['assessments'][0]['items'][0]['actuals']] != [50, 50] or 'awardedPoints' in saved['assessments'][0]['items'][0] or [track.get('availablePoints') for track in saved['sets'][-1]['items'][0]['tracks']] != [50, 30] or 'availablePoints' in saved['sets'][-1]['items'][0]):
+            raise ValueError('Latest-plan above100/unknown per-measurement assessment failed')
         if action == 'no-save' and saved != before:
             raise ValueError('No-save changed structured state')
         if action == 'correct' and (saved['assessments'][0]['totalPoints'] != 25 or saved['assessments'][0]['items'][0]['actuals'][0]['value'] != 0 or len(saved['assessments']) != 1 or saved['sets'] != before['sets']):

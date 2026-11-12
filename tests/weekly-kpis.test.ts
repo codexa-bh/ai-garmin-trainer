@@ -38,7 +38,6 @@ const authoredKpiSet = (): KpiSetInput => ({
       definition: "Qualifying outdoor sessions",
       selection: "Count selected sessions and their combined duration, once",
       evidenceRequired: "Imported summary plus user qualification",
-      availablePoints: 100,
       scoring: "Model explained allocation, not app evaluation",
       tracks: [
         {
@@ -47,6 +46,7 @@ const authoredKpiSet = (): KpiSetInput => ({
           unit: "sessions",
           meaning: "Number of qualifying sessions",
           target: { comparator: "at-least", value: 3 },
+          availablePoints: 60,
         },
         {
           key: "duration",
@@ -54,6 +54,7 @@ const authoredKpiSet = (): KpiSetInput => ({
           unit: "minutes",
           meaning: "Total duration of the same sessions",
           target: { comparator: "at-least", value: 90 },
+          availablePoints: 40,
         },
       ],
     },
@@ -76,10 +77,9 @@ const authoredAssessment = (setId = "new"): KpiAssessmentInput => ({
     {
       itemId: "outings",
       actuals: [
-        { trackKey: "count", value: 4 },
-        { trackKey: "duration", value: 120 },
+        { trackKey: "count", value: 4, awardedPoints: 60 },
+        { trackKey: "duration", value: 120, awardedPoints: 40 },
       ],
-      awardedPoints: 100,
       status: "provisional",
       explanation: "Reported complete; qualification remains provisional",
       evidence,
@@ -484,4 +484,100 @@ it("rejects malformed/duplicate/nonfinite targets, wrong calendar and future cut
   ).toThrow("calendar_changed");
   expect(app.readKpis(week)).toEqual(before);
   expect(() => app.readKpis("2026-11-10")).toThrow("invalid_week");
+});
+
+it("validates per-measurement points and refuses item-level pools, qualifying points and mismatched awards atomically", () => {
+  const pooled = authoredKpiSet();
+  for (const track of pooled.items[0].tracks) delete track.availablePoints;
+  pooled.items[0].availablePoints = 100;
+  const qualifying = authoredKpiSet();
+  qualifying.items[0].tracks.push({
+    key: "condition",
+    kind: "qualifying",
+    unit: "qualification",
+    meaning: "Authored condition",
+    target: { comparator: "equal", value: true },
+    availablePoints: 10,
+  });
+  const negative = authoredKpiSet();
+  negative.items[0].tracks[0].availablePoints = -1;
+  for (const [commitment, reason] of [
+    [pooled, "kpi_item_pool_unsupported"],
+    [qualifying, "kpi_qualifying_points_unsupported"],
+    [negative, "invalid_kpi_content"],
+  ] as const)
+    expect(() =>
+      app.saveKpis({ weekStart: week, commitment }, turn, [app.readKpis(week)]),
+    ).toThrow(reason);
+  expect(app.readKpis(week).revision).toBeNull();
+  // Zero is a scored allocation; absent points are monitoring.
+  const mixed = authoredKpiSet();
+  mixed.items[0].tracks[0].availablePoints = 0;
+  delete mixed.items[0].tracks[1].availablePoints;
+  app.saveKpis({ weekStart: week, commitment: mixed }, turn, [
+    app.readKpis(week),
+  ]);
+  const setId = app.readKpis(week).originalId!;
+  const invalid = [
+    // missing award on the scored track
+    (a: KpiAssessmentInput) => delete a.items[0].actuals[0].awardedPoints,
+    // award on the monitoring track
+    (a: KpiAssessmentInput) => (a.items[0].actuals[1].awardedPoints = 5),
+    // item-level award
+    (a: KpiAssessmentInput) => (a.items[0].awardedPoints = 0),
+  ];
+  for (const mutate of invalid) {
+    const assessment = authoredAssessment(setId);
+    delete assessment.items[0].actuals[1].awardedPoints;
+    assessment.items[0].actuals[0].awardedPoints = 0;
+    mutate(assessment);
+    expect(() =>
+      app.saveKpis({ weekStart: week, assessments: [assessment] }, turn, [
+        app.readKpis(week),
+      ]),
+    ).toThrow();
+  }
+  expect(app.readKpis(week).assessments).toEqual([]);
+  const valid = authoredAssessment(setId);
+  valid.items[0].actuals[0].awardedPoints = null;
+  delete valid.items[0].actuals[1].awardedPoints;
+  app.saveKpis({ weekStart: week, assessments: [valid] }, turn, [
+    app.readKpis(week),
+  ]);
+  expect(
+    app.readKpis(week).assessments[0].items[0].actuals[0].awardedPoints,
+  ).toBeNull();
+});
+
+it("refuses a new assessment of an unmapped legacy multi-measurement pool instead of splitting it", () => {
+  const legacy: WeeklyKpis = {
+    revision: "legacy-state",
+    timeZone: "UTC",
+    originalId: "legacy",
+    latestId: "legacy",
+    reviewDefinedId: null,
+    sets: [
+      {
+        ...authoredKpiSet(),
+        id: "legacy",
+        savedAt: now.toISOString(),
+        items: authoredKpiSet().items.map((item) => ({
+          ...item,
+          availablePoints: 100,
+          tracks: item.tracks.map(({ availablePoints: _, ...track }) => track),
+        })),
+      },
+    ],
+    assessments: [],
+  };
+  store.saveKpis(week, legacy);
+  const assessment = authoredAssessment("legacy");
+  for (const actual of assessment.items[0].actuals) delete actual.awardedPoints;
+  assessment.items[0].awardedPoints = 100;
+  expect(() =>
+    app.saveKpis({ weekStart: week, assessments: [assessment] }, turn, [
+      app.readKpis(week),
+    ]),
+  ).toThrow("kpi_legacy_pool_requires_mapping");
+  expect(app.readKpis(week).revision).toBe("legacy-state");
 });
