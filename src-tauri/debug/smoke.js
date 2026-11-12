@@ -2884,17 +2884,24 @@
       return null;
     const labels = [...region.querySelectorAll("tbody th[scope='row']")];
     const progress = region.classList.contains("weekly-kpi-progress");
+    const required = [
+      "T0319 authored sessions · sessions",
+      "T0319 authored sessions · minutes",
+    ];
+    const allowed = [
+      ...required,
+      "Authored additional work",
+      "T0321 authored context · loadMonitoring",
+      "T0321 authored context · recoveryMonitoring",
+    ];
     if (
       !progress &&
-      (labels.filter((el) => el.textContent === "T0319 authored sessions")
-        .length !== 1 ||
-        labels.some(
-          (el) =>
-            ![
-              "T0319 authored sessions",
-              "Authored additional work",
-              "T0321 authored contextMonitoring",
-            ].includes(el.textContent),
+      (required.some(
+        (label) => labels.filter((el) => el.textContent === label).length !== 1,
+      ) ||
+        labels.some((el) => !allowed.includes(el.textContent)) ||
+        [...region.querySelectorAll("tbody td, tbody td > div")].some((el) =>
+          ["Yes", "No"].includes(el.textContent.trim()),
         ))
     )
       return null;
@@ -3053,11 +3060,11 @@
       "Week",
       "T0319 authored sessions",
       "Authored additional work",
-      "T0321 authored contextMonitoring",
-      "load: —",
-      "recovery: —",
-      "load: 7.5 index",
-      "recovery: Unknown",
+      "T0319 authored sessions · sessions",
+      "T0319 authored sessions · minutes",
+      "T0321 authored context · loadMonitoring",
+      "T0321 authored context · recoveryMonitoring",
+      "7.5 index",
       "—",
       "Selected session count",
       "Dashed: target. Solid: recorded actual (sessions).",
@@ -3070,6 +3077,8 @@
       "Unknown",
       "100 / 80",
       "0 / 100",
+      "100 / 80Shared",
+      "0 / 100Shared",
       "+12.5",
       "112.5 / 80 points · 140.63%",
       "0 / 100 points · 0%",

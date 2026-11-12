@@ -1961,7 +1961,42 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   expect(
     (await command({ type: "weeklyKpis", action: "current" })).result.ok,
   ).toBe(true);
-  await screen.findByRole("table");
+  const table = await screen.findByRole("table");
+  const numericHeaders = [...table.querySelectorAll("tbody th")];
+  expect(numericHeaders.map((node) => node.textContent)).toEqual([
+    "T0319 authored sessions · sessions",
+    "T0319 authored sessions · minutes",
+    "T0321 authored context · loadMonitoring",
+    "T0321 authored context · recoveryMonitoring",
+    "Authored additional work",
+  ]);
+  const allocation = table.querySelector("td[rowspan='2']")!;
+  expect(allocation.textContent).toBe("100 / 80Shared");
+  const currentCapture = (
+    await command({ type: "captureView", view: "weeklyKpis", preset: "wide" })
+  ).result;
+  expect(currentCapture.ok, JSON.stringify(currentCapture)).toBe(true);
+  expect(
+    numericHeaders.every((node) => node.hasAttribute("data-smoke-reveal")),
+  ).toBe(true);
+  expect(allocation.hasAttribute("data-smoke-reveal")).toBe(true);
+  smoke.__trainerSmokeRestore();
+  const extraBoolean = document.createElement("div");
+  extraBoolean.textContent = "Yes";
+  table.querySelector("tbody td")!.append(extraBoolean);
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  extraBoolean.remove();
+  const firstLabel = numericHeaders[0].textContent;
+  numericHeaders[0].textContent = "Missing canonical numeric row";
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  numericHeaders[0].textContent = firstLabel;
+  smoke.__trainerSmokeRestore();
   // Let React commit the intermediate History list while the bridge waits for
   // its finite row. One async act around the entire wait would defer that commit.
   let previousAction!: Promise<void>;
@@ -2112,7 +2147,7 @@ it("admits only finite ordinary KPI actions and masks every noncanonical/private
   ).toBe(false);
   expect(
     screen
-      .getAllByText("T0319 authored sessions")[0]
+      .getByRole("rowheader", { name: "T0319 authored sessions · sessions" })
       .hasAttribute("data-smoke-reveal"),
   ).toBe(true);
   smoke.__trainerSmokeRestore();

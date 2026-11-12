@@ -58,6 +58,13 @@ export function kpiCutoff(value: string): string {
     : "Cutoff unavailable";
 }
 
+function kpiPoints(
+  awarded: number | null | undefined,
+  available: number,
+): string {
+  return `${awarded == null ? "—" : kpiNumber(awarded)} / ${kpiNumber(available)}`;
+}
+
 export function WeeklyKpiScorecard({
   kpis,
   loadSet,
@@ -67,6 +74,10 @@ export function WeeklyKpiScorecard({
 }) {
   const score = latestKpiScore(kpis);
   const { set, assessment } = score;
+  const conditionOnly =
+    set?.items.filter(
+      (item) => !item.tracks.some((track) => track.kind === "numeric"),
+    ) ?? [];
   return (
     <section className="weekly-kpis" aria-label="Saved weekly KPIs">
       <h2>Weekly KPIs</h2>
@@ -92,6 +103,11 @@ export function WeeklyKpiScorecard({
               : "Not assessed — not a zero."}
             {score.provisional ? " · Provisional" : ""}
           </p>
+          {conditionOnly.length ? (
+            <p>
+              Non-numeric scoring conditions are kept in Scoring and evidence.
+            </p>
+          ) : null}
           <div className="weekly-kpi-table-scroll">
             <table className="weekly-kpi-table">
               <thead>
@@ -103,43 +119,34 @@ export function WeeklyKpiScorecard({
                 </tr>
               </thead>
               <tbody>
-                {set.items.map((item) => {
+                {set.items.flatMap((item) => {
                   const result = assessment?.items.find(
                     (value) => value.itemId === item.id,
                   );
-                  return (
-                    <tr key={item.id}>
+                  const tracks = item.tracks.filter(
+                    (track) => track.kind === "numeric",
+                  );
+                  return tracks.map((track, index) => (
+                    <tr key={`${item.id}/${track.key}`}>
                       <th scope="row">
-                        {item.label}
+                        {tracks.length > 1
+                          ? `${item.label} · ${kpiTrackLabel(track, tracks)}`
+                          : item.label}
                         {item.availablePoints === null ? (
                           <small>Monitoring</small>
                         ) : null}
                       </th>
+                      <td>{kpiTarget(track)}</td>
                       <td>
-                        {item.tracks.map((track) => (
-                          <div key={track.key}>
-                            {kpiTrackLabel(track, item.tracks) !== track.unit
-                              ? `${kpiTrackLabel(track, item.tracks)}: `
-                              : ""}
-                            {kpiTarget(track)}
-                          </div>
-                        ))}
-                      </td>
-                      <td>
-                        {item.tracks.map((track) => (
-                          <div key={track.key}>
-                            {kpiTrackLabel(track, item.tracks) !== track.unit
-                              ? `${kpiTrackLabel(track, item.tracks)}: `
-                              : ""}
-                            {kpiValue(
-                              result?.actuals.find(
-                                (value) => value.trackKey === track.key,
-                              )?.value,
-                              track.unit,
-                            )}
-                          </div>
-                        ))}
-                        {result ? (
+                        <div>
+                          {kpiValue(
+                            result?.actuals.find(
+                              (value) => value.trackKey === track.key,
+                            )?.value,
+                            track.unit,
+                          )}
+                        </div>
+                        {index === 0 && result ? (
                           <details className="weekly-kpi-qualification">
                             <summary>
                               {result.status === "supported"
@@ -156,13 +163,26 @@ export function WeeklyKpiScorecard({
                           </details>
                         ) : null}
                       </td>
-                      <td>
-                        {item.availablePoints === null
-                          ? "—"
-                          : `${result?.awardedPoints == null ? "—" : kpiNumber(result.awardedPoints)} / ${kpiNumber(item.availablePoints)}`}
-                      </td>
+                      {item.availablePoints === null || index === 0 ? (
+                        <td
+                          rowSpan={
+                            item.availablePoints === null ? 1 : tracks.length
+                          }
+                        >
+                          {item.availablePoints === null
+                            ? "—"
+                            : kpiPoints(
+                                result?.awardedPoints,
+                                item.availablePoints,
+                              )}
+                          {item.availablePoints !== null &&
+                          tracks.length > 1 ? (
+                            <small>Shared</small>
+                          ) : null}
+                        </td>
+                      ) : null}
                     </tr>
-                  );
+                  ));
                 })}
                 {assessment?.extras.map((extra, index) => (
                   <tr key={`extra-${index}`}>
@@ -197,6 +217,19 @@ export function WeeklyKpiScorecard({
                     {track.unit}: {track.meaning}
                   </p>
                 ))}
+                {conditionOnly.includes(item) &&
+                item.availablePoints !== null ? (
+                  <p>
+                    Saved conditional allocation:{" "}
+                    {kpiPoints(
+                      assessment?.items.find(
+                        (value) => value.itemId === item.id,
+                      )?.awardedPoints,
+                      item.availablePoints,
+                    )}{" "}
+                    points
+                  </p>
+                ) : null}
                 <p>{item.scoring || "Monitoring — no point allocation."}</p>
                 <p>{item.evidenceRequired}</p>
               </section>

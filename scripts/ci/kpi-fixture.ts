@@ -105,6 +105,16 @@ export function authoredAssessedLatestKpis(now = new Date()): WeeklyKpis {
   const latest = structuredClone(state.assessments[0]);
   latest.setId = state.latestId!;
   latest.revision = "T0321-latest-assessment";
+  state.sets
+    .find((set) => set.id === state.latestId)!
+    .items[0].tracks.push({
+      key: "condition",
+      kind: "qualifying",
+      unit: "qualification",
+      meaning: "Authored saved condition, not a separate numeric measurement.",
+      target: { comparator: "equal", value: true },
+    });
+  latest.items[0].actuals.push({ trackKey: "condition", value: true });
   const context: KpiSet["items"][number] = {
     id: "context",
     conceptId: "authored-context",
