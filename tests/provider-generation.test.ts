@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { asSchema } from "ai";
 const { generateText } = vi.hoisted(() => ({ generateText: vi.fn() }));
 vi.mock("ai", async (original) => ({
   ...(await original<typeof import("ai")>()),
@@ -97,14 +98,23 @@ it.each([
   },
 );
 
-it("wraps exactly the neutral descriptions/schemas without execution callbacks", () => {
+it("wraps exactly the neutral advertised descriptions/schemas without execution callbacks", async () => {
   expect(Object.keys(trainerToolDefinitions)).toEqual(
     Object.keys(trainerToolContracts),
   );
   for (const name of Object.keys(
     trainerToolContracts,
   ) as (keyof typeof trainerToolContracts)[]) {
-    expect(trainerToolDefinitions[name]).toEqual(trainerToolContracts[name]);
+    expect(trainerToolDefinitions[name].description).toBe(
+      trainerToolContracts[name].description,
+    );
+    expect(
+      await asSchema<unknown>(trainerToolDefinitions[name].inputSchema)
+        .jsonSchema,
+    ).toEqual(
+      await asSchema<unknown>(trainerToolContracts[name].inputSchema)
+        .jsonSchema,
+    );
     expect(trainerToolDefinitions[name]).not.toHaveProperty("execute");
   }
 });

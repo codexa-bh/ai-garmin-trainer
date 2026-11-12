@@ -106,7 +106,20 @@ export function WeeklyKpiScorecard({
           </p>
           {conditionOnly.length ? (
             <p>
-              Non-numeric scoring conditions are kept in Scoring and evidence.
+              {conditionOnly
+                .filter((item) => item.availablePoints !== null)
+                .map((item) => (
+                  <span key={item.id}>
+                    {item.label}:{" "}
+                    {kpiPoints(
+                      assessment?.items.find(
+                        (result) => result.itemId === item.id,
+                      )?.awardedPoints,
+                      item.availablePoints!,
+                    )}{" "}
+                    conditional points.{" "}
+                  </span>
+                ))}
             </p>
           ) : null}
           <div className="weekly-kpi-table-scroll">
@@ -163,11 +176,21 @@ export function WeeklyKpiScorecard({
                                         ? "Provisional"
                                         : "Unavailable"}
                                   </summary>
-                                  <p>{result.evidence.qualification}</p>
+                                  <p>
+                                    {result.evidence.origin}
+                                    {result.evidence.references.length
+                                      ? ` · ${result.evidence.references.join(", ")}`
+                                      : ""}
+                                  </p>
+                                  {result.evidence.qualification ? (
+                                    <p>{result.evidence.qualification}</p>
+                                  ) : null}
                                   {result.evidence.limitations ? (
                                     <p>{result.evidence.limitations}</p>
                                   ) : null}
-                                  <p>{result.explanation}</p>
+                                  {result.explanation ? (
+                                    <p>{result.explanation}</p>
+                                  ) : null}
                                 </details>
                               ) : null}
                             </td>
@@ -217,37 +240,6 @@ export function WeeklyKpiScorecard({
               </tfoot>
             </table>
           </div>
-          <details>
-            <summary>Scoring and evidence</summary>
-            {assessment ? <p>{assessment.explanation}</p> : null}
-            {set.items.map((item) => (
-              <section key={item.id}>
-                <h3>{item.label}</h3>
-                <p>{item.definition}</p>
-                <p>{item.selection}</p>
-                {item.tracks.map((track) => (
-                  <p key={track.key}>
-                    {track.unit}: {track.meaning}
-                  </p>
-                ))}
-                {conditionOnly.includes(item) &&
-                item.availablePoints !== null ? (
-                  <p>
-                    Saved conditional allocation:{" "}
-                    {kpiPoints(
-                      assessment?.items.find(
-                        (value) => value.itemId === item.id,
-                      )?.awardedPoints,
-                      item.availablePoints,
-                    )}{" "}
-                    points
-                  </p>
-                ) : null}
-                <p>{item.scoring || "Monitoring — no point allocation."}</p>
-                <p>{item.evidenceRequired}</p>
-              </section>
-            ))}
-          </details>
         </>
       )}
     </section>

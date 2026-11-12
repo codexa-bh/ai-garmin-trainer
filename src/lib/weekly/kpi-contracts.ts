@@ -13,16 +13,18 @@ type KpiItem = {
   id: string;
   conceptId: string;
   label: string;
-  definition: string;
-  selection: string;
-  evidenceRequired: string;
+  /** Legacy prose remains readable; omit duplication in new commitments. */
+  definition?: string;
+  selection?: string;
+  evidenceRequired?: string;
   tracks: KpiTrack[];
   availablePoints: number | null;
-  scoring: string;
+  /** Only a non-obvious agreed rubric, not a target/points restatement. */
+  scoring?: string;
 };
 export type KpiSetInput = {
   origin: "planned" | "adaptation" | "review-defined";
-  provenance: string;
+  provenance?: string;
   items: KpiItem[];
 };
 export type KpiSet = KpiSetInput & {
@@ -34,8 +36,8 @@ export type KpiSet = KpiSetInput & {
 export type KpiEvidence = {
   origin: "garmin" | "user-report" | "model-interpretation" | "recorded-source";
   references: string[];
-  qualification: string;
-  limitations: string;
+  qualification?: string;
+  limitations?: string;
 };
 export type KpiAssessmentInput = {
   setId: string;
@@ -45,7 +47,7 @@ export type KpiAssessmentInput = {
     itemId: string;
     actuals: { trackKey: string; value: number | boolean | null }[];
     awardedPoints: number | null;
-    explanation: string;
+    explanation?: string;
     status: "supported" | "provisional" | "unavailable";
     evidence: KpiEvidence;
   }[];
@@ -56,7 +58,7 @@ export type KpiAssessmentInput = {
     evidence: KpiEvidence;
   }[];
   totalPoints: number | null;
-  explanation: string;
+  explanation?: string;
 };
 export type KpiAssessment = KpiAssessmentInput & {
   revision: string;

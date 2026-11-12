@@ -2027,13 +2027,9 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   await screen.findByRole("heading", { name: "Weekly achievement" });
   expect(
     (await command({ type: "weeklyKpis", action: "measurement" })).result.ok,
-  ).toBe(true);
-  expect(
-    (screen.getByLabelText("Individual KPI") as HTMLSelectElement).value,
-  ).toBe("authored-sessions");
-  expect(
-    (screen.getByLabelText("Measurement") as HTMLSelectElement).value,
-  ).toBe("authored-sessions/count");
+  ).toBe(false);
+  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(document.querySelectorAll(".weekly-chart-block")).toHaveLength(5);
   // jsdom has no chart geometry. Bind the mask fixture to the installed
   // Recharts tick generator, not a guessed axis; actual native smoke is separate.
   const authoredTicks = getNiceTickValues([0, 5], 5);
@@ -2058,10 +2054,10 @@ it("exercises finite previous-week and current-plan measurement actions on real 
     (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
       .result.ok,
   ).toBe(true);
-  const select = screen.getByLabelText("Individual KPI");
-  expect(select.hasAttribute("data-smoke-reveal")).toBe(true);
   expect(
-    screen.getByLabelText("Measurement").hasAttribute("data-smoke-reveal"),
+    [...document.querySelectorAll("figcaption")].every((caption) =>
+      caption.hasAttribute("data-smoke-reveal"),
+    ),
   ).toBe(true);
   expect(
     [...svg.querySelectorAll("text")].every((tick) =>
@@ -2099,10 +2095,12 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   expect(svg.hasAttribute("data-smoke-reveal")).toBe(false);
   smoke.__trainerSmokeRestore();
   unknownTick.remove();
+  const select = document.createElement("select");
   const privateOption = document.createElement("option");
   privateOption.textContent = "Private measurement";
   privateOption.value = "private";
   select.append(privateOption);
+  document.querySelector(".weekly-kpi-progress")!.append(select);
   expect(
     (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
       .result.ok,

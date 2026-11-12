@@ -348,8 +348,9 @@ Non-responsibilities:
 ### Explicit tool-runtime boundaries (`src/lib/ai/tool-*.ts`)
 
 - `tool-types.ts`: dependency-free names and call/step metadata contracts.
-- `tool-contracts.ts`: unchanged neutral descriptions, Zod schemas/defaults and
-  parsed discriminated calls. No SDK, repository or connector imports;
+- `tool-contracts.ts`: neutral descriptions, strict Zod schemas/defaults and
+  parsed discriminated calls. Weekly model shapes omit obsolete prose while the
+  same parser accepts rich legacy calls; SDK wrapping preserves that separation. No SDK, repository or connector imports;
   `src/lib/training-plan/limits.ts` owns shared document bounds; the prior
   limits entry point remains a compatibility re-export.
 - `tool-execution.ts`: direct typed dispatch and sanitized exception boundary.

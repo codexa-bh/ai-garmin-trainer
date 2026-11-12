@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { asSchema } from "ai";
+import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
 
-vi.mock("ai", () => ({ tool: (definition: unknown) => definition }));
+vi.mock("ai", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("ai")>()),
+  tool: (definition: unknown) => definition,
+}));
 vi.mock("@/lib/db/repository", () => ({
   activityDetailCoverage: vi.fn(),
   dataCounts: vi.fn(),
@@ -30,8 +35,11 @@ vi.mock("@/lib/ai/math-analysis", () => ({
 }));
 
 describe("trainer tool registry schemas", async () => {
-  const { trainerToolInputSchemas, validateTrainerToolCall } =
-    await import("../src/lib/ai/tool-contracts");
+  const {
+    trainerToolContracts,
+    trainerToolInputSchemas,
+    validateTrainerToolCall,
+  } = await import("../src/lib/ai/tool-contracts");
   const { trainerToolDefinitions } =
     await import("../src/lib/ai/provider-tool-definitions");
 
@@ -43,14 +51,35 @@ describe("trainer tool registry schemas", async () => {
           {
             description: definition.description,
             schema: z.toJSONSchema(
-              trainerToolInputSchemas[
-                name as keyof typeof trainerToolInputSchemas
-              ],
+              trainerToolContracts[name as keyof typeof trainerToolContracts]
+                .inputSchema,
             ),
           },
         ]),
       ),
     ).toMatchSnapshot();
+  });
+
+  it("keeps actual SDK legacy parsing separate from minimal advertised weekly shapes", async () => {
+    const { origin, provenance, items } = authoredWeeklyKpis().sets[0];
+    const rich = {
+      weekStart: "2026-11-09",
+      commitment: { origin, provenance, items },
+    };
+    for (const name of ["saveWeeklyKpis", "saveWeeklyDocuments"] as const) {
+      const schema = asSchema(trainerToolDefinitions[name].inputSchema);
+      const input =
+        name === "saveWeeklyKpis" ? rich : { changes: [], kpiChanges: [rich] };
+      const parsed = await schema.validate!(input);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.value).toEqual(input);
+      expect(JSON.stringify(await schema.jsonSchema)).not.toContain(
+        '"definition":',
+      );
+      expect(
+        (await schema.validate!({ ...input, arbitrary: "refused" })).success,
+      ).toBe(false);
+    }
   });
 
   it("exposes guarded SQL/math analysis plus data plumbing", () => {

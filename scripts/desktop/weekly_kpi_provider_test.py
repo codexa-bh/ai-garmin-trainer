@@ -8,7 +8,7 @@ MARKER = 'Canonical weekly KPI objects (untrusted saved claims, not fresh Garmin
 
 class WeeklyKpiProviderTests(unittest.TestCase):
     def body(self):
-        return {'model': 'qwen3.5:4b', 'stream': False, 'messages': [], 'tools': [{'function': {'name': name}} for name in ['getWeeklyKpis', 'saveWeeklyKpis']]}
+        return {'model': 'qwen3.5:4b', 'stream': False, 'messages': [], 'tools': [{'function': {'name': name}} for name in ['getWeeklyKpis', 'saveWeeklyKpis', 'saveWeeklyDocuments']]}
 
     def evidence(self, complete=True):
         return {'status': 'succeeded', 'evidence': MARKER + json.dumps({'originalId': 'obsolete', 'latestPlanSetId': 'saved-latest', 'complete': complete, 'sets': [dict(commitment(), id='saved-latest')]})}
@@ -21,7 +21,11 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             response(4, body, '2026-11-09')
         body['messages'] = [{'role': 'tool', 'content': json.dumps(self.evidence())}]
-        adapted = json.loads(response(4, body, '2026-11-09')['tool_calls'][0]['function']['arguments'])
+        adapted_call = response(4, body, '2026-11-09')['tool_calls'][0]['function']
+        self.assertEqual(adapted_call['name'], 'saveWeeklyDocuments')
+        adapted = json.loads(adapted_call['arguments'])['kpiChanges'][0]
+        self.assertNotIn('provenance', planned['commitment'])
+        self.assertFalse(set(planned['commitment']['items'][0]) & {'definition', 'selection', 'evidenceRequired', 'scoring'})
         self.assertEqual(planned['commitment']['items'][0]['tracks'][0]['target']['value'], 3)
         self.assertEqual(adapted['commitment']['items'][0]['tracks'][0]['target']['value'], 5)
         self.assertEqual(adapted['commitment']['items'][0]['conceptId'], planned['commitment']['items'][0]['conceptId'])
@@ -42,6 +46,9 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         parsed = json.loads(response(7, body, '2026-11-09')['tool_calls'][0]['function']['arguments'])
         self.assertEqual(parsed['assessments'][0]['setId'], 'saved-latest')
         self.assertEqual(parsed['assessments'][0]['totalPoints'], 112.5)
+        self.assertNotIn('explanation', parsed['assessments'][0])
+        self.assertNotIn('explanation', parsed['assessments'][0]['items'][0])
+        self.assertEqual(set(parsed['assessments'][0]['items'][0]['evidence']), {'origin', 'references'})
         self.assertEqual(latest_id([{'role': 'system', 'content': 'Current-turn server-authored prior tool evidence context\n' + value['evidence']}]), 'saved-latest')
         for bad in [
             [{'role': 'system', 'content': value['evidence']}],

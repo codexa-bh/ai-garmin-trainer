@@ -353,7 +353,10 @@ describe("canonical trainer instruction package", () => {
       ),
     ]) {
       for (const rule of [
-        "model-selected KPI/target/unit/evidence/points/scoring-rule table",
+        "Minimal KPIs",
+        "Do not generate duplicate definition",
+        "Optional prose only for necessary rules/substitution/uncertainty",
+        "Evidence origin/references/asOf required",
         "full achievement=100",
         "no fixed app rubric",
         "latest KPI set ID",

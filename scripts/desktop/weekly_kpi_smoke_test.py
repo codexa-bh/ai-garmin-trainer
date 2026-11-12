@@ -10,9 +10,9 @@ class Run:
 
     def command(self, command):
         self.commands.append(command)
-        if command.get('action') in ['progress', 'measurement']:
+        if command.get('action') == 'progress':
             self.progress = True
-        if command.get('action') in ['previous', 'current']:
+        if command.get('action') in ['previous', 'current', 'next']:
             self.progress = False
         if command['type'] == 'setViewport':
             self.preset = command['preset']
@@ -23,7 +23,9 @@ class Run:
         if command['type'] == 'captureView':
             return {'capture': '/owned/capture.png', 'boundary': 'geometry-preserving redacted own-WebView'}
         return {'ready': True, 'progress': self.progress, 'aboveHundred': True,
-                'unknown': True, 'gaps': self.progress, 'contained': True}
+                'unknown': True, 'gaps': self.progress, 'contained': True,
+                'notesCorrect': not self.progress, 'allCharts': self.progress,
+                'chartsSized': self.progress, 'bottomVisible': command.get('action') == 'bottom'}
 
     def wait(self, predicate, _label):
         if not predicate({'view': 'Trainer'}):
@@ -34,10 +36,10 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
     def test_finite_scenario_captures_both_views_and_sizes_without_write_actions(self):
         run = Run()
         result = kpis.scenario(run)
-        self.assertEqual([(value['view'], value['preset']) for value in result],
-                         [(view, size) for view in ['current', 'previous', 'progress', 'measurement'] for size in ['wide', 'narrow']])
-        self.assertEqual([value['action'] for value in run.commands if value['type'] == 'weeklyKpis' and value['action'] != 'observe'],
-                         ['frame', 'frame', 'previous', 'frame', 'frame', 'progress', 'frame', 'frame', 'measurement', 'frame', 'frame', 'reload', 'current', 'progress'])
+        expected = [(view, size, edge) for view in ['current', 'next', 'previous'] for size in ['wide', 'narrow'] for edge in ['frame', 'notes']]
+        expected += [('progress', size, edge) for size in ['wide', 'narrow', 'wide-short', 'narrow-short'] for edge in ['frame', 'middle', 'bottom']]
+        self.assertEqual([(value['view'], value['preset'], value['edge']) for value in result], expected)
+        self.assertFalse(any(value.get('action') in ['reload', 'measurement'] for value in run.commands))
         self.assertTrue(all(set(value) <= {'type', 'action', 'target', 'view', 'preset'} for value in run.commands))
         self.assertEqual([value['target'] for value in run.commands if value['type'] == 'click'],
                          ['Training Plan', 'Back to chat', 'Training Plan'])
@@ -87,6 +89,19 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'geometry'):
             kpis.scenario(run)
         self.assertEqual(sum(value['type'] == 'captureView' for value in run.commands), 1)
+
+    def test_bottom_and_all_chart_failures_do_not_pass_or_retry(self):
+        for field in ['allCharts', 'chartsSized', 'bottomVisible', 'notesCorrect']:
+            run = Run()
+            original = run.command
+            def invalid(value):
+                result = original(value)
+                if value['type'] == 'weeklyKpis':
+                    result[field] = False
+                return result
+            run.command = invalid
+            with self.assertRaisesRegex(ValueError, 'proof failed'):
+                kpis.scenario(run)
 
     def test_failed_readiness_retains_bounded_observation_without_replay(self):
         run = Run()

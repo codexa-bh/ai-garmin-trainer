@@ -21,8 +21,30 @@ export function WeeklyPlanView({
   run: (work: Promise<unknown>) => void;
 }) {
   const { record, week, state, mode } = weekly;
-  const structured = Boolean(
-    weekly.kpis?.latestPlanSetId ?? weekly.kpis?.latestId,
+  const planNotes = record?.latest ? (
+    <details
+      key={`${mode}/${week}/${record.latest.revision}/plan`}
+      className="training-plan-report"
+      open={mode !== "history"}
+    >
+      <summary>Plan notes · {record.latest.title}</summary>
+      <AssistantContent content={record.latest.contentMarkdown} />
+    </details>
+  ) : (
+    <p>
+      No narrative weekly plan saved for this week. Create or update it in chat.
+    </p>
+  );
+  const reviewNotes = record?.review ? (
+    <details
+      key={`${mode}/${week}/${record.review.revision}/review`}
+      className="training-plan-report"
+    >
+      <summary>Review notes · {kpiCutoff(record.review.asOf)}</summary>
+      <AssistantContent content={record.review.contentMarkdown} />
+    </details>
+  ) : (
+    <p className="training-plan-meta">No review saved.</p>
   );
   return (
     <section className="weekly-plan-panel" aria-label="Weekly training plans">
@@ -80,24 +102,21 @@ export function WeeklyPlanView({
             </button>
           </div>
           <div className="training-plan-content">
-            <button
-              type="button"
-              className="chrome-button"
-              disabled={state === "loading"}
-              onClick={() => run(weekly.refresh())}
-            >
-              Reload weekly plans
-            </button>
             {state === "loading" || state === "idle" ? (
               <p role="status">Loading weekly plans…</p>
             ) : state === "error" ? (
-              <p role="alert">Weekly plans could not be loaded. Try Reload.</p>
+              <div role="alert">
+                <p>Weekly plans could not be loaded.</p>
+                <button
+                  type="button"
+                  className="chrome-button"
+                  onClick={() => run(weekly.refresh())}
+                >
+                  Retry
+                </button>
+              </div>
             ) : mode === "progress" ? (
-              <WeeklyKpiProgress
-                weekly={weekly}
-                run={run}
-                openWeek={(selected) => run(weekly.load("history", selected))}
-              />
+              <WeeklyKpiProgress weekly={weekly} run={run} />
             ) : week ? (
               <>
                 <h2>
@@ -113,42 +132,8 @@ export function WeeklyPlanView({
                   kpis={weekly.kpis}
                   loadSet={(id) => run(weekly.loadSet(id))}
                 />
-                {record?.latest ? (
-                  structured ? (
-                    <details className="training-plan-report">
-                      <summary>Plan notes · {record.latest.title}</summary>
-                      <p>
-                        Preserved narrative; the KPI grid shows saved targets
-                        and values.
-                      </p>
-                      <AssistantContent
-                        content={record.latest.contentMarkdown}
-                      />
-                    </details>
-                  ) : (
-                    <article className="training-plan-report">
-                      <h3>{record.latest.title}</h3>
-                      <AssistantContent
-                        content={record.latest.contentMarkdown}
-                      />
-                    </article>
-                  )
-                ) : (
-                  <p>
-                    No narrative weekly plan saved for this week. Create or
-                    update it in chat.
-                  </p>
-                )}
-                {record?.review ? (
-                  <details className="training-plan-report">
-                    <summary>
-                      Review notes · {kpiCutoff(record.review.asOf)}
-                    </summary>
-                    <AssistantContent content={record.review.contentMarkdown} />
-                  </details>
-                ) : (
-                  <p className="training-plan-meta">No review saved.</p>
-                )}
+                {mode === "history" ? reviewNotes : planNotes}
+                {mode === "history" ? planNotes : reviewNotes}
               </>
             ) : (
               <>

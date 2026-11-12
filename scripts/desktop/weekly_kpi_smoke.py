@@ -39,29 +39,29 @@ def scenario(run):
     observed = wait_kpis(run)
     if not observed['aboveHundred'] or not observed['unknown']:
         raise ValueError('Saved above100/unknown facts missing')
-    for view in ['current', 'previous', 'progress', 'measurement']:
-        progress_view = view in ['progress', 'measurement']
+    for view in ['current', 'next', 'previous', 'progress']:
+        progress_view = view == 'progress'
         if view != 'current':
             run.command({'type': 'weeklyKpis', 'action': view})
             wait_kpis(run, progress_view)
-        for preset in ['wide', 'narrow']:
+        presets = ['wide', 'narrow', 'wide-short', 'narrow-short'] if progress_view else ['wide', 'narrow']
+        for preset in presets:
             run.command({'type': 'setViewport', 'preset': preset})
-            observed = wait_kpis(run, progress_view)
-            run.command({'type': 'weeklyKpis', 'action': 'frame'})
-            image = run.command({'type': 'captureView', 'view': 'weeklyKpis', 'preset': preset})
-            captures.append({'view': view, 'preset': preset, 'observation': observed, **image})
-            if not observed['contained'] or (progress_view and not observed['gaps']):
-                raise ValueError('Weekly KPI geometry/gap proof failed; inspect retained capture')
-    run.command({'type': 'weeklyKpis', 'action': 'reload'})
-    wait_kpis(run, True)
-    # Exercise the existing internal Current week return without changing routing.
+            wait_kpis(run, progress_view)
+            edges = ['frame', 'middle', 'bottom'] if progress_view else ['frame', 'notes']
+            for edge in edges:
+                observed = run.command({'type': 'weeklyKpis', 'action': edge})
+                image = run.command({'type': 'captureView', 'view': 'weeklyKpis', 'preset': preset})
+                captures.append({'view': view, 'preset': preset, 'edge': edge, 'observation': observed, **image})
+                valid = observed['contained'] and (observed['allCharts'] and observed['chartsSized'] and observed['gaps'] if progress_view else observed['notesCorrect'])
+                if not valid or (edge == 'bottom' and not observed['bottomVisible']):
+                    raise ValueError('Weekly KPI geometry/notes/all-chart/bottom proof failed; inspect retained capture')
+    # Internal navigation and fresh explicit entry preserve existing routing.
     run.command({'type': 'setViewport', 'preset': 'wide'})
     run.command({'type': 'weeklyKpis', 'action': 'current'})
     wait_kpis(run)
     run.command({'type': 'weeklyKpis', 'action': 'progress'})
     wait_kpis(run, True)
-    # Explicit entry still resets Progress; in-view Reload above preserves it.
-    # Desktop navigation is explicit: narrow Trainer uses the mobile menu.
     run.command({'type': 'click', 'target': 'Back to chat'})
     run.wait(lambda value: value['view'] == 'Trainer', 'Trainer before weekly reentry')
     run.command({'type': 'click', 'target': 'Training Plan'})
@@ -89,7 +89,7 @@ def main():
         expected = saved_hash(run.database)
         observer = None
         errors = []
-        receipt = {'source': source, 'scenario': 'T0321-latest-plan-grid-achievement-continuity', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. Synthetic DOM input, not trusted input, real trainer/provider writes or production migration.', 'resourceDisposition': resources.disposition()}
+        receipt = {'source': source, 'scenario': 'T0324-notes-all-charts-real-pane-bottom', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. Synthetic DOM input, not trusted input, real trainer/provider writes or production migration.', 'resourceDisposition': resources.disposition()}
         try:
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer
