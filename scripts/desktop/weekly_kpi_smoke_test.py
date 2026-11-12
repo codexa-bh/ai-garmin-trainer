@@ -12,7 +12,7 @@ class Run:
         self.commands.append(command)
         if command.get('action') in ['progress', 'measurement']:
             self.progress = True
-        if command.get('action') == 'previous':
+        if command.get('action') in ['previous', 'current']:
             self.progress = False
         if command['type'] == 'setViewport':
             self.preset = command['preset']
@@ -37,7 +37,7 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
         self.assertEqual([(value['view'], value['preset']) for value in result],
                          [(view, size) for view in ['current', 'previous', 'progress', 'measurement'] for size in ['wide', 'narrow']])
         self.assertEqual([value['action'] for value in run.commands if value['type'] == 'weeklyKpis' and value['action'] != 'observe'],
-                         ['frame', 'frame', 'previous', 'frame', 'frame', 'progress', 'frame', 'frame', 'measurement', 'frame', 'frame', 'reload'])
+                         ['frame', 'frame', 'previous', 'frame', 'frame', 'progress', 'frame', 'frame', 'measurement', 'frame', 'frame', 'reload', 'current', 'progress'])
         self.assertTrue(all(set(value) <= {'type', 'action', 'target', 'view', 'preset'} for value in run.commands))
         self.assertEqual([value['target'] for value in run.commands if value['type'] == 'click'],
                          ['Training Plan', 'Back to chat', 'Training Plan'])
@@ -58,6 +58,22 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 kpis.scenario(run)
         self.assertEqual(sum(value.get('target') == 'Training Plan' for value in run.commands), 2)
+
+    def test_internal_current_must_leave_progress_without_retry(self):
+        run = Run()
+        original = run.command
+        def retained_progress(value):
+            result = original(value)
+            if value.get('action') == 'current':
+                run.progress = True
+                result['progress'] = True
+            return result
+        run.command = retained_progress
+        run.root = __import__('pathlib').Path('/owned')
+        with patch.object(kpis.time, 'monotonic', side_effect=range(1000)), patch.object(kpis.time, 'sleep'), patch.object(kpis, 'private_json'):
+            with self.assertRaises(TimeoutError):
+                kpis.scenario(run)
+        self.assertEqual(sum(value.get('action') == 'current' for value in run.commands), 1)
 
     def test_geometry_failure_stays_failed_after_capture_no_mutation_retry(self):
         run = Run()

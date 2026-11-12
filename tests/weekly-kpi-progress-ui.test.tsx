@@ -28,11 +28,17 @@ vi.mock("recharts", () => ({
       {children}
     </div>
   ),
-  Line: () => null,
+  Line: ({ dataKey, name }: { dataKey: string; name: string }) => (
+    <span data-testid="chart-line" data-key={dataKey}>
+      {name}
+    </span>
+  ),
   CartesianGrid: () => null,
   Tooltip: () => null,
   XAxis: () => null,
-  YAxis: () => null,
+  YAxis: ({ domain }: { domain: unknown }) => (
+    <span data-testid="chart-axis" data-domain={JSON.stringify(domain)} />
+  ),
 }));
 afterEach(() => {
   cleanup();
@@ -113,19 +119,26 @@ it("opens with saved weekly achievement independently of secondary metrics, exac
 it("offers only latest-plan tracks outside the chart range, never unions obsolete entries or chooses a replacement implicitly", async () => {
   let data = progress();
   setup(() => data);
-  await screen.findByRole("option", {
-    name: /T0319 authored sessions · sessions/,
-  });
+  await screen.findByRole("option", { name: "T0319 authored sessions" });
   const select = screen.getByLabelText("Individual KPI") as HTMLSelectElement;
-  expect(select.options.length).toBe(3);
+  expect(select.options.length).toBe(2);
   expect(
     [...select.options].some((value) =>
       /Historical-only|Selected session count/.test(value.text),
     ),
   ).toBe(false);
   expect(select.value).toBe("");
-  fireEvent.change(select, { target: { value: "authored-sessions/count" } });
+  fireEvent.change(select, { target: { value: "authored-sessions" } });
   expect(screen.getByText("Selected session count")).toBeTruthy();
+  const measurement = screen.getByLabelText("Measurement") as HTMLSelectElement;
+  expect([...measurement.options].map((option) => option.text)).toEqual([
+    "sessions",
+    "minutes",
+  ]);
+  fireEvent.change(measurement, {
+    target: { value: "authored-sessions/duration" },
+  });
+  expect(measurement.value).toBe("authored-sessions/duration");
   data = {
     ...data,
     latestPlan: {
@@ -145,15 +158,75 @@ it("offers only latest-plan tracks outside the chart range, never unions obsolet
     },
   };
   fireEvent.click(screen.getByRole("button", { name: "Read progress" }));
-  await screen.findByRole("option", {
-    name: "Different measurement · sessions",
-  });
-  expect(
-    screen.getByRole("option", { name: "Different measurement · minutes" }),
-  ).toBeTruthy();
+  await screen.findByRole("option", { name: "Different measurement" });
+  expect(screen.queryByLabelText("Measurement")).toBeNull();
   expect(
     (screen.getByLabelText("Individual KPI") as HTMLSelectElement).value,
   ).toBe("");
+});
+it("omits qualifying flags and qualifier-only items without discarding saved conditions or numeric measurements", async () => {
+  const data = progress();
+  const set = data.latestPlan!.sets[1];
+  const qualifier = {
+    key: "eligibility",
+    kind: "qualifying" as const,
+    unit: "qualification",
+    meaning: "Recorded eligibility, not an independent numeric measurement.",
+    target: { comparator: "equal" as const, value: true },
+  };
+  set.items[0].tracks.push(qualifier);
+  set.items.push({
+    ...set.items[0],
+    id: "condition",
+    conceptId: "condition-only",
+    label: "Condition only",
+    tracks: [qualifier],
+    availablePoints: null,
+  });
+  const original = JSON.stringify(data);
+  setup(() => data);
+  await screen.findByRole("option", { name: "T0319 authored sessions" });
+  expect(
+    screen.queryByRole("option", { name: /qualification|Condition only/ }),
+  ).toBeNull();
+  fireEvent.change(screen.getByLabelText("Individual KPI"), {
+    target: { value: "authored-sessions" },
+  });
+  expect(
+    screen.queryByRole("option", { name: /qualification|eligibility/ }),
+  ).toBeNull();
+  expect(
+    (screen.getByLabelText("Measurement") as HTMLSelectElement).options.length,
+  ).toBe(2);
+  expect(JSON.stringify(data)).toBe(original);
+});
+it("plots only target and actual from zero, preserving saved range bounds in accessible text", async () => {
+  const data = progress();
+  data.weeks[0].kpis.sets[0].items[0].tracks[0].target = {
+    comparator: "range",
+    value: 2,
+    upper: 6,
+  };
+  setup(() => data);
+  await screen.findByRole("option", { name: "T0319 authored sessions" });
+  fireEvent.change(screen.getByLabelText("Individual KPI"), {
+    target: { value: "authored-sessions" },
+  });
+  expect(screen.queryByText("Range upper")).toBeNull();
+  expect(
+    screen
+      .getAllByTestId("chart-line")
+      .map((line) => line.getAttribute("data-key")),
+  ).toEqual(["percentage", "target", "actual"]);
+  expect(
+    screen.getAllByTestId("chart-axis").at(-1)?.getAttribute("data-domain"),
+  ).toBe('[0,"auto"]');
+  const values = JSON.parse(
+    screen.getAllByTestId("saved-chart").at(-1)!.getAttribute("data-values")!,
+  );
+  expect(values[0].target).toBe(2);
+  expect(values[0].upper).toBeUndefined();
+  expect(screen.getByText("2 sessions – 6 sessions")).toBeTruthy();
 });
 it("keeps main achievement available when the actual latest plan is KPI-free, without resurrecting history or long absent-week rows", async () => {
   const data = progress();

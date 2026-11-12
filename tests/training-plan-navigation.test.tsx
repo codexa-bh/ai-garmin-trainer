@@ -382,7 +382,7 @@ it("reopens the actual shell at This Week while retaining history and hidden Gen
   expect(document.activeElement).toBe(
     screen.getByRole("button", { name: "Back to chat" }),
   );
-  for (const tab of ["This Week", "Upcoming", "History"]) {
+  for (const tab of ["Current week", "Next week", "History"]) {
     fireEvent.click(screen.getByRole("button", { name: tab }));
     if (tab === "History") {
       await screen.findByRole("button", { name: /2026-09-21.*No review/ });
@@ -405,7 +405,7 @@ it("reopens the actual shell at This Week while retaining history and hidden Gen
     await screen.findByText(`Version ${version}`);
     expect(
       screen
-        .getByRole("button", { name: "This Week" })
+        .getByRole("button", { name: "Current week" })
         .getAttribute("aria-pressed"),
     ).toBe("true");
     expect(screen.queryByText("2026-09-21 – 2026-09-27")).toBeNull();
@@ -483,11 +483,9 @@ it("returns from empty Upcoming and Progress to the device-current week on expli
   render(<TrainerDashboard />);
   const open = () =>
     fireEvent.click(screen.getByRole("button", { name: "Training Plan" }));
-  const close = () =>
-    fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
   open();
   await screen.findByRole("heading", { name: "Current saved plan" });
-  fireEvent.click(screen.getByRole("button", { name: "Upcoming" }));
+  fireEvent.click(screen.getByRole("button", { name: "Next week" }));
   await screen.findByText("2026-11-16 – 2026-11-22");
   await screen.findByText(/No narrative weekly plan saved/);
   fireEvent.click(screen.getByRole("button", { name: "Reload weekly plans" }));
@@ -497,22 +495,21 @@ it("returns from empty Upcoming and Progress to the device-current week on expli
   await screen.findByText(/No narrative weekly plan saved/);
   expect(
     screen
-      .getByRole("button", { name: "Upcoming" })
+      .getByRole("button", { name: "Next week" })
       .getAttribute("aria-pressed"),
   ).toBe("true");
-  close();
-  open();
+  fireEvent.click(screen.getByRole("button", { name: "Current week" }));
   await screen.findByRole("heading", { name: "Current saved plan" });
+  expect(screen.getByRole("heading", { name: "Current week" })).toBeTruthy();
   expect(requests.at(-1)).toContain("weekStart=2026-11-09");
   fireEvent.click(screen.getByRole("button", { name: "Progress" }));
   await screen.findByRole("heading", { name: "Weekly achievement" });
-  close();
-  open();
+  fireEvent.click(screen.getByRole("button", { name: "Current week" }));
   await screen.findByRole("heading", { name: "Current saved plan" });
   expect(requests.at(-1)).toContain("weekStart=2026-11-09");
   expect(
     screen
-      .getByRole("button", { name: "This Week" })
+      .getByRole("button", { name: "Current week" })
       .getAttribute("aria-pressed"),
   ).toBe("true");
   expect(

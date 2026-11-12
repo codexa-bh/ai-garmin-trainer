@@ -136,6 +136,11 @@
   padding: 10px;
   font: inherit;
 }
+.weekly-individual-kpis select {
+  width: min(100%, 30rem);
+  font-size: 0.95rem;
+  font-weight: 400;
+}
 .weekly-progress-chart {
   height: 260px;
   min-width: 0;

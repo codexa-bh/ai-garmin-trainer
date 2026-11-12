@@ -6575,7 +6575,7 @@ describe("TrainerDashboard Training Plan section", () => {
       await screen.findByRole("button", { name: "Training Plan" }),
     );
     expect(
-      await screen.findByRole("heading", { name: "This Week" }),
+      await screen.findByRole("heading", { name: "Current week" }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "General Plan" }));
     expect(
