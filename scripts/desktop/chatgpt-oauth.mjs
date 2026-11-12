@@ -137,12 +137,18 @@ export async function validateIdentity(
     return fail("identity", "header");
   if (claims.iss !== ISSUER) return fail("identity", "issuer");
   if (!opaque(claims.sub, 256)) return fail("identity", "subject");
-  if (!(
-    claims.aud === clientId ||
-    (Array.isArray(claims.aud) &&
-      claims.aud.includes(clientId) &&
-      claims.azp === clientId)
-  ))
+  // OIDC represents even a single audience as an array. Require the issued
+  // client in either representation; keep the explicit party binding for
+  // multiple audiences and reject any conflicting azp, including string aud.
+  const audiences = typeof claims.aud === "string" ? [claims.aud] : claims.aud;
+  if (
+    !Array.isArray(audiences) ||
+    !audiences.length ||
+    audiences.some((audience) => !opaque(audience, 256)) ||
+    !audiences.includes(clientId) ||
+    (claims.azp !== undefined && claims.azp !== clientId) ||
+    (audiences.length > 1 && claims.azp !== clientId)
+  )
     return fail("identity", "audience");
   if (
     !Number.isFinite(claims.exp) ||

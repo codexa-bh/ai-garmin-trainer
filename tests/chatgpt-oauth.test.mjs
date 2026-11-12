@@ -218,6 +218,48 @@ test("signed ID tokens require trusted key, algorithm, issuer, audience, expiry,
   );
 });
 
+test("a single issued-client audience is equivalent in string and array form; authorized-party binding remains strict", async () => {
+  for (const aud of [registration.clientId, [registration.clientId]]) {
+    for (const azp of [undefined, registration.clientId]) {
+      const identity = await validateIdentity(
+        jwt({ aud, azp }),
+        registration.clientId,
+        "authored-nonce",
+        transport(),
+      );
+      assert.equal(identity.subject, registration.subject);
+    }
+    for (const azp of ["foreign-client", "", null, [registration.clientId]])
+      await assert.rejects(
+        validateIdentity(
+          jwt({ aud, azp }),
+          registration.clientId,
+          "authored-nonce",
+          transport(),
+        ),
+        (error) => error.message === "identity" && error.reason === "audience",
+      );
+  }
+  for (const aud of [
+    undefined,
+    null,
+    [],
+    ["foreign-client"],
+    [registration.clientId, 1],
+    [registration.clientId, ""],
+    { client: registration.clientId },
+  ])
+    await assert.rejects(
+      validateIdentity(
+        jwt({ aud, azp: registration.clientId }),
+        registration.clientId,
+        "authored-nonce",
+        transport(),
+      ),
+      (error) => error.message === "identity" && error.reason === "audience",
+    );
+});
+
 test("identity failures expose only allowlisted categories, never token, claim, key or exception contents", async () => {
   const secret = "authored-private-do-not-echo";
   const refused = async (token, reason, network = transport()) => {
@@ -428,48 +470,57 @@ test("revocation uses trusted discovery and form credentials, empty 200 is confi
   assert.equal(called, true);
 });
 
-test("real loopback flow starts listener before browser and exchanges exact redirect/client", async () => {
-  let pending;
-  const calls = [];
-  const network = async (url, init) => {
-    if (String(url).endsWith("oauth/token")) {
-      assert.equal(
-        init.body.get("redirect_uri"),
-        pending.searchParams.get("redirect_uri"),
-      );
-      assert.equal(init.body.get("client_id"), "oaiapp_authored");
-      return json({
-        access_token: "authored-access",
-        refresh_token: "authored-refresh",
-        id_token: jwt({ nonce: pending.searchParams.get("nonce") }),
-        token_type: "Bearer",
-        expires_in: 3600,
-        scope: "openid resource.invoke chatgpt.tokens.use.direct",
-      });
-    }
-    return transport({}, calls)(url, init);
-  };
-  const result = await signIn(
-    { hostId: "urn:uuid:11111111-1111-4111-8111-111111111111" },
-    network,
-    async (url) => {
-      pending = url;
-      const callback = new URL(url.searchParams.get("redirect_uri"));
-      callback.search = new URLSearchParams({
-        state: url.searchParams.get("state"),
-        code: "authored-code",
-        client_id: "oaiapp_authored",
-      }).toString();
-      const wrong = new URL(callback);
-      wrong.searchParams.set("state", "wrong");
-      assert.equal((await fetch(wrong)).status, 400);
-      assert.equal((await fetch(callback)).status, 200);
-      assert.equal((await fetch(callback)).status, 400);
-    },
-  );
-  assert.equal(result.subject, registration.subject);
-  assert.equal(result.clientId, registration.clientId);
-});
+test.each(["string", "single-array"])(
+  "real loopback flow with %s audience starts listener before browser and exchanges exact redirect/client",
+  async (audienceShape) => {
+    let pending;
+    const calls = [];
+    const network = async (url, init) => {
+      if (String(url).endsWith("oauth/token")) {
+        assert.equal(
+          init.body.get("redirect_uri"),
+          pending.searchParams.get("redirect_uri"),
+        );
+        assert.equal(init.body.get("client_id"), "oaiapp_authored");
+        return json({
+          access_token: "authored-access",
+          refresh_token: "authored-refresh",
+          id_token: jwt({
+            nonce: pending.searchParams.get("nonce"),
+            aud:
+              audienceShape === "single-array"
+                ? [registration.clientId]
+                : registration.clientId,
+          }),
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "openid resource.invoke chatgpt.tokens.use.direct",
+        });
+      }
+      return transport({}, calls)(url, init);
+    };
+    const result = await signIn(
+      { hostId: "urn:uuid:11111111-1111-4111-8111-111111111111" },
+      network,
+      async (url) => {
+        pending = url;
+        const callback = new URL(url.searchParams.get("redirect_uri"));
+        callback.search = new URLSearchParams({
+          state: url.searchParams.get("state"),
+          code: "authored-code",
+          client_id: "oaiapp_authored",
+        }).toString();
+        const wrong = new URL(callback);
+        wrong.searchParams.set("state", "wrong");
+        assert.equal((await fetch(wrong)).status, 400);
+        assert.equal((await fetch(callback)).status, 200);
+        assert.equal((await fetch(callback)).status, 400);
+      },
+    );
+    assert.equal(result.subject, registration.subject);
+    assert.equal(result.clientId, registration.clientId);
+  },
+);
 
 test("an expired initial code retains its issued client for a fresh explicit authorization, without automatic retry", async () => {
   let pending;
