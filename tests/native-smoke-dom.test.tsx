@@ -1966,9 +1966,9 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   expect(numericHeaders.map((node) => node.textContent)).toEqual([
     "T0319 authored sessions · sessions",
     "T0319 authored sessions · minutes",
+    "Authored additional work",
     "T0321 authored context · loadMonitoring",
     "T0321 authored context · recoveryMonitoring",
-    "Authored additional work",
   ]);
   const allocation = table.querySelector("td[rowspan='2']")!;
   expect(allocation.textContent).toBe("100 / 80Shared");
