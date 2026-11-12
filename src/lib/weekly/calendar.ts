@@ -81,9 +81,8 @@ export function weeklyCalendar(now: Date, timeZone: string) {
   };
 }
 
-/** Progress presets, in display order. Weeks count inclusive Monday weeks;
- * months go back calendar months from the current week's Monday. */
-export const PROGRESS_PERIODS = ["6w", "12w", "2m", "6m", "12m"] as const;
+/** Calendar months back from the current week's Monday, in display order. */
+export const PROGRESS_PERIODS = ["1m", "2m", "3m", "6m", "12m"] as const;
 export type ProgressPeriod = (typeof PROGRESS_PERIODS)[number];
 /** Largest preset span: Last 12 months always covers 54 inclusive weeks. */
 export const PROGRESS_MAX_WEEKS = 54;
@@ -108,11 +107,6 @@ export function progressPeriodRange(
 ): { from: string; through: string } {
   if (!validWeek(currentWeekStart)) throw new Error("invalid_week");
   const amount = Number(period.slice(0, -1));
-  if (period.endsWith("w"))
-    return {
-      from: addDays(currentWeekStart, -7 * (amount - 1)),
-      through: currentWeekStart,
-    };
   const date = monthsBefore(currentWeekStart, amount);
   const day = new Date(`${date}T12:00:00Z`).getUTCDay();
   return { from: addDays(date, -((day + 6) % 7)), through: currentWeekStart };

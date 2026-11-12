@@ -39,8 +39,8 @@ def scenario(run):
     observed = wait_kpis(run)
     if not observed['aboveHundred'] or not observed['unknown']:
         raise ValueError('Saved above100/unknown facts missing')
-    for view in ['current', 'next', 'previous', 'progress', 'sixWeeks', 'twelveMonths']:
-        progress_view = view in ['progress', 'sixWeeks', 'twelveMonths']
+    for view in ['current', 'next', 'previous', 'progress', 'oneMonth', 'threeMonths', 'twelveMonths']:
+        progress_view = view in ['progress', 'oneMonth', 'threeMonths', 'twelveMonths']
         if view != 'current':
             run.command({'type': 'weeklyKpis', 'action': view})
             wait_kpis(run, progress_view)

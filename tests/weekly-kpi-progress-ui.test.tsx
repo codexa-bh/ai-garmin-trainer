@@ -84,7 +84,7 @@ function setup(get: () => KpiProgress) {
     };
     return (
       <>
-        <button onClick={() => run(weekly.loadProgress("12w"))}>
+        <button onClick={() => run(weekly.loadProgress("2m"))}>
           Read progress
         </button>
         <WeeklyKpiProgress weekly={weekly} run={run} />
@@ -121,14 +121,14 @@ it("opens all latest-plan numeric charts, independently of range, with achieveme
   );
   expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
     "value",
-    "12w",
+    "2m",
   );
   expect(
     screen.getAllByRole("option").map((option) => option.textContent),
   ).toEqual([
-    "Last 6 weeks",
-    "Last 12 weeks",
+    "Last 1 month",
     "Last 2 months",
+    "Last 3 months",
     "Last 6 months",
     "Last 12 months",
   ]);
@@ -283,7 +283,7 @@ it("immediately reloads all charts, keeps the select while loading and ignores s
   render(<ProgressView />);
   fireEvent.click(screen.getByRole("button", { name: "Progress" }));
   expect(pending[0]).toMatchObject({
-    from: "2026-08-24",
+    from: "2026-09-07",
     through: "2026-11-09",
   });
   await act(async () =>
@@ -293,29 +293,36 @@ it("immediately reloads all charts, keeps the select while loading and ignores s
   );
   expect(screen.getAllByTestId("saved-chart")).toHaveLength(3);
   fireEvent.change(screen.getByRole("combobox", { name: "Period" }), {
-    target: { value: "6w" },
+    target: { value: "1m" },
   });
   expect(screen.getByRole("status").textContent).toContain(
     "Loading saved progress",
   );
   expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
     "value",
-    "6w",
+    "1m",
   );
   expect(pending[1]).toMatchObject({
     from: "2026-10-05",
     through: "2026-11-09",
   });
   fireEvent.change(screen.getByRole("combobox", { name: "Period" }), {
-    target: { value: "12m" },
+    target: { value: "3m" },
   });
   expect(pending[2]).toMatchObject({
+    from: "2026-08-03",
+    through: "2026-11-09",
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "Period" }), {
+    target: { value: "12m" },
+  });
+  expect(pending[3]).toMatchObject({
     from: "2025-11-03",
     through: "2026-11-09",
   });
   await act(async () =>
-    pending[2].resolve(
-      Response.json(rangedProgress(pending[2].from, pending[2].through)),
+    pending[3].resolve(
+      Response.json(rangedProgress(pending[3].from, pending[3].through)),
     ),
   );
   expect(
@@ -337,7 +344,7 @@ it("immediately reloads all charts, keeps the select while loading and ignores s
   await screen.findByText(/No KPIs saved for this plan/);
   vi.setSystemTime(new Date("2026-11-18T12:00:00Z"));
   fireEvent.click(screen.getByRole("button", { name: "Progress" }));
-  expect(pending[3]).toMatchObject({
+  expect(pending[4]).toMatchObject({
     from: "2025-11-10",
     through: "2026-11-16",
   });
@@ -346,8 +353,8 @@ it("immediately reloads all charts, keeps the select while loading and ignores s
     "12m",
   );
   await act(async () =>
-    pending[3].resolve(
-      Response.json(rangedProgress(pending[3].from, pending[3].through)),
+    pending[4].resolve(
+      Response.json(rangedProgress(pending[4].from, pending[4].through)),
     ),
   );
 });
