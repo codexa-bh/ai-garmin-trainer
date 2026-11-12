@@ -275,6 +275,109 @@ it("persists current choice on reopen, isolates DBs and preserves original prefe
   ).toBe("unselected");
   (await import("@/lib/db/connection")).getDatabase().close();
 });
+it("serves mixed-auth identity and preserves original authority across DB reopen, eligibility changes and invalid configuration", async () => {
+  const root = mkdtempSync(join(tmpdir(), "trainer-mixed-choice-"));
+  const registrationId = "registration_11111111-1111-4111-8111-111111111111";
+  const catalog = {
+    version: 1,
+    defaultEntryId: null,
+    entries: [
+      { id: "entry_api", provider: "openai", modelId: "Exact/Model:Tag" },
+      {
+        id: "entry_plan",
+        provider: "chatgpt",
+        modelId: "Exact/Model:Tag",
+        registrationId,
+      },
+    ],
+  };
+  const connection = {
+    id: registrationId,
+    epoch: 1,
+    label: "private-authored-account",
+    state: "connected",
+    planEnabled: true,
+    disclosed: true,
+    models: [{ slug: "Exact/Model:Tag", displayName: "Exact/Model:Tag" }],
+  };
+  vi.stubEnv("DATABASE_PATH", join(root, "mixed.sqlite"));
+  vi.stubEnv("OPENAI_API_KEY", "sentinel-private-secret");
+  vi.stubEnv("CHAT_MODEL_CATALOG", JSON.stringify(catalog));
+  vi.stubEnv("CHATGPT_CONNECTIONS", JSON.stringify([connection]));
+  vi.stubEnv(
+    "CHAT_SELECTION_COMPATIBILITY",
+    JSON.stringify({ ...catalog, defaultEntryId: "entry_plan" }),
+  );
+  const network = vi.spyOn(globalThis, "fetch");
+  let repo = await import("@/lib/db/repository");
+  repo.setAppMetadata("ai.chat_model", "original-private-unresolved");
+  repo.setAppMetadata("ai.chat_model.v2", "");
+  let route = await import("@/app/api/model-settings/route");
+  const read = route.GET();
+  expect(read.status).toBe(200);
+  expect(read.headers.get("Cache-Control")).toBe("no-store");
+  expect(await read.json()).toMatchObject({
+    selected: "entry_plan",
+    available: true,
+    options: [
+      { id: "entry_api", available: true },
+      { id: "entry_plan", registrationId, available: true },
+    ],
+  });
+  const originalChoice = repo.getAppMetadata("ai.chat_model.choice");
+  (await import("@/lib/db/connection")).getDatabase().close();
+  vi.resetModules();
+  repo = await import("@/lib/db/repository");
+  route = await import("@/app/api/model-settings/route");
+  expect(await route.GET().json()).toMatchObject({
+    selected: "entry_plan",
+    available: true,
+  });
+  for (const unavailable of [
+    { ...connection, models: [] },
+    { ...connection, state: "disconnected", planEnabled: false },
+    { ...connection, state: "identity-only", planEnabled: false },
+    { ...connection, planEnabled: false },
+  ]) {
+    vi.stubEnv("CHATGPT_CONNECTIONS", JSON.stringify([unavailable]));
+    const body = await route.GET().json();
+    expect(body).toMatchObject({
+      selected: "entry_plan",
+      available: false,
+      options: [
+        { id: "entry_api", available: true },
+        { id: "entry_plan", registrationId, available: false },
+      ],
+    });
+    expect(repo.getAppMetadata("ai.chat_model.choice")).toBe(originalChoice);
+  }
+  vi.stubEnv("CHATGPT_CONNECTIONS", "invalid-private-metadata");
+  const failed = route.GET();
+  expect(failed.status).toBe(503);
+  expect(await failed.text()).not.toContain("invalid-private-metadata");
+  expect(repo.getAppMetadata("ai.chat_model.choice")).toBe(originalChoice);
+  vi.stubEnv("CHATGPT_CONNECTIONS", JSON.stringify([connection]));
+  const patch = await route.PATCH(
+    new Request("http://localhost/api/model-settings", {
+      method: "PATCH",
+      body: '{"modelId":"entry_api"}',
+    }),
+  );
+  expect(patch.status).toBe(200);
+  expect(await patch.json()).toMatchObject({
+    selected: "entry_api",
+    available: true,
+  });
+  expect(repo.getAppMetadata("ai.chat_model")).toBe(
+    "original-private-unresolved",
+  );
+  expect(repo.getAppMetadata("ai.chat_model.v2")).toBe("");
+  expect(JSON.stringify(await route.GET().json())).not.toMatch(
+    /private-authored-account|sentinel-private-secret|original-private|accessToken|refreshToken/,
+  );
+  expect(network).not.toHaveBeenCalled();
+  (await import("@/lib/db/connection")).getDatabase().close();
+});
 it("keeps route errors safe and noncacheable including unknown write outcome", async () => {
   const { modelSettings } = await import("@/lib/model-settings/composition");
   const route = await import("@/app/api/model-settings/route");

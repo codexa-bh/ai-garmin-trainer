@@ -226,6 +226,61 @@ it("adds several explicit models once in provider order, preserving registration
     /accessToken|refreshToken|clientId/,
   );
 });
+it("distinguishes saved membership from new and removed drafts through actual Save/reload and window reopen", async () => {
+  choose("exact-model");
+  add();
+  expect(choices()[0].closest("label")?.textContent).toContain(
+    "Added — Save pending",
+  );
+  expect(byId("chatgpt-model-selection").textContent).toBe(
+    "0 selected to add.",
+  );
+  fireEvent.submit(byId("settings"));
+  await waitFor(() =>
+    expect(choices()[0].closest("label")?.textContent).toContain(
+      "Saved in catalog",
+    ),
+  );
+  const saved = structuredClone(savedEntries);
+  expect(saved).toHaveLength(1);
+  listeners["desktop-settings-closed"]();
+  await reload();
+  expect(savedEntries).toEqual(saved);
+  expect(choices()[0].disabled).toBe(true);
+  expect(choices()[0].checked).toBe(false);
+  expect(choices()[0].closest("label")?.textContent).toContain(
+    "Saved in catalog",
+  );
+  choose("second-model");
+  expect(byId("chatgpt-model-selection").textContent).toBe(
+    "1 selected to add.",
+  );
+  add();
+  expect(choices()[1].closest("label")?.textContent).toContain(
+    "Added — Save pending",
+  );
+  fireEvent.click(document.querySelector("#catalog-chatgpt-rows button")!);
+  expect(choices()[0].closest("label")?.textContent).toContain(
+    "Removed — Save pending",
+  );
+  expect(choices()[0].disabled).toBe(false);
+  await reload();
+  expect(savedEntries).toEqual(saved);
+  expect(rows().map((input) => input.value)).toEqual(["exact-model"]);
+  expect(choices()[0].closest("label")?.textContent).toContain(
+    "Saved in catalog",
+  );
+  expect(choices()[1].closest("label")?.textContent).toBe("Second model");
+  // Removing then re-adding the same tuple creates a new identity, still unsaved.
+  fireEvent.click(document.querySelector("#catalog-chatgpt-rows button")!);
+  choose("exact-model");
+  add();
+  expect(choices()[0].closest("label")?.textContent).toContain(
+    "Added — Save pending",
+  );
+  await reload();
+  expect(savedEntries).toEqual(saved);
+});
 it("select-all and clear use actual checkboxes and cannot add the same pair twice", () => {
   fireEvent.click(byId("chatgpt-select-all"));
   expect(choices().every((input) => input.checked)).toBe(true);

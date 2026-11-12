@@ -525,17 +525,17 @@
     const picker = byId("chatgpt-model-picker");
     if (picker.children.length !== 5)
       throw Error("Unexpected model picker structure");
-    verifyText(picker.querySelector("legend"), "Available models");
+    verifyText(picker.querySelector("legend"), "Models to add");
     verifyText(
       picker.querySelector("p.helper"),
-      "Choose one or more models. Nothing is selected automatically.",
+      "Saved models stay in the catalog below. Check only new models to add, then Save settings. Cancel discards catalog edits.",
     );
     verifyText(byId("chatgpt-select-all"), "Select all");
     verifyText(
       byId("chatgpt-model-selection"),
       byId("chatgpt-account").value
-        ? "0 selected."
-        : "0 selected — refresh models to load available choices.",
+        ? "0 selected to add."
+        : "0 selected to add — refresh models to load available choices.",
     );
     for (const [index, label] of [
       ...byId("chatgpt-model").children,
@@ -552,7 +552,7 @@
         text?.childElementCount !== 1 ||
         text.childNodes.length !== 2 ||
         note?.childElementCount ||
-        note?.textContent !== "Already in catalog" ||
+        note?.textContent !== "Added — Save pending" ||
         text.firstChild.textContent !==
           ["Authored model one", "Authored model three"][index]
       )

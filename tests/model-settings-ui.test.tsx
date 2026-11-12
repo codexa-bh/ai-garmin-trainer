@@ -13,6 +13,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { TrainerDashboard } from "@/app/trainer-dashboard";
 import { ModelSettingsCard } from "@/app/dashboard/model-settings-card";
 import { useModelSettings } from "@/app/dashboard/use-model-settings";
+import { createModelSettings } from "@/lib/model-settings/application";
+import { validateChatCatalog } from "@/lib/model-settings/catalog";
 import type {
   ModelOption,
   ModelSettingsSnapshot,
@@ -297,6 +299,158 @@ it.each([
     true,
   );
 });
+const registrationId = "registration_11111111-1111-4111-8111-111111111111";
+const mixedCatalog = () =>
+  validateChatCatalog({
+    version: 1,
+    defaultEntryId: null,
+    entries: [
+      { id: "entry_api", provider: "openai", modelId: "Exact/Model:Tag" },
+      {
+        id: "entry_plan",
+        provider: "chatgpt",
+        modelId: "Exact/Model:Tag",
+        registrationId,
+      },
+      {
+        id: "entry_other",
+        provider: "chatgpt",
+        modelId: "Exact/Model:Tag",
+        registrationId: "registration_22222222-2222-4222-8222-222222222222",
+      },
+    ],
+  });
+it("loads production mixed-auth DTOs and persists explicit route/account through activation, reopen and remount without inference", async () => {
+  let choice: string | null = null;
+  const configuration = {
+    catalog: mixedCatalog(),
+    configured: {
+      openai: true,
+      deepseek: false,
+      ollama: false,
+      openrouter: false,
+    },
+    availableSubscriptionEntries: ["entry_plan", "entry_other"],
+    subscriptionLabels: {
+      entry_plan: "ChatGPT plan · account 1 / Exact/Model:Tag",
+      entry_other: "ChatGPT plan · account 2 / Exact/Model:Tag",
+    },
+  };
+  const app = createModelSettings({
+    readChoice: () => choice,
+    initializeChoice: (value) => {
+      choice ??= value;
+    },
+    writeChoice: (value) => {
+      choice = value;
+    },
+    readPreference: () => null,
+    readLegacyPreference: () => null,
+    configuration: () => configuration,
+  });
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    expect(url).toBe("/api/model-settings");
+    return response(
+      init?.method === "PATCH"
+        ? app.save(JSON.parse(init.body as string))
+        : app.read(),
+    );
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(<Harness />);
+  await screen.findByRole("option", {
+    name: configuration.subscriptionLabels.entry_plan,
+  });
+  const select = () => screen.getByRole("combobox") as HTMLSelectElement;
+  expect(select().value).toBe("");
+  for (const id of ["entry_api", "entry_other", "entry_plan"]) {
+    fireEvent.change(select(), { target: { value: id } });
+    await waitFor(() => expect(select().value).toBe(id));
+    expect(app.selection().id).toBe(id);
+  }
+  await act(() =>
+    window.dispatchEvent(new Event("trainer-live-settings-applied")),
+  );
+  await waitFor(() => expect(select().disabled).toBe(false));
+  expect(select().value).toBe("entry_plan");
+  view.rerender(<Harness open={false} />);
+  view.rerender(<Harness />);
+  await waitFor(() => expect(select().value).toBe("entry_plan"));
+  view.unmount();
+  render(<Harness />);
+  await waitFor(() => expect(select().value).toBe("entry_plan"));
+  expect(app.selection()).toMatchObject({
+    registrationId,
+    provider: "chatgpt",
+    modelId: "Exact/Model:Tag",
+  });
+  expect(
+    fetcher.mock.calls
+      .filter(([, init]) => init?.method === "PATCH")
+      .map(([, init]) => init?.body),
+  ).toEqual([
+    '{"modelId":"entry_api"}',
+    '{"modelId":"entry_other"}',
+    '{"modelId":"entry_plan"}',
+  ]);
+});
+it.each(["subscription-only", "unavailable-subscription"])(
+  "accepts valid %s DTO without erasing independent routes",
+  async (scenario) => {
+    const catalog = mixedCatalog();
+    const options = catalog.entries
+      .slice(scenario === "subscription-only" ? 1 : 0)
+      .map((entry) => ({
+        ...entry,
+        label: `${entry.provider} / ${entry.id}`,
+        available:
+          scenario === "subscription-only" || entry.provider !== "chatgpt",
+      }));
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(response({ ...snapshot(), options }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<Harness />);
+    await screen.findByRole("option", { name: "Choose a model" });
+    expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
+      false,
+    );
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
+    expect(fetcher).toHaveBeenCalledOnce();
+  },
+);
+it.each([
+  { registrationId: undefined },
+  { registrationId: "registration_invalid" },
+  { provider: "openai", registrationId },
+  { duplicate: "tuple" },
+  { duplicate: "id" },
+])(
+  "rejects malformed subscription authority without writes: %j",
+  async (mutation) => {
+    const options = mixedCatalog().entries.map((entry) => ({
+      ...entry,
+      label: entry.id,
+      available: true,
+    }));
+    if (mutation.duplicate)
+      options.push({
+        ...options[1],
+        id: mutation.duplicate === "id" ? options[0].id : "entry_duplicate",
+      });
+    else Object.assign(options[1], mutation);
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(response({ ...snapshot(), options }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<Harness />);
+    await screen.findByText(/could not be loaded/);
+    expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(
+      true,
+    );
+    expect(fetcher).toHaveBeenCalledOnce();
+  },
+);
 it("ignores superseded loads", async () => {
   let finish!: (value: Response) => void;
   const fetcher = vi

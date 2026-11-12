@@ -18,6 +18,7 @@ let busy = false;
 let unknownOutcome = false;
 let legacyRequired = false;
 let catalog = { version: 1, entries: [], defaultEntryId: null };
+let savedChatgptEntries = [];
 let loadedRevision = null;
 let settingsEpoch = 0;
 let restartFocus = null;
@@ -196,17 +197,23 @@ function updateChatgptModelControls() {
   const connection = selectedChatgpt();
   const inputs = [...byId("chatgpt-model").querySelectorAll("input")];
   for (const input of inputs) {
-    const added = catalog.entries.some(
-      (entry) =>
-        entry.provider === "chatgpt" &&
-        entry.registrationId === connection?.id &&
-        entry.modelId === input.value,
-    );
+    const matches = (entry) =>
+      entry.provider === "chatgpt" &&
+      entry.registrationId === connection?.id &&
+      entry.modelId === input.value;
+    const added = catalog.entries.find(matches);
+    const saved = savedChatgptEntries.find(matches);
     input.disabled =
       catalogLocked() || chatgptPending || !connection?.planEnabled || added;
     if (added) input.checked = false;
     input.closest("label").querySelector(".chatgpt-model-note").textContent =
-      added ? "Already in catalog" : "";
+      added
+        ? saved?.id === added.id
+          ? "Saved in catalog"
+          : "Added — Save pending"
+        : saved
+          ? "Removed — Save pending"
+          : "";
   }
   const available = inputs.filter((input) => !input.disabled);
   const selected = selectedChatgptModels();
@@ -218,8 +225,8 @@ function updateChatgptModelControls() {
       : "Select all";
   byId("chatgpt-model-selection").textContent =
     selected.length > remaining
-      ? `${selected.length} selected; only ${remaining} catalog slots available. Deselect models before adding; nothing will be added partially.`
-      : `${selected.length} selected${inputs.length ? "" : " — refresh models to load available choices"}.`;
+      ? `${selected.length} selected to add; only ${remaining} catalog slots available. Deselect models before adding; nothing will be added partially.`
+      : `${selected.length} selected to add${inputs.length ? "" : " — refresh models to load available choices"}.`;
   byId("catalog-chatgpt-add").textContent = selected.length
     ? `Add selected (${selected.length})`
     : "Add selected";
@@ -995,6 +1002,9 @@ async function refresh() {
     if (!saved.chatCatalog || typeof saved.revision !== "string")
       throw new Error("Unsupported settings snapshot");
     catalog = { ...structuredClone(saved.chatCatalog), defaultEntryId: null };
+    savedChatgptEntries = catalog.entries.filter(
+      (entry) => entry.provider === "chatgpt",
+    );
     loadedRevision = saved.revision;
     await refreshChatgpt();
     renderCatalog();
