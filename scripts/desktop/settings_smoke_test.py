@@ -91,11 +91,14 @@ class SettingsCaptureTests(unittest.TestCase):
         with patch.object(settings_smoke, 'wait_settings', return_value={'chatgptReady': True, 'chatgptExercised': False, 'privateActionsDenied': True}):
             result = settings_smoke.chatgpt_presentation(run, captures)
         self.assertTrue(result['fictionalMetadataOnly'])
-        self.assertEqual(len(captures), 4)
+        self.assertTrue(result['batchAddition'])
+        self.assertTrue(result['duplicatePairsDisabled'])
+        self.assertEqual(len(captures), 5)
         self.assertEqual([call.args[0] for call in run.command.call_args_list], [
             {'type': 'settings', 'action': 'captureChatgptWide'}, {'type': 'settings', 'action': 'captureChatgptNarrow'},
             {'type': 'settings', 'action': 'chatgptExercise'},
             {'type': 'settings', 'action': 'captureChatgptWide'}, {'type': 'settings', 'action': 'captureChatgptNarrow'},
+            {'type': 'settings', 'action': 'captureChatgptRowsNarrow'},
             {'type': 'settings', 'action': 'chatgptReset'}])
 
     def test_chatgpt_presentation_refuses_privilege_capture_and_draft_failures_without_retry(self):

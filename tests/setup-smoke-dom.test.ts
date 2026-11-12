@@ -111,6 +111,10 @@ async function chatgptFixture() {
                 slug: "synthetic/chatgpt:one",
                 displayName: "Authored model one",
               },
+              {
+                slug: "synthetic/chatgpt:three",
+                displayName: "Authored model three",
+              },
             ],
           },
           {
@@ -143,7 +147,19 @@ it("closed ChatGPT presentation exercises actual account/model/draft controls wi
     chatgptReady: true,
     chatgptExercised: true,
   });
-  expect(document.querySelectorAll(".catalog-row").length).toBe(before + 1);
+  expect(document.querySelectorAll(".catalog-row").length).toBe(before + 2);
+  expect(
+    [
+      ...document.querySelectorAll<HTMLInputElement>("#chatgpt-model input"),
+    ].every((input) => !input.checked && input.disabled),
+  ).toBe(true);
+  expect(
+    [
+      ...document.querySelectorAll<HTMLInputElement>(
+        "#catalog-chatgpt-rows input",
+      ),
+    ].map((input) => input.value),
+  ).toEqual(["synthetic/chatgpt:one", "synthetic/chatgpt:three"]);
   expect(controller.__trainerSetupSmoke("chatgptReset")).toMatchObject({
     ok: true,
     chatgptReady: true,
@@ -178,6 +194,31 @@ it.each(["captureChatgptWide", "captureChatgptNarrow"])(
     expect(privateNode.style.cssText).toBe(original);
   },
 );
+it("finite narrow batch-row framing requires exact rows and restores masks without revealing account controls", async () => {
+  await chatgptFixture();
+  expect(controller.__trainerSetupSmoke("captureChatgptRowsNarrow").ok).toBe(
+    false,
+  );
+  expect(controller.__trainerSetupSmoke("chatgptExercise").ok).toBe(true);
+  expect(controller.__trainerSetupSmoke("captureChatgptRowsNarrow").ok).toBe(
+    true,
+  );
+  expect(
+    getComputedStyle(document.getElementById("chatgpt-status")!).visibility,
+  ).toBe("hidden");
+  expect(
+    getComputedStyle(document.querySelector("#catalog-chatgpt-rows input")!)
+      .visibility,
+  ).toBe("visible");
+  controller.__trainerSetupSmokeRestore();
+  vi.spyOn(
+    document.querySelector("#catalog-chatgpt-rows input")!,
+    "getBoundingClientRect",
+  ).mockReturnValue(new DOMRect(-1, 24, 300, 45));
+  expect(controller.__trainerSetupSmoke("captureChatgptRowsNarrow").ok).toBe(
+    false,
+  );
+});
 it.each(["option", "status", "unknown-child", "overflow"])(
   "ChatGPT capture refuses %s drift and restores masks without invoking private actions",
   async (fault) => {
@@ -199,6 +240,48 @@ it.each(["option", "status", "unknown-child", "overflow"])(
     const before = root.style.cssText;
     expect(controller.__trainerSetupSmoke("captureChatgptWide").ok).toBe(false);
     expect(root.style.cssText).toBe(before);
+    expect(
+      invoke.mock.calls.some(([command]) =>
+        ["chatgpt_connect", "chatgpt_action", "save_settings"].includes(
+          command,
+        ),
+      ),
+    ).toBe(false);
+  },
+);
+it.each([
+  "checkbox-text",
+  "checkbox-value",
+  "checkbox-raw-text",
+  "row-raw-text",
+  "selection",
+])(
+  "ChatGPT batch capture refuses %s drift without leaking or invoking private actions",
+  async (fault) => {
+    await chatgptFixture();
+    expect(controller.__trainerSetupSmoke("chatgptExercise").ok).toBe(true);
+    const checkbox = document.querySelector<HTMLInputElement>(
+      "#chatgpt-model input",
+    )!;
+    const label = checkbox.closest("label")!;
+    if (fault === "checkbox-text")
+      label.querySelector("span")!.firstChild!.textContent =
+        "private-unit-sentinel";
+    if (fault === "checkbox-value") checkbox.value = "private-unit-sentinel";
+    if (fault === "checkbox-raw-text") label.append("private-unit-sentinel");
+    if (fault === "row-raw-text")
+      document
+        .querySelector("#catalog-chatgpt-rows label")!
+        .append("private-unit-sentinel");
+    if (fault === "selection") checkbox.checked = true;
+    for (const action of [
+      "captureChatgptWide",
+      "captureChatgptNarrow",
+      "captureChatgptRowsNarrow",
+    ]) {
+      expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
+      controller.__trainerSetupSmokeRestore();
+    }
     expect(
       invoke.mock.calls.some(([command]) =>
         ["chatgpt_connect", "chatgpt_action", "save_settings"].includes(

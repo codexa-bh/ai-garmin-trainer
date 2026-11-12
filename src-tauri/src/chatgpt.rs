@@ -66,6 +66,11 @@ struct Store {
     records: crate::private_store::PinnedDirectory,
     _owner: crate::private_store::PinnedDirectory,
 }
+#[derive(Debug, PartialEq)]
+pub struct SignIn {
+    pub registration_id: String,
+    pub reused: bool,
+}
 pub struct Owner {
     store: Mutex<Store>,
     path: PathBuf,
@@ -465,7 +470,7 @@ impl Owner {
         consent: bool,
         epoch: u64,
         scope: Option<(&AtomicU64, u64)>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<SignIn, &'static str> {
         struct Attempt<'a>(&'a AtomicBool);
         impl Drop for Attempt<'_> {
             fn drop(&mut self) {
@@ -513,12 +518,13 @@ impl Owner {
         {
             return Err("Cancelled ChatGPT sign-in cannot replace credentials.");
         }
+        self.verify_store(&store)?;
         let id = registration
             .as_ref()
             .map(|r| r.id.clone())
             .unwrap_or_else(|| format!("registration_{}", uuid::Uuid::new_v4()));
-        // Preserve distinct registrations even when emails match; duplicate verified
-        // binding must be reauthorized deliberately through its existing entry.
+        // Reuse only a verified issuer/subject, never an email label. Do not
+        // transfer newly issued-client tokens into a saved client's credentials.
         let mut value = result;
         value["id"] = json!(id);
         value["epoch"] = json!(registration.as_ref().map(|r| r.epoch + 1).unwrap_or(1));
@@ -527,6 +533,13 @@ impl Owner {
         let mut connection: Registration = serde_json::from_value(value).map_err(|_| ERROR)?;
         if !plan(&connection) {
             connection.state = "identity-only".into();
+        }
+        if !valid(&Document {
+            version: 1,
+            host_id: store.document.host_id.clone(),
+            registrations: vec![connection.clone()],
+        }) {
+            return Err(ERROR);
         }
         if let Some(prior) = registration {
             if prior.issuer != connection.issuer
@@ -543,18 +556,30 @@ impl Owner {
                 .ok_or(ERROR)?;
             store.document.registrations[position] = connection;
         } else {
-            if store.document.registrations.iter().any(|r| {
-                r.issuer == connection.issuer
-                    && r.subject == connection.subject
-                    && r.client_id == connection.client_id
-            }) {
-                return Err("This ChatGPT registration already exists. Choose its saved entry to reconnect.");
+            let mut matches = store
+                .document
+                .registrations
+                .iter()
+                .filter(|r| r.issuer == connection.issuer && r.subject == connection.subject);
+            if let Some(saved) = matches.next() {
+                if matches.next().is_some() {
+                    return Err("This ChatGPT account has multiple saved registrations. Choose an existing entry; none were changed.");
+                }
+                let registration_id = saved.id.clone();
+                *self.pending_client.lock().map_err(|_| ERROR)? = None;
+                return Ok(SignIn {
+                    registration_id,
+                    reused: true,
+                });
             }
             store.document.registrations.push(connection);
         }
         self.publish(&mut store)?;
         *self.pending_client.lock().map_err(|_| ERROR)? = None;
-        Ok(())
+        Ok(SignIn {
+            registration_id: id,
+            reused: false,
+        })
     }
     fn renewable(
         &self,
@@ -1022,6 +1047,118 @@ mod tests {
         .unwrap();
     }
     #[test]
+    fn repeated_verified_account_reuses_saved_registration_without_transferring_new_client_tokens()
+    {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let prior = connected(&owner);
+        let before = crate::private_store::read(&owner.path).unwrap();
+        let metadata = owner.metadata();
+        for client in ["oaiapp_authored", "oaiapp_new_authored"] {
+            let mut next = prior.clone();
+            next.client_id = client.into();
+            next.email = "changed-label@example.invalid".into();
+            next.access_token = Some("new-client-private-access".into());
+            next.models.clear();
+            fake_helper(&fixture, json!({"ok":true,"result":next}), "");
+            let epoch = owner.reserve_sign_in().unwrap();
+            assert_eq!(
+                owner.sign_in(None, false, epoch, None),
+                Ok(SignIn {
+                    registration_id: prior.id.clone(),
+                    reused: true,
+                })
+            );
+            assert_eq!(before, crate::private_store::read(&owner.path).unwrap());
+            assert_eq!(metadata, owner.metadata());
+        }
+    }
+    #[test]
+    fn matching_email_does_not_merge_distinct_verified_subjects() {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let prior = connected(&owner);
+        let mut next = prior.clone();
+        next.subject = "another-authored-subject".into();
+        next.client_id = "oaiapp_another_authored".into();
+        fake_helper(&fixture, json!({"ok":true,"result":next}), "");
+        let epoch = owner.reserve_sign_in().unwrap();
+        let result = owner.sign_in(None, false, epoch, None).unwrap();
+        assert!(!result.reused);
+        assert_ne!(result.registration_id, prior.id);
+        let store = owner.store.lock().unwrap();
+        assert_eq!(store.document.registrations.len(), 2);
+        assert_eq!(store.document.registrations[0].client_id, prior.client_id);
+        assert_eq!(
+            store.document.registrations[0].access_token,
+            prior.access_token
+        );
+    }
+    #[test]
+    fn historical_duplicate_identities_require_explicit_selection_and_preserve_every_record() {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let prior = connected(&owner);
+        let mut second = prior.clone();
+        second.id = format!("registration_{}", uuid::Uuid::new_v4());
+        second.client_id = "oaiapp_second_authored".into();
+        {
+            let mut store = owner.store.lock().unwrap();
+            store.document.registrations.push(second);
+            owner.publish(&mut store).unwrap();
+        }
+        let before = crate::private_store::read(&owner.path).unwrap();
+        let mut next = prior;
+        next.client_id = "oaiapp_third_authored".into();
+        fake_helper(&fixture, json!({"ok":true,"result":next}), "");
+        let epoch = owner.reserve_sign_in().unwrap();
+        assert_eq!(owner.sign_in(None, false, epoch, None), Err("This ChatGPT account has multiple saved registrations. Choose an existing entry; none were changed."));
+        assert_eq!(before, crate::private_store::read(&owner.path).unwrap());
+        assert_eq!(owner.metadata().as_array().unwrap().len(), 2);
+    }
+    #[test]
+    fn reuse_never_bypasses_selected_client_or_registration_validation() {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let prior = connected(&owner);
+        let before = crate::private_store::read(&owner.path).unwrap();
+        let mut next = prior.clone();
+        next.client_id = "oaiapp_new_authored".into();
+        fake_helper(&fixture, json!({"ok":true,"result":next}), "");
+        let epoch = owner.reserve_sign_in().unwrap();
+        assert_eq!(
+            owner.sign_in(Some(prior.id.clone()), false, epoch, None),
+            Err(ERROR)
+        );
+        next.client_id = "dynamic_agent_client".into();
+        fake_helper(&fixture, json!({"ok":true,"result":next}), "");
+        let epoch = owner.reserve_sign_in().unwrap();
+        assert_eq!(owner.sign_in(None, false, epoch, None), Err(ERROR));
+        assert_eq!(before, crate::private_store::read(&owner.path).unwrap());
+    }
+    #[test]
+    fn duplicate_account_reuse_refuses_same_byte_store_replacement() {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let prior = connected(&owner);
+        let before = crate::private_store::read(&owner.path).unwrap();
+        let replacement = fixture.0.join("replacement");
+        fake_helper(
+            &fixture,
+            json!({"ok":true,"result":prior}),
+            &format!(
+                "/bin/cp {} {} && /bin/mv {} {}",
+                shell_quote(owner.path.to_str().unwrap()),
+                shell_quote(replacement.to_str().unwrap()),
+                shell_quote(replacement.to_str().unwrap()),
+                shell_quote(owner.path.to_str().unwrap()),
+            ),
+        );
+        let epoch = owner.reserve_sign_in().unwrap();
+        assert_eq!(owner.sign_in(None, false, epoch, None), Err(ERROR));
+        assert_eq!(before, crate::private_store::read(&owner.path).unwrap());
+    }
+    #[test]
     fn identity_diagnostics_are_closed_and_failed_sign_in_preserves_credentials() {
         let fixture = Fixture::new();
         let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
@@ -1166,40 +1303,42 @@ mod tests {
         assert!(!cancel_ui_generation(&generation, u64::MAX));
     }
     #[test]
-    fn late_success_cannot_commit_after_cancel_and_owned_child_reaping() {
+    fn late_success_cannot_commit_or_reuse_after_cancel_and_owned_child_reaping() {
         use std::ffi::CString;
         use std::os::unix::ffi::OsStrExt;
-        let fixture = Fixture::new();
-        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
-        let r = connected(&owner);
-        let before = crate::private_store::read(&owner.path).unwrap();
-        let fifo = fixture.0.join("release");
-        let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
-        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
-        fake_helper(
-            &fixture,
-            json!({"ok":true,"result":r}),
-            &format!(
-                "/bin/cat {} >/dev/null",
-                shell_quote(fifo.to_str().unwrap())
-            ),
-        );
-        let worker = owner.clone();
-        let id = r.id.clone();
-        let epoch = worker.reserve_sign_in().unwrap();
-        let thread = std::thread::spawn(move || worker.sign_in(Some(id), false, epoch, None));
-        wait_until(|| owner.auth_pid.load(Ordering::SeqCst) > 0);
-        let store = owner.store.lock().unwrap();
-        std::fs::write(&fifo, b"release authored result").unwrap();
-        wait_until(|| owner.auth_pid.load(Ordering::SeqCst) == 0);
-        owner.cancel();
-        drop(store);
-        assert!(thread.join().unwrap().is_err());
-        assert_eq!(crate::private_store::read(&owner.path).unwrap(), before);
-        assert_eq!(
-            owner.store.lock().unwrap().document.registrations[0].epoch,
-            1
-        );
+        for returning in [false, true] {
+            let fixture = Fixture::new();
+            let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+            let r = connected(&owner);
+            let before = crate::private_store::read(&owner.path).unwrap();
+            let fifo = fixture.0.join("release");
+            let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+            fake_helper(
+                &fixture,
+                json!({"ok":true,"result":r}),
+                &format!(
+                    "/bin/cat {} >/dev/null",
+                    shell_quote(fifo.to_str().unwrap())
+                ),
+            );
+            let worker = owner.clone();
+            let selected = returning.then_some(r.id.clone());
+            let epoch = worker.reserve_sign_in().unwrap();
+            let thread = std::thread::spawn(move || worker.sign_in(selected, false, epoch, None));
+            wait_until(|| owner.auth_pid.load(Ordering::SeqCst) > 0);
+            let store = owner.store.lock().unwrap();
+            std::fs::write(&fifo, b"release authored result").unwrap();
+            wait_until(|| owner.auth_pid.load(Ordering::SeqCst) == 0);
+            owner.cancel();
+            drop(store);
+            assert!(thread.join().unwrap().is_err());
+            assert_eq!(crate::private_store::read(&owner.path).unwrap(), before);
+            assert_eq!(
+                owner.store.lock().unwrap().document.registrations[0].epoch,
+                1
+            );
+        }
     }
     #[test]
     fn concurrent_requests_serialize_one_rotating_refresh_and_persist_replacement() {

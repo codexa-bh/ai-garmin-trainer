@@ -666,7 +666,11 @@ describe("trusted local desktop settings UI", () => {
           "#catalog-entries select:not([id$='-intent'])",
         ),
       ].map((select) => select.id),
-    ).toEqual(["chatgpt-account", "chatgpt-model"]);
+    ).toEqual(["chatgpt-account"]);
+    expect(
+      document.querySelector("#chatgpt-model-picker legend")?.textContent,
+    ).toBe("Available models");
+    expect(document.querySelector("#chatgpt-model")?.tagName).toBe("DIV");
     const key = input("OPENAI_API_KEY");
     fireEvent.input(key, { target: { value: "synthetic-draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Add DeepSeek model" }));

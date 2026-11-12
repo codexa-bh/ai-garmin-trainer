@@ -152,6 +152,7 @@ let chatgptAuthorizing = false;
 let chatgptContext = null;
 let chatgptRead = 0;
 let chatgptWelcomeRegistration = null;
+let chatgptSelectionMade = false;
 const chatgptWelcome = byId("chatgpt-welcome");
 function selectedChatgpt() {
   return chatgptConnections.find(
@@ -186,46 +187,104 @@ function chatgptEntryLabel(entry) {
       : entry.modelId;
   return `ChatGPT plan · ${index < 0 ? "unavailable account" : `account ${index + 1}`} / ${name}`;
 }
+function selectedChatgptModels() {
+  return [...byId("chatgpt-model").querySelectorAll("input:checked")]
+    .filter((input) => !input.disabled)
+    .map((input) => input.value);
+}
+function updateChatgptModelControls() {
+  const connection = selectedChatgpt();
+  const inputs = [...byId("chatgpt-model").querySelectorAll("input")];
+  for (const input of inputs) {
+    const added = catalog.entries.some(
+      (entry) =>
+        entry.provider === "chatgpt" &&
+        entry.registrationId === connection?.id &&
+        entry.modelId === input.value,
+    );
+    input.disabled =
+      catalogLocked() || chatgptPending || !connection?.planEnabled || added;
+    if (added) input.checked = false;
+    input.closest("label").querySelector(".chatgpt-model-note").textContent =
+      added ? "Already in catalog" : "";
+  }
+  const available = inputs.filter((input) => !input.disabled);
+  const selected = selectedChatgptModels();
+  const remaining = 32 - catalog.entries.length;
+  byId("chatgpt-select-all").disabled = available.length === 0;
+  byId("chatgpt-select-all").textContent =
+    available.length && selected.length === available.length
+      ? "Clear selection"
+      : "Select all";
+  byId("chatgpt-model-selection").textContent =
+    selected.length > remaining
+      ? `${selected.length} selected; only ${remaining} catalog slots available. Deselect models before adding; nothing will be added partially.`
+      : `${selected.length} selected${inputs.length ? "" : " — refresh models to load available choices"}.`;
+  byId("catalog-chatgpt-add").textContent = selected.length
+    ? `Add selected (${selected.length})`
+    : "Add selected";
+  byId("catalog-chatgpt-add").disabled =
+    catalogLocked() ||
+    chatgptPending ||
+    !connection?.planEnabled ||
+    !selected.length ||
+    selected.length > remaining;
+}
 function renderChatgpt(message) {
   const input = byId("chatgpt-account");
   const selected = input.value;
   input.replaceChildren(
-    ...[{ id: "", label: "Add a ChatGPT account" }, ...chatgptConnections].map(
-      (connection) => {
-        const option = document.createElement("option");
-        option.value = connection.id;
-        option.textContent = connection.label;
-        return option;
-      },
-    ),
-  );
-  input.value = chatgptConnections.some(
-    (connection) => connection.id === selected,
-  )
-    ? selected
-    : "";
-  const connection = selectedChatgpt();
-  const models = byId("chatgpt-model");
-  const previous =
-    models.dataset.registration === connection?.id ? models.value : "";
-  models.dataset.registration = connection?.id ?? "";
-  models.replaceChildren(
     ...[
-      { slug: "", displayName: "Choose a model" },
-      ...(connection?.models ?? []),
-    ].map((model) => {
+      {
+        id: "",
+        label: chatgptConnections.length
+          ? "Connect another account…"
+          : "Connect a ChatGPT account",
+      },
+      ...chatgptConnections,
+    ].map((connection) => {
       const option = document.createElement("option");
-      option.value = model.slug;
-      option.textContent = model.displayName;
+      option.value = connection.id;
+      option.textContent = connection.label;
       return option;
     }),
   );
-  models.value = connection?.models.some((model) => model.slug === previous)
-    ? previous
-    : "";
+  input.value =
+    (chatgptSelectionMade || chatgptConnections.length === 1) &&
+    chatgptConnections.some((connection) => connection.id === selected)
+      ? selected
+      : !chatgptSelectionMade && chatgptConnections.length === 1
+        ? chatgptConnections[0].id
+        : "";
+  const connection = selectedChatgpt();
+  const models = byId("chatgpt-model");
+  const previous = new Set(
+    models.dataset.registration === connection?.id
+      ? [...models.querySelectorAll("input:checked")].map(
+          (input) => input.value,
+        )
+      : [],
+  );
+  models.dataset.registration = connection?.id ?? "";
+  models.replaceChildren(
+    ...(connection?.models ?? []).map((model) => {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = model.slug;
+      checkbox.checked = previous.has(model.slug);
+      checkbox.addEventListener("change", updateChatgptModelControls);
+      const text = document.createElement("span");
+      text.textContent = model.displayName;
+      const note = document.createElement("span");
+      note.className = "chatgpt-model-note";
+      text.append(note);
+      label.append(checkbox, text);
+      return label;
+    }),
+  );
   input.disabled = busy || chatgptPending;
-  models.disabled = busy || chatgptPending || !connection?.planEnabled;
-  models.closest("label").hidden = !connection?.planEnabled;
+  byId("chatgpt-model-picker").hidden = !connection?.planEnabled;
   byId("catalog-chatgpt-add").hidden = !connection?.planEnabled;
   byId("chatgpt-models").hidden = !connection?.planEnabled;
   byId("chatgpt-disconnect").hidden = !connection;
@@ -250,12 +309,10 @@ function renderChatgpt(message) {
     (connection
       ? `${connection.label} — ${connection.state === "connected" ? "plan permission enabled" : connection.state === "identity-only" ? "signed in; plan permission required" : connection.state === "reconnect-required" ? "reconnect required" : connection.state === "unavailable" ? "connection state unavailable; reload before retry" : "disconnected"}.`
       : "Choose a saved registration or continue in your system browser.");
-  byId("catalog-chatgpt-add").disabled =
-    catalogLocked() ||
-    chatgptPending ||
-    catalog.entries.length >= 32 ||
-    !connection?.planEnabled ||
-    !models.value;
+  byId("chatgpt-connect").hidden = Boolean(
+    connection && connection.state === "connected",
+  );
+  updateChatgptModelControls();
   renderSummaryModels();
 }
 function showChatgptWelcome(
@@ -313,8 +370,9 @@ async function chatgptOperation(operation) {
       : "Updating the selected ChatGPT registration…",
   );
   let message;
+  let connectedRegistration = null;
   try {
-    message =
+    const result =
       operation === "connect" || operation === "consent"
         ? await invoke("chatgpt_connect", {
             registrationId: selection,
@@ -326,6 +384,11 @@ async function chatgptOperation(operation) {
             registrationId: selection,
             context,
           });
+    if (operation === "connect" || operation === "consent") {
+      connectedRegistration = result?.registrationId;
+      message =
+        result?.message ?? "Connection outcome unknown; reload saved state.";
+    } else message = result;
   } catch (error) {
     message =
       typeof error === "string"
@@ -341,10 +404,19 @@ async function chatgptOperation(operation) {
           (connection) => previous.get(connection.id) !== connection.epoch,
         );
         if (
+          chatgptConnections.some(
+            (connection) => connection.id === connectedRegistration,
+          )
+        ) {
+          byId("chatgpt-account").value = connectedRegistration;
+          chatgptSelectionMade = true;
+        } else if (
           (operation === "connect" || operation === "consent") &&
           changed.length === 1
-        )
+        ) {
           byId("chatgpt-account").value = changed[0].id;
+          chatgptSelectionMade = true;
+        }
         setBusy(false);
         renderChatgpt(message);
         byId("chatgpt-status").focus();
@@ -365,7 +437,9 @@ async function dismissChatgptWelcome() {
     chatgptWelcomeRegistration = null;
     chatgptWelcome.close();
     await refreshChatgpt();
-    byId("chatgpt-connect").focus();
+    byId(
+      byId("chatgpt-connect").hidden ? "chatgpt-models" : "chatgpt-connect",
+    ).focus();
   } catch {
     byId("chatgpt-status").textContent =
       "Disclosure acknowledgment was not saved. Reload connection status.";
@@ -385,8 +459,18 @@ chatgptWelcome.addEventListener("keydown", (event) => {
     byId("chatgpt-welcome-dismiss").focus();
   }
 });
-byId("chatgpt-account").addEventListener("change", () => renderChatgpt());
-byId("chatgpt-model").addEventListener("change", () => renderChatgpt());
+byId("chatgpt-account").addEventListener("change", () => {
+  chatgptSelectionMade = true;
+  renderChatgpt();
+});
+byId("chatgpt-select-all").addEventListener("click", () => {
+  const inputs = [...byId("chatgpt-model").querySelectorAll("input")].filter(
+    (input) => !input.disabled,
+  );
+  const select = inputs.some((input) => !input.checked);
+  for (const input of inputs) input.checked = select;
+  updateChatgptModelControls();
+});
 byId("chatgpt-connect").addEventListener("click", () =>
   chatgptOperation("connect"),
 );
@@ -435,10 +519,7 @@ function updateCatalogControls() {
   }
   for (const add of document.querySelectorAll(".catalog-add"))
     add.disabled = catalogLocked() || catalog.entries.length >= 32;
-  byId("catalog-chatgpt-add").disabled ||=
-    chatgptPending ||
-    !selectedChatgpt()?.planEnabled ||
-    !byId("chatgpt-model").value;
+  updateChatgptModelControls();
   byId("catalog-limit").textContent =
     `${catalog.entries.length}/32 models${catalog.entries.length >= 32 ? " — remove a model before adding another." : ""}`;
 }
@@ -624,17 +705,35 @@ for (const provider of Object.keys(providers)) {
   byId(`catalog-${provider}-add`).addEventListener("click", () => {
     if (catalogLocked() || catalog.entries.length >= 32) return;
     const connection = selectedChatgpt();
-    if (
-      provider === "chatgpt" &&
-      (!connection?.planEnabled || !byId("chatgpt-model").value)
-    )
+    if (provider === "chatgpt") {
+      const selected = new Set(selectedChatgptModels());
+      const models =
+        connection?.planEnabled && !chatgptPending
+          ? connection.models.filter(
+              (model) =>
+                selected.has(model.slug) &&
+                !catalog.entries.some(
+                  (entry) =>
+                    entry.provider === "chatgpt" &&
+                    entry.registrationId === connection.id &&
+                    entry.modelId === model.slug,
+                ),
+            )
+          : [];
+      if (!models.length || catalog.entries.length + models.length > 32) return;
+      const entries = models.map((model) => ({
+        id: `entry_${crypto.randomUUID()}`,
+        provider,
+        registrationId: connection.id,
+        modelId: model.slug,
+      }));
+      catalog.entries.push(...entries);
+      renderCatalog();
+      byId(`${entries[0].id}-modelId`).focus();
+      status.textContent = `${entries.length} ChatGPT models added to draft; Save settings to apply.`;
       return;
-    const entry = {
-      id: `entry_${crypto.randomUUID()}`,
-      provider,
-      modelId: provider === "chatgpt" ? byId("chatgpt-model").value : "",
-      ...(provider === "chatgpt" ? { registrationId: connection.id } : {}),
-    };
+    }
+    const entry = { id: `entry_${crypto.randomUUID()}`, provider, modelId: "" };
     catalog.entries.push(entry);
     renderCatalog();
     byId(`${entry.id}-modelId`).focus();
@@ -890,6 +989,7 @@ function showAuth(value) {
 async function refresh() {
   closeRestart();
   clearSecrets();
+  chatgptSelectionMade = false;
   try {
     const saved = await invoke("read_settings");
     if (!saved.chatCatalog || typeof saved.revision !== "string")

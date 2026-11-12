@@ -54,6 +54,7 @@ pub enum Action {
     ChatgptReset,
     CaptureChatgptWide,
     CaptureChatgptNarrow,
+    CaptureChatgptRowsNarrow,
     Close,
 }
 #[derive(Deserialize, Serialize)]
@@ -108,7 +109,7 @@ pub fn chatgpt_metadata(config: &Config) -> Result<Option<Value>, String> {
     let bytes = crate::private_store::read(&path).map_err(str::to_owned)?;
     chatgpt_marker(&bytes,&config.run_id)?;
     Ok(Some(json!([
-        {"id":"registration_11111111-1111-4111-8111-111111111111","epoch":1,"label":"synthetic@example.invalid · 1","state":"connected","planEnabled":true,"disclosed":true,"models":[{"slug":"synthetic/chatgpt:one","displayName":"Authored model one"}]},
+        {"id":"registration_11111111-1111-4111-8111-111111111111","epoch":1,"label":"synthetic@example.invalid · 1","state":"connected","planEnabled":true,"disclosed":true,"models":[{"slug":"synthetic/chatgpt:one","displayName":"Authored model one"},{"slug":"synthetic/chatgpt:three","displayName":"Authored model three"}]},
         {"id":"registration_22222222-2222-4222-8222-222222222222","epoch":1,"label":"synthetic@example.invalid · 2","state":"connected","planEnabled":true,"disclosed":true,"models":[{"slug":"synthetic/chatgpt:two","displayName":"Authored model two"}]}
     ])))
 }
@@ -283,11 +284,12 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             | Action::CaptureOpenrouter
             | Action::CaptureChatgptWide
             | Action::CaptureChatgptNarrow
+            | Action::CaptureChatgptRowsNarrow
             | Action::CaptureLive
             | Action::CaptureRestartWide
             | Action::CaptureRestartNarrow
     ) {
-        let boundary = if matches!(action, Action::CaptureChatgptWide | Action::CaptureChatgptNarrow) {
+        let boundary = if matches!(action, Action::CaptureChatgptWide | Action::CaptureChatgptNarrow | Action::CaptureChatgptRowsNarrow) {
             "geometry-preserving debug ChatGPT presentation with exact fictional secret-free accounts/models; synthetic DOM draft only, no credentials/auth/broker/provider/ordinary/trusted-input proof"
         } else if matches!(
             action,
@@ -331,10 +333,11 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
                 | Action::CapturePrivacy
                 | Action::CaptureChatgptWide
                 | Action::CaptureChatgptNarrow
+                | Action::CaptureChatgptRowsNarrow
         ) {
             let width = if matches!(
                 action,
-                Action::CaptureNarrow | Action::CaptureFooterNarrow | Action::CaptureRestartNarrow | Action::CaptureChatgptNarrow
+                Action::CaptureNarrow | Action::CaptureFooterNarrow | Action::CaptureRestartNarrow | Action::CaptureChatgptNarrow | Action::CaptureChatgptRowsNarrow
             ) {
                 420.0
             } else {
@@ -476,6 +479,7 @@ mod tests {
             "stopBackend",
             "chatgptExercise",
             "chatgptReset",
+            "captureChatgptRowsNarrow",
             "captureChatgptWide",
             "captureChatgptNarrow",
         ] {
