@@ -126,6 +126,10 @@
 .weekly-kpi-table th:first-child {
   width: 30%;
 }
+.weekly-kpi-table td.weekly-kpi-points {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 .weekly-kpi-table small {
   display: block;
   color: var(--muted);

@@ -205,7 +205,7 @@ export function WeeklyKpiScorecard({
                       <tr>
                         <th scope="row">{row.item.label} · combined points</th>
                         <td colSpan={2}>Saved before per-measurement points</td>
-                        <td>
+                        <td className="weekly-kpi-points">
                           {kpiPoints(
                             kpiAwarded(row.item, result(row.item), null),
                             row.available,
@@ -250,7 +250,7 @@ function ExtraRows({
         <tr key={`extra-${index}`}>
           <th scope="row">{extra.label}</th>
           <td colSpan={2}>{extra.explanation}</td>
-          <td>+{kpiNumber(extra.points)}</td>
+          <td className="weekly-kpi-points">+{kpiNumber(extra.points)}</td>
         </tr>
       ))}
     </>
@@ -315,7 +315,7 @@ function TrackRow({
           </details>
         ) : null}
       </td>
-      <td>
+      <td className="weekly-kpi-points">
         {available === null
           ? "—"
           : kpiPoints(kpiAwarded(item, result, track.key), available)}
