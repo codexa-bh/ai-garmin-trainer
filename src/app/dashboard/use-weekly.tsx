@@ -15,7 +15,6 @@ export function useWeeklyFeature() {
     from: string;
     through: string;
   } | null>(null);
-  const [progressTrack, setProgressTrack] = useState("");
   const [basis, setBasis] = useState("");
   const [items, setItems] = useState<WeeklySummary[]>([]);
   const [next, setNext] = useState<string | null>(null);
@@ -156,8 +155,6 @@ export function useWeeklyFeature() {
     kpis,
     progress,
     progressRange,
-    progressTrack,
-    setProgressTrack,
     loadSet: (setId: string) => load(mode, week, undefined, false, setId),
     loadProgress: (from: string, through: string) =>
       load("progress", undefined, undefined, false, undefined, {

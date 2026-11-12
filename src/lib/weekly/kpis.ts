@@ -23,6 +23,9 @@ function text(value: unknown, max = 800, empty = false): value is string {
     value.length <= max
   );
 }
+function optionalText(value: unknown, empty = false): boolean {
+  return value === undefined || text(value, 800, empty);
+}
 function id(value: unknown): value is string {
   return (
     typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(value)
@@ -52,13 +55,15 @@ function evidence(value: KpiEvidence) {
       value.references.length <= 8 &&
       value.references.every((v) => text(v, 160)),
   );
-  requireValid(text(value.qualification) && text(value.limitations, 800, true));
+  requireValid(
+    optionalText(value.qualification) && optionalText(value.limitations, true),
+  );
 }
 export function validateKpiSet(set: KpiSetInput) {
   requireValid(
     set &&
       ["planned", "adaptation", "review-defined"].includes(set.origin) &&
-      text(set.provenance),
+      optionalText(set.provenance),
   );
   requireValid(
     Array.isArray(set.items) && set.items.length > 0 && set.items.length <= 12,
@@ -72,10 +77,10 @@ export function validateKpiSet(set: KpiSetInput) {
       id(item.id) &&
         id(item.conceptId) &&
         text(item.label, 160) &&
-        text(item.definition) &&
-        text(item.selection) &&
-        text(item.evidenceRequired) &&
-        text(item.scoring, 800, item.availablePoints === null) &&
+        optionalText(item.definition) &&
+        optionalText(item.selection) &&
+        optionalText(item.evidenceRequired) &&
+        optionalText(item.scoring, item.availablePoints === null) &&
         points(item.availablePoints),
     );
     requireValid(
@@ -139,7 +144,7 @@ export function validateKpiAssessment(
   requireValid(
     ["supported", "provisional", "unavailable"].includes(assessment.status) &&
       points(assessment.totalPoints) &&
-      text(assessment.explanation),
+      optionalText(assessment.explanation),
   );
   requireValid(
     Array.isArray(assessment.items) &&
@@ -151,7 +156,7 @@ export function validateKpiAssessment(
     requireValid(item, "unknown_kpi_item");
     requireValid(
       points(result.awardedPoints) &&
-        text(result.explanation) &&
+        optionalText(result.explanation) &&
         ["supported", "provisional", "unavailable"].includes(result.status),
     );
     requireValid(

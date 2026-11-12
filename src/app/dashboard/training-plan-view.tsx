@@ -80,14 +80,16 @@ export function TrainingPlanView({
             ) : null}
           </div>
           <div className="training-plan-actions">
-            <button
-              type="button"
-              className="chrome-button"
-              onClick={() => runInBackground(loadTrainingPlan("manual"))}
-              disabled={trainingPlanState === "loading" || trainingPlanSaving}
-            >
-              Reload
-            </button>
+            {trainingPlanState === "error" ? (
+              <button
+                type="button"
+                className="chrome-button"
+                onClick={() => runInBackground(loadTrainingPlan("manual"))}
+                disabled={trainingPlanSaving}
+              >
+                Retry
+              </button>
+            ) : null}
             {!trainingPlanEditing ? (
               <button
                 type="button"
@@ -169,7 +171,7 @@ export function TrainingPlanView({
           </article>
         ) : trainingPlanState === "error" ? (
           <p className="empty-chat">
-            Training Plan could not be loaded. Try Reload.
+            Training Plan could not be loaded. Retry when ready.
           </p>
         ) : (
           <div className="empty-chat empty-chat-hero">

@@ -2912,19 +2912,85 @@
   function weeklyKpiObservation(action) {
     const region = weeklyKpiRegion();
     const text = region?.textContent ?? "";
+    const progress = !!region?.classList.contains("weekly-kpi-progress");
+    const panel = region?.closest(".weekly-plan-panel");
+    const pane = panel?.querySelector(".training-plan-content");
+    const charts = [...(region?.querySelectorAll(".weekly-chart-block") ?? [])];
+    const notes = [
+      ...(pane?.querySelectorAll("details.training-plan-report") ?? []),
+    ];
+    const history =
+      panel?.querySelector('.weekly-tabs [aria-pressed="true"]')
+        ?.textContent === "History";
+    const last = charts.at(-1)?.getBoundingClientRect();
+    const bounds = pane?.getBoundingClientRect();
     return {
       ok: true,
       action,
       trustedInput: false,
       ready: !!region,
-      progress: !!region?.classList.contains("weekly-kpi-progress"),
+      progress,
       aboveHundred: text.includes("112.5") || text.includes("140.63%"),
       unknown: text.includes("Unknown"),
       gaps: text.includes("Gaps are not zero") && text.includes("Not assessed"),
       contained:
         !!region &&
         document.documentElement.scrollWidth <= innerWidth &&
-        region.getBoundingClientRect().right <= innerWidth,
+        region.getBoundingClientRect().right <= innerWidth &&
+        (!bounds || bounds.bottom <= innerHeight),
+      allCharts:
+        progress &&
+        charts.length === 5 &&
+        charts
+          .map((chart) => chart.querySelector("figcaption")?.textContent)
+          .join("|") ===
+          [
+            "Weekly KPI achievement (%)",
+            "T0319 authored sessions · sessions",
+            "T0319 authored sessions · minutes",
+            "T0321 authored context · load (index)",
+            "T0321 authored context · recovery (index)",
+          ].join("|"),
+      chartsSized:
+        progress &&
+        charts.length === 5 &&
+        charts.every((chart) => {
+          const svg = chart.querySelector("svg");
+          const box = svg?.getBoundingClientRect();
+          return (
+            !!box &&
+            box.width >= 200 &&
+            box.height >= 200 &&
+            !!svg.querySelector(".recharts-cartesian-grid")
+          );
+        }),
+      notesCorrect:
+        !progress &&
+        notes.length === 2 &&
+        (history
+          ? notes[0]
+              .querySelector("summary")
+              ?.textContent.startsWith("Review notes") &&
+            notes.every((note) => !note.open)
+          : notes[0]
+              .querySelector("summary")
+              ?.textContent.startsWith("Plan notes") && notes[0].open),
+      bottomVisible:
+        !!pane &&
+        !!bounds &&
+        !!last &&
+        ["auto", "scroll"].includes(getComputedStyle(pane).overflowY) &&
+        Math.abs(pane.scrollTop + pane.clientHeight - pane.scrollHeight) <= 2 &&
+        last.bottom <= bounds.bottom &&
+        last.top < bounds.bottom &&
+        last.bottom > bounds.top &&
+        bounds.bottom <= innerHeight,
+      viewportHeight: innerHeight,
+      paneHeight: pane?.clientHeight ?? 0,
+      paneScrollHeight: pane?.scrollHeight ?? 0,
+      paneScrollTop: pane?.scrollTop ?? 0,
+      lastChartBottom: last?.bottom ?? 0,
+      paneBottom: bounds?.bottom ?? 0,
     };
   }
   async function weeklyKpiAction(command) {
@@ -2936,18 +3002,20 @@
         "current",
         "progress",
         "previous",
-        "measurement",
-        "reload",
+        "next",
+        "notes",
+        "middle",
+        "bottom",
         "frame",
       ].includes(command.action)
     )
       throw Error("Unsupported weekly KPI action/mode");
     restore();
-    if (["current", "progress", "reload"].includes(command.action)) {
+    if (["current", "progress", "next"].includes(command.action)) {
       const label = {
         current: "Current week",
         progress: "Progress",
-        reload: "Reload weekly plans",
+        next: "Next week",
       }[command.action];
       const buttons = [
         ...document.querySelectorAll(".weekly-plan-panel button"),
@@ -2955,43 +3023,40 @@
       if (buttons.length !== 1 || buttons[0].disabled)
         throw Error("Weekly KPI control unavailable");
       buttons[0].click();
-    } else if (command.action === "frame") {
+    } else if (
+      ["frame", "notes", "middle", "bottom"].includes(command.action)
+    ) {
       const root = weeklyKpiRegion();
-      if (!root) throw Error("Canonical weekly region unavailable");
-      const individual = root.querySelector(".weekly-individual-kpis");
-      const focus = individual?.querySelector("select")?.value
-        ? individual
-        : root;
-      const region =
-        innerWidth <= 600
-          ? (focus.querySelector(".weekly-progress-chart") ?? focus)
-          : focus;
-      for (let node = region.parentElement; node; node = node.parentElement)
-        if (
-          ["auto", "scroll"].includes(getComputedStyle(node).overflowY) &&
-          node.scrollHeight > node.clientHeight
-        )
-          node.scrollTop +=
-            region.getBoundingClientRect().top -
-            node.getBoundingClientRect().top -
-            8;
-    } else if (command.action === "measurement") {
-      const region = weeklyKpiRegion();
-      const details = region?.querySelector(".weekly-individual-kpis");
-      const select = details?.querySelector("select");
+      const pane = root
+        ?.closest(".weekly-plan-panel")
+        ?.querySelector(".training-plan-content");
       if (
-        !details ||
-        !select ||
-        ![...select.options].some(
-          (option) =>
-            option.value === "authored-sessions" &&
-            option.textContent === "T0319 authored sessions",
-        )
+        !root ||
+        !pane ||
+        !["auto", "scroll"].includes(getComputedStyle(pane).overflowY)
       )
-        throw Error("Authored current-plan measurement unavailable");
-      if (!details.open) details.querySelector("summary").click();
-      select.value = "authored-sessions";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+        throw Error("User-scrollable weekly pane required");
+      if (command.action === "bottom") {
+        if (!root.classList.contains("weekly-kpi-progress"))
+          throw Error("Progress required for bottom proof");
+        pane.scrollTop = pane.scrollHeight;
+      } else if (command.action === "middle") {
+        const chart = root.querySelectorAll(".weekly-chart-block")[1];
+        if (!chart) throw Error("Authored middle chart unavailable");
+        pane.scrollTop +=
+          chart.getBoundingClientRect().top -
+          pane.getBoundingClientRect().top -
+          8;
+      } else if (command.action === "notes") {
+        const notes = pane.querySelector("details.training-plan-report");
+        if (!notes) throw Error("Authored notes unavailable");
+        pane.scrollTop +=
+          notes.getBoundingClientRect().top -
+          pane.getBoundingClientRect().top -
+          8;
+      } else {
+        pane.scrollTop = 0;
+      }
     } else if (command.action === "previous") {
       if (!weeklyKpiRegion()) throw Error("Authored weekly origin required");
       const history = [
@@ -3024,12 +3089,11 @@
     // Reveal only exact authored/static text. Source prose, arbitrary values and
     // unrelated/adjacent DOM remain hidden, preserving actual layout/geometry.
     if (region.classList.contains("weekly-kpi-progress")) {
-      const selected = region.querySelector(
-        ".weekly-individual-kpis select",
-      )?.value;
       if (
-        region.querySelectorAll(".weekly-progress-chart").length !==
-        (selected ? 2 : 1)
+        !weeklyKpiObservation("observe").allCharts ||
+        region.querySelectorAll(".weekly-progress-chart").length !== 5 ||
+        region.querySelector("select") ||
+        !region.querySelector(".weekly-individual-kpis")?.open
       )
         throw Error("Authored weekly chart surface missing");
     }
@@ -3039,7 +3103,7 @@
     monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
     const civil = (date) =>
       `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    for (let offset = 0; offset < 12; offset++) {
+    for (let offset = -1; offset < 12; offset++) {
       const date = new Date(monday);
       date.setDate(date.getDate() - offset * 7);
       const end = new Date(date);
@@ -3048,7 +3112,10 @@
       dates.add(civil(date).slice(5));
       ranges.add(`${civil(date)} – ${civil(end)}`);
     }
+    const upcoming = new Date(monday);
+    upcoming.setDate(upcoming.getDate() + 7);
     const safe = new Set([
+      `Latest established plan · ${civil(upcoming)}. Dashed: target. Solid: recorded actual.`,
       "Weekly KPIs",
       "Plan notes · T0321 authored plan",
       "Weekly achievement",
@@ -3066,9 +3133,13 @@
       "T0321 authored context · recoveryMonitoring",
       "7.5 index",
       "—",
-      "Selected session count",
-      "Dashed: target. Solid: recorded actual (sessions).",
-      `Choices from the latest established plan · ${civil(monday)}`,
+      "Weekly KPI achievement (%)",
+
+      "T0321 authored context · load (index)",
+      "T0321 authored context · recovery (index)",
+      `Latest established plan · ${civil(monday)}. Dashed: target. Solid: recorded actual.`,
+      "Independently authored coaching notes: keep sessions comfortable and take breaks when needed.",
+      "Authored review notes: saved evidence remains provisional.",
       "≥ 3 sessions",
       "≥ 5 sessions",
       "≥ 1 h 30 min",
@@ -3084,13 +3155,9 @@
       "0 / 100 points · 0%",
       "Authored relevant partial credit without double counting",
       "Provisional",
-      "Scoring and evidence",
       "Saved points against each week’s latest plan — not fitness improvement. Gaps are not zero.",
       "Load range (up to 12 weeks)",
       "Individual KPIs",
-      "Saved measurement values",
-      "Choose a KPI",
-      "Choose a saved week",
       "Not assessed — not a zero.",
       "Not assessed",
       "No saved achievement scores in this range.",
@@ -3100,7 +3167,6 @@
       "Progress",
       "History",
       "Back to chat",
-      "Reload weekly plans",
       "Training Plan",
       ...ranges,
     ]);
@@ -3115,7 +3181,9 @@
     }
     const panel = region.closest(".weekly-plan-panel");
     const nodes = [
-      ...panel.querySelectorAll("h1,h2,h3,p,th,td,td > div,summary,button"),
+      ...panel.querySelectorAll(
+        "h1,h2,h3,p,th,td,td > div,summary,button,figcaption",
+      ),
     ].filter((el) => visible(el));
     for (const el of nodes) {
       const text = el.textContent;
@@ -3155,13 +3223,7 @@
           parent.namespaceURI !== "http://www.w3.org/2000/svg" &&
           !(
             parent.tagName === "LABEL" &&
-            [
-              "Individual KPI",
-              "Measurement",
-              "Week details",
-              "From Monday",
-              "Through Monday",
-            ].includes(own)
+            ["From Monday", "Through Monday"].includes(own)
           )
         )
           throw Error("Private direct weekly ancestor refused");
@@ -3174,37 +3236,8 @@
         .map((node) => node.textContent)
         .join("")
         .trim();
-      const select = label.querySelector("select");
       const input = label.querySelector("input[type='date']");
-      const optionSafe = (text) =>
-        [
-          "Choose a KPI",
-          "Choose a saved week",
-          "T0319 authored sessions",
-          "T0321 authored context",
-          "sessions",
-          "minutes",
-          "load",
-          "recovery",
-        ].includes(text) ||
-        [...dates].some(
-          (date) =>
-            text === `${date} · 0%` ||
-            text === `${date} · 37.5%` ||
-            text === `${date} · 140.63%` ||
-            text === `${date} · Not assessed`,
-        );
       if (
-        select &&
-        ["Individual KPI", "Measurement", "Week details"].includes(own)
-      ) {
-        if (
-          ![...select.options].every((option) => optionSafe(option.textContent))
-        )
-          throw Error("Noncanonical authored weekly selector");
-        mark(label);
-        for (const el of label.querySelectorAll("*")) mark(el);
-      } else if (
         input &&
         ["From Monday", "Through Monday"].includes(own) &&
         dates.has(input.value)
@@ -3213,7 +3246,12 @@
         mark(input);
       }
     }
-    const numeric = new Set([0, 2, 4, 6, 8, 40, 80, 120, 140.63]);
+    if (region.querySelector("select"))
+      throw Error("Rejected weekly selector present");
+    const numeric = new Set([
+      0, 0.25, 0.5, 0.75, 1, 2, 4, 6, 8, 25, 40, 50, 75, 80, 100, 120, 140.63,
+      160,
+    ]);
     for (const chart of region.querySelectorAll(".weekly-progress-chart")) {
       // Only fixed authored numeric ticks and current twelve civil weeks; no tooltip wrappers.
       if (
@@ -3244,15 +3282,18 @@
       el.removeAttribute("data-smoke-reveal");
   }
   const viewport = (preset) => {
-    const width =
-      preset === "wide"
-        ? 1280
-        : preset === "medium"
-          ? 1024
-          : preset === "narrow"
-            ? 420
-            : 0;
-    return width && innerWidth === width && innerHeight === 850;
+    const width = ["wide", "wide-short"].includes(preset)
+      ? 1280
+      : preset === "medium"
+        ? 1024
+        : ["narrow", "narrow-short"].includes(preset)
+          ? 420
+          : 0;
+    return (
+      width &&
+      innerWidth === width &&
+      innerHeight === (preset.endsWith("-short") ? 600 : 850)
+    );
   };
   async function maskedView(command) {
     if (

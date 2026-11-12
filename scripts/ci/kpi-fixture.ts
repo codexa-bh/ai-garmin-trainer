@@ -200,6 +200,15 @@ export function seedWeeklyKpis(db: Database.Database) {
     week,
     JSON.stringify(state),
   );
+  // Future presentation is authored independently of personal/default state.
+  db.prepare("insert into weekly_artifact values (?,?)").run(
+    addDays(week, 7),
+    JSON.stringify({ ...record, weekStart: addDays(week, 7) }),
+  );
+  db.prepare("insert into weekly_kpi values (?,?)").run(
+    addDays(week, 7),
+    JSON.stringify({ ...state, assessments: [] }),
+  );
   const previous = JSON.parse(JSON.stringify(state)) as WeeklyKpis;
   previous.revision = "T0319-previous";
   previous.latestId = previous.originalId;

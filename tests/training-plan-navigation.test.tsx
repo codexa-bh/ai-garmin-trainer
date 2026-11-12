@@ -85,8 +85,6 @@ it.each([
           kpis: null,
           progress: null,
           progressRange: null,
-          progressTrack: "",
-          setProgressTrack: vi.fn(),
           loadSet: load,
           loadProgress: load,
           record,
@@ -110,18 +108,22 @@ it.each([
         General
       </WeeklyPlanView>,
     );
-    expect(container.querySelectorAll("details")).toHaveLength(1);
+    expect(container.querySelectorAll("details")).toHaveLength(latest ? 2 : 1);
     expect(
       screen.queryByText(
         /Original commitment|first saved plan, retained|latest plan is identical/,
       ),
     ).toBeNull();
     if (latest)
-      expect(screen.getByRole("heading", { name: latest.title })).toBeTruthy();
+      expect(
+        screen.getByText(`Plan notes · ${latest.title}`).closest("details")
+          ?.open,
+      ).toBe(true);
     else
       expect(screen.getByText(/No narrative weekly plan saved/)).toBeTruthy();
     expect(
-      container.querySelector("details")?.hasAttribute("open") ?? false,
+      container.querySelector("details:last-of-type")?.hasAttribute("open") ??
+        false,
     ).toBe(false);
   },
 );
@@ -484,11 +486,12 @@ it("returns from empty Upcoming and Progress to the device-current week on expli
   const open = () =>
     fireEvent.click(screen.getByRole("button", { name: "Training Plan" }));
   open();
-  await screen.findByRole("heading", { name: "Current saved plan" });
+  await screen.findByText("Plan notes · Current saved plan");
   fireEvent.click(screen.getByRole("button", { name: "Next week" }));
   await screen.findByText("2026-11-16 – 2026-11-22");
   await screen.findByText(/No narrative weekly plan saved/);
-  fireEvent.click(screen.getByRole("button", { name: "Reload weekly plans" }));
+  expect(screen.queryByRole("button", { name: /Reload/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Next week" }));
   await waitFor(() =>
     expect(requests.at(-1)).toContain("weekStart=2026-11-16"),
   );
@@ -499,13 +502,13 @@ it("returns from empty Upcoming and Progress to the device-current week on expli
       .getAttribute("aria-pressed"),
   ).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "Current week" }));
-  await screen.findByRole("heading", { name: "Current saved plan" });
+  await screen.findByText("Plan notes · Current saved plan");
   expect(screen.getByRole("heading", { name: "Current week" })).toBeTruthy();
   expect(requests.at(-1)).toContain("weekStart=2026-11-09");
   fireEvent.click(screen.getByRole("button", { name: "Progress" }));
   await screen.findByRole("heading", { name: "Weekly achievement" });
   fireEvent.click(screen.getByRole("button", { name: "Current week" }));
-  await screen.findByRole("heading", { name: "Current saved plan" });
+  await screen.findByText("Plan notes · Current saved plan");
   expect(requests.at(-1)).toContain("weekStart=2026-11-09");
   expect(
     screen
@@ -542,4 +545,129 @@ it("retains historical civil selection on calendar rollover and advances Upcomin
   });
   expect(result.current.mode).toBe("current");
   expect(result.current.week).toBe("2026-11-02");
+});
+
+it("defaults notes by view, preserves mounted toggles, and closes narrative-only History with Review first", () => {
+  const load = vi.fn(async () => {});
+  const record: WeeklyRecord = {
+    weekStart: "2026-11-09",
+    timeZone: "UTC",
+    revision: "r",
+    original: doc,
+    latest: doc,
+    review: { ...doc, asOf: doc.savedAt, planRevision: doc.revision },
+  };
+  const weekly = {
+    mode: "current" as const,
+    record,
+    week: record.weekStart,
+    basis: "UTC",
+    kpis: null,
+    progress: null,
+    progressRange: null,
+    items: [],
+    next: null,
+    state: "loaded" as const,
+    load,
+    refresh: load,
+    loadSet: load,
+    loadProgress: load,
+  };
+  const props = {
+    close: vi.fn(),
+    closeRef: createRef<HTMLButtonElement>(),
+    openGeneral: load,
+    run: (work: Promise<unknown>) => {
+      work.catch(() => {
+        throw new Error("Unexpected notes action failure");
+      });
+    },
+    children: null,
+  };
+  const { container, rerender } = render(
+    <WeeklyPlanView {...props} weekly={weekly} />,
+  );
+  const plan = screen
+    .getByText(`Plan notes · ${doc.title}`)
+    .closest("details")!;
+  expect(plan.open).toBe(true);
+  plan.open = false;
+  rerender(<WeeklyPlanView {...props} weekly={{ ...weekly }} />);
+  expect(plan.open).toBe(false);
+  rerender(
+    <WeeklyPlanView {...props} weekly={{ ...weekly, mode: "upcoming" }} />,
+  );
+  expect(
+    screen.getByText(`Plan notes · ${doc.title}`).closest("details")?.open,
+  ).toBe(true);
+  rerender(
+    <WeeklyPlanView {...props} weekly={{ ...weekly, mode: "history" }} />,
+  );
+  expect(
+    [...container.querySelectorAll("details.training-plan-report")].every(
+      (detail) => !(detail as HTMLDetailsElement).open,
+    ),
+  ).toBe(true);
+  expect(
+    [...container.querySelectorAll("summary")].map((node) => node.textContent),
+  ).toEqual([
+    expect.stringContaining("Review notes"),
+    expect.stringContaining("Plan notes"),
+  ]);
+  expect(screen.queryByRole("button", { name: /Reload|Retry/ })).toBeNull();
+  expect(load).not.toHaveBeenCalled();
+});
+
+it("offers Retry only after failure and rereads the same historical civil week without writes", async () => {
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(response({}, 500))
+    .mockResolvedValue(
+      response({
+        record: {
+          weekStart: "2026-09-21",
+          timeZone: "UTC",
+          revision: "r",
+          original: doc,
+          latest: doc,
+          review: null,
+        },
+      }),
+    );
+  vi.stubGlobal("fetch", fetch);
+  function View() {
+    const weekly = useWeeklyFeature();
+    const run = (work: Promise<unknown>) => {
+      work.catch(() => {
+        throw new Error("Unexpected retry action failure");
+      });
+    };
+    return (
+      <>
+        <button onClick={() => run(weekly.load("history", "2026-09-21"))}>
+          Read historical week
+        </button>
+        <WeeklyPlanView
+          weekly={weekly}
+          close={() => {}}
+          closeRef={createRef()}
+          openGeneral={async () => {}}
+          run={run}
+        >
+          {null}
+        </WeeklyPlanView>
+      </>
+    );
+  }
+  render(<View />);
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  fireEvent.click(screen.getByText("Read historical week"));
+  fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+  await screen.findByText(`Plan notes · ${doc.title}`);
+  expect(screen.queryByRole("button", { name: /Retry|Reload/ })).toBeNull();
+  expect(fetch).toHaveBeenCalledTimes(2);
+  for (const [url, init] of fetch.mock.calls) {
+    expect(url).toContain("weekStart=2026-09-21");
+    expect(init?.method ?? "GET").toBe("GET");
+  }
 });

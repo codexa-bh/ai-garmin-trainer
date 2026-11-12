@@ -27,10 +27,43 @@
 }
 
 .weekly-plan-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.weekly-plan-panel > .training-plan-panel {
+  flex: 1;
+  height: auto;
+}
+.weekly-plan-panel .activity-dashboard-header h1 {
+  font-size: clamp(22px, 2.5vw, 30px);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.weekly-plan-panel .training-plan-content > * {
+  flex-shrink: 0;
+}
+.weekly-plan-panel .training-plan-report {
+  width: 100%;
+  margin: 0;
+}
+.weekly-chart-block {
+  margin: 20px 0;
   min-width: 0;
 }
+.weekly-chart-block figcaption {
+  font-weight: 600;
+}
+.weekly-chart-block:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
 .weekly-tabs {
-  padding: 16px;
+  padding: 12px 16px;
+  flex: none;
   flex-wrap: wrap;
 }
 .weekly-tabs [aria-pressed="true"] {
@@ -41,7 +74,7 @@
   overflow-wrap: anywhere;
 }
 .weekly-plan-panel details {
-  margin: 18px 0;
+  margin: 8px 0;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -64,6 +97,10 @@
 .weekly-kpis > h2,
 .weekly-kpi-progress > h2 {
   margin: 0 0 6px;
+  font-size: 1.15rem;
+}
+.weekly-plan-panel .training-plan-content > h2 {
+  font-size: 1.15rem;
 }
 .weekly-kpi-table thead th {
   white-space: nowrap;
@@ -108,9 +145,6 @@
   font-size: 0.85em;
   color: var(--muted);
 }
-.weekly-progress-detail {
-  margin-block: 16px;
-}
 .weekly-progress-controls {
   display: flex;
   flex-wrap: wrap;
@@ -118,14 +152,11 @@
   gap: 12px;
   margin-block: 16px;
 }
-.weekly-progress-controls label,
-.weekly-progress-detail label,
-.weekly-individual-kpis label {
+.weekly-progress-controls label {
   display: grid;
   gap: 6px;
   max-width: 100%;
 }
-.weekly-kpi-progress select,
 .weekly-progress-controls input {
   max-width: 100%;
   min-width: 0;
@@ -135,11 +166,6 @@
   border-radius: 8px;
   padding: 10px;
   font: inherit;
-}
-.weekly-individual-kpis select {
-  width: min(100%, 30rem);
-  font-size: 0.95rem;
-  font-weight: 400;
 }
 .weekly-progress-chart {
   height: 260px;

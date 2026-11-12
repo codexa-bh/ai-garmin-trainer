@@ -131,7 +131,7 @@ it("renders one numeric measurement per row with a shared allocation, zero/unkno
   expect(screen.queryByRole("combobox")).toBeNull();
   expect(screen.getByText(/0 sessions/)).toBeTruthy();
   expect(screen.getByText("Unknown")).toBeTruthy();
-  fireEvent.click(screen.getByText("Scoring and evidence"));
+  expect(screen.queryByText("Scoring and evidence")).toBeNull();
   expect(screen.getByText(/Missing duration, not zero/)).toBeTruthy();
   expect(screen.queryByRole("textbox")).toBeNull();
   expect(
@@ -160,14 +160,13 @@ it("keeps boolean conditions out of normal target/actual rows without modifying 
     within(table).queryByRole("rowheader", { name: /qualification/i }),
   ).toBeNull();
   expect(screen.getByText("0 / 100").getAttribute("rowspan")).toBe("2");
-  expect(
-    screen.getByText("Authored saved condition, not a numeric measurement.", {
-      exact: false,
-    }),
-  ).toBeTruthy();
+  expect(screen.queryByText("Scoring and evidence")).toBeNull();
+  expect(data.sets[0].items[0].tracks.at(-1)?.meaning).toBe(
+    "Authored saved condition, not a numeric measurement.",
+  );
   expect(JSON.stringify(data)).toBe(original);
 });
-it("retains condition-only legacy allocations in evidence and total, not as boolean KPI rows", () => {
+it("retains condition-only legacy allocations in a concise summary and total, not as boolean KPI rows", () => {
   const data = structuredClone(sample);
   const item = data.sets[0].items[0];
   item.label = "Recorded condition";
@@ -191,9 +190,11 @@ it("retains condition-only legacy allocations in evidence and total, not as bool
   expect(within(table).queryByText(/^(Yes|No)$/)).toBeNull();
   expect(within(table).getByText("100 / 100 points · 100%")).toBeTruthy();
   expect(
-    screen.getByText("Saved conditional allocation: 100 / 100 points"),
+    screen.getByText("Recorded condition: 100 / 100 conditional points.", {
+      exact: false,
+    }),
   ).toBeTruthy();
-  expect(screen.getByText(/Non-numeric scoring conditions/)).toBeTruthy();
+  expect(screen.queryByText("Scoring and evidence")).toBeNull();
   expect(JSON.stringify(data)).toBe(original);
 });
 it("keeps scored rows including zero allocation before monitoring, preserving each group's stored order", () => {
@@ -411,7 +412,8 @@ it("reads progress/weekly selection without writes, retains range and ignores st
     "value",
     "2026-11-02",
   );
-  fireEvent.click(screen.getByRole("button", { name: "Reload weekly plans" }));
+  expect(screen.queryByRole("button", { name: /Reload/ })).toBeNull();
+  fireEvent.submit(screen.getByLabelText("From Monday").closest("form")!);
   await waitFor(() =>
     expect(requests.filter((r) => r.includes("from=2026-11-02"))).toHaveLength(
       2,

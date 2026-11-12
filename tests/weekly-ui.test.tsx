@@ -217,7 +217,18 @@ it("renders saved narrative safely without redundant chat actions", () => {
   expect(
     screen.queryByText(/Original commitment|latest plan is identical/),
   ).toBeNull();
-  expect(container.querySelectorAll("details")).toHaveLength(1);
+  expect(container.querySelectorAll("details")).toHaveLength(2);
+  expect(
+    [...container.querySelectorAll("details")].every((detail) => !detail.open),
+  ).toBe(true);
+  expect(
+    [...container.querySelectorAll("summary")].map(
+      (summary) => summary.textContent,
+    ),
+  ).toEqual([
+    expect.stringContaining("Review notes"),
+    expect.stringContaining("Plan notes"),
+  ]);
   expect(container.querySelector("script")).toBeNull();
   expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
   expect(container.querySelector("textarea")).toBeNull();

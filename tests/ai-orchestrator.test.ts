@@ -86,7 +86,8 @@ const replaceTrainingPlan = vi.fn(
     revisedAt: "2026-09-01T19:00:00.000Z",
   }),
 );
-vi.mock("ai", () => ({
+vi.mock("ai", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("ai")>()),
   generateText,
   tool: (definition: unknown) => definition,
 }));

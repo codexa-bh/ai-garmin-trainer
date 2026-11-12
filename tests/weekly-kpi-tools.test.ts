@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { z } from "zod";
+import { trainerToolContracts } from "../src/lib/ai/tool-contracts";
+import type { KpiChange } from "../src/lib/weekly/kpi-contracts";
 import Database from "better-sqlite3";
 import { migrateDatabase } from "../src/lib/db/migrations";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
@@ -263,4 +266,144 @@ it("honors controlled no-save behavior and rejects superseded turns through actu
   ]);
   expect(stale.result.toolSteps.at(-1)?.reason).toBe("weekly_turn_superseded");
   expect(app.readKpis(weekStart).revision).toBeNull();
+});
+
+it.each(["saveWeeklyKpis", "saveWeeklyDocuments"] as const)(
+  "parses minimal %s commitments/assessments/corrections, reconstructs SQLite and preserves carried rich legacy bytes",
+  async (toolName) => {
+    const minimalCommitment = {
+      origin: "planned" as const,
+      items: commitment.items.map(
+        ({ id, conceptId, label, tracks, availablePoints }) => ({
+          id,
+          conceptId,
+          label,
+          tracks,
+          availablePoints,
+        }),
+      ),
+    };
+    const minimalAssessment = {
+      setId: "new",
+      asOf: assessment.asOf,
+      status: assessment.status,
+      items: assessment.items.map(
+        ({ itemId, actuals, awardedPoints, status, evidence }) => ({
+          itemId,
+          actuals,
+          awardedPoints,
+          status,
+          evidence: {
+            origin: evidence.origin,
+            references: evidence.references,
+          },
+        }),
+      ),
+      extras: [],
+      totalPoints: 100,
+    };
+    const save = async (value: KpiChange) =>
+      run([
+        [{ toolName: "getWeeklyKpis", input: { weekStart } }],
+        [
+          {
+            toolName,
+            input:
+              toolName === "saveWeeklyKpis"
+                ? value
+                : { changes: [], kpiChanges: [value] },
+          },
+        ],
+      ]);
+    // Legacy rich parsed input remains supported and is not normalized away.
+    expect((await save(change)).result.toolSteps.at(-1)?.status).toBe(
+      "succeeded",
+    );
+    const rich = structuredClone(app.readKpis(weekStart).sets[0]);
+    expect(
+      (
+        await save({
+          weekStart,
+          commitment: { ...minimalCommitment, origin: "adaptation" },
+          assessments: [minimalAssessment],
+        })
+      ).result.toolSteps.at(-1)?.status,
+    ).toBe("succeeded");
+    const read = app.readKpis(weekStart);
+    expect(read.sets[0]).toEqual(rich);
+    expect(read.sets[1]).not.toHaveProperty("definition");
+    expect(read.sets[1].items[0]).not.toHaveProperty("scoring");
+    expect(
+      read.assessments.find((value) => value.setId === read.latestId),
+    ).not.toHaveProperty("explanation");
+    expect(
+      (
+        await save({
+          weekStart,
+          assessments: [
+            {
+              ...minimalAssessment,
+              setId: read.latestId!,
+              totalPoints: 0,
+              items: minimalAssessment.items.map((item) => ({
+                ...item,
+                awardedPoints: 0,
+              })),
+            },
+          ],
+        })
+      ).result.toolSteps.at(-1)?.status,
+    ).toBe("succeeded");
+    const stored = db
+      .prepare("select state_json from weekly_kpi where week_start=?")
+      .get(weekStart);
+    const restarted = new Database(db.serialize());
+    try {
+      const reopened = createWeekly(
+        createWeeklyStore(() => restarted),
+        () => now,
+        () => `restarted-${++id}`,
+      );
+      expect(reopened.readKpis(weekStart)).toEqual(app.readKpis(weekStart));
+      expect(reopened.readKpis(weekStart).sets[0]).toEqual(rich);
+      expect(
+        reopened
+          .readKpis(weekStart)
+          .assessments.find((value) => value.setId === read.latestId)
+          ?.totalPoints,
+      ).toBe(0);
+      expect(
+        restarted
+          .prepare("select state_json from weekly_kpi where week_start=?")
+          .get(weekStart),
+      ).toEqual(stored);
+      expect(
+        db.prepare("select count(*) as n from weekly_kpi_track").get(),
+      ).toEqual({ n: 2 });
+    } finally {
+      restarted.close();
+    }
+  },
+);
+
+it("does not advertise obsolete prose in either model schema and explicitly instructs minimal generation", () => {
+  for (const toolName of ["saveWeeklyKpis", "saveWeeklyDocuments"] as const) {
+    const schema = JSON.stringify(
+      z.toJSONSchema(trainerToolContracts[toolName].inputSchema),
+    );
+    for (const field of [
+      "definition",
+      "selection",
+      "evidenceRequired",
+      "provenance",
+    ])
+      expect(schema).not.toContain(`"${field}":`);
+    expect(schema).toContain("additionalProperties");
+  }
+  expect(TRAINER_SYSTEM_PROMPT).toContain(
+    "Do not generate duplicate definition",
+  );
+  expect(trainerToolContracts.saveWeeklyKpis.description).toContain(
+    "Use minimal structured inputs",
+  );
 });

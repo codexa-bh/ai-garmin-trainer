@@ -6,7 +6,8 @@ const { generateText, runReadOnlySql } = vi.hoisted(() => ({
   generateText: vi.fn(),
   runReadOnlySql: vi.fn(),
 }));
-vi.mock("ai", () => ({
+vi.mock("ai", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("ai")>()),
   generateText,
   tool: (definition: unknown) => definition,
 }));

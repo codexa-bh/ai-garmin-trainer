@@ -221,7 +221,10 @@ impl Command {
             | Self::Capture {}
             | Self::Sync { .. }
             | Self::HistorySettings { .. } => true,
-            Self::SetViewport { preset } => ["wide", "medium", "narrow"].contains(&preset.as_str()),
+            Self::SetViewport { preset } => {
+                ["wide", "medium", "narrow", "wide-short", "narrow-short"]
+                    .contains(&preset.as_str())
+            }
             Self::CaptureView { view, preset } => {
                 [
                     "trainer",
@@ -238,15 +241,12 @@ impl Command {
                 ]
                 .contains(&view.as_str())
                     && (["wide", "narrow"].contains(&preset.as_str())
-                        || (view == "terrain" && preset == "medium"))
+                        || (view == "terrain" && preset == "medium")
+                        || (view == "weeklyKpis"
+                            && ["wide-short", "narrow-short"].contains(&preset.as_str())))
             }
             Self::WeeklyKpis { action } => [
-                "observe",
-                "current",
-                "progress",
-                "previous",
-                "measurement",
-                "reload",
+                "observe", "current", "progress", "previous", "next", "notes", "middle", "bottom",
                 "frame",
             ]
             .contains(&action.as_str()),
@@ -651,9 +651,9 @@ fn renderer_diagnostic(_app: &tauri::AppHandle) -> Value {
 }
 fn viewport_size(diagnostic: &Value, preset: &str) -> Option<tauri::LogicalSize<f64>> {
     let width = match preset {
-        "wide" => 1280.0,
+        "wide" | "wide-short" => 1280.0,
         "medium" => 1024.0,
-        "narrow" => 420.0,
+        "narrow" | "narrow-short" => 420.0,
         _ => return None,
     };
     let dx = diagnostic["nativeWidth"].as_f64()? - diagnostic["width"].as_f64()?;
@@ -662,7 +662,12 @@ fn viewport_size(diagnostic: &Value, preset: &str) -> Option<tauri::LogicalSize<
     if !(0.0..=64.0).contains(&dx) || !(0.0..=64.0).contains(&dy) {
         return None;
     }
-    Some(tauri::LogicalSize::new(width + dx, 850.0 + dy))
+    let height = if preset.ends_with("-short") {
+        600.0
+    } else {
+        850.0
+    };
+    Some(tauri::LogicalSize::new(width + dx, height + dy))
 }
 fn exact_keys(value: &Value, keys: &[&str]) -> bool {
     value
@@ -1023,14 +1028,32 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 "unknown",
                 "gaps",
                 "contained",
+                "allCharts",
+                "chartsSized",
+                "notesCorrect",
+                "bottomVisible",
+            ];
+            let geometry = [
+                "viewportHeight",
+                "paneHeight",
+                "paneScrollHeight",
+                "paneScrollTop",
+                "lastChartBottom",
+                "paneBottom",
             ];
             let mut keys = vec!["ok", "action", "trustedInput"];
             keys.extend(booleans);
+            keys.extend(geometry);
             ordinary
                 && exact_keys(value, &keys)
                 && value["action"].as_str() == Some(action)
                 && value["trustedInput"] == false
                 && booleans.iter().all(|key| value[*key].is_boolean())
+                && geometry.iter().all(|key| {
+                    value[*key]
+                        .as_f64()
+                        .is_some_and(|v| v.is_finite() && (-100000.0..=100000.0).contains(&v))
+                })
         }
         Command::ActivityLabels { action } => {
             let booleans = ["choicesReady", "ready", "contained"];
@@ -1511,6 +1534,18 @@ mod tests {
         assert_eq!((medium.width, medium.height), (1024.0, 882.0));
         let narrow = viewport_size(&current, "narrow").unwrap();
         assert_eq!((narrow.width, narrow.height), (420.0, 882.0));
+        let short = viewport_size(&current, "narrow-short").unwrap();
+        assert_eq!((short.width, short.height), (420.0, 632.0));
+        assert!(Command::CaptureView {
+            view: "weeklyKpis".into(),
+            preset: "wide-short".into()
+        }
+        .valid());
+        assert!(!Command::CaptureView {
+            view: "trainer".into(),
+            preset: "wide-short".into()
+        }
+        .valid());
         assert!(viewport_size(&current, "arbitrary").is_none());
         assert!(viewport_size(
             &json!({"width":1280,"height":100,"nativeWidth":1280.0,"nativeHeight":850.0}),
@@ -1871,12 +1906,7 @@ mod tests {
     #[test]
     fn weekly_kpis_are_closed_ordinary_boolean_only() {
         for action in [
-            "observe",
-            "current",
-            "progress",
-            "previous",
-            "measurement",
-            "reload",
+            "observe", "current", "progress", "previous", "next", "notes", "middle", "bottom",
             "frame",
         ] {
             let command = Command::WeeklyKpis {
@@ -1884,7 +1914,7 @@ mod tests {
             };
             assert!(command.valid());
             assert!(!config().permits(&command));
-            let result = json!({"ok":true,"action":action,"trustedInput":false,"ready":true,"progress":false,"aboveHundred":true,"unknown":true,"gaps":false,"contained":true});
+            let result = json!({"ok":true,"action":action,"trustedInput":false,"ready":true,"progress":false,"aboveHundred":true,"unknown":true,"gaps":false,"contained":true,"allCharts":true,"chartsSized":true,"notesCorrect":true,"bottomVisible":false,"viewportHeight":600,"paneHeight":400,"paneScrollHeight":2000,"paneScrollTop":0,"lastChartBottom":2000,"paneBottom":600});
             assert!(super::safe_result(&command, &result, true));
             assert!(!safe_result(&command, &result));
             for (key, value) in [
@@ -1898,7 +1928,15 @@ mod tests {
                 assert!(!super::safe_result(&command, &invalid, true));
             }
         }
-        for action in ["save", "original", "latest", "settings", "arbitrary-week"] {
+        for action in [
+            "save",
+            "original",
+            "latest",
+            "settings",
+            "arbitrary-week",
+            "measurement",
+            "reload",
+        ] {
             assert!(!Command::WeeklyKpis {
                 action: action.into()
             }

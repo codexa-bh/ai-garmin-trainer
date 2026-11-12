@@ -180,9 +180,12 @@ admission, actual-attempt counters, synthesis reserve, prior-pass plan snapshots
 explicit context disposed in `finally`. No scheduling, coaching or retry policy
 changes are hidden in this seam.
 
-`tool-contracts.ts` owns unchanged Zod schemas/defaults and neutral descriptions;
-`provider-tool-definitions.ts` alone wraps them with SDK `tool`. Selection and
-handlers consume neutral contracts. `tool-ports.ts` accepts narrow guarded feature
+`tool-contracts.ts` owns strict Zod parsing/defaults and neutral descriptions.
+Weekly generation shapes derive from these schemas but omit obsolete prose;
+legacy parsing accepts rich saved-call fields without making models generate them.
+`provider-tool-definitions.ts` alone wraps with SDK `tool`/`asSchema`, retaining
+minimal advertised JSON and the same strict legacy-compatible parser in SDK
+validation. Selection and handlers consume neutral contracts. `tool-ports.ts` accepts narrow guarded feature
 capabilities from analytics, local-data/Garmin and Training Plan applications;
 `tool-composition.ts` binds their existing lazy facades. Pure math stays local.
 The dispatcher retains bounded exception handling; plan compare/write stays

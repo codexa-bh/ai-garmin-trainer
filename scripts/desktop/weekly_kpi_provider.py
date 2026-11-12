@@ -9,11 +9,9 @@ NO_SAVE = 'Authored draft only; no structured changes saved.'
 
 
 def commitment(origin='planned'):
-    return {'origin': origin, 'provenance': 'T0319 authored synthetic agreement', 'items': [{
+    return {'origin': origin, 'items': [{
         'id': 'sessions', 'conceptId': 'authored-sessions', 'label': 'T0319 authored sessions',
-        'definition': 'Fictional selected outdoor sessions', 'selection': 'Count and duration describe the same sessions; no duplicate credit',
-        'evidenceRequired': 'Authored user report, not Garmin verification', 'availablePoints': 100 if origin == 'planned' else 80,
-        'scoring': 'One model-defined allocation; full achievement is 100 points',
+        'availablePoints': 100 if origin == 'planned' else 80,
         'tracks': [{'key': 'count', 'kind': 'numeric', 'unit': 'sessions', 'meaning': 'Selected session count', 'target': {'comparator': 'at-least', 'value': 3 if origin == 'planned' else 5}},
                    {'key': 'duration', 'kind': 'numeric', 'unit': 'minutes', 'meaning': 'Selected session duration', 'target': {'comparator': 'at-least', 'value': 90}}]}]}
 
@@ -67,11 +65,11 @@ def reused_adaptation(messages):
 
 
 def assessment(set_id, correction=False):
-    evidence = {'origin': 'user-report', 'references': ['T0319 synthetic report'], 'qualification': 'Qualification remains provisional', 'limitations': 'Duration unavailable, not zero'}
+    evidence = {'origin': 'user-report', 'references': ['T0319 synthetic report']}
     return {'setId': set_id, 'asOf': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'), 'status': 'provisional',
-            'totalPoints': 25 if correction else 112.5, 'explanation': 'Authored explained correction' if correction else 'Authored explained additional credit; no automatic award',
+            'totalPoints': 25 if correction else 112.5,
             'items': [{'itemId': 'sessions', 'actuals': [{'trackKey': 'count', 'value': 0 if correction else 4}, {'trackKey': 'duration', 'value': None}],
-                       'awardedPoints': 12.5 if correction else 100, 'explanation': 'Authored bounded interpretation, not automatic evaluation', 'status': 'provisional', 'evidence': evidence}],
+                       'awardedPoints': 12.5 if correction else 100, 'status': 'provisional', 'evidence': evidence}],
             'extras': [{'label': 'Authored additional work', 'points': 12.5, 'explanation': 'Explained relevance without double counting', 'evidence': deepcopy(evidence)}]}
 
 
@@ -90,6 +88,8 @@ def response(index, body, week):
         name, args = 'saveWeeklyKpis', {'weekStart': week, 'assessments': [assessment(latest_id(body['messages']), index == 11)]}
     else:
         raise ValueError('Unexpected authored KPI provider call')
+    if index in (4, 11):
+        name, args = 'saveWeeklyDocuments', {'changes': [], 'kpiChanges': [args]}
     if name not in [tool.get('function', {}).get('name') for tool in body.get('tools', [])]:
         raise ValueError('Actual structured weekly tool schema missing')
     return {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'kpi-' + str(index), 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}

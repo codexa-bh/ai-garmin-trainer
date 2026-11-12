@@ -477,11 +477,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
                       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
                       "type": "string",
                     },
-                    "explanation": {
-                      "maxLength": 800,
-                      "minLength": 1,
-                      "type": "string",
-                    },
                     "extras": {
                       "items": {
                         "additionalProperties": false,
@@ -490,6 +485,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
                             "additionalProperties": false,
                             "properties": {
                               "limitations": {
+                                "description": "Only actual missing coverage or uncertainty; omit boilerplate.",
                                 "maxLength": 800,
                                 "type": "string",
                               },
@@ -503,6 +499,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
                                 "type": "string",
                               },
                               "qualification": {
+                                "description": "Only a necessary selection/uncertainty fact not already expressed by status or references.",
                                 "maxLength": 800,
                                 "minLength": 1,
                                 "type": "string",
@@ -520,8 +517,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
                             "required": [
                               "origin",
                               "references",
-                              "qualification",
-                              "limitations",
                             ],
                             "type": "object",
                           },
@@ -596,6 +591,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
                             "additionalProperties": false,
                             "properties": {
                               "limitations": {
+                                "description": "Only actual missing coverage or uncertainty; omit boilerplate.",
                                 "maxLength": 800,
                                 "type": "string",
                               },
@@ -609,6 +605,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
                                 "type": "string",
                               },
                               "qualification": {
+                                "description": "Only a necessary selection/uncertainty fact not already expressed by status or references.",
                                 "maxLength": 800,
                                 "minLength": 1,
                                 "type": "string",
@@ -626,12 +623,11 @@ exports[`trainer tool registry schemas > preserves every provider description an
                             "required": [
                               "origin",
                               "references",
-                              "qualification",
-                              "limitations",
                             ],
                             "type": "object",
                           },
                           "explanation": {
+                            "description": "Only a necessary substitution or partial-credit rationale not expressed by structured values.",
                             "maxLength": 800,
                             "minLength": 1,
                             "type": "string",
@@ -653,7 +649,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
                           "itemId",
                           "actuals",
                           "awardedPoints",
-                          "explanation",
                           "status",
                           "evidence",
                         ],
@@ -695,7 +690,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
                     "items",
                     "extras",
                     "totalPoints",
-                    "explanation",
                   ],
                   "type": "object",
                 },
@@ -725,16 +719,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$",
                           "type": "string",
                         },
-                        "definition": {
-                          "maxLength": 800,
-                          "minLength": 1,
-                          "type": "string",
-                        },
-                        "evidenceRequired": {
-                          "maxLength": 800,
-                          "minLength": 1,
-                          "type": "string",
-                        },
                         "id": {
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$",
                           "type": "string",
@@ -745,12 +729,8 @@ exports[`trainer tool registry schemas > preserves every provider description an
                           "type": "string",
                         },
                         "scoring": {
+                          "description": "Only a non-obvious agreed partial-credit/substitution rule needed for later assessment; omit target/points restatements.",
                           "maxLength": 800,
-                          "type": "string",
-                        },
-                        "selection": {
-                          "maxLength": 800,
-                          "minLength": 1,
                           "type": "string",
                         },
                         "tracks": {
@@ -832,12 +812,8 @@ exports[`trainer tool registry schemas > preserves every provider description an
                         "id",
                         "conceptId",
                         "label",
-                        "definition",
-                        "selection",
-                        "evidenceRequired",
                         "tracks",
                         "availablePoints",
-                        "scoring",
                       ],
                       "type": "object",
                     },
@@ -853,15 +829,9 @@ exports[`trainer tool registry schemas > preserves every provider description an
                     ],
                     "type": "string",
                   },
-                  "provenance": {
-                    "maxLength": 800,
-                    "minLength": 1,
-                    "type": "string",
-                  },
                 },
                 "required": [
                   "origin",
-                  "provenance",
                   "items",
                 ],
                 "type": "object",
@@ -888,7 +858,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
     },
   },
   "saveWeeklyKpis": {
-    "description": "Save/adapt weekly structured commitments or assess/correct exact saved baselines through chat. One shared weekly save attempt per turn, including saveWeeklyDocuments; use its kpiChanges for atomic related narrative/KPI changes. Read current header and full original/latest before commitment edits; read each assessed set first. Planned/adapted commitments are current/upcoming only; review-defined is explicitly provisional interpretation of a recorded legacy plan, never prior agreement. Assessment setId=new binds to the same-operation new set. First discover the latest established plan via context latestPlanWeek or getKpiProgress.latestPlan and read its complete KPIs. Reuse equivalent canonical conceptId/track key, exact kind/unit/meaning and consistent display name; labels or target changes alone are not new identities. Use a new identity for genuinely changed selection/qualification/unit semantics. Assess only the exact latestPlanSetId for current plan achievement, not an obsolete target set. Compound tracks share one item allocation. Targets/points are independently nullable; actual null means unknown, not zero. Persist model-explained scores/extra credit including above100 without clamping; code does not evaluate. Garmin claims still require successful target-week SQL/math; retain cutoff, origins, qualification and limitations. Respect no-save; never retry uncertain writes.",
+    "description": "Save/adapt weekly structured commitments or assess/correct exact saved baselines through chat. One shared weekly save attempt per turn, including saveWeeklyDocuments; use its kpiChanges for atomic related narrative/KPI changes. Read current header and full original/latest before commitment edits; read each assessed set first. Planned/adapted commitments are current/upcoming only; review-defined is explicitly provisional interpretation of a recorded legacy plan, never prior agreement. Assessment setId=new binds to the same-operation new set. First discover the latest established plan via context latestPlanWeek or getKpiProgress.latestPlan and read its complete KPIs. Reuse equivalent canonical conceptId/track key, exact kind/unit/meaning and consistent display name; labels or target changes alone are not new identities. Use a new identity for genuinely changed selection/qualification/unit semantics. Assess only the exact latestPlanSetId for current plan achievement, not an obsolete target set. Compound tracks share one item allocation. Targets/points are independently nullable; actual null means unknown, not zero. Persist scores/extra credit including above100 without clamping; code does not evaluate. Use minimal structured inputs: omit duplicate definitions, selection/evidence essays, provenance and overall explanation. Include concise scoring only for a non-obvious agreed rule, result explanation only for a real substitution/partial-credit rationale, and extra explanation for why its credit is relevant. Garmin claims still require successful target-week SQL/math; retain cutoff, origins and references, adding qualification/limitations only for actual uncertainty not already expressed by status. Respect no-save; never retry uncertain writes.",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -902,11 +872,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
                 "type": "string",
               },
-              "explanation": {
-                "maxLength": 800,
-                "minLength": 1,
-                "type": "string",
-              },
               "extras": {
                 "items": {
                   "additionalProperties": false,
@@ -915,6 +880,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
                       "additionalProperties": false,
                       "properties": {
                         "limitations": {
+                          "description": "Only actual missing coverage or uncertainty; omit boilerplate.",
                           "maxLength": 800,
                           "type": "string",
                         },
@@ -928,6 +894,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
                           "type": "string",
                         },
                         "qualification": {
+                          "description": "Only a necessary selection/uncertainty fact not already expressed by status or references.",
                           "maxLength": 800,
                           "minLength": 1,
                           "type": "string",
@@ -945,8 +912,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
                       "required": [
                         "origin",
                         "references",
-                        "qualification",
-                        "limitations",
                       ],
                       "type": "object",
                     },
@@ -1021,6 +986,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
                       "additionalProperties": false,
                       "properties": {
                         "limitations": {
+                          "description": "Only actual missing coverage or uncertainty; omit boilerplate.",
                           "maxLength": 800,
                           "type": "string",
                         },
@@ -1034,6 +1000,7 @@ exports[`trainer tool registry schemas > preserves every provider description an
                           "type": "string",
                         },
                         "qualification": {
+                          "description": "Only a necessary selection/uncertainty fact not already expressed by status or references.",
                           "maxLength": 800,
                           "minLength": 1,
                           "type": "string",
@@ -1051,12 +1018,11 @@ exports[`trainer tool registry schemas > preserves every provider description an
                       "required": [
                         "origin",
                         "references",
-                        "qualification",
-                        "limitations",
                       ],
                       "type": "object",
                     },
                     "explanation": {
+                      "description": "Only a necessary substitution or partial-credit rationale not expressed by structured values.",
                       "maxLength": 800,
                       "minLength": 1,
                       "type": "string",
@@ -1078,7 +1044,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
                     "itemId",
                     "actuals",
                     "awardedPoints",
-                    "explanation",
                     "status",
                     "evidence",
                   ],
@@ -1120,7 +1085,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
               "items",
               "extras",
               "totalPoints",
-              "explanation",
             ],
             "type": "object",
           },
@@ -1150,16 +1114,6 @@ exports[`trainer tool registry schemas > preserves every provider description an
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$",
                     "type": "string",
                   },
-                  "definition": {
-                    "maxLength": 800,
-                    "minLength": 1,
-                    "type": "string",
-                  },
-                  "evidenceRequired": {
-                    "maxLength": 800,
-                    "minLength": 1,
-                    "type": "string",
-                  },
                   "id": {
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$",
                     "type": "string",
@@ -1170,12 +1124,8 @@ exports[`trainer tool registry schemas > preserves every provider description an
                     "type": "string",
                   },
                   "scoring": {
+                    "description": "Only a non-obvious agreed partial-credit/substitution rule needed for later assessment; omit target/points restatements.",
                     "maxLength": 800,
-                    "type": "string",
-                  },
-                  "selection": {
-                    "maxLength": 800,
-                    "minLength": 1,
                     "type": "string",
                   },
                   "tracks": {
@@ -1257,12 +1207,8 @@ exports[`trainer tool registry schemas > preserves every provider description an
                   "id",
                   "conceptId",
                   "label",
-                  "definition",
-                  "selection",
-                  "evidenceRequired",
                   "tracks",
                   "availablePoints",
-                  "scoring",
                 ],
                 "type": "object",
               },
@@ -1278,15 +1224,9 @@ exports[`trainer tool registry schemas > preserves every provider description an
               ],
               "type": "string",
             },
-            "provenance": {
-              "maxLength": 800,
-              "minLength": 1,
-              "type": "string",
-            },
           },
           "required": [
             "origin",
-            "provenance",
             "items",
           ],
           "type": "object",
