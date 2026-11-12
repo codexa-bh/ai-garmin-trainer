@@ -288,12 +288,13 @@ def chatgpt_presentation(run, captures):
         raise ValueError('ChatGPT account/model isolation or draft exercise failed')
     for size in ['Wide', 'Narrow']:
         captures.append({'scenario': 'chatgpt-authored-account-draft-' + size.lower(), **run.command({'type': 'settings', 'action': 'captureChatgpt' + size})})
+    captures.append({'scenario': 'chatgpt-authored-batch-rows-narrow', **run.command({'type': 'settings', 'action': 'captureChatgptRowsNarrow'})})
     run.command({'type': 'settings', 'action': 'chatgptReset'})
     wait_settings(run, lambda value: value['chatgptReady'] and not value['chatgptExercised'], 'ChatGPT draft removed before ordinary Save')
     after = run.http('/identity')
     if any(before[key] != after[key] for key in ['pid', 'origin', 'database']):
         raise ValueError('ChatGPT presentation switched a backend or database')
-    return {'fictionalMetadataOnly': True, 'accountModelIsolation': True, 'noFirstModelSelection': True, 'draftResetWithoutSave': True, 'privateActionsDenied': True, 'activeBackendUnchanged': True}
+    return {'fictionalMetadataOnly': True, 'accountModelIsolation': True, 'noFirstModelSelection': True, 'draftResetWithoutSave': True, 'batchAddition': True, 'duplicatePairsDisabled': True, 'privateActionsDenied': True, 'activeBackendUnchanged': True}
 
 
 @resources.invocation

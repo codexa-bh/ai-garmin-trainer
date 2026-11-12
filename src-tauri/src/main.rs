@@ -108,7 +108,7 @@ fn chatgpt_context(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Resul
     Ok(app.state::<Runtime>().chatgpt_context.load(Ordering::SeqCst))
 }
 #[tauri::command]
-async fn chatgpt_connect(app: tauri::AppHandle, window: tauri::WebviewWindow, registration_id: Option<String>, consent: bool, context:u64) -> Result<String, String> {
+async fn chatgpt_connect(app: tauri::AppHandle, window: tauri::WebviewWindow, registration_id: Option<String>, consent: bool, context:u64) -> Result<serde_json::Value, String> {
     private_setup_only(&window)?;
     if !window.is_visible().unwrap_or(false) { return Err("Open Settings before signing in.".into()); }
     let (owner,epoch,reserved) = {
@@ -123,9 +123,15 @@ async fn chatgpt_connect(app: tauri::AppHandle, window: tauri::WebviewWindow, re
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
         if runtime.quitting.load(Ordering::SeqCst) { owner.stop(); }
-        owner.sign_in(registration_id, consent,epoch,Some((&runtime.chatgpt_context,reserved))).map_err(str::to_owned)?;
-        if runtime.chatgpt_context.load(Ordering::SeqCst) != reserved || runtime.quitting.load(Ordering::SeqCst) { return Ok("Connection committed; live activation deferred after the Settings context closed. Reopen to inspect saved state.".into()); }
-        Ok(apply_chatgpt_connections(&app, &owner))
+        let result = owner.sign_in(registration_id, consent,epoch,Some((&runtime.chatgpt_context,reserved))).map_err(str::to_owned)?;
+        let message = if runtime.chatgpt_context.load(Ordering::SeqCst) != reserved || runtime.quitting.load(Ordering::SeqCst) {
+            "Connection outcome settled after Settings closed. Reopen to inspect saved state.".into()
+        } else if result.reused {
+            "This account is already saved; its existing registration is selected. Existing credentials and permissions are unchanged.".into()
+        } else {
+            apply_chatgpt_connections(&app, &owner)
+        };
+        Ok(serde_json::json!({"registrationId":result.registration_id,"message":message}))
     }).await.map_err(|_| "ChatGPT sign-in interrupted; reload committed state.".to_string())?
 }
 #[tauri::command]

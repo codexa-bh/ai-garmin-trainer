@@ -71,7 +71,7 @@
               </p>
               <label
                 >Saved registration<select id="chatgpt-account">
-                  <option value="">Add a ChatGPT account</option>
+                  <option value="">Connect a ChatGPT account</option>
                 </select></label
               >
               <div class="actions">
@@ -103,18 +103,28 @@
                 </button>
                 <button type="button" id="chatgpt-usage">Manage usage</button>
               </div>
-              <label
-                >Account model<select id="chatgpt-model">
-                  <option value="">Choose a model</option>
-                </select></label
-              >
+              <fieldset id="chatgpt-model-picker" hidden>
+                <legend>Available models</legend>
+                <p class="helper">
+                  Choose one or more models. Nothing is selected automatically.
+                </p>
+                <div id="chatgpt-model" class="chatgpt-model-choices"></div>
+                <button type="button" id="chatgpt-select-all">
+                  Select all
+                </button>
+                <p
+                  id="chatgpt-model-selection"
+                  class="helper"
+                  role="status"
+                ></p>
+              </fieldset>
               <button
                 type="button"
                 class="catalog-add"
                 id="catalog-chatgpt-add"
-                aria-label="Add ChatGPT plan model"
+                aria-label="Add selected ChatGPT plan models"
               >
-                Add model
+                Add selected
               </button>
               <div id="catalog-chatgpt-rows"></div>
               <details>

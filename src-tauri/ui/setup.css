@@ -255,6 +255,37 @@ summary {
 #chatgpt-status {
   color: var(--focus);
 }
+#chatgpt-model-picker {
+  min-width: 0;
+  padding: 10px;
+  margin: 12px 0;
+}
+.chatgpt-model-choices {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 8px 0;
+}
+.chatgpt-model-choices label {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 0;
+}
+.chatgpt-model-choices input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+}
+.chatgpt-model-choices label > span {
+  min-width: 0;
+  color: var(--text);
+  font-size: 16px;
+}
+.chatgpt-model-note {
+  display: block;
+}
 #chatgpt-welcome {
   box-sizing: border-box;
   width: min(440px, calc(100% - 32px));
