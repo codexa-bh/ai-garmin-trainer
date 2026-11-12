@@ -7,6 +7,7 @@ import {
   renderHook,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -107,9 +108,21 @@ it("formats duration fractions and finite display values without changing stored
   expect(kpiValue(Number.POSITIVE_INFINITY, "m")).toBe("Unknown");
 });
 
-it("renders one compact compound KPI grid with zero/unknown, saved above100 total and accessible qualification", () => {
+it("renders one numeric measurement per row with a shared allocation, zero/unknown and the unchanged saved total", () => {
   render(<WeeklyKpiScorecard kpis={sample} loadSet={vi.fn()} />);
-  expect(screen.getByRole("table")).toBeTruthy();
+  const table = screen.getByRole("table") as HTMLTableElement;
+  expect(table.tBodies[0].rows).toHaveLength(2);
+  expect(
+    within(table)
+      .getAllByRole("rowheader")
+      .map((row) => row.textContent),
+  ).toEqual([
+    "Qualifying sessions · sessions",
+    "Qualifying sessions · minutes",
+    "Total",
+  ]);
+  expect(screen.getByText("0 / 100").getAttribute("rowspan")).toBe("2");
+  expect(screen.getAllByText("0 / 100")).toHaveLength(1);
   expect(
     screen.getAllByRole("columnheader").map((value) => value.textContent),
   ).toEqual(["KPI", "Target", "Actual", "Points"]);
@@ -124,6 +137,64 @@ it("renders one compact compound KPI grid with zero/unknown, saved above100 tota
   expect(
     screen.queryByRole("button", { name: /Discuss|assess.*chat/ }),
   ).toBeNull();
+});
+it("keeps boolean conditions out of normal target/actual rows without modifying saved evidence or points", () => {
+  const data = structuredClone(sample);
+  data.sets[0].items[0].tracks.push({
+    key: "condition",
+    kind: "qualifying",
+    unit: "qualification",
+    meaning: "Authored saved condition, not a numeric measurement.",
+    target: { comparator: "equal", value: true },
+  });
+  data.assessments[0].items[0].actuals.push({
+    trackKey: "condition",
+    value: true,
+  });
+  const original = JSON.stringify(data);
+  render(<WeeklyKpiScorecard kpis={data} loadSet={vi.fn()} />);
+  const table = screen.getByRole("table") as HTMLTableElement;
+  expect(table.tBodies[0].rows).toHaveLength(2);
+  expect(within(table).queryByText(/^(Yes|No)$/)).toBeNull();
+  expect(
+    within(table).queryByRole("rowheader", { name: /qualification/i }),
+  ).toBeNull();
+  expect(screen.getByText("0 / 100").getAttribute("rowspan")).toBe("2");
+  expect(
+    screen.getByText("Authored saved condition, not a numeric measurement.", {
+      exact: false,
+    }),
+  ).toBeTruthy();
+  expect(JSON.stringify(data)).toBe(original);
+});
+it("retains condition-only legacy allocations in evidence and total, not as boolean KPI rows", () => {
+  const data = structuredClone(sample);
+  const item = data.sets[0].items[0];
+  item.label = "Recorded condition";
+  item.tracks = [
+    {
+      key: "condition",
+      kind: "qualifying",
+      unit: "qualification",
+      meaning: "Preserved recorded condition.",
+      target: { comparator: "equal", value: true },
+    },
+  ];
+  const assessment = data.assessments[0];
+  assessment.items[0].actuals = [{ trackKey: "condition", value: true }];
+  assessment.items[0].awardedPoints = 100;
+  assessment.totalPoints = 100;
+  const original = JSON.stringify(data);
+  render(<WeeklyKpiScorecard kpis={data} loadSet={vi.fn()} />);
+  const table = screen.getByRole("table") as HTMLTableElement;
+  expect(table.tBodies[0].rows).toHaveLength(0);
+  expect(within(table).queryByText(/^(Yes|No)$/)).toBeNull();
+  expect(within(table).getByText("100 / 100 points · 100%")).toBeTruthy();
+  expect(
+    screen.getByText("Saved conditional allocation: 100 / 100 points"),
+  ).toBeTruthy();
+  expect(screen.getByText(/Non-numeric scoring conditions/)).toBeTruthy();
+  expect(JSON.stringify(data)).toBe(original);
 });
 it("distinguishes empty, unassessed and incomplete latest-plan reads without obsolete fallback", () => {
   const { rerender } = render(
