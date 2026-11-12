@@ -422,7 +422,7 @@ it.each(["subscription-only", "unavailable-subscription"])(
 it.each([
   { registrationId: undefined },
   { registrationId: "registration_invalid" },
-  { provider: "openai", registrationId },
+  { provider: "openai", registrationId, modelId: "Wrong/Identity:Tag" },
   { duplicate: "tuple" },
   { duplicate: "id" },
 ])(
