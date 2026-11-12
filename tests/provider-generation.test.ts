@@ -109,9 +109,11 @@ it("wraps exactly the neutral advertised descriptions/schemas without execution 
       trainerToolContracts[name].description,
     );
     expect(
-      await asSchema(trainerToolDefinitions[name].inputSchema).jsonSchema,
+      await asSchema<unknown>(trainerToolDefinitions[name].inputSchema)
+        .jsonSchema,
     ).toEqual(
-      await asSchema(trainerToolContracts[name].inputSchema).jsonSchema,
+      await asSchema<unknown>(trainerToolContracts[name].inputSchema)
+        .jsonSchema,
     );
     expect(trainerToolDefinitions[name]).not.toHaveProperty("execute");
   }
