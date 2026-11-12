@@ -418,6 +418,125 @@ test("rotating refresh keeps exact client/resource and rejects cross-account or 
   );
 });
 
+test("model discovery accepts a bounded rich catalog above the credential-response limit and projects only visible names/ids", async () => {
+  const extra = "authored-nonpublic-metadata-".repeat(8000);
+  const body = {
+    models: [
+      {
+        slug: "second",
+        display_name: "Second",
+        visibility: "list",
+        capabilities: extra,
+      },
+      { slug: "hidden", visibility: "hidden", capabilities: extra },
+      { slug: "first", display_name: "First", visibility: "list" },
+    ],
+  };
+  assert.ok(Buffer.byteLength(JSON.stringify(body)) > 128 * 1024);
+  const found = await models(registration, async () => json(body));
+  assert.deepEqual(found, [
+    { slug: "second", displayName: "Second" },
+    { slug: "first", displayName: "First" },
+  ]);
+  assert.equal(JSON.stringify(found).includes("nonpublic-metadata"), false);
+  await assert.rejects(refresh(registration, transport({ extra })), (error) => {
+    assert.deepEqual(failureResult(error), { ok: false, code: "protocol" });
+    return true;
+  });
+});
+
+test("model discovery failures are closed, bounded and secret-free without claiming an empty catalog", async () => {
+  const secret = "authored-private-model-response";
+  for (const [network, code, reason] of [
+    [
+      async () => {
+        throw new Error(secret);
+      },
+      "model-discovery",
+      "network",
+    ],
+    [
+      async () => new Response(secret, { status: 500 }),
+      "model-discovery",
+      "request",
+    ],
+    [
+      async () => new Response(secret, { status: 429 }),
+      "model-discovery",
+      "rate-limit",
+    ],
+    [
+      async () => new Response(secret, { status: 401 }),
+      "reconnect-required",
+      undefined,
+    ],
+    [
+      async () => new Response(secret, { status: 403 }),
+      "ineligible",
+      undefined,
+    ],
+    [async () => new Response(secret), "model-discovery", "response"],
+    [
+      async () => new Response("x".repeat(2 * 1024 * 1024 + 1)),
+      "model-discovery",
+      "size",
+    ],
+    [async () => json(null), "model-discovery", "catalog"],
+    [async () => json({ data: [secret] }), "model-discovery", "catalog"],
+    [
+      async () => json({ models: Array(257).fill({ visibility: "hidden" }) }),
+      "model-discovery",
+      "catalog",
+    ],
+    [async () => json({ models: [null] }), "model-discovery", "entry"],
+    [
+      async () => json({ models: [{ visibility: "list", slug: secret }] }),
+      "model-discovery",
+      "entry",
+    ],
+    [
+      async () =>
+        json({
+          models: Array(2).fill({
+            visibility: "list",
+            slug: secret,
+            display_name: secret,
+          }),
+        }),
+      "model-discovery",
+      "duplicate",
+    ],
+  ])
+    await assert.rejects(models(registration, network), (error) => {
+      assert.deepEqual(failureResult(error), {
+        ok: false,
+        code,
+        ...(reason ? { reason } : {}),
+      });
+      assert.equal(
+        JSON.stringify(failureResult(error)).includes(secret),
+        false,
+      );
+      return true;
+    });
+  assert.deepEqual(
+    failureResult({ message: "model-discovery", reason: secret, body: secret }),
+    { ok: false, code: "model-discovery" },
+  );
+  assert.deepEqual(
+    failureResult({ message: "model-discovery", reason: "nonce" }),
+    { ok: false, code: "model-discovery" },
+  );
+  assert.deepEqual(failureResult({ message: "identity", reason: "catalog" }), {
+    ok: false,
+    code: "identity",
+  });
+  assert.deepEqual(
+    await models(registration, async () => json({ models: [] })),
+    [],
+  );
+});
+
 test("account catalog preserves list order and exact slugs, without fallback", async () => {
   const seen = [];
   const found = await models(registration, async (url, init) => {
@@ -451,7 +570,8 @@ test("account catalog preserves list order and exact slugs, without fallback", a
         ],
       }),
     ),
-    /protocol/,
+    (error) =>
+      error.message === "model-discovery" && error.reason === "duplicate",
   );
 });
 

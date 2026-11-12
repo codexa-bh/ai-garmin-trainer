@@ -39,9 +39,22 @@ const IDENTITY_REASONS = new Set([
   "signature",
   "registration",
 ]);
+const MODEL_REASONS = new Set([
+  "network",
+  "request",
+  "rate-limit",
+  "size",
+  "response",
+  "catalog",
+  "entry",
+  "duplicate",
+]);
 const fail = (code, reason) => {
   const error = new Error(code);
-  if (code === "identity" && IDENTITY_REASONS.has(reason))
+  if (
+    (code === "identity" && IDENTITY_REASONS.has(reason)) ||
+    (code === "model-discovery" && MODEL_REASONS.has(reason))
+  )
     error.reason = reason;
   throw error;
 };
@@ -57,7 +70,7 @@ async function boundedJson(response, limit = 128 * 1024) {
       const { value, done } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > limit) return fail("protocol");
+      if (size > limit) return fail("response-size");
       chunks.push(value);
     }
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -394,32 +407,48 @@ export async function models(registration, transport = fetch) {
     !registration.scopes.includes("resource.invoke")
   )
     return fail("consent-required");
-  const response = await request(
-    `${RESOURCE}/models`,
-    { headers: { Authorization: `Bearer ${registration.accessToken}` } },
-    transport,
-  );
-  if (!response.ok)
-    return fail(
-      response.status === 401
-        ? "reconnect-required"
-        : response.status === 403
-          ? "ineligible"
-          : "network",
+  let response;
+  try {
+    response = await request(
+      `${RESOURCE}/models`,
+      { headers: { Authorization: `Bearer ${registration.accessToken}` } },
+      transport,
     );
-  const body = await boundedJson(response);
-  if (!Array.isArray(body.models) || body.models.length > 256)
-    return fail("protocol");
+  } catch {
+    return fail("model-discovery", "network");
+  }
+  if (!response.ok) {
+    if (response.status === 401) return fail("reconnect-required");
+    if (response.status === 403) return fail("ineligible");
+    return fail(
+      "model-discovery",
+      response.status === 429 ? "rate-limit" : "request",
+    );
+  }
+  let body;
+  try {
+    // Model catalogs include rich provider metadata, unlike credential replies.
+    // Bound that read separately; only validated visible names/ids leave here.
+    body = await boundedJson(response, 2 * 1024 * 1024);
+  } catch (error) {
+    return fail(
+      "model-discovery",
+      error.message === "response-size" ? "size" : "response",
+    );
+  }
+  if (!body || !Array.isArray(body.models) || body.models.length > 256)
+    return fail("model-discovery", "catalog");
   const seen = new Set();
   return body.models
-    .filter((model) => model.visibility === "list")
+    .filter((model) => {
+      if (!model || typeof model !== "object" || Array.isArray(model))
+        return fail("model-discovery", "entry");
+      return model.visibility === "list";
+    })
     .map((model) => {
-      if (
-        !opaque(model.slug, 256) ||
-        !opaque(model.display_name, 256) ||
-        seen.has(model.slug)
-      )
-        return fail("protocol");
+      if (!opaque(model.slug, 256) || !opaque(model.display_name, 256))
+        return fail("model-discovery", "entry");
+      if (seen.has(model.slug)) return fail("model-discovery", "duplicate");
       seen.add(model.slug);
       return { slug: model.slug, displayName: model.display_name };
     });
@@ -603,6 +632,7 @@ export function failureResult(error) {
     "protocol",
     "network",
     "identity",
+    "model-discovery",
     "discovery",
     "host",
     "callback",
@@ -620,7 +650,8 @@ export function failureResult(error) {
   return {
     ok: false,
     code,
-    ...(code === "identity" && IDENTITY_REASONS.has(error?.reason)
+    ...((code === "identity" && IDENTITY_REASONS.has(error?.reason)) ||
+    (code === "model-discovery" && MODEL_REASONS.has(error?.reason))
       ? { reason: error.reason }
       : {}),
     ...(code === "reconnect-required" && opaque(error.pendingClientId, 256)
